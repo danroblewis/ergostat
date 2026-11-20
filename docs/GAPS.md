@@ -194,9 +194,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
-- **Warm processes for blocks** (branch `warm2`, awaiting its gate. It was parked after its second failed gate (a run
-  held but never handed over when its process was drained between the two); that race and the review's other findings
-  are now fixed, as `docs/roadmap/overnight/warm2.md` records): `warm: true` on a daemon, a
+- **Warm processes for blocks** (branch `warm3`, finishing `warm2`, which was parked after its second failed gate;
+  not done: `warm2`'s and `warm3`'s review findings are fixed, but `main` is not yet merged in nor the four suites run
+  after it, as `docs/roadmap/overnight/warm3.md` records): `warm: true` on a daemon, a
   declared promise that the program keeps no state between runs: `concurrency` processes, one run each at a time,
   each run charged its process group's CPU (its reaped children's included); a process that misbehaves is restarted,
   one cancelled or past `recycle:` replaced; `ergostat block NAME --check-warm FILE` tests the promise on one input.
