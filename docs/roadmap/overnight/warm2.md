@@ -121,3 +121,17 @@ every time: `test_an_unreaped_child_is_said_not_held_against_the_process`. Its t
 `true`, and CPython's `Popen.__del__` reaps a child that has already ended, which on a loaded machine it often has.
 So no child was left unreaped, and ergostat was right to report none. The test program now keeps the `Popen`. No
 ergostat code changed. The failure seen was in the test program, not the code; this is the only one found.
+
+### Round 3 (2026-11-20): review warm2-1's remaining findings
+
+- The round-2 blocking finding (a cancel before the hand-over) was already fixed in d5caff6, and its test passes.
+- `scripts/latency_bench.py`'s usage example now uses `--warm 10`: 5 steps x 10 = 50 warm processes, within the cap
+  of 64, which matches the recorded runs. `--warm 20` would fail the model's check.
+- `tests/test_warm.py`: the block is named `triage`, no longer `worker`. The `envleak` mode is now used:
+  `test_the_check_finds_state_kept_between_items` asserts that `--check-warm` reports state kept when a program
+  writes an item's env into `os.environ`. The program writes it after it reports, so the next item sees the leak.
+  Before that move, this assertion failed: the leak was written before the report, so every run printed the same
+  output.
+- `tests/test_warm.py`: 18 passed. Ruff is clean. No ergostat code changed.
+- Not done: merging `main` into the branch (`main` is ahead by several merges). This session was not allowed to
+  run `git merge`, so the factory's merge and a rerun of the suites remain.
