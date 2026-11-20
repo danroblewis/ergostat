@@ -253,10 +253,14 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
                 feedback.append("check still finds: " + "; ".join(left[:12]))
             if card["coherence"]["mismatches_after"]:
                 feedback.append("coherence still finds: " + "; ".join(card["coherence"]["introduced"][:6] or ["see above"]))
+            beyond = rd.outside(spec, after, system, card["parts"])
+            if beyond:                                # refused if proposed so: said now, while there are rounds left
+                feedback.append(f"you changed parts outside system {system}: {', '.join(beyond[:8])}; change only its "
+                                f"parts (other systems follow your renames on their own): undo those edits")
             log.append({"round": r, "made": made, "not_made": sum(1 for x in feedback if " was not made" in x),
                         "verdict": card["verdict"], "score": card["score"], **took,
                         "score_s": round(time.perf_counter() - t_s, 1)})
-            if best is None or card["score"] > best[0]:
+            if not beyond and (best is None or card["score"] > best[0]):
                 best = (card["score"], [x["edit"] | ({"why": x["why"]} if x["why"] else {}) for x in s.done
                                         if "keep_names" not in x["edit"]], card)
             if card["verdict"] == "better" and not left and not card["coherence"]["mismatches_after"] and not \

@@ -150,12 +150,19 @@ def outside(before: Spec, after: Spec, system: str, parts: dict) -> list[str]:
             return x
         was = follow(json.loads(_plain(getattr(before, table)[name])))
         return was == json.loads(_plain(getattr(after, table)[name]))
-    out = [r for r in parts.get("added") or [] if not inside(after, r)]
+    out = [r for r in parts.get("added") or [] if not inside(after, r) and _system_of(after, r)]   # (a new part
+    # placed in no system is the redesign's to place: taken as the system's)
     out += [r for r in parts.get("removed") or [] if not inside(before, r)]
     out += [o for o in renames if not inside(before, o)]
     out += [r for r in parts.get("changed") or [] if r not in renames.values() and not inside(before, r)
             and not same_but_names(r)]
     return out
+
+
+def _system_of(spec: Spec, ref: str) -> str | None:
+    from ..spec.ir import Ref
+    kind, _, name = ref.partition(".")
+    return spec.owner(Ref(kind, name))
 
 
 def owners(before: Spec, after: Spec) -> dict:
