@@ -366,6 +366,11 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     return p.returncode, time.time() - began
 
 
+def kill_after(cfg: dict) -> int:
+    """The failed gates that park a gap (the kill rule): [gates] kill_after."""
+    return int(cfg.get("gates", {}).get("kill_after", 3))
+
+
 def stop_on_term() -> None:
     """SIGTERM (a lease expired, ergostat stopping) raised as SystemExit, so every finally runs: a merge undone, a
     suite's processes killed."""

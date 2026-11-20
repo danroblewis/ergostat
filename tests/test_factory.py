@@ -326,7 +326,10 @@ def test_fix_then_park(tmp_path):
     assert said == ["gap.started", "gap.built"] and f.item(gid)["fields"]["rework"] is True
     assert f.item(gid)["fields"]["contexts"][-1]["findings"] == 1              # the findings went into its brief
     said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
-    assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the second failed gate
+    assert said[-1] == "gap.sent-back" and f.item(gid)["state"] == "fix"      # two failed gates: a third round
+    f.run("implement.py", gid)
+    said, _ = f.run("review.py", gid, FACTORY_STANDIN_VERDICT="fix")
+    assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the third failed gate
     assert f.item(gid)["fields"]["parked_in"] == "review"
     definition = git(tmp_path / "live" / "drop.git", "show",
                      "factory/alpha-thing:docs/roadmap/overnight/alpha-thing.md")
