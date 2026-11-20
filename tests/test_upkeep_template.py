@@ -175,7 +175,9 @@ def test_tidy_checks_age_again_inside_the_lock(tmp_path, monkeypatch):
         return take(path)
     monkeypatch.setattr(ii, "_take", wal_written)
     _age(state / "items")
-    os.utime(wal, (old, old))
+    oldest = old - ii.TIDY_AGE                                    # got[1] the oldest: the one file over keep 2
+    for p in (got[1], wal):
+        os.utime(p, (oldest, oldest))
     assert _tidy(state, 2, monkeypatch) == 0
     assert got[1].exists(), "a write to the WAL alone counts as a change"
 
@@ -194,6 +196,7 @@ def test_tidy_deletes_only_index_names_under_items(tmp_path, monkeypatch):
     sub.write_text("deep")
     for p in (outside, notes, sub):
         os.utime(p, (old, old))
+    os.utime(link, (old, old), follow_symlinks=False)             # the link itself old too: only its kind keeps it
     assert _tidy(state, 1, monkeypatch) == 0
     assert notes.exists() and link.is_symlink() and outside.read_text() == "theirs" and sub.exists()
     assert ii._tidy(items, 1) and notes.exists() and link.is_symlink() and sub.exists(), "the engine's own tidy too"
