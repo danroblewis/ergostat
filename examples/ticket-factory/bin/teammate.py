@@ -7,18 +7,21 @@ account cannot approve its own pull request). It only looks at the factory's own
 Offline only, as the owner: it approves each gated action held for approval (`ergostat actions ID --approve`),
 so the offline demo runs through. Online, the owner approves.
 
-Prints how many pull requests it is looking at (the auxiliary team-reviewing)."""
+Says how many pull requests it is looking at (the auxiliary team-reviewing).
+
+    teammate.py serve    its daemon (factory/world.yaml): each run, every 5 seconds, handed to the one process
+    teammate.py          one look, a process of its own (by hand)"""
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from datetime import datetime
 
 import github
-import json
-
-from tf import OFFLINE, RUN, conf, items, read_json, record, run_ergostat, seconds, throttled, write_json, yes
+from daemon import serve
+from tf import OFFLINE, RUN, conf, items, read_json, record, run_ergostat, say, seconds, throttled, write_json, yes
 
 ASK = ("Could the file also say which ticket it is for, with the ticket's link? "
        "(A scripted review by the ticket factory's teammate.)")
@@ -35,10 +38,10 @@ def news(tid: str, what: str) -> None:
         record("ticket.news", tid, {"news": f"github: {what}"}, by="github")
 
 
-def main() -> int:
+def look(_line=None) -> None:
     if not yes("TEAMMATE"):
-        print(0)
-        return 0
+        say({"value": 0})
+        return
     mem = read_json(RUN / "teammate.json", {})
     looking = 0
     for t in items("ticket"):
@@ -69,7 +72,13 @@ def main() -> int:
         for a in json.loads(run_ergostat("actions", "--json", "-n", "200"))["actions"]:
             if a["state"] == "requested":
                 run_ergostat("actions", a["id"].split("/", 1)[1], "--approve", "--note", "the owner's offline stand-in")
-    print(looking)
+    say({"value": looking})
+
+
+def main() -> int:
+    if sys.argv[1:] == ["serve"]:
+        return serve(work=look)
+    look()
     return 0
 
 

@@ -14,6 +14,6 @@ auxiliaries:
 blocks:
   teammate:
     type: program
-    run: python3 bin/teammate.py
+    daemon: {run: python3 bin/teammate.py serve, concurrency: 1, heartbeat: 30s}   # its own: a look every 5s, no process each
     every: 5s
     out: auxiliary.team-reviewing

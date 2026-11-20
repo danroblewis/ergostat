@@ -19,7 +19,9 @@ of ergostat's core:
   ticket, at most `pool` at once, each run holding a lease on its ticket;
 - **workspace pools** (SPEC 12k): the work steps get the ticket's own git worktree from the pool `code`, on its own
   branch, kept through review and CI and cleaned when the ticket is done;
-- **gated actions** (SPEC 12k), asked for by the steps' programs with `$ERGOSTAT_CMD act NAME --arg K=V`.
+- **gated actions** (SPEC 12k), asked for by the steps' programs with `$ERGOSTAT_CMD act NAME --arg K=V`;
+- **daemons** (SPEC 9.7, `docs/DAEMONS.md`): the short steps, the sensors and the teammate are long-lived processes
+  handed each run or reading as a line of JSON, instead of a process each time (below, "Daemons").
 
 ## Setup
 
@@ -70,7 +72,7 @@ blocks:
   open-pr:
     type: program
     goal: worked-opened
-    run: python3 bin/step.py open-pr
+    daemon: steps                                              # its runs handed to the steps' daemon (below)
     takes: {kind: ticket, at: worked, to: [pr-open, stopped]}   # a run per ticket that reaches worked
     pool: 3                                                    # three tickets at once
     workspace: code                                            # the ticket's worktree (ERGOSTAT_WORKSPACE)
@@ -79,8 +81,9 @@ blocks:
 ```
 
 ergostat starts a run for each ticket that reaches `at`, holding a lease on it (the ticket is `leased` meanwhile:
-its step's stock counts it before and after). `bin/step.py NAME` runs the step's script (`steps/NAME.py`) for the
-ticket `ERGOSTAT_ITEM` names, and its `run(ticket)` returns:
+its step's stock counts it before and after), and hands it to the steps' daemon, `bin/step.py serve`; the AI steps
+run `bin/step.py NAME`, a process each. Either way the step's script (`steps/NAME.py`) runs for the ticket the run
+holds (`ERGOSTAT_ITEM`), and its `run(ticket)` returns:
 
 - `Move(fields)`: done; `ticket.NAME` is recorded, which the kind's `on:` maps to the next state (a state in `to`:
   the lease ends, acked);
@@ -99,7 +102,7 @@ gated actions included, is refused.
 
 | # | Step | From → to | What it does | Gated actions |
 |---|---|---|---|---|
-| | watcher | → `new` | `bin/watch.py`, a sensor: the issues in `JIRA_PICK_FROM` labelled `JIRA_LABEL` become tickets | none (reads) |
+| | watcher | → `new` | `bin/watch.py`, a sensor's daemon: the issues in `JIRA_PICK_FROM` labelled `JIRA_LABEL` become tickets | none (reads) |
 | 1 | `pick-up` | `new` → `picked` | the issue to In Progress, by whichever transition the project has (looked up, never assumed) | `jira-transition` |
 | 2 | `locate` | `picked` → `located` | the repository the issue names (`repo: owner/name`, or a GitHub link), else `GITHUB_REPO`; any other stops it. Its clone (`run/repo`) made or fetched | none |
 | 3 | `work` | `located` → `worked` | in the ticket's workspace (a worktree from the pool `code`, on `ergostat/KEY-slug`), the AI agent does the issue (`prompts/work.md`), or the stand-in writes a file; committed. Its cost is recorded | none: the agent cannot push or call gh |
@@ -237,6 +240,55 @@ class proves itself (`ergostat actions` says when), promote it to `auto` in `fac
 what the factory must never do there (`pr-merge: {gate: deny}` makes every ticket stop at approved). A class of your
 own (`class: jira-write` on both Jira actions) is counted, and promoted, as one.
 
+## Daemons
+
+A `run:` sensor starts a process for every reading, and a `run:` block one for every run. Here that added up: the
+three measures and the watcher every 10 seconds, the teammate every 5, and each ticket waiting on a reviewer or CI
+looked at again every few seconds, each a Python process that loaded the factory's modules and, to read the record,
+ran `ergostat item` (which loads the model): offline, about 190 Python starts a minute. So the factory runs those
+parts as **daemons** (`docs/DAEMONS.md`): programs ergostat starts once and keeps running, handed each reading or run
+as a line of JSON on their standard input, which answer with lines on their standard output. Each one, in the shapes
+`docs/DAEMONS.md` names:
+
+| Daemon | Shape | Serves | Why a daemon |
+|---|---|---|---|
+| `measures` (`bin/measure.py serve`, `factory/oversight.yaml`) | one for several sensors, named under `daemons:` | `ai-spend`, `repings`, `cycle-hours` | they read the same source, the record: the readings asked at the same moment share one read of it |
+| `sensor.arrivals.main` (`bin/watch.py serve`, `factory/intake.yaml`) | a sensor's own, inline | the arrivals flow | the one sensor that reads Jira, so Jira being down takes nothing else with it; a longer back-off rides out an outage |
+| `steps` (`bin/step.py serve`, `ergostat.yaml`) | a block daemon, named, shared by blocks | the nine short steps | their runs are frequent and over in a moment; each ticket's run on a thread of its own, 27 at once (the nine pools) |
+| `block.teammate` (`bin/teammate.py serve`, `factory/world.yaml`) | a block's own, inline | the teammate | a look every 5 seconds, with no process each |
+
+`bin/daemon.py` is their side of the protocol, shared: a reader that only hands lines on (so a slow Jira or step
+never keeps it from the next line or a cancel), readings asked together answered together, each run on a thread with
+its own `ERGOSTAT_*` values taken from its line (`tf.env`: never set in the process, where the next run would find
+them), every line tagged with its run, a `cancel` answered at once, and a heartbeat. The daemons read the record over
+ergostat's socket (`ERGOSTAT_SOCKET`), not by starting `ergostat item`. The watcher records each new ticket as the
+sensor's own (`ticket.found`, source `arrivals.main`), exactly as when its command printed it.
+
+**What stays a process each**, on purpose:
+
+- **the AI steps**, `work`, `address` and `fix-ci` (`type: ai`): a session of seconds to minutes, beside which a
+  process start is nothing. A run of its own keeps one session's crash or memory from the others, a cancel stops the
+  whole session, and its CPU, memory and AI cost are measured per run (a daemon's are measured only as a whole);
+- **the `reporter`**, every 30 seconds: it writes the day's report, rarely enough that a process is the simplest
+  thing.
+
+Every event type, series, stock, flow, item kind and state is what it was; only `run:` lines became `daemon:`, so a
+record made before still replays, and the estimates and projections read it as before.
+
+**Living with them.** The Agents page lists each daemon: its state, process, restarts, CPU and memory. What a daemon
+logs goes to `logs/daemon-NAME.log` in the state folder (`~/.ergostat/<project>/`): the short steps' lines are in
+`daemon-steps.log`, not each block's log. A daemon that crashes is started again after a back-off; one that keeps
+crashing is given up, with an alarm (`ergostat status`), until `ergostat block steps --restart` (the daemon's name, or
+one of its blocks') or a change to the model. A changed `factory.conf` is read again by itself, and a step's script
+(`steps/NAME.py`) afresh on every run; after editing `bin/`, restart the daemon that uses it (`ergostat block steps
+--restart`, `ergostat block measures --restart`, ...). To try one by hand, pipe lines into it from this folder
+(`docs/DAEMONS.md`, "Testing a daemon by hand"):
+
+```bash
+printf '%s\n' '{"op": "read", "sensor": "repings.main", "request": "1"}' '{"op": "stop"}' | python3 bin/measure.py serve
+python3 bin/measure.py repings          # the same measure, once, to compare
+```
+
 ## Pushed, not polled
 
 A step that waits on someone outside (a reviewer, CI, an approval) used to give its ticket back for `POLL_EVERY`
@@ -283,7 +335,7 @@ In ergostat (the page, `ergostat loop`, `ergostat item --kind ticket`):
 
 - **stocks**, counted from the tickets: one per state (`new`, `picked`, ... `review-asked`, `changes-asked`,
   `ci-failed`, ..., `done`, `stopped`), the actions held for approval (`ergostat.actions.held`), and three read from the record by
-  `bin/measure.py`: `ai-spend` (dollars), `repings`, and the reports written;
+  the daemon `measures` (`bin/measure.py`): `ai-spend` (dollars), `repings`, and the reports written;
 - **flows**: each step's, counted as tickets enter its state, arrivals measured by the watcher, and the AI
   spending as each session ends;
 - **auxiliaries**: `prs-awaiting-review` (open and not approved), `cycle-hours` (the median from found to
@@ -349,9 +401,10 @@ became a dead letter.
 | `prompts/` | what the AI agent is asked: the work, a review, a CI failure |
 | `bin/jira.py`, `bin/github.py` | every call to Jira, every call to GitHub (and the actions' commands) |
 | `bin/gated.py` | a step's outward act: `act(name, **args)`, through `ergostat act` |
-| `bin/step.py` | the step runner |
+| `bin/step.py` | the step runner: `serve`, the steps' daemon; `NAME`, one run (the AI steps) |
+| `bin/daemon.py` | the daemons' side of ergostat's JSON lines, shared by the four daemons |
 | `bin/agent.py` | Claude Code or the stand-in, and what each session cost |
-| `bin/watch.py`, `bin/measure.py`, `bin/exporter.py` | sensors, and the measurements for Prometheus |
+| `bin/watch.py`, `bin/measure.py`, `bin/exporter.py` | the sensors' daemons, and the measurements for Prometheus |
 | `bin/report.py` | the daily summary and the OKR |
 | `bin/teammate.py` | the scripted reviewer (and, offline, the owner's approvals) |
 | `bin/tickets.py` | the tickets, and `retry` for a stopped one |

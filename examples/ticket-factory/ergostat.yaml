@@ -63,6 +63,19 @@ intake:
       id: "jira-{issue.id}-{timestamp}"
       data: {news: webhookEvent}
 
+# The daemons (docs/DAEMONS.md): programs ergostat starts once and keeps running, handed each run or reading as a
+# line of JSON instead of starting a process for it (README, "Daemons"). The short steps share one: their runs are
+# frequent (a ticket that waits on a reviewer or CI is looked at again every few seconds) and over in a moment. The
+# record's measures (factory/oversight.yaml), the Jira watcher (factory/intake.yaml) and the teammate
+# (factory/world.yaml) have theirs. `ergostat block steps --restart` after editing bin/ (factory.conf is read again
+# by itself); the Agents page shows each one, its restarts, CPU and memory, and its log is logs/daemon-NAME.log.
+daemons:
+  steps:
+    run: python3 bin/step.py serve
+    concurrency: 27                  # the nine steps' pools (3 each): as many tickets at once as when each was a process
+    heartbeat: 30s                   # it says it lives every 10s; one silent for 30s is restarted
+    description: the short steps (all but work, address and fix-ci), each ticket's run on a thread of its own
+
 messages:
   done: {ticket: [done]}             # the ticket is finished here (its workspace cleaned); stopped keeps it, for a retry
 

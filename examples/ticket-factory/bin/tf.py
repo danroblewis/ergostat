@@ -9,11 +9,14 @@ stand-in's. That is how `scripts/demo_check.py` runs it, and how it runs on a fr
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
 import shlex
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 
@@ -35,16 +38,28 @@ def _read_conf(path: Path) -> dict[str, str]:
     return out
 
 
-OFFLINE = os.environ.get("TF_OFFLINE", "") not in ("", "0", "no") or not CONF.exists()
-_conf = {**_read_conf(EXAMPLE), **({} if OFFLINE else _read_conf(CONF))}
-if OFFLINE:   # fast, local and free: nothing here reaches a service
-    _conf.update({"AI": "standin", "SCRATCH": str(ROOT / "run"), "REPING_AFTER": "5s", "TEAMMATE_AFTER": "9s",
-                  "TEAMMATE": "yes", "JIRA_URL": "https://jira.invalid", "JIRA_EMAIL": "owner@example.invalid",
-                  "GITHUB_REPO": "example/sample", "REVIEWERS": "", "POLL_EVERY": "2s", "ACT_WAIT": "8s"})
+OFFLINE = os.environ.get("TF_OFFLINE", "") not in ("", "0", "no") or not CONF.exists()   # fixed for a process's life
+_conf: dict[str, str] = {}
+_read_at: tuple = ()
+
+
+def _settings() -> dict[str, str]:
+    """factory.conf over the example's defaults, read again whenever either file changes: a daemon, which runs for
+    days, sees an edited setting at its next reading or run, as a process per run did."""
+    global _conf, _read_at
+    at = tuple(f.stat().st_mtime if f.exists() else None for f in (EXAMPLE, CONF))
+    if at != _read_at:
+        got = {**_read_conf(EXAMPLE), **({} if OFFLINE else _read_conf(CONF))}
+        if OFFLINE:   # fast, local and free: nothing here reaches a service
+            got.update({"AI": "standin", "SCRATCH": str(ROOT / "run"), "REPING_AFTER": "5s", "TEAMMATE_AFTER": "9s",
+                        "TEAMMATE": "yes", "JIRA_URL": "https://jira.invalid", "JIRA_EMAIL": "owner@example.invalid",
+                        "GITHUB_REPO": "example/sample", "REVIEWERS": "", "POLL_EVERY": "2s", "ACT_WAIT": "8s"})
+        _conf, _read_at = got, at
+    return _conf
 
 
 def conf(key: str, default: str = "") -> str:
-    return os.environ.get("TF_" + key, _conf.get(key, default))
+    return os.environ.get("TF_" + key, _settings().get(key, default))
 
 
 def seconds(text: str) -> float:
@@ -63,6 +78,53 @@ RUN = ROOT / "run"                       # what the example writes in its own fo
 REPO = RUN / "repo"                      # the repository's clone: the workspace pool's (ergostat.yaml)
 REPORTS = ROOT / "reports"               # the daily summaries, shown on the Items page
 SESSIONS = RUN / "sessions"              # each AI session's answer, linked from its ticket
+
+
+# --- the run: a process of its own, or one of a daemon's (bin/daemon.py) ---------------------------------
+
+CURRENT: contextvars.ContextVar[dict | None] = contextvars.ContextVar("CURRENT", default=None)   # in a daemon: {run, env}
+_out = threading.Lock()
+_ended: set[str] = set()                 # a daemon's runs that said done (or were cancelled): their lines dropped
+
+
+def env(key: str) -> str | None:
+    """One of the run's ERGOSTAT_* values (ERGOSTAT_ITEM, _LEASE, _RUN, _ACTIONS, _WORKSPACE, ...): in a daemon, from
+    the run's own line, never the process's environment (where the next run would find it); in a process, from its
+    environment."""
+    run = CURRENT.get()
+    return (run["env"].get(key) or None) if run is not None else os.environ.get(key)
+
+
+def say(line: dict) -> None:
+    """A line for ergostat on standard output: what a block moved, or an event about an item. In a daemon, tagged
+    with the run it belongs to, and dropped once that run has ended."""
+    run = CURRENT.get()
+    if run is not None:
+        if run["run"] in _ended:
+            return
+        line = {**line, "run": run["run"]}
+    with _out:
+        print(json.dumps(line), flush=True)
+
+
+def finish(run: str, code: int) -> None:
+    """A daemon's run ended: {"done": EXIT, "run": ID}, exactly once."""
+    with _out:
+        if run in _ended:
+            return
+        _ended.add(run)
+        print(json.dumps({"done": code, "run": run}), flush=True)
+
+
+def forget(run: str) -> None:
+    """A daemon's run whose thread has ended: nothing more can come from it."""
+    with _out:
+        _ended.discard(run)
+
+
+def log(*words) -> None:
+    """Anything for a person: to standard error, which ergostat keeps in the block's (or the daemon's) log."""
+    print(*words, file=sys.stderr, flush=True)
 
 
 # --- ergostat --------------------------------------------------------------------------------------
@@ -115,12 +177,15 @@ def run_ergostat(*args: str) -> str:
 def record(type: str, item: str, data: dict | None = None, by: str = "ticket-factory") -> None:
     """Record an event now (not at the end of the run): what was done outside must never be done twice."""
     if engine("event", events=[{"event": type, "item": item, "data": data or {}}], source=by,
-              causedby=os.environ.get("ERGOSTAT_RUN")) is not None:
+              causedby=env("ERGOSTAT_RUN")) is not None:
         return
     run_ergostat("event", "--add", type, "--item", item, "--data", json.dumps(data or {}), "--as", by)
 
 
 def items(kind: str, state: str | None = None) -> list[dict]:
+    got = engine("items", kind=kind, state=state)          # the running engine's, without a process (its socket)
+    if got is not None:
+        return got.get("items", [])
     args = ["item", "--kind", kind, "-n", "2000", "--json"]
     if state:
         args += ["--state", state]
@@ -135,16 +200,6 @@ def item(id: str) -> dict | None:
         return json.loads(run_ergostat("item", id, "--json"))
     except (RuntimeError, json.JSONDecodeError):
         return None
-
-
-def say(line: dict) -> None:
-    """A line for ergostat on standard output: what a block moved, or an event about an item."""
-    print(json.dumps(line), flush=True)
-
-
-def log(*words) -> None:
-    """Anything not JSON goes to the block's log in ergostat."""
-    print(*words, flush=True)
 
 
 # --- small things ----------------------------------------------------------------------------------
