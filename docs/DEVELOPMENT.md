@@ -81,9 +81,12 @@ build took 74 s).
 | unit, `-n 8` (after the review fixes, same commit both sides) | rc 0: 1682 passed, 34 skipped, 8 xfailed, 2 xpassed; 162 s; peak 378 threads, 1.6 GB | rc 0: 1712 passed, 13 skipped, 1 xfailed; 157 s; peak 371 threads, 2.1 GB |
 | browser, `-n 4` | 217 passed, 1 failed (fixed since: `SPLIT_SHOTS`; that test then passed 5 runs of 5), no skips; 565 s; peak 556 threads, 4.1 GB | 200 passed, no skips; 463 s; peak 632 threads, 3.7 GB (\*) |
 | `tests/test_sandbox_attacks.py` (`--sandbox`) | 26 passed, 5 failed (bwrap); now 26 passed, 4 xfailed, 1 xpassed | 30 passed, 1 xfailed (seatbelt) |
+| after `linuxfix`: unit, `-n 8` | rc 0: 1695 passed, 34 skipped, no xfail; 166 s | rc 0: 1715 passed, 13 skipped, 1 xfailed; 169 s |
+| after `linuxfix`: browser, `-n 4`, one file at a time | | rc 0: 180 + 17 + 13 + 8 passed |
+| after `linuxfix`: `tests/test_sandbox_attacks.py` | 31 passed (`--sandbox`) | 30 passed, 1 xfailed (in the unit run) |
 
 The unit suite's 1,726 tests are the same on both sides; inside, 20 more skip (the attack suite, without
-`--sandbox`) and the Linux known failures are expected failures. (\*) The browser suite's host figure is from main
+`--sandbox`); since `linuxfix` nothing is an expected failure on Linux. (\*) The browser suite's host figure is from main
 at 214d864, before the rebase brought 18 browser tests: the host stayed busy with the merge
 queue's suites, so it was not rerun beside them. Inside, all 218 browser tests ran. Per test the container is about as fast as the host: the unit suite 162 s
 against 157 s, the browser suite 2.6 s a test against 2.3 s.
@@ -95,13 +98,11 @@ The bind mount is not the bottleneck (the venv and the uv cache live in the imag
 1,792 MB held. The host's threads meanwhile: 2,818 before, 2,856 at the peak, 2,807 after (other agents' suites
 were running; nothing of the bomb reached the host).
 
-**Known failures on Linux.** Fifteen tests fail on Linux for reasons in docs/GAPS.md: 9 `[segments]` cases in
-`tests/test_store_conformance.py`, by timing (the segmented log watches its directory's mtime, which Linux keeps to
-a jiffy; each failed at least once in 10 runs), `tests/test_daemons.py::test_daemons_on_the_agents_api` (Debian's
-`/bin/sh`, dash, forks where macOS's execs, so a daemon's recorded pid is the shell's), and 5 in
-`tests/test_sandbox_attacks.py` that assert macOS behaviour (probed by hand: none is an escape). Until the
-`linuxfix` branch lands, `LINUX_KNOWN` in tests/conftest.py names each by its exact id and marks it expected to fail
-on Linux (xfail, not strict): a run is rc 0 when those fail, and any other failure shows.
+**No known failures on Linux.** The fifteen the container first found (docs/GAPS.md) are fixed: 9 `[segments]` cases
+in `tests/test_store_conformance.py` (the segmented log watched its directory's mtime, which Linux keeps to a jiffy;
+it now keeps a layout token), `tests/test_daemons.py::test_daemons_on_the_agents_api` (Debian's `/bin/sh`, dash,
+forks where macOS's execs; a daemon's simple command now runs with `exec`), and 5 in `tests/test_sandbox_attacks.py`
+that asserted macOS behaviour (each has a Linux form now). A failure in the container is real.
 
 When Docker is down, run the same commands on your computer, without `scripts/in_container.sh`, under
 `scripts/suite_watch.py` as always.

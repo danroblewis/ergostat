@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import queue
+import re
+import shlex
 import subprocess
 import threading
 import time
@@ -17,6 +19,39 @@ from . import usage
 
 QUEUE = 1000                 # lines waiting for its standard input, at most
 SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SOCKET", "ERGOSTAT_HOME"}
+
+
+# not run by ``exec``: a shell's keywords and the builtins that are not programs (``exec cd`` fails)
+_NOT_PROGRAMS = {"!", "{", "}", "[[", "case", "for", "function", "if", "select", "until", "while", "time", ".", ":",
+                 "alias", "bg", "break", "builtin", "cd", "command", "continue", "eval", "exec", "exit", "export",
+                 "fg", "jobs", "local", "readonly", "return", "set", "shift", "source", "trap", "ulimit", "umask",
+                 "unalias", "unset", "wait", "read", "pushd", "popd", "let", "getopts", "type", "hash", "declare",
+                 "typeset", "dirs", "disown", "enable", "shopt", "suspend", "times", "caller", "mapfile", "readarray"}
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def execd(run: str) -> str:
+    """The daemon's command for ``sh -c``, with ``exec`` before its program when it is one simple command, so the
+    shell becomes the program and the pid recorded is the program's on every OS: macOS's ``sh`` (bash) does that by
+    itself, Debian's (dash) forks and waits. Anything else (a pipeline, a list, a redirection, a keyword, a builtin,
+    several lines, a command that begins with an assignment) is left as it is: its shell stays, and the pid is the
+    shell's. Either way that pid leads a session of its own, so signals reach the whole group, the program in it
+    (``supervise.killpg``)."""
+    run = run.strip()                                # (a YAML block scalar ends in a newline)
+    if "\n" in run or "`" in run:
+        return run
+    try:
+        lex = shlex.shlex(run, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        lex.commenters = ""                          # (``prog a#b; other``: never a comment that hides the ``;``)
+        words = list(lex)
+    except ValueError:                               # (unbalanced quotes: the shell's to report)
+        return run
+    if not words or any(w and all(c in lex.punctuation_chars for c in w) for w in words):
+        return run
+    if _ASSIGNMENT.match(words[0]) or words[0] in _NOT_PROGRAMS:   # (``A=1 exec prog`` may not export A)
+        return run
+    return "exec " + run
 
 
 class Handle:
@@ -61,9 +96,10 @@ class Process:
         log.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} starting: {d.run}\n")
         log.flush()
         env = {k: v for k, v in env.items() if not k.startswith("ERGOSTAT_") or k in SHARED}   # (an item's: in its line)
-        self.proc = Measured(d.run, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
+        self.proc = Measured(execd(d.run), shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=log, start_new_session=True)
-        self.pid = self.proc.pid
+        self.pid = self.proc.pid                     # the program's (``execd``), or its shell's; either way the
+                                                     # session's leader, so its group's id (``supervise.killpg``)
         threading.Thread(target=self._write, name=f"daemon-{d.name}-in", daemon=True).start()
         threading.Thread(target=self._read, name=f"daemon-{d.name}-out", daemon=True).start()
 
