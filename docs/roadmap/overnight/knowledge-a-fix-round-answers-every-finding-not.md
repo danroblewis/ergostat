@@ -36,3 +36,27 @@ exit, even after killing for limits. Something outside the suite killed the runn
 stopped); no test failed. This branch changes no code, only one markdown file and the three expected counts above,
 so nothing in the code was changed in answer. `tests/test_factory_knowledge.py` passes alone (20 passed). The suite
 needs to run again; if it stops at the same place, the cause is outside this branch.
+
+### Round 2
+
+The queue's unit failures (`test_cli_fallback.py::test_an_engine_running_takes_event_add_from_a_run_while_the_yaml_is_broken`
+and three in `test_templates.py`) are not this branch's: it changes no code. They come from the suite inheriting the
+merge-queue engine's `ERGOSTAT_*` variables, which main fixed after this branch was cut (323dc04, merged as f4afd1c:
+`tests/conftest.py` drops them per test, `dev/bin/fac.py` drops them from the suite's environment). All four pass here
+alone in a plain shell (4 passed). Not done: merging main into this branch. `git merge` was refused by this session's
+permissions, and working around that would go against what was refused. The factory needs to merge origin/main
+in and run the suites again before this is called built (lesson 7).
+
+Every round-1 finding, answered:
+- Lines 80-81 longer than 120 characters: wrapped at 120, no words changed.
+- No final period on the Check: added, so § 12 ends like every other Check. A choice made without anyone to ask,
+  and easy to undo. The definition's text reads as one sentence cut off, not a deliberate omission.
+- No one-line description of the class before "Seen as:": stays. The definition gives the entry's text and says
+  nothing else changes. The heading already names the class. A general line is for the definition's author to add.
+- The round-1 note above says `suite_watch.py` prints its summary "on every exit". That is wider than the code.
+  `scripts/suite_watch.py:119` catches only `KeyboardInterrupt` (raised on SIGTERM), so a SIGKILL of the watcher or
+  any other exception exits without the summary. The narrower claim holds: a missing summary means the watcher
+  itself ended abnormally, so no test result is missing from its log. The queue's run later named real failures,
+  and the paragraph above traces them to the inherited environment.
+
+Tests: `tests/test_factory_knowledge.py` 20 passed; the four queue failures 4 passed alone; ruff clean.
