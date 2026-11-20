@@ -163,7 +163,7 @@ def test_the_watchdog_waits_a_grace_for_a_renewal_on_its_way(tmp_path, monkeypat
     """A lease found overdue expires only on a second look a grace later: a renewal the run asked for in time, still
     on its way into the record when the first look came (a busy engine), keeps it."""
     from ergostat.leases import RENEWED
-    from ergostat.leases.dispatch import grace
+    from ergostat.leases.terms import grace
 
     p, e, now, killed = renewing_engine(tmp_path, monkeypatch)
     assert grace(1.0) == 1.0 and grace(120) == 12.0 and grace(40 * 60) == 30.0
@@ -194,4 +194,22 @@ def test_a_renewal_recorded_between_the_look_and_the_expiry_is_not_killed(tmp_pa
     e.dispatch.watch(now + 1.5, mono=101.5)
     lease = item(p, "ticket/1").fields["lease"]
     assert lease["holder"] == "r1" and [h.get("how") for h in lease["history"]] == [None], "still held"
-    assert p.events.query(n=None, type=EXPIRED) and not killed, "the expiry was refused, and nothing was killed"
+    assert not p.events.query(n=None, type=EXPIRED) and not killed, "read again before the write: nothing written, nothing killed"
+
+
+def test_one_items_trouble_stops_no_other_leases_look(tmp_path, monkeypatch):
+    from .test_leases import take
+    p, e, now, killed = renewing_engine(tmp_path, monkeypatch)
+    p.events.add("ticket.opened", item="ticket/2", source="t", at=now - 10)
+    take(p, "ticket/2", "r2", 1, ttl=1.0, at=now - 5)
+    looked = e.dispatch.activity
+
+    def broken(it, lease):
+        if it == "ticket/1":
+            raise RuntimeError("a bad read")
+        return looked(it, lease)
+    monkeypatch.setattr(e.dispatch, "activity", broken)
+    e.dispatch.watch(now, mono=100.0)
+    assert [k[0] for k in e.dispatch.overdue] == ["ticket/2"], "its first look kept"
+    e.dispatch.watch(now + 1, mono=101.0)
+    assert killed == ["r2"], "and its second look expires it"
