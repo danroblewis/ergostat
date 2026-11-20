@@ -12,6 +12,7 @@ import json
 import mimetypes
 import re
 import secrets
+import threading
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -216,6 +217,30 @@ def _edited(live: Live, p, running: bool) -> dict | None:
     return {"errors": got["errors"], "banner": got["banner"]}
 
 
+def _laws(p, spec) -> dict:
+    """The external blocks' identified laws already fitted; a miss is fitted in a thread, and drawn on a later poll."""
+    from ..numbers import external as ex
+    if spec is None or not ex.blocks(spec):
+        return {}
+    got = ex.cached(p, spec)
+    if got is None and p.dir not in _FITTING:
+        _FITTING.add(p.dir)
+
+        def fit():
+            try:
+                ex.laws(p, spec)
+            except Exception:
+                import logging
+                logging.getLogger("ergostat").exception("identifying the external blocks' laws failed")
+            finally:
+                _FITTING.discard(p.dir)
+        threading.Thread(target=fit, daemon=True, name="identify-laws").start()
+    return {n: x["law"].as_dict() for n, x in (got or {}).items() if x["law"] is not None}
+
+
+_FITTING: set = set()   # the projects whose laws are being fitted
+
+
 def _window(q) -> float:
     from ..durations import parse_duration
     try:
@@ -410,16 +435,7 @@ def _answer(live: Live, path: str, q: dict):
             from ..blockdiagram import diagram
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
-            spec = getattr(m, "spec", None)
-            key = ("laws", int(time.time() // 60), live.mtime)       # external blocks' identified laws (SPEC §12d)
-            laws = live.cached(key)
-            if laws is None and spec is not None:
-                from ..numbers.external import laws as identified
-                try:
-                    laws = {n: x["law"].as_dict() for n, x in identified(p, spec).items() if x["law"] is not None}
-                except Exception:                              # a record that cannot be read draws the blocks as before
-                    laws = {}
-                live.keep(key, laws)
+            laws = _laws(p, getattr(m, "spec", None))   # external blocks' identified laws, once fitted (SPEC §12d)
             return {**diagram(m, {**snap, "laws": laws or {}}, want, system), "attention": att}
         from ..dynamics import attention as sd_attention
         from ..dynamics import dynamics, finish

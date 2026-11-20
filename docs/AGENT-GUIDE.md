@@ -484,14 +484,18 @@ blocks:
 - Read both at the controller's own pace (its sync period, an alert's evaluation interval): the grid is the output's
   sensor period, and a law faster than its sensors cannot be told.
 - ergostat fits an on-off law (an alert: thresholds, hysteresis, `for:`, minimum on and off times), proportional with
-  saturation, PI with a deadband, and a stepper (the HPA's shape: up and down by a step after a duration past a
-  threshold, each with a cooldown), each with a delay, and keeps the one that predicts the held-out record best for its
+  saturation, PI with a deadband, and three-position step (floating) control (the HPA's shape: up and down by a step after a
+  duration past a threshold, each with a cooldown), each with a delay, and keeps the one that predicts the held-out record best for its
   number of parameters. The Blocks view writes the law in the block, marked *identified*; the closed-loop projection,
   what-if and risk run it in place of a generic stand-in.
 - `external-unidentified` means too little record (40 points of both at least, and three moves of its output) or no law
-  fits: wait for more, or check the sensors read the right series. `external-law-changed` means the law on the
-  window's first half and its second differ: someone retuned it. Ask the owner whether that was meant before trusting
-  a projection across the change.
+  fits: wait for more, or check the sensors read the right series. `external-not-run` means its output is an auxiliary
+  (or a stock its `out:` flow does not move): the law is drawn, but the projection runs a generic stand-in.
+- Inside its own loop (an HPA reads utilisation, which its replicas change at once), a proportional or PI law fitted with
+  no delay has its gain biased toward 0 (Ljung ch. 13), and says so: read its gain as a lower bound. A switching law's
+  thresholds carry a *spread* (how far they could move and tell the moves as well), not a standard error.
+- If the owner retuned the controller in the window, the law fitted mixes both: identify again once the record since the
+  change is long enough (ergostat does not yet say that a law changed).
 - When the vendor documents the law (the HPA's is public), say so in the block's `description:` and compare: the
   identified thresholds and cooldowns are what it actually did, which is the point.
 

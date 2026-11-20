@@ -177,14 +177,45 @@ def found(p, now):
     return out
 
 
-def test_a_retuned_controller_raises_external_law_changed(tmp_path):
-    xs, us = hpa(n=2400, change_at=1200, retuned={"up": 0.85, "cool_down": 900.0})
-    p, now = kube(tmp_path, xs, us)
-    got = found(p, now)
-    assert [c for c, _ in got] == ["external-law-changed"], got
-    assert "up 0.69" in got[0][1] and "cool_down 300 → 900" in got[0][1] and "retuned" in got[0][1]
-    q, now = kube(tmp_path / "same" if (tmp_path / "same").mkdir() is None else None, *hpa(n=2400))
-    assert found(q, now) == []
+def test_a_day_of_record_is_fitted_at_the_sensors_own_period():
+    for gen, check in ((hpa, lambda w: w.family == "stepper" and abs(w.p["up"] - 0.7) < 0.03 and w.p["cool_down"] == 300),
+                       (alert, lambda w: w.family == "onoff" and abs(w.p["on"] - 300) < 6 and abs(w.p["off"] - 250) < 6)):
+        for seed in range(3):
+            xs, us = gen(n=5760, seed=seed)                  # a day at 15 s
+            ts, gx, gu, dt, lag = ex.grid([(i * 15.0, x) for i, x in enumerate(xs)], [(i * 15.0, u) for i, u in enumerate(us)],
+                                          5759 * 15.0)
+            assert dt == 15.0 and len(ts) == ex.MAX_POINTS and gx == xs[-ex.MAX_POINTS:] and lag == 0
+            law, *_ = el.fit(gx, gu, dt)
+            assert check(law), (gen.__name__, seed, law.family, law.p)
+
+
+def test_switching_laws_are_recovered_on_every_seed_with_no_wait_they_do_not_need():
+    for seed in range(12):
+        w, *_ = el.fit(*alert(n=2000, seed=seed), 15.0)
+        assert w.p["side"] * (w.p["on"] - w.p["off"]) >= 0, seed           # never a negative hysteresis
+        assert abs(w.p["on"] - 300) <= 6 and abs(w.p["off"] - 250) <= 6 and w.p["for"] == 45, (seed, w.p)
+        assert w.p["min_on"] == w.p["min_off"] == 0, (seed, w.p)
+        h, *_ = el.fit(*hpa(n=2000, seed=seed), 15.0)
+        assert abs(h.p["up"] - 0.7) <= 0.03 and (h.p["cool_up"], h.p["cool_down"]) == (60, 300), (seed, h.p)
+
+
+def test_a_law_fitted_with_no_delay_says_its_gain_may_be_biased():
+    law, *_ = el.fit(*prop(d=0), 10.0)
+    assert law.delay == 0 and "Ljung ch. 13" in law.said() and "spread" not in law.said()
+    law, *_ = el.fit(*alert(), 15.0)
+    assert "(spread" in law.said() and "±" not in law.said().split("hysteresis")[0]
+
+
+def test_a_law_on_an_auxiliary_is_identified_but_not_run_and_says_so(tmp_path):
+    xs, us = hpa()
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(KUBE).replace("output: stock.replicas", "output: auxiliary.load"))
+    p = Project(mdl.load(tmp_path))
+    now = time.time()
+    rows = [(("sensor/utilisation.main", t, x), ("sensor/load.main", t, u))
+            for i, (x, u) in enumerate(zip(xs, us, strict=True)) for t in [now - (1500 - i) * 15]]
+    p.measurements.add_many([r for pair in rows for r in pair])
+    (code, msg), = found(p, now)
+    assert code == "external-not-run" and "not run ahead" in msg
 
 
 def test_too_little_record_raises_external_unidentified(tmp_path):
@@ -220,7 +251,7 @@ def test_the_closed_loop_projection_runs_the_identified_law(tmp_path):
     run = sim.replay(spec, data)
     got = cl.projection(p, spec, data, run, 3600.0, points=60)
     m = got["models"]["flow.scale"]
-    assert isinstance(m, ex.ExternalModel) and "identified, external" in m.said() and "stepper" in m.said()
+    assert isinstance(m, ex.ExternalModel) and "identified, external" in m.said() and "step (floating)" in m.said()
     assert m.law.p["cool_up"] == pytest.approx(300.0, abs=15.0)
     reps = got["projection"].values["stock.replicas"]
     print(us[-1], [round(r, 2) for r in reps])
@@ -238,8 +269,14 @@ def test_the_blocks_view_writes_the_identified_law_in_the_block(tmp_path):
     from ergostat.web.server import Live, api
     xs, us = hpa()
     p, now = kube(tmp_path, xs, us)
-    g = api(Live(p), "graph", {"view": ["blocks"]})
-    n = next(x for x in g["nodes"] if x["id"] == "blk:hpa")
+    live = Live(p)
+    first = next(x for x in api(live, "graph", {"view": ["blocks"]})["nodes"] if x["id"] == "blk:hpa")
+    assert not first.get("identified")                  # never fitted while the page waits: in a thread, drawn on a later poll
+    for _ in range(100):
+        n = next(x for x in api(live, "graph", {"view": ["blocks"]})["nodes"] if x["id"] == "blk:hpa")
+        if n.get("identified"):
+            break
+        time.sleep(0.1)
     assert n["identified"] and n["fn"]["law"].startswith("+1 > 0.") and n["fn"]["sketch"] == "zoh"
     assert "identified" in n["says"] and any(r[0] == "identified" for r in n["rows"])
     plain = next(x for x in diagram(p.model, {})["nodes"] if x["id"] == "blk:hpa")   # without a record: as before
