@@ -78,7 +78,7 @@ Final state, 2026-11-19 evening, rebased on main b46ade7 (layout4, mended, daemo
   and satellite-far ceilings rose for model-fits' and requests-handled's long links. The valve-orientation
   ceilings and ops open=backups are kept as main has them.
 - The craft bench went (it stays on `selfimprove`), so it is no longer in `scripts/` as the definition says above.
-  Net lines outside `tests/` and `docs/`: +3,980.
+  Net lines outside `tests/` and `docs/`: +3,974.
 - Suites (fast commands, under `scripts/suite_watch.py`, one at a time):
   - unit: rc 0, 1,623 passed. The 13 skips are 6 page files without playwright (they run in the browser suite) and
     7 VictoriaMetrics conformance tests;
