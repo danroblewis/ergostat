@@ -1,15 +1,13 @@
-"""Running a program ergostat does not trust under the OS's sandbox, by allowlist (SPEC §12q, docs/SECURITY.md).
-
-``run(argv, Policy(work=...))`` starts ``argv`` in the work copy with reads only of the copy, the toolchain and
-``Policy.read``; writes only to the copy (never its ``.git``) and a private temporary folder; no network but, when
-``Policy.hosts`` lists hosts, a filtering proxy on 127.0.0.1 (``proxy.py``); an environment of ``KEEP`` and what the
-caller passes, with no marker that says it is sandboxed or under test; and every process it starts killed when it
-ends. macOS: ``sandbox-exec`` (``seatbelt.py``); Linux: ``bwrap`` (``bwrap.py``); neither, and it refuses
-(``Unavailable``): it never runs a program unsandboxed. Git on a work copy goes through ``git.py``, never inside."""
+"""Running a program ergostat does not trust under the OS's sandbox, by allowlist: ``run(argv, Policy(work=...))``
+(SPEC §12q, docs/SECURITY.md). macOS: ``seatbelt.py``; Linux: ``bwrap.py``; neither, and it refuses (``Unavailable``).
+The only network is ``proxy.py``; git on a work copy goes through ``git.py``, never inside."""
 
 from __future__ import annotations
 
+import functools
 import os
+import resource
+import select
 import shutil
 import signal
 import subprocess
@@ -22,12 +20,14 @@ from pathlib import Path
 
 from . import bwrap, seatbelt
 from .proxy import Proxy
+from .seatbelt import _signal
 
+NPROC = 256
 KEEP = ("HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "SHELL")
 
 
 class Unavailable(RuntimeError):
-    """No OS sandbox here (sandbox-exec or bwrap): the program is not run."""
+    """No OS sandbox here: the program is not run."""
 
 
 @dataclass
@@ -51,6 +51,7 @@ class Result:
     seconds: float
     timed_out: bool = False
     connections: list = field(default_factory=list)     # the proxy's log: one dict per connection asked for
+    escaped: list = field(default_factory=list)         # pids still alive after the run was killed: it failed
 
 
 def backend() -> str | None:
@@ -61,26 +62,49 @@ def backend() -> str | None:
     return None
 
 
-def toolchain(python: str) -> list[str]:
-    """What a program needs to run, resolved: the interpreter's prefixes and the system's libraries and tools."""
-    py = Path(python)
-    prefixes = {sys.prefix, sys.base_prefix} if py == Path(sys.executable) else set()
-    prefixes |= {str(py.parent.parent), str(Path(os.path.realpath(py)).parent.parent)}
+@functools.lru_cache(maxsize=16)
+def _interpreter(python: str) -> tuple[str, ...]:
+    """The interpreter's own account of its venv, base prefix, standard library and executable (the caller trusts it)."""
+    code = "import sys, sysconfig; print(sys.prefix, sys.base_prefix, sysconfig.get_path('stdlib'), sys.executable, sep='\\n')"
+    out = subprocess.run([python, "-I", "-c", code], capture_output=True, text=True, timeout=30, check=True)
+    return tuple(out.stdout.splitlines()[:4])
+
+
+def _links(path: str) -> list[str]:
+    """A path and every link it goes through (each must be readable to be followed)."""
+    out = []
+    while len(out) < 40:
+        d = os.path.realpath(os.path.dirname(path))
+        path = os.path.join(d, os.path.basename(path))
+        out.append(path)
+        if not os.path.islink(path):
+            break
+        path = os.path.join(d, os.readlink(path))
+    return out
+
+
+def toolchain(python: str) -> tuple[list[str], list[str]]:
+    """The paths readable inside, and the folders whose top-level shared libraries are: the venv, the standard library,
+    the interpreter, the base prefix's certificates and libraries, and the system's. Never a whole prefix."""
+    if not os.path.isabs(python):
+        raise ValueError(f"the interpreter must be an absolute path: {python}")
+    prefix, base, stdlib, exe = _interpreter(python)
+    links = [*_links(exe), *_links(python)]
+    own = [stdlib, os.path.join(base, "ssl"), *([prefix] if prefix != base else [])]
     system = (["/usr/lib", "/System", "/bin", "/usr/bin", "/usr/share", "/private/var/select",
                "/private/var/db/timezone", "/private/etc/localtime", "/private/etc/ssl"] if sys.platform == "darwin" else
               ["/usr/lib", "/usr/lib64", "/lib", "/lib64", "/bin", "/usr/bin", "/usr/share", "/etc/ld.so.cache",
                "/etc/localtime", "/etc/alternatives", "/etc/ssl"])
-    paths = [os.path.realpath(p) for p in sorted(prefixes) + system if os.path.exists(p)]
-    return _whole(dict.fromkeys(paths))
+    paths = [*links, *(os.path.realpath(p) for p in own + system if os.path.exists(p))]
+    libs = [os.path.realpath(os.path.join(base, "lib"))]
+    return _whole(dict.fromkeys(paths)), _whole(p for p in libs if p not in paths and os.path.isdir(p))
 
 
 def environment(policy: Policy, tmp: str, port: int | None, python: str) -> dict:
     path = os.pathsep.join(dict.fromkeys([str(Path(python).parent), "/usr/bin", "/bin"]))
-    env = {k: os.environ[k] for k in KEEP if k in os.environ} | {"PATH": path, "TMPDIR": tmp}
-    if port:
-        url = f"http://127.0.0.1:{port}"
-        env |= {k: url for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
-    return env | {k: str(v) for k, v in policy.env.items()}
+    proxy = {k: f"http://127.0.0.1:{port}" for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY") if port}
+    return ({k: os.environ[k] for k in KEEP if k in os.environ} | {"PATH": path, "TMPDIR": tmp} | proxy
+            | {k: str(v) for k, v in policy.env.items()})
 
 
 def run(argv: list[str], policy: Policy, *, stdin: str = "", timeout: float = 60, cwd: Path | None = None) -> Result:
@@ -88,40 +112,69 @@ def run(argv: list[str], policy: Policy, *, stdin: str = "", timeout: float = 60
     kind = backend()
     if kind is None:
         raise Unavailable("no OS sandbox here (sandbox-exec on macOS, bwrap on Linux): the program is not run")
-    work = os.path.realpath(policy.work)
-    reads = [*toolchain(policy.python), *_whole(os.path.realpath(r) for r in policy.read if os.path.exists(r))]
+    work = _whole([os.path.realpath(policy.work)])[0]
+    reads, libs = toolchain(policy.python)
+    reads += _whole(os.path.realpath(r) for r in policy.read if os.path.exists(r))
     tmp = os.path.realpath(tempfile.mkdtemp())
     proxy = canary = None
-    started, timed_out = time.time(), False
+    started, timed_out, code, escaped = time.time(), False, None, []
+    rfd, wfd = os.pipe()            # the supervisor's report (seatbelt); closed here once the run has it
     try:
         if policy.hosts:
             proxy = Proxy(policy.hosts, policy.tls_unchecked, unix=kind == "bwrap")
         port = proxy.port if proxy else None
         if kind == "seatbelt":
-            canary = seatbelt.Canary(tmp, [work, *reads])
-            args = seatbelt.argv(argv, work, tmp, reads, port)
+            canary = seatbelt.Canary(tmp, [work, *reads, *libs])
+            args = seatbelt.argv(argv, work, tmp, reads, libs, port, policy.python, wfd)
         else:
-            args = bwrap.argv(argv, work, tmp, reads, cwd or work, proxy.unix if proxy else None, port,
+            args = bwrap.argv(argv, work, tmp, reads, libs, cwd or work, proxy.unix if proxy else None, port,
                               policy.python)
         p = subprocess.Popen(args, cwd=cwd or work, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, env=environment(policy, tmp, port, policy.python),
-                             start_new_session=True)
-        pipes = _pipes(p, stdin)
-        try:
-            p.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-        _killpg(p.pid)
-        p.wait()
+                             start_new_session=True, pass_fds=(wfd,) if canary else (), preexec_fn=_nproc_limit())
+        os.close(wfd)
+        pipes = _collect(p, stdin)
+        if canary:                      # the supervisor inside says the program's exit, then freezes the run
+            code, timed_out = _exit_code(p, rfd, timeout)
+        else:
+            try:
+                code = p.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+        _signal(-p.pid, signal.SIGKILL)       # its process group
     finally:
         if canary:
-            canary.reap()           # every process of the run, wherever it went
+            escaped = canary.reap()     # every process of the run, wherever it went
         if proxy:
             proxy.close()
+        os.close(rfd)
         shutil.rmtree(tmp, ignore_errors=True)
-    out, err = (pipes[k].result() for k in ("out", "err"))
-    return Result(None if timed_out else p.returncode, out, err, round(time.time() - started, 2), timed_out,
-                  proxy.log if proxy else [])
+    p.wait()
+    out, err = pipes()
+    if escaped:
+        code = None
+        err += f"\nergostat: {len(escaped)} process(es) of this run could not be killed: {escaped}\n"
+    return Result(code, out, err, round(time.time() - started, 2), timed_out, proxy.log if proxy else [], escaped)
+
+
+def _exit_code(p: subprocess.Popen, fd: int, timeout: float) -> tuple[int | None, bool]:
+    """Read the supervisor's report; past the time limit ask it to stop the program, then give it two seconds."""
+    timed_out = not select.select([fd], [], [], max(timeout, 0))[0]
+    if timed_out:
+        _signal(p.pid, signal.SIGTERM)
+    data = os.read(fd, 64) if select.select([fd], [], [], 2)[0] else None
+    try:
+        return (None if timed_out else int(data)), timed_out
+    except (TypeError, ValueError):
+        return None, timed_out          # no report: the supervisor was killed from inside
+
+
+def _nproc_limit():
+    """At most ``NPROC`` processes more than the machine has now (RLIMIT_NPROC counts the user's, never more)."""
+    now = len(seatbelt.pids()) if sys.platform == "darwin" else sum(d.isdigit() for d in os.listdir("/proc"))
+    hard = resource.getrlimit(resource.RLIMIT_NPROC)[1]
+    want = now + NPROC if hard == resource.RLIM_INFINITY else min(hard, now + NPROC)
+    return lambda: resource.setrlimit(resource.RLIMIT_NPROC, (want, hard))
 
 
 def _whole(paths) -> list[str]:
@@ -134,34 +187,9 @@ def _whole(paths) -> list[str]:
     return out
 
 
-def _killpg(pid: int) -> None:
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except OSError:
-        pass
-
-
-class _Read(threading.Thread):
-    def __init__(self, f):
-        super().__init__(daemon=True)
-        self.f, self.chunks = f, []
-        self.start()
-
-    def run(self):
-        for chunk in iter(lambda: self.f.read(65536), ""):
-            self.chunks.append(chunk)
-
-    def result(self) -> str:
-        self.join(5)               # every process that held the pipe is dead by now
-        return "".join(self.chunks)
-
-
-def _pipes(p: subprocess.Popen, stdin: str) -> dict:
-    def feed():
-        try:
-            p.stdin.write(stdin)
-            p.stdin.close()
-        except OSError:
-            pass
-    threading.Thread(target=feed, daemon=True).start()
-    return {"out": _Read(p.stdout), "err": _Read(p.stderr)}
+def _collect(p: subprocess.Popen, stdin: str):
+    """Feed and read the run's pipes in a thread; ``join`` it once every process that held them is dead."""
+    box: dict = {}
+    t = threading.Thread(target=lambda: box.update(out=p.communicate(stdin)), daemon=True)
+    t.start()
+    return lambda: (t.join(5), box.get("out") or ("", ""))[1]

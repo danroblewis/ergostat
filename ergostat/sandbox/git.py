@@ -22,8 +22,7 @@ class Tampered(RuntimeError):
     """The work copy's git metadata is not what ergostat made: no git command is run on it."""
 
 
-def _real(p) -> str:
-    return os.path.realpath(p)
+_real = os.path.realpath
 
 
 def _git(args: list[str], env: dict, cwd: str, check: bool, input: str | None = None) -> subprocess.CompletedProcess:

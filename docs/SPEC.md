@@ -4378,16 +4378,18 @@ it timed out, and the proxy's log of every connection asked for.
 
 | | Allowed | Everything else |
 |---|---|---|
-| **Read** | the work copy; the toolchain, resolved explicitly (the Python interpreter's prefix, base prefix and venv; `/usr/lib`, `/usr/share`, `/bin`, `/usr/bin`; on macOS `/System`, the timezone and certificate folders; on Linux `/lib*` and the loader's cache); `read:` paths the caller declares | denied: the whole home folder, other temporary files, `/Library`, `/opt` outside the toolchain. A declared path that is `/` or holds the home folder is refused |
+| **Read** | the work copy; the toolchain, resolved explicitly from an absolute interpreter path (the interpreter and every link to it, its standard library, its venv, the base prefix's `ssl` folder and the shared libraries at the top of its `lib`, never a whole prefix; `/usr/lib`, `/usr/share`, `/bin`, `/usr/bin`; on macOS `/System`, the timezone and certificate folders; on Linux `/lib*` and the loader's cache); `read:` paths the caller declares | denied: the whole home folder, other temporary files, the rest of the interpreter's prefix, `/Library`. A work copy or declared path that is `/` or holds the home folder is refused |
 | **Write** | the work copy, except its `.git` (file or folder, which cannot be written, moved or removed); a private temporary folder (`TMPDIR`), removed after the run | denied, `/tmp` included |
 | **Network** | none, unless `hosts:` lists some: then only the proxy on 127.0.0.1 | denied: other local ports, every other address, DNS |
-| **Processes** | started freely inside | all killed when the run ends or times out |
+| **Processes** | started freely inside, up to 256 more than the machine has (`RLIMIT_NPROC`) | all killed when the run ends or times out; one that cannot be killed fails the run (`escaped`) |
 | **Environment** | `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TERM`, `TZ`, `SHELL`; a `PATH` of the interpreter's folder, `/usr/bin` and `/bin`; `TMPDIR`; the proxy's variables when hosts are listed; what the caller passes | not passed: no `ERGOSTAT_*`, no dry-run, test or sandbox marker |
 
 **How.** On macOS, `sandbox-exec` with a profile that starts `(deny default)` and allows only the above: process fork
-and exec of readable programs, signals within its own sandbox, `sysctl` reads, POSIX semaphores (Python's
-`multiprocessing`), the listed files, the null and random devices, and outbound to `localhost:PORT` of the proxy. No
-Mach service is allowed: name lookups, the keychain and `launchctl` fail inside. On Linux, `bwrap --unshare-all
+and exec of readable programs, signals within its own sandbox, `sysctl` reads except `kern.proc*` (the process
+table), POSIX semaphores (Python's `multiprocessing`), the listed files, the null and random devices, and outbound to
+`localhost:PORT` of the proxy. No Mach service is allowed: name lookups, the keychain and `launchctl` fail inside.
+Every rule names at most five filters, and the sysctl rules none but that one deny: long filter lists have panicked
+macOS 15.5's kernel (a test holds the profile to this). On Linux, `bwrap --unshare-all
 --die-with-parent --new-session` with an empty root binding only the allowed paths (read-only but the copy and its
 temporary folder; `.git` bound read-only over the copy), and no network namespace but loopback; the proxy is a Unix
 socket bound in, served on 127.0.0.1 inside by a small forwarder. Neither present: `Unavailable`, and the program is
@@ -4395,17 +4397,22 @@ not run. There is no fallback.
 
 **The proxy.** Started by ergostat for the run, on a free port of 127.0.0.1. It admits a host only if listed (`name`,
 ports 80 and 443; or `name:port`), resolves it itself, and records each request: the time, method, host, port,
-whether it was allowed and why. For HTTPS (`CONNECT`) it reads the whole TLS ClientHello and refuses a server name
-that differs from the CONNECT host. A host may be limited to methods (`hosts: {api.example: [GET]}`): for plain HTTP
-every request is checked (one per connection, a body only by `Content-Length`, `Host` rewritten to the listed name);
+whether it was allowed and why. For HTTPS (`CONNECT`) it reads the whole TLS ClientHello, across however many records it
+was split into, and refuses one whose server name is missing, unreadable or differs from the CONNECT host. It serves
+64 connections at once; the rest wait to be accepted. A host may be limited to methods (`hosts: {api.example: [GET]}`): for plain HTTP
+every request is checked (one per connection, a body only by a single `Content-Length`, `Host` rewritten to the
+listed name);
 for HTTPS the proxy cannot see the method, so a method-limited host gets **no tunnel** unless the caller lists it in
 `tls_unchecked`, which admits the tunnel with the limit unenforced.
 
-**Process lifetime.** The run is started in a session and process group of its own, killed as a group when it ends.
-On macOS that is not enough (a program may start a new session), so ergostat then asks the kernel, for each of the
-user's processes, whether it is in this run's sandbox (`sandbox_check`: it may read the run's temporary folder and may
-not read a canary file only this run is denied) and kills each until none is left. On Linux the pid namespace ends
-with the run.
+**Process lifetime.** On Linux the pid namespace ends with the run. On macOS the program is started by a small
+supervisor inside the sandbox, which reports its exit code on a pipe and then stops every process of the run at once
+(`kill(-1, SIGSTOP)` reaches only its own sandbox's processes), so none can fork away. Outside, ergostat then lists
+every process (`proc_listallpids`), asks the kernel which carry this run's sandbox (`sandbox_check`: it may read the
+run's temporary folder and may not read a canary file only this run is denied), stops each it finds, round after round
+until three find none, and kills them all. At the time limit it asks the supervisor to kill the program first. A
+program that kills the supervisor loses its exit code (`exit` is None) and is reaped the same way from outside; a
+process still alive after that is named in `escaped` and the run fails.
 
 **Git.** `ergostat.sandbox.git.Repo(work, gitdir, common)` is how ergostat runs git on a work copy, never the program:
 `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, explicit `GIT_DIR`, `GIT_COMMON_DIR` and `GIT_WORK_TREE`,

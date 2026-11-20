@@ -4,6 +4,7 @@ proxy's Unix socket is bound in and a forwarder inside the sandbox serves it on 
 
 from __future__ import annotations
 
+import glob
 import os
 
 # Inside the sandbox: listen on 127.0.0.1:PORT, relay each connection to the proxy's socket, then run the program.
@@ -14,9 +15,6 @@ def pipe(a, b):
     try:
         for chunk in iter(lambda: a.recv(65536), b""):
             b.sendall(chunk)
-    except OSError:
-        pass
-    try:
         b.shutdown(socket.SHUT_WR)
     except OSError:
         pass
@@ -34,11 +32,12 @@ sys.exit(subprocess.call(argv))
 """
 
 
-def argv(cmd: list[str], work: str, tmp: str, reads: list[str], cwd, unix: str | None, port: int | None,
-         python: str) -> list[str]:
+def argv(cmd: list[str], work: str, tmp: str, reads: list[str], libs: list[str], cwd, unix: str | None,
+         port: int | None, python: str) -> list[str]:
     out = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--proc", "/proc", "--dev", "/dev",
            "--hostname", "localhost"]
-    for r in reads:
+    shared = sorted(f for d in libs for f in glob.glob(os.path.join(d, "*.so*")) if os.path.isfile(f))
+    for r in [*reads, *shared]:
         out += ["--ro-bind", r, r]
     for d in ("/bin", "/lib", "/lib64", "/sbin"):         # merged /usr: the top-level names are links into it
         if os.path.islink(d) and os.path.realpath(d) in reads:

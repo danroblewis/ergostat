@@ -1,12 +1,10 @@
-"""The only way out of the sandbox: a filtering HTTP(S) proxy on 127.0.0.1 (a free system port), or a Unix socket that
-bwrap binds in. It admits a listed host only: by the CONNECT host, which the TLS ClientHello's server name must agree
-with, or by a plain request's absolute URL, whose ``Host`` it rewrites. It resolves names itself (no DNS inside), logs
-every connection asked for, and holds a host to its methods: for plain HTTP each request (one per connection; bodies by
-``Content-Length`` only), for HTTPS only whether the tunnel opens, since what runs inside TLS cannot be seen. A
-method-limited host gets no tunnel unless the policy lists it in ``tls_unchecked``."""
+"""The only way out of the sandbox: a filtering HTTP(S) proxy on 127.0.0.1 (or a Unix socket bwrap binds in) that
+admits listed hosts only, resolves names itself, logs every connection, and holds a host to its methods for plain HTTP
+(for HTTPS only whether the tunnel opens). SPEC §12q."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
 import tempfile
@@ -15,28 +13,54 @@ import time
 from urllib.parse import urlsplit
 
 HEAD_MAX = 65536
+HELLO_MAX = 1 << 17
+MOST = 64                          # connections served at once; more wait to be accepted
 DROP = {"connection", "keep-alive", "proxy-connection", "proxy-authorization", "host", "te", "upgrade"}
 
 
-def sni(hello: bytes) -> str | None:
-    """The server name in a TLS ClientHello (None: not TLS, or no name)."""
+def sni(msg: bytes) -> str | None:
+    """The server name in a ClientHello handshake message (its 4-byte header first); None: none or unparseable."""
     try:
-        if hello[0] != 0x16 or hello[5] != 1:
+        if msg[0] != 1:
             return None
-        i = 9 + 2 + 32
-        i += 1 + hello[i]                                       # session id
-        i += 2 + int.from_bytes(hello[i:i + 2], "big")          # cipher suites
-        i += 1 + hello[i]                                       # compression
-        end = i + 2 + int.from_bytes(hello[i:i + 2], "big")
+        i = 4 + 2 + 32
+        i += 1 + msg[i]                                         # session id
+        i += 2 + int.from_bytes(msg[i:i + 2], "big")            # cipher suites
+        i += 1 + msg[i]                                         # compression
+        end = i + 2 + int.from_bytes(msg[i:i + 2], "big")
         i += 2
         while i + 4 <= end:
-            kind, n = int.from_bytes(hello[i:i + 2], "big"), int.from_bytes(hello[i + 2:i + 4], "big")
+            kind, n = int.from_bytes(msg[i:i + 2], "big"), int.from_bytes(msg[i + 2:i + 4], "big")
             if kind == 0:
-                return hello[i + 9:i + 9 + int.from_bytes(hello[i + 7:i + 9], "big")].decode("ascii").lower()
+                return msg[i + 9:i + 9 + int.from_bytes(msg[i + 7:i + 9], "big")].decode("ascii").lower() or None
             i += 4 + n
     except (IndexError, UnicodeDecodeError):
         return None
     return None
+
+
+def hello(c: socket.socket, data: bytes) -> tuple[bytes, bytes] | None:
+    """Read TLS records until the first handshake message is whole, across as many records as it was split into.
+    Returns (the bytes read, the message); None if the stream is TLS but not a handshake, or ends first."""
+    msg, i = b"", 0
+    while len(msg) < 4 or len(msg) < 4 + int.from_bytes(msg[1:4], "big"):
+        while len(data) < i + 5 or len(data) < i + 5 + int.from_bytes(data[i + 3:i + 5], "big"):
+            chunk = c.recv(16384)
+            if not chunk or len(data) > HELLO_MAX:
+                return None
+            data += chunk
+        if data[i] != 0x16:
+            return None
+        n = int.from_bytes(data[i + 3:i + 5], "big")
+        msg, i = msg + data[i + 5:i + 5 + n], i + 5 + n
+    return data, msg
+
+
+def _listen(family, address) -> socket.socket:
+    s = socket.socket(family, socket.SOCK_STREAM)
+    s.bind(address)
+    s.listen(64)
+    return s
 
 
 class Proxy:
@@ -44,18 +68,12 @@ class Proxy:
         self.rules = {self._key(h): (None if m is None else {x.upper() for x in m}) for h, m in hosts.items()}
         self.unchecked = {self._key(h) for h in tls_unchecked}
         self.log: list[dict] = []
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.bind(("127.0.0.1", 0))
-        self.sock.listen(64)
-        self.port = self.sock.getsockname()[1]
-        self.listeners = [self.sock]
-        self.unix = None
+        self.listeners = [_listen(socket.AF_INET, ("127.0.0.1", 0))]
+        self.port = self.listeners[0].getsockname()[1]
+        self.slots = threading.BoundedSemaphore(MOST)
+        self.unix = os.path.join(tempfile.mkdtemp(), "proxy.sock") if unix else None
         if unix:
-            self.unix = os.path.join(tempfile.mkdtemp(), "proxy.sock")
-            u = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            u.bind(self.unix)
-            u.listen(64)
-            self.listeners.append(u)
+            self.listeners.append(_listen(socket.AF_UNIX, self.unix))
         for s in self.listeners:
             threading.Thread(target=self._accept, args=(s,), daemon=True).start()
 
@@ -87,9 +105,11 @@ class Proxy:
 
     def _accept(self, s: socket.socket):
         while True:
+            self.slots.acquire()            # at most MOST connections served at once; the rest wait in the backlog
             try:
                 c, _ = s.accept()
             except OSError:
+                self.slots.release()
                 return
             threading.Thread(target=self._serve, args=(c,), daemon=True).start()
 
@@ -99,7 +119,8 @@ class Proxy:
 
     def _serve(self, c: socket.socket):
         c.settimeout(30)
-        with c:
+        with c, contextlib.ExitStack() as done:
+            done.callback(self.slots.release)
             head = b""
             while b"\r\n\r\n" not in head and len(head) < HEAD_MAX:
                 chunk = c.recv(4096)
@@ -137,26 +158,25 @@ class Proxy:
     def _tunnel(self, c, host, port, rest):
         c.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         first = rest or c.recv(16384)
-        while first[:1] == b"\x16" and len(first) < min(5 + int.from_bytes(first[3:5] or b"\0\0", "big"), 16389):
-            chunk = c.recv(16384)              # the whole ClientHello: its name may not be split away from the check
-            if not chunk:
+        if first[:1] == b"\x16":              # TLS: the server name must be there, and be the CONNECT host
+            got = hello(c, first)
+            name = sni(got[1]) if got else None
+            if name != self._key(host):
+                self._note("CONNECT", name or "", port, False, f"TLS server name {name or 'missing'} is not {host}")
                 return
-            first += chunk
-        name = sni(first)
-        if name is not None and name != self._key(host):
-            self._note("CONNECT", name, port, False, f"TLS server name {name} is not {host}")
-            return
+            first = got[0]
         with socket.create_connection((host, port), timeout=30) as up:
             up.sendall(first)
             self._relay(c, up, both=True)
 
     def _forward(self, c, method, u, version, headers, rest):
         fields = [h for h in headers if h and h.split(":", 1)[0].strip().lower() not in DROP]
-        names = {h.split(":", 1)[0].strip().lower(): h.split(":", 1)[1].strip() for h in fields if ":" in h}
-        if "transfer-encoding" in names:
-            c.sendall(b"HTTP/1.1 411 Length Required\r\n\r\n")
+        named = [(h.split(":", 1)[0].strip().lower(), h.partition(":")[2].strip()) for h in fields]
+        lengths = [v for k, v in named if k == "content-length"]
+        if len(lengths) > 1 or "transfer-encoding" in dict(named):      # one body, one length: nothing smuggled
+            c.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
             return
-        need = int(names.get("content-length", "0") or 0)
+        need = int(lengths[0] if lengths else 0)
         while len(rest) < need:
             chunk = c.recv(65536)
             if not chunk:
@@ -175,9 +195,6 @@ class Proxy:
             try:
                 for chunk in iter(lambda: a.recv(65536), b""):
                     b.sendall(chunk)
-            except OSError:
-                pass
-            try:
                 b.shutdown(socket.SHUT_WR)
             except OSError:
                 pass
