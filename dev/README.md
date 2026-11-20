@@ -29,6 +29,13 @@ the egress proxy (`dev/agent/egress.py`, container `ergostat-egress`), which rea
 one secret, the session token, and nothing else of this machine. Claude Code inside still runs `--restricted` with the
 role's narrow tools.
 
+**Each session's conversation is kept.** Claude Code's own session file (from a folder of its own mounted as its
+projects folder, `/home/dev/.claude/projects`, and nothing else of this machine's home) is copied as it grows, the
+session token scrubbed, into `run/sessions/<gap>-<role>-<n>.jsonl` (at most 20 MB; a last line says when the rest was
+cut), and recorded as the item `session/<gap>-<role>-<n>` (`dev/bin/sessions.py`): its role, round, model, cost, turns,
+tools and time, related to its gap (the gap's page lists its sessions), its page showing the conversation while it
+runs. In a terminal: `python3 dev/bin/status.py session GAP [ROLE] [N]`.
+
 **What it needs from the owner:** the token file `~/.config/ergostat/claude-token` (one line, mode 600, from
 `claude setup-token` in your own terminal). Without it, or with any other mode, sessions refuse to start. Then, once:
 
@@ -127,8 +134,24 @@ the critical first. A name that is no gap, or a link that would close a cycle, i
 draw the tree; `python3 dev/bin/deps.py` prints it as mermaid.
 
 Then: the implementor commits the definition first and builds; the reviewer approves, sends it back (`fix`, with its
-findings) or parks it; the third failed gate (`[gates] kill_after`) parks it with where it stopped; the queue lands it. `ergostat item
+findings) or parks it; the sixth failed gate (`[gates] kill_after`) parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.
+
+**The kill rule** is in `[gates]` (dev/factory.toml): `kill_after = 6` failed gates (fix verdicts, queue conflicts, real
+failures in the queue), `build_failures = 6` failed fast-suite runs of the implementor's, or `build_hours = 12` of
+building over its rounds, park a gap; within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make
+its failing fast suites pass.
+
+**A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
+runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
+suite slot). Passing alone, they are flakes (`flake.seen`) and the fast suites run once more, uncounted. Still failing,
+they run once on clean main (the commit the branch merged, `built_main`). A test that fails there too becomes
+`flake/<test>` in the state `main-broken` and the intervention `intervention/main-broken-<sha12>` (class `main-broken`,
+with the tests and the gaps it holds), which `interventions-trend` counts; fix it on main in a gap of its own (review
+lesson 13). If every failing test fails on main, the failure is not counted and no fix session is spent on it: the gap
+is given back with `waits_on_main`, the implementor skips it, and the intake releases it once main is another commit.
+At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
+failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
 
 ## Plans, research and what the factory knows
 
@@ -155,6 +178,19 @@ tuner asks for `raise-pool` (the implementor first), held in the inbox; a park, 
 lowers the pools by one at once. Say a merge was reverted on main with
 `ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
+
+## The machine's resources: a cap on the pools
+
+The machine is measured every 30 s (`dev/bin/resources.py`, `dev/model/resources.yaml`): the host's CPU, memory,
+disk and threads, the Docker VM's limits and use, and each factory container's CPU and memory, kept on its gap
+(`resources`: each session's and suite's peak and mean) and in `run/resources/sessions.jsonl`. The setpoints are the
+goals in `dev/model/resources.yaml` (change them there). `session-headroom` is how many more sessions fit, from the
+measured use of a session and its suite. **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
+the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
+(`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
+new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous) older
+than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
+which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
 
 ## Approve the push
 

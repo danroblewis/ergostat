@@ -1,0 +1,166 @@
+# The machine's resources (the owner, 2026-11-20: "our bottleneck will be computer resources, cpu and memory and
+# disk"). With three implementors and two reviewers on a large AI budget, the machine binds before money does. Every
+# reading is one snapshot's (dev/bin/resources.py: at most one measurement per 25 s, Docker's disk and the factory's
+# folders per 10 minutes, each command under a timeout). THE SETPOINTS ARE HERE, AND ONLY HERE: resources.py reads
+# these goals' holds to work out the headroom.
+#
+# How headroom and the pools combine: the effective pool is min(risk target, busy + headroom). The risk target is the
+# pool stock (implementor-pool, reviewer-pool: the pool tuner's, or whatever sizes it from risk); session-headroom is
+# a separate cap on top, in the gates (implement-when, review-when) and in each run (pools.my_turn). Resources only
+# ever lower what risk allows; they never raise it.
+defaults:
+  system: resources
+
+auxiliaries:
+  cpu-load:
+    unit: load
+    description: the host's one-minute load average (runnable threads; the host has 28 cores)
+    driven-by: [+stock.gaps-building, +stock.gaps-queued]
+    sensor: {run: python3 dev/bin/resources.py cpu-load, every: 30s, timeout: 25s, description: the resources sensor}
+  cpu-utilisation:
+    unit: share
+    description: the share of the host's CPU in use (iostat or /proc/stat over one second)
+    driven-by: [+auxiliary.cpu-load]
+    sensor: {run: python3 dev/bin/resources.py cpu-utilisation, every: 30s, timeout: 25s, description: the resources sensor}
+  memory-used:
+    unit: GB
+    description: the host's memory in use (app memory, wired and compressed, as Activity Monitor counts it)
+    driven-by: [+stock.gaps-building, +stock.gaps-in-review]
+    sensor: {run: python3 dev/bin/resources.py memory-used, every: 30s, timeout: 25s, description: the resources sensor}
+  memory-free:
+    unit: GB
+    description: the host's memory not in use (its total less memory-used)
+    driven-by: [-auxiliary.memory-used]
+    sensor: {run: python3 dev/bin/resources.py memory-free, every: 30s, timeout: 25s, description: the resources sensor}
+  memory-utilisation:
+    unit: share
+    description: the share of the host's memory in use
+    driven-by: [+auxiliary.memory-used]
+    sensor: {run: python3 dev/bin/resources.py memory-utilisation, every: 30s, timeout: 25s, description: the resources sensor}
+  memory-pressure:
+    unit: share
+    description: the host's memory pressure (macOS kern.memorystatus_level; Linux PSI some avg10)
+    driven-by: [+auxiliary.memory-used]
+    sensor: {run: python3 dev/bin/resources.py memory-pressure, every: 30s, timeout: 25s, description: the resources sensor}
+  machine-threads:
+    unit: threads
+    description: every thread on the host (the suites' own 1,500 is the load interlock's; this Mac panicked near 14,000)
+    driven-by: [+auxiliary.suite-threads]
+    sensor: {run: python3 dev/bin/resources.py machine-threads, every: 30s, timeout: 25s, description: the resources sensor}
+  disk-free:
+    unit: GB
+    description: the least free on the volumes holding ~/ergostat-live and Docker's data
+    driven-by: [-auxiliary.factory-disk, -auxiliary.docker-disk]
+    sensor: {run: python3 dev/bin/resources.py disk-free, every: 1m, timeout: 25s, description: the resources sensor}
+  docker-disk:
+    exogenous: true
+    unit: GB
+    description: Docker's own disk use (docker system df - images, containers, volumes, build cache)
+    sensor: {run: python3 dev/bin/resources.py docker-disk, every: 10m, timeout: 2m, description: the resources sensor}
+  factory-disk:
+    unit: GB
+    description: the factory's session folders (~/ergostat-live/sessions) and its installs other than current and previous
+    driven-by: [+flow.gaps-started, +flow.upgrades-opened]
+    sensor: {run: python3 dev/bin/resources.py factory-disk, every: 10m, timeout: 3m, description: the resources sensor}
+  vm-cpus:
+    exogenous: true
+    unit: CPUs
+    description: the CPUs the Docker VM may use (docker info)
+    sensor: {run: python3 dev/bin/resources.py vm-cpus, every: 10m, timeout: 25s, description: the resources sensor}
+  vm-memory:
+    exogenous: true
+    unit: GB
+    description: the memory the Docker VM may use (docker info)
+    sensor: {run: python3 dev/bin/resources.py vm-memory, every: 10m, timeout: 25s, description: the resources sensor}
+  vm-cpu-utilisation:
+    unit: share
+    description: every container's CPU (docker stats) against the VM's CPUs
+    driven-by: [+auxiliary.factory-cpu]
+    sensor: {run: python3 dev/bin/resources.py vm-cpu-utilisation, every: 30s, timeout: 25s, description: the resources sensor}
+  vm-memory-utilisation:
+    unit: share
+    description: every container's memory (docker stats) against the VM's memory
+    driven-by: [+auxiliary.factory-memory]
+    sensor: {run: python3 dev/bin/resources.py vm-memory-utilisation, every: 30s, timeout: 25s, description: the resources sensor}
+  factory-cpu:
+    unit: CPUs
+    description: the CPUs the factory's containers (ergostat-factory-*) use now; each session's is kept on its gap (resources)
+    driven-by: [+stock.gaps-building, +stock.gaps-in-review]
+    sensor: {run: python3 dev/bin/resources.py factory-cpu, every: 30s, timeout: 25s, description: the resources sensor}
+  factory-memory:
+    unit: GB
+    description: the memory the factory's containers use now
+    driven-by: [+stock.gaps-building, +stock.gaps-in-review]
+    sensor: {run: python3 dev/bin/resources.py factory-memory, every: 30s, timeout: 25s, description: the resources sensor}
+  session-headroom:
+    unit: sessions
+    description: how many more sessions fit - the least over host and VM CPU and memory of (setpoint x capacity - in use) per session's measured use; 0 while disk or threads are off
+    driven-by: [-auxiliary.cpu-utilisation, -auxiliary.memory-utilisation, -auxiliary.vm-cpu-utilisation, -auxiliary.vm-memory-utilisation]
+    sensor: {run: python3 dev/bin/resources.py session-headroom, every: 30s, timeout: 25s, description: the resources sensor}
+
+goals:
+  cpu-within:
+    auxiliary: cpu-utilisation
+    hold: "<= 0.8"
+    tolerance: 0
+    description: the host's CPU (and the VM's, in the headroom) at most 80% in use
+  memory-within:
+    auxiliary: memory-utilisation
+    hold: "<= 0.8"
+    tolerance: 0
+    description: the host's memory at most 80% in use
+  vm-memory-within:
+    auxiliary: vm-memory-utilisation
+    hold: "<= 0.85"
+    tolerance: 0
+    description: the Docker VM's memory at most 85% in use
+  disk-free-enough:
+    auxiliary: disk-free
+    hold: ">= 25"
+    tolerance: 0
+    description: at least 25 GB free where the factory and Docker write (no new session below it)
+  threads-within:
+    auxiliary: machine-threads
+    hold: "<= 10000"
+    tolerance: 0
+    description: the host's threads well below where this Mac panicked (no new session past it)
+  sessions-fit:
+    auxiliary: session-headroom
+    hold: ">= 1"
+    tolerance: 0
+    on-stale: "off"                    # not knowing what the machine fits holds new sessions
+    description: one more session fits on the machine (the gates read it)
+  factory-disk-within:
+    auxiliary: factory-disk
+    hold: "<= 40"
+    tolerance: 0
+    description: the factory's session folders and old installs within 40 GB
+
+blocks:
+  machine-full:
+    type: expr
+    description: the machine fits no more sessions - no headroom (or not known), or a resource past its goal
+    in:
+      fit: goal.sessions-fit.off
+      cpu: goal.cpu-within.off
+      memory: goal.memory-within.off
+      vm: goal.vm-memory-within.off
+      threads: goal.threads-within.off
+      disk: goal.disk-free-enough.off
+    expr: max(fit, cpu, memory, vm, threads, disk)
+    out: [block.implement-when, block.review-when]
+  cleanup-when:
+    type: expr
+    description: clean up while the factory's folders are past their size or the disk is short
+    in:
+      folders: goal.factory-disk-within.off
+      disk: goal.disk-free-enough.off
+    expr: max(folders, disk)
+    out: block.disk-cleanup
+  disk-cleanup:
+    type: program
+    description: removes session folders past [resources] session_keep_hours and installs other than current, previous and recent ones - only the factory's own names
+    run: python3 dev/bin/cleanup.py
+    timeout: 10m
+    in: block.cleanup-when
+    out: auxiliary.factory-disk
