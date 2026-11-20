@@ -213,3 +213,34 @@ container, not a host folder; the host side (`keep.raw`, under tmp) is not in th
 own tree fails the same way in this container. Following lesson-13, it is not fixed here. The fix (check only the host
 side of each `-v`, before the last `:`) belongs in its own gap. Left, as before: a unit run on the merged tree once
 that test (and the lease restart test) is fixed on main, and the browser files.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-20 14:18).
+
+Its fast suites failed 2 times (the kill rule); the last: the fast suites failed (unit: tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessions_own_folder, tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth, tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere).
+
+```
+ner', 'implementor_model': 'opus', 'implementor_session_usd': 5.0}})
+
+    def test_the_container_mounts_only_the_sessions_own_folder(tmp_path, mods):
+        fac, sessions, cfg = mods
+        agents = module("agents")
+        keep = sessions.Session(cfg, "reviewer", None)
+        args = agents.run_args({**cfg, "ai": {"reviewer_model": "opus", "reviewer_session_usd": 1}}, "reviewer",
+                               tmp_path / "work", "n", keep)
+        mounts = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
+        assert mounts == [f"{tmp_path / 'work'}:/work:ro", f"{keep.raw}:/home/dev/.claude/projects"]
+>       assert not any(str(Path.home()) in m for m in mounts) and "run" not in keep.raw.parts
+E       assert (not True)
+E        +  where True = any(<generator object test_the_container_mounts_only_the_sessions_own_folder.<locals>.<genexpr> at 0xffff775cd1c0>)
+
+/work/tests/test_factory_sessions.py:179: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere
+FAILED tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth
+FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessions_own_folder
+3 failed, 1893 passed, 69 skipped in 254.63s (0:04:14)
+{"rc": 1, "wall_s": 255.8, "peak": {"threads": 356, "rss_mb": 1665.1, "procs": 124, "worker_mb": 467.7}, "killed": null, "workers_killed": 0, "left_behind": 0}
+
+```
