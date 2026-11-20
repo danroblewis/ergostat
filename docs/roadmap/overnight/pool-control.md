@@ -244,3 +244,13 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
 {"rc": 1, "wall_s": 255.8, "peak": {"threads": 356, "rss_mb": 1665.1, "procs": 124, "worker_mb": 467.7}, "killed": null, "workers_killed": 0, "left_behind": 0}
 
 ```
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 14:18).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 4: ack
+- attempt 5: ack
+- attempt 6: nack the run ended with gap/pool-control still parked
+- attempt 7: nack the run ended with gap/pool-control still parked
