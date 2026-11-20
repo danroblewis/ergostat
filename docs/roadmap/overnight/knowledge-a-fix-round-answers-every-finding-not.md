@@ -19,3 +19,13 @@ Seen as: warm2: two non-blocking findings of round 1 (a stale SPEC sentence, a t
 ## Size budget
 
 0 net lines of code (knowledge only).
+
+## Where it stopped
+
+Built: the lesson is appended to `dev/knowledge/review-lessons.md` word for word, final period omitted as given.
+One choice made without anyone to ask: "nothing else changed" could not hold to the letter. Three assertions in
+`tests/test_factory_knowledge.py` hard-code the lesson count. Two compare against `lesson-1`..`lesson-11` (in
+`test_knowledge_files_parse`, the acceptance test, and in `test_brief_carries_knowledge_within_budget`). One expects
+`lesson.py add` to number the next lesson § 12 (`test_cli_tools_on_a_fixture_instance`). With § 12 added, all three
+fail. They now count to 12 and expect § 13. This is the smallest change that lets the lesson exist, and it is easy to
+undo; no code outside `tests/` changed. Nothing is left.
