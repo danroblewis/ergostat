@@ -87,10 +87,12 @@ def _zombie(pid: int) -> bool:
     return bool(f) and f[0] == "Z"
 
 
-def charge(before: dict[int, float], pgid: int) -> tuple[float, list[int], list[int]]:
-    """The CPU the group used since ``before``; the members not there then and still running now (left running, its
-    leader never among them); and those that ended but were not reaped (unreaped)."""
+def charge(before: dict[int, float], pgid: int) -> tuple[float | None, list[int], list[int]]:
+    """The CPU the group used since ``before`` (None when its leader is not in ``before``: the hand-over's could not
+    be read, and the group's whole life is never charged to one run); the members not there then and still running
+    now (left running, its leader never among them); and those that ended but were not reaped (unreaped)."""
     now = snapshot(pgid)
     new = sorted(set(now) - set(before) - {pgid})
     dead = [p for p in new if _zombie(p)]
-    return max(0.0, sum(now.values()) - sum(before.values())), [p for p in new if p not in dead], dead
+    cpu = max(0.0, sum(now.values()) - sum(before.values())) if pgid in before else None
+    return cpu, [p for p in new if p not in dead], dead

@@ -78,3 +78,23 @@ outside the supervisor's lock opened a race:
   old processes die.
 - **Tests needed:** the hold/hand gap with a drain in between (the run requeued, never failed); and revive at the cap
   (never more than 64 warm processes alive at once).
+
+### Round 1 after parking (2026-11-20): every finding above fixed
+
+- **The hold/hand race (blocking): closed by the first fix.** `Process.stop()` sets `stopping` and queues `stop`
+  under the process's own lock; `Process.hand(run, line)` checks under that lock, so a run's line is queued before
+  `stop` or not at all. A run refused that way (or no longer held, after a restart's `fail_all`) is ended
+  `requeue=True`: given back uncounted ("was stopping before the run was handed over"), never failed. I picked
+  this fix over requeueing in `stop()` because it is the more local and reversible change: one method and one flag.
+- **A failed hand-over snapshot:** `usage.charge` gives `None` when the leader is not in `before`. That run's
+  `resources` have no `cpu`, only `unmeasured` (the cost rollups already treat a missing `cpu` as unknown).
+  Elsewhere than macOS and Linux this now says unmeasured instead of charging 0.
+- **The cap during revive and restart:** `revive` claims a fresh warm process only while `_warm_live() < WARM_ALL`.
+  The rest are left `starting` for the tick, which keeps to the cap. A warm process killed by `_restart` stays in
+  `Supervisor.dying` and counts toward the cap until its leader has ended.
+- **Tests added** (`tests/test_warm.py`), each seen failing with its fix disabled:
+  `test_a_run_held_but_drained_before_its_hand_over_is_given_back_never_failed`,
+  `test_revive_never_has_more_warm_processes_alive_than_the_cap` (4 alive under a cap of 2 without the fix), and
+  `test_a_hand_over_not_read_charges_nothing`.
+- Size: about 364 net lines outside `tests/` and `docs/`, within the 400 budget. Still to do: the gate's review, and
+  the four suites under the watchdog (the factory's).

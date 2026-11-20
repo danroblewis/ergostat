@@ -283,6 +283,62 @@ def test_warm_processes_are_capped(tmp_path, monkeypatch):
     assert 1 <= most <= 2, most
 
 
+def test_a_run_held_but_drained_before_its_hand_over_is_given_back_never_failed(tmp_path, monkeypatch):
+    from ergostat.daemons import proc
+    p = setup(tmp_path, "{run: python3 w.py, warm: true, concurrency: 1}")
+    real, e, drained = proc.usage.snapshot, None, []
+
+    def snapshot(pgid):                              # between the hold and the hand-over: its process drained
+        if not drained and e is not None:
+            with e.daemons.lock:
+                slot = next(s for s in e.daemons.slots.values() if s.proc and s.proc.pid == pgid)
+                drained.append(slot.proc.runs.copy())
+                e.daemons._recycle(slot, "a test's drain")
+        return real(pgid)
+    monkeypatch.setattr(proc.usage, "snapshot", snapshot)
+    e = start(p)
+    try:
+        assert wait_for(lambda: len(starts(tmp_path)) == 1 and e.daemons.free("block.worker") == 1, 10)
+        p.events.add("ticket.opened", item="ticket/0", source="t")
+        assert wait_for(lambda: item(p, "ticket/0").state == "done", 20)
+    finally:
+        e.close()
+    assert drained and drained[0], "the run was held when its process was drained"
+    assert len(starts(tmp_path)) == 2 and len(started(p)) == 1, "never sent to the process drained; done on the next"
+    said = json.dumps(p.events.query(n=None))
+    assert "ended while draining" not in said and "was stopping before the run was handed over" in said
+
+
+def test_a_hand_over_not_read_charges_nothing():
+    from ergostat.daemons import usage
+    cpu, _, _ = usage.charge({}, os.getpgid(0))
+    assert cpu is None, "never the group's whole life charged to one run"
+
+
+def test_revive_never_has_more_warm_processes_alive_than_the_cap(tmp_path, monkeypatch):
+    from ergostat.daemons import supervise
+    monkeypatch.setattr(supervise, "WARM_ALL", 2)
+    p = setup(tmp_path, "{run: python3 w.py, warm: true, concurrency: 2}")
+    for i in range(2):
+        p.events.add("ticket.opened", item=f"ticket/{i}", source="t", data={"sleep": 1.5})
+    e, most = start(p), 0
+
+    def live() -> bool:
+        nonlocal most
+        pids = [int(x) for x in (tmp_path / "starts.log").read_text().split()]
+        most = max(most, sum(alive(x) and not _zombie(x) for x in pids))
+        return len(pids) == 4 and all(item(p, f"ticket/{i}").state == "done" for i in range(4))
+    try:
+        assert wait_for(lambda: all(item(p, f"ticket/{i}").state == "doing" for i in range(2)), 10)
+        assert e.daemons.revive("block.worker")
+        for i in (2, 3):
+            p.events.add("ticket.opened", item=f"ticket/{i}", source="t")
+        assert wait_for(live, 30)
+    finally:
+        e.close()
+    assert most <= 2, f"{most} warm processes alive at once (the cap 2)"
+
+
 def test_one_alarm_when_a_warm_daemons_processes_are_given_up(tmp_path):
     from ergostat.daemons.supervise import of_daemon
     p = setup(tmp_path, "{run: python3 w.py crash, warm: true, concurrency: 2, restart: {max: 0}}")

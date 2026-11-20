@@ -62,6 +62,7 @@ class Supervisor(Hands):
         self.lock = threading.RLock()
         self.slots: dict[str, Slot] = {}
         self.draining: list[tuple[Slot, Process]] = []
+        self.dying: list[Process] = []               # (warm) restarted, its group being killed: counted until it ends
         self.push: dict[tuple[str, str], object] = {}
         self.pushed_at: dict[str, float] = {}
         self.put_off: dict[str, str] = {}                # item → the daemon given up that gave it back, put off
@@ -105,13 +106,15 @@ class Supervisor(Hands):
         """The owner's ``block NAME --restart``: a daemon given up (or any) started afresh, its restarts forgotten."""
         with self.lock:
             fresh = []
-            for old_slot in self.subs(name):
+            subs = self.subs(name)
+            for old_slot in subs:
                 self._drain(old_slot, "the owner asked for a restart")
                 slot = self.slots[old_slot.d.name] = Slot(old_slot.d)
-                slot.spawning = True                 # (as in sync: spawned here, before revive returns)
-                fresh.append(slot)
                 self._release(old_slot.d.name)
-        if not fresh:
+                if not slot.d.warm or self._warm_live() < WARM_ALL:
+                    slot.spawning = True             # (as in sync: spawned here, before revive returns; else by the
+                    fresh.append(slot)               # loop once the processes draining end: WARM_ALL at most)
+        if not subs:
             return False
         self.e.say(f"daemon {name}: restarted, as the owner asked")
         for slot in fresh:
@@ -119,9 +122,11 @@ class Supervisor(Hands):
         return True
 
     def _warm_live(self) -> int:
-        """(under the lock) Warm processes running, being started, or draining: never more than WARM_ALL."""
+        """(under the lock) Warm processes running, being started, draining or being killed: never more than
+        WARM_ALL."""
+        self.dying = [p for p in self.dying if p.proc.poll() is None]
         return sum(1 for s in self.slots.values() if s.d.warm and (s.proc or s.spawning)) + \
-            sum(1 for s, _ in self.draining if s.d.warm)
+            sum(1 for s, _ in self.draining if s.d.warm) + len(self.dying)
 
     def subs(self, name: str) -> list[Slot]:
         """(under the lock) The daemon of that name: its one slot, or a warm one's process slots (NAME#i)."""
@@ -272,6 +277,8 @@ class Supervisor(Hands):
                 return
             p, d = slot.proc, slot.d
             slot.proc = None
+            if p is not None and d.warm:
+                self.dying.append(p)
             slot.up.clear()
             slot.restarts.append(now)
             while slot.restarts and now - slot.restarts[0] > d.within:

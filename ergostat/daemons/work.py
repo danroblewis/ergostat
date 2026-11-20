@@ -59,7 +59,7 @@ class Hands:
             time.sleep(0.02)
             checked = not item                       # (after a wait its lease is read again before it is held)
         if slot.d.warm:                              # (its CPU noted outside the lock: /proc on Linux is slow)
-            held.hand(line)
+            held.hand(run, line)
         if not h.done.wait(max(0.0, limit - time.monotonic())):
             self.cancel(run, "its timeout")
             h.done.wait(grace() + 7)
