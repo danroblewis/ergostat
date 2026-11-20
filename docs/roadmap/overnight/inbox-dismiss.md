@@ -268,3 +268,48 @@ Budget: about 125 net lines outside tests/ and docs/, within 250. Run here, each
 `test_interventions.py`, `test_self_improve.py`, and `test_notify.py` with `test_relations.py` and
 `test_extremes_closed.py`. All pass, and ruff is clean. Not run: the whole unit suite, the browser files
 (`test_inbox_page.py`) and `test_leases.py`.
+
+## Where it stopped
+
+Continued, round 2. Each finding of review/inbox-dismiss-4, in turn (lesson-12):
+
+- **A redesign's `too-large` dismissal undone on the next pass** (lesson-1, lesson-5). I made `hold()` respect a
+  dismissal, rather than taking redesign requests out of the inbox, because the definition asks for held requests to
+  be answerable. `redesign_due.hold` now reads and writes under `requests.locked`. A dismissed request whose unit is as
+  it was is left alone. Once the unit changes, it is `reopened` with `requests.fresh()` (untried, not the owner's, every
+  dismissal field cleared) and then held again for the owner. "Its unit as it was" is `version.part(spec,
+  "system.U")`, which is now the system's own parts (`redesign_due.signature`, the hash the redesigner's rests already
+  use) plus its description. A unit that is the whole model waits on the whole model, as before. Tests:
+  `test_a_dismissed_redesign_request_stays_dismissed_across_the_redesigners_passes` (dismissed, `next_due` again,
+  still dismissed with its note; one stock added, held again with no dismissal field left), and
+  `test_the_redesigner_holds_under_the_lock` (the owner's dismissal is put in the gap between hold's read and its
+  write).
+- **`approvable` is an allowlist** (lesson-8, the owner's allowlist decision). It now requires all of these: a source the
+  tiers take up (`TAKEN_UP`: check, craft, coherence, fit; never redesign), a tier of `rule` or `ai`, a code not in
+  `OWNER`, and a block whose run's words include `modelling ai` (tokens now, not a substring). So a redesign request
+  lists only `deny`. Test: `test_a_redesign_request_is_never_approved_to_the_ai_tier`. The choice made with nobody to
+  ask: a request held because the owner dismissed its change (`owner: true`, tier ai) stays approvable, because the
+  owner's own approval is what hands it back. If that should not be offered either, add `not r.get("owner")` to
+  `approvable`. That is a one-line change.
+- **SPEC's "under one lock" sentence was wider than the code** (lesson-8). The code now matches it. The redesigner's run
+  end (`library/run/modelling.py`) and `redesign_due.unfinished` write through `requests.move`, which reads again
+  under the lock and writes only from the named states. The run's end writes only on a request that is still `open`,
+  or `answered` as never ended. `mark` is now `move` from the state the tier read. No `rq.event` is left outside the
+  lock: the only calls are in `sync` and `hold`, both under it. SPEC §12e names each writer and the allowlist, and
+  §12o's row is changed to match.
+- **The lease and engine fix is out of this branch** (lesson-13). `leases/dispatch.py`, `spec/engine.py` and
+  `tests/test_leases.py` are byte-for-byte main's again (`git diff main` on them is empty). The unit test that fix was
+  for, `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, is a race in the engine's
+  shutdown (this record, round 3) and may flake again under load. **It needs its own gap**, which I have not opened from
+  here. If it fails the next unit run, it is not this branch's code.
+
+Each new test was seen to fail with its fix disabled (lesson-9): the allowlist (it fails as `["approve", "deny"]`),
+the dismissal check in `hold` (the dismissal is undone), and the lock in `hold` (the answer does not wait, and the
+hold writes over it).
+
+Main: `git merge-base HEAD main` is main's tip (f158e00), so there is nothing new to merge in this container.
+Budget: about 145 net lines in ergostat/ and diagram.js, within 250. Run here, each file alone or in pairs:
+`test_inbox.py` (29), `test_modelling_core.py`, `test_modelling_core2.py`, `test_redesign.py`,
+`test_modelling_template.py` with `test_redesign_memory.py`, `test_interventions.py` with `test_notify.py`,
+`test_self_improve.py`, and `test_leases.py` (as main's). All pass, and ruff is clean. Not run: the whole unit suite
+and the browser files (`test_inbox_page.py`).

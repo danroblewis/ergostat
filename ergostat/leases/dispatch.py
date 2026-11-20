@@ -201,24 +201,12 @@ class Dispatcher:
         fence = int(lease.get("fence") or 0) + 1
         run = uuid.uuid4().hex
         cause = it.moves[-1]["event"] if it.moves else None      # what brought it to the state it is taken from
-        key = f"{b.name} {it.id}"
-        with self.e.lock:                  # counted as running before it is taken, then stop looked at: close waits for
-            mine = key not in self.e.running   # it, or it sees close began and takes nothing (no lease after the stop);
-            self.e.running.add(key)            # a key another run holds is never taken away by this one
-        got = None
-        try:
-            if self.e.stop.is_set():
-                return None
-            ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
-                                   data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
-                                         "max": t["attempts"],
-                                         "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1})
-            now = its.one(self.p.events, self.spec, it.id)
-            got = held(now.fields) if now else None
-        finally:
-            if mine and (not got or got.get("holder") != run):
-                with self.e.lock:
-                    self.e.running.discard(key)
+        ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
+                               data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
+                                     "max": t["attempts"],
+                                     "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1})
+        now = its.one(self.p.events, self.spec, it.id)
+        got = held(now.fields) if now else None
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
             return None
         self.resources(ev)
@@ -228,6 +216,7 @@ class Dispatcher:
         given = {"fence": fence, "ttl": t["ttl"], "expires": got.get("expires"), "attempt": int(lease.get("attempts") or 0) + 1,
                  "attempts": t["attempts"], "tier": t["tier"], "back": it.state}
         with self.e.lock:
+            self.e.running.add(f"{b.name} {it.id}")
             given["model"] = (self.e.spec, self.e.version)       # it runs to its end under the model it was taken under
         if inline:
             return b, item, given, run, ev["id"]
