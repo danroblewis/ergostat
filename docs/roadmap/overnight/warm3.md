@@ -144,3 +144,23 @@ Failed its gates twice (the kill rule). Blocking findings:
 - docs/roadmap/overnight/warm2.md:136-137 (lesson-7): origin/main, by the branch's own account ahead by several merges, was not merged in and the four suites were not run after it. The house rules need both before 'done'. The supervisor and daemon code this branch rewrites (supervise.py, work.py, proc.py) has already conflicted with main once (61cd918), so a merge that passes for each side alone is a real risk to the main people install.
 - docs/SPEC.md:2325 and ergostat/daemons/usage.py:8 (lesson-8; warm2-1's finding, not addressed in round 3): both still say 'CPU used after done falls into the next run's charge'. Process.hand (proc.py) takes the next run's starting snapshot at its hand-over, so CPU used between one run's done and the next hand-over is charged to no run; only CPU still in use after that snapshot reaches the next run. The same SPEC sentence also says time outside a run is the process's own. Say what the code does: after done and while idle, the process's own (left over, with its start-up). No test backs the current claim.
 - ergostat/cli/spec_cmds.py:197 (lesson-3; warm2-1's finding, not addressed): json.loads(Path(args.check_warm).read_text()) has no error handling. A missing or unreadable FILE, invalid JSON, or JSON that is not an object (warmcheck._run calls given.get) ends in a traceback instead of a message naming the file. Catch OSError/ValueError and check isinstance(given, dict), say what is wrong, and return a usage rc.
+
+## Where it stopped (warm3, round 1, 2026-11-20)
+
+- **CPU after `done` (fixed):** SPEC §9.7 and `daemons/usage.py` now say what the code does. CPU used after `done`
+  and before the next hand-over belongs to no run: it is the process's own, left over with its start-up. Only CPU
+  used after the next hand-over's snapshot is that run's. The new test
+  `test_cpu_used_after_done_and_before_the_next_hand_over_is_no_runs` has a program spend 0.6 s of its own CPU after
+  each `done`, and asserts that neither run is charged it. With the hand-over snapshot left stale, it fails (0.6 s
+  charged to the second run).
+- **`--check-warm FILE` errors (fixed):** a FILE that is missing or unreadable, is not JSON, or is JSON but not an
+  object, is now said on stderr with the file named, nothing run, rc 2. The test is
+  `test_the_check_says_what_is_wrong_with_its_file`. Without the object check, it fails with a traceback.
+- **rc overlap (warm2-2's non-blocking finding):** "nothing concluded" (not deterministic, or no strict `done`) is
+  now rc 3, and rc 2 stays the CLI's usage error. SPEC §9.7 says so, and the two tests that asserted 2 assert 3. This
+  is the more reversible choice: one number in `warmcheck.check`, documented.
+- `tests/test_warm.py` (20) and `tests/test_daemons.py` pass. Ruff is clean. Size: about 15 more net lines of code.
+- **Not done: merging `main`.** This session was again refused `git merge` (and `git merge-tree`, so I could not
+  even preview conflicts). I did not work around that by hand. `main` is 56 commits ahead. The factory's merge, and
+  the four suites run after it under the watchdog, remain before this branch is done. I did not run the four suites
+  myself (the factory runs them).
