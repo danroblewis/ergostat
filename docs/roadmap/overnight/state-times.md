@@ -34,3 +34,24 @@ is the cheapest to remove. SPEC or the factory README says how each is counted.
 ## Size budget
 
 400 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1: `dev/bin/times.py` (the `timer` block, every 10 minutes: `gap.timed` with `time_in`, `loop_rounds`,
+`loop_hours`, `loop_ended` and `gates` on each gap whose record grew, at most 50 a run), the measures in
+`dev/bin/measure.py` (`in-STATE-hours`, `loop-hours`, `loop-rounds`, `gate-GATE-minutes`, each median and `-p90`),
+`dev/model/times.yaml` (an auxiliary and a goal on each, the system `times`), the table in `dev/bin/status.py`, and how
+each is counted in dev/README.md (*Time in each state*). About 320 net lines, all in `dev/` and `ergostat.yaml`.
+
+Decisions taken alone (each reversible), and what is left:
+
+- **The setpoints are not today's values yet.** This clone has no instance record to read them from. The holds in
+  `dev/model/times.yaml` are first guesses; `python3 dev/bin/times.py setpoints`, run once in the instance's folder,
+  sets each to its reading over the last 14 days (tested on a fixture). That run is the step left.
+- `built` is reported with the waiting states (it waits for the reviewer), besides the five the definition names.
+- A gap carries its closed visits only: the visit it is in now counts once it ends, so `gap.timed` is not rewritten
+  every pass. `status.py` shows the open visits apart (how many gaps are in each state now, and the oldest).
+- The loop ends at the first approval, park or dead letter after the last build, so a queue send-back that is rebuilt
+  stays inside one loop; its rounds are its builds.
+- `gap.timed` is an event with no state, like `gap.reverted`; the goals are not wired into `factory-off`, so they do
+  not ask the coordinator for gaps until the owner chooses to.
