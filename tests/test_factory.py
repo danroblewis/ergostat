@@ -1287,7 +1287,8 @@ def test_batch_of_one_is_todays_queue(tmp_path):
 
 
 def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
-    f = Factory(tmp_path, unit="kill -TERM $PPID; sleep 30")                    # the run stopped during its suites
+    # the run stopped during its suites: only ever the queue's own process (never whatever else $PPID could be)
+    f = Factory(tmp_path, unit="ps -o command= -p $PPID | grep -q dev/bin/queue.py && kill -TERM $PPID; sleep 30")
     approved_gaps(f, {"a": 1, "b": 2}, batch=2)
     start = git(f.checkout, "rev-parse", "main")
     said, _ = f.run("queue.py", "gap/a", fails=True)
