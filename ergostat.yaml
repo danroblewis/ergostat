@@ -21,6 +21,10 @@ include:
 systems:
   factory:
     description: ergostat's own development - gaps in, merged and running changes out
+  intake:
+    within: factory
+    description: the gaps found in GAPS.md or asked for, waiting for a definition of done - the slow outer loop
+    show: [stock.gaps-open]
   building:
     within: factory
     description: gaps defined, built by the implementor in their worktrees, and judged by the reviewer

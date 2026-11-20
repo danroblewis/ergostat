@@ -1,5 +1,6 @@
-"""The factory's measures, read from its own record: `measure.py NAME` prints one reading (0 when nothing in the
-window to measure). The window is the last 14 days.
+"""The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
+when nothing in the window to measure, but for first-pass-yield, which has no value then (it exits 1, as ergostat's
+own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
   build-hours         median hours the implementor's runs took per merged gap (every round)
@@ -42,7 +43,9 @@ def reading(name: str, now: float | None = None) -> float:
         return float(sum(t >= now - 7 * 86400 for t in at) - sum(now - 14 * 86400 <= t < now - 7 * 86400 for t in at))
     if name == "first-pass-yield":
         first = [r for r in recent(fac.items("review"), "written_at", since) if r["fields"].get("round") == 1]
-        return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3) if first else 0.0
+        if not first:
+            raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
+        return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
     gaps = fac.items("gap")
     merged = [g["fields"] for g in recent(gaps, "merged_at", since) if g["state"] == "merged"]
     f = lambda k: [float(g.get(k) or 0) for g in merged]  # noqa: E731

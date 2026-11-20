@@ -16,7 +16,7 @@ It ships **off**: the implementor takes nothing until you open the intake.
 | `~/ergostat-wt/<branch>` | each gap's worktree (`.review/`, `.triage/`: the reviewer's and triage's own) |
 | `~/ergostat-live/<sha>` | each installed version: a detached worktree with its own `.venv` |
 | `~/ergostat-live/current`, `previous` | the version running, and the one a revert goes back to |
-| `~/ergostat-live/instance/` | the instance's folder, the same across versions (its record is keyed by it): a copy of the version's `ergostat.yaml`, `dev` -> `../current/dev`, `run/` (briefs, logs, the cost ledger, definitions you write), `factory.local.toml` |
+| `~/ergostat-live/instance/` | the instance's folder, the same across versions (its record is keyed by it): copies of the version's `ergostat.yaml` and `dev/`, made at each switch (an edit made in them since, such as a model change you accepted, is kept as a patch in `run/model-edits/`: bring it to the repository as a gap), `run/` (briefs, logs, the cost ledger, definitions you write), `factory.local.toml` |
 | `dev/factory.toml` | the settings (paths, models, per-session limits, the suites' commands); `factory.local.toml` in the instance's folder overrides any of them |
 | `dev/model/budget.yaml` | **the daily dollar cap** (the goal `ai-budget`, $40 a day): change it there and nowhere else |
 

@@ -282,11 +282,10 @@ blocks:
     goal: upgrades-taken-up
     out: [flow.upgrades-installed, flow.upgrades-superseded]
   approve-switch:
-    type: person
+    type: external
     agent: coordinator
-    description: the coordinator approves the switch to the newest installed version (the switch-instance action in the inbox)
-    ask: "A new version is installed and checked: approve its switch-instance action in the inbox (ergostat inbox), or deny it."
-    goal: upgrades-switched-to
+    description: the coordinator approves the switch to the newest installed version - the gated action switch-instance, asked in the inbox
+    in: goal.upgrades-switched-to
     out: flow.upgrades-switched
   switch:
     type: external

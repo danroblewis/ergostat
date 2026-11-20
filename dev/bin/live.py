@@ -4,9 +4,9 @@ into and resets: each version is its own worktree, detached at its commit, with 
     <live>/<sha>/        a version: a detached worktree of the checkout, its .venv made by `uv sync --frozen`
     <live>/current       -> the version running;   <live>/previous -> the one before it (what a revert goes back to)
     <live>/instance/     the instance's own folder, the same across versions (so its record is: ergostat keys a
-                         record by the model's folder, where its main file really is): a copy of the current version's
-                         ergostat.yaml, dev -> ../current/dev, run/ (briefs, logs, the cost ledger),
-                         factory.local.toml (local settings)
+                         record by the model's folder, where its files really are): copies of the current version's
+                         ergostat.yaml and dev/ (made at each switch; what was edited in them since is kept as a
+                         patch in run/model-edits/ first), run/ (briefs, logs, the cost ledger), factory.local.toml
 
     live.py install REF       make the version (worktree, environment) and check the model with its own code
     live.py init [SHA]        make the instance's folder, on SHA (after the first install)
@@ -22,10 +22,12 @@ Every switch is recorded on the upgrade's item (upgrade/<sha12>): switched, then
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -85,13 +87,46 @@ def install(cfg: dict, ref: str) -> dict:
     return {"sha": sha, "dir": str(d), "check": "ok" if ok else "failed", "check_said": r.stdout[-600:]}
 
 
-def place_model(cfg: dict) -> None:
-    """The current version's ergostat.yaml, copied into the instance's folder: a copy, not a link, since ergostat
-    takes a model's folder (and keys its record) by where its main file really is."""
-    inst = instance(cfg)
+def edits(cfg: dict, was: str | None) -> Path | None:
+    """What was changed in the instance's copy of the model since it was placed (an accepted change to the model, an
+    edit by hand), kept as a patch in run/model-edits/ before a switch replaces it: bring it to the repository as a gap."""
+    inst, lv = instance(cfg), live(cfg)
+    if not was or not (inst / "ergostat.yaml").is_file():
+        return None
+    out = []
+    for rel in ["ergostat.yaml", *sorted(str(p.relative_to(lv / was)) for p in (lv / was / "dev").rglob("*")
+                                         if p.is_file() and "__pycache__" not in p.parts)]:
+        a, b = lv / was / rel, inst / rel
+        if b.is_file() and a.read_bytes() != b.read_bytes():
+            out += difflib.unified_diff(a.read_text().splitlines(True), b.read_text().splitlines(True),
+                                        f"a/{rel}", f"b/{rel}")
+    if not out:
+        return None
+    d = fac.run_dir(cfg, "model-edits")
+    p = d / f"{time.strftime('%Y%m%d-%H%M%S')}-{was[:12]}.patch"
+    p.write_text("".join(out))
+    return p
+
+
+def place_model(cfg: dict, was: str | None = None) -> Path | None:
+    """The current version's ergostat.yaml and dev/, copied into the instance's folder: copies, not links, since
+    ergostat takes a model's folder (and keys its record) by where its files really are. What was edited in the copy
+    since ``was`` was placed is kept first (``edits``); the patch is returned."""
+    inst, cur = instance(cfg), live(cfg) / "current"
+    kept = edits(cfg, was)
+    if (inst / "dev.new").exists():
+        shutil.rmtree(inst / "dev.new")
+    shutil.copytree(cur / "dev", inst / "dev.new", ignore=shutil.ignore_patterns("__pycache__"))
+    if (inst / "dev").is_symlink() or (inst / "dev").is_file():
+        (inst / "dev").unlink()
+    elif (inst / "dev").exists():
+        (inst / "dev").rename(inst / "dev.old")
+    (inst / "dev.new").rename(inst / "dev")
+    shutil.rmtree(inst / "dev.old", ignore_errors=True)
     tmp = inst / "ergostat.yaml.new"
-    tmp.write_bytes((live(cfg) / "current" / "ergostat.yaml").read_bytes())
+    tmp.write_bytes((cur / "ergostat.yaml").read_bytes())
     tmp.replace(inst / "ergostat.yaml")
+    return kept
 
 
 def init(cfg: dict, sha: str | None = None) -> Path:
@@ -100,8 +135,6 @@ def init(cfg: dict, sha: str | None = None) -> Path:
     (inst / "run").mkdir(parents=True, exist_ok=True)
     if sha:
         point(live(cfg) / "current", fac.git(fac.path(cfg, "checkout"), "rev-parse", "--verify", f"{sha}^{{commit}}"))
-    if not (inst / "dev").is_symlink():
-        (inst / "dev").symlink_to("../current/dev")
     place_model(cfg)
     return inst
 
@@ -162,15 +195,16 @@ def switch(cfg: dict, sha: str) -> dict:
     lv = live(cfg)
     if not ergostat_of(cfg, sha).exists():
         raise SystemExit(f"{sha[:12]} is not installed: live.py install {sha}")
-    was = target(lv / "current")
+    was, before = target(lv / "current"), target(lv / "previous")
     began = time.time()
     stop(cfg)
     if was and was != sha:
         point(lv / "previous", was)
     point(lv / "current", sha)
-    place_model(cfg)
+    kept = place_model(cfg, was)
     start(cfg)
-    record(cfg, sha, "upgrade.switched", switched_at=began, previous=was or "")
+    record(cfg, sha, "upgrade.switched", switched_at=began, previous=was or "", switch="ran",
+           model_edits=str(kept or ""))
     deadline, h = time.time() + HEALTH_WAIT, {}
     while time.time() < deadline:
         time.sleep(5)
@@ -182,7 +216,9 @@ def switch(cfg: dict, sha: str) -> dict:
     if not was or was == sha:
         return h                                         # nothing to go back to: left stopped, said by the caller
     point(lv / "current", was)
-    place_model(cfg)
+    if before:
+        point(lv / "previous", before)                  # previous is what it was: the failed one is never gone back to
+    place_model(cfg, sha)
     start(cfg)
     engine(cfg, was, "event", "--add", "upgrade.reverted", "--item", f"upgrade/{sha[:12]}", "--data",
            json.dumps({"health": h, "reverted_to": was, "reverted_at": time.time()}), "--as", "upgrader")
