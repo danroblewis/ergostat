@@ -180,6 +180,7 @@ def build() -> argparse.ArgumentParser:
     bk = topic("block", cmd_block, "The blocks (YAML model), or one; a person reports on theirs")
     bk.add_argument("--done", type=float, metavar="N", help="a person's report: what they moved")
     bk.add_argument("--approve", action="store_true", help="approve an advised command (mode: advise)")
+    bk.add_argument("--reset", action="store_true", help="reset the breaker of a block started by events (it tripped)")
     bk.add_argument("--stop", action="store_true", help="stop its run under way (one a model change left to finish, "
                     "say); it starts again only as the model says")
     bk.add_argument("--restart", action="store_true", help="start its daemon (or the daemon of this name) afresh: one "
@@ -391,6 +392,7 @@ def _more_files() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from ..goodmodel import ReadOnlyRecord
     _more_files()
     ap = build()
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -413,6 +415,10 @@ def main(argv: list[str] | None = None) -> int:
         return args.fn(args)
     except DurationError as e:
         print(e, file=sys.stderr)
+        return 2
+    except ReadOnlyRecord as e:                         # (an acting path the flags did not tell: refused all the same)
+        print(f"ergostat {args.topic or ''} would write to the record ({e}): fix the YAML first (ergostat check shows "
+              f"the errors)", file=sys.stderr)
         return 2
     except BrokenPipeError:
         return 0

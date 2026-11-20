@@ -45,6 +45,11 @@ def _command(run: str) -> str:
     return " ".join(words)
 
 
+def command(spec: Spec, x: Sensor) -> str:
+    """The program a sensor reads by: its ``run:``, or its daemon's (SPEC §9.7)."""
+    return x.run or (spec.daemons[x.daemon].run if x.daemon in spec.daemons else "")
+
+
 def short(text: str, n: int = 32) -> str:
     """At most ``n`` characters, an ellipsis where it is cut (the whole of it is in the panel)."""
     return text if len(text) <= n else text[:n - 1] + "…"
@@ -81,7 +86,7 @@ def what(spec: Spec, x: Sensor) -> str:
         return x.description or "a person's reading"
     if x.description and len(x.description) <= 60:
         return x.description
-    return f"run: {short(_command(x.run or ''))}"                # (the whole command: in its panel)
+    return f"{'daemon' if x.daemon else 'run'}: {short(_command(command(spec, x)))}"   # (the whole command: in its panel)
 
 
 def reads(spec: Spec, x: Sensor) -> str:
@@ -105,7 +110,7 @@ def collectors(spec: Spec) -> dict[str, list[Sensor]]:
             if f.target != st.name or f.source:
                 continue
             for x in f.sensors.values():
-                if x.run or x.query:
+                if x.commands or x.query:
                     for k in sorted(kinds):
                         if all(y is not x for y in out.get(k, [])):
                             out.setdefault(k, []).append(x)

@@ -67,15 +67,19 @@ def _edited(args, err: Exception) -> int | None:
 
 
 def status(args) -> int:
+    from ..goodmodel import fallback
     from ..runner import running_pid, web_url
     from ..store import Project
+    here, broken = Path(args.C).resolve() if getattr(args, "C", None) else Path.cwd(), None
     try:
-        p = Project(mdl.load(Path(args.C).resolve() if getattr(args, "C", None) else Path.cwd()))
-    except mdl.ModelError as e:                           # still running the last good version, when a runner runs
-        got = _edited(args, e)
-        if got is not None:
-            return got
-        p = open_project(args)                            # (which says it, as everywhere)
+        p = Project(mdl.load(here))
+    except mdl.ModelError as e:                           # shown with the engine's last good model, when one is kept
+        p, broken = fallback(here, e), e
+        if p is None:
+            got = _edited(args, e)                        # (else: a runner still runs the last good version)
+            if got is not None:
+                return got
+            p = open_project(args)                        # (which says it, as everywhere)
     except Exception:
         p = open_project(args)
     m, snap = p.model, snap_of(p, args)
@@ -85,8 +89,13 @@ def status(args) -> int:
     if pid:                                               # loads, but the runner refused it (errors the check finds)
         from ..reload import read_state
         edited = read_state(p.dir)
-        if edited:
-            att.insert(0, {"level": "bad", "what": "the model", "says": edited["banner"]})
+    if broken is not None:
+        from .. import reload as rl
+        lines = [x.strip() for x in str(broken).splitlines()[1:] if x.strip()] or [str(broken)]
+        edited = {"banner": rl.banner(lines) if pid else rl.banner(lines).replace("still running", "shown with"),
+                  "errors": lines}
+    if edited:
+        att.insert(0, {"level": "bad", "what": "the model", "says": edited["banner"]})
     spec = getattr(m, "spec", None)
     if spec is not None and not getattr(args, "at", None):   # the YAML model's findings: from the record, and missing loops
         from ..spec import watch

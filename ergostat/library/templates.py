@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+from ..spec import files
+
 HERE = Path(__file__).resolve().parent / "templates"
 ENV = "ERGOSTAT_LIBRARY"
 BODY = ("items", "systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents", "workspaces", "actions",
@@ -72,7 +74,7 @@ _Loader.add_implicit_resolver("tag:yaml.org,2002:bool", __import__("re").compile
 
 def read(path: Path, builtin: bool) -> Template:
     try:
-        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
+        data = yaml.load(files.read_text(path), Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
     except (OSError, yaml.YAMLError) as e:
         raise TemplateError(f"template {path}: {e}") from e
     if not isinstance(data, dict) or not isinstance(data.get("template"), str):
@@ -111,11 +113,11 @@ def find_all(extra: list[Path] | None = None) -> tuple[dict[str, Template], list
     got: dict[str, Template] = {}
     notes: list[str] = []
     for d in folders(extra):
-        if not d.is_dir():
+        if not files.is_dir(d):
             if d != HERE:
                 notes.append(f"library folder {d} does not exist")
             continue
-        for f in sorted([*d.glob("*.yaml"), *d.glob("*.yml"), *d.glob("*/template.yaml")]):
+        for f in sorted([*files.glob(d, "*.yaml"), *files.glob(d, "*.yml"), *files.glob(d, "*/template.yaml")]):
             try:
                 t = read(f, d == HERE)
             except TemplateError as e:

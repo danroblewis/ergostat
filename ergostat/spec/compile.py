@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from ..durations import DurationError, parse_duration
+from . import files
 from .equation import FUNCS as FUNCTIONS
 from .ir import (
     ACTION,
@@ -80,12 +81,13 @@ AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "descripti
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
-MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease"}
+MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
-    "program": MACHINE_COMMON | LAW_KEYS | {"run", "daemon", "parse", "goal", "until", "review", "workspace", "actions"},
+    "program": MACHINE_COMMON | LAW_KEYS | {"run", "daemon", "parse", "goal", "until", "review", "workspace", "actions",
+                                            "read-only", "network"},
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
-                                       "workdir", "workspace", "read", "tools", "actions"},
+                                       "workdir", "workspace", "read", "tools", "actions", "read-only", "network"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
     "external": {"agent", "identify"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up",                # judge: model (SPEC §12e)
@@ -878,6 +880,12 @@ class Compiler:
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
+        from ..repair import BLOCKS, FAILURE, failure_kind
+        if BLOCKS[0] in self.doc.sections.get("blocks", {}):
+            spec.items[FAILURE] = failure_kind()             # built in, under use: repair: failing runs (SPEC §12r)
+            if "--approver ai" in str(self.doc.sections["blocks"][BLOCKS[0]].get("run")):
+                self.err("use: repair: approver: ai: not yet: a sound allowlist guard is needed (GAPS)",
+                         self.doc.defined[("blocks", BLOCKS[0])], "not-yet")
         if any(u.get("template") == "interventions" for u in d.uses.values()):
             from .ir import MODEL_REQUEST, model_request_kind
             spec.items[MODEL_REQUEST] = model_request_kind()  # built in, with the interventions loop (SPEC §12p)
@@ -1004,6 +1012,8 @@ class Compiler:
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
+        from . import triggers
+        triggers.check(self, spec)                           # blocks started by an event, and their loops (SPEC §9.3)
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
         for b in judges[1:]:
             self.err(f"block {b.name}: one judge of changes to the model at most ({judges[0].name} is one)", b.where,
@@ -1406,7 +1416,7 @@ class Compiler:
                 params.pop("table", None)
         if t == "ai" and m.get("prompt") is not None:
             p = str(m["prompt"])
-            if "\n" not in p and p.endswith((".md", ".txt")) and not (self.doc.root / p).is_file():
+            if "\n" not in p and p.endswith((".md", ".txt")) and not files.is_file(self.doc.root / p):
                 self.err(f"{what}.prompt: {p} is not a file here", m.at("prompt"), "prompt-missing")
         signs: dict[str, int] = {}
         ins = self.refs(m, "in", what, ("stock", "flow", "auxiliary", "goal", "block"), signs if t in MACHINE or t == "judge" else None)
@@ -1447,8 +1457,10 @@ class Compiler:
         if t in ONE_INPUT and not inputs:
             self.err(f"{what}: a {t} block needs in: (the signal it works on)", m.where, "missing-key")
         from ..leases import compile as leases
+        from . import triggers
         lease_keys = {"takes": leases.takes(self, m, what), "pool": leases.pool(self, m, what),
-                      "lease": leases.terms(self, m, "lease", what)} if t in MACHINE else {}
+                      "lease": leases.terms(self, m, "lease", what), "on": triggers.compile_on(self, m, what)} \
+            if t in MACHINE else {}
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
                      **lease_keys,
                      system=self.system("blocks", name, m), description=self.text(m, "description"),

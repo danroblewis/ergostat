@@ -313,7 +313,7 @@ def _events_of(spec, f, model) -> dict | None:
     v = model.valve_of(f.name) if model is not None and hasattr(model, "valve_of") else None
     if v is not None:
         return {"valve": v.name, "how": f"moved by {v.name}: each opening, and the items the run that opened it was about"}
-    s = next((x for x in f.sensors.values() if x.run), None)
+    s = next((x for x in f.sensors.values() if x.commands), None)
     if s is not None:
         return {"source": sensor_name(f.name, s.name),
                 "how": f"its sensor {s.name} runs a command: the items it reported seeing, if any"}
@@ -337,7 +337,7 @@ def _no_items(spec, kind: str, name: str) -> str:
             return f"measured by {s.name}, one of ergostat's own measures, which names no items"
         if s.manual:
             return f"read by hand ({s.name}): a reading names no items"
-        if s.run:
+        if s.commands:
             return f"measured by {s.name}, a command whose readings name no items"
     if kind == "flow":
         return "nothing measures it with items: it is estimated from what its stocks do"

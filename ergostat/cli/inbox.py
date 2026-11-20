@@ -44,6 +44,13 @@ def cmd_inbox(args) -> int:
         print("one of --approve, --deny or --done N, with the entry's ID", file=sys.stderr)
         return 2
     if verbs:
+        from ..inbox import entries
+        from ..spec.triggers import own
+        e = entries.find(p, spec, args.name)
+        if e and e.get("block") and e["kind"] in ("advise", "breaker") and own(p.events, e["block"]):
+            print(f"a run of {e['block']} answers for it to no one: its approvals and its breaker are the owner's",
+                  file=sys.stderr)
+            return 2
         try:
             got = answer.answer(p, spec, args.name, verbs[0], args.done, args.note, by=args.by or "owner")
         except answer.AnswerError as e:

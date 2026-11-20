@@ -38,7 +38,7 @@ blocks:
   open-pr:
     type: program
     goal: worked-opened
-    run: python3 bin/step.py open-pr
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: worked, to: [pr-open, stopped]}
     pool: 3
     workspace: code

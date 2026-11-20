@@ -8,6 +8,8 @@ command it stands for, answered as that command's ``--json`` answers.
   a call that has to wait for an answer is parked (``server.py``);
 - ``lease``: ``{"how": "renew" | "nack", "why", "after", "count", "env"}``: ``ergostat lease --renew`` / ``--nack``;
 - ``item``: ``{"id"}``: ``ergostat item ID --json``;
+- ``items``: ``{"kind", "state", "offset"}``: ``ergostat item --kind K --state S --json`` (each optional), so a daemon
+  reads the items without starting a process: a page of them from ``offset``, and ``total``, how many match;
 - ``ping``: whether it listens, and for which project."""
 
 from __future__ import annotations
@@ -22,6 +24,11 @@ class Refused(Exception):
 def event(eng, req: dict) -> dict:
     from ..intake import envelope
     from ..spec import items as its
+    from ..spec.triggers import block_of, undeclared
+    why = undeclared(eng.spec, block_of(eng.p.events, req.get("causedby")),   # the run's block, from its record
+                     [e.get("event") for e in req.get("events") or [] if isinstance(e, dict)])
+    if why:                                              # a run started by events says only what it declares (SPEC §9.3)
+        raise Refused(f"not recorded: {why}")
     try:
         got = envelope.record(eng.p, envelope.parse(req.get("events")), source=str(req.get("source") or "user"),
                               causedby=req.get("causedby") or None)
@@ -48,6 +55,12 @@ def item(eng, req: dict) -> dict:
     if d is None:
         raise Refused(f"no item {req.get('id')!r}")
     return {"item": d}
+
+
+def items(eng, req: dict) -> dict:
+    from ..spec import items as its
+    return its.listing(eng.p.events, eng.spec, kind=req.get("kind") or None, state=req.get("state") or None,
+                       offset=max(0, int(req.get("offset") or 0)))
 
 
 def lease(eng, req: dict) -> dict:

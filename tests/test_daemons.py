@@ -100,6 +100,57 @@ def alive(pid: int) -> bool:
     return True
 
 
+def spawned(p) -> int:
+    """Processes the supervisor spawned, by its log: one killed as soon as spawned (never in starts.log) counts too."""
+    return (p.dir / "logs" / "daemon-block.worker.log").read_text().count(" starting: ")
+
+
+def test_first_start_spawns_once(tmp_path):
+    p = setup(tmp_path, block("{run: python3 d.py}"))
+    e = start(p)
+    try:
+        assert wait_for(lambda: starts(tmp_path), 10)
+        time.sleep(0.5)                                  # (the supervisor's first ticks, which once started it again)
+    finally:
+        e.close()
+    assert spawned(p) == 1, "the engine's start and the supervisor's first tick both spawned it"
+    assert len(events(p, "ergostat.daemon.started")) == 1
+
+
+def test_a_daemon_is_running_when_the_engine_has_started_whichever_thread_wins_its_first_spawn(tmp_path, monkeypatch):
+    """The supervisor's loop starts before the engine's own first spawn; were its first tick to claim the new slot,
+    the engine's start returned with it still "starting", and the first reading asked failed (a sensor polled every
+    minute then had no reading for a minute). Here the loop is given every chance to win: the engine's own spawn
+    waits until the loop has begun one, and the loop's is slow."""
+    from ergostat.daemons.supervise import Supervisor
+    loop_spawning = threading.Event()
+    spawn, start_ = Supervisor._spawn, Supervisor._start
+
+    def slow_spawn(self, slot):
+        if threading.current_thread().name == "ergostat-daemons":
+            loop_spawning.set()
+            time.sleep(0.5)
+        spawn(self, slot)
+
+    def late_start(self, slot):
+        if threading.current_thread().name != "ergostat-daemons":
+            loop_spawning.wait(1.0)
+        start_(self, slot)
+
+    monkeypatch.setattr(Supervisor, "_spawn", slow_spawn)
+    monkeypatch.setattr(Supervisor, "_start", late_start)
+    p = setup(tmp_path, block("{run: python3 d.py}"))
+    e = start(p)
+    try:
+        state = e.daemons.slots["block.worker"].state
+        time.sleep(0.7)                                  # (a spawn by the loop, had it claimed one, finished)
+    finally:
+        e.close()
+    assert state == "running", f"the engine started with its daemon {state!r}"
+    assert not loop_spawning.is_set(), "the supervisor's loop spawned a daemon the engine's start had claimed"
+    assert spawned(p) == 1
+
+
 def test_interleaved_items_are_attributed_to_their_runs(tmp_path):
     p = setup(tmp_path, block("{run: python3 d.py, concurrency: 6}"))
     for i, s in enumerate([0.9, 0.2, 0.6, 0.1, 0.4, 0.7]):
@@ -193,6 +244,7 @@ def test_restart_storm_gives_up_with_alarm_and_intervention(tmp_path):
     finally:
         e.close()
     assert n == 3, "started, restarted twice, then given up: no more"
+    assert spawned(p) == 3, "each start spawned one process: none spawned and killed as a duplicate"
     f = events(p, "ergostat.daemon.failed")[0]
     assert f["item"] == "block.worker" and f["data"]["intervention"] is True
     assert f["data"]["class"] == "alarm:daemon:block.worker" and f["data"]["users"] == ["block.worker"]
