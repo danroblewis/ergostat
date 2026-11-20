@@ -436,6 +436,60 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
                for i in (1, 2) for h in item(p, f"ticket/{i}").fields["lease"]["history"])
 
 
+def test_no_lease_is_taken_once_the_engine_is_stopping(tmp_path):
+    p = project(tmp_path, model('sleep 30'))
+    opened(p, 2)
+    e = Engine(p, say=lambda s: None)
+    ready = e.dispatch.ready
+
+    def stopping_now(*a, **k):                     # the stop lands after the look began, before it takes
+        got = ready(*a, **k)
+        e.stop.set()
+        return got
+    e.dispatch.ready = stopping_now
+    try:
+        e.dispatch.tick()
+    finally:
+        e.close()
+    assert not p.events.query(n=None, type=TAKEN), "nothing is taken once the engine is stopping"
+    assert not p.events.query(n=None, type="agent.started") and not e.running
+    assert all(item(p, f"ticket/{i}").state == "ready" for i in range(2))
+
+
+def test_a_take_racing_the_stop_is_given_back_uncounted(tmp_path):
+    p = project(tmp_path, model('sleep 30').replace("pool: 2", "pool: 1"))
+    opened(p, 2)
+    e = Engine(p, say=lambda s: None)
+    add = p.events.add
+
+    def racing(type_, *a, **k):                    # the stop lands between the take's look and its write
+        if type_ == TAKEN:
+            e.stop.set()
+        return add(type_, *a, **k)
+    p.events.add = racing
+    try:
+        e.dispatch.tick()
+    finally:
+        p.events.add = add
+    assert p.events.query(n=None, type=TAKEN, item="ticket/0"), "the take was written: it raced the stop"
+    it = item(p, "ticket/0")
+    lease = it.fields["lease"]
+    assert it.state == "ready" and lease["holder"] is None and lease["attempts"] == 0
+    assert [(h["how"], h["why"], h["counted"]) for h in lease["history"]] == [("nack", "stopped with ergostat", False)]
+    assert not p.events.query(n=None, type="agent.started"), "its run never started"
+    assert not e.running and not e.dispatch.going_items()
+    # a run still going when the engine has waited its last: its lease is given back as it exits, not counted
+    e.stop.clear()
+    e.dispatch._work = lambda *a, **k: None        # (a run that never ends)
+    e.dispatch.tick()
+    (going,) = e.dispatch.going_items()
+    assert item(p, going).state == "leased"
+    e.running.clear()                              # (not waited for: close's five seconds)
+    e.close()
+    lease = item(p, going).fields["lease"]
+    assert lease["holder"] is None and lease["attempts"] == 0 and lease["history"][-1]["counted"] is False
+
+
 # ---- measures, attention, the command line
 
 
