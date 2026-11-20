@@ -221,3 +221,32 @@ Round 1, built; one acceptance check not run here (below).
   running main's unit suite on the same machine, to see whether main stalls the same way.
 - **Still open, as before:** the 30 loaded `-n 8` runs of the restart test (the DoD's last acceptance line), and a
   green unit run. The gap is not done.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-20 14:35).
+
+Its fast suites failed 2 times (the kill rule); the last: the fast suites failed (unit: tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessions_own_folder).
+
+```
+<module 'factory_fac' from '/work/dev/bin/fac.py'>, <module 'factory_sessions' from '/work/dev/bin/sessions.py'>, {'p...ntainer_mounts_only0/live'}, 'ai': {'mode': 'container', 'implementor_model': 'opus', 'implementor_session_usd': 5.0}})
+
+    def test_the_container_mounts_only_the_sessions_own_folder(tmp_path, mods):
+        fac, sessions, cfg = mods
+        agents = module("agents")
+        keep = sessions.Session(cfg, "reviewer", None)
+        args = agents.run_args({**cfg, "ai": {"reviewer_model": "opus", "reviewer_session_usd": 1}}, "reviewer",
+                               tmp_path / "work", "n", keep)
+        mounts = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
+        assert mounts == [f"{tmp_path / 'work'}:/work:ro", f"{keep.raw}:/home/dev/.claude/projects"]
+>       assert not any(str(Path.home()) in m for m in mounts) and "run" not in keep.raw.parts
+E       assert (not True)
+E        +  where True = any(<generator object test_the_container_mounts_only_the_sessions_own_folder.<locals>.<genexpr> at 0xffffa2fd6ea0>)
+
+/work/tests/test_factory_sessions.py:179: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessions_own_folder
+1 failed, 1895 passed, 69 skipped in 257.86s (0:04:17)
+{"rc": 1, "wall_s": 258.9, "peak": {"threads": 356, "rss_mb": 1542.5, "procs": 126, "worker_mb": 615.6}, "killed": null, "workers_killed": 0, "left_behind": 0}
+
+```
