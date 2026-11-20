@@ -21,6 +21,18 @@ reviewer_model = "opus"
 implementor_session_usd = 15.0       # the most one implementor session may spend (claude --max-budget-usd)
 reviewer_session_usd = 5.0
 suite_fix_rounds = 1                 # sessions the implementor gets to make its failing fast suites pass
+planner_model = "opus"               # the planner: a gap's definition of done, or its split (dev/bin/plan.py)
+planner_session_usd = 5.0
+plan_reviewer_model = "opus"         # the plan review: the definition and the lessons only, so cheap
+plan_reviewer_session_usd = 1.0
+researcher_model = "opus"            # research questions (dev/bin/research.py)
+researcher_session_usd = 5.0
+librarian_model = "haiku"            # the librarian's one step: a review's findings against the lessons
+librarian_session_usd = 0.25
+
+[knowledge]                          # what a brief may carry beyond the house rules and the review lessons (always)
+chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
+plan_reviewer_chars = 12000          # (the lessons alone)
 
 [agents]                             # the sessions' containers (dev/bin/agents.py, dev/agent/)
 image = "ergostat-agent:latest"      # docker build -t ergostat-agent:latest dev/agent (after the dev image)

@@ -1,0 +1,321 @@
+# Knowledge and planning (docs/roadmap/overnight/knowledge.md; the owner, 2026-11-20: "think of this ergostat instance
+# as a resource for you"). Briefs carry the factory's knowledge (dev/knowledge/, dev/bin/knowledge.py); a planner
+# writes each open gap's definition of done, or splits it, and a cheap plan review checks it before anything is built;
+# a researcher answers questions; the librarian turns review findings into proposed lessons, approved by the
+# coordinator and landed as gaps like any other.
+defaults:
+  system: planning
+
+stocks:
+  gaps-planned:
+    unit: gaps
+    description: gaps with a plan written (run/plans/), waiting for or in the plan review
+    sensor: {items: gap, state: planned, every: 1m}
+  gaps-replan:
+    unit: gaps
+    description: plans the plan review sent back (or the planner's answer refused), waiting for the planner again
+    sensor: {items: gap, state: replan, every: 1m}
+  gaps-split:
+    system: intake
+    unit: gaps
+    description: gaps split into sub-gaps, each waiting until every one of its sub-gaps is merged (a join)
+    sensor: {items: gap, state: split, every: 1m}
+  research-asked:
+    system: research
+    unit: questions
+    description: research questions asked by the coordinator or a planner, waiting for the researcher
+    sensor: {items: research, state: asked, every: 1m}
+  knowledge-entries:
+    system: knowledge
+    unit: entries
+    description: the entries of dev/knowledge/ (house rules, review lessons, decisions) the briefs carry, in the running version
+    sensor: {run: python3 dev/bin/knowledge.py count, every: 10m, timeout: 1m, description: the knowledge files}
+  lessons-proposed:
+    system: knowledge
+    unit: proposals
+    description: lessons the librarian proposed, waiting for the coordinator (the gated action knowledge-change)
+    sensor: {items: lesson, state: proposed, every: 1m}
+
+auxiliaries:
+  planning-open:
+    unit: switch
+    exogenous: true
+    description: 1 while the coordinator lets the planner plan open gaps, 0 (or never read) while planning is paused
+    sensor: {manual: true}
+  lessons-per-brief:
+    system: knowledge
+    unit: entries
+    description: review lessons carried per first implementor brief, over 14 days
+    driven-by: [+stock.knowledge-entries]
+    sensor: {run: python3 dev/bin/measure.py lessons-per-brief, every: 10m, timeout: 1m, description: the factory's measures}
+  first-pass-with-lessons:
+    system: knowledge
+    unit: share
+    description: the first-pass yield of gaps whose first brief carried review lessons (against first-pass-yield, every gap's)
+    driven-by: [+auxiliary.lessons-per-brief]
+    sensor: {run: python3 dev/bin/measure.py first-pass-with-lessons, every: 10m, timeout: 1m, description: the factory's measures}
+  plan-risks-held:
+    unit: share
+    description: of planned gaps reviewed, the share whose first review found none of the lesson classes their plan named as risks (the plan's tests held them)
+    driven-by: [+flow.plans-approved]
+    sensor: {run: python3 dev/bin/measure.py plan-risks-held, every: 10m, timeout: 1m, description: the factory's measures}
+  splits-clean:
+    system: intake
+    unit: share
+    description: of sub-gaps merged, the share approved on their first review
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py splits-clean, every: 10m, timeout: 1m, description: the factory's measures}
+
+flows:
+  plans-written:
+    from: gaps-open
+    to: gaps-planned
+    description: a first plan written for an open gap (its definition of done, in run/plans/)
+    driven-by: [+stock.gaps-open]
+    equation: stock.gaps-open / plan-time
+    sensor: {items: gap, entering: planned, where: {replanned: false, source: [gaps, request]}, over: 1d}
+  replans-written:
+    from: gaps-replan
+    to: gaps-planned
+    description: a plan written again with the plan review's findings
+    driven-by: [+stock.gaps-replan]
+    equation: stock.gaps-replan / plan-time
+    sensor: {items: gap, entering: planned, where: {replanned: true}, over: 1d}
+  sub-gaps-planned:
+    to: gaps-planned
+    description: sub-gaps of a split, each requested and planned by the planner
+    sensor: {items: gap, entering: planned, where: {source: plan}, over: 1d}
+  gaps-split-off:
+    system: intake
+    from: gaps-open
+    to: gaps-split
+    description: a gap too large for one branch, split by the planner into sub-gaps with depends-on among them
+    driven-by: [+stock.gaps-open]
+    equation: split-share * stock.gaps-open / plan-time
+    sensor: {items: gap, entering: split, where: {lease.back: open}, over: 1d}
+  replans-split-off:
+    system: intake
+    from: gaps-replan
+    to: gaps-split
+    description: a plan sent back that the planner then split into sub-gaps
+    driven-by: [+stock.gaps-replan]
+    equation: split-share * stock.gaps-replan / plan-time
+    sensor: {items: gap, entering: split, where: {lease.back: replan}, over: 1d}
+  splits-joined:
+    system: intake
+    from: gaps-split
+    description: a split gap moved to merged once every sub-gap was merged (a join; also counted by gaps-merged)
+    driven-by: [+stock.gaps-split]
+    equation: stock.gaps-split / split-time
+  plans-approved:
+    from: gaps-planned
+    to: gaps-ready
+    description: a plan the plan review approved, copied as reviewed into run/defs/ - the gap ready to build
+    driven-by: [+stock.gaps-planned]
+    equation: (1 - plan-fix-share) * stock.gaps-planned / plan-review-time
+    sensor: {items: gap, entering: ready, where: {defined_by: plan}, over: 1d}
+  plans-sent-back:
+    from: gaps-planned
+    to: gaps-replan
+    description: a plan the plan review sent back, with its findings
+    driven-by: [+stock.gaps-planned]
+    equation: plan-fix-share * stock.gaps-planned / plan-review-time
+    sensor: {items: gap, entering: replan, over: 1d}
+  parked-in-plan:
+    from: gaps-replan
+    description: a plan that failed its review twice, or was parked
+    sensor: {items: gap, entering: parked, where: {parked_in: plan}, over: 1d}
+  research-questions:
+    system: research
+    to: research-asked
+    description: questions asked (dev/bin/ask.py, a research.asked event, or a planner that needs an answer first)
+    sensor: {items: research, entering: asked, over: 1d}
+  research-answered:
+    system: research
+    from: research-asked
+    description: a question answered - its report in run/research/, its summary on the item
+    driven-by: [+stock.research-asked]
+    equation: stock.research-asked / research-time
+    sensor: {items: research, entering: answered, over: 1d}
+  lessons-found:
+    system: knowledge
+    to: lessons-proposed
+    description: a new shape of a known class, or a class found in a second review, proposed by the librarian
+    sensor: {items: lesson, entering: proposed, over: 1d}
+  lessons-requested:
+    system: knowledge
+    from: lessons-proposed
+    description: a proposal the coordinator approved - a gap whose definition is the exact edit
+    driven-by: [+stock.lessons-proposed]
+    equation: stock.lessons-proposed / lesson-approve-time
+    sensor: {items: lesson, entering: requested, over: 1d}
+  lessons-added:
+    system: knowledge
+    to: knowledge-entries
+    description: a knowledge gap merged and the instance switched to it - an entry (or a shape) added, counted by the stock's own reading
+  lessons-retired:
+    system: knowledge
+    from: knowledge-entries
+    description: a lesson removed by the coordinator (dev/bin/lesson.py retire) - one briefs carried while first-pass yield did not move
+    sensor: {items: lesson, entering: retired, over: 1d}
+
+parameters:
+  plan-time:
+    value: 30m
+    estimate: true
+    description: how long the planner takes on a gap
+  plan-review-time:
+    value: 10m
+    estimate: true
+    description: how long a plan review takes
+  plan-fix-share:
+    value: 0.3
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of plan reviews that send the plan back
+  split-share:
+    value: 0.1
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of open gaps the planner splits
+  split-time:
+    value: 3d
+    estimate: true
+    description: how long a split gap waits for every one of its sub-gaps to merge
+  research-time:
+    system: research
+    value: 1h
+    estimate: true
+    description: how long a research question takes
+  lesson-approve-time:
+    system: knowledge
+    value: 12h
+    estimate: true
+    description: how long a proposed lesson waits for the coordinator
+
+goals:
+  open-gaps-planned:
+    system: intake
+    stock: gaps-open
+    hold: "<= 0"
+    tolerance: 0
+    description: every open gap planned (while planning is open and money is left)
+  plans-reviewed:
+    stock: gaps-planned
+    hold: "<= 0"
+    tolerance: 0
+    description: every plan reviewed before it is built
+  replans-taken:
+    stock: gaps-replan
+    hold: "<= 0"
+    tolerance: 0
+    description: every plan sent back written again
+  questions-answered:
+    system: research
+    stock: research-asked
+    hold: "<= 0"
+    tolerance: 0
+    description: every research question answered
+  lessons-decided:
+    system: knowledge
+    stock: lessons-proposed
+    hold: "<= 0"
+    tolerance: 0
+    description: every proposed lesson approved or denied by the coordinator
+
+actions:
+  knowledge-change:
+    run: python3 dev/bin/lesson.py request {lesson}
+    in: .
+    gate: approve
+    class: knowledge
+    args: {lesson: the proposed lesson (lesson/...)}
+    timeout: 2m
+    description: A proposed change to the review lessons, made a gap whose definition is the exact edit - the coordinator approves
+
+blocks:
+  plan-when:
+    type: expr
+    description: plan while open gaps (or plans sent back) wait, planning is open, and the day's AI money is not spent
+    in:
+      open: goal.open-gaps-planned.off
+      replan: goal.replans-taken.off
+      planning: auxiliary.planning-open
+      over: goal.ai-budget.off
+    expr: max(open, replan) * min(planning, 1) * (1 - over)
+    out: block.planner
+  planner:
+    type: ai
+    agent: opus
+    description: a session per gap in a read-only clone of main - its definition of done (acceptance tests, budget, risks from the lessons, files), a split into sub-gaps, or research questions first
+    run: python3 dev/bin/plan.py
+    prompt: dev/prompts/planner.md
+    takes: {kind: gap, at: [open, replan], to: [planned, split, ready, replan, parked]}
+    pool: 1
+    lease: {ttl: 60m, attempts: 2}
+    timeout: 2h
+    in: block.plan-when
+    out: [flow.plans-written, flow.replans-written, flow.gaps-split-off, flow.replans-split-off, flow.sub-gaps-planned]
+
+  plan-review-when:
+    type: expr
+    description: review plans while they wait and the day's AI money is not spent
+    in:
+      waiting: goal.plans-reviewed.off
+      over: goal.ai-budget.off
+    expr: waiting * (1 - over)
+    out: block.plan-review
+  plan-review:
+    type: ai
+    agent: opus
+    description: the reviewer in plan mode, cheap - the plan and the lessons only; do its acceptance tests fail on the known traps?
+    run: python3 dev/bin/plan.py review
+    prompt: dev/prompts/plan_reviewer.md
+    takes: {kind: gap, at: planned, to: [ready, replan, parked]}
+    pool: 1
+    lease: {ttl: 30m, attempts: 2}
+    timeout: 45m
+    in: block.plan-review-when
+    out: [flow.plans-approved, flow.plans-sent-back, flow.parked-in-plan]
+
+  research-when:
+    type: expr
+    system: research
+    description: answer while questions wait and the day's AI money is not spent
+    in:
+      waiting: goal.questions-answered.off
+      over: goal.ai-budget.off
+    expr: waiting * (1 - over)
+    out: block.researcher
+  researcher:
+    type: ai
+    system: research
+    agent: opus
+    description: a session per question in a read-only clone of main - the code, the docs, the record and the web where allowed; a report with sources
+    run: python3 dev/bin/research.py
+    prompt: dev/prompts/researcher.md
+    takes: {kind: research, at: asked, to: [answered]}
+    pool: 1
+    lease: {ttl: 60m, attempts: 2}
+    timeout: 2h
+    in: block.research-when
+    out: flow.research-answered
+
+  librarian:
+    type: program
+    system: knowledge
+    description: after each review, its findings against the review lessons (one small AI step on haiku) - new shapes and classes found twice proposed
+    run: python3 dev/bin/librarian.py
+    on: {event: review.written, emits: [review.measured, lesson.seen, lesson.measured, lesson.proposed]}
+    actions: [knowledge-change]
+    timeout: 15m
+    out: flow.lessons-found
+  approve-lesson:
+    type: external
+    system: knowledge
+    agent: coordinator
+    description: the coordinator approves or denies a proposed lesson - the gated action knowledge-change, asked in the inbox
+    in: goal.lessons-decided
+    out: flow.lessons-requested

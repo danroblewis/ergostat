@@ -77,7 +77,8 @@ def main() -> int:
             continue
         where = definition(cfg, g)
         if where:
-            fac.say("gap.defined", g["id"], definition=where, ready_at=now, branch=fac.branch_of(g))
+            fac.say("gap.defined", g["id"], definition=where, ready_at=now, branch=fac.branch_of(g),
+                    defined_by="coordinator")
             defined += 1
     print(f"intake: {found} found, {defined} defined", file=sys.stderr)
     return 0

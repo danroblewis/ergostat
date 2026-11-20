@@ -111,6 +111,18 @@ def renewing(every: float = 300.0):
         done.set()
 
 
+def cli(cfg: dict) -> None:
+    """For the coordinator's tools, outside a run: ergostat on this instance (the live version's, else on the PATH)."""
+    exe = path(cfg, "live") / "current" / ".venv" / "bin" / "ergostat"
+    os.environ.setdefault("ERGOSTAT_CMD", f"{shlex.quote(str(exe)) if exe.exists() else 'ergostat'} -C "
+                                          f"{shlex.quote(str(MODEL))}")
+
+
+def add(event: str, item: str, **data) -> None:
+    """An event recorded by `ergostat event --add` (outside a run, or about another item from a gated action)."""
+    ergostat("event", "--add", event, "--item", item, "--data", json.dumps(data, default=str))
+
+
 def items(kind: str, state: str | None = None) -> list[dict]:
     """The items of a kind (in a state), from the record (at most 5,000: the factory's kinds are small)."""
     args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", state] if state else [])
@@ -125,6 +137,14 @@ def act(name: str, key: str, **args) -> tuple[int, str]:
 
 
 # ---- git
+
+def rel(p: Path) -> str:
+    """A path as the record keeps it: from the model's folder when it is inside it."""
+    try:
+        return str(p.relative_to(MODEL))
+    except ValueError:
+        return str(p)
+
 
 def git(repo: Path, *args: str, check: bool = True) -> str:
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
@@ -371,10 +391,36 @@ def session(cfg: dict, role: str, brief: str, work: Path) -> dict:
     return out
 
 
+def attempt(cfg: dict, role: str, brief: str, work: Path) -> dict | None:
+    """A run's session, or None when the day's cap refuses it (the item given back for an hour, uncounted)."""
+    why = may_spend(cfg, float(cfg["ai"][f"{role}_session_usd"]))
+    if not why:
+        try:
+            return session(cfg, role, brief, work)
+        except OverBudget as e:
+            why = str(e)
+    nack(f"budget: {why}", after="1h", count=False)
+    return None
+
+
+STANDIN = {
+    "planner": '<definition branch="{b}">\n# {b}: planned by the stand-in\n\ndepends-on: []\n\n## Definition of done\n\n'
+               'It works.\n\n## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
+               '100 net lines.\n</definition>',
+    "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
+                  "<summary>The stand-in's answer.</summary>",
+    "librarian": "```json\n[]\n```"}
+
+
 def standin(role: str, brief: str, cwd: Path) -> dict:
-    """Free and scripted. The implementor writes a note into the work; the reviewer's verdict is FACTORY_STANDIN_VERDICT
-    (merge by default; fix, or park)."""
-    if role == "implementor":
+    """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor writes a note into
+    the work; the planner, researcher and librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is
+    FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
+    b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
+    said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
+    if said:
+        pass
+    elif role == "implementor":
         note = cwd / "standin" / f"{cwd.name}.txt"
         note.parent.mkdir(exist_ok=True)
         with note.open("a") as f:

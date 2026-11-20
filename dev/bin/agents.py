@@ -38,6 +38,8 @@ TOOLS = {
 }
 LIMITS = ["--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
+TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=["Read"], librarian=["Read"],   # all read-only: only the
+             researcher=TOOLS["reviewer"] + ["WebSearch"])      # implementor writes; WebSearch is run by the API itself
 
 
 class Refused(RuntimeError):
@@ -97,14 +99,14 @@ def claude_args(cfg: dict, role: str) -> list[str]:
     return ["claude", "-p", "--model", cfg["ai"][f"{role}_model"], "--output-format", "json", "--max-budget-usd",
             f"{usd:g}", "--restricted", "--tools", ",".join(sorted({t.split("(", 1)[0] for t in tools})),
             "--permission-mode", "dontAsk", "--strict-mcp-config", "--allowedTools", ",".join(tools),
-            "--disallowedTools", ",".join(DENY)]
+            "--disallowedTools", ",".join(d for d in DENY if d not in tools)]
 
 
 def run_args(cfg: dict, role: str, work: Path, name: str) -> list[str]:
     """`docker run` for a session: the token by name only (its value is in the docker client's environment alone)."""
     proxy = f"http://{PROXY}:{PORT}"
     return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS,
-            "-v", f"{work}:/work{':ro' if role == 'reviewer' else ''}", "-w", "/work",
+            "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work",
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
             "-e", "NO_PROXY=", *[x for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME") for x in ("-e", f"{k}=factory")],
             *[x for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL") for x in ("-e", f"{k}=factory@localhost")],
