@@ -405,17 +405,18 @@ def test_a_failed_delivery_is_tried_again_and_said(tmp_path):
 
 # ---- held modelling requests, answered from the inbox (docs/roadmap/overnight/inbox-dismiss.md)
 
-def held_request(tmp_path, code: str = "collector-undescribed"):
-    """A modelling project whose finding ``code`` (on flow.alerts-fired) the ai tier held: an inbox entry."""
+def held_request(tmp_path, code: str = "collector-undescribed", ai: bool = True):
+    """A modelling project whose finding ``code`` (on flow.alerts-fired) the ai tier held after using its tries (the
+    usual way a request reaches the inbox): an inbox entry."""
     from ergostat.numbers import requests as rq
 
     from .test_modelling_core import MODELLING
     from .test_self_improve import POOR
     from .test_self_improve import project as poor_project
-    p = poor_project(tmp_path, POOR + MODELLING)
+    p = poor_project(tmp_path, POOR + (MODELLING if ai else MODELLING.replace("      ai: true\n", "")))
     rq.sync(p)
     r = next(r for r in rq.current(p, ("open",)) if r["code"] == code)
-    rq.mark(p, r, "held", "acting on its own: a decision for the owner")
+    rq.mark(p, r, "held", "acting on its own: a decision for the owner", tier="ai", tried={"ai": 2})
     return p, r, f"request/{r['id']}"
 
 
@@ -435,6 +436,8 @@ def test_a_held_modelling_request_is_dismissed_with_its_note(tmp_path):
     assert eid not in {e["id"] for e in entries.entries(p)}
     rec = stats.by_class(p, spec)[f"request:{r['code']}"]                 # an answered intervention, not a suppressed one
     assert (rec["asked"], rec["denied"], rec["waiting"]) == (1, 1, 0)
+    said = [x for x in stats.asked(p, spec, 0, time.time()) if x["class"] == f"request:{r['code']}"]
+    assert [(x["verdict"], x["by"], x["note"]) for x in said] == [("denied", "sam", "the pager is the collector: nothing to say")]
 
 
 def test_a_dismissed_finding_returns_when_its_part_changes(tmp_path):
@@ -442,24 +445,63 @@ def test_a_dismissed_finding_returns_when_its_part_changes(tmp_path):
     p, r, eid = held_request(tmp_path)
     answer.answer(p, p.model.spec, eid, "deny", note="not now")
     text = p.model.path.read_text()
+    assert "sensor: {items: alert, state: triaged, every: 2s}" in text
+    p.model.path.write_text(text.replace("sensor: {items: alert, state: triaged, every: 2s}",
+                                         "sensor: {items: alert, state: triaged, every: 3s}"))
+    q = Project(mdl.load(tmp_path))                                       # another part changed: still dismissed
+    assert rq.sync(q)["reopened"] == 0 and rq.stored(q)[r["id"]]["state"] == "dismissed"
+    text = p.model.path.read_text()
     p.model.path.write_text(text.replace("sensor: {run: python3 bin/watch.py, every: 2s}",
                                          "sensor: {run: python3 bin/watch.py, every: 5s}"))
-    q = Project(mdl.load(tmp_path))
+    q = Project(mdl.load(tmp_path))                                       # its own part changed: raised again
     assert rq.sync(q)["reopened"] >= 1
     assert rq.stored(q)[r["id"]]["state"] in ("open", "held")              # raised again, for the tiers
 
 
 def test_a_held_modelling_request_approved_goes_back_to_the_loop(tmp_path):
     from ergostat.numbers import requests as rq
-    p, r, eid = held_request(tmp_path)
+    p, r, eid = held_request(tmp_path)                                    # held with the ai tier's tries used
+    assert r["id"] not in {w["id"] for w in rq.for_ai(p, 2)}
     got = answer.answer(p, p.model.spec, eid, "approve", by="sam")
-    assert "modelling loop" in got["said"]
+    assert "ai tier" in got["said"]
     x = rq.stored(p)[r["id"]]
-    assert x["state"] == "open" and x["approved_by"] == "sam"
-    assert r["id"] in {w["id"] for w in rq.waiting(p)}                    # what the ai tier takes up next
+    assert x["state"] == "open" and x["approved_by"] == "sam" and x["tier"] == "ai" and x["tried"]["ai"] == 0
+    assert r["id"] in {w["id"] for w in rq.for_ai(p, 2)}                  # what the ai tier takes up next
     rq.sync(p)
     assert rq.stored(p)[r["id"]]["state"] == "open" and eid not in {e["id"] for e in entries.entries(p)}
     assert stats.by_class(p, p.model.spec)[f"request:{r['code']}"]["approved"] == 1
+    rq.mark(p, rq.stored(p)[r["id"]], "held", "the ai tier: nothing", tried={"ai": 2})   # its tries used again
+    assert eid in {e["id"] for e in entries.entries(p)}                   # back in the inbox
+
+
+def test_a_held_request_no_tier_takes_up_is_only_dismissed(tmp_path):
+    from ergostat.numbers import requests as rq
+    (tmp_path / "a").mkdir()
+    p, _, _ = held_request(tmp_path / "a")
+    mine = [r for r in rq.current(p, ("held",)) if r["code"] in rq.OWNER]   # control: held for the owner at once
+    assert mine
+    for r in mine:
+        e = entries.find(p, p.model.spec, f"request/{r['id']}")
+        assert e["verbs"] == ["deny"] and "--deny --note WHY" in entries.command(e)
+        with pytest.raises(rq.RequestError, match="no tier"):
+            rq.answer(p, p.model.spec, r["id"], True)
+        assert rq.stored(p)[r["id"]]["state"] == "held"
+    (tmp_path / "b").mkdir()
+    q, r, eid = held_request(tmp_path / "b", ai=False)                    # a model without the ai tier
+    assert entries.find(q, q.model.spec, eid)["verbs"] == ["deny"]
+    with pytest.raises(answer.AnswerError, match="--deny"):
+        answer.answer(q, q.model.spec, eid, "approve")
+    assert rq.stored(q)[r["id"]]["state"] == "held"
+
+
+def test_the_status_and_notifications_say_how_a_request_is_denied(tmp_path):
+    p, _, eid = held_request(tmp_path)
+    e = next(e for e in entries.entries(p) if e["id"] == eid)
+    assert entries.command(e) == f"ergostat inbox {eid} --approve | --deny --note WHY"
+    att = st.attention(st.snapshot(p), False, p.model)
+    assert any(a["says"].endswith(entries.command(e)) for a in att if a["what"] == eid)
+    n = type("N", (), {"wait_at_most": 3600.0})()
+    assert entries.command(e) in deliver.message(n, [{**e, "age": 60.0}], False, "")[1]
 
 
 def test_every_inbox_entry_kind_has_a_verb(tmp_path):

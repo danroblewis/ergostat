@@ -18,7 +18,8 @@ a missing loop, a block that moves nothing).
 | answered | ``.answered`` | check no longer finds it (a change written, or anything else) |
 | dismissed | ``.dismissed`` | the owner denied it from the inbox, with why: not raised again until its part changes |
 
-A held request approved from the inbox is ``.reopened`` (open again, for the tiers: the modelling loop has it back).
+A held request approved from the inbox is ``.reopened`` (open again, for the ai tier, its tries given back), when the
+model has the ai tier and the finding is not the owner's alone (``OWNER``); else only a dismissal is offered.
 
 ``sync`` is the request collector: run by the modelling template's sensor on ``open-requests``, it raises what is
 new, answers what has gone, and moves each to where its changes say it is. The record is the only store."""
@@ -221,16 +222,29 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
     return {**moved, "open": sum(1 for k in found if (have.get(k) or {}).get("state") not in ("answered", "dismissed"))}
 
 
+def approvable(spec: Spec, r: dict) -> bool:
+    """Whether approving a held request hands it to a tier that takes it: the model has the ai tier (the modelling
+    template's ``modeller``, ``modelling ai``) and the finding is not one only the owner changes (``OWNER``)."""
+    return r.get("code") not in OWNER and any(" modelling ai" in str(b.params.get("run") or "")
+                                              for b in spec.blocks.values())
+
+
 def answer(p, spec: Spec, x: str, yes: bool, note: str | None = None, by: str = "owner") -> str:
-    """The owner's answer to a held request (the inbox): approved, it is open again for the modelling loop (the ai
-    tier, or a change the owner writes); denied, it is dismissed with ``note``, until the part it is about changes."""
+    """The owner's answer to a held request (the inbox): approved, it is open again for the ai tier, with its tries
+    given back (the tier skips a request whose tries are used, or held for the owner); denied, it is dismissed with
+    ``note``, until the part it is about changes. Approval is refused when no tier would take it up: it is then the
+    owner's own change (citing it) that answers it, or a dismissal."""
     r = stored(p).get(x)
     if r is None or r["state"] != "held":
         raise RequestError(f"request {x} is not held (it is {r and r['state']})")
     if yes:
-        event(p, x, "reopened", {"why": None, "change": None, "owner": False, "since": time.time(),
-                                 "version": ver.version(spec), "approved_by": by}, source=by)
-        return "approved: open again, for the modelling loop"
+        if not approvable(spec, r):
+            raise RequestError(f"no tier of the modelling loop takes {r.get('code')} up: write the change (citing "
+                               f"{evidence_of(r)}), or --deny --note WHY")
+        event(p, x, "reopened", {"why": None, "change": None, "owner": False, "tier": "ai", "since": time.time(),
+                                 "tried": {**(r.get("tried") or {}), "ai": 0}, "version": ver.version(spec),
+                                 "approved_by": by}, source=by)
+        return "approved: open again, for the ai tier"
     if not (note or "").strip():
         raise RequestError("a dismissal says why: --note WHY")
     event(p, x, "dismissed", {"note": note, "dismissed_by": by, "dismissed": time.time(),
@@ -244,6 +258,12 @@ def waiting(p, states=("open",)) -> list[dict]:
     cites = _citing(pr.changes(p))
     return [r for r in current(p, states)
             if not any(c["state"] in LIVE for c in cites.get(evidence_of(r), []))]
+
+
+def for_ai(p, tries: int) -> list[dict]:
+    """What the ai tier takes up: open or held, its, not the owner's, and not yet tried ``tries`` times."""
+    return [r for r in waiting(p, ("open", "held")) if r.get("tier") == "ai" and not r.get("owner")
+            and int((r.get("tried") or {}).get("ai") or 0) < tries]
 
 
 def current(p, states=OPEN) -> list[dict]:

@@ -428,7 +428,8 @@ owner) is for a system's **early stages**, while the person and you are still wo
 is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
-  (`ergostat inbox ID --approve | --deny | --done N`), from the page's *Needs attention* (Approve / Deny inline) or by
+  (`ergostat inbox ID --approve | --deny | --done N`; a held modelling request is denied with `--deny --note WHY`,
+  dismissed until its part changes, and approved back to the AI tier), from the page's *Needs attention* (Approve / Deny inline) or by
   the MCP `answer` tool when they tell you to (recorded as `owner via mcp`: never evidence for graduating). Set up
   `notify:` with the channels they use: `macos` on their own machine; `email` with `to:`; `slack` or `discord` with the
   webhook's URL in an environment variable (`url-env:`) or a file (`url-file:`), never in the YAML. Each channel is a

@@ -18,6 +18,13 @@ _CACHE: dict = {}
 MERGES = "Approving merges this code into your repository; it then runs with your rights, outside the sandbox."
 
 
+def command(e: dict) -> str | None:
+    """How an entry is answered, as a command (said by ``inbox``, the status and the notifications alike); None when it
+    has no verb."""
+    flags = {"done": "--done N", "deny": "--deny --note WHY" if e["kind"] == "request" else "--deny"}
+    return f"ergostat inbox {e['id']} " + " | ".join(flags.get(v, f"--{v}") for v in e["verbs"]) if e["verbs"] else None
+
+
 def _cut(s: str, n: int = 80) -> str:
     return s if len(s) <= n else s[:n - 3] + "..."
 
@@ -62,7 +69,7 @@ def asks(p, b, since: float | None = None, until: float | None = None) -> list[d
                 out[-1].update(answered=e["time"], verdict="superseded", by=None)
             out.append({"seq": e["seq"], "time": e["time"], "data": e["data"], "answered": None, "verdict": None})
         elif out and out[-1]["answered"] is None:
-            out[-1].update(answered=e["time"], by=e.get("source"),
+            out[-1].update(answered=e["time"], by=e.get("source"), note=(e.get("data") or {}).get("note") or None,
                            verdict="denied" if e["type"] == "block.denied" else "approved")
     return out
 
@@ -142,7 +149,8 @@ def _requests(p, spec, now: float) -> list[dict]:
     from ..numbers import requests as rq
     if MODELLING_REQUEST not in spec.items:
         return []
-    return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now, "verbs": ["approve", "deny"],
+    return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now,
+             "verbs": ["approve", "deny"] if rq.approvable(spec, r) else ["deny"],
              "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
              "summary": f"modelling holds {r.get('code')} on {r.get('about')}", "why": _cut(r.get("why") or "", 200)}
             for r in rq.stored(p).values() if r["state"] == "held"]

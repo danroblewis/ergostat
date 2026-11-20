@@ -160,3 +160,53 @@ deadlock. It did have one flaw: when a take was refused or stopped, its cleanup 
 `test_daemons.py`, `test_workspaces.py`, `test_reload_in_place.py` and `test_reload_safety.py`. Ruff is clean. If the
 next run is cut off again with nothing named, run it serially with `-o faulthandler_timeout=120` to name a hang, if
 there is one.
+
+## Where it stopped
+
+Round 4 fixes the review's blocking findings:
+
+- **Approval really hands the request back** (lesson-5). Round 1 claimed that a request no tier could answer would be
+  held again and come back to the inbox. That was false. Approval now writes `reopened` with `tier: ai`,
+  `owner: false`, `tried.ai` set to 0 and `change: None`, so the AI tier's own filter takes it up. That filter is now
+  `numbers.requests.for_ai`, and `library/run/modelling.py` calls it. If the AI tier holds the request again after its
+  tries, it is back in the inbox. If no tier would take it up, `--approve` is not offered and is refused, because
+  approving would only hide the request. That happens when the model has no AI tier (no block runs `modelling ai`) or
+  the code is one of `OWNER`, which is control and only the owner changes. Those entries list only `deny`, and the
+  owner's own change citing the request still answers it. This is the reversible choice: nothing goes to the AI tier
+  that the code reserves for the owner. If the owner wants approval on those to mean "let the AI propose", that is a
+  one-line change in `approvable`. Tests: `test_a_held_modelling_request_approved_goes_back_to_the_loop` is now held
+  with `tried.ai == 2`. It checks `for_ai` before and after, and that the request returns to the inbox once its tries
+  are used again. `test_a_held_request_no_tier_takes_up_is_only_dismissed` covers the OWNER codes and a model without
+  the AI tier.
+- **One command line** (`inbox.entries.command`) is now used by `ergostat inbox`, the status line (`state.attention`)
+  and the notifications (`inbox.deliver`). For a request it says `--deny --note WHY`. The notifications had no word for
+  the `request` and `breaker` kinds, so a held request would have raised a KeyError in delivery. Both kinds now have a
+  word. Test: `test_the_status_and_notifications_say_how_a_request_is_denied`.
+- **SPEC.** §12e's state table gains `dismissed`, the `held` row is clarified, and a paragraph on approval is added.
+  §12o's kinds table gains `request` and `breaker`, with a line on kinds with no verb. The agent guide's inbox line
+  says how a request is denied.
+- **The opposite case of "until its part changes"**: a change to another part (stock `triaged-alerts`' sensor) leaves
+  the request dismissed. A description change was tried first, but it does not change `whole()`, so it could not catch
+  a `part()` that always fell back to the whole model. The test now uses the sensor change.
+- **The engine's stop label is narrower.** Only a run killed through the new close path (or with `runner.STOPPING`
+  set, as before) is "stopped with ergostat". Any other non-zero exit while closing keeps its code.
+- **Main merged (lesson-7): not done as a merge.** `git merge main` was refused in this container, as in round 2. I
+  ported main's changes to the files this branch touches by hand, so that they match main's:
+  `inbox/stats.py` (`one()` takes a `note`; the dismissal's note is carried into it, tested in the dismissal test),
+  `inbox/entries.py` (`asks` keeps the note), `inbox/interventions.py` (the alarm remedy's words), `tests/conftest.py`
+  and `tests/test_interventions.py`. Main's other changes do not touch these files: the redesign memory and bench,
+  `itemindex.py`, `demo_check.py`, dev/ and SPEC's redesign paragraphs. Main's redesign memory reads "dismissed with
+  the owner's reason" from model changes, not from modelling requests, so I expect no conflict, but I have not checked
+  that by merging. **The merge and the suites after it are left to the factory.**
+
+Each new test was seen to fail with its fix disabled (lesson-9): the tries reset, `part()` falling back to the whole
+model, `approvable` with each half forced true, and the plain `--deny` display. Lesson-1: `requests.answer` reads the
+request's state and then writes, with no lock between, like the other inbox answers. Suppose `sync` moves the request
+in that gap, for example reopening it on a new version. Then the owner's answer still lands after it, and the owner's
+answer is the one meant. I wrote no test for that gap.
+
+Budget: about 108 net lines in ergostat/ and diagram.js, within 250. Run here, each file alone: `test_inbox.py`,
+`test_modelling_core.py`, `test_modelling_core2.py`, `test_modelling_template.py`, `test_interventions.py`,
+`test_notify.py`, `test_runner_and_state.py`, `test_self_improve.py`, `test_leases.py`, `test_spec_engine.py` and
+`test_spec_mcp_explain.py`. All pass, and ruff is clean. Not run: the whole suite, the browser files
+(`test_inbox_page.py`), and anything after a real merge of main.
