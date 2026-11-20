@@ -173,7 +173,7 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
             ahead = it.state not in kind.states or kind.states.index(it.state) < kind.states.index(want) \
                 if want in kind.states else False
             to = want if ahead else None
-        if to and kind and it.state in kind.final:              # final: a move out of it is ignored, and said
+        if to and to != it.state and kind and it.state in kind.final:              # final: a move out of it is ignored, and said
             it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "final",
                                "why": f"after {it.state}: ignored"})
             to = kind.final[it.state].get(to)
