@@ -561,6 +561,29 @@ takes each give-back as rework, so the estimates come out late), and a step noth
 left yet (its items are assumed to go to the next state in order). Under twenty runs no p90 is said. A block with
 fewer than five runs on record is said as assumed on the item's page.
 
+## 3i. Programs fail hard, and are repaired
+
+The scripts the model's blocks run (collectors, steps, actuators) will fail: an API changes shape, a field goes
+missing, a token expires. Write them to **fail hard**: let an error they cannot handle raise, its traceback on standard
+error, and exit non-zero. Never `except: pass`, `except Exception: pass` or `|| true` on the whole command: a failure
+hidden is one nobody sees and nothing can fix.
+
+Add `use: repair` (once a model, like `modelling`; SPEC §12r) when the owner wants failures fixed without them. Each
+failed run becomes an `ergostat.failure` item, one per signature, counted; one whose block runs a program of the
+project's is fixed by an AI (haiku by default, with no tools: ergostat gives it the program and the files beside it) in
+a clone of the repository, tested in the sandbox, and proposed as the gated action `apply-fix` with its impact report.
+What you set:
+
+- **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is
+  re-run for real on the input that failed. Say it of nothing that writes. List the hosts it reads in `network:`
+  (`[tracker.example.com]`): only those, for GET and HEAD.
+- **`test:`** in `with:` for programs that write: the project's tests, run in the sandbox. Without it such a fix is
+  untested, and only a person may approve it.
+- **`approver:`** `person`, the only one for now: the owner reads each fix in the inbox. `ai` is refused by `check`
+  until a sound guard exists (GAPS).
+- **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs
+  committed.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |

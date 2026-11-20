@@ -37,8 +37,9 @@ def step(p, aid: str, what: str, data: dict, by: str = "ergostat", causedby: str
 def fold(aid: str, events: list[dict]) -> dict:
     from ..spec import items as its
     it = its.fold(item_of(aid), events, action_kind())
+    ignored = [x["type"].rsplit(".", 1)[1] for x in it.refused if x["form"] == "final"]   # (a denial is final: §12r)
     return {**it.fields, "id": it.id, "state": it.state, "time": it.first, "last": it.last, "entered": it.entered,
-            "moves": it.moves}
+            "moves": it.moves, **({"ignored": ignored} if ignored else {})}
 
 
 def get(p, aid: str) -> dict | None:

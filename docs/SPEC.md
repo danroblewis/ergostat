@@ -4807,6 +4807,116 @@ and git is not run. `Repo.worktree(repo, work, branch)` makes such a copy.
 
 What it protects against and what it does not, for people: `docs/SECURITY.md`.
 
+## 12r. Repair: a failing program triaged, fixed, and proposed as a gated change
+
+Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
+and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
+is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (verifying
+a fix by the runs after it, offering its revert, the ladder's other rungs, a check for programs that swallow their
+errors) is in `docs/GAPS.md`.
+
+```yaml
+uses:
+  repair:
+    use: repair
+    with:
+      approver: person        # the only one for now
+      model: haiku            # the fixer's (default)
+      budget: 0.25            # dollars, one AI call at most
+      daily: 2                # dollars, every AI call of the loop in a day
+      test: pytest -q         # the project's tests, for a program that is not read-only
+      tries: 3                # fixes tried for one failure before it is a dead letter
+```
+
+**Triage.** In a model that uses repair, every failed run of a `program` or `ai` block is recorded as
+`ergostat.run.failed` about an item of the built-in kind **`ergostat.failure`** (it exists only in such a model), one
+item a **signature**: the block, its program (the first word of its `run:` that is a file under the model's folder), the
+exception's type and its innermost frame in the project (from Python's traceback); without a traceback, the block, its
+program and how it ended. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
+program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
+of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. A failure starts
+`noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
+timeout, a kill, a signal or failing to start; one that fails again after its fix was applied is opened again. The loop's
+own blocks (`repair-fix`, `repair-settle`) and any run a failure's events caused (six steps up the cause chain) record no
+failure. States: `noted`, `open`, `leased` (being fixed), `awaiting-approval`, `applied`, `dismissed`, `dead` (its fixes
+failed `tries` times).
+
+**Sealed.** A failure's fields are ergostat's alone: its kind is *sealed* (`ItemKind.sealed`), so the fold
+(`spec/items.py`) refuses every event about it whose type is not ergostat's own (`ergostat.*`, which no block line,
+sensor observation, push, `event --add`, MCP call or legacy runner may write). The impact report reads its fields the
+same way. Nothing the loop runs is taken from a failure's fields: the block and its command come from the compiled
+model, the input from the state directory.
+
+**The fix** (`repair-fix`, an `ai` block whose `run:` is `python -m ergostat.repair fix`, its rung shown as AI) takes
+each open failure, leased (section 9.5), and:
+
+1. makes a **clone** of the project's repository at its `HEAD` under the state directory (`repair/NAME/`: `git clone
+   --no-local --no-hardlinks`, so its `.git` and objects are its own, never the owner's, never a worktree sharing them),
+   and runs git on it only through `ergostat.sandbox.git.Repo` (section 12q);
+2. asks the **AI** (`claude -p --tools "" --strict-mcp-config --no-session-persistence`, `--max-budget-usd` the
+   `budget`, in an empty folder) with the prompt `ergostat/repair/fixer.md` and the failure, given **only what ergostat
+   read for it**: the program and the plain files beside it in the clone (committed files only: no dot-files, links or
+   binaries; 32,000 characters each, 96,000 in all; scrubbed). It reads, runs and writes nothing itself. It answers with
+   the program's whole new text (at most 32,000 characters) and an explanation, or why it cannot. Refused before the
+   AI is asked, and left to a person: a program not among the files given (too large, not text), one with changes in
+   the owner's tree not committed (its fix would be made from other text), and one whose fixes could not be applied
+   twice;
+3. writes that text over the program in the clone (refused: a link, a path outside the clone or in `.git`, no change;
+   nothing else is ever written) and commits it;
+4. **tests** it in `ergostat.sandbox` (section 12q) on a throwaway copy of the clone's files without `.git`: reads only
+   the copy and the toolchain, writes only the copy and its temporary folder, an environment with no ergostat or test
+   variable, every process it started killed. A fix can still tell it is sandboxed (its home folder is unreadable, it
+   has no DNS), so a test shows only that it ran well there, not how it behaves outside. A block that says `read-only: true` (its program changes nothing outside)
+   is re-run with the input that failed; its `network:` hosts are reachable through the sandbox's proxy for `GET` and
+   `HEAD` only (an HTTPS host gets no tunnel, its methods unchecked inside TLS). Any other block runs the template's
+   `test:`; without one the fix is **untested**, said. The output is scrubbed and kept (`test`, `tests`), and what it
+   showed is said as it is: "exited 0 on the input that failed, in the sandbox", or "its test (CMD) exited 0 in the
+   sandbox", never "tests passed".
+5. A fix that failed its test is recorded (`fix-failed`) and the failure **given back** (a lease attempt: the fixer is
+   told what its last fix did; a dead letter after `tries`). Passed or untested: the **impact report** (section 12n) is
+   worked out for the failure (at most 20 seconds) and kept with it (`impact`, `risk`, the report as `repair/NAME.impact.json`),
+   and the gated action **`apply-fix`** is asked for (section 12k), its `key` naming the failure and the fix's commit:
+   the fix proposed as a gated change, in the inbox (section 12o). The inbox says it plainly: "Approving merges this
+   code into your repository; it then runs with your rights, outside the sandbox", then the link to the diff (the
+   failure's page), what the test showed and the impact sentence; the action's description says the same.
+
+A failure the AI cannot fix, a refused proposal, git refusing, or an AI call not answered within its time is given
+back with why.
+
+**The ladder's first rung only** (invariant 5). `apply-fix` is held for the person, answered from the inbox, the CLI
+or the failure's page; a notification of it (section 12o) always carries the sentence "Approving merges this code into
+your repository; it then runs with your rights, outside the sandbox", whatever the channel's `detail`, so a person
+answering from a phone has read it. What an approved fix then does runs with the owner's rights, as the program it
+replaces did. `approver: ai` is refused by `check` ("not yet: a sound allowlist guard is needed"): an AI approver was
+built and cut, since a guard that denies listed calls is bypassed many ways (`docs/GAPS.md`). **A denial is final**
+(the kind's `final` states, `spec/items.py`): an approval recorded after an action's denial, whoever wrote it and
+however the two raced, is ignored and listed (`ignored`); the action stays denied, is counted as denied (never as
+evidence for promoting its class to `gate: auto`), and is never run; one that ran anyway, having got through before the
+denial was seen, is shown as **ran despite denial** on the action's page.
+
+**Applying** (`python -m ergostat.repair apply`, the approved action, in the model's folder): the failure must be
+awaiting approval with a tested fix; the approved action's `key` must name that fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;
+the owner's `HEAD` must still be the commit the fix was made on (else refused: fixed again on the new one). Then the
+tested commit is fetched from the clone and fast-forwarded (`git merge --ff-only`, which refuses atomically when the
+branch moved or a local change would be overwritten), and the clone removed. Refused, the failure goes back to open
+(`apply-failed`, with why). **`repair-settle`** (every 30 s) dismisses a failure whose `apply-fix` was denied, and
+removes the clones of failures applied, dismissed or dead.
+
+**Costs and the cap.** Each AI call's Claude Code result message is passed on without its text (so its cost is the
+run's, section 9.1, and nothing the AI wrote is read as one of the run's lines). Before every call the loop's ledger
+(`repair/spend.jsonl`, under a lock) is read: the day's spend plus the call's `budget` must not pass `daily`; a ledger
+that cannot be read means no call (it fails closed). The whole budget is written before the call and corrected after
+it by the difference to what it said it cost (either way), so a run killed mid-call still counts it, and a call whose cost is not said counts whole.
+Each AI call and the test get a quarter of the block's `timeout`, so the three end before the run is killed. A
+capped failure is given back for an hour, not counted as an attempt. `repair-spend` charts the fixer's cost.
+
+| Part | What |
+|---|---|
+| stocks | `open-failures`, `fixing` (leased), `awaiting-approval`, `applied-fixes` (cumulative) |
+| flows | `failures-found`, `fixes-started`, `fixes-proposed`, `fixes-failed` (rework), `fixes-applied`, `fixes-dismissed` |
+| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver) |
+| action | `apply-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
+
 ## 13. Examples
 
 ### First loop: an inbox kept short (ergostat closes the loop)

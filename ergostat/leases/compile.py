@@ -4,7 +4,7 @@ itself, for its ``named``, ``keys``, ``err`` and ``duration``."""
 
 from __future__ import annotations
 
-from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Spec, Takes
+from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Spec, Takes, own_kind
 
 TERMS_KEYS = {"ttl", "attempts"}
 TAKES_KEYS = {"kind", "at", "to", "where", "unblocked"}
@@ -109,7 +109,7 @@ def check(c, spec: Spec) -> None:
             c.err(f"{what}: a block that takes items is started by them (each item that reaches "
                   f"{', '.join(b.takes.at)}), not by every: or cron:", b.where, "takes-with-schedule")
         k = spec.items.get(b.takes.kind)
-        if k is None or b.takes.kind.startswith("ergostat."):
+        if k is None or not own_kind(b.takes.kind):
             own = ", ".join(x for x in spec.items if not x.startswith("ergostat."))
             c.err(f"{what}.takes.kind: {b.takes.kind!r} is not a kind of item of the model's own ({own or 'none'})"
                   + c.suggest(b.takes.kind, spec.items), b.where, "unknown-ref")
