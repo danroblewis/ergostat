@@ -12,6 +12,10 @@ it; section "Modelling well" below is its summary). Then, as needed: `ergostat h
 (improving a model from its record), `ergostat help spec` (the whole format). An installed ergostat carries all
 of these; nothing else needs copying.
 
+**Read first, before writing or changing a daemon** (a long-lived program that serves many sensors or many items
+instead of a `run:` process each; `daemon:` in the YAML): [daemons.md](daemons.md), beside this file. Its rules,
+templates and done-checklist apply to every daemon you write.
+
 The owner asks for something small. You build it from **templates**: each is a reusable shape (a generic structure
 in system dynamics, a library block in control) that expands into ordinary items, stocks, flows, goals and blocks,
 grouped as one system per use. You write one `uses:` entry, and scripts only where the template needs a command.
