@@ -13,7 +13,10 @@ where it was seen and the check, not a story. `dev/bin/knowledge.py` reads them 
 (each bold heading of the house rules), `lesson-3` (each numbered lesson), `decision-<slug>` (each decision, carried
 when the gap's text names one of the words in its closing *Areas:* list). Every brief carries the rules and lessons,
 then, within the `[knowledge]` budget of `dev/factory.toml`, the relevant decisions, related gaps, past findings on the
-files it touches and the module map; its recorded context lists the ids it carried and dropped.
+files it touches and the module map; its recorded context lists the ids it carried and dropped. Each entry is also an
+item, `knowledge/<id>` (active, or retired once no file holds it), kept by the collector `knowledge-sync`
+(`knowledge.py sync`) from the running version's files, with how many briefs carried it (`carried`); the stock
+`knowledge-entries` counts the active ones, so its panel links to them on /items.
 
 **Kept current by the factory itself.** After each review, the librarian (`dev/bin/librarian.py`) compares the findings
 with `review-lessons.md`: a finding of a class already listed proposes a "seen as" line when it's a new shape; a class

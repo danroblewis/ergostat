@@ -20,6 +20,12 @@ Pick the shape:
 | several sensors on one service | one shared daemon per service, session kept, reads batched | `daemons: {svc: {run: ...}}`, each `sensor: {daemon: svc, every: 1m}` |
 | readings that arrive by themselves | push daemon | `sensor: {daemon: {run: ...}, push: true}` |
 | a program block taking many items | block daemon | `daemon: {run: ..., concurrency: N, heartbeat: 30s}` instead of `run:`, with `takes:`, `pool:`, `lease:` |
+| a block's program slow to start, one item at a time, keeping nothing between items | warm block daemon (SPEC §9.7, *Warm*) | `daemon: {run: ..., warm: true, concurrency: N}`: N processes, one run each at a time, each run charged its CPU |
+
+A warm daemon's program reads one item, does it, reaps everything it started, and says `done`; it never writes
+`os.environ` (pass `{**os.environ, **env}` to what it starts) and keeps nothing for the next item. A process that
+leaves a child running at `done`, or prints a line for no run it holds, is restarted. Check the promise with
+`ergostat block NAME --check-warm input.json` (four real runs: use a scratch copy when it acts).
 
 Group by failure: **one daemon per outside service.** A daemon fails as a whole (its runs fail, its sensors go
 unread when it is given up), so a daemon serving two services takes both down. Do not share a daemon between a
