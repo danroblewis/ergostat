@@ -75,3 +75,15 @@ into the branch was not allowed, so the same four-line change to `tests/test_fac
 The file is now byte-for-byte the same as main's, so the merge back has nothing to resolve. No code outside `tests/`
 changed in this round. Each of `tests/test_factory.py`, `tests/test_inbox.py` and `tests/test_modelling_core.py` was
 run alone and passes, and ruff is clean.
+
+After round 2, the factory's `unit` run failed again, at slot 1 of 4. Its tail is one line of 65 dots, with no F, no
+error, no test name, and no closing JSON line from `scripts/suite_watch.py`. The watchdog prints that line even when
+it kills a run itself, so something outside it cut the run off: the factory's timeout, or the container. No test was
+seen to fail. Running the whole suite here was not allowed, either serially or in parallel, so every test file that
+uses the changed code was run alone or in small serial groups. These are the inbox, the modelling core and template,
+the interventions, the factory, the redesign, coherence, self-improve, review, daemons, the spec, gated actions,
+extremes, changesets, triggers, the web access, item sets and systems, the graph CLI, the CLI fallback, rates, the
+scale caches, repair, causal, the MCP explain and the block diagram files. All about 540 tests pass, none hang, and
+the slowest file takes 59 s. No code was changed, because no failure could be found that this branch causes. If the
+next run is cut off again with nothing named, run it serially (`uv run python -m pytest -q -o
+faulthandler_timeout=120`) to name the test that hangs, if there is one.
