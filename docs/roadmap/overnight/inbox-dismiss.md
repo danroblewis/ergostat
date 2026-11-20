@@ -149,3 +149,14 @@ Run here, each file alone or in small serial groups: leases, daemons, leased wor
 ticket factory's daemons, trial stops, spec items, spec blocks, inbox, modelling core. All pass, and ruff is clean.
 Not run here: the whole suite, under load (not allowed), and the parked test many times in a row (not allowed). Only
 the factory's run under load can show that the flake is gone.
+
+After that fix, the factory's `unit` run (slot 1 of 4) printed nothing past `uv`'s install lines. There was no dot, no
+F, no test name, and no closing JSON line from `scripts/suite_watch.py`, so no test was seen to fail. As in round 2,
+something outside the watchdog cut it off. Running the whole suite here was refused again, so I read the leases change
+for a hang instead. Both locks it takes are RLocks, always in the order dispatcher then engine, as before, so I found no
+deadlock. It did have one flaw: when a take was refused or stopped, its cleanup removed the block-and-item key from
+`running` even if it had not added that key. It now removes only a key it added (`ergostat/leases/dispatch.py`,
+`take`). Each of these was run alone or in a small serial group and passes: `tests/test_leases.py`, `test_inbox.py`,
+`test_daemons.py`, `test_workspaces.py`, `test_reload_in_place.py` and `test_reload_safety.py`. Ruff is clean. If the
+next run is cut off again with nothing named, run it serially with `-o faulthandler_timeout=120` to name a hang, if
+there is one.
