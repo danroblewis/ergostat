@@ -201,13 +201,25 @@ class Dispatcher:
         fence = int(lease.get("fence") or 0) + 1
         run = uuid.uuid4().hex
         cause = it.moves[-1]["event"] if it.moves else None      # what brought it to the state it is taken from
-        ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
-                               data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
-                                     "max": t["attempts"],
-                                     "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1})
-        now = its.one(self.p.events, self.spec, it.id)
+        name = f"{b.name} {it.id}"
+        with self.e.lock:                    # counted as running before its lease is written: close() waits for it
+            if self.e.stop.is_set():
+                return None
+            self.e.running.add(name)
+        try:
+            ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
+                                   data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
+                                         "max": t["attempts"], "back": it.state, "tier": t["tier"],
+                                         "attempt": int(lease.get("attempts") or 0) + 1})
+            now = its.one(self.p.events, self.spec, it.id)
+        except BaseException:
+            with self.e.lock:
+                self.e.running.discard(name)
+            raise
         got = held(now.fields) if now else None
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+            with self.e.lock:
+                self.e.running.discard(name)
             return None
         self.resources(ev)
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence}
@@ -216,7 +228,6 @@ class Dispatcher:
         given = {"fence": fence, "ttl": t["ttl"], "expires": got.get("expires"), "attempt": int(lease.get("attempts") or 0) + 1,
                  "attempts": t["attempts"], "tier": t["tier"], "back": it.state}
         with self.e.lock:
-            self.e.running.add(f"{b.name} {it.id}")
             given["model"] = (self.e.spec, self.e.version)       # it runs to its end under the model it was taken under
         if inline:
             return b, item, given, run, ev["id"]
