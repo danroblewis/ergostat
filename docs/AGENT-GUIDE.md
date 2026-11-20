@@ -91,9 +91,13 @@ Work through these steps in order. Ask the person only what you cannot infer.
    `on: {event: TYPE, where: {...}, emits: [TYPES]}`: a run per event, caused by it. List in `emits:` every event
    type its runs print, as lines or by `event --add` (others are refused); `check` refuses blocks that would
    start each other in a loop, so end each chain of them in a type nothing is `on:`. Loops through other blocks
-   stop after 8 triggered runs (`trigger.stopped`), and more than `most:` (60) a minute trips the block's
-   breaker until the owner resets it (`ergostat block NAME --reset`); events older than `max-age:` (1h) are
-   passed over.
+   of the model stop after 8 triggered runs in a row on each line of causes (`trigger.stopped`), and more than
+   `most:` (60) a minute trips the block's breaker until the owner resets it (`ergostat block NAME --reset`; never
+   from its own run); events older than `max-age:` (1h) are passed over. A loop through a step that drops the
+   cause (a poller, a hook, a process outside ergostat that writes events with no `causedby`) is **not stopped**:
+   each pass starts a new line. Below the breaker's rate it runs on, only held to that rate; so record such a
+   step's events from inside a run (`$ERGOSTAT_CMD event --add`, which names the run as their cause), or narrow
+   `where:` so what it passes on cannot start the block again.
 6. **Goals on what matters**: how long the oldest item has waited in a state
    (`measure: oldest` on a stock's sensor, `hold: "<= 4"` hours), how many are waiting, throughput.
    A goal is what makes a block's work a feedback loop; give each step's queue one. A limit on each item

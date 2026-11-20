@@ -377,7 +377,8 @@ def test_event_add_from_a_run_says_only_what_it_emits(tmp_path, running):
     assert said == ["refused-socket", "refused-direct"]
     from ergostat.calls import ops
     with pytest.raises(ops.Refused, match="not among what triage emits"):
-        ops.event(e, {"events": [{"event": "ticket.opened", "item": "ticket/d"}], "block": "triage"})
+        ops.event(e, {"events": [{"event": "ticket.opened", "item": "ticket/d"}],
+                      "causedby": of(p, "agent.started")[0]["id"]})
 
 
 @pytest.mark.parametrize("backend", ["segments", "sqlite"])
