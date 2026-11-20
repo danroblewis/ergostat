@@ -18,6 +18,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from ..sensing import command
 from ..spec.ir import Spec
 from . import gate as gt
 from . import improve as im
@@ -54,9 +55,11 @@ def _programs(spec: Spec, refs: set[str]) -> list[str]:
         x = spec.measured(kind).get(name) if kind in ("stock", "flow", "auxiliary") else spec.blocks.get(name) if kind == "block" else None
         if x is None:
             continue
-        cmds += [s.run for s in (getattr(x, "sensors", None) or {}).values() if s.run]
+        cmds += [command(spec, s) for s in (getattr(x, "sensors", None) or {}).values() if s.commands]
         if kind == "block" and x.params.get("run"):
             cmds.append(str(x.params["run"]))
+        elif kind == "block" and x.params.get("daemon") in spec.daemons:
+            cmds.append(spec.daemons[x.params["daemon"]].run)
     root = Path(spec.root).resolve()
     for c in cmds:
         for w in re.findall(r"[\w./-]+\.(?:py|sh|js|rb)", c):

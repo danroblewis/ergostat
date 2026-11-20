@@ -38,7 +38,7 @@ blocks:
   locate:
     type: program
     goal: picked-located
-    run: python3 bin/step.py locate
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: picked, to: [located, stopped]}
     pool: 3
     out: flow.locate

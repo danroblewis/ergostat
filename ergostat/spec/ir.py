@@ -473,6 +473,12 @@ class Sensor:
         return Ref(self.of.kind, self.of.name, self.name)
 
     @property
+    def commands(self) -> bool:
+        """It reads by a program of the model's own when asked: a command each reading, or a daemon (SPEC §9.7); not a
+        push sensor, whose daemon sends readings of its own accord."""
+        return bool(self.run or (self.daemon and not self.push))
+
+    @property
     def measured(self) -> bool:
         """Read by ergostat on a schedule (a command, a query, or a count of items), not by hand."""
         return bool(self.run or self.query or self.items or self.changes or (self.daemon and not self.push))

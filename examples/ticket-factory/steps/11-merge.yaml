@@ -38,7 +38,7 @@ blocks:
   merge:
     type: program
     goal: green-merged
-    run: python3 bin/step.py merge
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: ci-green, to: [merged, stopped]}
     pool: 3
     actions: [pr-merge]

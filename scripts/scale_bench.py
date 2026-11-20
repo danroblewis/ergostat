@@ -300,7 +300,8 @@ def ps(pid: int) -> dict:
                 kids.append(k)
                 todo.append(k)
     me = rows.get(pid)
-    threads = subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True, text=True).stdout.count("\n") - 1
+    flag = "-L" if sys.platform.startswith("linux") else "-M"      # one line per thread
+    threads = subprocess.run(["ps", flag, "-p", str(pid)], capture_output=True, text=True).stdout.count("\n") - 1
     return {"rss_mb": round(me[1] / 1024, 1) if me else None, "cpu_s": secs(me[2]) if me else None, "threads": threads,
             "children": len(kids), "children_rss_mb": round(sum(rows[k][1] for k in kids) / 1024, 1)}
 
