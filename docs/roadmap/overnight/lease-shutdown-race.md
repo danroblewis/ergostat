@@ -269,3 +269,31 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
   them here.
 - **Ran serially:** `tests/test_factory_sessions.py` (5 passed) and `tests/test_leases.py` (26 passed). Ruff is
   clean. There is no remote, and local `main` (51ec9b7) is already merged.
+
+### After round 5's unit run (stopped at 51%; no cause found in the branch; no code changed)
+
+- **What the tail showed.** As in rounds 1, 3 and 4: progress dots up to 51%, then nothing. There is no failure line,
+  no summary, and no `suite_watch` closing JSON line, so the watcher inside the container was killed from outside
+  (`agents.killed`: `docker kill`, run when `fac.suite` is interrupted), not by its own limits. No test is named.
+- **Why this does not read as this branch's hang.** Across the five unit runs, the stops came at 73%, before the first
+  test (round 3, right after `uv`'s install line, where no test code had run), at 80%, and now at 51%. One run, the
+  park's, ran to its end with this same code in 258 s (1895 passed; the only failure was main's test, fixed since).
+  A stop before collection cannot come from anything in `ergostat/`. Stops at random points with no watcher line
+  fit the suite's container being killed by the factory side (the implementor run interrupted) better than any test
+  hanging. That reading is not proven: nothing in the tail shows who sent the kill.
+- **Checked again in the code (no change found to make).** Every wait this branch adds has a limit (`close`: the
+  engine's lock, at most `lock_wait`; `give_back`: the dispatcher's lock, at most `lock_wait`; the `running` wait,
+  5 s, as on main). The lock order is main's: dispatcher, then engine. Both locks are RLocks, so `give_back` inside
+  `take` takes the dispatcher's lock again without blocking. The only path from the engine into the dispatcher is
+  `run_block` to `once`, which is unchanged from main. `_work`'s early return still runs its `finally`, so the lease
+  is ended and `running` is cleared.
+- **Decision taken alone (reversible).** No code change: there is no cause to fix, and a change made without one
+  would hide what the next run could show. A watched unit run that records why its container was stopped, or runs
+  with `-o faulthandler_timeout=300` so a stuck test dumps its stacks, would settle whether a test hangs at all.
+  Running main's unit suite in the same slot would show whether main stops the same way.
+- **Refused here again:** a serial run of the whole suite with `faulthandler_timeout` (meant to find a hang without
+  running in parallel), and a loop over test files.
+- **Still open:** the 30 loaded `-n 8` runs of the restart test (the DoD's last acceptance line) and a green unit run.
+  The gap is not done.
+- **Ran serially:** `tests/test_leases.py` (26 passed); `test_lease_kill`, `test_leased_workspaces`, `test_daemons`
+  (39 passed). Ruff is clean. There is no remote, and local `main` is already merged.
