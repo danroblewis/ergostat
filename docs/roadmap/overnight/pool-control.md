@@ -111,3 +111,31 @@ errors), `tests/test_factory.py` and `tests/test_factory_knowledge.py` pass (63 
 names a fault to fix. Left, as before: one full `unit` run by the factory that lasts long enough to print pytest's
 summary, and the browser files. If the run is killed at the start again, the cause is the suite container or its
 slot (lesson-13), not this branch.
+
+Round 4, answering review/pool-control-1, every finding (lesson-12):
+- Demand (risk.py `step`, pools.py `measured`; blocking): both changes. The demand now counts the gaps the implementor
+  pool is building as well as those ready and at fix (`pools.DEMAND`), and the pool is never lowered for want of
+  demand: when the target is below the pool for that reason alone, `step` holds (an idle slot costs nothing; only the
+  risk bound crossing the tolerance drops it at once). Holding is the more reversible choice: no ungated move, no
+  re-approval each time the backlog refills. `test_risk_over_tolerance_lowers_the_pool_at_once` now asserts the hold
+  (pure, and through `pools.py tune` with nothing ready: demand 0, target 1, pool kept at 2). The model draws
+  `pool-target` from `gaps-building` too; its `implementor-pool-steps` stays the smoothed `(target - pool) / probation-time`
+  (a stock-and-flow view, not the step-by-step law), and its description says demand alone never lowers it.
+- The factory's own interventions (risk.py `FACTORY`; blocking): `queue` (the merge queue stopped, `queue.py block()`)
+  and `switch` (the upgrader could not bring the instance back, `live.py intervene()`) are in the allowlist, rather
+  than `factory: true` written in two other files (fewer files touched, one list to read). Tested: the pure test counts
+  both and their bound is higher; the tune test records a real `queue.block()` intervention and the pool drops for it.
+- An approved raise decided again (pools.py `raise_pool`, lesson-1): under the lock, besides the pool still being WAS,
+  the implementor's bound at TO must still be within the tolerance and the probation over; else it refuses (exit 1,
+  nothing done). New test `test_an_approved_raise_is_decided_again_under_the_lock`.
+- The reviewer pool (pools.py `tune`): it now follows independently of the implementor's decision: up with an approved
+  implementor raise (in the same lock, up to its own most), down at once whenever it is above the implementor pool,
+  each drop its own `pool.lowered` event with the evidence (asserted: two events, one per pool). A reviewer raise is
+  still asked on its own only when the implementor holds and is above it (a raised `reviewer_max`), and refused above
+  the implementor pool.
+
+Seen to fail with the code broken (lesson-9): `step` lowering on demand again; the bound re-check removed; `queue` and
+`switch` out of the allowlist; the reviewer not raised with the implementor. Each restored. `tests/test_factory.py`
+and `tests/test_factory_knowledge.py`: 64 passed, 2 skipped; ruff clean (`ergostat tests scripts dev/bin`). About 300
+net lines outside `tests/` and `docs/` (within 350). Not run here: the whole unit suite and the browser files (left to
+the factory, as in rounds 1 to 3).

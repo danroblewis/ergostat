@@ -8,11 +8,13 @@ most HARD), and the engine's gate and each run hold the rest to the pool now. Th
                               tolerance: interventions a day at the implementor pool now), target,
                               factory-interventions, escapes (counts)
     pools.py tune             the controller (a block): the target is the largest pool whose risk bound is within
-                              risk-tolerance (dev/model/pools.yaml) and not above the ready demand (ready + fix gaps);
-                              a step up is asked as the gated action raise-pool once [pools] probation gaps had a
-                              verdict since the last raise; down by one at once when the bound crosses the tolerance
-                              (or the target is lower). The reviewer pool follows the implementor's, up to its most.
-    pools.py raise ROLE FROM TO WHY   the action's command: TO only if the pool is still FROM (else it refuses)
+                              risk-tolerance (dev/model/pools.yaml) and not above the demand (gaps ready, at fix or
+                              building); a step up is asked as the gated action raise-pool once [pools] probation gaps
+                              had a verdict since the last raise; down by one at once when the bound crosses the
+                              tolerance (never for demand alone: an idle slot costs nothing). The reviewer pool follows
+                              the implementor's, up to its most: up with an approved raise, down with each drop.
+    pools.py raise ROLE FROM TO WHY   the action's command: TO only if the pool is still FROM, and (implementor) the
+                              bound at TO still within the tolerance and the probation over; else it refuses
     pools.py set ROLE N WHY   by hand: set it (within 1 and its most)"""
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import risk  # noqa: E402
 
 ROLES = ("implementor", "reviewer")
 HARD = 8                                    # no pool above this, whatever [pools] says (each is AI sessions at once)
+DEMAND = ("ready", "fix", "building")       # the implementor pool's work: waiting for it, and in its hands now
 
 
 def state(cfg: dict) -> dict:
@@ -83,38 +86,44 @@ def measured(cfg: dict, st: dict, gaps: list[dict]) -> dict:
     ivs = fac.items("intervention")
     ev = risk.evidence(gaps, ivs, fac.items("upgrade"), st["history"])
     tab = risk.table(ev, most(cfg, "implementor"), cycle_hours(cfg))
-    tol, demand = risk.tolerance(), sum(g["state"] in ("ready", "fix") for g in gaps)
+    tol, demand = risk.tolerance(), sum(g["state"] in DEMAND for g in gaps)
     n = st["implementor"]
     return {"table": tab, "tolerance": tol, "demand": demand, "target": risk.target(tab, tol, demand),
             "now": tab.get(n) or tab[max(tab)], "since_raise": risk.processed_since(gaps, st["raised_at"]),
             "factory_interventions": sum(map(risk.factory_caused, ivs)), "escapes": sum(x[2] for x in ev.values())}
 
 
+def probation(cfg: dict) -> int:
+    return max(0, int(cfg.get("pools", {}).get("probation", 3)))
+
+
+def lower(cfg: dict, st: dict, role: str, to: int, why: str, said: dict) -> None:
+    """Down at once, ungated, with its event and its evidence. Call it under locked()."""
+    moved = to - st[role]
+    put(cfg, st, role, to)
+    print(json.dumps({"out": f"flow.{role}-pool-steps", "moved": moved}), flush=True)
+    fac.say("pool.lowered", f"pool/{role}", pool=st[role], why=why, lowered_at=time.time(), **said)
+
+
 def tune(cfg: dict) -> int:
     gaps = fac.items("gap")
-    probation = max(0, int(cfg.get("pools", {}).get("probation", 3)))
     with locked(cfg):
         st = state(cfg)
         m = measured(cfg, st, gaps)
-        n = st["implementor"]
-        what, to, why = risk.step(n, m["table"], m["tolerance"], m["demand"], m["since_raise"], probation)
-        follow = min(st["implementor"] if what != "lower" else to, most(cfg, "reviewer"))
-        role = "implementor" if what else "reviewer" if st["reviewer"] != follow else None
-        if role == "reviewer":                       # the reviewer pool follows the implementor's
-            what, to = ("lower", follow) if st["reviewer"] > follow else ("raise", st["reviewer"] + 1)
-            why = f"the reviewer pool follows the implementor pool ({st['implementor']})"
-            if what == "raise" and m["since_raise"] < probation:
-                what = None
+        what, to, why = risk.step(st["implementor"], m["table"], m["tolerance"], m["demand"], m["since_raise"],
+                                  probation(cfg))
+        role = "implementor"
         said = {"risk": m["now"]["risk"], "risk_bound": m["now"]["bound"], "rates": m["now"]["rates"],
                 "per_day": m["now"]["per_day"], "tolerance": m["tolerance"], "demand": m["demand"],
-                "target": m["target"], "since_raise": m["since_raise"], "probation": probation}
+                "target": m["target"], "since_raise": m["since_raise"], "probation": probation(cfg)}
         if what == "lower":
-            put(cfg, st, role, to)
-            if role == "implementor" and st["reviewer"] > min(to, most(cfg, "reviewer")):
-                put(cfg, st, "reviewer", st["reviewer"] - 1)
-                print(json.dumps({"out": "flow.reviewer-pool-steps", "moved": -1}), flush=True)
-            print(json.dumps({"out": f"flow.{role}-pool-steps", "moved": -1}), flush=True)
-            fac.say("pool.lowered", f"pool/{role}", pool=st[role], why=why, lowered_at=time.time(), **said)
+            lower(cfg, st, role, to, why, said)
+        follow = min(st["implementor"], most(cfg, "reviewer"))    # the reviewer pool follows the implementor's
+        if st["reviewer"] > follow:
+            lower(cfg, st, "reviewer", follow, f"the reviewer pool follows the implementor pool ({follow})", said)
+        elif what is None and st["reviewer"] < follow and m["since_raise"] >= probation(cfg):
+            what, role, to = "raise", "reviewer", st["reviewer"] + 1     # (an approved implementor raise brings it)
+            why = f"the reviewer pool follows the implementor pool ({st['implementor']})"
     if what == "raise":                             # (outside the lock: an approval runs `raise`, which takes it)
         was = st[role]
         rc, _ = fac.act("raise-pool", key=f"{role}-{to}-{int(st['since'])}", role=role, was=str(was), to=str(to),
@@ -128,7 +137,10 @@ def tune(cfg: dict) -> int:
 
 
 def raise_pool(cfg: dict, role: str, was: int, to: int, why: str) -> int:
-    """The approved raise, only if the pool is still what it was asked from (a lowering in between voids it)."""
+    """The approved raise, decided again under the lock: only if the pool is still what it was asked from (a lowering
+    in between voids it), and for the implementor only if the risk bound at TO is still within the tolerance and the
+    probation is over (an approval given late cannot raise into a crossed bound); the reviewer pool comes up with it.
+    A reviewer raise only up to the implementor pool."""
     if role not in ROLES:
         raise SystemExit(f"no pool {role!r}: {', '.join(ROLES)}")
     with locked(cfg):
@@ -136,7 +148,18 @@ def raise_pool(cfg: dict, role: str, was: int, to: int, why: str) -> int:
         if st[role] != was or to != was + 1:
             print(f"{role} pool is {st[role]}, not {was}: this raise to {to} is stale, nothing done", file=sys.stderr)
             return 1
+        m = measured(cfg, st, fac.items("gap"))
+        bound = (m["table"].get(to) or {}).get("bound", float("inf"))
+        if role == "implementor" and (bound > m["tolerance"] or m["since_raise"] < probation(cfg)):
+            print(f"no longer due: risk bound {bound}/day at {to} (tolerance {m['tolerance']:g}), {m['since_raise']} "
+                  f"of {probation(cfg)} gaps since the last raise; nothing done", file=sys.stderr)
+            return 1
+        if role == "reviewer" and to > min(st["implementor"], most(cfg, role)):
+            print(f"the reviewer pool follows the implementor pool ({st['implementor']}): nothing done", file=sys.stderr)
+            return 1
         put(cfg, st, role, to)
+        if role == "implementor" and st["reviewer"] < min(to, most(cfg, "reviewer")):
+            put(cfg, st, "reviewer", st["reviewer"] + 1)
     print(f"{role} pool {state(cfg)[role]} ({why})")
     return 0
 

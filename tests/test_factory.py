@@ -403,6 +403,9 @@ def test_risk_counts_factory_caused_interventions_and_escapes_not_review_finding
     assert hurt["risk"] > calm["risk"] and hurt["bound"] > calm["bound"]
     assert hurt["per_day"] == 4 and hurt["risk"] == round(sum(r[0] for r in hurt["rates"].values()) * 4, 3)
     assert ivs[0]["fields"]["class"] in risk.FACTORY and not risk.factory_caused(ivs[3])
+    own = [intervention(7, **{"class": "queue"}), intervention(8, **{"class": "switch"})]   # the factory's own records
+    assert risk.evidence(gaps, [*ivs, *own], upgrades, [])[1][0] == 5
+    assert risk.table(risk.evidence(gaps, [*ivs, *own], upgrades, []), 2, 6)[1]["bound"] > hurt["bound"]
 
 
 def test_an_untried_pool_size_has_a_wide_bound_and_is_not_jumped_to():
@@ -446,38 +449,62 @@ def test_risk_over_tolerance_lowers_the_pool_at_once(tmp_path):
     tab = {n: {"bound": b} for n, b in {1: 0.5, 2: 1.5, 3: 2.1}.items()}
     assert risk.step(3, tab, 2, 10, 0, 3)[:2] == ("lower", 2)               # at once: no probation for a drop
     assert risk.step(3, tab, 2.2, 10, 0, 3)[0] is None                      # within it: held
-    assert risk.step(3, tab, 2.2, 1, 0, 3)[:2] == ("lower", 2)              # the demand fell: toward the target
+    assert risk.step(3, tab, 2.2, 1, 0, 3)[:2] == (None, 3)                 # demand alone never lowers it
     f = Factory(tmp_path)
+    t0 = time.time() - 1000                         # 40 clean gaps at a pool of 1, 4 hours each from ready to merged
+    f.fold([{"event": "gap.merged", "item": f"gap/c{i}", "data": {"ready_at": t0 + i - 4 * 3600, "approved_at": t0 + i,
+                                                                    "merged_at": t0 + i}} for i in range(40)], None)
     for role in ("implementor", "reviewer"):
         subprocess.run([sys.executable, str(BIN / "pools.py"), "set", role, "2", "test"], cwd=f.model, env=f.env,
                        check=True, capture_output=True)
-    f.fold([{"event": "intervention.recorded", "item": "intervention/x",
-             "data": {"class": "environment-defect", "recorded_at": time.time()}}], None)
+    said, lines = f.run("pools.py", argv=("tune",))                        # nothing ready: target 1, but held
+    held = next(x["data"] for x in lines if x.get("event") == "pool.measured")
+    assert "pool.lowered" not in said and held["demand"] == 0 and held["target"] == 1 and held["risk_bound"] <= 2
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, queue; "
+            "queue.block(fac.config(), {}, 'a push failed')")                # the queue's own intervention
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    f.fold([json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")], None)
     said, lines = f.run("pools.py", argv=("tune",))
     assert said[0] == "pool.lowered" and f.item("pool/implementor")["fields"]["pool"] == 1
     got = json.loads((f.model / "run" / "pools.json").read_text())
     assert (got["implementor"], got["reviewer"]) == (1, 1)                  # the reviewer follows it down
-    low = next(x["data"] for x in lines if x.get("event") == "pool.lowered")
-    assert low["risk_bound"] > low["tolerance"] == 2 and {"rates", "demand", "target"} <= set(low)   # its evidence
+    low = [x["data"] for x in lines if x.get("event") == "pool.lowered"]
+    assert [x["pool"] for x in low] == [1, 1] and f.item("pool/reviewer")["fields"]["pool"] == 1   # each its event
+    assert low[0]["risk_bound"] > low[0]["tolerance"] == 2 and {"rates", "demand", "target"} <= set(low[0])
     assert "acts" not in f.db()                                              # a drop asks no one
     r = subprocess.run([sys.executable, str(BIN / "pools.py"), "raise", "implementor", "2", "3", "stale"],
                        cwd=f.model, env=f.env, capture_output=True, text=True)
     assert r.returncode == 1 and json.loads((f.model / "run" / "pools.json").read_text())["implementor"] == 1
 
 
-def test_probation_after_a_raise(tmp_path):
+def test_probation_after_a_raise():
     risk = module("risk")
     tab = {n: {"bound": 0.1} for n in (1, 2, 3, 4)}
     assert risk.step(2, tab, 2, 10, 2, 3) == (None, 2, "on probation: 2 of 3 gaps since the last raise")
     assert risk.step(2, tab, 2, 10, 3, 3)[:2] == ("raise", 3)
     assert risk.processed_since([gap(1), gap(5, "parked"), gap(9, "fix")], 103) == 1   # verdicts since the raise
-    f = Factory(tmp_path)
-    run = lambda *a: subprocess.run([sys.executable, str(BIN / "pools.py"), *a], cwd=f.model, env=f.env,  # noqa: E731
-                                    capture_output=True, text=True)
-    assert run("raise", "implementor", "1", "2", "approved").returncode == 0
-    got = json.loads((f.model / "run" / "pools.json").read_text())
-    assert got["implementor"] == 2 and got["raised_at"] > 0 and got["history"][-1][1] == 2   # the probation starts
-    assert run("raise", "implementor", "2", "4", "a jump").returncode == 1                # one step at a time
+
+
+def test_an_approved_raise_is_decided_again_under_the_lock(tmp_path, monkeypatch):
+    pools = pools_module()
+    cfg = {"paths": {"run": str(tmp_path)}, "pools": {"implementor_max": 4, "reviewer_max": 2, "probation": 3}}
+    m = {"table": {2: {"bound": 1.0}, 3: {"bound": 1.0}}, "tolerance": 2, "since_raise": 3}
+    monkeypatch.setattr(pools.fac, "items", lambda kind: [])
+    monkeypatch.setattr(pools, "measured", lambda cfg, st, gaps: m)     # what the record says when it is approved
+    assert pools.raise_pool(cfg, "implementor", 1, 2, "approved") == 0
+    got = pools.state(cfg)
+    assert (got["implementor"], got["reviewer"]) == (2, 2)              # the reviewer pool comes up with it
+    assert got["raised_at"] > 0 and got["history"][-1][1] == 2          # the probation starts
+    assert pools.raise_pool(cfg, "implementor", 2, 4, "a jump") == 1     # one step at a time
+    m["table"][3]["bound"] = 2.5                                         # the bound crossed since it was asked
+    assert pools.raise_pool(cfg, "implementor", 2, 3, "late") == 1 and pools.state(cfg)["implementor"] == 2
+    m["table"][3]["bound"], m["since_raise"] = 1.0, 2                   # the probation not over
+    assert pools.raise_pool(cfg, "implementor", 2, 3, "early") == 1 and pools.state(cfg)["implementor"] == 2
+    m["since_raise"] = 3
+    assert pools.raise_pool(cfg, "implementor", 2, 3, "due") == 0
+    assert (pools.state(cfg)["implementor"], pools.state(cfg)["reviewer"]) == (3, 2)   # the reviewer at its most
+    assert pools.raise_pool(cfg, "reviewer", 2, 3, "past its most") == 1
 
 
 def test_pools_set_by_hand_keeps_the_cap(tmp_path):

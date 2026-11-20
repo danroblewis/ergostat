@@ -2,7 +2,7 @@
 # One implementor and one reviewer to start. The risk is in expected interventions a day: factory-caused interventions
 # per gap processed plus escapes per merged gap, times the gaps a day at a pool size, each rate a Gamma posterior per
 # size (a size never run has a wide prior). The pool tuner's target is the largest pool whose 90% risk bound is within
-# risk-tolerance and not above the ready demand; it asks the coordinator to raise one step at a time (the gated action
+# risk-tolerance and not above the demand (ready, fix, building); it asks the coordinator to raise one step at a time (the gated action
 # raise-pool), after a probation of [pools] probation gaps, and lowers by one at once when the bound crosses the
 # tolerance. The blocks' pool: is only the most each may reach; the gates (implement-when, review-when) and each run
 # hold the rest to the pool now (dev/bin/pools.py, dev/bin/risk.py).
@@ -48,8 +48,8 @@ auxiliaries:
     sensor: {run: python3 dev/bin/pools.py read over, every: 10m, timeout: 1m, description: the pools' risk}
   pool-target:
     unit: sessions
-    description: the largest implementor pool whose risk bound is within the tolerance, and not above the ready and fix gaps
-    driven-by: [-auxiliary.risk-over-tolerance, +stock.gaps-ready, +stock.gaps-fix]
+    description: the largest implementor pool whose risk bound is within the tolerance, and not above the gaps ready, at fix or building (the pool is never lowered toward it for demand alone)
+    driven-by: [-auxiliary.risk-over-tolerance, +stock.gaps-ready, +stock.gaps-fix, +stock.gaps-building]
     sensor: {run: python3 dev/bin/pools.py read target, every: 10m, timeout: 1m, description: the pools' target}
 
 flows:

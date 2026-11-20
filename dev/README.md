@@ -154,17 +154,21 @@ One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:`
 caused interventions per gap given a verdict, plus escapes per merged gap, times the gaps a day at that size (from the
 measured cycle time). Each rate is a Gamma posterior per pool size with a weak prior; a size never run starts with a
 higher, wide prior, so its 90% bound is high until it has been run (`dev/bin/risk.py`). The **target** is the largest
-pool whose 90% bound is within your **risk tolerance** and not above the ready and fix gaps. The tuner asks for
-`raise-pool` one step at a time (held in the inbox), only after `[pools] probation` gaps had a verdict since the last
-raise; it lowers the pool by one at once when the bound at the pool now crosses the tolerance (the reviewer pool
-follows the implementor's, up to its most). Each decision is a `pool.*` event carrying its evidence; `status.py` prints
+pool whose 90% bound is within your **risk tolerance** and not above the gaps ready, at fix or building. The tuner
+asks for `raise-pool` one step at a time (held in the inbox), only after `[pools] probation` gaps had a verdict since
+the last raise; your approval is checked again when it runs (the pool unchanged, the bound still within the tolerance,
+the probation over), so a late approval does nothing once those have changed. It lowers the pool by one at once when
+the bound at the pool now crosses the tolerance, and never for want of demand alone (an idle slot costs nothing). The
+reviewer pool follows the implementor's, up to its most: up with an approved raise, down with each drop. Each decision is a `pool.*` event carrying its evidence; `status.py` prints
 the risk, its bound, the tolerance and the target.
 
 **The tolerance is yours**: the parameter `risk-tolerance` in `dev/model/pools.yaml` (interventions a day, 2 to
 start). Raising it trades risk for velocity: edit the value, and the next tune's target uses it.
 
 **For an intervention to count**, record it (below) with a `class` the factory caused: `environment-defect`,
-`self-reference`, `factory-missing-capability` or `queue-interleaving`, or `"factory": true`. Review findings and a
+`self-reference`, `factory-missing-capability` or `queue-interleaving`, or `"factory": true`. The factory's own
+records count by themselves: the merge queue stopped (`queue`) and the upgrader unable to bring the instance back
+(`switch`). Review findings and a
 reviewer's park are not harm and do not count. Escapes count against the pools too: a merge reverted on main
 (`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`), main broken by it
 (`ergostat event --add gap.measured --item gap/NAME --data '{"broke_main": true}'`), or a later gap or intervention

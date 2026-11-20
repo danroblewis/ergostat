@@ -2,7 +2,8 @@
 (pools.py) weighs against the owner's risk tolerance. Pure: the record's items in, numbers out.
 
 Two harms, each ending in someone stepping in:
-  factory damage     factory-caused interventions (an allowlist of classes, or `factory: true`) per gap processed (a
+  factory damage     factory-caused interventions (an allowlist of classes, the queue's and the upgrader's own
+                     included, or `factory: true`) per gap processed (a
                      verdict: approved or parked); review findings and a reviewer's park are not harm
   low quality        escapes per merged gap: reverted (gap.reverted, or its upgrade reverted), `broke_main` said of
                      it, or named by a later gap or intervention as its `caused_by`
@@ -19,7 +20,8 @@ import math
 import re
 from pathlib import Path
 
-FACTORY = ("environment-defect", "self-reference", "factory-missing-capability", "queue-interleaving")
+FACTORY = ("environment-defect", "self-reference", "factory-missing-capability", "queue-interleaving",
+           "queue", "switch")        # (the last two, its own: the merge queue stopped, the upgrader could not recover)
 PRIOR = 0.5                           # the Gamma prior's shape, and its mean per gap with no evidence at all
 Q = 0.9                               # the bound: this quantile of the posterior
 MIN_CYCLE = 0.5                       # hours: a cycle time below this is taken as this (gaps a day stay finite)
@@ -128,7 +130,7 @@ def table(ev: dict, most: int, cycle_hours: float) -> dict:
 
 def target(tab: dict, tol: float, demand: int) -> int:
     """The largest pool whose risk bound, and every smaller one's, is within the tolerance (so each step up on the way
-    is too), and not above the ready demand; at least 1."""
+    is too), and not above the demand (gaps ready, at fix, or building); at least 1."""
     n = 0
     while n + 1 in tab and tab[n + 1]["bound"] <= tol and n + 1 <= demand:
         n += 1
@@ -136,13 +138,14 @@ def target(tab: dict, tol: float, demand: int) -> int:
 
 
 def step(n: int, tab: dict, tol: float, demand: int, since_raise: int, probation: int) -> tuple[str | None, int, str]:
-    """(raise, lower or None; to; why). Down by one at once when the pool's own bound crosses the tolerance; toward
-    the target one step at a time, a raise only once `probation` gaps were processed since the last one."""
+    """(raise, lower or None; to; why). Down by one at once when the pool's own bound crosses the tolerance; up
+    toward the target one step at a time, a raise only once `probation` gaps were processed since the last one; held
+    when the target is below the pool for want of demand."""
     to = target(tab, tol, demand)
     if n > 1 and n in tab and tab[n]["bound"] > tol:
         return "lower", n - 1, f"risk bound {tab[n]['bound']}/day at {n} is over the tolerance {tol:g}"
-    if to < n:
-        return "lower", n - 1, f"the target is {to} (demand {demand}, tolerance {tol:g})"
+    if to < n:                  # demand alone never lowers it: an idle slot costs nothing; only risk drops at once
+        return None, n, f"held above the target {to} (demand {demand}): only the risk lowers the pool"
     if to > n and since_raise < probation:
         return None, n, f"on probation: {since_raise} of {probation} gaps since the last raise"
     if to > n:
