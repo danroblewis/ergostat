@@ -719,6 +719,8 @@ class Daemon:
     within: float = 600.0           # ... within this long
     backoff: tuple = (1.0, 120.0)   # the first restart's wait, doubled each time, at most the second
     stdin_timeout: float = 10.0     # restarted when a write to its standard input waits this long
+    warm: bool = False              # concurrency processes, one run each at a time, its CPU the run's (§9.7, Warm)
+    recycle: int = 1000             # warm: the most runs one process serves
     where: Where | None = field(default=None, compare=False)
 
 

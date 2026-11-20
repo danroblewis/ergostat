@@ -940,7 +940,8 @@ class Engine:
             lf.flush()
             back, pos = None, lf.tell()                          # (where its standard error begins)
             if b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
-                code, note, back = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item, fence)
+                code, note, back, resources = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item,
+                                                                     fence)
                 with self.lock:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
