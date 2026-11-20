@@ -412,21 +412,34 @@ def failed_tests(text: str) -> list[str]:
 
 # ---- an AI session
 
-def session(cfg: dict, role: str, brief: str, work: Path) -> dict:
+def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = None) -> dict:
     """One session on the brief, on a work folder: in its own container (agents.py), or the free stand-in. Its most
     (--max-budget-usd) is reserved first and what it did not spend given back once its cost is known; a session that
-    fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged."""
+    fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged.
+    Its conversation is kept as the item session/<item>-<role>-<n> (sessions.py; ``item``: the gap, research or
+    review it works for, else the run's own)."""
+    import sessions
     model, usd = cfg["ai"][f"{role}_model"], float(cfg["ai"][f"{role}_session_usd"])
     who = dict(role=role, model=model, item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
     if cfg["ai"]["mode"] != "standin":
         import agents
         agents.token(cfg)                                # no token, no session (and nothing charged)
     at = reserve(cfg, usd, **who)
-    if cfg["ai"]["mode"] == "standin":
-        out = standin(role, brief, work)
-    else:
-        with renewing():
-            out = agents.session(cfg, role, brief, work)
+    kept = sessions.Session(cfg, role, item)
+    kept.started(model)
+    out, error = None, None
+    try:
+        if cfg["ai"]["mode"] == "standin":
+            out = standin(role, brief, work)
+            sessions.standin(kept, brief, out)
+        else:
+            with renewing():
+                out = agents.session(cfg, role, brief, work, keep=kept)
+    except BaseException as e:
+        error = f"{type(e).__name__}: {e}"
+        raise
+    finally:
+        kept.ended(out, error)
     if out.get("total_cost_usd") is not None:
         settle(cfg, usd, float(out["total_cost_usd"]), at, **who)
     print(json.dumps({k: v for k, v in out.items() if k != "result"} | {"type": "result"}), flush=True)
