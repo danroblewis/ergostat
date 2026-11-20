@@ -227,9 +227,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
     (done, 3e106ee: `storage: logs:`; `ergostat compact --projects`).
   - **The CLI refuses to run while the YAML is broken**, so every `$ERGOSTAT_CMD` call fails while an agent edits
-    (in progress, parked on branch `resilience`: its fallback to the engine's last good model settled includes
-    against the live files, so it could load a model that never existed; it needs includes settled against the kept
-    files, or the fallback refused when the live include set differs).
+    (done on branch `cli-fallback`, `docs/roadmap/overnight/cli-fallback.md`: the engine keeps the model it takes as
+    one content-addressed snapshot of every file its loading read; commands that read load that snapshot alone,
+    never running anything; commands that act, `event --add` among them, refuse naming the YAML's error).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per
