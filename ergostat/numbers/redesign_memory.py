@@ -2,7 +2,7 @@
 became of each (the judge's verdict and scorecard, refused, accepted, dismissed with the owner's reason), and the other
 changes the owner dismissed with a reason about the system's parts; and the interventions (SPEC §12p) about the system,
 each a person's time spent where a loop is missing, with their cause, how they were answered and the notes given, and
-the interventions loop's requests (``ergostat inbox --requests``) with their remedies. Both are given in the prompt,
+the interventions loop's requests (``ergostat inbox --requests``) with their state. Both are given in the prompt,
 compact, bounded by count and characters, so it does not propose again what was turned away and reads what people did
 by hand as evidence of the structure the model lacks."""
 
@@ -133,7 +133,7 @@ def interventions(p, spec: Spec, system: str, now: float | None = None, most: in
             said.append("notes: " + "; ".join(f"\"{_cut(n, 200)}\"" for n in g["notes"][-3:]))
         r = g.get("request")
         if r:
-            said.append(f"request {r.get('state')}" + (", remedies: " + " | ".join(_cut(x, 120) for x in r["remedies"][:2])
-                                                       if r.get("remedies") else ""))
+            said.append(f"request {r.get('state')}")      # (its remedies are generic: measured, they led haiku to add a
+            # goal and a controller for every class, and the change sets stopped compiling; docs/redesign-bench.md)
         out.append(". ".join(said))
     return _bounded(out, most, chars, "classes")

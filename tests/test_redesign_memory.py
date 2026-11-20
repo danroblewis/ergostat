@@ -83,7 +83,7 @@ def test_interventions_are_selected_per_system_with_their_notes(tmp_path):
     p.events.add(f"{iv.MODEL_REQUEST}.investing", item=item, source="owner", data={"note": "it rises every Monday"})
     review = "\n".join(rm.interventions(p, spec, "review"))
     assert "- alarm:queue-high: 7 times, 5.0h blocked" in review and '"it rises every Monday"' in review
-    assert "request investing, remedies: add the missing loop" in review
+    assert "request investing" in review and "remedies" not in review          # generic: they misled (redesign-bench)
     assert "- person:reviewer: 3 times" in review and "answered: approved 3" in review
     assert '"approved: the queue doubled again (2)"' in review
     assert review.index("alarm:queue-high") < review.index("person:reviewer")          # the most hours blocked first
