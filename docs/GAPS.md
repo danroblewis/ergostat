@@ -63,18 +63,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
   toolchain reads, the process table). *Left*: on macOS another process's argv and environment stay readable
   (`kern.procargs2` is not mediated by the sandbox for the same user; closing it needs a uid per run, an
   administrator's setup), recorded as a strict expected failure; the suite has run on macOS only (Linux's bwrap
-  command is tested, not run); no CPU, memory or disk limit beyond the time limit and `RLIMIT_NPROC`; neither caller
-  uses it yet.
-- **Repair** (parked on `repair`, `docs/roadmap/overnight/repair.md`, *Where it stopped*): a failing program caught,
-  fixed by an AI agent, tested, approved and verified. **Unblocked on the sandbox side**: X1 (git running the fixer's
-  config) and X2 (the jail a deny list, its network open), M2 (a fix telling it is under test) and M3 (processes
-  outliving the jail) are answered by `ergostat.sandbox`. *Still needed:* adopt the module (replace `jail.py` with
-  `sandbox.run`, every git call in `steps.py` through `sandbox.git.Repo`, the fixer's workspace without write access to
-  git metadata, the test output scrubbed like the rest); M1 (failure fields spoofed through a sensor's observation
-  lines and the legacy `Recorder`); M4 (the fixer's regression test runs first and stays in the repository); M5 (the
-  swallowed-errors check is easy to evade); M6 (a `read-only: true` re-run can still POST: list its hosts GET-only);
-  M7 (the daily cap fails open and overshoots); M8 (apply races between its checks and `--ff-only`); then the rebase
-  onto main, its SPEC section after §12q, and the inbox integration.
+  command is tested, not run); no CPU, memory or disk limit beyond the time limit and `RLIMIT_NPROC`; repair uses it
+  (`repair2`), libraries does not yet.
+- **Repair** (SPEC §12r; `docs/roadmap/overnight/repair2.md`): **built on branch `repair2`** (not merged): triage into
+  `ergostat.failure` (sealed: M1), the fix by an AI with no tools in a disposable clone with its own `.git` (X1), tested
+  in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
+  report, the ladder's first two rungs (a person; an AI approver with its approval record), a daily cap that fails closed
+  (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
+  program). *Left*: verifying a fix by the runs after it and offering its revert; per-run logs and log events; the
+  swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
+  failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text; two
+  runs of one block at once share the block's log, so a failure's stderr may hold the other's lines.
 
 ## Modelling
 
