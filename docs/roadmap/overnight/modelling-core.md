@@ -67,34 +67,40 @@ verification harness and the craft bench in `scripts/`.
 
 ## Where it stopped
 
-After the final gate review's fixes, on main 214d864.
+Final state, on main 0a59c72 (churn, fastroute), after the final gate review's fixes and the owner's decision that
+structural review runs on its own.
 
-- B1: a rename keeps every number and item kind as they were (`version.renamed_parts`). A value, a rate or an item
-  kind changed with a rename makes it no rename; the rename test has the three cases.
-- B2: each AI call's cost is printed and charged as it is spent (`modeller.answer` / `redesigner.run` `on_call`;
-  `redesign.charge`). A call that never says its cost is charged the most it could have cost (`modeller.unsaid`).
-  Calls are timed to fit the block's timeout (`--timeout`, `modeller.per_call`). The daily cap fails closed.
-- The smaller points:
-  - a rename's fit after is measured once its history is kept;
-  - files are written whole or not at all (written beside, then renamed over);
-  - a carried redesign is held to who-decides and its owner flags again;
-  - a rename is kept out of plain `accept: auto`; SPEC names what `accept: auto` promotes, what the judge never
-    writes, and how each kind is judged (a redesign on the record it has, its fit allowed 10% worse);
-  - an open redesign holds its lines only when the judge may write it;
-  - held modelling requests are in the inbox, and they have an Items-page title;
-  - the template skip is scoped to once library templates, with one helper for what a template made.
-- Cuts:
-  - the verification harness went back to `selfimprove` (the thirteen stocks are kept in the tests);
-  - the review screenshot and the redesigner's transcript dump went;
-  - in the changeset code: `Scratch.unified` and its own section map;
-  - `version()` now uses `_numbers`; there is one `WORDING`; the redesigner's settings come from `use: modelling`;
-  - a queue's goal and a guessed process are now control requests held for the owner, and the rule tier keeps
-    units only.
-- Net lines outside `tests/` and `docs/`: +3,667.
-- Suites (fast commands under `suite_watch`, one at a time):
-  - unit: rc 0, 1,667 passed, 1 xfailed. The 13 skips are page files without playwright (they run in the browser
-    suite) and VictoriaMetrics;
+- The gate review's fixes: B1 (a rename keeps every number and item kind), B2 (each AI call charged as it is spent,
+  charged the most it could have cost when it never says, timed to fit the block), and the smaller points and cuts
+  (see the commits).
+- **Redesign on its own** (`numbers/redesign_due.py`; the owner, 2026-11-19): `when: auto` is the default.
+  - It works per system, a subsystem at a time past 40 parts; a system too large with nothing to split into is held
+    for the owner as `too-large`.
+  - A system is due when its replay is worse than its mean for 30 minutes, when a finding says its structure is
+    wrong (or a structural one is held an hour), when refinement stalled, on the first run, and once a day. What is
+    wrong is taken before the scheduled review.
+  - Bounds: one waiting a system; a 6 h rest after one no better, refused, or that made nothing (unless the model
+    changed); the daily cap.
+  - A redesign of a system changes only that system (others follow its renames); the redesigner sees only its
+    findings, and each stock's level on the record.
+  - Each run's trigger and result are held as a modelling request (Items tab, inbox) and said in `ergostat status`.
+    What it makes is written only with the owner's approval, unless `accept: {redesign: auto}`.
+- One carrying mechanism with churn's: `supersede` carries ergostat's own changes (subject unchanged) and a
+  description, unit or redesign whoever made it (edit still applies); `rebase` only moves lines.
+- Verification on ticket-factory, offline, with a burst (12 issues at once, then one every 3 s, to 60), haiku:
+  - every system's automatic run fired, each with its trigger said: oversight (measured-not-caused, first run),
+    then intake, making, review and shipping (daily review). There were two runs of about 15 minutes each, $0.33 in
+    all, within the $1 daily cap set;
+  - the burst backed up in front of the work step (located: 53 at most), not in review. Asked about `making`, the
+    redesigner proposed a capacity structure: `flow.work` as `MIN(stock.located / work-time, work-capacity /
+    work-time)` with a new `work-capacity` parameter ($0.027). Its scorecard said mixed (the replay of `done`
+    worse), so it would wait for the owner and not be written;
+  - for review, haiku proposed descriptions and tolerances only.
+  - The whole verification came to about $0.46.
+- Net lines outside `tests/` and `docs/`: +3,969.
+- Suites (fast commands, under `suite_watch`, one at a time):
+  - unit: rc 0, 1,679 passed, 1 xfailed (13 skips: page files without playwright, run in the browser suite, and
+    VictoriaMetrics);
+  - browser: rc 0, 217 passed;
   - ruff: rc 0;
-  - `demo_check` on the four: rc 0;
-  - browser: 216 passed, 1 failed, only the coordinator's `open=*` routing at the 20 s bound (20.0 s), which
-    `fastroute` is fixing.
+  - `demo_check` on the four: rc 0.
