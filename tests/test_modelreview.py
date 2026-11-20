@@ -72,15 +72,15 @@ def test_the_reviewer_is_there_only_with_ai_and_tells_the_judge_what_it_reviews(
         assert not [x for x in problems if x.level == "error"], [str(x) for x in problems]
         return spec
     on = spec_of("{ai: true}")
-    assert on.blocks["reviewer"].type == "ai" and on.improve.reviewed == ["structure", "redesign"]
-    assert "modelling review --model haiku" in on.blocks["reviewer"].params["run"]
-    assert "--daily 2" in on.blocks["reviewer"].params["run"]          # the template's one daily cap
+    assert on.blocks["model-reviewer"].type == "ai" and on.improve.reviewed == ["structure", "redesign"]
+    assert "modelling review --model haiku" in on.blocks["model-reviewer"].params["run"]
+    assert "--daily 2" in on.blocks["model-reviewer"].params["run"]          # the template's one daily cap
     assert "changes-sent-back" in on.flows
     assert spec_of("{ai: true, review: {kinds: [structure, equation, redesign], model: sonnet}}").improve.reviewed == \
         ["structure", "equation", "redesign"]
     for off in ("{}", "{ai: true, review: {when: off}}"):
         s = spec_of(off)
-        assert "reviewer" not in s.blocks and s.improve.reviewed == [] and "changes-sent-back" not in s.flows
+        assert "model-reviewer" not in s.blocks and s.improve.reviewed == [] and "changes-sent-back" not in s.flows
 
 
 def test_a_pass_lets_the_judge_write_and_the_verdict_is_an_event_on_the_item(tmp_path):

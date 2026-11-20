@@ -404,7 +404,7 @@ blocks:
     timeout: ${timeout}
     in: +stock.unanswered-requests
     out: flow.changes-made-by-redesigner
-  reviewer:
+  model-reviewer:                     # not "reviewer": a model's own blocks often take that name
     if: ${ai}
     unless: ${review.when|auto} == off
     type: ai

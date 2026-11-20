@@ -3656,7 +3656,7 @@ The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 
 
 The judge reads a change by the numbers only (the replay on record its author never saw, a redesign's scorecard). A
 change can fit better and still be wrong. **The reviewer** (`ergostat/numbers/reviewer.py`; the template's block
-`reviewer`, an `ai` block, there with `ai: true` unless `review: {when: off}`, on haiku by default) reads each change of
+`model-reviewer`, so as not to clash with a model's own `reviewer`; an `ai` block, there with `ai: true` unless `review: {when: off}`, on haiku by default) reads each change of
 the kinds the judge's `reviewed:` names (the template's `review.kinds`: `structure` and `redesign`, `equation` when
 named) once the judge has passed it, and before it is written or offered to the owner. Its prompt
 (`library/templates/modelling/reviewer.md`) is deliberately disagreeable and carries the review checklists of
