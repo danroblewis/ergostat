@@ -178,3 +178,11 @@ Failed its gates twice (the kill rule). Blocking findings:
 - **docs/GAPS.md (fixed):** the entry now names `warm3`, says it is not done, and says why.
 - Run after this round: `tests/test_warm.py` 20 passed, `tests/test_daemons.py` 26 passed, ruff clean. No code
   changed this round.
+
+## Where it stopped
+
+Parked by the factory (review/warm3-2, 2026-11-20 06:34).
+
+Failed its gates twice (the kill rule). Blocking findings:
+- gate 1: docs/roadmap/overnight/warm3.md is not the branch's first commit
+- docs/roadmap/overnight/warm3.md:160-163,167-172 (lesson-7): origin/main is still not merged in. The merge base is fdf83b9 and main is 63 commits ahead. The four suites have not been run after a merge. Merging main is the first thing this gap (warm3) names and a house-rule condition for done. Main has changed SPEC, GAPS, AGENT-GUIDE, spec/ir.py, web/server.py and the schema since the merge base, all of which this branch also edits, and the daemons/supervisor code this branch rewrites (proc.py, supervise.py, work.py) conflicted with main once before (61cd918). The implementer was refused `git merge` three times, so whoever has permission (the factory) must merge, resolve, and run the unit suite and the four browser files under suite_watch with rc 0 before this reaches the main people install.
