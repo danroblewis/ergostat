@@ -34,6 +34,7 @@ class Slot:
         self.state, self.why, self.next_at = "starting", "", 0.0
         self.restarts: deque[float] = deque()
         self.total, self.alarm = 0, None
+        self.spawning = False                        # one _start at a time: sync's and the loop's never both spawn
         self.up = threading.Event()
 
 
@@ -135,7 +136,7 @@ class Supervisor(Hands):
         todo, gone = [], []
         with self.lock:                              # what to do worked out under the lock; done outside it
             for slot in self.slots.values():
-                if slot.state in ("starting", "backoff") and now >= slot.next_at:
+                if slot.state in ("starting", "backoff") and now >= slot.next_at and not slot.spawning:
                     todo.append((slot, None))
                 elif slot.state == "running" and (why := self._trouble(slot, now)):
                     todo.append((slot, why))
@@ -181,6 +182,17 @@ class Supervisor(Hands):
             return next((r for r, h in p.runs.items() if h.cancelled is not None and now - h.cancelled > grace()), None)
 
     def _start(self, slot: Slot) -> None:
+        with self.lock:                              # claimed before spawning: a second caller spawns nothing
+            if self.slots.get(slot.d.name) is not slot or slot.state not in ("starting", "backoff") or slot.spawning:
+                return
+            slot.spawning = True
+        try:
+            self._spawn(slot)
+        finally:
+            with self.lock:
+                slot.spawning = False
+
+    def _spawn(self, slot: Slot) -> None:
         log = open(old.log_path(self.e.p, f"daemon-{slot.d.name}"), "a", encoding="utf-8")
         from ..spec.engine import callback_env
         try:
