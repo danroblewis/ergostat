@@ -309,7 +309,8 @@ def action_kind() -> ItemKind:
     on = {f"{ACTION}.{s}": s for s in ACTION_STATES}
     return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "command", "exit"], {},
                     None, "a gated action an AI session or a program asked for: approved by its gate (auto) or the owner, or denied; "
-                    "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"})
+                    "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"},
+                    final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)
 
 
 MODEL_REQUEST = "ergostat.model-request"   # the built-in item kind: a class of intervention to model away (SPEC §12p)
@@ -679,6 +680,13 @@ class Block:
 
 
 LEASED, DEAD = "leased", "dead"     # the states a taken kind gains (SPEC §9.5): held by a run; given up on after its attempts
+WORKED = ("ergostat.failure",)    # the built-in kinds a model's blocks may take and lease (SPEC §12r)
+
+
+def own_kind(name: str) -> bool:                    # a kind the model's blocks work on: its own, or one of WORKED
+    return not name.startswith("ergostat.") or name in WORKED
+
+
 TIERS = ("person", "ai", "narrow-ai", "decision", "program", "rule")   # the ladder, top to bottom: each has its lease terms
 LEASE_TTL = {"person": 8 * 3600.0, "ai": 40 * 60.0, "narrow-ai": 10 * 60.0, "decision": 2 * 60.0, "program": 5 * 60.0,
              "rule": 60.0}               # how long a run may be silent before its lease expires, by tier (SPEC §9.5)
@@ -786,6 +794,8 @@ class ItemKind:
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # the terms of a lease on one of these (SPEC §9.5)
     relations: dict[str, Relation] = field(default_factory=dict)   # field → its relation to other items (SPEC §5a)
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
+    sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
+    final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
 
     def matches(self, id: str) -> bool:
         import fnmatch

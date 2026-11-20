@@ -1560,6 +1560,15 @@
           ],
           "description": "An ai block: the gated actions its session may ask for"
         },
+        "read-only": {
+          "type": "boolean",
+          "description": "A program or ai block: its program changes nothing outside, so a repair's fix to it is re-run for real on the input that failed, in the sandbox (SPEC \u00a712r)"
+        },
+        "network": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "A read-only block: the hosts a re-run of a repair's fix may reach, through the sandbox's proxy, for GET and HEAD only (SPEC \u00a712r)"
+        },
         "takes": {
           "$ref": "#/$defs/takes"
         },

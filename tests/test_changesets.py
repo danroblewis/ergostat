@@ -265,7 +265,8 @@ def test_every_examples_items_fold_as_they_did_where_no_rules_were_added(example
         evs = [{"id": f"e{i}", "time": 1000.0 + i, "type": r.choice([*k.on, "x.y"]),
                 "data": {n: _value(r) for n in r.sample(plain, r.randrange(len(plain) + 1))}} for i in range(40)]
         it = its.fold(f"{k.id.rstrip('*')}1", evs, k)
-        assert it.fields == _latest_wins(evs) and not it.refused, k.name
+        assert it.fields == _latest_wins(evs), k.name
+        assert all(x["form"] == "final" for x in it.refused) if k.final else not it.refused, k.name   # (a final state's rule)
 
 
 def test_the_model_change_kind_folds_as_the_review_queue_read_it(tmp_path):

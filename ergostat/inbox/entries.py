@@ -15,6 +15,9 @@ KINDS = ("action", "person", "advise", "steptest", "change", "request", "breaker
 _CACHE: dict = {}
 
 
+MERGES = "Approving merges this code into your repository; it then runs with your rights, outside the sandbox."
+
+
 def _cut(s: str, n: int = 80) -> str:
     return s if len(s) <= n else s[:n - 3] + "..."
 
@@ -29,6 +32,8 @@ def _why(p, spec, item: str | None) -> str:
     f = it.fields if it else {}
     imp = f.get("impact")
     imp = imp.get("said") if isinstance(imp, dict) else imp
+    if str(item).startswith("ergostat.failure/"):              # the repair loop's fix (SPEC §12r): said plainly
+        return (f"{MERGES} Diff: /item/{item}. The fixed program {(f.get('test') or {}).get('how') or 'was not tested'}. {imp or ''}")
     return "; ".join(x for x in (str(imp or ""), f"tests {f['tests']}" if f.get("tests") else "") if x)
 
 
@@ -38,6 +43,7 @@ def _actions(p, spec, now: float) -> list[dict]:
         return []
     return [{"id": f"action/{record.short(a['id'])}", "kind": "action", "time": a["time"], "link": f"/item/{a['id']}",
              "verbs": ["approve", "deny"], "class": a.get("class") or a.get("action"), "action": a.get("action"),
+             **({"warn": MERGES} if str(a.get("item")).startswith("ergostat.failure/") else {}),
              "summary": f"{a.get('action')}" + (f" for {a['item']}" if a.get("item") else "") + f": "
                         f"{_cut(a.get('command') or '', 70)}", "why": _why(p, spec, a.get("item"))}
             for a in record.stored(p, until=now).values() if a["state"] == "requested"]
