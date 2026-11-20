@@ -519,8 +519,11 @@ def test_a_simple_command_is_execd_and_anything_else_left_to_its_shell():
     from ergostat.daemons.proc import execd
     assert execd("python3 d.py crash") == "exec python3 d.py crash"
     assert execd('./run.sh "a b" \'c;d\'') == 'exec ./run.sh "a b" \'c;d\''
+    assert execd("python3 d.py\n") == "exec python3 d.py"            # a YAML block scalar's newline
+    assert execd("prog a#b") == "exec prog a#b"
     for left in ("A=1 prog", "cd x && prog", "a | b", "prog > log", "prog &", "if true; then p; fi", "a\nb",
-                 "echo $(x)", "echo `x`", '"unbalanced', "", "exec prog", "source env.sh"):
+                 "echo $(x)", "echo `x`", '"unbalanced', "", "exec prog", "source env.sh",
+                 "prog a#b; other", "prog # c; other", "read x", "pushd d", "let x=1", "declare -x A=1"):
         assert execd(left) == left, left
 
 

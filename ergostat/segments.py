@@ -13,8 +13,8 @@ interface as ``store.Events``, without SQLite.
   item, type and time reads only what matches, and only the blocks those rows are in;
 - ``seg-<...>.ids``: the ids, a line per row, read only to find one event by its id;
 - ``meta.json``: the generation, changed whenever events are taken out (pruned, rolled up);
-- ``layout``: a token replaced (atomically, under the lock) after every change to the segments or a
-  rewrite of the head: a seal, a roll-up, a prune.
+- ``layout``: a token replaced (atomically, under the lock) by a seal, a roll-up or a prune, once its
+  segments are written and before the head is rewritten.
 
 Readers follow the head by its offset, and see a sealed or rewritten segment by the layout token
 changing (the folder's mtime is checked too, but it cannot be relied on alone: Linux records it to
@@ -362,7 +362,9 @@ class Segments:
         return token, os.stat(self.dir).st_mtime_ns
 
     def _relayout(self) -> None:
-        """Under the lock, after the segments changed or the head was rewritten: a new layout token."""
+        """Under the lock: a new layout token, once the segments have changed and before the head is rewritten. A
+        reader that sees it lists the segments and reads the head from its start: the old head (its sealed events
+        dropped, now in a segment) or the new one, a file of another inode, which it reads from its start too."""
         tmp = self.dir / f"layout.{uuid.uuid4().hex[:8]}.tmp"
         tmp.write_bytes(uuid.uuid4().hex.encode())
         os.replace(tmp, self.dir / "layout")
@@ -609,8 +611,8 @@ class Segments:
         while len(self._head) >= self.seal:
             part, rest = self._head.evs[:self.seal], self._head.evs[self.seal:]
             write_segment(self.dir, part)
-            self._rewrite_head(rest)
-            self._relayout()
+            self._relayout()            # before the head: a reader between the two sees the segment, then the head
+            self._rewrite_head(rest)    # (after it, it would see the head without the sealed part, and not the segment)
             self._sync()
 
     def _rewrite_head(self, evs: list[dict]) -> None:
@@ -933,6 +935,7 @@ class Segments:
                 s.path.with_suffix(suf).unlink(missing_ok=True)
             with self._lock:
                 self._open_cols.pop(s.name, None)
+        self._relayout()                # the segments changed: said before the head is (as in _seal)
         head = [e for e in self._head.evs if keep_head(e)]
         gone += len(self._head) - len(head)
         for q, e in extra.items():
@@ -941,7 +944,6 @@ class Segments:
         if len(head) != len(self._head) or extra:
             head.sort(key=lambda e: e["seq"])
             self._rewrite_head(head)
-        self._relayout()
         self._dir_stamp = None
         self._sync()
         return gone
