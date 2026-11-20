@@ -1,0 +1,294 @@
+# Landing: approved gaps merged one at a time behind the four suites, a failure triaged for flakes, the push to origin
+# held for the coordinator, and the instance upgraded to the new main (installed, switched, kept or reverted).
+defaults:
+  system: landing
+
+stocks:
+  gaps-approved:
+    unit: gaps
+    description: gaps the reviewer approved (or triage found flaky), waiting for the merge queue
+    sensor: {items: gap, state: approved, every: 1m}
+  gaps-queued:
+    unit: gaps
+    description: the gap the merge queue is landing - merged into main, its suites running (one at a time)
+    sensor: {items: gap, state: queued, every: 1m}
+  gaps-queue-failed:
+    unit: gaps
+    description: gaps whose queue run failed, the merge undone, waiting for flake triage
+    sensor: {items: gap, state: queue-failed, every: 1m}
+  upgrades-available:
+    unit: upgrades
+    description: new green mains the instance does not run yet
+    sensor: {items: upgrade, state: available, every: 1m}
+  upgrades-installed:
+    unit: upgrades
+    description: versions installed in their own folders and checked, waiting for the coordinator to approve the switch
+    sensor: {items: upgrade, state: installed, every: 1m}
+  upgrades-switching:
+    unit: upgrades
+    description: versions switched to, their health not yet shown
+    sensor: {items: upgrade, state: switched, every: 1m}
+
+flows:
+  gaps-approved:
+    from: gaps-in-review
+    to: gaps-approved
+    description: a merge verdict with no blocking finding
+    driven-by: [+stock.gaps-in-review]
+    equation: (1 - fix-share - park-share) * stock.gaps-in-review / review-time
+    sensor: {items: gap, entering: approved, where: {approved_by: review}, over: 1d}
+  gaps-queued:
+    from: gaps-approved
+    to: gaps-queued
+    description: the queue takes the next approved gap, once it holds the lock and the machine is quiet
+    driven-by: [+stock.gaps-approved]
+    equation: stock.gaps-approved / queue-wait
+    sensor: {items: gap, entering: queued, over: 1d}
+  gaps-merged:
+    from: gaps-queued
+    description: green - merged on main, the push asked for, an upgrade opened
+    driven-by: [+stock.gaps-queued]
+    equation: (1 - queue-fail-share - conflict-share) * stock.gaps-queued / queue-time
+    sensor: {items: gap, entering: merged, over: 1d}
+  sent-back-by-queue:
+    from: gaps-queued
+    to: gaps-fix
+    description: the branch no longer merges cleanly - undone, back to the implementor
+    driven-by: [+stock.gaps-queued]
+    equation: conflict-share * stock.gaps-queued / queue-time
+    sensor: {items: gap, entering: fix, where: {sent_back_by: queue}, over: 1d}
+  queue-failures:
+    from: gaps-queued
+    to: gaps-queue-failed
+    description: a suite failed - the merge undone with git reset --keep, the failure to triage
+    driven-by: [+stock.gaps-queued]
+    equation: queue-fail-share * stock.gaps-queued / queue-time
+    sensor: {items: gap, entering: queue-failed, over: 1d}
+  flakes-retried:
+    from: gaps-queue-failed
+    to: gaps-approved
+    description: the failed tests passed alone - flakes, and the gap back to the queue, not blamed
+    driven-by: [+stock.gaps-queue-failed]
+    equation: flake-share * stock.gaps-queue-failed / triage-time
+    sensor: {items: gap, entering: approved, where: {approved_by: flake-retry}, over: 1d}
+  sent-back-by-triage:
+    from: gaps-queue-failed
+    to: gaps-fix
+    description: the failure is the branch's - back to the implementor with what failed
+    driven-by: [+stock.gaps-queue-failed]
+    equation: (1 - flake-share - triage-park-share) * stock.gaps-queue-failed / triage-time
+    sensor: {items: gap, entering: fix, where: {sent_back_by: triage}, over: 1d}
+  parked-in-triage:
+    from: gaps-queue-failed
+    description: the branch's second failed gate (the kill rule) - parked with where it stopped
+    driven-by: [+stock.gaps-queue-failed]
+    equation: triage-park-share * stock.gaps-queue-failed / triage-time
+    sensor: {items: gap, entering: parked, where: {parked_in: triage}, over: 1d}
+  upgrades-opened:
+    to: upgrades-available
+    description: a new main the queue landed green
+    driven-by: [{cause: +flow.gaps-merged, instant: true, description: each green merge is a new main}]
+    equation: upgrades-per-merge * flow.gaps-merged
+    sensor: {items: upgrade, entering: available, over: 1d}
+  upgrades-installed:
+    from: upgrades-available
+    to: upgrades-installed
+    description: installed into ~/ergostat-live/<sha> with its own environment, and the model checked with its own code
+    driven-by: [+stock.upgrades-available]
+    equation: (1 - supersede-share) * stock.upgrades-available / install-time
+    sensor: {items: upgrade, entering: installed, over: 1d}
+  upgrades-superseded:
+    from: upgrades-available
+    description: a newer main came first - only the newest is installed (or its check failed)
+    driven-by: [+stock.upgrades-available]
+    equation: supersede-share * stock.upgrades-available / install-time
+    sensor: {items: upgrade, entering: superseded, over: 1d}
+  upgrades-switched:
+    from: upgrades-installed
+    to: upgrades-switching
+    description: the coordinator approved the switch - the engine stopped, current pointed at it, started
+    driven-by: [+stock.upgrades-installed]
+    equation: stock.upgrades-installed / approve-time
+    sensor: {items: upgrade, entering: switched, over: 1d}
+  upgrades-kept:
+    from: upgrades-switching
+    description: healthy - a pass, the sensors reading, the record read, the queue there
+    driven-by: [+stock.upgrades-switching]
+    equation: (1 - revert-share) * stock.upgrades-switching / health-time
+    sensor: {items: upgrade, entering: healthy, over: 1d}
+  upgrades-reverted:
+    from: upgrades-switching
+    description: not healthy in time - back to the version before it
+    driven-by: [+stock.upgrades-switching]
+    equation: revert-share * stock.upgrades-switching / health-time
+    sensor: {items: upgrade, entering: reverted, over: 1d}
+
+parameters:
+  queue-wait:
+    value: 30m
+    estimate: true
+    description: how long an approved gap waits for the lock and a quiet machine
+  queue-time:
+    value: 20m
+    estimate: true
+    description: a queue run - merge, ruff, unit, browser, demo_check
+  queue-fail-share:
+    value: 0.2
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of queue runs that fail a suite
+  conflict-share:
+    value: 0.05
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of queue runs whose merge conflicts
+  triage-time:
+    value: 10m
+    estimate: true
+    description: running the failed tests again alone
+  flake-share:
+    value: 0.5
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of queue failures that pass alone (flakes)
+  triage-park-share:
+    value: 0.1
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of queue failures that are a branch's second failed gate
+  upgrades-per-merge:
+    value: 1
+    unit: upgrades/gaps
+    description: each green merge is one new main to install
+  install-time:
+    value: 5m
+    estimate: true
+    description: a worktree, uv sync, and a check
+  supersede-share:
+    value: 0.3
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of new mains passed over for a newer one
+  approve-time:
+    value: 2h
+    estimate: true
+    description: how long the coordinator takes to approve a switch
+  health-time:
+    value: 2m
+    estimate: true
+    description: how long a new version takes to show it is healthy
+  revert-share:
+    value: 0.05
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of switches reverted
+
+goals:
+  approved-gaps-landed:
+    stock: gaps-approved
+    hold: "<= 0"
+    tolerance: 0
+    description: every approved gap landed (while the machine is quiet)
+  queue-failures-triaged:
+    stock: gaps-queue-failed
+    hold: "<= 0"
+    tolerance: 0
+    description: every queue failure triaged
+  upgrades-taken-up:
+    stock: upgrades-available
+    hold: "<= 0"
+    tolerance: 0
+    description: every new main installed (or passed over for a newer one)
+  upgrades-switched-to:
+    stock: upgrades-installed
+    hold: "<= 0"
+    tolerance: 0
+    description: the instance runs the newest installed version
+
+actions:
+  push-main:
+    run: python3 dev/bin/queue.py push {sha}
+    in: .
+    gate: approve
+    class: push
+    args: {sha: the green merge commit on the checkout's main}
+    timeout: 5m
+    description: Push exactly that commit to origin's main (a fast-forward, or refused) - the coordinator approves it
+  switch-instance:
+    run: python3 dev/bin/live.py switch {sha} --detach
+    in: .
+    gate: approve
+    class: switch
+    args: {sha: the installed version to switch the instance to}
+    description: Switch the instance to an installed version, in a process of its own; it reverts on failure
+
+blocks:
+  queue-when:
+    type: expr
+    description: land while approved gaps wait and no suite runs on the machine (the load interlock)
+    in:
+      waiting: goal.approved-gaps-landed.off
+      busy: goal.machine-quiet.off
+      threads: goal.suite-threads-within.off
+      memory: goal.suite-memory-within.off
+    expr: waiting * (1 - max(busy, threads, memory))
+    out: block.merge-queue
+  merge-queue:
+    type: program
+    description: one at a time, under the coordinator's queue lock - merge into a clean main, ruff, unit, browser, demo_check; push if green (gated), else undo
+    run: python3 dev/bin/queue.py
+    takes: {kind: gap, at: approved, to: [merged, fix, queue-failed]}
+    pool: 1
+    lease: {ttl: 30m, attempts: 3}
+    timeout: 3h
+    actions: [push-main]
+    in: block.queue-when
+    out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures, flow.upgrades-opened]
+
+  triage-when:
+    type: expr
+    description: triage while queue failures wait and no suite runs on the machine
+    in:
+      waiting: goal.queue-failures-triaged.off
+      busy: goal.machine-quiet.off
+    expr: waiting * (1 - busy)
+    out: block.flake-triage
+  flake-triage:
+    type: program
+    description: the failed tests again, alone, on the same merge - passing, flakes and a retry; failing, the branch's
+    run: python3 dev/bin/triage.py
+    takes: {kind: gap, at: queue-failed, to: [approved, fix, parked]}
+    pool: 1
+    lease: {ttl: 30m, attempts: 2}
+    timeout: 1h
+    in: block.triage-when
+    out: [flow.flakes-retried, flow.sent-back-by-triage, flow.parked-in-triage]
+
+  upgrader:
+    type: program
+    description: installs a new main into its own folder and checks it, then asks for the switch (gated)
+    run: python3 dev/bin/upgrade.py
+    takes: {kind: upgrade, at: available, to: [installed, superseded, failed]}
+    pool: 1
+    lease: {ttl: 20m, attempts: 2}
+    timeout: 15m
+    actions: [switch-instance]
+    goal: upgrades-taken-up
+    out: [flow.upgrades-installed, flow.upgrades-superseded]
+  approve-switch:
+    type: person
+    agent: coordinator
+    description: the coordinator approves the switch to the newest installed version (the switch-instance action in the inbox)
+    ask: "A new version is installed and checked: approve its switch-instance action in the inbox (ergostat inbox), or deny it."
+    goal: upgrades-switched-to
+    out: flow.upgrades-switched
+  switch:
+    type: external
+    description: the switch's own process (dev/bin/live.py switch) - started by the approved action, it outlives the engine it stops; health-checked, kept or reverted
+    out: [flow.upgrades-kept, flow.upgrades-reverted]

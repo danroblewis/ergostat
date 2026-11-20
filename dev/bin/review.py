@@ -1,0 +1,140 @@
+"""reviewer: takes a gap at built, under a lease, and judges its branch: a fresh session that is given the definition
+of done, the GAPS entry, the rules, the earlier findings and the diff, and never the implementor's reasoning. It runs
+in a read-only worktree of its own (<worktrees>/.review/<branch>, detached at the branch's head), with read tools only.
+
+Before the session, the mechanical gates: the definition file committed first and unchanged since (but for a "Where it
+stopped" section), and the size budget. A gate that fails is a blocking finding.
+
+It records a `review` item (review/<branch>-<n>: its verdict, blocking and non-blocking findings, the context it was
+given, its cost), then moves the gap: approved (merge), back to fix with the findings, or parked. The kill rule: the
+second failed gate (a fix verdict, or a real failure in the queue) parks the gap with where it stopped, written into
+its definition file."""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+import brief  # noqa: E402
+import fac  # noqa: E402
+
+TOOLS = ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)",
+         "Bash(uv run python -m pytest:*)", "Bash(ls:*)", "Bash(wc:*)"]
+NEVER = ["Edit", "Write", "NotebookEdit", "Bash(git push:*)", "Bash(git commit:*)", "Bash(git stash:*)",
+         "Bash(git checkout:*)", "Bash(git reset:*)", "Bash(gh:*)", "Bash(curl:*)", "WebFetch", "WebSearch",
+         "Read(~/.claude/**)", "Grep(~/.claude/**)", "Glob(~/.claude/**)"]
+KILL = 2                     # the failed gates that park a gap
+VERDICT_EVENT = {"merge": "review.approved", "fix": "review.sent-back", "park": "review.parked"}
+VERDICT = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
+
+
+def gates(cfg: dict, wt: Path, branch: str, base: str) -> tuple[list[str], str]:
+    """The mechanical gates: (blocking findings, the definition as committed first)."""
+    rel = f"{fac.DEFS}/{branch}.md"
+    found = []
+    commits = fac.git(wt, "rev-list", "--reverse", f"{base}..HEAD").split()
+    touched = fac.git(wt, "log", "--reverse", "--format=%H", f"{base}..HEAD", "--", rel).split()
+    on_base = fac.git_ok(wt, "cat-file", "-e", f"{base}:{rel}")
+    if not on_base and (not touched or not commits or touched[0] != commits[0]):
+        found.append(f"gate 1: {rel} is not the branch's first commit")
+    first = fac.git(wt, "show", f"{touched[0] if touched else base}:{rel}", check=False)
+    now = (wt / rel).read_text() if (wt / rel).is_file() else ""
+    cut = lambda t: re.split(r"^## Where it stopped", t, flags=re.M)[0].strip()  # noqa: E731
+    if first and cut(first) != cut(now):
+        found.append(f"gate 1: {rel} was changed after its first commit (other than a 'Where it stopped' section)")
+    return found, first or now
+
+
+def verdict(said: str) -> dict:
+    blocks = VERDICT.findall(said)
+    if not blocks:
+        raise RuntimeError("the reviewer gave no fenced JSON verdict")
+    v = json.loads(blocks[-1])
+    if v.get("verdict") not in ("merge", "fix", "park"):
+        raise RuntimeError(f"the reviewer's verdict is not merge, fix or park: {v.get('verdict')!r}")
+    return {"verdict": v["verdict"], "blocking": [str(x) for x in v.get("blocking") or []],
+            "non_blocking": [str(x) for x in v.get("non_blocking") or []],
+            "where_it_stopped": str(v.get("where_it_stopped") or "")}
+
+
+def review_tree(cfg: dict, branch: str) -> Path:
+    """A detached worktree at the branch's head, for the reviewer alone (not the implementor's folder)."""
+    repo, wt = fac.path(cfg, "checkout"), fac.path(cfg, "worktrees") / ".review" / branch
+    if not (wt / ".git").exists():
+        wt.parent.mkdir(parents=True, exist_ok=True)
+        fac.git(repo, "worktree", "add", "-q", "--detach", str(wt), branch)
+    else:
+        fac.git(wt, "checkout", "-q", "--detach", branch)
+    return wt
+
+
+def park(cfg: dict, gap: dict, why: str, review_id: str, where: str = "review") -> None:
+    """Write where it stopped into the definition file on the branch (a commit in its worktree), then park."""
+    branch = fac.branch_of(gap)
+    wt = fac.path(cfg, "worktrees") / branch
+    rel = wt / fac.DEFS / f"{branch}.md"
+    if rel.is_file():
+        with rel.open("a") as fh:
+            fh.write(f"\n## Where it stopped\n\nParked by the factory ({review_id}, {time.strftime('%Y-%m-%d %H:%M')})."
+                     f"\n\n{why.strip()}\n")
+        fac.commit_all(wt, f"{branch}: where it stopped")
+    fac.say("gap.parked", parked_at=time.time(), where_it_stopped=why[:4000], parked_by=review_id, parked_in=where)
+
+
+def main() -> int:
+    cfg = fac.config()
+    gap = fac.read_input()["item"]
+    f = gap["fields"]
+    refused = fac.may_spend(cfg, float(cfg["ai"]["reviewer_session_usd"]))
+    if refused:
+        fac.nack(f"budget: {refused}", after="1h", count=False)
+        return 0
+    branch, base = fac.branch_of(gap), cfg["git"]["base"]
+    n = int(f.get("reviews_n") or 0) + 1
+    rid = f"review/{branch}-{n}"
+    began = time.time()
+    fac.say("gap.review-started", review_at=began, reviews_n=1)
+    wt = review_tree(cfg, branch)
+    blocking, definition = gates(cfg, wt, branch, base)
+    net, budget = fac.net_lines(wt, base, "HEAD"), fac.budget_of(definition)
+    if net > budget and not re.search(r"over.*reason|reason.*over", definition, re.I | re.S):
+        blocking.append(f"size: {net} net lines of core code against a budget of {budget}, with no reason written")
+    diff = fac.git(wt, "diff", f"{base}...HEAD")
+    if len(diff) > brief.DIFF_MOST:
+        diff = (fac.git(wt, "diff", "--stat", f"{base}...HEAD") + "\n\n(the diff is too long to give whole: read it"
+                f" with `git diff {base}...HEAD -- FILE`)")
+    text, context = brief.assemble(
+        cfg, "reviewer", gap, wt, definition=definition, diff=f"```diff\n{diff}\n```", net_lines=net,
+        gates="; ".join(blocking) or "all passed")
+    context["brief"] = brief.save(cfg, "reviewer", gap, text)
+    got = fac.session(cfg, "reviewer", text, wt, TOOLS, NEVER)
+    v = verdict(str(got.get("result", "")))
+    v["blocking"] = blocking + v["blocking"]
+    if v["blocking"] and v["verdict"] == "merge":
+        v["verdict"] = "fix"
+    cost = round(float(got.get("total_cost_usd") or 0), 4)
+    fac.say("review.written", rid, gap=gap["id"], round=n, written_at=time.time(), **v, context=context, ai_cost_usd=cost,
+            head=fac.git(wt, "rev-parse", "HEAD"), net_lines=net, budget=budget)
+    fac.say(VERDICT_EVENT[v["verdict"]], rid, gap=gap["id"])
+    record = dict(reviews=[rid], contexts=[context], ai_cost_usd=cost,
+                  review_hours=round((time.time() - began) / 3600, 3))
+    failed = int(f.get("failed_gates") or 0) + (v["verdict"] == "fix")
+    if v["verdict"] == "merge":
+        fac.say("gap.approved", approved_at=time.time(), approved_by="review", first_pass=n == 1, **record)
+    elif v["verdict"] == "park" or failed >= KILL:
+        why = v["where_it_stopped"] or "Failed its gates twice (the kill rule). Blocking findings:\n" + "\n".join(
+            f"- {b}" for b in v["blocking"])
+        fac.say("gap.measured", failed_gates=int(v["verdict"] == "fix"), findings=v["blocking"], **record)
+        park(cfg, gap, why, rid)
+    else:
+        fac.say("gap.sent-back", sent_back_by="review", findings=v["blocking"], failed_gates=1, fix_rounds=1,
+                first_pass=False, **record)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

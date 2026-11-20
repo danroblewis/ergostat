@@ -1,0 +1,66 @@
+# The coordinator's interventions: each time the coordinator steps in by hand (a gap unstuck, a worktree fixed, a
+# verdict overruled), it records one with why (dev/README.md). Each is evidence of a loop the factory lacks; the
+# remedy is to model and automate it, never to stop recording. The inbox's own (the push and the switch approved) are
+# counted by `use: interventions` (ergostat.yaml).
+defaults:
+  system: interventions
+
+stocks:
+  interventions-open:
+    unit: interventions
+    description: interventions recorded whose missing loop is not built yet
+    sensor: {items: intervention, state: open, every: 1m}
+
+auxiliaries:
+  interventions-trend:
+    unit: interventions
+    description: the coordinator's interventions over the last 7 days less the 7 before (should be below 0)
+    driven-by: [+flow.interventions-recorded, -flow.interventions-remedied]
+    sensor: {run: python3 dev/bin/measure.py interventions-trend, every: 10m, timeout: 1m, description: the factory's measures}
+
+flows:
+  interventions-recorded:
+    to: interventions-open
+    description: the coordinator stepped in, and said why (intervention.recorded)
+    sensor: {items: intervention, entering: open, over: 1d}
+  interventions-remedied:
+    from: interventions-open
+    description: the loop that makes the intervention unnecessary built, and said (intervention.remedied)
+    driven-by: [+stock.interventions-open]
+    equation: stock.interventions-open / remedy-time
+    sensor: {items: intervention, entering: remedied, over: 1d}
+
+parameters:
+  remedy-time:
+    value: 3d
+    estimate: true
+    description: how long the missing loop an intervention shows takes to build
+
+goals:
+  handled-interventions-falling:
+    auxiliary: interventions-trend
+    hold: "<= 0"
+    tolerance: 0
+    description: fewer interventions each week than the week before
+  interventions-remedied-all:
+    stock: interventions-open
+    hold: "<= 3"
+    tolerance: 0
+    description: few interventions wait for their loop
+
+blocks:
+  remedy-when:
+    type: expr
+    description: work the interventions while they rise or pile up
+    in:
+      rising: goal.handled-interventions-falling.off
+      many: goal.interventions-remedied-all.off
+    expr: max(rising, many)
+    out: block.remedy
+  remedy:
+    type: person
+    agent: coordinator
+    description: the coordinator builds the loop an intervention showed missing (a gap, a goal, a block) and marks it remedied
+    ask: "Interventions are rising or piling up (ergostat item --kind intervention --state open): build the loop each shows missing, then record intervention.remedied with the remedy."
+    in: block.remedy-when
+    out: flow.interventions-remedied
