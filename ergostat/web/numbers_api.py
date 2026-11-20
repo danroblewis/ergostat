@@ -267,6 +267,7 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             if band and max(b - a for a, b in zip(band["p25"], band["p75"], strict=True)) > 0:
                 s["fan"] = {k: _round(v) for k, v in band.items()}
     if any("replay" in s or "projection" in s for s in out["series"]):
+        honest(live, p, snap, spec, out)
         out["projection_times"] = [round(t, 3) for t in proj.times]
         out["horizon"] = mr["horizon"]
         out["inputs"] = "; ".join(mr["projection"].notes)
@@ -308,6 +309,36 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
             out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "tails": fn["samples"] >= sens.TAILS,
                           "parameters": [{k: v for k, v in u.items() if k != "corr"} for u in sampled], "joint": sens.joint_said(sampled)}
     return out
+
+
+def honest(live, p, snap: dict, spec, out: dict) -> None:
+    """A projection resting on parts that fit badly says so in front (``low_confidence``), as the impact report does, and
+    is drawn with a wider band: each charted stock that fits worse than its mean (skill < 0, on the reference window), and
+    each goal on them whose loop the record does not identify (``loop-not-identifiable``)."""
+    from ..control.proposals import unidentified
+    mine = {s["ref"] for s in out["series"]}
+    mine |= {f"stock.{x}" for r in list(mine) if r.startswith("flow.") and (f := spec.flows.get(r[5:])) for x in (f.source, f.target) if x}
+    rf = reference(live, p, snap) or {}
+    said = [f"the model fits {r[6:]} worse than its mean (skill {st['skill']:.2g})"
+            for r, st in sorted(((rf.get("fit") or {}).get("stocks") or {}).items())
+            if r in mine and st.get("skill") is not None and st["skill"] < 0]
+    said += [f"{g}'s model {x['poor'][0]}" for g, x in sorted(unidentified(p, spec).items())
+             if str(spec.goals[g].of) in mine and x.get("poor")]
+    if not said:
+        return
+    out["low_confidence"] = "; ".join(said)
+    for s in out["series"]:
+        pj, got = s.get("projection") or [], [(a, b) for a, b in zip(s.get("values") or [], s.get("replay") or [], strict=False)
+                                               if a is not None and b is not None]
+        if not pj or not got:
+            continue
+        e = (sum((a - b) ** 2 for a, b in got) / len(got)) ** 0.5    # the replay's own error, about the projection
+        fan, wide = s.get("fan") or {}, {}                          # its own spread, if any, widened by that error
+        for k, m in (("p5", -2), ("p25", -0.67), ("p75", 0.67), ("p95", 2)):
+            fk = fan.get(k) or []
+            wide[k] = [None if v is None else (fk[i] if i < len(fk) and fk[i] is not None else v) + m * e for i, v in enumerate(pj)]
+        s["fan"] = wide
+        s["fan_wide"] = True
 
 
 def whatif_fit(live, p, snap: dict, whatif: str | None) -> dict:
