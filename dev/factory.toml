@@ -10,6 +10,9 @@ live = "~/ergostat-live"             # versions <live>/<sha>, current, instance/
 queue_lock = "~/ergostat-live/queue.lock"   # set it to the coordinator's queue-fast.sh lock during the switch-over
 run = "run"                          # briefs, logs, the cost ledger (from the model's folder)
 
+[gates]
+kill_after = 3                       # failed gates (reviews, queue conflicts, real failures) that park a gap
+
 [git]
 base = "main"                        # what a gap's branch starts from, and what the queue merges into
 remote = "origin"
