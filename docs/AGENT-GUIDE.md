@@ -521,7 +521,9 @@ block's identified model (its pool, its share of failed runs) moves the estimate
 so what to model: a capacity no block declares (a workspace pool held across steps, one reviewer for two kinds, an
 API's rate limit: give the step a `pool` or the agent an `at-once` that says it), a goal that switches a block off
 (the estimate assumes it takes whenever it has room), a process that changed in the last two weeks (the old runs
-still count), and a step nothing has left yet (its items are assumed to go to the next state in order). A block with
+still count), a step whose runs give the item back while they wait for something undeclared (a free
+workspace: the simulation takes each give-back as rework, so the estimates come out late), and a step nothing has
+left yet (its items are assumed to go to the next state in order). Under twenty runs no p90 is said. A block with
 fewer than five runs on record is said as assumed on the item's page.
 
 ## 4. Common mistakes

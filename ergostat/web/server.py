@@ -577,7 +577,7 @@ def _answer(live: Live, path: str, q: dict):
         out = _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
         est = _estimates(p, m, snap, one("whatif"))
         if est and est.get("items"):                  # each open item's estimate (SPEC §5a, Completion estimates)
-            out["items"] = [{**i, "eta": {k: est["items"][i["id"]].get(k) for k in ("p50", "p90", "why")}}
+            out["items"] = [{**i, "eta": {k: est["items"][i["id"]].get(k) for k in ("p50", "p90", "why", "runs")}}
                             if i["id"] in est["items"] else i for i in out["items"]]
         return out
     if head == "series":                          # behaviour over time: each part's values, bucketed over the window

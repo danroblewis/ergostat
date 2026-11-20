@@ -1,19 +1,23 @@
 """Each open item's completion estimate, for the Items page, the Timeline and an item's page (SPEC §5a, *Completion
-estimates*; ``numbers/eta.py``). Worked out in a thread of its own, never on a page's request: a request is given what
-was last worked out (None the first time) and starts the next when the record changed since, at most every ``EVERY``
-seconds (and every ``KEPT`` seconds whatever: a lease's age moves with the clock). The owner's what-if (a block's
-``pool`` or ``failure``) is worked out the same way, apart."""
+estimates*; ``numbers/eta.py``). Worked out by one worker thread, never on a page's request: a request is given what
+was last worked out (None the first time) and asks for the next when the record changed since, at most every
+``EVERY`` seconds (and every ``KEPT`` seconds whatever: a lease's age moves with the clock). The worker works out one
+at a time, the latest asked for first (an older ask for another what-if waits, and is dropped when a newer one for the
+same comes). The owner's what-if (a block's ``pool`` or ``failure``) is kept apart; the eight used last are kept."""
 
 from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 
 EVERY = 30.0
 KEPT = 120.0
-_CACHE: dict = {}
-_BUSY: set = set()
-_LOCK = threading.Lock()
+KEEP = 8
+_CACHE: OrderedDict = OrderedDict()       # key → {"made", "mark", "ans"}, the least used first
+_WANT: OrderedDict = OrderedDict()        # key → its work, the latest asked last
+_LOCK = threading.Condition()
+_WORKER: list = []
 
 
 def kinds_of(spec) -> list[str]:
@@ -37,19 +41,46 @@ def estimates(p, m, whatif: str | None = None, wait: float = 0.0) -> dict | None
     mark = (ev.last_seq(), ev.generation() if hasattr(ev, "generation") else None)
     key = (id(spec), tuple(sorted(w.pools.items())), tuple(sorted(w.failures.items())))
     until = time.monotonic() + wait
+    with _LOCK:
+        while True:
+            got = _CACHE.get(key)
+            if got is not None:
+                _CACHE.move_to_end(key)
+            age = time.time() - got["made"] if got else None
+            if got is None or (got["mark"] != mark and age >= EVERY) or age >= KEPT:
+                _WANT.pop(key, None)
+                _WANT[key] = (p, spec, kinds, mark, w)
+                if not _WORKER or not _WORKER[0].is_alive():
+                    _WORKER[:] = [threading.Thread(target=_worker, daemon=True, name="eta")]
+                    _WORKER[0].start()
+                _LOCK.notify_all()
+            left = until - time.monotonic()
+            if got is not None or left <= 0:
+                return got["ans"] if got else None
+            _LOCK.wait(min(left, 0.1))
+
+
+def _worker() -> None:
     while True:
         with _LOCK:
-            got = _CACHE.get(key)
-            age = time.time() - got["made"] if got else None
-            if key not in _BUSY and (got is None or (got["mark"] != mark and age >= EVERY) or age >= KEPT):
-                _BUSY.add(key)
-                threading.Thread(target=_work, args=(p, spec, kinds, key, mark, w), daemon=True, name="eta").start()
-        if got is not None or time.monotonic() >= until:
-            return got["ans"] if got else None
-        time.sleep(0.05)
+            while not _WANT:
+                if not _LOCK.wait(60.0):
+                    _WORKER.clear()                    # idle a minute: gone, started again when asked
+                    return
+            key, (p, spec, kinds, mark, w) = _WANT.popitem(last=True)
+        ans = _work(p, spec, kinds, w)
+        with _LOCK:
+            if ans is not None:
+                _CACHE[key] = {"made": time.time(), "mark": mark, "ans": ans}
+                _CACHE.move_to_end(key)
+                while len(_CACHE) > KEEP:
+                    _CACHE.popitem(last=False)
+            elif key not in _CACHE:                    # (failed: tried again no sooner than EVERY)
+                _CACHE[key] = {"made": time.time(), "mark": mark, "ans": None}
+            _LOCK.notify_all()
 
 
-def _work(p, spec, kinds, key, mark, w) -> None:
+def _work(p, spec, kinds, w) -> dict | None:
     from ..numbers import eta, etamodel
     try:
         inp = etamodel.read(p, spec, kinds, time.time())
@@ -59,16 +90,11 @@ def _work(p, spec, kinds, key, mark, w) -> None:
             x.update(why.get(i) or {})
         ans["assumed"] = {b.name: b.assumed for b in inp.blocks if b.assumed}
         ans["whatif"] = w.said()
-        with _LOCK:
-            _CACHE[key] = {"made": time.time(), "mark": mark, "ans": ans}
-            while len(_CACHE) > 8:
-                _CACHE.pop(next(iter(_CACHE)))
+        return ans
     except Exception as e:                       # the page goes on without estimates; said in the server's log
         import sys
         print(f"eta: {type(e).__name__}: {e}", file=sys.stderr)
-    finally:
-        with _LOCK:
-            _BUSY.discard(key)
+        return None
 
 
 def merge(ans: dict, est: dict | None) -> dict:
@@ -86,4 +112,5 @@ def merge(ans: dict, est: dict | None) -> dict:
                 x["projected"] = [s for s in segs if s[2] > est["at"]]
         items.append(x)
     return {**ans, "items": items, "eta": {"at": est["at"], "runs": est["runs"], "kinds": est["kinds"],
-                                           "capacity": est["capacity"], "whatif": est.get("whatif") or []}}
+                                           "capacity": est["capacity"], "limit": est.get("limit") or {},
+                                           "assumed": est.get("assumed") or {}, "whatif": est.get("whatif") or []}}

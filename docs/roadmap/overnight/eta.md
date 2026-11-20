@@ -107,3 +107,46 @@ part of the definition of done.
 (held from `work` to `close`) is a capacity no block declares, and its record's `work` gives tickets back every ten
 seconds while the AI seat is busy, which the simulation replays as rework: a run on that record is slow, and the
 budget cut it to 3 runs on the screenshot's page (`eta-shots/ticket-factory-item.png`).
+
+### After the gate review (merge after fixes)
+
+Fixed: an item older than every stay seen gets the curve's tail (the longest tenth's mean excess), never nothing
+left; a run's length is drawn from the block's run-time curve with the leases still held censored (no length bias
+toward finished runs), its ending from the recorded attempt nearest that long, and a run past its TTL expires at it
+(for a leased one too, and the failure what-if reaches leased runs); every open item is read, the latest 2,000 only
+for the fit; no run within the budget is "not worked out", under 20 runs no p90; the backtest counts an item
+estimated beyond the horizon as a miss, and counts apart those it cannot judge (`unresolved`) and those with no run
+(`not worked out`); its bias is the estimate's mean against what happened (a median sits below a skewed finish's
+mean, so the p50's own "bias" was not one), with the share finished by their p50 beside it. One worker thread (the
+latest ask first) and an LRU of eight; queue positions by a map; the pooled and all-kinds curves censored; visits
+said in the legend; the pages say what is not modelled, the run count, the blocks assumed, the p90's date when it is
+another day, and an item's expected start and dead-letter share.
+
+**The table after the fixes** (items (unresolved), MAE of the p50 in minutes, bias of the mean in minutes, share by
+their p50, share by their p90):
+
+| components | owner's case, 3 truths | overloaded (6/h, pool 3) | ρ ≈ 0.7 (3/h) | ticket-factory record |
+|---|---|---|---|---|
+| path | 250, 170, −152, 0.12, 0.39 · 247, 153, −131, 0.16, 0.42 · 252, 172, −155, 0.13, 0.36 | 335 (5), 353, +15, 0.46, 0.67 | 109, 209, +98, 0.60, 0.91 | 33, 1.0, +0.4, 0.64, 0.88 |
+| + survival | 250, 160, −122, 0.18, 0.52 | 318 (22), 329, −37, 0.23, 0.73 | 109, 206, +37, 0.50, 0.94 | 33, 1.5, +1.2, 0.79, 0.97 |
+| + queues | 250, 61, −21, 0.36, 0.82 | 309 (31), 254, +274, 0.56, 0.84 | 109, 214, −71, 0.40, 0.81 | 33, 5.9, +7.8, 0.82, 0.00 * |
+| + leases (all) | 250, 61, −4, 0.36, 0.93 · 247, 54, +21, 0.57, 0.94 · 252, 65, −9, 0.49, 0.89 | 275 (65), 267, +772, 0.64, 0.96 | 109, 207, +42, 0.52, 0.91 | 14, 2.7, +2.4, 0.71, 0.29 * |
+| all but arrivals | 250, 61, −9, 0.38, 0.88 | 340, 268, +54, 0.52, 0.66 | 109, 203, −85, 0.46, 0.73 | 33, 11.5, +2.8, 1.00, 1.00 |
+
+(The owner's case's middle rows are its first truth's.) In the owner's case the full set is unbiased (the mean within ±21 min against a 54–65 min error, about half finished
+by their p50) with the p90 covering 89–94%. In the overloaded record the queue grows past every cut and the mean is
+carried by the long tail (+772 min, with 65 items still open at the record's end); the p50 is about right (0.64).
+
+\* **The ticket-factory record's anomaly.** Its `work` step's runs are mostly give-backs: 194 of its 250 attempts are
+"nack, after 10 s, not counted", the step waiting for a free workspace (the pool `code`, size 3, held from `work` to
+`close`: a capacity no block declares). The simulation replays each as an attempt that holds the agent's one seat
+and puts the ticket off for ten seconds, so tickets queue behind each other's give-backs and every estimate is late
+(without arrivals: all finish before their p50, the error ×10 the path's). With arrivals at the record's rate as well,
+the queue at `work` outgrows what it drains, the runs are slow, and the five-second budget cuts them: under 20 runs no
+p90 is said (counted as misses: 0.00), and at cuts where no run finished the items are not worked out (14 of 33 left).
+Declaring the workspace pool as a capacity (a gap: a block's `workspace:` pool is not read as one) is what would fix
+it; dropping uncounted give-backs from the attempts would hide the wait instead.
+
+**Size: 958 net lines, 158 over the 800.** The review's fixes added 72 (the tail, the run-time draw and TTL, the worker
+and its LRU, the pages' words on runs, limits, assumed blocks and dates). Nothing is left to cut without dropping a
+fix or part of the definition of done.

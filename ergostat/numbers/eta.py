@@ -18,6 +18,7 @@ helps. Bounded: ``RUNS`` runs and ``BUDGET`` seconds, a fixed seed (each run its
 
 from __future__ import annotations
 
+import bisect
 import heapq
 import random
 import time
@@ -29,6 +30,7 @@ from .etamodel import Attempt, Inputs
 RUNS = 200
 BUDGET = 5.0
 HORIZON = 90 * 86400.0
+FEW = 20                    # fewer runs than this: no p90 is said
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,9 @@ class _Run:
         self.pool = [[rnd.choice(b.attempts) for _ in b.attempts] for b in self.blocks]   # bootstrapped for this run
         if not flags.leases:                             # runs that succeed only
             self.pool = [[a for a in got if a.how == "ack"] or [replace(a, how="ack") for a in got] for got in self.pool]
+        sort = lambda xs: (sorted(xs, key=lambda a: a.dur), sorted(a.dur for a in xs))   # noqa: E731
+        self.by_dur = [{"all": sort(got), "ack": sort([a for a in got if a.how == "ack"]),
+                        "fail": sort([a for a in got if a.how != "ack"])} for got in self.pool]
         self.left = {d: len(x.preds) for d, x in inp.items.items()}
         self.after: dict[str, list[str]] = {}
         for x in inp.items.values():
@@ -147,19 +152,26 @@ class _Run:
     # ---- the blocks
 
     def attempt(self, b: int, held: float | None = None) -> Attempt:
+        """A run: how long, from the block's run-time curve (the runs still held censored; given ``held``, how long
+        its lease has been held), and how it ended, from the recorded attempt nearest that long (with a failure share
+        tried: among the failed or the succeeded); one past the lease's TTL expires at it."""
         bl, pool = self.blocks[b], self.pool[b]
+        if not self.f.leases:                            # (the ablation: runs that succeeded, drawn whole)
+            return self.rnd.choice(pool)
         f = self.failures.get(bl.name)
-        if f is not None:
-            fails, acks = [a for a in pool if a.how != "ack"], [a for a in pool if a.how == "ack"] or pool
-            a = self.rnd.choice(acks)
-            if self.rnd.random() < f:
-                a = self.rnd.choice(fails) if fails else replace(a, how="nack")
-        else:
-            a = self.rnd.choice(pool)
-        if held is not None and self.f.leases and bl.run is not None:   # its run, given how long it has been held
-            later = [x for x in pool if x.dur > held] or [a]
-            a = replace(self.rnd.choice(later), dur=bl.run.sample(self.rnd, held))
-        return a
+        fail = f is not None and self.rnd.random() < f
+        xs, ds = self.by_dur[b]["all" if f is None else "fail" if fail else "ack"]
+        if not xs:
+            xs, ds = self.by_dur[b]["all"]
+        d = (held or 0.0) + bl.run.sample(self.rnd, held or 0.0)
+        k = bisect.bisect_left(ds, d)                   # the recorded attempts nearest that long: one of them
+        near = ds[k] if k < len(ds) and (k == 0 or ds[k] - d < d - ds[k - 1]) else ds[k - 1]
+        a = xs[self.rnd.randrange(bisect.bisect_left(ds, near), bisect.bisect_right(ds, near))]
+        if fail and a.how == "ack":
+            a = replace(a, how="nack")
+        if bl.ttl and d >= bl.ttl:                       # silent past its TTL: expired, counted
+            return Attempt(bl.ttl - (held or 0.0), "expired")
+        return replace(a, dur=d - (held or 0.0))
 
     def room(self, b: int) -> bool:
         return self.busy[b] < self.cap[b] and all(self.used.get(k, 0) < c for k, c in self.blocks[b].shared)
@@ -264,15 +276,15 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
              horizon: float = HORIZON, pools: dict | None = None, failures: dict | None = None) -> dict:
     """Each open item's p50 and p90 finish and its expected start, per kind when its last open item finishes, and a
     levelled schedule (the run whose last finish is the median's) for the Timeline."""
-    t_end = time.monotonic() + budget
+    t_end = time.monotonic() + budget                   # (the runs within ``budget``, the levelled one within as much again)
     fins, starts, deads, lasts = {i: [] for i in inp.items}, {i: [] for i in inp.items}, {i: 0 for i in inp.items}, []
     n = 0
     for r in range(runs):
         if n and time.monotonic() > t_end:
             break
         run = _Run(inp, flags, random.Random(seed * 1_000_003 + r), pools or {}, failures or {}, False)
-        if not run.go(horizon, t_end + budget if not n else t_end):
-            break                                       # (the first run is given twice the budget, the rest none past it)
+        if not run.go(horizon, t_end):
+            break
         n += 1
         last = {}
         for i, x in inp.items.items():
@@ -282,12 +294,16 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
             deads[i] += i in run.dead
             last[x.kind] = max(last.get(x.kind, 0.0), f)
         lasts.append(last)
-    items = {i: {"p50": _q(fins[i], 0.5), "p90": _q(fins[i], 0.9), "start": _q(starts[i], 0.5),
-                 "dead": round(deads[i] / max(n, 1), 3)} for i in inp.items}
+    few = n < FEW                                       # (too few runs for a p90: none said)
+    mean = lambda xs: sum(xs) / len(xs) if xs and max(xs) < float("inf") else None   # noqa: E731
+    items = {i: {"p50": _q(fins[i], 0.5), "p90": None if few else _q(fins[i], 0.9), "mean": mean(fins[i]),
+                 "start": _q(starts[i], 0.5),
+                 "dead": round(deads[i] / n, 3), "runs": n} for i in inp.items} if n else {}
     kinds = {}
-    for k in {x.kind for x in inp.items.values()}:
+    for k in {x.kind for x in inp.items.values()} if n else ():
         xs = [la.get(k, 0.0) for la in lasts]
-        kinds[k] = {"p50": _q(xs, 0.5), "p90": _q(xs, 0.9), "open": sum(1 for x in inp.items.values() if x.kind == k)}
+        kinds[k] = {"p50": _q(xs, 0.5), "p90": None if few else _q(xs, 0.9), "visits": inp.kinds[k].visits,
+                    "open": sum(1 for x in inp.items.values() if x.kind == k)}
     # the levelled schedule: the run whose last finish is nearest the median's, drawn again with its segments kept
     rep = None
     if n and time.monotonic() < t_end + budget:
@@ -297,8 +313,13 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         run = _Run(inp, flags, random.Random(seed * 1_000_003 + r), pools or {}, failures or {}, True)
         run.go(horizon, t_end + budget)
         rep = {i: s for i, s in run.segs.items() if i in inp.items}
+    held = {}                                           # (leases held over a lowered pool: their lanes drawn too)
+    for x in inp.items.values():
+        if x.lease and x.lease[0]:
+            held[x.lease[0]] = held.get(x.lease[0], 0) + 1
     return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "kinds": kinds, "schedule": rep or {},
-            "capacity": {b.name: max(1, b.capacity(pools)) for b in inp.blocks}}
+            "capacity": {b.name: max(1, b.capacity(pools), held.get(b.name, 0)) for b in inp.blocks},
+            "limit": {b.name: max(1, b.capacity(pools)) for b in inp.blocks}}
 
 
 def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
@@ -310,11 +331,12 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
     for x in inp.items.values():
         if x.lease and x.lease[0]:
             held[x.lease[0]] = held.get(x.lease[0], 0) + 1
-    queues: dict[str, list] = {}
+    place: dict[str, dict[str, int]] = {}                # block → item → how many are ahead of it
     for b in inp.blocks:
         q = [x for x in inp.items.values() if x.kind == b.kind and x.state in b.at and not x.lease
              and not (b.unblocked and x.preds)]
-        queues[b.name] = sorted(q, key=lambda x: (b.at.index(x.state), -(x.level if b.unblocked else 0), x.queued, x.id))
+        q.sort(key=lambda x: (b.at.index(x.state), -(x.level if b.unblocked else 0), x.queued, x.id))
+        place[b.name] = {x.id: n for n, x in enumerate(q)}
     for x in inp.items.values():
         k = inp.kinds[x.kind]
         waits = f"waits on {', '.join(x.preds)}; " if x.preds else ""
@@ -327,8 +349,7 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
             continue
         b = next((b for b in inp.blocks if b.kind == x.kind and x.state in b.at), None)
         if b is not None:
-            q = queues[b.name]
-            pos = next((n for n, y in enumerate(q) if y.id == x.id), None)
+            pos = place[b.name].get(x.id)
             cap = b.capacity(pools)
             bind = next((f" ({n.split(':', 1)[1]}'s {'seats' if n.startswith('agent') else 'runs at once'}: {c})"
                          for n, c in b.shared if c < (pools or {}).get(b.name, b.pool)), "")
@@ -343,6 +364,7 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
         age = inp.at - x.entered
         out[x.id] = {"waits_in": x.state, "position": None,
                      "why": waits + f"in {x.state} for {human(age)}, which no block takes from; about "
-                     f"{human(km.quantile(0.5, age))} more (the median, given its age; from {km.n} stays"
+                     f"{human(km.quantile(0.5, age))} more (the median given its age, the mean {human(km.mean_residual(age))}; "
+                     f"from {km.n} stays"
                      + ("" if k.said[x.state] == "own" else f", its {'kind' if k.said[x.state] == 'kind' else 'record'}'s") + ")"}
     return out

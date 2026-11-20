@@ -32,12 +32,13 @@ blocks:
     run: "true"
     takes: {kind: ticket, at: new}
     pool: {pool}
-    lease: {attempts: 9}
+    lease: {attempts: 9, ttl: 4h}
   merge:
     type: program
     run: "true"
     takes: {kind: ticket, at: merging}
     pool: 1
+    lease: {ttl: 4h}
 """
 
 

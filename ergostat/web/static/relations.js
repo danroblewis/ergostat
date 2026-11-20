@@ -264,6 +264,8 @@ function relTimeline(open) {
     const step = steps.find((x) => ((x1 - x0) / ((b - a) / x)) >= 80) || steps[steps.length - 1];
     const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", ...(step < 60 ? { second: "2-digit" } : {}) });
     const nx = X(d.now);
+    const stamp = (t) => (new Date(t * 1000).toDateString() === new Date(d.now * 1000).toDateString() ? clock(t)
+      : new Date(t * 1000).toLocaleString([], { hour12: false, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }));
     for (let t = Math.ceil(a / step) * step; t <= b; t += step) {
       const x = X(t);
       parts.push(s("line", { class: "rg-grid", x1: x, x2: x, y1: RG.AXIS - 4, y2: H }));
@@ -315,7 +317,7 @@ function relTimeline(open) {
         const xa = X(x.eta.p50), xb = x.eta.p90 != null ? X(x.eta.p90) : x1;
         if (xa >= x0 && xa <= x1) row.append(s("line", { class: "rg-p50", x1: xa, x2: xa, y1: y - RG.BAR / 2 - 2, y2: y + RG.BAR / 2 + 2 }));
         if (xb > xa) row.append(s("path", { class: "rg-whisker", d: `M${Math.max(x0, xa)},${y} H${Math.min(x1, xb)}${xb <= x1 ? ` M${xb},${y - 4} V${y + 4}` : ""}` },
-          s("title", {}, `${x.id}: done by ${clock(x.eta.p50)} (p50), ${x.eta.p90 != null ? clock(x.eta.p90) : "beyond the horizon"} (p90)\n${x.eta.why || ""}`)));
+          s("title", {}, `${x.id}: done by ${stamp(x.eta.p50)} (p50), ${x.eta.p90 != null ? stamp(x.eta.p90) : x.eta.runs < 20 ? "no p90 under 20 runs" : "beyond the horizon"} (p90)\n${x.eta.why || ""}`)));
         hi = Math.max(hi, Math.min(x1, xb));
       }
       if (x.summary && x.es != null) {                     // a parent: a bracket over its children's span
@@ -360,7 +362,8 @@ function relTimeline(open) {
     const top = Math.max(hi, ...p90s);
     cur = { rows: shown, kinds: m.kinds, d, edges, fit: [lo - pad, top + pad] };
     setText(note, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
-      + (d.eta ? "Projected bars: one run of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90."
+      + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. Not modelled: a goal that switches a block off, a capacity no block declares.`
+        + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
         : d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : ""));
     draw();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
@@ -380,7 +383,7 @@ function relTimeline(open) {
     const ts = rows.flatMap((r) => r.bars.flatMap((b) => [b[3], b[4]]));
     const lo = d.now, hi = Math.max(d.now + 60, ...ts);
     cur = { rows, kinds: m.kinds, d, edges: [], fit: [lo - (hi - lo) * 0.02, hi + (hi - lo) * 0.03] };
-    setText(note, rows.length ? "Each block's lanes, at most its capacity at once: one run of the simulation, levelled. A bar is an item's run; a click opens it." : "No block takes these items.");
+    setText(note, rows.length ? `Each block's lanes, at most its capacity at once (leases held over a lowered pool keep theirs until they end): one of ${d.eta.runs} runs of the simulation, levelled. A bar is an item's run; a click opens it. Not modelled: a goal that switches a block off, a capacity no block declares.` : "No block takes these items.");
     draw();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   }
@@ -395,8 +398,9 @@ function relLegend(m, d) {
     ...RG_STATUS.filter((st) => n[st]).map((st) => h("span", { class: `rg-key rg-${st}`, key: st }, h("i", {}), `${n[st]} ${RG_WORD[st]}`)),
     crit ? h("span", { class: "rg-key rg-critkey", key: "crit", title: "The longest chain of unfinished work, by the kinds' median times: nothing on it can slip without moving the end" },
       h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}` + (d.eta ? "" : `, done in about ${dur(Math.max(0, d.end - d.now))}`)) : null,
-    ...Object.entries(d.eta?.kinds || {}).map(([k, e]) => h("span", { class: "rg-key rg-eta", key: `eta:${k}`, title: `When the last open ${k} is done: the p50 and the p90 of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework` },
-      `last of ${e.open} ${k} done ${e.p50 == null ? "beyond the horizon" : "in about " + dur(e.p50 - d.now)}${e.p90 != null ? ` (p90 ${dur(e.p90 - d.now)})` : ""}`)),
+    ...Object.entries(d.eta?.kinds || {}).map(([k, e]) => h("span", { class: "rg-key rg-eta", key: `eta:${k}`, title: `When the last open ${k} is done: the p50 and the p90 of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework; not modelled: a goal that switches a block off, a capacity no block declares`
+        + (e.visits && Object.keys(e.visits).length ? `\nExpected visits per state, from the first: ${Object.entries(e.visits).map(([st, v]) => `${st} ${v.toFixed(2)}`).join(", ")}` : "") },
+      `last of ${e.open} ${k} done ${e.p50 == null ? "beyond the horizon" : "in about " + dur(e.p50 - d.now)}${e.p90 != null ? ` (p90 ${dur(e.p90 - d.now)})` : d.eta.runs < 20 ? ` (${d.eta.runs} runs: no p90)` : ""}`)),
     d.eta?.whatif?.length ? h("span", { class: "rg-key whatif-said", key: "whatif" }, `what if ${d.eta.whatif.join(" and ")} (not saved)`) : null,
     d.cycles.length ? h("span", { class: "rg-key bad", key: "cycle" }, `${d.cycles.length} cycle${d.cycles.length > 1 ? "s" : ""}: ${d.cycles.map((c) => c.join(" → ")).join("; ")}`) : null,
     Object.keys(d.capped || {}).length ? h("span", { class: "muted", key: "capped" }, "(the newest drawn: " + Object.keys(d.capped).join(", ") + " capped)") : null);

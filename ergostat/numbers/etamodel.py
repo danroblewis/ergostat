@@ -3,7 +3,10 @@ after it (so a past moment can be replayed and its estimates held against what h
 its states, the semi-Markov path (each state's next-state shares, a lease's hold folded into the state it was taken
 from), each state's time-in-state (Kaplan–Meier, the stays still going censored) and its arrivals. Per block that
 takes the kind: its capacity, and its recorded attempts (each a run: how long, and how it ended). Per open item:
-where it is, for how long, its lease, its attempts and what it waits on."""
+where it is, for how long, its lease, its attempts and what it waits on.
+
+Read as the record has it: a stay that began before the record (or before what was rolled up) counts from its first
+move there (left-truncated), and the relations are the links as they stand now, not as they stood at ``at``."""
 
 from __future__ import annotations
 
@@ -38,6 +41,7 @@ class BlockIn:
     shared: list[tuple[str, int]]  # (agent:NAME | daemon:NAME, its capacity): held with other blocks
     unblocked: bool
     most: int                      # attempts before a dead letter
+    ttl: float = 0.0               # its lease's TTL: a run silent this long expires
     attempts: list[Attempt] = field(default_factory=list)
     run: KM | None = None          # how long a run holds its lease (the going censored)
     assumed: str = ""
@@ -137,15 +141,18 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
     ix = ix if ix is not None else index_for(p.events, spec, False)
     info = Kinds(spec, ix)
     out = Inputs(at, {}, [], {})
-    every: list[float] = []
+    every: tuple[list[float], list[float]] = ([], [])
+    pooled: dict[str, tuple] = {}
     since = at - HISTORY
     for k in kinds:
         ik = spec.items.get(k)
         if ik is None or not ik.states or ix is None:
             continue
         fin = set(info[k]["finished"])
-        with ix.lock:
-            got = ix.items(k, n=LATEST)
+        with ix.lock:                                   # every open item, and the latest for the fit
+            got = {i.id: i for i in ix.items(k, n=LATEST)}
+            got.update({i.id: i for i in ix.items(k, [s for s in ik.states if s not in fin and s != DEAD])})
+            got = list(got.values())
         ended: dict[str, list[float]] = {}
         going: dict[str, list[float]] = {}
         moves: dict[str, dict[str, int]] = {}
@@ -175,12 +182,13 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
                 if truth and done is not None:
                     out.finished_at[it.id] = done
         nxt = {s: [(t, c / sum(d.values())) for t, c in sorted(d.items())] for s, d in moves.items()}
-        allk = [x for v in ended.values() for x in v]
-        every += allk
+        allk, goingk = [x for v in ended.values() for x in v], [x for v in going.values() for x in v]
+        every[0].extend(allk)
+        every[1].extend(goingk)
+        pooled[k] = (allk, goingk)
         kin = KindIn(k, ik.states, fin, nxt, ended, {}, {})
         kin.km = {s: KM(ended.get(s, []), going.get(s, [])) for s in ik.states if len(ended.get(s, [])) >= MIN_OBS}
         kin.said = {s: "own" for s in kin.km}
-        kin._pooled = (allk, [x for v in going.values() for x in v])     # type: ignore[attr-defined]
         many = {c for c, n in Counter(came).items() if n > 2}   # a batch brought in at once (a backlog imported): not a rate
         came = [c for c in came if c not in many]
         span = at - min(came) if came else 0.0
@@ -190,9 +198,9 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
             kin.arrive_at = [(s, c / tot) for s, c in first_in.items()]
         kin.visits = fundamental(ik.states, nxt, fin)
         out.kinds[k] = kin
-    km_all = KM(every) if every else KM([600.0])
+    km_all = KM(*every) if every[0] else KM([600.0])
     for kin in out.kinds.values():
-        allk, goingk = kin._pooled
+        allk, goingk = pooled[kin.name]
         km_kind = KM(allk, goingk) if len(allk) >= MIN_OBS else None
         for s in kin.states:
             if s not in kin.km:
@@ -238,7 +246,8 @@ def _leases(p, spec, out: Inputs, since: float) -> None:
         if dn and dn in spec.daemons:
             shared.append((f"daemon:{dn}", spec.daemons[dn].concurrency))
         t = terms(spec, b)
-        bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), b.pool, shared, bool(b.takes.unblocked), t["attempts"])
+        bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), b.pool, shared, bool(b.takes.unblocked), t["attempts"],
+                     float(t["ttl"]))
         rs = by_block.get(b.name, [])
         bi.attempts = [Attempt(r["end"] - r["t"], r["how"], r.get("to"), r.get("after", 0.0), r.get("counted", True))
                        for r in rs if r["end"] is not None]

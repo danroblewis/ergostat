@@ -772,42 +772,50 @@ among them, but not the Graph and the Timeline, which are drawn from the item in
 
 **Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
 letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what
-the record measured before now (`numbers/etamodel.py`: two weeks, each kind's latest 2,000 items):
+the record measured before now (`numbers/etamodel.py`: two weeks; every open item, and each kind's latest 2,000 items
+for the fit; a stay that began before the record counts from its first move there, and relations are read as they
+stand now):
 
 - **The path** (a semi-Markov model per kind): each state's next-state shares from the items' moves, a lease's hold
   folded into the state it was taken from, rework loops kept; each kind's expected visits per state, the first row of
-  the absorbing chain's fundamental matrix N = (I − Q)⁻¹.
+  the absorbing chain's fundamental matrix N = (I − Q)⁻¹, said in the Timeline's legend.
 - **Time in a state** no block takes from: Kaplan–Meier over the stays that ended, the stays still going censored at
-  their age; an item's residual life given its age there, S(a + t) / S(a), past the longest stay seen an exponential
-  tail at the record's hazard. A state with fewer than five ended stays takes its kind's pooled stays, then every
+  their age; an item's residual life given its age there, S(a + t) / S(a); past the longest stay seen an exponential
+  tail whose mean is the longest tenth's mean excess over the 90th percentile (every stay's mean when they are alike),
+  so an item older than every stay seen is never given nothing left. A state with fewer than five ended stays takes its kind's pooled stays, then every
   kind's.
 - **A state a block takes from** is a wait and a run: the item queues at the block in its `takes:` order (the states
   of `at` in order, then by when it came back to the state, so a nack's return goes to the back; with
   `unblocked: true`, those more items wait on first), at most the block's capacity at once: its `pool`, its agent's
   `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
-  them). A run is one of the block's recorded attempts, drawn whole (bootstrapped per Monte Carlo run): how long it
-  held its lease, and how it ended, moved on (to where), given back (its `after` kept: put off) or expired, the
-  last two returning the item to the queue, its attempts counted, a dead letter after the most its terms allow. A
+  them). A run's length is drawn from the block's run-time curve (Kaplan–Meier, the leases still held censored, so the
+  long runs are not lost to those not yet ended), and how it ended from the recorded attempt nearest that long
+  (bootstrapped per Monte Carlo run): moved on (to where), given back (its `after` kept: put off) or expired; a run
+  past its lease's TTL expires at it. The last two return the item to the queue, its attempts counted, a dead letter
+  after the most its terms allow. A
   block with fewer than five attempts on record runs an assumed one (its `every`, else a quarter of its TTL, at most
   ten minutes), said so.
-- **A leased item's** run is drawn given how long its lease has been held (Kaplan–Meier over the block's run times,
-  the leases still held censored), its end from the attempts that lasted that long.
+- **A leased item's** run is drawn the same way, given how long its lease has been held; past every run seen, the
+  tail; never past its TTL. A failure share tried in the what-if reaches the runs already held too.
 - **Dependencies:** an item does not leave its kind's first state, nor is it taken by an `unblocked` block, until
   every item its precedence relations name is finished (an item named but not in the record is not waited on).
 - **Arrivals:** new items at the record's rate per kind (a batch brought in at one moment is not a rate), into the
   states they arrive in, competing for the same capacity.
 
-200 runs at most, within five seconds, a fixed seed (each run its own, so the same record gives the same
-estimates), 90 days ahead at most (past that: "beyond the horizon"). Per item: its **p50** and **p90** finish, its
+200 runs at most, within five seconds (and the levelled run within as much again: ten at most), a fixed seed (each
+run its own, so the same record gives the same estimates), 90 days ahead at most (past that: "beyond the horizon"). No
+run finished within the budget: no estimate ("not worked out"); fewer than 20: no p90 is said, only the run count. Per item: its **p50** and **p90** finish, its
 expected start, what it waits in now (a block, or a state), its place in that block's queue, and why, in words ("6
 of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); per kind, when its last open item finishes (p50, p90).
 The schedule the Timeline draws is the run whose last finish is the median's: never more runs in a block at once
-than its capacity, each in a lane. The Items page's list gives each open item's p50 (**done by**, the p90 beside it
+than its capacity, each in a lane (leases held over a pool the what-if lowered keep theirs until they end). The Items page's list gives each open item's p50 (**done by**, the p90 beside it
 and why in its title), and an item's page its estimate and why. Worked out in a thread, never on a page's request: a
-page is given the latest, and the next is worked out when the record changed (at most every thirty seconds, and every
+page is given the latest, and the next is worked out by one worker (the latest asked for first; the eight used last
+kept) when the record changed (at most every thirty seconds, and every
 two minutes regardless); of now only (a moment travelled to has none), and not in a snapshot. The owner's what-if
 (`block.NAME.pool`, `block.NAME.failure`: a share of its runs given back, `0.2` or `20%`; typed beside each block's
-identified model) is worked out the same way, apart, and drawn on the same pages.
+identified model) is worked out the same way, apart, and drawn on the same pages. The pages say what is left out
+(below), how many runs, and which blocks' runs are assumed.
 
 **What it leaves out**, and so what makes it wrong: a capacity no block declares (a workspace pool held from one
 step to another, a reviewer who is one person across two kinds, a rate limit), a goal that switches a block off (its
@@ -815,10 +823,12 @@ gate is not simulated: a block takes whenever it has room), a process that chang
 as how the work goes now), relations as they stand now, and a state never seen left (its items move to the next state
 in their kind's order, assumed). **Validated** (`tests/test_eta.py`; `tests/eta_backtest.py` replays past moments,
 estimates from the record before each alone, and compares with what happened): an M/M/c queue's mean wait matches
-Erlang C within 12%; on a synthetic record of the owner's case (100 tickets brought in at once, a pool of six) the p90
-covers 84% of the items and the mean error of the p50 is under half the median path's, whose p90 covered a third. The
-components were kept by a backtest with ablations (`docs/roadmap/overnight/eta.md`): a throughput cap measured from
-the record changed no estimate, and was dropped.
+Erlang C within 12%; on three synthetic records of the owner's case (100 tickets brought in at once, a pool of six)
+the p90 covers 89 to 94% of the items, the estimates' mean is within a fifth of the error of what happened, and the
+p50's error is about a third of the median path's, whose p90 covered 36 to 42%. The components were kept by a
+backtest with ablations (`docs/roadmap/overnight/eta.md`): a throughput cap measured from the record changed no
+estimate, and was dropped. A step whose runs give their item back while they wait on a capacity no block declares
+(ticket-factory's `work`, waiting for a workspace) is replayed as rework, and its estimates are late and slow.
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind

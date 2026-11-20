@@ -2,8 +2,10 @@
 estimate of the survival function with **censoring** (a stay still going is known to have lasted at least its age,
 and is counted at risk until then, never as ended), and an item's **residual life** given its age, S(a + t) / S(a).
 
-Past the longest stay observed, a curve that has not reached 0 (its longest still going) goes on as an exponential
-tail at the hazard the record shows (ends over exposure). Times in seconds."""
+Past the longest stay observed the curve goes on as an exponential **tail** whose mean is the mean residual of the
+longest tenth of the stays (each one's excess over the 90th percentile; at least a second): an item older than every
+stay seen is given that tail, never nothing left. The stays are taken as they were seen, from when each began: a
+stay that began before the record does (left-truncated) counts from its first move. Times in seconds."""
 
 from __future__ import annotations
 
@@ -33,36 +35,38 @@ class KM:
             self.surv.append(s)
             at_risk -= d
         self.neg = [-x for x in self.surv]                   # (non-decreasing: searched by bisection)
-        exposure = sum(ev) + sum(ce)
-        self.hazard = self.events / exposure if exposure > 0 and self.events else None
-        self.last = max([*ev, *ce], default=0.0)
+        every = sorted(ev + ce)
+        self.last = every[-1] if every else 0.0
+        top = every[int(0.9 * len(every)):]
+        self.tail = sum(x - top[0] for x in top) / len(top) if top else 60.0
+        if self.tail < 1.0:                                  # (the longest all alike: every stay's mean instead)
+            self.tail = max(1.0, sum(every) / len(every))
 
     def S(self, t: float) -> float:
         """The chance a stay lasts longer than ``t``."""
         k = bisect.bisect_right(self.times, t)
         s = self.surv[k - 1] if k else 1.0
-        if t > self.last and s > 0 and self.hazard:
-            s *= math.exp(-self.hazard * (t - self.last))
-        return s
+        return s * math.exp(-(t - self.last) / self.tail) if t > self.last else s
 
     def quantile(self, u: float, age: float = 0.0) -> float:
         """The residual life, from ``age``, at which the chance of still going falls to ``u`` (0 < u < 1): the time
         ``t`` with S(age + t) <= u · S(age)."""
-        sa = self.S(age)
-        target = u * sa
+        if age >= self.last or self.S(age) <= 0:          # older than every stay seen: the tail
+            return self.tail * math.log(1.0 / u)
+        target = u * self.S(age)
         k = bisect.bisect_right(self.times, age)
-        j = bisect.bisect_left(self.neg, -target, lo=k)     # the first end at or past ``age`` with S <= target
+        j = bisect.bisect_left(self.neg, -target, lo=k)     # the first end past ``age`` with S <= target
         if j < len(self.times):
             return self.times[j] - age
-        s_end = self.S(max(age, self.last))
-        if s_end <= 0 or not self.hazard:                    # never seen to end this late: the oldest seen
-            return max(0.0, self.last - age)
-        return max(age, self.last) - age + math.log(s_end / target) / self.hazard
+        s_end = self.S(self.last)
+        if s_end <= 0:
+            return self.last - age
+        return self.last - age + self.tail * math.log(s_end / target)
 
     def sample(self, rnd, age: float = 0.0) -> float:
         """A residual life given ``age``, drawn by inverting S(age + t) / S(age)."""
         return self.quantile(min(max(rnd.random(), 1e-9), 1 - 1e-9), age)
 
-    def mean_residual(self, age: float = 0.0, steps: int = 200) -> float:
+    def mean_residual(self, age: float = 0.0, steps: int = 100) -> float:
         """E[T − a | T > a], by the quantiles (a midpoint sum over ``steps``)."""
         return sum(self.quantile((i + 0.5) / steps, age) for i in range(steps)) / steps
