@@ -156,6 +156,19 @@ lowers the pools by one at once. Say a merge was reverted on main with
 `ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
 
+## The machine's resources: a cap on the pools
+
+The machine is measured every 30 s (`dev/bin/resources.py`, `dev/model/resources.yaml`): the host's CPU, memory,
+disk and threads, the Docker VM's limits and use, and each factory container's CPU and memory, kept on its gap
+(`resources`: each session's and suite's peak and mean) and in `run/resources/sessions.jsonl`. The setpoints are the
+goals in `dev/model/resources.yaml` (change them there). `session-headroom` is how many more sessions fit, from the
+measured use of a session and its suite. **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
+the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
+(`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
+new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous) older
+than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
+which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
+
 ## Approve the push
 
 A green merge asks for `push-main` (exactly that commit to origin's main), held for you:
