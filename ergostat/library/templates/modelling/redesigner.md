@@ -66,6 +66,15 @@ Rules:
   a stock, under its name or renamed; never remove it or turn it into an auxiliary.
 - A block's `out:` names the flow its runs move; a goal on a queue of items is `hold: "<= 0"` with `tolerance: 0`.
 - Prefer a complete, coherent design over a timid one: this is the change refinement could not make.
+- What was proposed before (when the prompt has it): never propose again a change set the owner dismissed or the
+  judge found not better, nor one of its edits, unless the record now answers the reason given; read the owner's
+  reason as evidence of what the model lacks, and say in your summary how your design differs from what was turned
+  away.
+- Interventions (when the prompt has them): each recurring one is a person's time spent where the model has no
+  loop, so treat it as evidence of a missing loop or of structure the model lacks: a queue that only builds in bursts is a capacity, items
+  seen twice are rework, a part that lags another is a delay or a stock between them, a level that settles whatever
+  its start is a goal and its balancing flow. Answer it with structure when the record supports it, and name it in a
+  `why`. Never answer it by removing or loosening a guard (an alarm, a gate, an advised block): that is suppression.
 - Answer with the one JSON line only. If nothing should change, answer `{"redesign": null, "why": "..."}`.
 - When the design needs something ergostat cannot express (the format has no way to say it), add a line
   `{"report": "<what ergostat could not express, in one sentence>"}` after the change set: it is drafted, scrubbed,

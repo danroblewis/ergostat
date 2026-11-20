@@ -160,6 +160,12 @@ def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | 
         lines += ["", "## Coherence: the three views held against the record", ""]
         lines += _coherence(p, spec, problems) or ["nothing to compare"]
     lines += ["", "## The record", ""] + _record(p, shown)
+    from . import redesign_memory as rm
+    mem, ivs = rm.memory(p, s.base, system), rm.interventions(p, s.base, system)
+    if mem:
+        lines += ["", "## What was proposed before for this system (newest first: never again what was turned away)", ""] + mem
+    if ivs:
+        lines += ["", "## Interventions: evidence of missing loops (people did this by hand; the notes are theirs)", ""] + ivs
     if s.done:
         lines += ["", "## Your edits so far (made on the scratch copy above)", ""]
         lines += [f"- {x['said']}" + (f": {x['why']}" if x["why"] else "") for x in s.done]
