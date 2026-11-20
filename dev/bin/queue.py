@@ -40,10 +40,10 @@ def clean_main(cfg: dict, repo) -> str | None:
     return None
 
 
-def suites(cfg: dict, repo, branch: str, logs, n: int) -> dict:
+def suites(cfg: dict, repo, branch: str, logs, began: float) -> dict:
     out = {}
     for name in ("ruff", "unit", "browser", "demo"):
-        log = logs / f"{branch}-{n}-{name}.txt"
+        log = logs / f"{fac.run_tag(branch, began)}-{name}.txt"
         rc, secs = fac.suite(cfg, name, repo, log, slot=False)        # the queue's lock is its slot
         text = log.read_text()
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
@@ -187,8 +187,7 @@ def main() -> int:
                 done = True
                 return 0
             logs = fac.run_dir(cfg, "queue")
-            n = int(f.get("queue_attempts") or 0) + 1
-            got = suites(cfg, repo, branch, logs, n)
+            got = suites(cfg, repo, branch, logs, began)
             minutes = round((time.time() - began) / 60, 1)
             timing = dict(queue_wait_hours=round((began - approved) / 3600, 3), queue_minutes=minutes,
                           lock_and_load_wait_s=round(waited), suites_queue=got)

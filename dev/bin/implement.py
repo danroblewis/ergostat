@@ -132,12 +132,9 @@ def build(cfg: dict, given: dict, began: float) -> int:
             fac.nack(f"budget: {e}", after="1h", count=False)
             return 0
         cost, sessions = cost + float(got.get("total_cost_usd") or 0), sessions + 1
-        head = agents.finish(cfg, home, branch, base_sha, held)
-        if not fac.git_ok(agents.drop(cfg), "merge-base", "--is-ancestor", base_sha, head):
-            raise RuntimeError(f"the branch does not hold main {base_sha[:12]} after the session (the merge was not "
-                               f"finished): refused")
-        fac.wait_quiet(cfg)
-        suites = agents.suites(cfg, home, ("ruff", "unit"), logs, f"{branch}-{rounds}-{i}")
+        head = agents.finish(cfg, home, branch, base_sha, held, base_sha)    # (main merged in: refused before the
+        fac.wait_quiet(cfg)                                                # drop's branch moves, when it is not)
+        suites = agents.suites(cfg, home, ("ruff", "unit"), logs, f"{fac.run_tag(branch, began)}-{i}")
         if not suites.get("failed"):
             break
     net = fac.net_lines(agents.drop(cfg), cfg["git"]["base"], head)
