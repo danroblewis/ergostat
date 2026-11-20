@@ -23,3 +23,35 @@ holds under load: the test passes 30 runs of `-n 8` with the CPU loaded, and the
 ## Size budget
 
 120 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1, built; one acceptance check not run here (below).
+
+- **The drop was not there.** No `factory/inbox-dismiss` branch or drop is reachable from this worktree, so the fix was
+  written fresh from the code and the inbox-dismiss reviews' notes, not lifted from round 3.
+- **The race.** `close()` set `stop`, killed the live runs, and waited for `running`; a `tick` already past its stop
+  check could still write a take and start a run afterwards, which nothing killed and nothing waited for (the take was
+  added to `running` only after its write). The restart test's `second.close()` then left that item leased.
+- **The fix** (35 net lines, of 120):
+  - `dispatch.take`: under the engine's lock (which `close` now sets `stop` under), it checks `stop` and registers
+    the run in `running` *before* writing the take, so `close` waits for every take that got past the check; after the
+    write it checks `stop` again, and a take that raced the stop is given back (`nack`, "stopped with ergostat",
+    uncounted) before any run starts.
+  - `dispatch._work`: a run whose thread starts after the stop is not started; its lease is given back uncounted.
+  - `engine.run_block`: a process started after `kill_all` has run (`STOPPING` set) is killed at once (it is added to
+    `LIVE` before the check, so either `kill_all` or this check sees it).
+  - `dispatch.give_back`, called by `close` after its five-second wait: any lease still going here is given back
+    uncounted before `ergostat.stopped` is written. `_work`'s own ending and `give_back` both hold the dispatcher's
+    lock and end a lease only while it is still in `going` under the same run, so it is ended once.
+  - SPEC §9.5 says so.
+- **Tests.** Both new tests were seen to fail with each part they guard disabled: the stop check before the take
+  (no-lease test), the check after the write, and `close`'s `give_back` (racing test). The `run_block` kill and the
+  `_work` check have no test of their own (each is a few lines; their window is a thread switch).
+- **Not run here: the 30 loaded `-n 8` runs.** This session was not allowed to start parallel pytest, CPU-load
+  processes or a repeat loop (the factory runs the suites after the implementor). Run serially: `tests/test_leases.py`
+  (22 passed), `tests/test_lease_kill.py`, `tests/test_leased_workspaces.py`, `tests/test_daemons.py` all pass; ruff
+  clean. The loaded 30-run check of the restart test is still to be done by the factory's watched run.
+- **Decision taken alone (reversible):** `finish`'s existing "stopping" label for any non-zero exit while the engine
+  closes (review inbox-dismiss-1's note) is left as it is on main: narrowing it is outside this gap.
+- No origin remote in this worktree; the branch is made from local `main`, with nothing newer to merge in.
