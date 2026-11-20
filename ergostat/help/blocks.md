@@ -36,6 +36,10 @@ reading is a rate per hour. A reading a person takes is `manual: true`, recorded
       every: 30s
 ```
 
+Many sensors reading one service on short schedules, or a block taking many items, can be served by one
+long-lived program instead of a process each: `daemon:` in place of `run:` (SPEC §9.7; how to write one, in
+ergostat's repository: docs/DAEMONS.md).
+
 ## A block
 
 ```yaml

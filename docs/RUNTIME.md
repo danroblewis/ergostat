@@ -181,7 +181,8 @@ older than 3 minutes, is started again (under the same back-off), unless it was 
 ## Daemons
 
 A **daemon** is a long-lived process that ergostat hands work to as JSON lines, instead of starting a process for
-each run or reading. One daemon serves many items at once, and one can serve many sensors.
+each run or reading. One daemon serves many items at once, and one can serve many sensors. How to write one, with
+runnable examples, testing by hand and moving existing sensors over: [DAEMONS.md](DAEMONS.md).
 
 ```mermaid
 sequenceDiagram
