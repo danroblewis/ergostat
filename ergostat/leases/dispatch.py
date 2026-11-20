@@ -257,13 +257,15 @@ class Dispatcher:
         finally:
             if slot:
                 slot.release()
-            with self.lock:                                    # (not when the stop gave it back already)
-                if self.going.get(b.name, {}).get(item["id"], {}).get("run") == run:
-                    try:
-                        self.finish(b, item["id"], lease["fence"], run, out)
-                    except Exception as e:                         # the watchdog ends it later
-                        self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
-                    self.going.get(b.name, {}).pop(item["id"], None)
+            with self.lock:                  # claimed under the lock, ended outside it: once, here or by give_back
+                mine = self.going.get(b.name, {}).get(item["id"], {}).get("run") == run
+                if mine:
+                    self.going[b.name].pop(item["id"], None)
+            if mine:                         # (its lease still held in the fold: a look counts it till it ends)
+                try:
+                    self.finish(b, item["id"], lease["fence"], run, out)
+                except Exception as e:                         # the watchdog ends it later
+                    self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
             with self.e.lock:
                 for s in self.e.after_acting(moved):
                     self.e.read_cause[s.series] = run
@@ -276,16 +278,14 @@ class Dispatcher:
     def give_back(self, block: str | None = None, item: str | None = None) -> None:
         """Ergostat stopping: each lease taken here and still going (or the one named) is given back, not counted, so
         that after a restart no item is left leased by a run that never ran, or never ended (the engine's ``close``)."""
-        with self.lock:
-            for name, runs in list(self.going.items()):
-                for i, g in list(runs.items()):
-                    if (block, item) not in ((None, None), (name, i)):
-                        continue
-                    try:
-                        self.finish(g["block"], i, g["fence"], g["run"], {"stopped": True})
-                    except Exception as e:                     # (the next engine's watchdog expires it)
-                        self.e.say(f"{name}: giving back {i}: {type(e).__name__}: {e}")
-                    runs.pop(i, None)
+        with self.lock:                                        # claimed under the lock (as _work does), ended outside it
+            back = [(name, i, runs.pop(i)) for name, runs in self.going.items() for i in list(runs)
+                    if (block, item) in ((None, None), (name, i))]
+        for name, i, g in back:
+            try:
+                self.finish(g["block"], i, g["fence"], g["run"], {"stopped": True})
+            except Exception as e:                             # (the next engine's watchdog expires it)
+                self.e.say(f"{name}: giving back {i}: {type(e).__name__}: {e}")
 
     def finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
         """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired)."""

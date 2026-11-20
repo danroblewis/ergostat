@@ -76,3 +76,41 @@ Round 1, built; one acceptance check not run here (below).
 - Ran serially: `test_leases`, `test_lease_kill`, `test_leased_workspaces`, `test_streamed_output`,
   `test_runner_and_state`, `test_daemons`, `test_resilience`, `test_watchdog`, `test_reload_in_place` (152 passed);
   ruff clean.
+
+### Round 2 (review lease-shutdown-race-1)
+
+- **Blocking: the 30 loaded `-n 8` runs. Still not run, and the claim is narrowed here.** This session's harness again
+  refused `scripts/suite_watch.py` and any `-n 8` pytest. I did not get around that, for example with a test that
+  starts workers of its own. So the branch does **not** claim that the restart test no longer flakes under load. It
+  claims this much: the race named in the definition (a take or a run start that lands after the stop) is closed, and
+  each part that closes it has a test that fails with that part disabled. The DoD's last acceptance line (30 loaded
+  runs) is still open. The factory's watched run must make it, and it stays a blocker for "done" until it does.
+- **Another possible cause of the restart test's flake.** The test sleeps a fixed 0.6 s and then asserts that the
+  second engine still keeps the first engine's lease (TTL 1.5 s, grace 1 s). On a loaded machine that sleep can
+  stretch past the second engine's two watchdog looks, so the lease expires first. That is a fixed sleep in the test
+  (lesson-10), not this race. If the watched run still shows the test flaking, look there first. It is left alone
+  here because changing the test's timing would hide what the loaded run is meant to show.
+- **The hang in round 1's unit run.** It is now shown that the round-1 check (`runner.STOPPING`) killed runs started
+  by another engine after any engine's close. The new `test_another_engines_run_survives_this_engines_close` fails
+  with that check put back (the run is killed and never reaches `done`) and passes with `self.stop`. A test waiting
+  for such a run waits until it times out, which fits round 1's hang. That the factory's hang was exactly this is
+  likely but still not proven: only a watched run can show it.
+- **Non-blocking findings, each answered:**
+  - *No tests for the `run_block` kill and `_work`'s check.* There are now three:
+    `test_a_run_whose_process_starts_as_the_engine_stops_is_killed_and_given_back` (the stop is set as the process
+    starts), `test_a_run_whose_thread_starts_after_the_stop_is_not_started` (the stop is set after the take, before
+    its thread runs) and `test_another_engines_run_survives_this_engines_close`. Each was broken on purpose and seen
+    to fail: the `run_block` check removed fails the first; the check made `runner.STOPPING` again fails the first
+    and the third; `_work`'s check removed fails the second.
+  - *The restart test's no-op `finish`.* The test stands in for an engine that dies: it never calls `close`, so
+    `give_back` is never in play there, and the no-op only keeps the dying engine from ending its lease. A comment
+    there now says so. `give_back` itself is covered by `test_a_take_racing_the_stop_is_given_back_uncounted`.
+  - *`finish` running under the dispatcher's lock.* Narrowed as the review suggested: `_work` and `give_back` now only
+    claim the lease (check `going` and pop it) under the lock, and call `finish` outside it. A claimed lease is still
+    held in the fold until `finish` writes its end, so a look in between still counts it and never takes the item.
+- **The `test_messages` then `test_run_costs` failure noted in round 1** is unchanged and still unrelated (lesson-13).
+- **Size:** 35 net lines outside `tests/` and `docs/`, of the 120 budget.
+- **Ran serially:** `test_leases` (25 passed), `test_lease_kill`, `test_leased_workspaces`, `test_daemons` (64 passed
+  together), and `test_streamed_output`, `test_runner_and_state`, `test_resilience`, `test_watchdog`,
+  `test_reload_in_place` (91 passed). Ruff is clean. origin/main: there is no remote in this worktree, and local `main`
+  is already merged (9427544).
