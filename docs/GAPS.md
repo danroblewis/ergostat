@@ -337,7 +337,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
   out, allowing `api.anthropic.com:443` (CONNECT, its TLS server name checked). Left: that service, the token's
   handling, Claude Code in the image, and a measured run of one session inside.
 - **A block's pool set by the model's state** (open; found by `factory`): `pool:` is a number written in the YAML, so
-  the factory's pools, ramped up on good results, are stocks (`implementor-pool`) its gates and runs enforce below the
+  the factory's pools, sized by measured risk against the owner's tolerance (pool-control), are stocks (`implementor-pool`) its gates and runs enforce below the
   block's `pool:` (the most). The completion estimates and the Blocks view read the most, not the pool now. Either
   `pool: stock.NAME` (read at each dispatch, drained when lowered, as a lowered `pool:` is), or a block's pool as a
   setting a controller steps.

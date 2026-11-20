@@ -45,3 +45,41 @@ operator sets the tolerance and how to record an intervention so it counts.
 ## Size budget
 
 350 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1: `dev/bin/risk.py` (new: the estimator and the control law, pure functions), `dev/bin/pools.py tune`
+on top of it, the loop in `dev/model/pools.yaml`, the line in `dev/bin/status.py`, `dev/README.md`. About 284 net
+lines outside `tests/` and `docs/` (within 350). The six acceptance tests pass, and each was seen to fail with the
+code it guards broken (the allowlist widened to `review-finding`, the untried widening removed, demand ignored, the
+tolerance not read, a drop held by probation, probation removed, a stale raise accepted).
+
+Choices made with no one to ask (each the more reversible one):
+- Both rates are Gamma posteriors (escapes per merged gap as a Poisson rate too), prior shape 0.5. A size's prior mean
+  is the other sizes' evidence (not its own, to avoid counting it twice) times (1 + steps above the largest size
+  tried). The bound adds the two rates' 90% bounds (conservative). The quantile is computed exactly (series and
+  bisection), no approximation.
+- The target counts only sizes whose bound, and every smaller size's, is within the tolerance, so each step up on the
+  way is. When the target falls below the pool (the demand fell), the pool steps down by one too, ungated.
+- The reviewer pool follows the implementor's, up to its own most; the risk is attributed to the implementor pool.
+- Evidence is attributed to the pool size in `run/pools.json`'s history at its time (verdict, merge, intervention).
+  This compares wall times (lesson-2) because nothing else ties an event to a pool size; an intervention with no time
+  counts against the pool now (the worst case).
+- The model's time is hours, so a unit of `interventions/day` is refused; the risk's units are `interventions` with
+  "a day" in their descriptions, as `interventions-trend` does. `risk-tolerance` is read from `dev/model/pools.yaml`
+  by the tuner (as `fac.daily_cap` reads the budget); unreadable, it is 0 and the pools go down to 1.
+- A raise is approved through `pools.py raise ROLE WAS TO`, which refuses unless the pool is still WAS (a drop in
+  between voids it), under a lock that the tuner's drops also hold. `[pools] streak` is replaced by `probation` (3)
+  and `cycle_hours` (2, used until a cycle time is measured); pools are capped at 8 whatever `[pools]` says.
+
+Not built, or not checked:
+- "Main failing its suites after a merge (the queue's next green-on-main check)": the queue has no such check today.
+  An escape is counted from a `broke_main` field said of the merged gap (README says how); the check itself would be
+  its own gap.
+- The queue's own interventions (`class: queue`, the queue stopped) are not counted: that class is not in the list
+  above. Adding `factory: true` to `queue.py`'s `block()` would count them, if wanted.
+- The owner's decision text in `dev/knowledge/decisions.md` ("pools rise only after a streak of good results") is
+  left as the owner wrote it.
+- The Dynamics and Blocks diagrams were not looked at: the model loads with no problem from `pools.yaml`, which the
+  model test now asserts. The full unit and browser suites were not run here (the factory runs them); there is no
+  remote in this clone, and the branch is already on the local main.
