@@ -86,8 +86,9 @@ def related(cfg: dict, gap: dict) -> list[tuple[str, str]]:
     definition, state and where it stopped."""
     import brief
     f, gaps = gap["fields"], {g["id"]: g for g in fac.items("gap")}
-    near = [*(f.get("depends_on") or []), f.get("parent")] + [i for i, g in gaps.items() if any(
-        f.get(k) and g["fields"].get(k) == f.get(k) for k in ("parent", "section"))]
+    mine = fac.ids(f.get("parent"))
+    near = [*fac.ids(f.get("depends_on")), *mine] + [i for i, g in gaps.items() if (mine and fac.ids(
+        g["fields"].get("parent")) == mine) or (f.get("section") and g["fields"].get("section") == f.get("section"))]
     out = []
     for gid in [n for n in dict.fromkeys(near) if n in gaps and n != gap["id"]][:6]:
         g = gaps[gid]["fields"]

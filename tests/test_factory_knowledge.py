@@ -165,6 +165,10 @@ def test_related_gaps_and_past_findings(tmp_path):
     assert "gap/delta" in got["knowledge"] and "Stopped at the lock order." in got["text"]
     assert "review/delta-1" in got["knowledge"] and "review/other-1" not in got["knowledge"]
     assert "reads the pool, then writes it" in got["text"]
+    f.fold([{"event": "gap.requested", "item": "gap/sib", "data": {"parent": ["gap/p"], "title": "Sibling"}},
+            {"event": "gap.measured", "item": "gap/alpha-thing", "data": {"parent": ["gap/p"]}}], None)
+    got = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "implementor", "x")
+    assert "gap/sib" in got["knowledge"]                          # a sibling of its split (a relation: a list of ids)
 
 
 def test_planner_writes_plan_and_review_makes_ready(tmp_path):
@@ -229,12 +233,12 @@ def test_planner_splits_into_sub_gaps(tmp_path):
     assert f.item(gid)["state"] == "split" and f.item(gid)["fields"]["children"] == ["gap/alpha-one", "gap/alpha-two"]
     one, two = f.item("gap/alpha-one"), f.item("gap/alpha-two")
     assert one["state"] == two["state"] == "planned" and one["fields"]["title"] == "One"
-    assert two["fields"]["parent"] == gid and two["fields"]["depends_on"] == ["gap/alpha-one"]
+    assert two["fields"]["parent"] == [gid] and two["fields"]["depends_on"] == ["gap/alpha-one"]
     assert one["fields"]["source"] == "plan" and (f.model / "run" / "plans" / "alpha-two.md").is_file()
     # a split naming a gap that exists (its id reused would merge old fields in) is refused, and sent back
     said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="new"))
     assert said == ["gap.plan-sent-back"] and "'alpha-one'" in f.item("gap/delta")["fields"]["plan_findings"][0]
-    assert f.item("gap/alpha-one")["fields"]["parent"] == gid
+    assert f.item("gap/alpha-one")["fields"]["parent"] == [gid]
     f.fold([{"event": "gap.found", "item": "gap/a-long-title", "data": {"branch": "short"}}], None)
     said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="short") + PLAN.format(b="new"))
     assert said[-1] == "gap.parked" and "'short'" in json.dumps(f.item("gap/delta")["fields"]["plan_findings"])
