@@ -87,6 +87,23 @@ ergostat event --add gap.requested --item gap/my-change \
   --data '{"title": "My change", "source": "request", "branch": "my-change", "definition": "run/defs/my-change.md"}'
 ```
 
+**Continuing a parked branch.** Ask for a new gap that `continues` it (`NAME` or `factory/NAME`, a branch of the
+checkout or already in the drop; it is then the gap's branch, and its own `docs/roadmap/overnight/NAME.md` is the
+definition, so add a "Where it stopped" section there rather than writing a new one):
+
+```sh
+ergostat event --add gap.requested --item gap/warm2-again \
+  --data '{"title": "Warm 2, continued", "source": "request", "continues": "warm2"}'
+```
+
+The intake fetches it into the drop as `factory/NAME` (never over a `factory/NAME` already there, and refusing a name
+that is not lowercase words and dashes). Before each implementor run on a branch behind main, implement.py merges main
+in itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its
+brief (it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in
+it, or with the merge unfinished, is refused. The fast suites run after. The reviewer's gate 1 takes the branch's own
+first commit (its first-parent line) as the definition, and for a continued branch also requires its merge base to
+be current main.
+
 **Dependencies.** A gap waits on others named by `depends-on: [name, ...]` in its definition (the template is
 `dev/prompts/definition.md`), `"depends_on": ["gap/..."]` in its request, or `after `name``, `needs `name` first` and a
 "Depends on" table column in GAPS.md. It is built only once each is merged (a parked one holds it, with `blocked_reason`); the implementor takes the unblocked first,

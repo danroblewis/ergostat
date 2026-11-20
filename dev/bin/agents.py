@@ -32,6 +32,7 @@ DENY = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(gi
 TOOLS = {
     "implementor": ["Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)",
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
+                    "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
                     "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
                     "Bash(mkdir:*)"],
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
@@ -255,6 +256,7 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str) ->
     out = home / "out"
     out.mkdir(exist_ok=True)
     script = ("set -e; g='git -c core.hooksPath=/dev/null -c core.fsmonitor= -c commit.gpgsign=false'; "
+              "if [ -e .git/MERGE_HEAD ]; then echo 'the session left its merge of main unfinished' >&2; exit 3; fi; "
               f"$g add -A; $g diff --cached --quiet || $g -c user.name=factory -c user.email=factory@localhost "
               f"commit -q -m {shlex.quote(f'{branch}: work the session left uncommitted')}; "
               f"$g bundle create /out/out.bundle {shlex.quote(base_sha)}..{shlex.quote(ref)} 2>/dev/null || "

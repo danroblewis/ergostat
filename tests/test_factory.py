@@ -858,3 +858,106 @@ def test_a_push_without_an_action_id_never_stalls_silently(tmp_path):
     h.run("review.py", gid)
     h.run("queue.py", gid)
     assert "is held" in settle(h)[1]
+
+
+def behind_main(f: Factory, conflict: bool = False, name: str = "warm") -> tuple[str, str]:
+    """A branch of the checkout (its definition its first commit, then work), and main moved on since (in the file the
+    branch changed, when ``conflict``); (the branch's tip, main's)."""
+    git(f.checkout, "checkout", "-q", "-b", name, "main")
+    (f.checkout / "docs" / "roadmap" / "overnight" / f"{name}.md").write_text(
+        f"# {name}\n\n## Definition of done\n\nIt works.\n\n## Size budget\n\n600 net lines.\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", f"{name}: the definition of done")
+    (f.checkout / "app.py").write_text("print('the branch')\n")
+    git(f.checkout, "commit", "-qam", "the branch's work")
+    tip = git(f.checkout, "rev-parse", "HEAD")
+    git(f.checkout, "checkout", "-q", "main")
+    (f.checkout / ("app.py" if conflict else "main.py")).write_text("print('main')\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "main moved on")
+    return tip, git(f.checkout, "rev-parse", "main")
+
+
+def continues(f: Factory, name: str = "warm", gid: str = "gap/warm-again") -> str:
+    f.fold([{"event": "gap.requested", "item": gid, "data": {"title": "Warm again", "source": "request",
+                                                             "continues": name}}], None)
+    f.run("intake.py")
+    return gid
+
+
+def test_a_gap_continues_a_named_branch(tmp_path):
+    f = Factory(tmp_path)
+    tip, _ = behind_main(f)
+    f.fold([{"event": "gap.requested", "item": "gap/escape", "data": {"source": "request", "continues": "../warm"}},
+            {"event": "gap.requested", "item": "gap/nowhere", "data": {"source": "request", "continues": "no-such"}},
+            {"event": "gap.requested", "item": "gap/two", "data": {"continues": "warm", "branch": "other"}}], None)
+    gid = continues(f)
+    drop = tmp_path / "live" / "drop.git"
+    assert git(drop, "rev-parse", "factory/warm") == tip                       # fetched into the drop as factory/warm
+    assert f.item(gid)["state"] == "ready"                                      # its own definition, found on it
+    assert f.item(gid)["fields"]["definition"] == "factory/warm:docs/roadmap/overnight/warm.md"
+    for refused in ("gap/escape", "gap/nowhere", "gap/two"):
+        assert f.item(refused)["state"] == "open"
+    assert git(drop, "for-each-ref", "--format=%(refname)", "refs/heads/factory/").split() == ["refs/heads/factory/warm"]
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    head = f.item(gid)["fields"]["head"]
+    assert git(drop, "rev-parse", "factory/warm") == head
+    assert subprocess.run(["git", "-C", str(drop), "merge-base", "--is-ancestor", tip, head]).returncode == 0
+    first = git(drop, "log", "--reverse", "--first-parent", "--format=%s", "main..factory/warm").splitlines()
+    assert first[:2] == ["warm: the definition of done", "the branch's work"]  # no second definition committed
+
+
+def test_a_branch_behind_main_has_main_merged_before_the_session(tmp_path):
+    f = Factory(tmp_path)
+    tip, main = behind_main(f)
+    gid = continues(f)
+    f.run("implement.py", gid)
+    drop = tmp_path / "live" / "drop.git"
+    line = git(drop, "log", "--first-parent", "--format=%H %P|%s", "factory/warm").splitlines()
+    session, merge = line[0].split("|"), line[1].split("|")
+    assert session[1].endswith("uncommitted")                                   # the stand-in's work, after the merge
+    assert merge[0].split()[1:] == [tip, main]                                   # main merged into the branch
+    assert merge[1] == f"Merge main ({main[:12]}) into the branch"              # by the program, before the session
+    assert session[0].split()[1] == merge[0].split()[0]
+    assert f.item(gid)["fields"]["contexts"][0]["merge_conflicts"] == []
+    assert f.item(gid)["fields"]["suites_fast"]["unit"]["rc"] == 0              # the fast suites ran after it
+
+
+def test_a_conflicted_merge_is_handed_to_the_session_with_its_conflicts(tmp_path):
+    f = Factory(tmp_path)
+    tip, main = behind_main(f, conflict=True)
+    gid = continues(f)
+    drop = tmp_path / "live" / "drop.git"
+    f.run("implement.py", gid, fails=True, FACTORY_STANDIN_IMPLEMENTOR="I did nothing")   # the merge left unfinished
+    assert git(drop, "rev-parse", "factory/warm") == tip                        # refused: nothing came back
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    brief = sorted((f.model / "run" / "briefs").glob("warm-implementor-*.md"))[-1].read_text()
+    assert "finish the merge of main" in brief and "- `app.py`" in brief and main in brief
+    assert f.item(gid)["fields"]["contexts"][-1]["merge_conflicts"] == ["app.py"]
+    sys.modules.setdefault("fac", module("fac"))                                 # (agents.py imports fac beside it)
+    tools = module("agents").TOOLS["implementor"]
+    assert {"Bash(git merge:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git status:*)"} <= set(tools)
+    assert not {t for t in tools if t.startswith(("Bash(git push", "Bash(git fetch", "Bash(git pull", "Bash(git remote"))}
+    head = f.item(gid)["fields"]["head"]
+    assert subprocess.run(["git", "-C", str(drop), "merge-base", "--is-ancestor", main, head]).returncode == 0
+    assert git(drop, "show", f"{head}:app.py") == "print('main')"             # the session's resolution kept
+
+
+def test_gate_one_accepts_a_continued_branch_definition(tmp_path):
+    f = Factory(tmp_path)
+    behind_main(f)
+    gid = continues(f)
+    f.run("implement.py", gid)
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved"                                           # its first commit is its definition
+    assert not f.item("review/warm-1")["fields"]["blocking"]
+    (f.checkout / "later.py").write_text("print('later')\n")                   # main moves on after the build
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "main moved on again")
+    f.fold([{"event": "gap.sent-back", "item": gid, "data": {}}], None)
+    f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.sent-back"
+    assert any("merge base is not current main" in b for b in f.item("review/warm-2")["fields"]["blocking"])

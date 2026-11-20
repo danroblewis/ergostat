@@ -2,7 +2,8 @@
 
 1. a clone of the factory's drop repository (agents.py: never the owner's), on the branch factory/<branch> from main;
    the definition of done committed first (`docs/roadmap/overnight/<branch>.md`) when the branch lacks it, by this
-   program, and published to the drop;
+   program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
+   left for the session, its files in the brief); then published to the drop;
 2. a session in a container of its own (or the stand-in) on a brief assembled from dev/prompts/implementor.md;
 3. what it left uncommitted committed and bundled back to the drop (in a container with no network); the fast suites
    (ruff, then the unit suite under the watchdog) in a container with no network, in a machine-wide slot; a failure
@@ -47,6 +48,29 @@ def definition_first(cfg: dict, gap: dict, work: Path) -> tuple[str, str]:
     return target.read_text(), held
 
 
+def merge_main(work: Path, main: str) -> list[str]:
+    """main merged into a branch that is behind it (by this program, before the session): a clean merge committed as
+    the factory; a conflicted one left in progress for the session to finish. The files in conflict (none: clean, or
+    nothing to merge)."""
+    if fac.git_ok(work, "merge-base", "--is-ancestor", main, "HEAD"):
+        return []
+    who = ["-c", "user.name=factory", "-c", "user.email=factory@localhost", "-c", "commit.gpgsign=false"]
+    if fac.git_ok(work, *who, "merge", "--no-ff", "-m", f"Merge main ({main[:12]}) into the branch\n\n{fac.TRAILER}",
+                  main):
+        return []
+    conflicts = fac.git(work, "diff", "--name-only", "--diff-filter=U").split()
+    if not conflicts:                                 # failed for another reason than a conflict: stop, never guess
+        raise RuntimeError(f"merging main {main[:12]} failed without conflicts: {fac.git(work, 'status', '--short')}")
+    return conflicts
+
+
+def conflict_brief(main: str, conflicts: list[str]) -> str:
+    return ("\n\n# First: finish the merge of main\n\nThe factory merged main (" + main + ") into your branch, and it "
+            "conflicted in:\n\n" + "\n".join(f"- `{c}`" for c in conflicts) + "\n\nResolve each (keep what main changed "
+            "and what the branch adds), `git add` them and `git commit --no-edit` before any other work; `git status` "
+            "shows what is left. Never `git merge --abort`: a branch that does not hold main is refused.\n")
+
+
 def park(cfg: dict, gap: dict, why: str) -> None:
     """The kill rule on the implementor's side: where it stopped, on its branch and its item."""
     import review
@@ -88,10 +112,12 @@ def build(cfg: dict, given: dict, began: float) -> int:
     home, work = agents.clone(cfg, branch, "implementor")
     base_sha = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")
     definition, held = definition_first(cfg, gap, work)
-    agents.publish(cfg, work, branch)
+    conflicts = merge_main(work, base_sha)
+    agents.publish(cfg, work, branch)                 # (in a merge left in progress: the branch as it was before it)
     text, context = brief.assemble(cfg, "implementor", gap, work, definition=definition)
+    text += conflict_brief(base_sha, conflicts) if conflicts else ""
     context["brief"] = brief.save(cfg, "implementor", gap, text)
-    context["round"] = rounds
+    context["round"], context["merge_conflicts"] = rounds, conflicts
     cost, sessions = 0.0, 0
     logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
@@ -107,6 +133,9 @@ def build(cfg: dict, given: dict, began: float) -> int:
             return 0
         cost, sessions = cost + float(got.get("total_cost_usd") or 0), sessions + 1
         head = agents.finish(cfg, home, branch, base_sha, held)
+        if not fac.git_ok(agents.drop(cfg), "merge-base", "--is-ancestor", base_sha, head):
+            raise RuntimeError(f"the branch does not hold main {base_sha[:12]} after the session (the merge was not "
+                               f"finished): refused")
         fac.wait_quiet(cfg)
         suites = agents.suites(cfg, home, ("ruff", "unit"), logs, f"{branch}-{rounds}-{i}")
         if not suites.get("failed"):
