@@ -85,6 +85,9 @@ class _Run:
             for pr in x.preds:
                 self.after.setdefault(pr, []).append(x.id)
         self.parked: set[str] = set()
+        self.holds = {i: set(x.holds) for i, x in inp.items.items() if x.holds} if flags.queue else {}
+        self.wsfree = {w: n - sum(1 for h in self.holds.values() if w in h) for w, n in inp.workspaces.items()}
+        self.no_ws = [[] for _ in self.blocks]          # queued, waiting for a workspace: back in the queue when one frees
         self.open = len(inp.items)
         self.n_new = 0
 
@@ -137,6 +140,14 @@ class _Run:
         return rest[j] if j < len(rest) else rest[-1]
 
     def done(self, i: str, t: float, dead: bool) -> None:
+        for w in self.holds.pop(i, ()):                 # finished: its workspace cleaned, free for the next
+            self.wsfree[w] += 1
+            for b, bl in enumerate(self.blocks):
+                if bl.workspace == w:
+                    for e in self.no_ws[b]:
+                        heapq.heappush(self.queue[b], e)
+                    self.no_ws[b] = []
+            self.wake(t)
         if i not in self.inp.items:
             return
         self.finish[i] = t
@@ -177,6 +188,10 @@ class _Run:
         return self.busy[b] < self.cap[b] and all(self.used.get(k, 0) < c for k, c in self.blocks[b].shared)
 
     def hold(self, b: int, i: str, t: float, a: Attempt) -> None:
+        w = self.blocks[b].workspace
+        if w and w not in self.holds.get(i, ()):         # its workspace, held until the item finishes
+            self.holds.setdefault(i, set()).add(w)
+            self.wsfree[w] -= 1
         self.busy[b] += 1
         for k, _ in self.blocks[b].shared:
             self.used[k] = self.used.get(k, 0) + 1
@@ -192,10 +207,15 @@ class _Run:
     def wake(self, t: float) -> None:
         for b in range(len(self.blocks)):
             q = self.queue[b]
+            w = self.blocks[b].workspace
             while q and self.room(b):
-                _, i, v = heapq.heappop(q)
+                e = heapq.heappop(q)
+                _, i, v = e
                 it = self.items[i]
                 if it[4] != v or it[1] not in self.blocks[b].at:
+                    continue
+                if w and w not in self.holds.get(i, ()) and self.wsfree.get(w, 1) <= 0:
+                    self.no_ws[b].append(e)                 # none free: it waits, holding nothing
                     continue
                 if self.record and t > max(it[2], self.inp.at):
                     self.segs.setdefault(i, []).append([it[1], max(it[2], self.inp.at), t, None, "wait"])
@@ -354,6 +374,9 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
             bind = next((f" ({n.split(':', 1)[1]}'s {'seats' if n.startswith('agent') else 'runs at once'}: {c})"
                          for n, c in b.shared if c < (pools or {}).get(b.name, b.pool)), "")
             put = f"; put off until it is due in {human(x.not_before - inp.at)}" if x.not_before > inp.at else ""
+            w = b.workspace
+            if w and w not in x.holds and sum(1 for y in inp.items.values() if w in y.holds) >= inp.workspaces[w]:
+                put += f"; every workspace of {w} is held ({inp.workspaces[w]}): it waits for one, holding nothing"
             med = b.run.quantile(0.5) if b.run else None
             out[x.id] = {"waits_in": b.name, "position": None if pos is None else pos + 1, "capacity": cap,
                          "why": waits + f"{held.get(b.name, 0)} of {cap} busy in {b.name}{bind}"

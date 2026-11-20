@@ -42,6 +42,7 @@ class BlockIn:
     unblocked: bool
     most: int                      # attempts before a dead letter
     ttl: float = 0.0               # its lease's TTL: a run silent this long expires
+    workspace: str | None = None   # the workspace pool its runs take one from, held by the item until it finishes
     attempts: list[Attempt] = field(default_factory=list)
     run: KM | None = None          # how long a run holds its lease (the going censored)
     assumed: str = ""
@@ -76,6 +77,7 @@ class ItemAt:
     not_before: float = 0.0
     preds: list[str] = field(default_factory=list)
     level: int = 0                 # how many items wait on it, however far (critical first, for unblocked)
+    holds: set = field(default_factory=set)   # the workspace pools it holds one of at ``at``
 
 
 @dataclass
@@ -85,6 +87,7 @@ class Inputs:
     blocks: list[BlockIn]
     items: dict[str, ItemAt]
     finished_at: dict[str, float] = field(default_factory=dict)   # (the backtest's truth, when read past ``at``)
+    workspaces: dict[str, int] = field(default_factory=dict)      # each workspace pool a block uses → its size
 
 
 def _fold(moves: list[dict], at: float):
@@ -219,10 +222,11 @@ def _leases(p, spec, out: Inputs, since: float) -> None:
         d = e.get("data") or {}
         r = d.get("run")
         if e["type"].endswith("taken"):
-            runs[r] = {"t": e["time"], "item": d.get("item") or e.get("item"), "block": d.get("block"), "end": None}
+            runs[r] = {"t": e["time"], "item": d.get("item") or e.get("item"), "block": d.get("block"), "end": None, "run": r}
         elif r in runs and runs[r]["end"] is None:
             runs[r].update(end=e["time"], how="expired" if e["type"].endswith("expired") else d.get("how") or "nack",
                            to=d.get("state"), after=float(d.get("after") or 0.0), counted=d.get("count") is not False)
+    acquired = _workspaces(p, spec, out, since)
     by_block: dict[str, list[dict]] = {}
     for r in runs.values():
         by_block.setdefault(r["block"], []).append(r)
@@ -246,18 +250,48 @@ def _leases(p, spec, out: Inputs, since: float) -> None:
         if dn and dn in spec.daemons:
             shared.append((f"daemon:{dn}", spec.daemons[dn].concurrency))
         t = terms(spec, b)
+        ws = (b.params or {}).get("workspace")
+        ws = ws if ws in spec.workspaces else None
         bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), b.pool, shared, bool(b.takes.unblocked), t["attempts"],
-                     float(t["ttl"]))
+                     float(t["ttl"]), ws)
         rs = by_block.get(b.name, [])
+        if ws:                                          # a run given back for want of a workspace held nothing: a wait
+            out.workspaces[ws] = spec.workspaces[ws].size
+            rs = [r for r in rs if not (r["end"] is not None and r["how"] == "nack" and not r["counted"]
+                                        and r["run"] not in acquired)]
         bi.attempts = [Attempt(r["end"] - r["t"], r["how"], r.get("to"), r.get("after", 0.0), r.get("counted", True))
                        for r in rs if r["end"] is not None]
         if len(bi.attempts) >= MIN_RUNS:
             bi.run = KM([a.dur for a in bi.attempts], [out.at - r["t"] for r in rs if r["end"] is None])
+        elif out.kinds[b.takes.kind].said.get(b.takes.at[0]) in ("own", "kind"):
+            km = out.kinds[b.takes.kind].km[b.takes.at[0]]   # few runs: how long its items stayed where it takes them
+            bi.attempts, bi.run = [Attempt(km.quantile(0.5), "ack")], km
+            bi.assumed = (f"only {len(rs)} runs on record (at least {MIN_RUNS}): a run taken as long as its items stayed "
+                          f"in {b.takes.at[0]}")
         else:
             dur = float(b.every or min(t["ttl"] / 4.0, 600.0))
             bi.attempts, bi.run = [Attempt(dur, "ack")], KM([dur])
             bi.assumed = f"only {len(rs)} runs on record (at least {MIN_RUNS}): a run taken as {dur:.0f}s"
         out.blocks.append(bi)
+
+
+def _workspaces(p, spec, out: Inputs, since: float) -> set[str]:
+    """Which open items hold a workspace at ``at`` (each workspace's latest event: acquired or held for an item, SPEC
+    §12k), and the runs that acquired one (a run of a workspace block that did not was given back for want of one)."""
+    if not spec.workspaces:
+        return set()
+    slot: dict[str, tuple] = {}
+    runs: set[str] = set()
+    for e in p.events.query(n=None, type="ergostat.workspace.*", since=since, until=out.at):
+        d = e.get("data") or {}
+        held = e["type"].endswith((".acquired", ".held"))
+        slot[e.get("item")] = (d.get("pool"), d.get("item") if held else None)
+        if e["type"].endswith(".acquired") and d.get("run"):
+            runs.add(d["run"])
+    for pool, item in slot.values():
+        if item in out.items:
+            out.items[item].holds.add(pool)
+    return runs
 
 
 def _relations(spec, ix, out: Inputs) -> None:

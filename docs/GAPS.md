@@ -100,9 +100,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
   block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
   record's paths, dependencies and arrivals); the Timeline's lanes, the list's *done by*, the item's why. Left: a
-  goal's gate on a block is not simulated, and a capacity no block declares is not modelled: ticket-factory's
-  workspace pool (held from `work` to `close`) should be read as one, since its `work` gives tickets back every ten
-  seconds while it waits and the simulation takes that as rework (late, slow estimates on that record).
+  goal's gate on a block is not simulated, and a capacity no block declares is not modelled (a block's `workspace:`
+  pool is: held from the item's first take until it finishes).
 - **Craft findings in `check`** (in progress, `selfimprove`; from `docs/MODELLING-WELL.md`): `check` is silent on a
   part with no `description`, a stock with no `unit`, a flow between stocks with no equation, a `process:` with no
   `identified:`, a sensor (a collector) with no description, and event types of one kind in mixed forms. Each is a

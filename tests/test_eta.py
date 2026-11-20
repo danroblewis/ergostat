@@ -115,6 +115,26 @@ def test_rework_adds_time():
     assert tried["kinds"]["t"]["p50"] - T0 == pytest.approx(failing["kinds"]["t"]["p50"] - T0, rel=0.15)
 
 
+def test_a_workspace_pool_is_held_from_its_take_until_the_item_finishes():
+    # 12 items, the dev pool 6, but a workspace pool of 3 taken at dev and held through review (a stay, no block):
+    # never more than 3 items between their take and their finish, and what waits for one holds nothing
+    inp = inputs(n=12, pool=6, review=(1200.0,) * 10)
+    inp.blocks[0].workspace, inp.workspaces = "code", {"code": 3}
+    for r in range(10):
+        run = eta._Run(inp, eta.Flags(arrivals=False), random.Random(r), {}, {}, True)
+        run.go(eta.HORIZON)
+        spans = [(run.start[i], run.finish[i]) for i in inp.items]
+        for t, _ in spans:
+            assert sum(1 for a, z in spans if a <= t < z) <= 3, (r, t)
+    plain = eta.simulate(inputs(n=12, pool=6, review=(1200.0,) * 10), runs=20)["kinds"]["t"]["p50"] - T0
+    held = eta.simulate(inp, runs=20)["kinds"]["t"]["p50"] - T0
+    assert held == pytest.approx(4 * (600 + 1200), rel=0.05) and plain == pytest.approx(2 * 600 + 1200, rel=0.05)
+    inp.items["t/0"].holds = {"code"}
+    inp.items["t/1"].holds = {"code"}
+    inp.items["t/2"].holds = {"code"}
+    assert "it waits for one, holding nothing" in eta.reasons(inp)["t/5"]["why"]
+
+
 def erlang_c(c: int, lam: float, mu: float) -> float:
     a = lam / mu
     top = a ** c / math.factorial(c) * (c / (c - a))
