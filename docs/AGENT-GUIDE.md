@@ -86,7 +86,11 @@ Work through these steps in order. Ask the person only what you cannot infer.
    progress is never taken for silent. A run silent past its lease's TTL is **killed** (SIGTERM, then
    SIGKILL), its item retried: a long, quiet step must print progress or `$ERGOSTAT_CMD lease --renew`, or
    be given a longer `lease: {ttl: ...}`. If it is stopped part way, what it printed stays. A step a person must do is a `type: person` block with `ask:`; it is asked while its goal
-   is off (only `program` and `ai` blocks take items one at a time).
+   is off (only `program` and `ai` blocks take items one at a time). A step started by something that
+   happens rather than by a state (a comment, a review, a webhook that moves nothing) is
+   `on: {event: TYPE, where: {...}, emits: [TYPES]}`: a run per event, caused by it. List in `emits:` every event
+   type its runs print (others are refused); `check` refuses blocks that would start each other in a loop, so
+   end each chain of them in a type nothing is `on:`.
 6. **Goals on what matters**: how long the oldest item has waited in a state
    (`measure: oldest` on a stock's sensor, `hold: "<= 4"` hours), how many are waiting, throughput.
    A goal is what makes a block's work a feedback loop; give each step's queue one. A limit on each item
