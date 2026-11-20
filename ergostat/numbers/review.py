@@ -74,11 +74,11 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
     data = ob.measured(p, ob.reference(p, at))
     run, base = tr.fit_of(spec, data)
     found, not_made = stc.find(p, spec, data, _estimates(p, spec), base)
+    pr.supersede(p, spec)                             # made against another version: carried, or let go if its subject went
     props = pr.stored(p)
-    st = ver.structure(spec)
     mine = {x["id"] for x in found}
     for k in [k for k, x in props.items() if x.get("kind") == "structure" and x["status"] == "pending" and
-              not pr.candidate(x) and (k not in mine or x.get("structure") != st)]:
+              not pr.candidate(x) and k not in mine]:
         del props[k]                                  # superseded: no longer found
     fresh = []
     for x in found:
