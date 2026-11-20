@@ -33,3 +33,6 @@ Line 107 is in the named acceptance test, so it could not pass without the chang
 keeps the suite green: three numbers, no other test changes. These failures come from this change, so fixing them
 here does not break § 13. Taking the count from the file's headings instead would stop this from happening again;
 that belongs in a separate gap and is not built here.
+
+Not done: merging origin/main into the branch and running the suites again. This session's permissions refused
+`git merge`, so the factory has to do the merge and the re-run.
