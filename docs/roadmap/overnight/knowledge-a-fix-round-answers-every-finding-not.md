@@ -29,3 +29,10 @@ One choice made without anyone to ask: "nothing else changed" could not hold to 
 `lesson.py add` to number the next lesson § 12 (`test_cli_tools_on_a_fixture_instance`). With § 12 added, all three
 fail. They now count to 12 and expect § 13. This is the smallest change that lets the lesson exist, and it is easy to
 undo; no code outside `tests/` changed. Nothing is left.
+
+After the fast suites: `unit` came back as failed, but its log names no failing test. It stops at 79% with no
+`FAILED`/`ERROR` line, and `scripts/suite_watch.py` never printed its closing JSON summary, which it prints on every
+exit, even after killing for limits. Something outside the suite killed the runner (the container or the run was
+stopped); no test failed. This branch changes no code, only one markdown file and the three expected counts above,
+so nothing in the code was changed in answer. `tests/test_factory_knowledge.py` passes alone (20 passed). The suite
+needs to run again; if it stops at the same place, the cause is outside this branch.
