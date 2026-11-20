@@ -106,20 +106,22 @@ def interventions(p, spec: Spec, system: str, now: float | None = None, most: in
     by: dict[str, dict] = {}
     for x in xs:
         if x["class"] != "change:redesign":          # (the memory says those)
-            g = by.setdefault(x["class"], {"n": 0, "hours": 0.0, "causes": {}, "answers": {}, "notes": []})
+            g = by.setdefault(x["class"], {"n": 0, "hours": 0.0, "causes": {}, "answers": {}, "notes": [], "said": set()})
             g["n"] += 1
             g["hours"] += ((x["answered"] or now) - x["time"]) / 3600.0
             g["causes"][x["cause"]] = g["causes"].get(x["cause"], 0) + 1
             g["answers"][x["verdict"] or "waiting"] = g["answers"].get(x["verdict"] or "waiting", 0) + 1
-            if x.get("note") and x["note"] not in g["notes"]:
+            if x.get("note") and x["note"] not in g["said"]:        # (each note once, whatever answer it came with)
+                g["said"].add(x["note"])
                 g["notes"].append(f"{x['verdict'] or 'said'}: {x['note']}")
     for cls, r in reqs.items():
         g = by.setdefault(cls, {"n": int(r.get("count") or 0), "hours": float(r.get("hours") or 0.0), "causes": {},
-                                "answers": {}, "notes": []})
+                                "answers": {}, "notes": [], "said": set()})
         if r.get("cause"):
             g["causes"].setdefault(r["cause"], 0)
         g["request"] = r
-        if r.get("note") and r["note"] not in g["notes"]:
+        if r.get("note") and r["note"] not in g["said"]:
+            g["said"].add(r["note"])
             g["notes"].append(r["note"])
     out = []
     for cls, g in sorted(by.items(), key=lambda kv: (-kv[1]["hours"], -kv[1]["n"])):

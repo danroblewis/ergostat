@@ -3542,7 +3542,8 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   owner dismissed with a reason; at most 6, 3,000 characters together, 600 each; and *interventions: evidence of
   missing loops* (§12p), by class over the interventions loop's window, the most hours blocked first: how many, their
   causes, how they were answered, the notes given with the answers (`inbox --note`, a person's report, a dismissal's
-  reason), and the class's request from `ergostat inbox --requests` with its state and the note it was worked
+  reason; not only the owner's: a person block's report and whoever approved or denied an advised block's command
+  are read too, each note once), and the class's request from `ergostat inbox --requests` with its state and the note it was worked
   on with (not its remedies: generic, they led haiku to add a goal and a controller for
   every class, and its change sets stopped compiling; `docs/redesign-bench.md`); a class is the system's when its block, or a part its cause names, is in it; at most 8, 2,500 characters.
   The guide says never to propose again what was dismissed or judged not better unless the record now answers the
@@ -3550,8 +3551,11 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
 - **The benchmark** (`scripts/redesign_bench.py`, `docs/redesign-bench.md`): models of known structure
   (`tests/redesign_cases/`) each cut (a capacity limit, a rework loop, a delay, a goal gap, a stock merged away, an
   outflow), the record made from the whole model, the redesigner asked to repair the cut one (nothing submitted), and
-  each case scored: the missing structure found again (by place and shape, a rename followed by `formerly:`), the fit
-  before and after, compiled, the verdict, the cost; haiku by default under a cap for the run ($3), `--stand-in` for the
+  each case scored: the missing structure found again (by place and shape, a rename followed by `formerly:`, and
+  working on the truth's record: the flow moves something, the limit binds, the goal's sign closes the gap, the delay
+  delays what leaves the stock before; necessary for a repair, not sufficient), the parts added beyond the known
+  repair's, the fit before and after, compiled, the verdict, the cost; `--without memory,interventions` for an
+  ablation; haiku by default under a cap for the run ($3), `--stand-in` for the
   harness alone; one JSON row a case appended to `docs/redesign-bench.jsonl`.
 - **Drawn as proposed**: `GET /api/graph?proposal=ID&view=dynamics|blocks` draws the model as the change would leave it
   (nothing written), with `proposed: {added, changed, renamed, removed}`; the page draws the new parts dashed and
@@ -4715,8 +4719,9 @@ they blocked their processes over the window, then by count; each that recurs (`
 window) and has no request gets one (`ergostat.model-request/<hash of the class>`, `.opened`), with its count, share,
 hours blocked, rank, most common cause, and **candidate remedies**: automate the person's step with a block (the
 person reviewing until its claims hold); graduate the gate (`gate: auto`, `mode: auto`, the judge's `accept:`) with
-its evidence; add the missing loop (a goal and a controller on what an alarm watches, a check that makes an approval
-a rule); change the software so the step no longer needs a person. (3) A request is **resolved** only when its class
+its evidence; add the missing structure (for an alarm, what explains what it watches: a capacity, rework, a delay, a
+balancing flow, with a goal and a controller on it only where something should act before it rises, as the
+redesigner's guide says; a check that makes an approval a rule); change the software so the step no longer needs a person. (3) A request is **resolved** only when its class
 has not intervened for three of its mean intervals over the window (at least `verify`, 1d by default) since it was
 last moved, and the process it blocked has worked in that time without it: its cause's block ran; an alarm was
 evaluated and clear; a change of that kind was decided without the owner; a step test's loop holds its process. A

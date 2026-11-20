@@ -110,3 +110,19 @@ def test_the_prompt_carries_the_memory_and_the_interventions(tmp_path):
     q, _ = project(tmp_path / "fresh", SYSTEMS)
     assert "## What was proposed before" not in rdr.prompt(q, cs.Scratch(q), "model", [])
     assert "never propose again" in rdr.guides().lower() and "evidence of a missing loop" in rdr.guides().lower()
+
+
+def test_a_note_is_said_once_and_a_broken_record_never_fails_the_prompt(tmp_path, monkeypatch):
+    p, _ = project(tmp_path, SYSTEMS)
+    for _ in range(2):
+        p.events.add("block.advised", item="pusher", source="ergostat", data={"command": 2})
+        p.events.add("block.denied", item="pusher", source="ci-bot", data={"note": "the build is red"})
+    ship = "\n".join(rm.interventions(p, p.model.spec, "ship"))
+    assert ship.count("the build is red") == 1 and "denied 2" in ship       # a note not the owner's reaches it, once
+
+    def broken(*a, **k):
+        raise KeyError("x")
+    monkeypatch.setattr(rm, "memory", broken)
+    monkeypatch.setattr(rm, "interventions", broken)
+    text = rdr.prompt(p, cs.Scratch(p), "model", [])
+    assert "(its past proposals could not be read: KeyError)" in text and "## The record" in text

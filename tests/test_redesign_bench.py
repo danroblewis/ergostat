@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import time
 from pathlib import Path
 
 from ergostat.bench import form as fm
@@ -13,22 +14,27 @@ rb = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(rb)
 
 
+def rec_of(c, hours: float = 6.0):
+    since = (time.time() // 60) * 60 - hours * 3600
+    return tt.simulate(c, since, hours), since, since + hours * 3600
+
+
 def test_the_stand_in_run_finds_each_repair_and_scores_the_harness(tmp_path):
     every = rb.cases()
     assert len(every) >= 6
     for c, v in every:                                  # each cut takes away exactly what the case expects back
-        truth = c.spec()
-        assert rb.found(truth, v["expect"], truth.stocks), c.id
-        assert not rb.found(tt.spec_of(fm.render({**rb.cut(c, v), "description": None})), v["expect"], truth.stocks), c.id
+        truth, rec = c.spec(), rec_of(c)
+        assert rb.found(truth, v["expect"], truth.stocks, rec), c.id
+        assert not rb.found(tt.spec_of(fm.render({**rb.cut(c, v), "description": None})), v["expect"], truth.stocks, rec), c.id
     rows = rb.bench(use_stand_in=True, work=tmp_path, hours=6.0, label="test")
     assert [r["case"] for r in rows] == [c.id for c, _ in every]
     for r in rows:
-        assert r["found"] and r["compiles"], r
+        assert r["found"] and r["compiles"] and r["extra_parts"] == 0, r
         assert r["cost"]["usd"] == 0.0 and r["model"] == "stand-in" and r["label"] == "test"
         assert r["fit_before"] is not None and r["fit_truth"] is not None
     assert sum(r["fit_improved"] for r in rows) >= 5
     said = rb.table(rows)
-    assert "| capacity | yes | yes |" in said and f"found {len(rows)}/{len(rows)}" in said
+    assert "| capacity | yes | 0 | yes |" in said and f"found {len(rows)}/{len(rows)}" in said
 
 
 def test_a_structural_match_follows_renames_and_ignores_names():
@@ -37,11 +43,27 @@ def test_a_structural_match_follows_renames_and_ignores_names():
     text = text.replace("stock.b", "stock.checked").replace("from: b", "from: checked").replace("to: b", "to: checked")
     text = text.replace("  rework:\n", "  sent-back:\n")
     renamed = tt.spec_of(text)
-    truth = c.spec().stocks
+    truth, rec = c.spec().stocks, rec_of(c)
     assert "checked" in renamed.stocks and "sent-back" in renamed.flows
-    assert rb.found(renamed, {"flow": ["b", "a"]}, truth)            # the rework loop, under other names
-    assert not rb.found(renamed, {"flow": ["a", "b"]}, {"x": 1})  # a stock it cannot follow is new, never a match
-    assert rb.found(renamed, {"flow": ["b", None]}, truth) and not rb.found(renamed, {"limit": "b"}, truth)
+    assert rb.found(renamed, {"flow": ["b", "a"]}, truth, rec)       # the rework loop, under other names
+    assert not rb.found(renamed, {"flow": ["a", "b"]}, {"x": 1}, rec)  # a stock it cannot follow is new, never a match
+    assert rb.found(renamed, {"flow": ["b", None]}, truth, rec) and not rb.found(renamed, {"limit": "b"}, truth, rec)
+
+
+def test_a_match_must_work_on_the_record_not_only_be_drawn():
+    every = dict((c.id, (c, v)) for c, v in rb.cases())
+
+    def judged(case, old, new):
+        c, v = every[case]
+        assert old in c.text(), old
+        return rb.found(tt.spec_of(c.text().replace(old, new)), v["expect"], c.spec().stocks, rec_of(c))
+    assert not judged("capacity", "MIN(pick-per-waiting * stock.waiting, capacity)",
+                      "MIN(pick-per-waiting * stock.waiting, 1000000000)")      # a limit that never binds
+    assert not judged("goal", "driven-by: [-stock.i]\n    equation: orders-base - orders-per-i * stock.i",
+                      "driven-by: [+stock.i]\n    equation: orders-base + orders-per-i * stock.i")   # it widens the gap
+    assert not judged("rework", "equation: rework-per-b * stock.b", "equation: 0 * stock.b")   # a flow of nothing
+    assert not judged("delay", "driven-by: [+flow.a-leaves]\n    equation: \"DELAY3(flow.a-leaves",
+                      "driven-by: [+flow.a-in]\n    equation: \"DELAY3(flow.a-in")    # a delay of another path
 
 
 def test_the_cap_stops_new_cases_and_rows_are_appended(tmp_path, monkeypatch):
