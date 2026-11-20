@@ -133,8 +133,12 @@ def cmd_run(args) -> int:
     remote_refresh.start(lambda: p)                     # remotes' models kept current: a new version reloads (SPEC §4c)
     started.set()
     from ..goodmodel import keep
-    _kept = lambda: (why := keep(p)) and print(f"the last good model could not be kept ({why})", flush=True)  # noqa: E731
-    _kept()                                             # for the command line while the files have errors (SPEC §9.1)
+
+    def _kept() -> None:                                # for the command line while the files have errors (SPEC §9.1)
+        why = keep(p)
+        if why:
+            print(f"the last good model could not be kept ({why})", flush=True)
+    _kept()
     rl.write_state(p.dir, None)
     name = mdl.file_name(p.model)
     reload = False
