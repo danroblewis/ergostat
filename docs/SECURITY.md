@@ -6,12 +6,12 @@ works before you approve it, or a script that came with a library someone shared
 loop (`use: repair`, SPEC §12r) runs every fix it tests in it, on a throwaway copy of a clone with its own `.git`; its AI
 has no tools at all and reads only the files ergostat gives it. Libraries do not use it yet (`docs/GAPS.md`).
 
-**What a repair does not stop.** A fix you (or the AI approver) approve is merged into your repository and then runs
+**What a repair does not stop.** A fix you approve is merged into your repository and then runs
 as the program it replaced did, with your rights and outside any sandbox. The sandbox only makes testing it safe before
 you decide, and only within limits: a fix can tell it is in a sandbox (its home folder is unreadable, it has no DNS),
-so a fix that behaves only when sandboxed passes. Read the diff; keep `approver: person` until the loop has earned your
-trust. With `approver: ai`, ergostat sends to you, without asking the AI, every fix that adds an import, a process,
-the network, the environment, a file written or a URL or path, that changes more than 40 lines, or that is not Python.
+so a fix that behaves only when sandboxed passes. Read the diff before you approve: every notification of a repair
+says so. No AI approves a repair yet: a guard that blocks a list of dangerous calls was tried and bypassed, and a sound
+one (an allowlist) is not built.
 
 ## What it stops
 

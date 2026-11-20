@@ -309,7 +309,8 @@ def action_kind() -> ItemKind:
     on = {f"{ACTION}.{s}": s for s in ACTION_STATES}
     return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "command", "exit"], {},
                     None, "a gated action an AI session or a program asked for: approved by its gate (auto) or the owner, or denied; "
-                    "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"})
+                    "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"},
+                    final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)
 
 
 MODEL_REQUEST = "ergostat.model-request"   # the built-in item kind: a class of intervention to model away (SPEC §12p)
@@ -781,6 +782,7 @@ class ItemKind:
     relations: dict[str, Relation] = field(default_factory=dict)   # field → its relation to other items (SPEC §5a)
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
+    final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
 
     def matches(self, id: str) -> bool:
         import fnmatch
