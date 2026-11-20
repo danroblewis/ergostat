@@ -163,7 +163,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
   rate stated (a change no better passes at most 5% of the time, however often looked at); an undecided change says
   about how much more record it needs and stays under test up to seven times the record it needs (a day at least); a
   change whose replay is the same as the model's waits for record in which it moves, rather than three hold-outs.
-  Measured after (20 records each, a week of record): no worse change passed (0 of 60), one better change failed in
+  Measured after (20 records each, a week of record): no worse change passed (0 of 60), 3 better changes failed in
   80, a drain twice off decided within a week, most changes a fifth off still undecided after one. *Left*: on a
   record as slow as the information allows (a fifth off a day-long drain) most changes still need more
   than a week; a change that cannot move the replay (structure, wiring, descriptions) should be judged by structural

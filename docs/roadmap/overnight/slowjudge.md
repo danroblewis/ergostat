@@ -49,8 +49,9 @@ edits elsewhere: the GAPS entry's other two parts, left open.
 
 ## Where it stopped
 
-Done, all four suites green (unit 1804 passed; the four browser files 218 passed, none skipped; ruff on `ergostat`
-and `tests`: the 14 errors `ruff check` reports are in example scripts and on main as well). 112 net lines of code.
+Done, all four suites green after the gate review's round (unit 1809 passed; the four browser files 218 passed, none
+skipped; ruff on `ergostat` and `tests`: the 14 errors `ruff check` reports are in example scripts and on main as
+well). 153 net lines of code. The table is after that round.
 
 Measured: the synthetic world (the acceptance tests' `slow_world`; a week of record after each change, the judge
 every hour, 20 seeds each), and the fast bench (`ergostat bench judge --seeds 10`, 120 trials, judged at 2, 4 and
@@ -62,16 +63,58 @@ every hour, 20 seeds each), and the fast bench (`ergostat bench judge --seeds 10
 | queue, k 0.06 → 0.05 (better by a fifth) | 9 / **11** / 0, 24 h | 5 / 0 / 15 undecided after a week, 72 h |
 | queue, k 0.05 → 0.06 (worse by a fifth) | **6** / 14 / 0, 24 h | 0 / 5 / 15 undecided, 72 h |
 | queue, k 0.05 → 0.0501 (no difference) | 0 / 0 / 20 inconclusive | 0 / 0 / 20 inconclusive |
-| a few items (~2), k 0.15 → 0.1 (better) | 6 / **14** / 0, 14 h | 3 / 0 / 17 inconclusive, 42 h |
+| a few items (~2), k 0.15 → 0.1 (better) | 6 / **14** / 0, 14 h | 3 / **1** / 16 inconclusive, 42 h |
 | a few items, k 0.1 → 0.15 (worse) | **3** / 17 / 0, 21 h | 0 / 2 / 18 inconclusive, 60 h |
-| a few items, hourly readings, better | 6 / **14** / 0, 14 h | 3 / **1** / 16 inconclusive, 42 h |
+| a few items, hourly readings, better | 6 / **14** / 0, 14 h | 3 / **2** / 15 inconclusive, 42 h |
 | a few items, hourly readings, worse | **3** / 17 / 0, 40 h | 0 / 1 / 19 inconclusive, 100 h |
 | fast bench (120 trials) | 0 false accepts, 0 false rejects, 70 decided, median 2 h | 0, 0, 50 decided, median 2 h |
 
 Before, the judge decided almost everything on the slow world, and wrongly about a third of the time (false passes
-15-30%). Now it never passed a worse change (0 of 60) and failed one better change in 80 (the stated 5% each way);
+15-30%). Now it never passed a worse change (0 of 60) and failed 3 better changes in 80 (about the stated 5% each way);
 a change twice off is decided within a week, a change a fifth off mostly needs more than a week of this record
 (stated as "needs about N more record"). The information is the limit: a day-long drain read every 15 minutes
 holds about one independent draw a day.
 
 Left: judging changes that cannot move the replay by structural measures; carrying a change over edits elsewhere.
+
+### After the gate review (merge after fixes)
+
+- **B1, what only accumulates.** A stock with no time constant keeps whatever it gets wrong, so once its noise drifts
+  it is also taken as a walk (its steps from the record's successive differences, covariance min(i, j)), and the
+  larger variance counts. The reviewer's probe passed 17% and failed 20% of equally good changes on a walk; through
+  the judge's own path it now passes and fails 0.07% (1,500 records, looked at seven times each).
+- **B2, the guarantee as it holds.** Stocks' standard errors add (correlated stocks are not taken as independent);
+  the fail side's tests (near it, the rest, each goal's stock) share ALPHA (Bonferroni); the bound is two-sided at
+  2·ALPHA by Ville, each way about ALPHA by symmetry; it is called a plug-in, asymptotic confidence sequence, valid
+  under stationary AR(1) noise (or a walk). Measured on equally good changes, 1,500 records each, seven looks:
+
+  | noise | passed | failed |
+  |---|---|---|
+  | AR(1), 0.97 a reading | 4.7% | 5.0% |
+  | AR(1), far slower than the record, the model's time constant a quarter of the noise's | 3.1% | 3.9% |
+  | a walk (no time constant) | 0.07% | 0.07% |
+  | two stocks sharing their noise | 4.8% | 4.8% |
+  | both replays wrong, mirrored | 4.3% | 5.8% |
+
+  (`tests/test_slowjudge.py::test_the_bound_holds_its_error_rate_however_often_it_is_looked_at`, 300 records a
+  case, allows ALPHA plus two standard errors of the trials.)
+- **The noise's time scale** is now the time constant of whichever replay fits the record better (it was the slower
+  of the two, which let a change that slows a part set it).
+- **B3, the 20 fast-bench trials that stopped deciding** (`ergostat bench judge --seeds 10`, verdicts at 2, 4 and 6
+  hours; main against this branch, trial by trial). They are **not** neutral or only slowed, as said before the review:
+  they are the delay family's worse and slowed changes, which main failed and this branch leaves under test after six
+  hours. None is written either way; no trial's written outcome changed, and no worse change passed.
+
+  | world / family / kind | seeds | main | branch |
+  |---|---|---|---|
+  | judge-delay / delay / worse (DELAY3 eight times too long) | 1-10 | failed | testing at 6 h |
+  | judge-delay / delay / slowed (DELAY3 two hundred times too long) | 1-10 | failed | testing at 6 h |
+
+  Why: both replays are far off (the model as it is has no delay at all), and the better one's bias counts as noise
+  (its second moment, not its variance), so the bound stays wide; taking the bias out failed the error-rate tests
+  (9% to 18% false passes). Left: a noise estimate that separates a replay's bias from the record's noise.
+- **Also:** a change whose record stopped is inconclusive once its horizon has passed (it waited for ever); "needs
+  about N more record" counts the mixture's log factor; looks are due a second early.
+- **The definition above says otherwise in two places,** and is not edited (gate 1): an undecided change within the
+  threshold both ways is inconclusive after three times the record it needs, not at once; and the noise is the
+  replay's own about the better replay, AR(1), not batch means (tried first: a drifting effect was read as noise).
