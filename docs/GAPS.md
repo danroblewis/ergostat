@@ -27,8 +27,16 @@ review into *Done recently*). Newest decisions from the owner first within each 
     written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
     not served); a remote's measures on its closed box (`show:` of the remote's systems); mutual TLS.
-- **Shared libraries** (open): templates and reference models shared between projects and people, by git URL
-  or package, with versions, bringing their own scripts. For people modelling their own real systems.
+- **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
+  and reference models shared between projects and people, by git URL or package, with versions, bringing their own
+  scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
+  untrusted library's scripts can now run in the allowlist sandbox, with no reads of the owner's files and network
+  only to hosts the owner lists. *Still needed:* the trust gate rebuilt on **provenance** (a value counts as the
+  owner's only if it arrived by substitution of a `type: command` parameter, the marks kept through nested uses;
+  equality to an owner's literal is not enough); the refusal not telling agents to copy commands into `with:`; a
+  library's `example:` and `reading:` marked untrusted wherever an agent reads them; `ask:`, `query`/`source` gated and
+  a minimum `every` for untrusted libraries; `fetch` refusing a lock entry without a tree, symlinks hashed explicitly;
+  then running untrusted library scripts through `ergostat.sandbox` and the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
@@ -43,6 +51,30 @@ review into *Done recently*). Newest decisions from the owner first within each 
   declared and tested against the record), the HPA's multiplicative rule as its own family, the risk sampling the law's
   numbers, a closed-loop identification free of the bias (an instrument, or the delay told apart), and a run against the
   kube sim.
+
+## Running code ergostat does not trust
+
+- **An allowlist sandbox** (done on `sandbox`, SPEC §12q, `docs/SECURITY.md`): `ergostat/sandbox/`, reads only the
+  copy, the toolchain and declared paths; writes only the copy (not `.git`) and a private temporary folder; network
+  only through a filtering proxy (listed hosts, SNI checked, methods for plain HTTP, every connection logged), no DNS;
+  every process killed at the end; no markers in the environment; git run by ergostat with its dangerous settings off
+  and the copy's pointers verified. The attack suite (`tests/test_sandbox_attacks.py`) blocks every finding of the
+  repair and libraries reviews, and the branch's own review (pid hopping, a ClientHello split across records, wide
+  toolchain reads, the process table). *Left*: on macOS another process's argv and environment stay readable
+  (`kern.procargs2` is not mediated by the sandbox for the same user; closing it needs a uid per run, an
+  administrator's setup), recorded as a strict expected failure; the suite has run on macOS only (Linux's bwrap
+  command is tested, not run); no CPU, memory or disk limit beyond the time limit and `RLIMIT_NPROC`; neither caller
+  uses it yet.
+- **Repair** (parked on `repair`, `docs/roadmap/overnight/repair.md`, *Where it stopped*): a failing program caught,
+  fixed by an AI agent, tested, approved and verified. **Unblocked on the sandbox side**: X1 (git running the fixer's
+  config) and X2 (the jail a deny list, its network open), M2 (a fix telling it is under test) and M3 (processes
+  outliving the jail) are answered by `ergostat.sandbox`. *Still needed:* adopt the module (replace `jail.py` with
+  `sandbox.run`, every git call in `steps.py` through `sandbox.git.Repo`, the fixer's workspace without write access to
+  git metadata, the test output scrubbed like the rest); M1 (failure fields spoofed through a sensor's observation
+  lines and the legacy `Recorder`); M4 (the fixer's regression test runs first and stays in the repository); M5 (the
+  swallowed-errors check is easy to evade); M6 (a `read-only: true` re-run can still POST: list its hosts GET-only);
+  M7 (the daily cap fails open and overshoots); M8 (apply races between its checks and `--ff-only`); then the rebase
+  onto main, its SPEC section after §12q, and the inbox integration.
 
 ## Modelling
 
