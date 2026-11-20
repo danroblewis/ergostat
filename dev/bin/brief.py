@@ -1,6 +1,7 @@
 """The briefs: what an implementor's or a reviewer's session is given, assembled from a template in dev/prompts/ and
 the gap (its definition, its GAPS entry, the guides it names, the findings of its earlier reviews, the diff for a
-reviewer), and the record of what went in, so the model can learn which context drives first-pass yield.
+reviewer), the factory's knowledge (knowledge.py: the rules, the lessons, decisions, related gaps, past findings, the
+module map, within a budget), and the record of what went in, so the model can learn which context drives first-pass yield.
 
 A reviewer is never given the implementor's reasoning: no session text, no transcript, only the work itself."""
 
@@ -10,6 +11,7 @@ import re
 from pathlib import Path
 
 import fac
+import knowledge
 
 ALWAYS = {"implementor": ["CLAUDE.md", "NOTES.md"], "reviewer": ["CLAUDE.md", "NOTES.md"]}
 DOC = re.compile(r"\b((?:docs|examples|scripts|tests|ergostat)/[\w./-]+\.(?:md|py|yaml))\b")
@@ -65,20 +67,22 @@ def assemble(cfg: dict, role: str, gap: dict, worktree: Path, **extra) -> tuple[
                                                                   fac.branch_of(gap))
     entry = gaps_entry(cfg, f.get("title", ""))
     named = sorted({m for m in DOC.findall(definition + "\n" + entry) if (worktree / m).exists()})
-    guides = ALWAYS[role] + [g for g in named if g not in ALWAYS[role]]
+    always = ALWAYS.get(role, ["CLAUDE.md"])
+    guides = always + [g for g in named if g not in always]
+    know, carried = knowledge.block(cfg, role, gap, f"{definition}\n{entry}\n{extra.get('diff', '')}")
     findings = list(f.get("findings") or [])
     values = {
         "gap": gap["id"], "title": f.get("title", gap["id"]), "branch": fac.git_branch(fac.branch_of(gap)), "worktree": "/work",
         "base": cfg["git"]["base"], "definition": definition.strip(), "gaps_entry": entry or "(not in GAPS.md)",
         "guides": "\n".join(f"- {g}" for g in guides), "findings": findings_text(findings),
         "definition_path": f"{fac.DEFS}/{fac.branch_of(gap)}.md", "budget": str(fac.budget_of(definition)),
-        "round": str(int(f.get("rounds") or 0) + 1), **{k: str(v) for k, v in extra.items()},
+        "round": str(int(f.get("rounds") or 0) + 1), "knowledge": know, **{k: str(v) for k, v in extra.items()},
     }
     text = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), template.read_text())
     context = {"role": role, "template": f"dev/prompts/{role}.md", "guides": guides, "files": named,
                "findings": len(findings), "definition_chars": len(definition), "gaps_entry": bool(entry),
                "brief_chars": len(text), "brief_tokens": len(text) // 4,
-               "diff_chars": len(extra.get("diff", "")), "model": cfg["ai"][f"{role}_model"]}
+               "diff_chars": len(extra.get("diff", "")), "model": cfg["ai"][f"{role}_model"], **carried}
     return text, context
 
 

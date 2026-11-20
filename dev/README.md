@@ -98,6 +98,23 @@ Then: the implementor commits the definition first and builds; the reviewer appr
 findings) or parks it; the second failed gate parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.
 
+## Plans, research and what the factory knows
+
+A gap with no definition is **planned** (`dev/bin/plan.py`), once you open planning
+(`ergostat sensor planning-open.main --read 1`): the planner reads the code, docs and knowledge in a read-only clone of
+main and writes its definition of done to `run/plans/<branch>.md` (acceptance tests, a budget, the review lessons that
+apply as risks, the files to touch); a gap too large for one branch becomes sub-gaps with `depends-on` among them, the
+gap waiting in `split` until each is merged. A short plan review (the plan and the lessons only) approves it into
+`run/defs/` (the gap is ready) or sends it back; a second failure parks it. A definition you write yourself skips all
+of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
+
+```sh
+python3 dev/bin/status.py                                   # one screen: in flight, blocked, failed, queue, spend
+python3 dev/bin/request.py "My change" --depends-on other-gap [--definition my-def.md]
+python3 dev/bin/ask.py "How does the queue decide a flake?"  # answered in run/research/, summary on the item
+python3 dev/bin/lesson.py add "Title" --check "the check"   # or: retire N "why"; proposals wait in the inbox
+```
+
 ## The pools: one at a time, raised on good results
 
 One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 4 and 2, in

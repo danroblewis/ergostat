@@ -101,7 +101,8 @@ def main() -> int:
             continue
         where = definition(cfg, g)
         if where:
-            fac.say("gap.defined", g["id"], definition=where, ready_at=now, branch=fac.branch_of(g))
+            fac.say("gap.defined", g["id"], definition=where, ready_at=now, branch=fac.branch_of(g),
+                    defined_by="coordinator")
             g["fields"]["definition"] = where
             defined += 1
     linked = dependencies(cfg, known, text)
