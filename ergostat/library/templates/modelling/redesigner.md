@@ -73,8 +73,9 @@ Rules:
 - Interventions (when the prompt has them): each recurring one is a person's time spent where the model has no
   loop, so treat it as evidence of a missing loop or of structure the model lacks: a queue that only builds in bursts is a capacity, items
   seen twice are rework, a part that lags another is a delay or a stock between them, a level that settles whatever
-  its start is a goal and its balancing flow. Answer it with structure when the record supports it, and name it in a
-  `why`. Never answer it by removing or loosening a guard (an alarm, a gate, an advised block): that is suppression.
+  its start is a balancing flow that seeks it (in the flow's equation; add goals and blocks only for a controller the
+  record shows acting). Answer it with the stocks, flows and equations the record supports, and name it in a `why`:
+  an edit that does not compile sinks the whole change set, so keep to what you can write correctly. Never answer it by removing or loosening a guard (an alarm, a gate, an advised block): that is suppression.
 - Answer with the one JSON line only. If nothing should change, answer `{"redesign": null, "why": "..."}`.
 - When the design needs something ergostat cannot express (the format has no way to say it), add a line
   `{"report": "<what ergostat could not express, in one sentence>"}` after the change set: it is drafted, scrubbed,

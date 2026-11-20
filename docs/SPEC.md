@@ -3542,8 +3542,9 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   owner dismissed with a reason; at most 6, 3,000 characters together, 600 each; and *interventions: evidence of
   missing loops* (§12p), by class over the interventions loop's window, the most hours blocked first: how many, their
   causes, how they were answered, the notes given with the answers (`inbox --note`, a person's report, a dismissal's
-  reason), and the class's request from `ergostat inbox --requests` with its state, remedies and the note it was worked
-  on with; a class is the system's when its block, or a part its cause names, is in it; at most 8, 2,500 characters.
+  reason), and the class's request from `ergostat inbox --requests` with its state and the note it was worked
+  on with (not its remedies: generic, they led haiku to add a goal and a controller for
+  every class, and its change sets stopped compiling; `docs/redesign-bench.md`); a class is the system's when its block, or a part its cause names, is in it; at most 8, 2,500 characters.
   The guide says never to propose again what was dismissed or judged not better unless the record now answers the
   reason given, and to read each recurring intervention as a loop the model lacks.
 - **The benchmark** (`scripts/redesign_bench.py`, `docs/redesign-bench.md`): models of known structure
