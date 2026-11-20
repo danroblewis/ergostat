@@ -16,6 +16,9 @@ a missing loop, a block that moves nothing).
 | proposed | ``.proposed`` | a change citing it (its finding as evidence) waits for the judge or the owner |
 | held | ``.held`` | no tier enabled can answer it, or its change was turned away: it waits for the owner, the ai tier, or more record |
 | answered | ``.answered`` | check no longer finds it (a change written, or anything else) |
+| dismissed | ``.dismissed`` | the owner denied it from the inbox, with why: not raised again until its part changes |
+
+A held request approved from the inbox is ``.reopened`` (open again, for the tiers: the modelling loop has it back).
 
 ``sync`` is the request collector: run by the modelling template's sensor on ``open-requests``, it raises what is
 new, answers what has gone, and moves each to where its changes say it is. The record is the only store."""
@@ -40,6 +43,10 @@ NOT_MODELLING = {              # said by check, but no change to the model answe
 OPEN = ("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
 ENDED = ("refused", "failed", "dismissed", "inconclusive")
+
+
+class RequestError(ValueError):
+    pass
 
 
 def rid(source: str, code: str, about: str) -> str:
@@ -156,7 +163,9 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
     moved = {"raised": 0, "answered": 0, "proposed": 0, "held": 0, "reopened": 0}
     for k, r in found.items():
         x = have.get(k)
-        if x is None or x["state"] == "answered":
+        if x is not None and x["state"] == "dismissed" and x.get("part") == ver.part(spec, r["about"]):
+            continue                                      # the owner dismissed it, and its part is as it was
+        if x is None or x["state"] in ("answered", "dismissed"):
             event(p, k, "raised" if x is None else "reopened",
                   {**{a: b for a, b in r.items() if a != "id"}, **({"raised": now} if x is None else {}), "since": now,
                    "version": v, "change": None, "why": None})
@@ -209,7 +218,24 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
         if x["state"] in OPEN and k not in found:
             event(p, k, "answered", {"answered": now, "why": "check no longer finds it"})
             moved["answered"] += 1
-    return {**moved, "open": sum(1 for k in found if (have.get(k) or {}).get("state") != "answered")}
+    return {**moved, "open": sum(1 for k in found if (have.get(k) or {}).get("state") not in ("answered", "dismissed"))}
+
+
+def answer(p, spec: Spec, x: str, yes: bool, note: str | None = None, by: str = "owner") -> str:
+    """The owner's answer to a held request (the inbox): approved, it is open again for the modelling loop (the ai
+    tier, or a change the owner writes); denied, it is dismissed with ``note``, until the part it is about changes."""
+    r = stored(p).get(x)
+    if r is None or r["state"] != "held":
+        raise RequestError(f"request {x} is not held (it is {r and r['state']})")
+    if yes:
+        event(p, x, "reopened", {"why": None, "change": None, "owner": False, "since": time.time(),
+                                 "version": ver.version(spec), "approved_by": by}, source=by)
+        return "approved: open again, for the modelling loop"
+    if not (note or "").strip():
+        raise RequestError("a dismissal says why: --note WHY")
+    event(p, x, "dismissed", {"note": note, "dismissed_by": by, "dismissed": time.time(),
+                              "part": ver.part(spec, r.get("about") or "model")}, source=by)
+    return f"dismissed: not raised again until {r.get('about') or 'the model'} changes"
 
 
 def waiting(p, states=("open",)) -> list[dict]:
@@ -231,7 +257,7 @@ def mark(p, x: dict, what: str, why: str, **more) -> None:
 
 
 def counts(p) -> dict[str, int]:
-    out = {s: 0 for s in ("open", "proposed", "held", "answered")}
+    out = {s: 0 for s in ("open", "proposed", "held", "answered", "dismissed")}
     for x in stored(p).values():
         out[x["state"]] = out.get(x["state"], 0) + 1
     return out

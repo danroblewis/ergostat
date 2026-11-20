@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import time
 
+from ..spec.ir import MODELLING_REQUEST
+
 WEEK, DAY = 7 * 86400.0, 86400.0
 PROMOTE = 5                         # approved this many times, none denied: suggested up the ladder
 BY_AGENT = "owner via mcp"          # who an answer given through the MCP is recorded as
@@ -58,6 +60,22 @@ def asked(p, spec, since: float, until: float) -> list[dict]:
     for item, (cls, t0) in made.items():
         if item.split("/", 1)[1] in waiting:
             one(cls, item, t0, None, None)
+    held: dict[str, float] = {}
+    code: dict[str, str] = {}
+    for e in p.events.query(n=None, type=f"{MODELLING_REQUEST}.*", until=until) if MODELLING_REQUEST in spec.items else []:
+        what, t0 = e["type"].rsplit(".", 1)[1], held.get(e["item"])
+        code.setdefault(e["item"], e["data"].get("code"))
+        if what == "held" and t0 is None:
+            held[e["item"]] = e["time"]              # held for a decision: asked of a person, in the inbox
+        elif t0 is not None and what != "held":      # answered: dismissed or approved by someone, or moved on by itself
+            mine = what == "dismissed" or bool(e["data"].get("approved_by"))
+            if t0 >= since:
+                one(f"request:{code[e['item']]}", e["item"], t0, e["time"], ("denied" if what == "dismissed" else
+                    "approved") if mine else "superseded", e["source"] if mine else None)
+            del held[e["item"]]
+    for item, t0 in held.items():
+        if t0 >= since:
+            one(f"request:{code[item]}", item, t0, None, None)
     return out
 
 
@@ -93,7 +111,7 @@ def suggest(cls: str, r: dict) -> str | None:
     """One line up the ladder for a class always approved by the owner; None for the rest (a person's own work, an
     alarm: their remedies are the interventions loop's)."""
     kind, _, name = cls.partition(":")
-    if r["approved"] < PROMOTE or r["denied"] or kind in ("person", "steptest", "alarm"):
+    if r["approved"] < PROMOTE or r["denied"] or kind in ("person", "steptest", "alarm", "request"):
         return None
     said = f"{r['approved']} approvals of {cls} this week, all approved: consider "
     if kind == "advise":
