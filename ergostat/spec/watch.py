@@ -171,6 +171,12 @@ def find(project, spec: Spec, window: float = WINDOW, now: float | None = None) 
                     f"{human(b)} before: its loop is answering more slowly", g.where, f"goal.{g.name}")
     repeated(project, say)
     exercised(project, spec, now, say)
+    from ..numbers.external import findings as external
+    try:
+        external(project, spec, now, say)              # an existing controller unidentified, or not run ahead (§12d)
+    except Exception:                                  # a record that cannot be read says nothing here, and is logged
+        import logging
+        logging.getLogger("ergostat").exception("identifying the external blocks' laws failed")
     return out
 
 
