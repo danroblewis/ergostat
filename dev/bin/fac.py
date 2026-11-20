@@ -159,6 +159,13 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     return r.stdout.strip()
 
 
+def conflicted(repo: Path) -> list[str]:
+    """The files a merge left in conflict, read NUL-separated so a path with a space (or one at its ends) stays whole."""
+    r = subprocess.run(["git", "-C", str(repo), "diff", "-z", "--name-only", "--diff-filter=U"], capture_output=True,
+                       text=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, timeout=600)
+    return [p for p in r.stdout.split("\0") if p]
+
+
 def git_ok(repo: Path, *args: str) -> bool:
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=600).returncode == 0
 
@@ -454,7 +461,7 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
         if (cwd / ".git" / "MERGE_HEAD").exists() and os.environ.get("FACTORY_STANDIN_MERGE") == "abort":
             git(cwd, "merge", "--abort")                     # (a session walking away from it: refused after)
         elif (cwd / ".git" / "MERGE_HEAD").exists():         # a merge handed over: main's side of each conflict
-            git(cwd, "checkout", "--theirs", "--", *git(cwd, "diff", "--name-only", "--diff-filter=U").split())
+            git(cwd, "checkout", "--theirs", "--", *conflicted(cwd))
             git(cwd, "add", "-A")
             git(cwd, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "--no-edit")
         note = cwd / "standin" / f"{cwd.name}.txt"

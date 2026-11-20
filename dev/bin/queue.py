@@ -172,7 +172,7 @@ def main() -> int:
         try:
             msg = f"Merge branch '{fac.git_branch(branch)}'\n\n{fac.TRAILER}"
             if not fac.git_ok(repo, "merge", "-q", "--no-ff", sha, "-m", msg):
-                files = fac.git(repo, "diff", "--name-only", "--diff-filter=U", check=False).split()
+                files = fac.conflicted(repo)
                 fac.git(repo, "merge", "--abort", check=False)
                 findings = [f"conflicts with {base}: {' '.join(files)}"]
                 if int(f.get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):          # a conflict is a failed gate too

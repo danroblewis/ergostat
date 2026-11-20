@@ -105,7 +105,9 @@ in itself: a clean merge is committed by the factory; a conflicted one is handed
 brief (it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in
 it (say, the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast
 suites run after. The reviewer's gate 1 takes the branch's own first commit (its first-parent line) as the definition,
-and for a continued branch also requires its merge base to be current main. Its reviews are numbered past the
+and for a continued branch also requires it to hold the main implement.py merged at its build (`built_main` on
+`gap.built`; current main when that is missing). Main moving on between build and review is not a failed gate: the
+merge queue merges the branch into the main of its moment and runs the suites again. Its reviews are numbered past the
 branch's earlier ones (`review/NAME-3` after a parked gap's `-1` and `-2`), and run logs are named by when they ran.
 
 **Dependencies.** A gap waits on others named by `depends-on: [name, ...]` in its definition (the template is
