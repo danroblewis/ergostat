@@ -120,6 +120,18 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
     return to, None
 
 
+def refused_expiries(events, spec, evs: list[dict]) -> set[str]:
+    """Of these events, the ``expired`` ones the fold refused (the lease renewed after the watchdog judged it, written
+    in the moment between its last look and its write): not expiries, for whatever reads the record raw (the
+    workspaces, the measures, the estimates). Each item with one is folded once."""
+    from ..spec import items as its
+    out: set[str] = set()
+    for item in sorted({e.get("item") for e in evs if e["type"] == EXPIRED and e.get("item")}):
+        it = its.one(events, spec, item)
+        out.update(r["event"] for r in (it.refused if it else []) if r.get("type") == EXPIRED)
+    return out
+
+
 def fenced(it, e: dict) -> str | None:
     """Why an event about the item is refused by fencing: it was caused by a run whose lease on it has ended."""
     run = e.get("causedby")

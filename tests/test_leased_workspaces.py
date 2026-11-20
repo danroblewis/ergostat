@@ -221,3 +221,46 @@ def test_a_lease_that_expires_while_its_run_goes_on_fences_its_workspace(tmp_pat
     wl.sweep(p, spec)
     assert slot(p)["state"] == "in-use" and slot(p)["lease"] == 2, "an older lease's end changes nothing"
     assert b.takes.kind == "ticket"
+
+
+def test_an_expiry_refused_in_the_moment_before_its_write_releases_nothing_and_counts_nowhere(tmp_path, monkeypatch):
+    """The watchdog reads the lease again before it writes an expiry; a renewal recorded in the moment between that
+    read and the write makes the expiry refused by the fold, and whatever reads expiries raw leaves it out: the
+    workspace is kept, no measure counts it, the estimates see the run going on."""
+    from ergostat.leases import RENEWED, measures
+    from ergostat.numbers import etamodel
+    make_repo(tmp_path / "product")
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    p = Project(mdl.load(tmp_path))
+    spec = p.model.spec
+    p.events.add("ticket.opened", item="ticket/2", source="watch", data={"title": "Slow"})
+    e = Engine(p, say=lambda s: None)
+    run = "r" * 32
+    ev = p.events.add(TAKEN, item="ticket/2", source="ergostat", at=time.time() - 5,
+                      data={"item": "ticket/2", "run": run, "block": "dev", "fence": 1, "ttl": 1, "max": 3, "back": "open"})
+    p.events.add("agent.started", item="dev", source="ergostat", id=run, causedby=ev["id"], data={"item": "ticket/2"})
+    pl.acquire(p, spec, "code", "ticket/2", {"title": "Slow"}, run=run, lease=1)
+    killed = []
+    monkeypatch.setattr("ergostat.leases.dispatch.kill", lambda eng, r, *a: killed.append(r) or True)
+    add = p.events.add
+
+    def landing(type, **kw):                                 # the run's renewal lands just before the expiry is written
+        if type == EXPIRED:
+            add(RENEWED, item="ticket/2", source="dev", causedby=run, data={"run": run, "fence": 1, "seen": "asked"})
+        return add(type, **kw)
+    monkeypatch.setattr(p.events, "add", landing)
+    e.dispatch.watch(now=time.time() + 5, mono=100.0)               # (past what its workspace's acquiring renewed)
+    e.dispatch.watch(now=time.time() + 5, mono=101.0)
+    monkeypatch.setattr(p.events, "add", add)
+    exp = p.events.query(n=None, type=EXPIRED, item="ticket/2")
+    it = its.one(p.events, spec, "ticket/2")
+    assert exp and it.refused[-1]["event"] == exp[-1]["id"], "written, and refused by the fold"
+    assert it.fields["lease"]["holder"] == run and not killed, "still held, its run not killed"
+    wl.sweep(p, spec)
+    assert slot(p)["state"] == "in-use" and not slot(p).get("fenced"), "the workspace kept"
+    assert measures.counts(p, spec)["expired"] == 0 and not [a for a in measures.attention(p, spec) if a["what"] == "expired"]
+    inputs = etamodel.read(p, spec, ["ticket"], time.time())
+    est = inputs.items["ticket/2"]
+    assert est.lease is not None and est.attempts == 0, "the estimates see its run going on, no attempt counted"
+    assert all(a.how != "expired" for b in inputs.blocks for a in b.attempts)
+

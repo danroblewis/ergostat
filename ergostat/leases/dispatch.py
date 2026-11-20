@@ -20,7 +20,10 @@
   (renewed since, late, and overdue again: a first look again): a renewal the run
   asked for in time may still be on its way into the record (the engine busy, its socket's caller waiting for a
   thread), and a pass that comes late (a loaded machine, one that slept) must not judge on what it has not yet read.
-  The expiry names the ``expires`` it judged, so a renewal recorded between the look and the write wins (the fold)."""
+  Just before it writes the expiry, it reads the lease again from the record, and writes nothing when it was renewed
+  past the expiry it judged. The expiry names the ``expires`` it judged, so a renewal recorded in the moment between
+  that read and the write still wins (the fold refuses it); what reads expiries raw leaves those out
+  (``fold.refused_expiries``)."""
 
 from __future__ import annotations
 
@@ -34,18 +37,12 @@ from . import ENDED, EXPIRED, RENEWED, TAKEN
 from .fold import held
 from .kill import kill
 from .ready import Ready, unblocked
-from .terms import terms
+from .terms import grace, terms
 
 SOURCE = "ergostat"
 LOOK = 0.25           # seconds between looks at the record for something new, when no write wakes it (notify.py)
 EVERY = 1.0           # a look at every block's queue, and the watchdog's pass, at least this often
 GAP = 0.005           # seconds a look waits after a write wakes it, for the writes that come with it
-
-
-def grace(ttl: float) -> float:
-    """How long a lease found overdue waits for a second look before it expires: a tenth of its TTL, at least one
-    pass of the watchdog and at most half a minute."""
-    return max(EVERY, min(0.1 * ttl, 30.0))
 
 
 def moved_on(b, it) -> bool:
@@ -315,30 +312,46 @@ class Dispatcher:
         mono = time.monotonic() if mono is None else mono
         holding = False
         overdue: dict[tuple, float] = {}
+        looked: set[str] = set()
         self.stale = True                                 # (read once a pass: what it records is about the item it looks at)
-        for kind in self.kinds():
-            for it in self.items_of(kind)[0]:
-                lease = held(it.fields)
-                holding = holding or lease is not None
-                if not lease or now <= float(lease.get("expires") or 0):
-                    continue
-                ttl = float(lease.get("ttl") or 0)
-                seen = self.activity(it.id, lease)
-                if seen is not None and seen > now - ttl:
-                    self.p.events.add(RENEWED, item=it.id, source=SOURCE, at=seen,
-                                      data={"run": lease["holder"], "fence": lease["fence"], "seen": "activity"})
-                    continue
-                key = (it.id, lease["fence"], lease.get("expires"))     # (renewed since: a first look again)
-                first = overdue[key] = self.overdue.get(key, mono)
-                if mono - first < grace(ttl):              # (a renewal asked in time may not be recorded yet)
-                    continue
-                self.expire(it, lease, now, ttl)
-        self.overdue = overdue
+        try:
+            for kind in self.kinds():
+                for it in self.items_of(kind)[0]:
+                    lease = held(it.fields)
+                    holding = holding or lease is not None
+                    looked.add(it.id)
+                    if not lease or now <= float(lease.get("expires") or 0):
+                        continue
+                    try:
+                        self.look(it, lease, now, mono, overdue)
+                    except Exception as e:                 # (one item's trouble stops no other's look)
+                        self.e.say(f"leases: the lease on {it.id}: {type(e).__name__}: {e}")
+        finally:                                           # (the first looks kept, of the items not reached too)
+            self.overdue = {**{k: v for k, v in self.overdue.items() if k[0] not in looked}, **overdue}
         self.holding = holding
+
+    def look(self, it, lease: dict, now: float, mono: float, overdue: dict) -> None:
+        """A held lease past its expiry: renewed by what its holder was seen to do since; else, a grace after the first
+        look at this expiry, expired."""
+        ttl = float(lease.get("ttl") or 0)
+        seen = self.activity(it.id, lease)
+        if seen is not None and seen > now - ttl:
+            self.p.events.add(RENEWED, item=it.id, source=SOURCE, at=seen,
+                              data={"run": lease["holder"], "fence": lease["fence"], "seen": "activity"})
+            return
+        key = (it.id, lease["fence"], lease.get("expires"))     # (renewed since: a first look again)
+        first = overdue[key] = self.overdue.get(key, mono)
+        if mono - first >= grace(ttl):                     # (a renewal asked in time may not be recorded yet)
+            self.expire(it, lease, now, ttl)
 
     def expire(self, it, lease: dict, now: float, ttl: float) -> None:
         """The lease expires, unless the fold refuses it (renewed since it was judged): then nothing else is done. Its
         run, when this engine started it, is killed."""
+        fresh = its.one(self.p.events, self.spec, it.id)              # (the record now, not the look's index)
+        now_held = held(fresh.fields) if fresh else None
+        if (not now_held or now_held.get("fence") != lease["fence"]
+                or float(now_held.get("expires") or 0) > float(lease.get("expires") or 0)):
+            return                                                    # renewed, or ended, since the look: nothing written
         silent = now - float(lease.get("renewed") or lease.get("taken") or now)
         ev = self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
                                data={"run": lease["holder"], "fence": lease["fence"], "block": lease.get("block"),

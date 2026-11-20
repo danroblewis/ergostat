@@ -2058,7 +2058,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 | `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
 | `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
-| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `item`, `state`, `terminal` | back to `back`, the attempt counted; refused when the lease was renewed after that `expires` was judged (it expires later now) |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `item`, `state`, `terminal` | back to `back`, the attempt counted; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
@@ -2145,7 +2145,8 @@ watches them; `ergostat lease` lists who holds what.
 
 **Stalls, as a watchdog loop.** The built-in measures `ergostat.leases.held` (leases held now),
 `ergostat.leases.expired` (expiries over the last day), `ergostat.leases.dead` (dead letters now) and
-`ergostat.leases.overdue` (held past their expiry, not yet expired: 0 while the watchdog keeps up, but for the grace below),
+`ergostat.leases.overdue` (held past their expiry, not yet expired: non-zero during the watchdog's grace below even
+when it keeps up, so a goal on stalls holds `expired`, not `overdue`),
 each narrowed by `@KIND` or `@BLOCK`, are read by a sensor (`builtin:`), so a goal can hold them:
 
 ```yaml

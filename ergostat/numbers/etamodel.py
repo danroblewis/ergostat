@@ -215,10 +215,14 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
 
 def _leases(p, spec, out: Inputs, since: float) -> None:
     """Each block's attempts and its run-time curve; each open item's lease, attempts and put-off."""
+    from ..leases.fold import refused_expiries
     from ..leases.terms import terms
     evs = p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at)
+    void = refused_expiries(p.events, spec, evs)          # (renewed after it was judged: the run went on)
     runs: dict[str, dict] = {}
     for e in evs:
+        if e["id"] in void:
+            continue
         d = e.get("data") or {}
         r = d.get("run")
         if e["type"].endswith("taken"):

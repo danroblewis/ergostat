@@ -33,3 +33,9 @@ def terms(spec: Spec, b: Block) -> dict:
     if tier == "program" and out["from"]["ttl"] == "default":
         out["ttl"] = max(out["ttl"], b.timeout)       # a program's own timeout: silent that long is allowed
     return out
+
+
+def grace(ttl: float) -> float:
+    """How long a lease found past its TTL waits for the watchdog's second look before it expires (``dispatch.py``): a
+    tenth of its TTL, at least one pass of the watchdog (a second) and at most half a minute."""
+    return max(1.0, min(0.1 * ttl, 30.0))
