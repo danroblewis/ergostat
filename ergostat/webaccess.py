@@ -59,6 +59,7 @@ class Web:
     team: str | None = None
     aud: str | None = None
     emails: set[str] = field(default_factory=set)
+    open: bool = False        # ``open: read``: the names are public and read only, with no login
 
     @property
     def issuer(self) -> str:
@@ -70,10 +71,10 @@ def parse(raw, problems: list[str]) -> Web:
     if raw is None:
         return out
     if not isinstance(raw, dict):
-        problems.append("web: a map (names:, access:)")
+        problems.append("web: a map (names:, access: or open: read)")
         return out
-    for k in set(raw) - {"names", "access"}:
-        problems.append(f"web: unknown key {k!r} (known: names, access)")
+    for k in set(raw) - {"names", "access", "open"}:
+        problems.append(f"web: unknown key {k!r} (known: names, access, open)")
     names = raw.get("names") or []
     for n in [names] if isinstance(names, str) else names if isinstance(names, list) else [names]:
         if isinstance(n, str) and NAME.match(n.lower()):
@@ -81,9 +82,15 @@ def parse(raw, problems: list[str]) -> Web:
         else:
             problems.append(f"web.names: {n!r} is not a host name (ergostat.example.org: no scheme, port or path)")
     acc = raw.get("access")
+    if raw.get("open") is not None:
+        out.open = raw["open"] == "read" and acc is None
+        if not out.open:
+            problems.append("web.open: read (the names public and read only, with no login), and never with access:")
+        return out
     if acc is None:
         if out.names:
-            problems.append("web.names: a public name needs web.access (team, aud, emails): nothing is served there without a login")
+            problems.append("web.names: a public name needs web.access (team, aud, emails), or open: read (public, read only, "
+                            "no login): nothing is served there otherwise")
         return out
     if not isinstance(acc, dict):
         problems.append("web.access: a map (team:, aud:, emails:)")
@@ -177,6 +184,8 @@ class Refused(Exception):
 def verify(web: Web | None, jwt: str | None, now: float | None = None) -> str:
     """The email a request's Access token vouches for, or ``Refused``: 401 without a valid token, 403 for an email
     not allowed, or when the project declares no login."""
+    if web is not None and web.open:
+        raise Refused(403, f"only {', '.join(web.names)} is open (read only, no login): the tunnel must keep that Host")
     if web is None or not (web.team and web.aud and web.emails):
         raise Refused(403, "this page has no login for a public name (web.access in the model)")
     if not jwt:

@@ -160,7 +160,7 @@ def ask(url: str, path: str, host: str | None = None, token: str | None = None, 
 
 
 def page_token(body: bytes) -> str:
-    return re.search(rb'name="ergostat-token" content="([^"]+)"', body).group(1).decode()
+    return re.search(rb'name="ergostat-token" content="([^"]*)"', body).group(1).decode()
 
 
 # ---- reads
@@ -364,3 +364,68 @@ def test_an_answer_through_the_login_is_the_owners_own_not_an_agents():
     from ergostat.inbox.stats import BY_AGENT, by_person
     assert by_person("owner") and by_person("owner@example.org")
     assert not by_person(BY_AGENT) and not by_person("modeller") and not by_person(None)
+
+
+# ---- a name declared open: public and read only, with no login
+
+OPEN = f"""
+name: open
+stocks:
+  queue: {{}}
+web:
+  names: [{NAME}]
+  open: read
+"""
+
+
+@pytest.fixture(scope="module")
+def open_page(tmp_path_factory):
+    from ergostat.web import serve
+    d = tmp_path_factory.mktemp("open")
+    (d / "ergostat.yaml").write_text(textwrap.dedent(OPEN))
+    p = Project(mdl.load(d))
+    server, url = serve(p, free_port())
+    yield p, url
+    server.shutdown()
+    server.server_close()
+
+
+def test_a_name_declared_open_is_read_without_a_login_and_says_so(open_page):
+    p, url = open_page
+    for hdr in ({}, {"Cf-Ray": "8f00-LHR", "Cf-Connecting-Ip": "203.0.113.9"}):        # through the tunnel too
+        assert ask(url, "/api/status", NAME, None, **hdr)[0] == 200
+        code, body = ask(url, "/", NAME, None, **hdr)
+        assert code == 200 and b'name="ergostat-public" content="read only"' in body
+        assert page_token(body) == ""                                                  # no token for writes
+    assert ask(url, "/file/intake.token", NAME)[0] == 404                              # the state is never served
+    said = [x for x in p.model.problems if "web-public" in str(getattr(x, "code", "")) or "public and read only" in str(x)]
+    assert said, p.model.problems
+
+
+def test_a_name_declared_open_refuses_every_write(open_page):
+    p, url = open_page
+    t = page_token(ask(url, "/")[1])                                                   # even with this run's token
+    body = json.dumps({"text": "hello"}).encode()
+    for hdr in ({}, {"Origin": f"https://{NAME}", "Sec-Fetch-Site": "same-origin"}):
+        code, got = ask(url, "/api/message", NAME, jwt(), body, **{"X-Ergostat-Token": t, **hdr})
+        assert code == 403 and b"read only" in got
+    assert ask(url, "/api/message", data=body, **{"X-Ergostat-Token": t})[0] == 200      # on this machine, as before
+
+
+def test_open_still_refuses_other_names_and_a_rewritten_host(open_page):
+    _, url = open_page
+    local = url.removeprefix("http://")
+    assert ask(url, "/api/status", "evil.example.com")[0] == 403
+    code, got = ask(url, "/api/status", local, None, **{"Cf-Ray": "8f00-LHR"})        # the tunnel rewrote the Host
+    assert code == 403 and b"keep that Host" in got
+    assert ask(url, "/api/status")[0] == 200
+
+
+def test_open_is_checked():
+    def bad(raw):
+        got: list[str] = []
+        return wa.parse(raw, got), got
+    web, said = bad({"names": [NAME], "open": "read"})
+    assert web.open and not said
+    assert bad({"names": [NAME], "open": True})[1] and bad({"names": [NAME], "open": "read", "access": {}})[1]
+    assert any("open: read" in m for m in bad({"names": [NAME]})[1])

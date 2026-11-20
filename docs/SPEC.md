@@ -570,7 +570,12 @@ web:
 |---|---|
 | `Host` the local name, nothing from Cloudflare | as before: the owner |
 | `Host` a declared name, or any request carrying `Cf-Ray`, `Cf-Connecting-Ip` or `Cf-Access-Jwt-Assertion` (a tunnel that rewrites `Host` to the local name) | only with a valid `Cf-Access-Jwt-Assertion` whose `email` is listed; 401 without one, 403 for an email not listed or when `web:` declares no login. Reads too |
+| `Host` a name declared with `open: read` in place of `access:` | reads to anyone, Cloudflare's headers or not; every write 403; the page says it is public and read only, and `check` says so (**web-public**) |
 | any other `Host` | 403 |
+
+`open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
+login: anyone who reaches the name reads everything the page shows, and nothing is changed there. The tunnel must
+keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
 (`https://TEAM/cdn-cgi/access/certs`, fetched again hourly, and on a key not yet seen at most every 30 s; a fetch

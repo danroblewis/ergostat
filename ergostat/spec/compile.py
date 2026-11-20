@@ -847,6 +847,9 @@ class Compiler:
         spec.web = web(d.web, wrong)
         for msg in wrong:
             self.err(msg, None, "bad-web")
+        if spec.web.open:
+            self.problems.append(Problem("finding", f"web: {', '.join(spec.web.names)} is public and read only, with no login "
+                                         "(open: read): anyone who reaches it reads everything the page shows", None, "web-public"))
         for name, m, what in self.named("systems"):
             self.keys(m, {"description", "within", "show"}, what)
             spec.systems[name] = self.text(m, "description")

@@ -89,5 +89,6 @@ public name only when the model declares it with a Cloudflare Access login (`web
 AGENT-GUIDE §3j): every request there, reads included, needs a valid Access token for an allowed email, writes are
 recorded as that email, and the state directory's files (the push and remote tokens) are never served there. Any
 request that came through Cloudflare without that declaration is refused, even one whose Host the tunnel rewrote.
-What it does not stop: anyone on the allowlist can read everything the page shows, and an allowlisted account taken
+A name declared `open: read` instead is public: anyone who reaches it reads everything the page shows, though nothing
+can be written there. What it does not stop: anyone on the allowlist can read everything the page shows, and an allowlisted account taken
 over is the owner on the page.
