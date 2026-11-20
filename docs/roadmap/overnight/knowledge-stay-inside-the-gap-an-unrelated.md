@@ -19,3 +19,17 @@ Seen as: continue-branch: a lease-renewal test failed under load; the implemento
 ## Size budget
 
 0 net lines of code (knowledge only).
+
+## Where it stopped
+
+Built. The lesson is in `dev/knowledge/review-lessons.md` as § 13, word for word. The two long lines are wrapped at
+120 characters like the rest of the file. The Check line has no final period because the definition gives it without
+one, and I kept the text exactly as given.
+
+Choice made without anyone to ask: "nothing else changed" could not hold with green tests. `tests/test_factory_knowledge.py`
+hard-codes the lesson count in three places, which the review of § 12 also found: lines 107 and 129
+(`range(1, 13)` → `range(1, 14)`) and line 325 (the next lesson made by `lesson.py add` is `## 14.`, not `## 13.`).
+Line 107 is in the named acceptance test, so it could not pass without the change. I made the smallest edit that
+keeps the suite green: three numbers, no other test changes. These failures come from this change, so fixing them
+here does not break § 13. Taking the count from the file's headings instead would stop this from happening again;
+that belongs in a separate gap and is not built here.
