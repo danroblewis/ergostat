@@ -568,10 +568,8 @@ What you set:
   (`[tracker.example.com]`): only those, for GET and HEAD.
 - **`test:`** in `with:` for programs that write: the project's tests, run in the sandbox. Without it such a fix is
   untested, and only a person may approve it.
-- **`approver:`** `person` (the default, and the right start: the owner reads each fix in the inbox) or `ai` once the
-  owner trusts the loop: an AI, shown only the diff, approves a small Python fix that passed its test at low or medium
-  risk; anything that adds an import, a process, the network, the environment, a file written or a URL or path goes
-  to the person without asking it. Graduate it when the inbox's record shows apply-fix always approved (SPEC §12o).
+- **`approver:`** `person`, the only one for now: the owner reads each fix in the inbox. `ai` is refused by `check`
+  until a sound guard exists (GAPS).
 - **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs
   committed.
 

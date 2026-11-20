@@ -112,3 +112,12 @@ filter, a symlinked folder and a call over budget (`test_g3_...` to `test_g5_...
 approver's narrowed input and its own system prompt; the final denial in the action fold; the inbox's sentence; the
 key check, the ledger's correction and the timeout's nack), none of it optional: each closes a way to apply code the
 owner did not see or decide on.
+
+## Where it stopped: the AI approver cut
+
+The final re-review said merge without `approver: ai`: the guard was a denylist, bypassed many ways (GAPS lists them).
+Cut: `guard.py`, the approver's prompt and its call; `approver: ai` is refused by `check`. Kept: a denial final (now a
+kind's `final` states in the item fold, so the action's page, `counts()` and the promote check all see it, and a run
+that got through before a denial is shown as "ran despite denial"), the plain sentence on every repair notification
+whatever its `detail`, the ledger, the full-commit key, and the g2-g5 tests. Size after the cut: 593 net lines, within
+the 600, so the overrun above no longer applies. What remains of this definition undone: the ladder's second rung.

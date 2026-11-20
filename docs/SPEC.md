@@ -4745,7 +4745,7 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
 is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (verifying
-a fix by the runs after it, offering its revert, the ladder's lower rungs, a check for programs that swallow their
+a fix by the runs after it, offering its revert, the ladder's other rungs, a check for programs that swallow their
 errors) is in `docs/GAPS.md`.
 
 ```yaml
@@ -4753,8 +4753,8 @@ uses:
   repair:
     use: repair
     with:
-      approver: person        # or ai
-      model: haiku            # the fixer's and the AI approver's (default)
+      approver: person        # the only one for now
+      model: haiku            # the fixer's (default)
       budget: 0.25            # dollars, one AI call at most
       daily: 2                # dollars, every AI call of the loop in a day
       test: pytest -q         # the project's tests, for a program that is not read-only
@@ -4816,24 +4816,16 @@ each open failure, leased (section 9.5), and:
 A failure the AI cannot fix, a refused proposal, git refusing, or an AI call not answered within its time is given
 back with why.
 
-**The ladder's first two rungs** (invariant 5; the rest are left for later). `approver: person`: `apply-fix` is held for
-the owner, answered from the inbox, the CLI or the failure's page. `approver: ai`: the **AI approver** (the same model,
-no tools, a system prompt of its own and the prompt `ergostat/repair/approver.md`) is given **only the program's path,
-the whole diff and whether the test passed**: never the test's output, the fixer's explanation or its prompt, which a
-fix could use to steer it. It answers approve or not, with reasons. A **guard** in code comes first
-(`ergostat/repair/guard.py`), and the AI is not asked when it finds anything: a test that did not pass, a high risk
-(with no impact report the risk is high), more than 40 lines changed, a program that is not Python (its changes cannot
-be read so), or, comparing the program's syntax before and after, anything the fix adds of: an import; a use of
-`subprocess`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `os.environ`, `os.getenv`, `socket`, `eval`, `exec`,
-`compile`, `__import__`, `getattr`, `importlib`, `shutil`, `urllib`, `requests`, `http`, `ctypes`, `pickle`, `open`,
-`write_text`, `write_bytes`, file removal or renaming; a string literal that is a URL or a path. Its answer and the guard's are the
-**approval record** (`ergostat.failure.reviewed`: `approval: {by, model, verdict, reasons, guard, action}`). Approved,
-and only while the action is still held, the action is approved `by: "ai approver (MODEL)"` and run by the engine's sweep; escalated, it stays held for the
-person. The inbox's record counts an AI approver's answers apart (`by_agent`), never as a person's, and never in the
-approvals asked of a person in a day. What an approved fix then does runs with the owner's rights, as the program it
-replaces did. **A denial is final** (section 12k's fold, `actions/record.py`): an approval recorded after an
-action's denial, whoever wrote it and however the two raced, is ignored and listed as such (`ignored`), the action
-stays denied, and it is never run.
+**The ladder's first rung only** (invariant 5). `apply-fix` is held for the person, answered from the inbox, the CLI
+or the failure's page; a notification of it (section 12o) always carries the sentence "Approving merges this code into
+your repository; it then runs with your rights, outside the sandbox", whatever the channel's `detail`, so a person
+answering from a phone has read it. What an approved fix then does runs with the owner's rights, as the program it
+replaces did. `approver: ai` is refused by `check` ("not yet: a sound allowlist guard is needed"): an AI approver was
+built and cut, since a guard that denies listed calls is bypassed many ways (`docs/GAPS.md`). **A denial is final**
+(the kind's `final` states, `spec/items.py`): an approval recorded after an action's denial, whoever wrote it and
+however the two raced, is ignored and listed (`ignored`); the action stays denied, is counted as denied (never as
+evidence for promoting its class to `gate: auto`), and is never run; one that ran anyway, having got through before the
+denial was seen, is shown as **ran despite denial** on the action's page.
 
 **Applying** (`python -m ergostat.repair apply`, the approved action, in the model's folder): the failure must be
 awaiting approval with a tested fix; the approved action's `key` must name that fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;

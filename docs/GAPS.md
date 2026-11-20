@@ -77,12 +77,19 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **Repair** (SPEC §12r; `docs/roadmap/overnight/repair2.md`): **built on branch `repair2`** (not merged): triage into
   `ergostat.failure` (sealed: M1), the fix by an AI with no tools in a disposable clone with its own `.git` (X1), tested
   in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
-  report, the ladder's first two rungs (a person; an AI approver with its approval record), a daily cap that fails closed
+  report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
   program). *Left*: verifying a fix by the runs after it and offering its revert; per-run logs and log events; the
   swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
   failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text; two
   runs of one block at once share the block's log, so a failure's stderr may hold the other's lines.
+- **AI approver for repairs: needs a positive allowlist of the AST changes a fix may make** (SPEC §12r). One was built
+  on `repair2` (the AI shown only the diff and pass or fail, behind a guard that escalated new imports, processes,
+  network, environment, writes and URL or path literals) and cut before merging: a guard that denies by list was
+  bypassed many ways in review: `vars(os)['sys'+'tem']`, `sys.modules[...]`, `().__class__.__subclasses__()`, an
+  existing `subprocess.run` given `['sh', '-c', x]`, calls it did not list (`os.chmod`, `Path.rename`, `marshal`), and
+  relative path literals. A sound guard says what a fix may change (the shapes of expressions and names it may touch)
+  and refuses the rest; until then `approver: ai` is refused by `check`.
 
 ## Modelling
 

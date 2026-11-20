@@ -7,20 +7,19 @@ reading: |
   back (rework), one denied leaves (fixes-dismissed).
   Control: no-open-failures holds the open failures at 0 through the fixer (an AI, haiku by default, no tools: a clone
   of its own, the fix tested in the sandbox, apply-fix asked for with its impact report); fixes-answered holds the
-  fixes waiting at 0 through their approver, the ladder's first rung (the person) or second (an AI within a guard).
+  fixes waiting at 0 through their approver, the ladder's first rung: the person.
   It is used once a model, and its parts keep the names written here.
 example: |
   uses:
     repair:
       use: repair
       with:
-        approver: person              # or ai: an AI approves within its guard, else the person
         daily: 2                      # dollars a day, at most, for every AI call of the loop
 params:
-  model: {default: haiku, description: "the fixer's and the AI approver's model"}
+  model: {default: haiku, description: "the fixer's model"}
   budget: {type: number, default: 0.25, description: "the most one AI call may cost, in dollars (claude --max-budget-usd)"}
   daily: {type: number, default: 2, description: "the most the loop's AI calls may cost in a day, in dollars: past it, none starts"}
-  approver: {default: person, choices: [person, ai], description: "who answers apply-fix: the person, or an AI approver within its guard"}
+  approver: {default: person, choices: [person, ai], description: "who answers apply-fix: the person (ai: not yet, refused by check)"}
   approve: {default: approve, choices: [approve, deny], description: "the gate on apply-fix (auto is not offered: approval is the ladder's)"}
   test: {type: command, description: "the project's tests, run in the sandbox for a program that is not read-only"}
   timeout: {type: duration, default: 5m, description: how long one AI call, or one test, may take}
