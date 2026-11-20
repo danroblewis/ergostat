@@ -1,8 +1,9 @@
 """The answer to an entry of the inbox (SPEC §12o), whatever its kind, through the path that kind has always had: a
 gated action's ``gate.approve`` / ``deny``; a person's report (``agent.ran``, and what they moved); an advised
 command's ``block.approved`` or ``block.denied``; a step test's or a loop's process or gain's ``accept`` / ``dismiss``
-(``control.proposals``); a change to the model's ``accept`` / ``dismiss`` (``numbers.proposals``). Each is an event
-from whoever answered, as before."""
+(``control.proposals``); a change to the model's ``accept`` / ``dismiss`` (``numbers.proposals``); a held modelling
+request's ``reopened`` (back to the modelling loop) or ``dismissed`` (with why: ``numbers.requests.answer``). Each is
+an event from whoever answered, as before."""
 
 from __future__ import annotations
 
@@ -31,9 +32,12 @@ def answer(p, spec, eid: str, verb: str, n: float | None = None, note: str | Non
     from ..actions import gate
     from ..control import proposals as cp
     from ..numbers import proposals as pr
+    from ..numbers import requests as rq
     e = en.find(p, spec, eid)
     if e is None:
         raise AnswerError(f"nothing waiting is {eid!r} (or it is the start of several): ergostat inbox lists them")
+    if not e["verbs"]:
+        raise AnswerError(f"{e['id']} is not answered from the inbox: {e['link']}")
     if verb not in e["verbs"]:
         raise AnswerError(f"{e['id']} is answered with " + " or ".join(f"--{v}" + (" N" if v == "done" else "")
                                                                       for v in e["verbs"]))
@@ -52,12 +56,14 @@ def answer(p, spec, eid: str, verb: str, n: float | None = None, note: str | Non
         elif kind == "breaker":                          # a block started by events, reset (SPEC §9.3)
             p.events.add("trigger.reset", item=e["block"], source=by, data={"note": note or "", "tripped": e["seq"]})
             said = "reset: its events start it again"
+        elif kind == "request":
+            said = rq.answer(p, spec, key, yes, note, by=by)
         elif kind == "steptest" or e.get("control"):
             x = {k: v for k, v in en.offers(p)[key].items() if k != "time"} if kind == "steptest" else None
             said = (cp.accept(p, key, by=by, offer=x) if yes else cp.dismiss(p, key, note, offer=x, by=by))["status"]
         else:
             snap = {"at": time.time(), "window": 3600.0, "starts": p.events.first_time()}
             said = (pr.accept(p, key, snap, by=by) if yes else pr.dismiss(p, key, note, by=by))["status"]
-    except (gate.GateError, cp.ProposalError, pr.ProposalError, KeyError) as x:
+    except (gate.GateError, cp.ProposalError, pr.ProposalError, rq.RequestError, KeyError) as x:
         raise AnswerError(str(x)) from None
     return {"id": e["id"], "kind": kind, "verb": verb, "said": said, "summary": e["summary"]}

@@ -401,3 +401,80 @@ def test_a_failed_delivery_is_tried_again_and_said(tmp_path):
     states = [e["data"]["state"] for e in p.events.query(n=None, type=deliver.SENT)]
     assert states == ["failed"] * 3
     assert [f.about for f in watch.find(p, spec) if f.code == "notify-failing"] == ["notify.log"]
+
+
+# ---- held modelling requests, answered from the inbox (docs/roadmap/overnight/inbox-dismiss.md)
+
+def held_request(tmp_path, code: str = "collector-undescribed"):
+    """A modelling project whose finding ``code`` (on flow.alerts-fired) the ai tier held: an inbox entry."""
+    from ergostat.numbers import requests as rq
+
+    from .test_modelling_core import MODELLING
+    from .test_self_improve import POOR
+    from .test_self_improve import project as poor_project
+    p = poor_project(tmp_path, POOR + MODELLING)
+    rq.sync(p)
+    r = next(r for r in rq.current(p, ("open",)) if r["code"] == code)
+    rq.mark(p, r, "held", "acting on its own: a decision for the owner")
+    return p, r, f"request/{r['id']}"
+
+
+def test_a_held_modelling_request_is_dismissed_with_its_note(tmp_path):
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    spec = p.model.spec
+    with pytest.raises(answer.AnswerError, match="--note"):
+        answer.answer(p, spec, eid, "deny")                               # a dismissal says why
+    assert cli(["-C", str(tmp_path), "inbox", eid, "--deny", "--note", "the pager is the collector: nothing to say",
+                "--as", "sam"]) == 0
+    x = rq.stored(p)[r["id"]]
+    assert x["state"] == "dismissed" and x["note"] == "the pager is the collector: nothing to say"
+    assert x["dismissed_by"] == "sam" and eid not in {e["id"] for e in entries.entries(p)}
+    got = rq.sync(p)
+    assert rq.stored(p)[r["id"]]["state"] == "dismissed" and got["raised"] == got["reopened"] == 0   # not raised again
+    assert eid not in {e["id"] for e in entries.entries(p)}
+    rec = stats.by_class(p, spec)[f"request:{r['code']}"]                 # an answered intervention, not a suppressed one
+    assert (rec["asked"], rec["denied"], rec["waiting"]) == (1, 1, 0)
+
+
+def test_a_dismissed_finding_returns_when_its_part_changes(tmp_path):
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    answer.answer(p, p.model.spec, eid, "deny", note="not now")
+    text = p.model.path.read_text()
+    p.model.path.write_text(text.replace("sensor: {run: python3 bin/watch.py, every: 2s}",
+                                         "sensor: {run: python3 bin/watch.py, every: 5s}"))
+    q = Project(mdl.load(tmp_path))
+    assert rq.sync(q)["reopened"] >= 1
+    assert rq.stored(q)[r["id"]]["state"] in ("open", "held")              # raised again, for the tiers
+
+
+def test_a_held_modelling_request_approved_goes_back_to_the_loop(tmp_path):
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    got = answer.answer(p, p.model.spec, eid, "approve", by="sam")
+    assert "modelling loop" in got["said"]
+    x = rq.stored(p)[r["id"]]
+    assert x["state"] == "open" and x["approved_by"] == "sam"
+    assert r["id"] in {w["id"] for w in rq.waiting(p)}                    # what the ai tier takes up next
+    rq.sync(p)
+    assert rq.stored(p)[r["id"]]["state"] == "open" and eid not in {e["id"] for e in entries.entries(p)}
+    assert stats.by_class(p, p.model.spec)[f"request:{r['code']}"]["approved"] == 1
+
+
+def test_every_inbox_entry_kind_has_a_verb(tmp_path):
+    (tmp_path / "a").mkdir()
+    p, snap = project(tmp_path / "a", MODEL.replace("blocks:\n", "blocks:\n  poked:\n    type: program\n"
+                                                    "    on: {event: queue.poked}\n    run: \"true\"\n", 1))
+    seed(p, snap)
+    p.events.add("trigger.tripped", item="poked", source="ergostat", data={"runs": 9, "most": 3})
+    (tmp_path / "b").mkdir()
+    q, _, _ = held_request(tmp_path / "b")
+    es = entries.entries(p) + entries.entries(q)
+    assert {e["kind"] for e in es} == set(entries.KINDS)                 # every kind the inbox can list
+    for e in es:
+        assert e["verbs"], e["id"]
+        wrong = next(v for v in ("approve", "deny", "done") if v not in e["verbs"])
+        with pytest.raises(answer.AnswerError) as no:
+            answer.answer(q if e["kind"] == "request" else p, None, e["id"], wrong)
+        assert "--" in str(no.value).split(" is answered with ", 1)[1], e["id"]

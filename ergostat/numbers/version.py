@@ -100,6 +100,16 @@ def changed_control(before: Spec, after: Spec) -> list[str]:
     return out
 
 
+def part(spec: Spec, about: str) -> str:
+    """One part as it is written (``stock.x``, ``block.y``; its description too), hashed: what a dismissed finding about
+    it waits on. A finding about the model, or about no part found, waits on the whole model."""
+    kind, _, name = str(about).partition(".")
+    table = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries, "parameter": spec.parameters,
+             "goal": spec.goals, "block": spec.blocks, "agent": spec.agents, "items": spec.items}.get(kind) or {}
+    x = table.get(name)
+    return _hash([_plain(x), getattr(x, "description", None)]) if x is not None else whole(spec)
+
+
 def whole(spec: Spec) -> str:
     """The whole model's version: the dynamics (``version``), the control and the measurement together. What a run
     records it ran under: a change to any of them is a new model for the runs that start after it."""

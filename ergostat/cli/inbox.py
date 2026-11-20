@@ -16,8 +16,9 @@ def register(sub, common) -> None:
                         "TEXT]; --stats: each class's record over the last week")
     ib.add_argument("name", nargs="?", metavar="ID", help="one entry (its id, or the start of its key)")
     ib.add_argument("--approve", action="store_true", help="approve it (an action, an advised command, a step test, a "
-                    "change to the model)")
-    ib.add_argument("--deny", action="store_true", help="deny it (a change or a step test: dismissed)")
+                    "change to the model; a held modelling request: back to the modelling loop)")
+    ib.add_argument("--deny", action="store_true", help="deny it (a change or a step test: dismissed; a held modelling "
+                    "request, with --note WHY: dismissed until its part changes)")
     ib.add_argument("--done", type=float, metavar="N", help="a person's request: how much they moved")
     ib.add_argument("--note", help="why")
     ib.add_argument("--as", dest="by", metavar="WHO", help="who answers (default: owner)")
@@ -97,8 +98,10 @@ def cmd_inbox(args) -> int:
         for line in (e["why"] and f"why: {e['why']}", e["link"], e.get("record"), e.get("suggest")):
             if line:
                 print(c(f"    {line}", "dim"))
-        print(c(f"    ergostat inbox {e['id']} " + " | ".join(
-            "--done N" if v == "done" else f"--{v}" for v in e["verbs"]), "dim"))
+        if e["verbs"]:                                   # a kind with none is not shown as answerable
+            print(c(f"    ergostat inbox {e['id']} " + " | ".join(
+                "--done N" if v == "done" else "--deny --note WHY" if (v, e["kind"]) == ("deny", "request")
+                else f"--{v}" for v in e["verbs"]), "dim"))
     return 0
 
 
