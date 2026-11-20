@@ -270,3 +270,23 @@ Round 4 of gap/continue-branch2 (on 3eae806): no code changed. Every finding lis
 The branch's base is still 553b955; main is 1f013ba. Main shares only docs/GAPS.md with this branch's changed files,
 in a different hunk. Left: main merged in by the factory or a person, then the fast suites on the merged tree; gate 1
 for this salvage, by the coordinator.
+
+## Where it stopped
+
+Round 5 of gap/continue-branch2 (on 6ab01cd): no code changed. The factory's brief said "fix the code" for
+`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (this time with the history
+`['expired', 'expired', 'ack']`). The fix is already on main, and the only proper way to bring it in is the merge, which
+this session was refused again (`git merge --no-edit main`, the seventh refusal). The branch's base is still 553b955,
+and main is 1f013ba. The gap's title says "main merged in by the coordinator", but `git merge-base HEAD main` is still
+553b955, so that merge has not happened.
+- Checked this round (`git diff 553b955 main -- ergostat/leases/dispatch.py`): on main, `watch` hands an overdue lease
+  to `look`, which expires it only when a pass `grace(ttl)` after the first finds it still overdue. `expire` then reads
+  the lease again from the record and writes nothing if it was renewed. On this branch, the code is 553b955's: the
+  first pass that finds the lease overdue expires it. Two expiries in one history fit that: each renewal is followed by
+  a CLI start-up that takes longer than the 1s TTL under load. This is read from the code, not run.
+- Not done, for the same reasons as rounds 3 and 4: copying main's lease files onto this branch by hand
+  (review/continue-branch-2 finding 4 and inbox-dismiss-3's finding), or making the merge commit with `merge-tree` and
+  `commit-tree`, which would get around the refusal rather than respect it.
+- Left, outside any implementor session's reach: someone allowed to run `git merge` merges main (1f013ba) into this
+  branch. The only file both sides changed is docs/GAPS.md, in different hunks. Then the fast suites run again on the
+  merged tree. Gate 1 for this salvage is still the coordinator's (continue-branch.md, 19b9998, is the first commit).
