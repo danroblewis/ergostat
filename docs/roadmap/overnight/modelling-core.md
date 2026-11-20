@@ -67,33 +67,23 @@ verification harness and the craft bench in `scripts/`.
 
 ## Where it stopped
 
-Second stop, 2026-11-19 11:50, on main 2ed2f16. Everything in the definition of done is in place except one suite.
+Final state, 2026-11-19 evening, rebased on main b46ade7 (layout4, mended, daemons, interventions and the rest).
 
-**Done:**
-- the split, and every blocking fix (1, 2, 3, 5, 6, 7). Fixes 4 and, mostly, 3 are moot with the parked parts gone;
-- the "also" list: the automatic triggers parked, the daily cap, carried redesigns checked again, Accept puts every
-  file back on any failure, `keep_history`'s result stored, the boundary rule scoped to a template's own parts, the
-  judged-not-better section gone (model-change items, on the Items page), `requests-handled` reachable, the
-  harness's ports;
-- `tests/test_modelling_core.py` has all 17 acceptance tests, passing. The four stale tests in
-  `tests/test_redesign.py` were rewritten. SPEC, ADDING, GAPS and both proposals are updated;
-- cuts: the craft bench went (it scored the parked rule tier; it stays on `selfimprove`), and the thirteen stocks
-  live in `scripts/self_improve_runs.py`. That also means the bench is no longer "in `scripts/`" as the definition
-  says above. Net lines outside `tests/` and `docs/`: +3,973.
-
-**Suites on 53f7032:**
-- unit: rc 0, 1,501 passed. The 12 skips are 5 page files when run without playwright (they run in the page
-  suite) and 7 VictoriaMetrics conformance tests;
-- ruff: rc 0;
-- `demo_check` on image-squeeze, alert-triage, ticket-factory and the-job: rc 0, all ok;
-- the four Playwright files: **not green**. Sizes and layout ceilings were recorded again (every example now draws
-  its modelling system; several examples' `satellite-far` ceilings rose, from 6 to 17 for backups). One test then
-  fails for all 20 examples: `test_model_errors_drain_is_a_short_straight_satellite_of_its_stock`, from `layout2`,
-  merged after `selfimprove` branched. With the larger modelling template, the router takes the connector
-  `model-error → gap:model-fits` out of the stock's bottom edge, 10 px left of `model-mended`'s pipe (stock bottom at
-  y 228, connector out at x 298, pipe at x 308). It then runs right 5.5 px below the stock and crosses the pipe.
-  Each failing test leaves its page open, so the suite grew past 6 GB and the watchdog killed it.
-
-**Left:** a layout fix (the connector should leave a stock by the side facing its target when that target sits
-within the stock's height, or the router should keep connectors off a pipe's first segment), or the layout
-owner's ruling on that test. Then the four suites again.
+- The split, every blocking fix and the "also" list are done (the commits name each). After the rebase, modelling's
+  requests are the built-in kind `ergostat.modelling-request`: main's interventions had taken
+  `ergostat.model-request` for a class of intervention, with other states. Architecture notes leave out the parts
+  a template made. The modelling-request kind sits under the modelling system on the Items page, as mended places
+  built-in kinds.
+- Diagram fixtures were recorded again from main's. Every example's sizes now include its modelling system drawn,
+  and satellite-far ceilings rose for model-fits' and requests-handled's long links. The valve-orientation
+  ceilings and ops open=backups are kept as main has them.
+- The craft bench went (it stays on `selfimprove`), so it is no longer in `scripts/` as the definition says above.
+  Net lines outside `tests/` and `docs/`: +3,980.
+- Suites (fast commands, under `scripts/suite_watch.py`, one at a time):
+  - unit: rc 0, 1,623 passed. The 13 skips are 6 page files without playwright (they run in the browser suite) and
+    7 VictoriaMetrics conformance tests;
+  - ruff: rc 0;
+  - `demo_check` on image-squeeze, alert-triage, ticket-factory and the-job: rc 0;
+  - browser: 216 passed, 1 failed. The coordinator's `open=*` routing takes 19.1 to 20.0 s alone against a 20 s
+    bound (main: 18.0 s); the template's request parts add about 1 to 2 s. Not fixed: the bound is not raised, and
+    the router's time is the layout's.
