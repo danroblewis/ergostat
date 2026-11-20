@@ -190,6 +190,10 @@ def cmd_block(args) -> int:
         from ..inbox.answer import person_done
         print(person_done(p, spec, b, args.done, args.note))
         return 0
+    from ..spec.triggers import own
+    if (args.approve or getattr(args, "reset", False)) and own(p.events, b.name):
+        print(f"a run of {b.name} answers for it to no one: its approvals and its breaker are the owner's", file=sys.stderr)
+        return 2
     if args.approve:
         if b.mode != "advise":
             print(f"block {b.name} is not in advise mode: nothing waits for approval", file=sys.stderr)

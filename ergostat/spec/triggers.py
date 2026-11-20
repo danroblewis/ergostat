@@ -158,6 +158,19 @@ def declared(b, t: str) -> bool:
     return any(overlap(t, e) for e in b.on.emits)
 
 
+def block_of(events, run: str | None) -> str | None:
+    """The block whose run this is: read from the run's own ``agent.started`` (by its exact id), never from what the
+    caller says of itself."""
+    ev = events.get(run) if run else None
+    return ev["item"] if ev and ev.get("id") == run and ev.get("type") == "agent.started" else None
+
+
+def own(events, block: str) -> bool:
+    """Whether this process is a run of ``block`` (``ERGOSTAT_RUN``): one that may not answer for it (SPEC §9.3)."""
+    import os
+    return block_of(events, os.environ.get("ERGOSTAT_RUN")) == block
+
+
 def undeclared(spec, block: str | None, types) -> str | None:
     """Why a run of ``block`` may not record these types (``event --add`` from a run, SPEC §9.3), or None."""
     b = spec.blocks.get(block or "") if spec is not None else None
