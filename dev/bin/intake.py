@@ -64,18 +64,31 @@ def definition(cfg: dict, gap: dict) -> str | None:
     return None
 
 
-def continued(cfg: dict, gap: dict) -> bool:
+def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
     """A gap that `continues` a branch of the checkout: that branch fetched into the drop as its factory/<branch> when
     the drop has none (a fetch that never forces: work already there is kept). False (not taken, said) for a name that
-    fails the branch rule or a branch the checkout does not have; True for every other gap."""
+    fails the branch rule, a branch the checkout does not have, or a branch another known gap still holds (any state but
+    parked or merged: its work and reviews are its own until it stops; another open request to continue it holds
+    nothing yet, and the first taken holds it from then on); True for every other gap."""
     name = str(gap["fields"].get("continues") or "")
     if not name:
         return True
     try:
-        ref = fac.git_branch(fac.branch_of(gap))
+        branch = fac.branch_of(gap)
+        ref = fac.git_branch(branch)
     except ValueError as e:
         print(f"intake: {e}: not taken", file=sys.stderr)
         return False
+    for other in known.values():
+        try:
+            same = other["id"] != gap["id"] and fac.branch_of(other) == branch
+        except ValueError:
+            continue
+        waiting = other["state"] == "open" and other["fields"].get("continues")
+        if same and not waiting and other["state"] not in ("parked", "merged"):
+            print(f"intake: {gap['id']} continues {name!r}, which {other['id']} still holds ({other['state']}): "
+                  "not taken until it is parked or merged", file=sys.stderr)
+            return False
     d = agents.drop(cfg)
     if fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{ref}"):
         return True
@@ -123,13 +136,13 @@ def main() -> int:
             found += 1
     defined = 0
     for g in known.values():
-        if g["state"] != "open" or not continued(cfg, g):
+        if g["state"] != "open" or not continued(cfg, g, known):
             continue
         where = definition(cfg, g)
         if where:
             fac.say("gap.defined", g["id"], definition=where, ready_at=now, branch=fac.branch_of(g),
                     defined_by="coordinator")
-            g["fields"]["definition"] = where
+            g["fields"]["definition"], g["state"] = where, "ready"
             defined += 1
     linked = dependencies(cfg, known, text)
     print(f"intake: {found} found, {defined} defined, {linked} with their dependencies changed", file=sys.stderr)

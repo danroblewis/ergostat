@@ -75,7 +75,7 @@ def assemble(cfg: dict, role: str, gap: dict, worktree: Path, **extra) -> tuple[
         "gap": gap["id"], "title": f.get("title", gap["id"]), "branch": fac.git_branch(fac.branch_of(gap)), "worktree": "/work",
         "base": cfg["git"]["base"], "definition": definition.strip(), "gaps_entry": entry or "(not in GAPS.md)",
         "guides": "\n".join(f"- {g}" for g in guides), "findings": findings_text(findings),
-        "definition_path": f"{fac.DEFS}/{fac.branch_of(gap)}.md", "budget": str(fac.budget_of(definition)),
+        "definition_path": fac.definition_file(gap), "budget": str(fac.budget_of(definition)),
         "round": str(int(f.get("rounds") or 0) + 1), "knowledge": know, **{k: str(v) for k, v in extra.items()},
     }
     text = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), template.read_text())

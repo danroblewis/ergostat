@@ -30,10 +30,9 @@ FAILS = 2                    # the kill rule: a gap whose fast suites fail this 
 
 
 def definition_first(cfg: dict, gap: dict, work: Path) -> tuple[str, str]:
-    """The definition file, committed as the branch's first commit when the branch does not have it (by this program,
-    in the clone it made, before any session); (its text, the commit that holds it)."""
-    branch = fac.branch_of(gap)
-    rel = f"{fac.DEFS}/{branch}.md"
+    """The definition file (fac.definition_file), committed as the branch's first commit when the branch does not have
+    it (by this program, in the clone it made, before any session); (its text, the commit that holds it)."""
+    branch, rel = fac.branch_of(gap), fac.definition_file(gap)
     target = work / rel
     if not target.is_file():
         text = brief.definition_text(cfg, str(gap["fields"].get("definition", "")), branch)

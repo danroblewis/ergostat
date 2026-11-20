@@ -203,6 +203,14 @@ def branch_of(gap: dict) -> str:
     return b
 
 
+def definition_file(gap: dict) -> str:
+    """The definition's path in the repository: `docs/roadmap/overnight/<branch>.md`, or, for a gap that `continues` a
+    branch and names its `definition` as `REF:docs/roadmap/overnight/X.md`, that file (the continued branch's own, so
+    no copy is made under the new gap's name)."""
+    m = re.fullmatch(r"[\w/.-]+:(docs/roadmap/overnight/[a-z0-9-]+\.md)", str(gap["fields"].get("definition") or ""))
+    return m.group(1) if m and gap["fields"].get("continues") else f"{DEFS}/{branch_of(gap)}.md"
+
+
 def git_branch(branch: str) -> str:
     """The git ref a gap's work is on, in the drop and the checkout: factory/<branch>."""
     if not SAFE.match(branch):

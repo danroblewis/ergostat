@@ -138,3 +138,33 @@ Parked by the factory (review/continue-branch3-3, 2026-11-20 10:15).
 Failed its gates 3 times (the kill rule). Blocking findings:
 - gate 1: docs/roadmap/overnight/continue-branch3.md is not the branch's first commit
 - dev/bin/intake.py:67-86 with dev/bin/queue.py:133-147 and dev/bin/agents.py:281-291 (lesson-1, lesson-8, lesson-12): review/continue-branch3-2's finding that a gap continuing NAME is handed factory/NAME while another gap on that branch is still open/building/built/approved is left unfixed, and round 3's reason ('two gaps on one branch cost a refused finish, not a lost commit') does not hold. No concurrent session is needed: gap A approved and waiting in the queue; gap B continues NAME and builds sequentially; B's finish succeeds (nothing moved during B's own session) and moves factory/NAME; queue.reviewed then finds tip != A's reviewed_head and sends A back; A's fix round clones factory/NAME holding B's unreviewed commits and is reviewed against A's definition. Two gaps' work is mixed on one branch and the approved one is blocked. The side ref refs/incoming/factory/NAME is also one per branch, so two overlapping finishes on the branch can read each other's head and record it as their own. Refuse in continued() unless every other known gap with branch_of == NAME is parked or merged (say why on stderr, as for the other refusals), and add a test with a live gap on the branch whose continuing gap stays open.
+
+## Where it stopped
+
+continue-branch3, round 4 (by hand, after the park). Both blocking findings of review/continue-branch3-3 fixed; main
+(1f013ba) is still the tip of origin/main and already merged (acd1d72), so there was nothing new to merge.
+
+- Gate 1 for a continued gap: `fac.definition_file(gap)` is the gap's definition path. For a gap that `continues` a
+  branch and names its `definition` as `REF:docs/roadmap/overnight/X.md`, it is that file; otherwise
+  `docs/roadmap/overnight/<branch>.md`. review.py's own `gates` (not the prompt) checks that file is the branch's first
+  first-parent commit and unchanged since; implement.py's `definition_first` commits no copy under the new name;
+  `review.park` appends the parked note to it; the brief names it. So this branch, continued as
+  `{"continues": "continue-branch3", "definition": "factory/continue-branch3:docs/roadmap/overnight/continue-branch.md"}`,
+  passes gate 1 on 19b9998. Test:
+  `test_gate_one_takes_a_continued_gaps_named_definition_first_committed_under_the_branchs_old_name` (a branch `warm2`
+  whose first commit is `warm.md`: ready, built with no `warm2.md`, approved; `review.gates` itself passes with the
+  named file, fails without it, and fails for a named file the branch added later).
+- Two gaps on one branch: `intake.continued(cfg, gap, known)` refuses (said on stderr, the gap left open) while any
+  other known gap whose `branch_of` is the same branch is in any state but parked or merged, and takes it once that gap
+  stops (another open request to continue the same branch holds nothing: of two asked at once, the first the intake
+  reads is taken and holds it, the other waits). `agents.finish` fetches to `refs/incoming/<run's folder>/factory/NAME`, one side ref per run. Tests:
+  `test_a_branch_another_gap_still_holds_is_not_continued_until_it_stops` (approved, building, built, fix, queued:
+  open; parked: ready; then two asked at once: one ready) and `test_overlapping_finishes_on_one_branch_each_read_their_own_side_ref` (a second finish run
+  between the first's fetch and its read: the second's head lands, the first is refused for the move, no side ref
+  left). With each fix undone, its test fails (seen); restored, all pass.
+- Confirmed, unchanged: implement.py's `merge_main` merges origin/main into a branch behind it before the session (a
+  clean merge committed as the factory; a conflict left in progress, its files in the brief), and the implementor's
+  allowed tools in the container include `git merge`, `git add`, `git commit` and `git status` (agents.TOOLS; none of
+  push, fetch, pull, remote). Covered by the acceptance tests above.
+- Run on this tree: the unit suite under the watchdog (1916 passed, 14 skipped, 1 xfailed); the four browser files
+  (218 passed); ruff clean on ergostat, tests, scripts and dev.
