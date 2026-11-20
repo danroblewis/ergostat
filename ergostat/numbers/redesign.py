@@ -102,7 +102,9 @@ def validate(p, spec: Spec, by: str, raw: dict, scratch: cs.Scratch | None = Non
     refs = [*parts["added"], *parts["changed"], *(x.split(" → ")[1] for x in parts["renamed"])]
     j = im.joined(es_)
     conf = raw.get("confidence")
+    from . import redesign_due as due
     return {"kind": KIND, "said_kind": KIND, "made_by": by, "system": system, **owners(spec, after),
+            "unit_sig": due.signature(spec, system),
             "title": str(raw.get("title") or f"A redesign of {system}")[:200],
             "summary": str(raw.get("summary") or "")[:2000], "reason": str(raw.get("summary") or raw.get("title") or "")[:500],
             "confidence": conf if isinstance(conf, int | float) and 0 <= conf <= 1 else None,
@@ -129,6 +131,9 @@ def outside(before: Spec, after: Spec, system: str, parts: dict) -> list[str]:
 
     def inside(spec: Spec, ref: str) -> bool:
         kind, _, name = ref.partition(".")
+        if kind == "parameter":                       # a parameter is the system's when its parts use it
+            from .proposals import users_of
+            return any(inside(spec, u) for u in users_of(spec, name))
         return kind not in ("stock", "flow", "auxiliary", "goal", "block") or spec.inside(Ref(kind, name), system)
 
     def same_but_names(ref: str) -> bool:
@@ -139,12 +144,14 @@ def outside(before: Spec, after: Spec, system: str, parts: dict) -> list[str]:
             return False
         names = {o.split(".", 1)[1]: n.split(".", 1)[1] for o, n in renames.items()}
 
-        def follow(x, key=None):                      # the names it refers to, renamed (its words left as they are)
+        def follow(x, key=None):                      # the names it refers to, renamed: reference fields only
+            if key in NOT_REFERENCES:                 # (its words, its sensors' selectors, labels and commands as written)
+                return x
             if isinstance(x, dict):
                 return {k: follow(v, k) for k, v in x.items()}
             if isinstance(x, list):
-                return [follow(v) for v in x]
-            if isinstance(x, str) and key != "description":
+                return [follow(v, key) for v in x]
+            if isinstance(x, str):
                 for o, n in names.items():
                     x = re.sub(rf'(?<![\w-]){re.escape(o)}(?![\w-])', n, x)
             return x
@@ -157,6 +164,10 @@ def outside(before: Spec, after: Spec, system: str, parts: dict) -> list[str]:
     out += [r for r in parts.get("changed") or [] if r not in renames.values() and not inside(before, r)
             and not same_but_names(r)]
     return out
+
+
+NOT_REFERENCES = {"description", "sensors", "sensor", "run", "query", "items", "label", "labels", "title", "ask", "prompt",
+                  "where", "parse", "builtin"}
 
 
 def _system_of(spec: Spec, ref: str) -> str | None:
@@ -275,8 +286,9 @@ def ask(p, system: str | None = None, by: str = "owner", why: str | None = None)
 
 def asked(p, now: float | None = None) -> list[str]:
     """The systems the owner asked a redesign of that no run has taken up since."""
-    asks = p.events.query(n=None, type=ASKED)
-    ran = p.events.query(n=None, type=RAN)
+    now = now or time.time()
+    asks = p.events.query(n=None, type=ASKED, since=now - WEEK)          # (an ask unanswered a week is let go)
+    ran = p.events.query(n=None, type=RAN, since=now - WEEK)
     last = {}
     for e in ran:
         s = (e.get("data") or {}).get("system") or "model"
@@ -293,6 +305,7 @@ def ran(p, system: str, data: dict) -> None:
     p.events.add(RAN, item=p.model.name, source=data.get("by") or "redesigner", data={"system": system, **data})
 
 
+WEEK = 7 * 86400.0
 RUNNING_FOR = 15 * 60.0      # a run started and not ended this long ago is taken as gone (the block's timeout)
 HOLD_FOR = 5 * 60.0          # the judge holds its own writes for a run this long at most: refinement is never frozen
 

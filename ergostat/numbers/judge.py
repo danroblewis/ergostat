@@ -344,7 +344,7 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                     pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
                     out["testing"] += 1
                     pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by},
-                                                   **({"scorecard": card} if card else {})})
+                                                   "rescoring": False, **({"scorecard": card} if card else {})})
                     out[verdict] += 1
                     out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
                 continue
