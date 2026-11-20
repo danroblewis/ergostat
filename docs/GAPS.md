@@ -158,7 +158,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   §12e): a change had to gain 2% in every window of at least twice its stock's time constant, above an absolute noise
   floor, so on a slow or noisy record each window was one noisy draw (measured: a change a fifth worse passed in 6 of
   20 records, one a fifth better failed in 11 of 20). *Done*: one replay of each over the whole record held out, the
-  noise taken from the record about the better replay (AR(1)), and an always-valid confidence sequence with its error
+  noise taken from the record about the better replay (AR(1), or a walk for a stock with no time constant), and a
+  plug-in confidence sequence (a normal mixture, valid under that noise model) with its error
   rate stated (a change no better passes at most 5% of the time, however often looked at); an undecided change says
   about how much more record it needs and stays under test up to seven times the record it needs (a day at least); a
   change whose replay is the same as the model's waits for record in which it moves, rather than three hold-outs.

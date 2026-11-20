@@ -3417,11 +3417,20 @@ where the goal read 0.03 to 0.14).
 own about the better replay, taken as AR(1) (its correlation from one reading to the next, its small-record bias taken
 out, and from a twelfth of the record on, whichever is larger; while the record spans fewer than three of the slower
 time constant of what it touches, with and without the change, noise that drifts at all is taken to last that long,
-since a short record reads a slow noise's correlation low; its second moment about that replay, so a bias counts as
-noise). Scaled errors that stay within 0.005 of each other, bound and all, count neither way. That gives the change's effect, the share by which it lowers the scaled error, and its standard error; an
-**always-valid confidence sequence** (a normal mixture, Robbins 1970; Howard et al. 2021) bounds it, in units of the
-record the change needs, so looking again as the record grows never raises the chance of a false verdict: a change no
-better than the model as it is passes at most 5% of the time (`ALPHA`), and one no worse fails at most that. It
+since a short record reads a slow noise's correlation low; a stock with no time constant, which keeps whatever it gets
+wrong, is also taken as a walk, its steps read from the record's successive differences, and the larger variance
+counts; its second moment about that replay, so a bias counts as noise). Several stocks' noises may be correlated:
+their standard errors add (the worst case). Scaled errors that stay within 0.005 of each other, bound and all, count
+neither way. That gives the change's effect, the share by which it lowers the scaled error, and its standard error; a
+**confidence sequence** (a normal mixture, Robbins 1970; Howard et al. 2021) bounds it, in units of the record the
+change needs. It is a plug-in, asymptotic sequence: valid as far as its standard error is, under stationary AR(1)
+noise (or a walk) read well enough from the record. Then looking again as the record grows does not raise the chance
+of a false verdict: two-sided at 10%, by Ville's inequality it is ever crossed either way at most 10% of the time, and
+each way about 5% (`ALPHA`) by the noise's symmetry: a change no better than the model as it is passes about 5% of
+the time at most, and one no worse fails about that, its several fail tests (near it, the rest of the model, each
+goal's stock) sharing the 5% (Bonferroni). On records made to that noise model (AR(1), far slower than the record, a
+walk, two stocks sharing their noise, both replays wrong) it passed at most 5% and failed at most 6% of equally good
+changes looked at seven times each (1,500 records each; a walk well under 1%). It
 **passes** a change whose bound's low end is above no change and whose estimate is better by the `threshold`, near
 what it touches, with the rest of the model and each goal's stock no worse by the threshold; one the bound holds no
 worse than the threshold that answers findings without making any; or one no worse and **simpler** (fewer parts,
