@@ -3,7 +3,8 @@
 areas the gap's text names, related gaps, past review findings on the files it touches, and the module map of main.
 Each brief records the ids it carried and dropped, so the model can relate what a brief carried to how its gap did.
 
-    knowledge.py count | map     the entries (a sensor) | the module map (cached by main's sha in run/modules/)"""
+    knowledge.py count | map     how many entries | the module map (cached by main's sha in run/modules/)
+    knowledge.py sync            the collector: each entry an item knowledge/<id> (knowledge.found, .changed, .retired)"""
 
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -22,6 +24,7 @@ import fac  # noqa: E402
 PATTERNS = {"house-rules": (r"^\*\*(\w+).*?\*\*\n(.*?)(?=^\*\*|\Z)", "rules"),
             "review-lessons": (r"^## (\d+)\. (.+?)\n(.*?)(?=^## |\Z)", "lesson"),
             "decisions": (r"^- \*\*(.+?)\*\*(.*?)(?=^- |\Z)", "decision")}
+KINDS = {"rules": "rule", "lesson": "lesson", "decision": "decision"}
 FILES = re.compile(r"\b((?:ergostat|dev|scripts|tests|docs|examples)/[\w./-]+\.(?:py|md|yaml|toml|sh))\b")
 MORE = {"implementor": ("decisions", "related", "findings", "modules"),   # beyond the rules and the lessons, in order
         "reviewer": ("decisions", "findings", "related", "modules"), "planner": ("decisions", "related", "findings",
@@ -31,13 +34,15 @@ HEADS = {"decisions": "The owner's decisions this gap touches", "related": "Rela
 
 
 def entries() -> list[dict]:
-    """Every entry of dev/knowledge/: {id (rules-process, lesson-3, decision-<slug>), title, text, areas}."""
+    """Every entry of dev/knowledge/: {id (rules-process, lesson-3, decision-<slug>), title, kind (rule, lesson,
+    decision), file, text, areas}."""
     out = []
     for stem, (rx, kind) in PATTERNS.items():
         for m in re.finditer(rx, (fac.HERE / "knowledge" / f"{stem}.md").read_text().split("\n---\n", 1)[-1], re.M | re.S):
             areas = re.search(r"\*Areas:\s+(.+?)\.\*", m[0], re.S)
             out.append({"id": f"{kind}-{m[1].lower() if kind != 'decision' else fac.slug(m[1], 32)}", "text": m[0].strip(),
-                        "title": m[2] if kind == "lesson" else m[1],
+                        "title": m[2] if kind == "lesson" else m[1], "kind": KINDS[kind],
+                        "file": f"dev/knowledge/{stem}.md",
                         "areas": [a.strip() for a in " ".join(areas[1].split()).split(",")] if areas else []})
     return out
 
@@ -150,9 +155,60 @@ def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
     return out, {"knowledge": ids, "knowledge_dropped": dropped, "knowledge_chars": len(out)}
 
 
+def short(text: str, most: int = 300) -> str:
+    """An entry's text on one line, cut at a word to ``most`` characters."""
+    text = " ".join(text.split())
+    return text if len(text) <= most else text[:most - 3].rsplit(" ", 1)[0] + "..."
+
+
+def carried() -> dict[str, int]:
+    """How many briefs carried each id: the recorded brief contexts (on the gaps and the research questions)."""
+    out: dict[str, int] = {}
+    for kind in ("gap", "research"):
+        for it in fac.items(kind):
+            for c in it["fields"].get("contexts") or []:
+                for k in set(c.get("knowledge") or []):
+                    out[k] = out.get(k, 0) + 1
+    return out
+
+
+def sync() -> tuple[int, int, int]:
+    """The collector: each entry of the running version's dev/knowledge/ as an item knowledge/<id>. A new entry (or one
+    back after it was retired) is knowledge.found, one whose fields differ from its item's is knowledge.changed with
+    only those fields, and an active item no file holds any more is knowledge.retired; nothing else is said, so a
+    second run says nothing. (found, changed, retired)"""
+    known, counts, now = {i["id"]: i for i in fac.items("knowledge")}, carried(), time.time()
+    found = changed = retired = 0
+    seen = set()
+    for e in entries():
+        iid = f"knowledge/{e['id']}"
+        seen.add(iid)
+        want = {"title": e["title"], "kind": e["kind"], "file": e["file"], "text": short(e["text"]),
+                "carried": counts.get(e["id"], 0), **({"areas": e["areas"]} if e["areas"] else {})}
+        it = known.get(iid)
+        if it is None or it["state"] != "active":
+            fac.say("knowledge.found", iid, **want, found_at=now)
+            found += 1
+            continue
+        have = it["fields"]
+        diff = {k: v for k, v in want.items() if have.get(k) != v}
+        if have.get("areas") and not e["areas"]:
+            diff["areas"] = []
+        if diff:
+            fac.say("knowledge.changed", iid, **diff, changed_at=now)
+            changed += 1
+    for iid, it in known.items():
+        if it["state"] == "active" and iid not in seen:
+            fac.say("knowledge.retired", iid, retired_at=now)
+            retired += 1
+    return found, changed, retired
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["count"]:
         print(len(entries()))
+    elif sys.argv[1:] == ["sync"]:
+        print("knowledge: {} found, {} changed, {} retired".format(*sync()), file=sys.stderr)
     elif sys.argv[1:] == ["map"]:
         print(render_map(module_map(fac.config())[1], [], 10**9))
     else:
