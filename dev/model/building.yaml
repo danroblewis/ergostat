@@ -6,6 +6,7 @@ defaults:
 
 stocks:
   gaps-open:
+    system: intake
     unit: gaps
     description: gaps found in GAPS.md or requested, with no definition of done yet (the backlog the coordinator defines from)
     sensor: {items: gap, state: open, every: 1m}
@@ -39,14 +40,17 @@ auxiliaries:
 
 flows:
   gaps-found:
+    system: intake
     to: gaps-open
     description: entries of docs/GAPS.md taken in by the intake
     sensor: {items: gap, entering: open, where: {source: gaps}, over: 1d}
   gaps-requested:
+    system: intake
     to: gaps-open
     description: gaps asked for as events (gap.requested, with source request), the factory's own improvements among them
     sensor: {items: gap, entering: open, where: {source: request}, over: 1d}
   gaps-defined:
+    system: intake
     from: gaps-open
     to: gaps-ready
     description: a definition of done found for an open gap (the coordinator writes it)
@@ -97,6 +101,7 @@ flows:
 
 parameters:
   define-time:
+    system: intake
     value: 24h
     estimate: true
     description: how long a gap waits open before the coordinator writes its definition
@@ -144,6 +149,7 @@ goals:
 
 blocks:
   intake:
+    system: intake
     type: program
     description: the collector - GAPS.md entries on main (gap.found) and definitions of done for open gaps (gap.defined)
     run: python3 dev/bin/intake.py
