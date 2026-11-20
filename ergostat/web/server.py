@@ -528,11 +528,11 @@ def _answer(live: Live, path: str, q: dict, project=None):
             from ..runner import log_path
             log = log_path(p, name)
             from ..costs import record as costs
+            from ..daemons.supervise import of_daemon
             b = m.spec.blocks.get(name) if getattr(m, "spec", None) else None
             dn = b.params.get("daemon") if b is not None else None
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
-                    **({"daemon": {"name": dn, **next((v for k, v in snap.get("daemons", {}).items()   # (warm: NAME#1)
-                                                       if k.split("#")[0] == dn), {})}} if dn else {}),
+                    **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)

@@ -18,6 +18,7 @@ from dataclasses import replace
 from .. import runner as old
 from ..costs.sampler import Sampler
 from ..leases.kill import grace
+from .config import WARM_ALL
 from .proc import Process
 from .work import Hands
 
@@ -87,8 +88,10 @@ class Supervisor(Hands):
                         self._release(n)
                     self._drain(slot, "its definition changed" if n in want else "nothing uses it now")
                     del self.slots[n]
-            for n in set(want) - set(self.slots):
+            for n in sorted(set(want) - set(self.slots)):
                 self.slots[n] = slot = Slot(want[n])
+                if slot.d.warm and self._warm_live() >= WARM_ALL:
+                    continue                         # (the loop starts it once a warm process ends: WARM_ALL at most)
                 slot.spawning = True                 # claimed before the loop runs: spawned here, never by its tick
                 start.append(slot)
             self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon and s.push}
@@ -114,6 +117,11 @@ class Supervisor(Hands):
         for slot in fresh:
             self._spawn_claimed(slot)
         return True
+
+    def _warm_live(self) -> int:
+        """(under the lock) Warm processes running, being started, or draining: never more than WARM_ALL."""
+        return sum(1 for s in self.slots.values() if s.d.warm and (s.proc or s.spawning)) + \
+            sum(1 for s, _ in self.draining if s.d.warm)
 
     def subs(self, name: str) -> list[Slot]:
         """(under the lock) The daemon of that name: its one slot, or a warm one's process slots (NAME#i)."""
@@ -158,6 +166,8 @@ class Supervisor(Hands):
         with self.lock:                              # what to do worked out under the lock; done outside it
             for slot in list(self.slots.values()):
                 if slot.state in ("starting", "backoff") and now >= slot.next_at and not slot.spawning:
+                    if slot.d.warm and self._warm_live() + sum(s.d.warm for s, w in todo if w is None) >= WARM_ALL:
+                        continue
                     todo.append((slot, None))
                 elif slot.state == "running" and (why := self._trouble(slot, now)):
                     todo.append((slot, why))
@@ -273,6 +283,8 @@ class Supervisor(Hands):
             if alarm or failed:
                 slot.alarm = {"why": f"given up after {n} restarts within {d.within:g}s: {why}" if failed else why,
                               "at": time.time()}
+            base = d.name.rpartition("#")[0] if d.warm else d.name     # (warm: one alarm for the daemon, not each)
+            said = failed and any(s is not slot and s.state == "failed" for s in self.subs(base))
         res = {}
         if p is not None:
             crashed = p.ended.is_set() or p.proc.poll() is not None
@@ -283,11 +295,12 @@ class Supervisor(Hands):
                 **({"exit": p.proc.returncode} if p and p.proc.returncode is not None else {}),
                 **({"resources": res} if res else {})}
         if failed:
-            self.e.p.events.add("ergostat.daemon.failed", item=d.name, source=SOURCE,
-                                data={**data, "intervention": True, "class": f"alarm:daemon:{d.name}",
-                                      "users": self.users(d.name)})
+            if not said:
+                self.e.p.events.add("ergostat.daemon.failed", item=base, source=SOURCE,
+                                    data={**data, "intervention": True, "class": f"alarm:daemon:{base}",
+                                          "users": self.users(base)})
             self.e.say(f"daemon {d.name}: given up after {n} restarts within {d.within:g}s ({why}): alarm raised; "
-                       f"ergostat block {d.name} --restart when its cause is fixed")
+                       f"ergostat block {base} --restart when its cause is fixed")
             return
         self.e.p.events.add("ergostat.daemon.restarted", item=d.name, source=SOURCE,
                             data={**data, "wait": wait, **({"alarm": True} if alarm else {})})
@@ -347,6 +360,23 @@ class Supervisor(Hands):
             killpg(p.pid, 1.0)                       # (ended or not: what it started goes too)
         if self.slots or self.draining:
             self.write(final=True)
+
+
+def of_daemon(daemons: dict, name: str) -> dict:
+    """One daemon's status as the pages show it: a warm one's processes (NAME#i) together, how many in each state,
+    a partial give-up said, its latest alarm; each process's own under ``processes``."""
+    subs = {k: v for k, v in sorted(daemons.items()) if k.rpartition("#")[0] == name}
+    if name in daemons or not subs:
+        return daemons.get(name, {})
+    states = {}
+    for v in subs.values():
+        states[v["state"]] = states.get(v["state"], 0) + 1
+    alarms = [v["alarm"] for v in subs.values() if v.get("alarm")]
+    lines = [v["last_line"] for v in subs.values() if v.get("last_line")]
+    return {"state": ", ".join(f"{n} {s}" for s, n in states.items()) + f" (of {len(subs)} warm processes)",
+            "failed": states.get("failed", 0), "restarts": sum(v.get("restarts") or 0 for v in subs.values()),
+            "alarm": max(alarms, key=lambda a: a["at"]) if alarms else None, "last_line": max(lines, default=None),
+            "why": next((v["why"] for v in subs.values() if v.get("why")), ""), "processes": subs}
 
 
 def read_status(state_dir) -> dict:

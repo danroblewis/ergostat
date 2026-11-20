@@ -117,8 +117,9 @@ class Process:
     def stray(self, text: str, why: str, fault: bool = True) -> None:
         self.log.write(f"dropped ({why}): {text[:500]}\n")
         self.log.flush()
-        if fault and self.d.warm and self.recycle is None:     # it said something no run of its own: not to be trusted
-            self.recycle = (f"printed a line for no run it holds ({why})", True)
+        if fault and self.d.warm:                    # it said something no run of its own: not to be trusted
+            with self.lock:
+                self.recycle = self.recycle or (f"printed a line for no run it holds ({why})", True)
 
     def line(self, text: str) -> None:
         if not text:
@@ -168,21 +169,26 @@ class Process:
     def charge(self, h: Handle) -> None:
         """(warm) The CPU its group used while it held the run; what it left running, or a cancelled run, and it is
         replaced before it is handed another (it holds one run at a time, so nothing else's CPU is in it)."""
-        cpu, left = usage.charge(self.before, self.pid)
-        h.resources = {"cpu": round(cpu, 3), "method": "warm", **({"left_running": len(left)} if left else {})}
-        if left:
-            self.recycle = self.recycle or (f"left {len(left)} process(es) of its group running after its run", True)
-        elif h.cancelled is not None:
-            self.recycle = self.recycle or ("its run was cancelled", False)
-        elif self.served + 1 >= self.d.recycle:
-            self.recycle = self.recycle or (f"served {self.served + 1} runs (recycle: {self.d.recycle})", False)
+        cpu, left, dead = usage.charge(self.before, self.pid)
+        h.resources = {"cpu": round(cpu, 3), "method": "warm", **({"left_running": len(left)} if left else {}),
+                       **({"unreaped": len(dead)} if dead else {})}
+        why = (f"left {len(left)} process(es) of its group running after its run", True) if left else \
+            ("its run was cancelled", False) if h.cancelled is not None else \
+            (f"served {self.served + 1} runs (recycle: {self.d.recycle})", False) if self.served + 1 >= self.d.recycle \
+            else None
+        with self.lock:
+            self.recycle = self.recycle or why
 
-    def hold(self, run: str, h: Handle, line: dict) -> bool:
-        if self.d.warm:
-            self.before = usage.snapshot(self.pid)
+    def hold(self, run: str, h: Handle, line: dict | None) -> bool:
+        """The run held; its line sent now, or (None: a warm process's) by ``hand``, outside the supervisor's lock."""
         with self.lock:
             self.runs[run] = h
             self.idle_since = None
+        return self.send(line) if line is not None else True
+
+    def hand(self, line: dict) -> bool:
+        """(warm) Its group's CPU noted, then the run's line sent: what it uses from here is the run's."""
+        self.before = usage.snapshot(self.pid)
         return self.send(line)
 
     def ask(self, request: str, h: Handle, line: dict) -> bool:

@@ -1,6 +1,11 @@
 """A warm process's CPU, read from outside it (SPEC §9.7, *Warm*): for each member of its process group, its own CPU and
 that of every descendant it reaped (``RUSAGE_CHILDREN``, which only a process's own ``getrusage`` gives otherwise).
-macOS: ``proc_listpgrppids`` and ``proc_pid_rusage`` (libproc); Linux: ``/proc``. Elsewhere nothing is charged."""
+macOS: ``proc_listpgrppids`` and ``proc_pid_rusage`` (libproc); Linux: ``/proc``. Elsewhere nothing is charged.
+
+A run is charged the group's total now less its total at hand-over: a member that ended meanwhile and was reaped
+inside the group moved its whole life into its parent, and its part before the run is in the hand-over total. Not
+charged: a child that left the group (``setsid``) or was orphaned and reaped outside it, and a member whose usage
+cannot be read (EPERM). CPU used after ``done`` falls into the next run's charge."""
 
 from __future__ import annotations
 
@@ -74,7 +79,18 @@ def snapshot(pgid: int) -> dict[int, float]:
     return {pid: c for pid, c in got.items() if c is not None}
 
 
-def charge(before: dict[int, float], pgid: int) -> tuple[float, list[int]]:
-    """The CPU the group used since ``before``, and the members alive now that were not then (left running)."""
+def _zombie(pid: int) -> bool:
+    """Ended, not yet reaped (macOS: libproc gives no BSD info for one; Linux: state Z)."""
+    if MACOS:
+        return _libproc().proc_pidinfo(pid, 3, 0, ctypes.create_string_buffer(136), 136) <= 0
+    f = _stat(pid)
+    return bool(f) and f[0] == "Z"
+
+
+def charge(before: dict[int, float], pgid: int) -> tuple[float, list[int], list[int]]:
+    """The CPU the group used since ``before``; the members not there then and still running now (left running, its
+    leader never among them); and those that ended but were not reaped (unreaped)."""
     now = snapshot(pgid)
-    return max(0.0, sum(c - before.get(pid, 0.0) for pid, c in now.items())), sorted(set(now) - set(before))
+    new = sorted(set(now) - set(before) - {pgid})
+    dead = [p for p in new if _zombie(p)]
+    return max(0.0, sum(now.values()) - sum(before.values())), [p for p in new if p not in dead], dead

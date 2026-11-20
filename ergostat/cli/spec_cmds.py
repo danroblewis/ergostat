@@ -191,7 +191,9 @@ def cmd_block(args) -> int:
             return 2
         from ..daemons.warmcheck import check
         from ..spec.engine import callback_env
-        print(f"running {d.run} for real, four times: twice on one process, once on each of two others")
+        print(f"running {d.run} for real, four times: twice on one process, once on each of two others; without what "
+              f"the engine prepares for a run (no workdir or workspace, no action policy) and with only ERGOSTAT_RUN and "
+              f"ERGOSTAT_ITEM in each item's env")
         rc, why = check(d, spec.root, callback_env(spec, p.dir), json.loads(Path(args.check_warm).read_text()))
         print(why)
         return rc

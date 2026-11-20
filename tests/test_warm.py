@@ -18,6 +18,13 @@ import json, os, queue, subprocess, sys, threading, time
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 open("starts.log", "a").write(f"{os.getpid()}\n")
 q, count, last, seen = queue.Queue(), 0, None, []
+if "crash" in mode:
+    sys.exit(3)
+if "prekid" in mode:                             # a member of its group that burned CPU before any run
+    kid = subprocess.Popen([sys.executable, "-c", "import time\nt = time.process_time()\n"
+                            "while time.process_time() - t < 1.0: pass\nopen('burnt', 'w').close()\ntime.sleep(600)"])
+    while not os.path.exists("burnt"):
+        time.sleep(0.05)
 threading.Thread(target=lambda: [q.put(json.loads(x)) for x in sys.stdin] + [q.put({"op": "stop"})], daemon=True).start()
 def say(**o):
     sys.stdout.write(json.dumps(o) + "\n"); sys.stdout.flush()
@@ -40,6 +47,10 @@ while (m := q.get())["op"] != "stop":
     if "burn" in mode:                           # a child that burns CPU, reaped before done
         subprocess.run([sys.executable, "-c", "import time\nt = time.process_time()\n"
                         "while time.process_time() - t < 0.6: pass"])
+    if "prekid" in mode and count == 1:          # ends during the run, reaped: its whole life moves into this process
+        kid.kill(); kid.wait()
+    if "zombie" in mode and count == 1:          # a child that ends, never waited for
+        subprocess.Popen(["true"]); time.sleep(0.3)
     if "leave" in mode and count == 1:
         k = subprocess.Popen(["sleep", "600"]); open("kid.pid", "w").write(str(k.pid))
     end = time.time() + float(f.get("sleep", 0.05))
@@ -54,6 +65,8 @@ while (m := q.get())["op"] != "stop":
         say(event="ticket.done", run=r)
     say(done=1 if stopped else 0, run=r)
     last = r
+    if "once" in mode:
+        break
 '''
 
 
@@ -219,3 +232,77 @@ stocks:
     unit: things
     sensor: {daemon: w, every: 1m}
 """)
+
+
+def test_a_member_that_ends_during_a_run_charges_only_its_part_since(tmp_path):
+    p = setup(tmp_path, "{run: python3 w.py prekid, warm: true, concurrency: 1}")
+    e = start(p)
+    try:                                             # (its member's 1 s burned before the item arrives)
+        assert wait_for(lambda: (tmp_path / "burnt").exists(), 15)
+        p.events.add("ticket.opened", item="ticket/0", source="t")
+        assert wait_for(lambda: events(p, "agent.ran"), 15)
+    finally:
+        e.close()
+    res = events(p, "agent.ran")[0]["data"]["resources"]
+    assert res["cpu"] < 0.4, f"its 1 s before the run is not the run's: {res}"
+
+
+def test_an_unreaped_child_is_said_not_held_against_the_process(tmp_path):
+    p = setup(tmp_path, "{run: python3 w.py zombie, warm: true, concurrency: 1}")
+    run_all(p, 2)
+    assert events(p, "agent.ran")[0]["data"]["resources"].get("unreaped") == 1
+    assert "left_running" not in events(p, "agent.ran")[0]["data"]["resources"]
+    assert not events(p, "ergostat.daemon.restarted") and len(starts(tmp_path)) == 1
+
+
+def test_warm_processes_are_capped(tmp_path, monkeypatch):
+    from ergostat.daemons import supervise
+    from ergostat.spec import read
+
+    def said(text: str) -> str:
+        (tmp_path / "ergostat.yaml").write_text(text)
+        return "\n".join(x.message for x in read(tmp_path / "ergostat.yaml")[1] if x.level == "error")
+    assert "at most 32 for a warm daemon" in said(block("{run: x, warm: true, concurrency: 5000}"))
+    assert "at most 32" not in said(block("{run: x, concurrency: 50}")), "a daemon that is not warm: one process"
+    many = KIND + "daemons:\n" + "".join(f"  d{i}: {{run: x, warm: true, concurrency: 30}}\n" for i in range(3))
+    assert "90 warm processes in all; at most 64" in said(many)
+    monkeypatch.setattr(supervise, "WARM_ALL", 2)    # at run time: never more alive at once, draining ones counted
+    p = setup(tmp_path, "{run: python3 w.py, warm: true, concurrency: 3, recycle: 1}")
+    for i in range(6):
+        p.events.add("ticket.opened", item=f"ticket/{i}", source="t", data={"sleep": 0.2})
+    e, most = start(p), 0
+    try:
+        def done():
+            nonlocal most
+            with e.daemons.lock:
+                most = max(most, e.daemons._warm_live())
+            return all(item(p, f"ticket/{i}").state == "done" for i in range(6))
+        assert wait_for(done, 30)
+    finally:
+        e.close()
+    assert 1 <= most <= 2, most
+
+
+def test_one_alarm_when_a_warm_daemons_processes_are_given_up(tmp_path):
+    from ergostat.daemons.supervise import of_daemon
+    p = setup(tmp_path, "{run: python3 w.py crash, warm: true, concurrency: 2, restart: {max: 0}}")
+    p.events.add("ticket.opened", item="ticket/0", source="t")
+    e = start(p)
+    try:
+        assert wait_for(lambda: all(s.state == "failed" for s in e.daemons.slots.values()), 10)
+        st = of_daemon(e.daemons.status(), "block.worker")
+    finally:
+        e.close()
+    failed = events(p, "ergostat.daemon.failed")
+    assert len(failed) == 1 and failed[0]["item"] == "block.worker", failed
+    assert st["failed"] == 2 and "2 failed (of 2 warm processes)" in st["state"] and len(st["processes"]) == 2
+
+
+def test_the_check_concludes_nothing_unless_every_run_says_done(tmp_path):
+    from ergostat.daemons.warmcheck import check
+    from ergostat.spec.ir import Daemon
+    (tmp_path / "w.py").write_text(WARM)
+    given = {"item": {"id": "ticket/1", "fields": {}}}
+    for mode, says in (("crash", "did not end with its own done"), ("quiet-once", "did not end with its own done")):
+        rc, why = check(Daemon("w", f"python3 w.py {mode}", warm=True), tmp_path, dict(os.environ), given, timeout=10)
+        assert rc == 2 and says in why and "exits:" in why, (mode, why)
