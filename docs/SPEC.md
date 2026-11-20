@@ -1918,8 +1918,8 @@ blocks:
   block to each block whose `on:` one of its `emits:` types can match (`where:` is not read, so an edge that `where:`
   would rule out still counts). A cycle in it, of any length, a block that starts itself among them, is an error
   naming it (`check`: `trigger-loop`, `a → b → c → a`). What a triggered run says outside its `emits:` is refused: a
-  line (`agent.refused`), or `$ERGOSTAT_CMD event --add` (by the engine's socket or without it: the run is named by
-  `ERGOSTAT_RUN` and `ERGOSTAT_BLOCK`).
+  line (`agent.refused`), or `$ERGOSTAT_CMD event --add` (by the engine's socket or without it: its block is read
+  from the run's own `agent.started`, the one `ERGOSTAT_RUN` names, never from what the caller says of itself).
 - **A budget carried on the record.** The graph cannot see what blocks that are not started by events say (one that
   takes the items a triggered block moves, one it commands). So **every** run's `agent.started` carries what led to
   it, inherited from what caused it, whatever started it (an event, an item it takes, a command): `depth`, how many
@@ -1928,13 +1928,18 @@ blocks:
   record); a cause not found, or further back, is recorded `unknown` (its depth counted 0: the breaker below still
   holds). A goal's crossing (`loop.*`) begins afresh: a control loop closes through a measurement, which paces it. An
   event that 8 runs started by events led to starts nothing, and is recorded once (`trigger.stopped`: the event, its
-  depth and chain), so a loop of any length, through any blocks, runs at most 8 triggered hops.
+  depth and chain). The 8 are counted along one line of causes: a loop of any length, through any blocks, runs at most
+  8 triggered runs in a row on each line. An event that starts several (one block on it and another taking the item
+  it opened; two blocks on it) starts a line for each, and each line has its own 8, so a block may run more than 8
+  times in all (twice 8 for two lines), each run's `depth` 8 at most.
   (An event looked up by id, here and by `ergostat event ID`, is the one with exactly that id when there is one, else
   the first, in id order, whose id starts with it, both by the index; before, any one starting with it could come.)
 - **A breaker per block.** More than `most:` (60) of its runs started by events within a minute trips it: recorded
   (`trigger.tripped`), and an entry in the inbox (section 12o); its events then wait, starting nothing, until the
   owner resets it (approving the entry, or `ergostat block NAME --reset`: `trigger.reset`). It bounds a fan-out, and a
-  loop through anything the budget cannot follow (a relay outside ergostat that drops `causedby`).
+  loop through anything the budget cannot follow (a relay outside ergostat that drops `causedby`). A run never answers
+  for its own block: `ergostat block NAME --reset` or `--approve`, or the inbox's answer to its ask or its breaker, from
+  inside a run of `NAME` (`ERGOSTAT_RUN`, its block read from the record) is refused.
 - **Advised.** In `mode: advise` each event is asked about before it runs (`block.advised`, caused by the event, its
   `data` naming it: `event`, `event_type`, `event_seq`), one at a time, in the inbox (section 12o); the events after
   it wait. An answer names the ask it answers (`data.ask`, the `seq` of its `block.advised`; the inbox and
