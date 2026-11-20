@@ -56,16 +56,32 @@ systems:
     within: oversight
     description: the coordinator's interventions, each evidence of a loop the factory lacks
     show: [stock.interventions-open, auxiliary.interventions-trend]
+  planning:
+    within: factory
+    description: each open gap planned (its definition of done, or a split) and the plan reviewed before it is built
+    show: [stock.gaps-planned, stock.gaps-replan]
+  research:
+    within: factory
+    description: questions from the coordinator or a planner, answered with a report and its sources
+    show: [stock.research-asked]
+  knowledge:
+    within: factory
+    description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
+    show: [stock.knowledge-entries, stock.lessons-proposed, auxiliary.first-pass-with-lessons]
 
 items:
   gap:
     id: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
-    states: [open, ready, fix, building, built, in-review, approved, queued, queue-failed, merged, parked]
+    states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, queue-failed, merged,
+             parked]
     on:
       gap.found: open                # intake: an entry of docs/GAPS.md
-      gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME
-      gap.defined: ready             # intake: its definition of done exists
+      gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
+      gap.planned: planned           # planner: its definition of done written (run/plans/)
+      gap.plan-sent-back: replan             # plan review: sent back to the planner with its findings
+      gap.split: split               # planner: split into sub-gaps, each naming it as parent; joined once all merged
+      gap.defined: ready             # intake, or the plan review: its definition of done exists
       gap.started: building          # implementor
       gap.built: built
       gap.review-started: in-review  # reviewer
@@ -80,6 +96,7 @@ items:
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where)
+      parent: gap                    # a sub-gap of a split (plan.py)
     fold:
       rounds: sum
       reviews_n: sum
@@ -95,6 +112,12 @@ items:
       reviews: append
       contexts: append
       flakes: union
+      plan_failures: sum
+      plan_reviews: append
+      research: union
+      research_waits: sum
+    join:
+      - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}
     # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
 
@@ -154,8 +177,30 @@ items:
       upgrade.reverted: reverted
     show: [sha, check, switch, previous]
 
+  research:
+    id: research/*
+    description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report
+    states: [asked, answered]
+    on:
+      research.asked: asked
+      research.answered: answered
+    show: [question, gap, summary, report]
+
+  lesson:
+    id: lesson/*
+    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, or retired
+    states: [seen, proposed, requested, retired]
+    on:
+      lesson.seen: seen              # librarian: a class not listed, found in one review
+      lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
+      lesson.requested: requested    # knowledge-change approved: a gap with the exact edit (lesson.py)
+      lesson.retired: retired        # lesson.py retire
+    show: [kind, lesson, name, text, times, gap]
+    fold: {times: sum, reviews: union, findings: append}
+
 messages:
-  done: {gap: [merged, parked], upgrade: [healthy, reverted, superseded, failed]}   # (finished, for the estimates)
+  done: {gap: [merged, parked], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+         lesson: [requested, retired]}   # (finished, for the estimates)
 
 agents:
   opus:
