@@ -15,7 +15,8 @@ index (its links, both ways, and its moves); nothing is declared for it but the 
 - **The critical path** (CPM: Kelley and Walker's critical path method): a forward pass over the unfinished items
   in precedence order (each starts once its unfinished predecessors are expected to end; an active one now), a
   backward pass from the last end, and each item's slack, how long it may slip without moving the end. The
-  critical items have none. Resources are not levelled: a pool's limit is not in the projection.
+  critical items have none. Not levelled: a pool's limit is in the completion estimates (``numbers/eta.py``), whose
+  levelled run the Timeline draws in place of this projection once it is worked out.
 - **Cycles.** Items whose precedence relations go round are a finding: they are left out of the projection.
 - **The schedule** (the Timeline): each item's actual segments, its states over time from its moves, and for the
   unfinished, projected segments from the forward pass, state by state.

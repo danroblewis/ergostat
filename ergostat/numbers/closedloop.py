@@ -203,17 +203,19 @@ class WhatIf:
     flows: dict[str, tuple[str, float]] = field(default_factory=dict)
     setpoints: dict[str, float] = field(default_factory=dict)
     pools: dict[str, int] = field(default_factory=dict)
+    failures: dict[str, float] = field(default_factory=dict)    # a block's share of runs that fail (0 to 1)
 
     def __bool__(self) -> bool:
-        return bool(self.flows or self.setpoints or self.pools)
+        return bool(self.flows or self.setpoints or self.pools or self.failures)
 
     def key(self) -> tuple:
-        return tuple(tuple(sorted(d.items())) for d in (self.flows, self.setpoints, self.pools))
+        return tuple(tuple(sorted(d.items())) for d in (self.flows, self.setpoints, self.pools, self.failures))
 
     def said(self) -> list[str]:
         return [f"{r[5:]} {'×' + format(v, 'g') + ' its mean' if how == 'x' else 'at ' + _rate(v)}"
                 for r, (how, v) in self.flows.items()] + \
-            [f"goal {g} at {v:g}" for g, v in self.setpoints.items()] + [f"{b}'s pool {n}" for b, n in self.pools.items()]
+            [f"goal {g} at {v:g}" for g, v in self.setpoints.items()] + [f"{b}'s pool {n}" for b, n in self.pools.items()] + \
+            [f"{b} failing {v:.0%} of its runs" for b, v in self.failures.items()]
 
 
 class WhatIfError(ValueError):
@@ -229,7 +231,7 @@ def _number(k: str, v: str, words: str) -> float:
 
 def parse_whatif(spec: Spec, raw: dict[str, str]) -> tuple[dict[str, str], WhatIf]:
     """The parameters (as they came, for ``proposals.what_if``) apart from ``flow.NAME`` (a rate an hour, or ``x2``),
-    ``goal.NAME`` (a setpoint) and ``block.NAME.pool``."""
+    ``goal.NAME`` (a setpoint), ``block.NAME.pool`` and ``block.NAME.failure`` (a share of its runs, 0.2 or 20%)."""
     params, w = {}, WhatIf()
     for k, v in raw.items():
         v = str(v).strip()
@@ -251,6 +253,14 @@ def parse_whatif(spec: Spec, raw: dict[str, str]) -> tuple[dict[str, str], WhatI
             if n < 1:
                 raise WhatIfError(f"{k}: a pool of at least 1")
             w.pools[k[6:-5]] = n
+        elif k.startswith("block.") and k.endswith(".failure"):
+            b = spec.blocks.get(k[6:-8])
+            if b is None or not b.takes:
+                raise WhatIfError(f"{k[6:-8]} is not a block that takes items: its runs are not counted")
+            f = _number(k, v.rstrip("%"), "a share of its runs, 0.2 or 20%") / (100.0 if v.endswith("%") else 1.0)
+            if not 0 <= f < 1:
+                raise WhatIfError(f"{k}: a share from 0 up to 1")
+            w.failures[k[6:-8]] = f
         else:
             params[k] = v
     return params, w
@@ -278,7 +288,8 @@ class _Control:
         models = {r: m.fresh() if hasattr(type(m), "fresh") else m for r, m in models.items()}   # a law's own state, per run
         self.spec, self.models, self.own, self.params, self.inputs, self.whatif = spec, models, own, params, inputs, whatif
         self.flows = set(models)
-        self.drawn = {r: {**(drawn.get(r) or {}), **({"servers": whatif.pools[m.block]} if m.block in whatif.pools else {})}
+        self.drawn = {r: {**(drawn.get(r) or {}), **({"servers": whatif.pools[m.block]} if m.block in whatif.pools else {}),
+                          **({"success": 1 - whatif.failures[m.block]} if m.block in whatif.failures else {})}
                       for r, m in models.items()}
         self.G: dict = {}
         self.sh = Shadow(spec, self.G, start, whatif.setpoints)

@@ -389,7 +389,9 @@ function modelsSaid(d) {
     `Each block's identified model (${d.models.length})${d.models_assumed?.length ? `; assumed: ${d.models_assumed.join(", ")}` : ""}`),
     h("ul", {}, d.models.map((x) => h("li", { class: x.assumed ? "s-open" : null }, x.said,
       SNAP || x.pool == null ? null : h("span", { class: "muted" }, "; what if its pool were ", whatifField(`block.${x.block}.pool`,
-        `what if ${x.block}'s pool were`, x.pool, "another number of runs at once"))))))];
+        `what if ${x.block}'s pool were`, x.pool, "another number of runs at once"), " and it failed ", whatifField(`block.${x.block}.failure`,
+        `what if ${x.block} failed`, x.success != null ? `${Math.round((1 - x.success) * 100)}%` : "", "a share of its runs given back (rework): 20%"),
+        " of its runs (the items' estimates too)")))))];
 }
 /* a what-if only the closed-loop projection can try (an input's rate, a goal's setpoint, a pool), typed in a panel:
    drawn on every chart on the page, never kept */
