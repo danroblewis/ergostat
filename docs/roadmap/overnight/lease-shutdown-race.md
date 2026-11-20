@@ -297,3 +297,21 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
   The gap is not done.
 - **Ran serially:** `tests/test_leases.py` (26 passed); `test_lease_kill`, `test_leased_workspaces`, `test_daemons`
   (39 passed). Ruff is clean. There is no remote, and local `main` is already merged.
+
+### After round 5's second unit run (one `F` at 11%, stopped at 99%; the test not named; no code changed)
+
+- **What the tail showed.** One `F` at about 11%. After it come dots up to 99% and five more, then nothing: no
+  failure section, no summary and no `suite_watch` closing line. So the run was again stopped from outside, just
+  before its report, and the failing test's name and traceback were never printed.
+- **Looked for here, and not found.** In collection order, the first ~23% of the suite runs from `test_architecture`
+  through `test_daemons`. Run serially in one process, `test_architecture` through `test_daemon_docs` passed (442
+  passed). So did `test_leases`, `test_factory_sessions`, `test_lease_kill`, `test_leased_workspaces` and
+  `test_daemons` (70 passed). Under xdist, though, a test at 11% need not come from those files. The failure could
+  also be one that only shows under `-n 8` load. This session's harness refused a watchdogged `-n 4` run of those
+  files, and the worktree holds no output from the factory's run.
+- **Decision taken alone (reversible).** No code change. There is no named test and no cause, and the code can't be
+  fixed blind without hiding what the next run would show (lesson-10, lesson-13). The next watched run should keep
+  its whole output, or run with `-rf -o faulthandler_timeout=300`, so that a failure is named even if the run is
+  stopped before its summary.
+- **Still open:** a green unit run, and the 30 loaded `-n 8` runs of the restart test (the DoD's last acceptance
+  line). The gap is not done.
