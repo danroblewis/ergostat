@@ -76,7 +76,9 @@ items:
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push]
+    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+    relations:
+      depends_on: gap                # precedence: ready to build once every gap it names is merged (dev/bin/deps.py)
     fold:
       rounds: sum
       reviews_n: sum
@@ -152,7 +154,7 @@ items:
     show: [sha, check, switch, previous]
 
 messages:
-  done: {gap: [merged, parked], upgrade: [healthy, reverted, superseded, failed]}
+  done: {gap: [merged], upgrade: [healthy, reverted, superseded, failed]}   # a parked gap's dependents stay blocked
 
 agents:
   opus:

@@ -37,6 +37,12 @@ stocks:
     sensor: {items: gap, state: dead, every: 1m}
 
 auxiliaries:
+  dependency-problems:
+    system: intake
+    unit: gaps
+    description: gaps naming a dependency that is no gap, or one refused because it would close a cycle
+    driven-by: [+flow.gaps-found, +flow.gaps-requested]
+    sensor: {items: gap, where: {dependency_problem: true}, every: 1m}
   intake-open:
     unit: switch
     exogenous: true
@@ -143,6 +149,12 @@ parameters:
     description: the share of reviews that park the gap
 
 goals:
+  dependencies-sound:
+    system: intake
+    auxiliary: dependency-problems
+    hold: "<= 0"
+    tolerance: 0
+    description: every dependency names a gap, and none goes round
   no-dead-letters:
     stock: gaps-dead
     hold: "<= 0"
@@ -192,7 +204,7 @@ blocks:
     description: a headless Claude Code session per gap in its own worktree (~/ergostat-wt/<branch>) - the definition committed first, the work, the fast suites
     run: python3 dev/bin/implement.py
     prompt: dev/prompts/implementor.md
-    takes: {kind: gap, at: [fix, ready], to: [built]}
+    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true}   # its dependencies merged; the critical first
     pool: 4                          # the most: the pool now is implementor-pool (dev/model/pools.yaml)
     lease: {ttl: 90m, attempts: 2}
     timeout: 6h

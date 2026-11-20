@@ -725,7 +725,8 @@ for:
   its first state is the schedule's to say); a started item's, what is left of its state and the states after it.
   A kind with no stays yet takes the median of the kinds that have them, else ten minutes, said as assumed.
 - **The critical path** (the critical path method, Kelley and Walker): a forward pass over the unfinished items in
-  precedence order (each starts once what it waits on is expected to end; a started item now), a backward pass
+  precedence order (each starts once what it waits on is expected to end; a started item now: one past its kind's
+  first state and not waiting in a state a block takes from, or held), a backward pass
   from the last expected end, and each item's **slack**, how long it may slip without moving that end; the
   critical items have none. A parent with unfinished children is their summary: what comes before it comes before
   its children, what comes after it waits for all of them. The critical path itself is not levelled (a block's
