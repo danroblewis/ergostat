@@ -270,6 +270,8 @@ uses:                           # optional: instances of templates (section 2a)
   ...
 remotes:                        # optional: systems other ergostats run, read here (section 4c)
   ...
+web:                            # optional, main file only: the page's public names and their login (section 4d)
+  ...
 library:                        # optional, main file only: folders of the owner's templates (section 2a)
   - ...
 ```
@@ -547,6 +549,37 @@ what admits.
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
 most); `ergostat remote refresh` asks each again now.
+
+## 4d. The page behind a public name
+
+The page answers on this machine only: a request must name it as `127.0.0.1:PORT` (or `localhost`, `[::1]`) in its
+`Host`, so a page on another site whose name was pointed at this machine (DNS rebinding) is refused. To reach it
+from elsewhere through a tunnel (cloudflared) at a public name, the main file declares the name and the Cloudflare
+Access application that logs people in there:
+
+```yaml
+web:
+  names: [ergostat.example.org]          # the tunnel's public hostname(s): no scheme, port or path
+  access:
+    team: myteam.cloudflareaccess.com    # the Access team domain (myteam alone is the same)
+    aud: 4714c1358e65fe4b...             # the Access application's Audience (AUD) tag
+    emails: [owner@example.org]          # who may use the page
+```
+
+| Request | Served |
+|---|---|
+| `Host` the local name, nothing from Cloudflare | as before: the owner |
+| `Host` a declared name, or any request carrying `Cf-Ray`, `Cf-Connecting-Ip` or `Cf-Access-Jwt-Assertion` (a tunnel that rewrites `Host` to the local name) | only with a valid `Cf-Access-Jwt-Assertion` whose `email` is listed; 401 without one, 403 for an email not listed or when `web:` declares no login. Reads too |
+| any other `Host` | 403 |
+
+The token is verified with the standard library: RS256 only, against the team's keys
+(`https://TEAM/cdn-cgi/access/certs`, fetched again hourly, and on a key not yet seen at most every 30 s; a fetch
+that fails keeps the keys there were), `aud` holding the tag, `iss` the team's `https://TEAM`, `exp` not passed and
+`nbf` reached (30 s of leeway). A write under the public name needs, besides the page's own token, `Origin`
+`https://NAME`, and what it records says the email where a write from this machine says `owner` (who accepted a
+proposal, approved an action, answered the inbox, sent a message). The push paths (`/api/events`, `/api/hooks/`,
+section 5c) and the remote API (`/remote/`, section 4c) keep their own tokens. Requests still come only from this
+machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**), and names without `access`.
 
 ## 5. Stocks
 

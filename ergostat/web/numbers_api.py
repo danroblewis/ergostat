@@ -20,6 +20,7 @@ from ..numbers import simulate as sim
 from ..numbers import version as ver
 from ..numbers.simulate import horizon_of  # noqa: F401  (the page's and the command line's horizon)
 from ..spec import equation as eq
+from ..webaccess import who
 
 ESTIMATING = threading.Lock()     # one estimate at a time: each is a few hundred replays
 RISK_BUDGET = 8.0        # seconds the page's closed-loop Monte Carlo may take; past it, it says how many runs it made
@@ -723,7 +724,7 @@ def redesign_asked(live, p, system: str) -> tuple[int, dict]:
         return 409, {"error": f"a redesign of {s} is waiting already: in the queue below", "id": w["id"]}
     if "redesigner" not in p.model.spec.blocks:
         return 409, {"error": "no redesigner in the model: use: modelling with ai: true has one"}
-    got = rd.ask(p, s)
+    got = rd.ask(p, s, by=who())
     return 200, {"asked": got["asked"], **rd.settings(p.model.spec)}
 
 
@@ -765,7 +766,7 @@ def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, di
                 from ..control import proposals as cp
                 from .control_api import forget
                 try:
-                    got = cp.dismiss(p, parts[1], reason) if parts[2] == "dismiss" else cp.accept(p, parts[1], "owner", expect)
+                    got = cp.dismiss(p, parts[1], reason, by=who()) if parts[2] == "dismiss" else cp.accept(p, parts[1], who(), expect)
                 except cp.ProposalError as e:
                     return 409, {"error": str(e)}
                 if parts[2] == "accept":
@@ -773,8 +774,8 @@ def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, di
                 forget(live)
                 return 200, got
             if parts[2] == "dismiss":
-                return 200, pr.dismiss(p, parts[1], reason)
-            got = pr.accept(p, parts[1], snap, by="owner", expect=expect)
+                return 200, pr.dismiss(p, parts[1], reason, by=who())
+            got = pr.accept(p, parts[1], snap, by=who(), expect=expect)
             live.reloaded()
             return 200, got
     except pr.ProposalError as e:
