@@ -57,7 +57,10 @@ else:
 
 
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+    """git in a fixture repository, with an identity of its own: a machine with no global git config (the dev
+    container, the factory's suite containers) can still commit."""
+    who = ["-c", "user.name=t", "-c", "user.email=t@example.com"]
+    return subprocess.run(["git", "-C", str(repo), *who, *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
 GAPS = """\
