@@ -43,6 +43,8 @@ class BlockIn:
     most: int                      # attempts before a dead letter
     ttl: float = 0.0               # its lease's TTL: a run silent this long expires
     workspace: str | None = None   # the workspace pool its runs take one from, held by the item until it finishes
+    order: list[str] = field(default_factory=list)   # takes: {order: [FIELD]}: its queue by them first (SPEC §9.5)
+    off: str = ""                  # commanded off now (why): what waits for it is projected not to move
     attempts: list[Attempt] = field(default_factory=list)
     run: KM | None = None          # how long a run holds its lease (the going censored)
     assumed: str = ""
@@ -78,6 +80,7 @@ class ItemAt:
     preds: list[str] = field(default_factory=list)
     level: int = 0                 # how many items wait on it, however far (critical first, for unblocked)
     holds: set = field(default_factory=set)   # the workspace pools it holds one of at ``at``
+    fields: dict = field(default_factory=dict)  # the fields some block's takes: orders by
 
 
 @dataclass
@@ -88,6 +91,10 @@ class Inputs:
     items: dict[str, ItemAt]
     finished_at: dict[str, float] = field(default_factory=dict)   # (the backtest's truth, when read past ``at``)
     workspaces: dict[str, int] = field(default_factory=dict)      # each workspace pool a block uses → its size
+
+
+def _orders(spec, kind: str) -> set[str]:
+    return {f.lstrip("-") for b in spec.blocks.values() if b.takes and b.takes.kind == kind for f in b.takes.order}
 
 
 def _fold(moves: list[dict], at: float):
@@ -180,7 +187,8 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
             s, t0, t1 = stays[-1]
             if s not in fin and s != DEAD:
                 out.items[it.id] = ItemAt(it.id, k, s, t0, back[-1] if back else t0,
-                                          (None, leased) if leased else None)
+                                          (None, leased) if leased else None,
+                                          fields={f: it.fields.get(f) for f in _orders(spec, k)})
                 done = next((m["time"] for m in it.moves if m["time"] > at and (m["to"] in fin or m["to"] == DEAD)), None)
                 if truth and done is not None:
                     out.finished_at[it.id] = done
@@ -213,6 +221,30 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
     return out
 
 
+def gated_off(p, spec, at: float) -> dict[str, str]:
+    """The blocks that take items and are commanded off at ``at`` (a switch at 0 or never read, a gate shut): {name:
+    what commands it}. Worked out as the engine would (``closedloop.Shadow``) from the record's newest readings."""
+    want = [b for b in spec.blocks.values() if b.takes and b.machine and spec.commanders_of(b.name)]
+    if not want:
+        return {}
+    from .closedloop import Shadow, start_of
+    sig: dict = {}
+    for kind, table in (("stock", spec.stocks), ("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
+        for name, x in table.items():
+            got = [g for s in x.sensors.values() if (g := p.measurements.latest(s.series, before=at))]
+            if got:
+                sig[f"{kind}.{name}"] = max(got)[1]
+            elif kind == "auxiliary" and x.exogenous and any(s.manual for s in x.sensors.values()):
+                sig[f"{kind}.{name}"] = 0.0             # a switch never read is off
+    try:
+        sh = Shadow(spec, sig, start_of(p, spec, at))
+        sh.step(at)
+        cmds = {b.name: sh.command_of(b) for b in want}   # (off only when worked out: a reading missing says nothing)
+        return {n: str(d.get("from")) for n, (cmd, d) in cmds.items() if cmd == 0 and d.get("from")}
+    except Exception:  # noqa: BLE001 - not worked out: every block projected as running, as before
+        return {}
+
+
 def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     """Each block's attempts and its run-time curve; each open item's lease, attempts and put-off."""
     from ..leases.fold import refused_expiries
@@ -220,6 +252,7 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     evs = p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at)
     void = refused_expiries(p.events, spec, evs, ix=ix)   # (renewed after it was judged: the run went on)
     runs: dict[str, dict] = {}
+    offs = gated_off(p, spec, out.at)
     for e in evs:
         if e["id"] in void:
             continue
@@ -257,7 +290,7 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
         ws = (b.params or {}).get("workspace")
         ws = ws if ws in spec.workspaces else None
         bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), b.pool, shared, bool(b.takes.unblocked), t["attempts"],
-                     float(t["ttl"]), ws)
+                     float(t["ttl"]), ws, b.takes.order, offs.get(b.name, ""))
         rs = by_block.get(b.name, [])
         if ws:                                          # a run given back for want of a workspace held nothing: a wait
             out.workspaces[ws] = spec.workspaces[ws].size

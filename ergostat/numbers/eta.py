@@ -24,6 +24,7 @@ import random
 import time
 from dataclasses import dataclass, replace
 
+from ..leases.ready import take_key
 from ..leases.terms import grace
 from ..spec.ir import DEAD, LEASED
 from .etamodel import Attempt, Inputs
@@ -111,12 +112,15 @@ class _Run:
         if self.left.get(i) and (state == k.states[0] or bs and any(self.blocks[b].unblocked for b in bs)):
             self.parked.add(i)                         # waits on what it names
             return
+        if bs and all(self.blocks[b].off for b in bs):
+            return                                     # what would take it is commanded off: it stays where it is
         if bs:
             x = self.inp.items.get(i)
             for b in bs:
                 bl = self.blocks[b]
                 self.seq += 1
-                key = (bl.at.index(state), -(x.level if x and bl.unblocked else 0), t if queued is None else queued, self.seq)
+                key = (*take_key(bl.order, bl.at, state, x.fields if x else {}, -(x.level if x and bl.unblocked else 0)),
+                       t if queued is None else queued, self.seq)
                 heapq.heappush(self.queue[b], (key, i, it[4]))
             self.wake(t)
             return
@@ -357,7 +361,8 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
     for b in inp.blocks:
         q = [x for x in inp.items.values() if x.kind == b.kind and x.state in b.at and not x.lease
              and not (b.unblocked and x.preds)]
-        q.sort(key=lambda x: (b.at.index(x.state), -(x.level if b.unblocked else 0), x.queued, x.id))
+        q.sort(key=lambda x: (*take_key(b.order, b.at, x.state, x.fields, -(x.level if b.unblocked else 0)), x.queued,
+                              x.id))
         place[b.name] = {x.id: n for n, x in enumerate(q)}
     for x in inp.items.values():
         k = inp.kinds[x.kind]
@@ -380,6 +385,11 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
             if w and w not in x.holds and sum(1 for y in inp.items.values() if w in y.holds) >= inp.workspaces[w]:
                 put += f"; every workspace of {w} is held ({inp.workspaces[w]}): it waits for one, holding nothing"
             med = b.run.quantile(0.5) if b.run else None
+            if b.off:
+                out[x.id] = {"waits_in": b.name, "position": None, "capacity": cap, "off": True,
+                             "why": waits + f"waits for {b.name}, which is switched off now (by {b.off}): projected "
+                             "not to move until it is on"}
+                continue
             out[x.id] = {"waits_in": b.name, "position": None if pos is None else pos + 1, "capacity": cap,
                          "why": waits + f"{held.get(b.name, 0)} of {cap} busy in {b.name}{bind}"
                          + (f"; {pos} ahead of it" if pos is not None else "") + put

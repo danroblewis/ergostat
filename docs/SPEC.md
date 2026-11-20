@@ -837,7 +837,11 @@ stand now):
   kind's.
 - **A state a block takes from** is a wait and a run: the item queues at the block in its `takes:` order (the states
   of `at` in order, then by when it came back to the state, so a nack's return goes to the back; with
-  `unblocked: true`, those more items wait on first), at most the block's capacity at once: its `pool`, its agent's
+  `unblocked: true`, those more items wait on first; with `order:`, by its fields before all of these: the
+  dispatcher's own comparator, so the projection takes them in the order the block will). An item waiting in a state
+  whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
+  the engine would from the newest readings) is projected not to move: no bar, its reason "waits for B, which is
+  switched off now (by C)", at most the block's capacity at once: its `pool`, its agent's
   `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
   them), and its `workspace:` pool (§12k): a workspace taken at the item's first run of such a block is held by the
   item across every state until it finishes, so a pool of three keeps at most three items between that take and their
@@ -2080,7 +2084,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -2097,7 +2101,13 @@ matching `where`, is leased to a new run, oldest first (by when it entered its s
 leases its runs hold are fewer than its `pool`. With `unblocked: true`, an item a precedence relation says waits on
 an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
 slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
-precedence relation. ergostat looks whenever the record has something new,
+precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
+fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
+it), then the states of `at` in order, then the order above (the critical first, or the oldest): `takes: {kind: gap,
+at: ready, unblocked: true, order: rank}` takes the groomed backlog's next unblocked gap, `order: [-priority]` a
+ticket queue's most urgent. The dispatcher and the completion estimates (section 5a) sort by one comparator
+(`leases/ready.py`'s `take_key`), so the Timeline's projected runs are in the order the block will take them. `check`
+notes an order field no item in the record holds yet (`takes-order-unset`). ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. A kind taken by a block gains two states, when
 it does not list them: `leased`, after the first `at` state, and `dead`, last.

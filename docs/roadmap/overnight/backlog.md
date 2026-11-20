@@ -20,6 +20,16 @@ dependency finished) in rank order.
    the critical first) is kept among equals. The completion estimates queue the items in the same order. SPEC §9.5
    (the takes table and *Dispatch*) and §5a (the projected queue) say so. The implementor takes
    `{unblocked: true, order: rank}`; the planner takes `{unblocked: true, order: rank}` too.
+   *Added by the coordinator for the owner* ("the gantt view to show the order we expect the system to pop the items
+   off the queue... generic, usable for any type of item with dependencies"): `order:` is core and generic, a field
+   or a list of them, `-FIELD` for highest first; the dispatcher and the completion estimates sort by one comparator
+   (`leases/ready.py` `take_key`: the order fields, then the states of `at`, then the critical first), so the
+   Timeline's projected runs are the order the block takes them in, for any kind; `check` notes an order field no
+   item holds yet (`takes-order-unset`); the agent guide says it is the way to prioritise any queue. And an item
+   waiting for a block that is commanded off now (a switch at 0 or never read: `planning-open`) is projected not to
+   move ("waits for planner, which is switched off now"), not at the record's pace. The coordinator's earlier
+   `gap.dependencies` events wrote `rank`, `value`, `size`, `risk` and `groomed_why`: the groomer writes the same
+   names.
 2. **The solver** (`dev/bin/solve.py`, a program, deterministic): given the backlog's gaps, their `depends_on`, value,
    size, risk and pins, a ranked list with a reason for each. A topological order (a gap after every gap it depends on
    that is still in the backlog), by list scheduling: at each place, of the gaps whose dependencies are placed, the
@@ -62,9 +72,11 @@ dependency finished) in rank order.
 - `tests/test_backlog.py::test_solver_orders_topologically_by_wsjf_with_a_bonus_for_unblocking`
 - `tests/test_backlog.py::test_solver_holds_pins_and_pulls_their_dependencies_ahead`
 - `tests/test_backlog.py::test_solver_refuses_a_cycle_with_a_finding`
-- `tests/test_backlog.py::test_takes_order_by_rank_among_unblocked` (the dispatcher's hook, and the spec's `order:`)
+- `tests/test_take_order.py::test_the_estimates_queue_in_the_dispatchers_order` (a ticket kind: `-priority`, fix
+  before todo, unranked last, a blocked one held; the dispatcher's order and the estimates' queue are the same)
+- `tests/test_take_order.py::test_order_fields_ascending_descending_and_missing_last`
+- `tests/test_take_order.py::test_a_block_switched_off_is_projected_not_to_take`
 - `tests/test_backlog.py::test_groomer_proposes_and_apply_writes_the_events` (a stand-in AI; the gated action held)
-- `tests/test_backlog.py::test_groomer_refuses_cycles_and_pinned_ranks_and_closes_of_started_gaps`
 - `tests/test_backlog.py::test_close_done_and_duplicate_repoints_dependents`
 - `tests/test_backlog.py::test_intake_done_rule_on_a_gaps_fixture` and `::test_intake_done_rule_on_the_real_gaps_md`
 - `tests/test_backlog.py::test_backlog_commands_on_a_fixture_instance` (show, pin, dep add/rm, close, propose, apply)
@@ -74,3 +86,7 @@ dependency finished) in rank order.
 ## Size budget
 
 450 net lines outside `tests/` and `docs/` (the core change, `dev/bin`, `dev/model`, the prompt, the page).
+**Overrun, written reason:** about 650 as built. The coordinator's additions (the order list and `-FIELD`, the shared
+comparator in the estimates, the switched-off projection, the `check` note) are about 90 lines of core; the groomer's
+prompt (32) and model file (51) are text and YAML; `backlog.py` (about 300) holds the six commands, the proposal's
+check, its diff and the groomer's run, each small.

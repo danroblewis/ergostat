@@ -511,6 +511,8 @@ async function pageItems(main, q) {
   // how the items are shown (relations.js): as lists, as a graph of their relations, or as a timeline; the graph's
   // and the timeline's choices, in the address too
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
+  // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
+  let sort = q.get("sort") || "";
   // both show the frontier (the unfinished, and what they wait on); the graph collapses the finished, the timeline
   // keeps them as what happened; unless asked otherwise
   const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
@@ -556,6 +558,7 @@ async function pageItems(main, q) {
   const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
+                     if (sort && view === "list") u.set("sort", sort);
                      if (view !== "list") { u.set("view", view); for (const k of ["frontier", "collapse"]) if (ask[k] != null) u.set(k, ask[k] ? "1" : "0");
                                             if (view === "graph" && ro.group === "kind") u.set("group", "kind");
                                             if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
@@ -659,7 +662,15 @@ async function pageItems(main, q) {
       const movedCol = its.some((i) => i.moved_at);       // a set of moves: when each moved, in its span
       const etaCol = its.some((i) => i.eta);              // each open item's completion estimate (eta.py): p50, p90 in its title
       show = show.filter((f) => f !== "lease");
-      return table(["item", "state", ...show.map((f) => (nums.has(f) ? [f, "num"] : f)),
+      const by = sort.replace(/^-/, ""), down = sort.startsWith("-") ? -1 : 1;
+      if (show.includes(by)) {                             // missing last; numbers as numbers, else as text
+        const v = (i) => i.fields[by];
+        its = [...its].sort((a, b) => (v(a) == null) - (v(b) == null) || (v(a) == null ? 0
+          : down * (nums.has(by) ? v(a) - v(b) : String(val(v(a))).localeCompare(String(val(v(b)))))));
+      }
+      const head = (f) => h("button", { class: "ghost sort", title: `Sort by ${f}`, "aria-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none",
+        onclick: () => { sort = by !== f ? f : down > 0 ? `-${f}` : ""; go(); } }, f, by === f ? (down > 0 ? " \u25b4" : " \u25be") : "");
+      return table(["item", "state", ...show.map((f) => (nums.has(f) ? [head(f), "num"] : head(f))),
         ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),

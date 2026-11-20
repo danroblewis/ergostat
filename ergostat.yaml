@@ -74,7 +74,7 @@ items:
     id: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
     states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, queue-failed, merged,
-             parked]
+             parked, closed]
     on:
       gap.found: open                # intake: an entry of docs/GAPS.md
       gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
@@ -92,11 +92,13 @@ items:
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+      gap.closed: closed             # groomed out of the backlog: done on main already, or a duplicate (backlog.py)
+    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where)
       parent: gap                    # a sub-gap of a split (plan.py)
+      duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
     fold:
       rounds: sum
       reviews_n: sum
@@ -120,6 +122,7 @@ items:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}
     # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
+    # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
 
   review:
     id: review/*
@@ -199,7 +202,7 @@ items:
     fold: {times: sum, reviews: union, findings: append}
 
 messages:
-  done: {gap: [merged, parked], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, parked, closed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, retired]}   # (finished, for the estimates)
 
 agents:
