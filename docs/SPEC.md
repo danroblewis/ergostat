@@ -788,13 +788,17 @@ stand now):
   of `at` in order, then by when it came back to the state, so a nack's return goes to the back; with
   `unblocked: true`, those more items wait on first), at most the block's capacity at once: its `pool`, its agent's
   `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
-  them). A run's length is drawn from the block's run-time curve (Kaplan–Meier, the leases still held censored, so the
+  them), and its `workspace:` pool (§12k): a workspace taken at the item's first run of such a block is held by the
+  item across every state until it finishes, so a pool of three keeps at most three items between that take and their
+  finish; an item that would need one while all are held waits in the queue, holding nothing (the record's runs given
+  back for want of one, "put off ten seconds, not counted", are that wait, never runs; who holds which workspace now is
+  read from the workspaces' own events). A run's length is drawn from the block's run-time curve (Kaplan–Meier, the leases still held censored, so the
   long runs are not lost to those not yet ended), and how it ended from the recorded attempt nearest that long
   (bootstrapped per Monte Carlo run): moved on (to where), given back (its `after` kept: put off) or expired; a run
   past its lease's TTL expires at it. The last two return the item to the queue, its attempts counted, a dead letter
   after the most its terms allow. A
   block with fewer than five attempts on record runs an assumed one (its `every`, else a quarter of its TTL, at most
-  ten minutes), said so.
+  ten minutes), said so; one whose state items have stayed in takes that stay's curve as its runs instead.
 - **A leased item's** run is drawn the same way, given how long its lease has been held; past every run seen, the
   tail; never past its TTL. A failure share tried in the what-if reaches the runs already held too.
 - **Dependencies:** an item does not leave its kind's first state, nor is it taken by an `unblocked` block, until
@@ -817,8 +821,8 @@ two minutes regardless); of now only (a moment travelled to has none), and not i
 identified model) is worked out the same way, apart, and drawn on the same pages. The pages say what is left out
 (below), how many runs, and which blocks' runs are assumed.
 
-**What it leaves out**, and so what makes it wrong: a capacity no block declares (a workspace pool held from one
-step to another, a reviewer who is one person across two kinds, a rate limit), a goal that switches a block off (its
+**What it leaves out**, and so what makes it wrong: a capacity no block declares (a reviewer who is one person across
+two kinds, a rate limit), a goal that switches a block off (its
 gate is not simulated: a block takes whenever it has room), a process that changed (the record's two weeks are taken
 as how the work goes now), relations as they stand now, and a state never seen left (its items move to the next state
 in their kind's order, assumed). **Validated** (`tests/test_eta.py`; `tests/eta_backtest.py` replays past moments,
@@ -827,8 +831,8 @@ Erlang C within 12%; on three synthetic records of the owner's case (100 tickets
 the p90 covers 89 to 94% of the items, the estimates' mean is within a fifth of the error of what happened, and the
 p50's error is about a third of the median path's, whose p90 covered 36 to 42%. The components were kept by a
 backtest with ablations (`docs/roadmap/overnight/eta.md`): a throughput cap measured from the record changed no
-estimate, and was dropped. A step whose runs give their item back while they wait on a capacity no block declares
-(ticket-factory's `work`, waiting for a workspace) is replayed as rework, and its estimates are late and slow.
+estimate, and was dropped. On the ticket-factory demo's record, with its workspace pool read as a capacity, the p90
+covers every item.
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind

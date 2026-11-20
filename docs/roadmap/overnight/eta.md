@@ -150,3 +150,36 @@ it; dropping uncounted give-backs from the attempts would hide the wait instead.
 **Size: 958 net lines, 158 over the 800.** The review's fixes added 72 (the tail, the run-time draw and TTL, the worker
 and its LRU, the pages' words on runs, limits, assumed blocks and dates). Nothing is left to cut without dropping a
 fix or part of the definition of done.
+
+### The workspace pool as a capacity
+
+A block's `workspace:` pool (SPEC §12k) is now read as a capacity held across states: a workspace is taken at the item's
+first run of a block that uses the pool and held, whatever state the item moves through, until it finishes (or is a
+dead letter); who holds one at the moment estimated is read from the workspaces' own events (`ergostat.workspace.*`).
+An item that needs one while every one is held waits in its queue, holding nothing (not the agent's seat); a run of
+a workspace block that was given back uncounted without acquiring one (the record's "put off ten seconds" for want of a
+workspace) is that wait, so it is dropped from the block's attempts instead of replayed as a run. A block with fewer
+than five runs takes its state's stay curve as its runs, where there is one, instead of an assumed ten minutes (the
+first cut of this record had a block with three runs). Test:
+`test_a_workspace_pool_is_held_from_its_take_until_the_item_finishes` (a pool of 3 held across dev and review).
+
+**The ticket-factory row now** (items (unresolved), MAE min, bias of the mean min, by p50, by p90):
+
+| components | ticket-factory record |
+|---|---|
+| path | 33 (0), 1.0, +0.4, 0.64, 0.88 |
+| + survival | 33 (0), 1.5, +1.2, 0.79, 0.97 |
+| + queues | 33 (0), 1.5, +1.0, 0.70, 0.94 |
+| + leases (all) | **33 (0), 2.1, +2.6, 0.91, 1.00** (was 14 worked out, 2.7, +2.4, 0.71, 0.29) |
+| all but arrivals | 33 (0), 2.1, +2.5, 0.88, 1.00 (was 11.5 min: the anomaly is gone) |
+
+Every item is worked out and the p90 covers all of them; arrivals no longer change it. The estimates are still a little
+late (0.91 finish by their p50, the path's error being 1.0 min): in this 15-minute demo record most tickets end as dead
+letters at review once the fake reviewer starts refusing, after the early cuts, so the early estimates hold
+workspaces through reviews that in fact ended at once.
+
+The owner's case is unchanged (no workspace pool): 250 items, MAE 61, bias −4, 0.36, 0.93.
+
+**Size: 1,015 net lines, 215 over the 800 budget.** The workspace capacity adds 57 lines on the 958:
+reading the holders from the workspaces' events, holding and freeing in the simulation, and waiting without holding.
+It stands as the reason given above: every piece is part of the definition of done or a fix the gate asked for.

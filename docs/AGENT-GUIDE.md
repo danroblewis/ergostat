@@ -507,7 +507,8 @@ The Items list's **done by**, an item's page and the Timeline give each open ite
 together, run 200 times from the record of the last two weeks:
 
 - each step a block takes is a **queue** at that block, at most its capacity at once: the smallest of its `pool`, its
-  agent's `at-once` and its daemon's `concurrency` (an agent's seats are shared by every block it runs). 100 tickets
+  agent's `at-once` and its daemon's `concurrency` (an agent's seats are shared by every block it runs); a
+  `workspace:` pool of three keeps at most three items between their first take and their finish; 100 tickets
   and a pool of six finish about 100 / 6 run times after now, not one run time after it;
 - each run is one the block really made, drawn whole: how long, and whether it moved the item on, gave it back
   (rework: back in the queue, after its put-off) or expired;
@@ -518,11 +519,11 @@ together, run 200 times from the record of the last two weeks:
 
 The item page says why ("6 of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); the what-if beside a
 block's identified model (its pool, its share of failed runs) moves the estimates. **What makes them wrong**, and
-so what to model: a capacity no block declares (a workspace pool held across steps, one reviewer for two kinds, an
-API's rate limit: give the step a `pool` or the agent an `at-once` that says it), a goal that switches a block off
+so what to model: a capacity no block declares (one reviewer for two kinds, an API's rate limit: give the step a
+`pool` or the agent an `at-once` that says it), a goal that switches a block off
 (the estimate assumes it takes whenever it has room), a process that changed in the last two weeks (the old runs
-still count), a step whose runs give the item back while they wait for something undeclared (a free
-workspace: the simulation takes each give-back as rework, so the estimates come out late), and a step nothing has
+still count), a step whose runs give the item back while they wait for something undeclared (the simulation
+takes each give-back as rework, so the estimates come out late), and a step nothing has
 left yet (its items are assumed to go to the next state in order). Under twenty runs no p90 is said. A block with
 fewer than five runs on record is said as assumed on the item's page.
 
