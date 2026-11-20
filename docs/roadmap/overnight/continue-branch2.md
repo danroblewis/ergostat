@@ -141,3 +141,24 @@ Size: about 20 net lines of code in dev/bin this round. Run here, one file at a 
 `tests/test_ticket_factory_daemons.py` (26 passed); `tests/test_intake.py` with `tests/test_review.py` (43 passed);
 ruff clean. Not run: the whole unit suite and the browser files (the factory's job), and anything after a merge of
 main (refused).
+
+## Where it stopped
+
+Round 2, after the factory's fast suites: `unit` failed one test again,
+`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (1 failed, 1851 passed, 69
+skipped; history `['expired', 'ack']` where `['ack']` was expected). This is the same failure as round 1. No code was
+changed for it, though the factory's brief said "fix the code". The reason is main's review lesson 13 (3c7eab3, "stay
+inside the gap: an unrelated failure is reported, not fixed in the branch"), which was written about this exact
+failure on this branch. Leaving the code alone is also the reversible choice.
+- It is unrelated to this branch. `git diff main --name-only` lists nothing under `ergostat/` and not
+  tests/test_leases.py; the branch changes only dev/ (bin, README, knowledge), tests/test_factory*.py and docs/roadmap.
+  The code the test exercises (ergostat/leases/dispatch.py `watch`/`activity`) is identical to main's.
+- Why it fails under load, from reading dispatch.py:299-350 (not proven): the lease's TTL is 1s from the take, and the
+  only activity that can renew it is the first `$ERGOSTAT_CMD event` the run writes. That is a fresh Python CLI
+  process. If spawning the run and importing that CLI take longer than 1s under `-n 8`, the watchdog finds nothing
+  since the take, and by its own rule the expiry is correct. It is a test whose TTL races a CLI start-up, or a
+  watchdog that does not count the run's start (lesson-10). Either fix changes main's lease behaviour or a main test.
+- Left, for the coordinator: request a lease gap of its own (start the TTL clock at the run's actual start, or give the
+  test a TTL that does not race a CLI start-up), or judge this flake against main's tree under the same load. Then the
+  factory's fast suites again on this branch. The open items from earlier rounds still stand: gate 1 for this salvage
+  needs the coordinator, and main (5ac297a) is not merged in.
