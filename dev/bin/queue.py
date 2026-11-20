@@ -26,8 +26,6 @@ import agents  # noqa: E402
 import fac  # noqa: E402
 import review  # noqa: E402
 
-KILL = 2
-
 
 def clean_main(cfg: dict, repo) -> str | None:
     """Why the checkout cannot take a merge now, or None."""
@@ -177,9 +175,9 @@ def main() -> int:
                 files = fac.git(repo, "diff", "--name-only", "--diff-filter=U", check=False).split()
                 fac.git(repo, "merge", "--abort", check=False)
                 findings = [f"conflicts with {base}: {' '.join(files)}"]
-                if int(f.get("failed_gates") or 0) + 1 >= KILL:          # a conflict is a failed gate too
+                if int(f.get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):          # a conflict is a failed gate too
                     fac.say("gap.measured", failed_gates=1, findings=findings)
-                    review.park(cfg, gap, "Failed its gates twice (the kill rule); the last, a conflict in the "
+                    review.park(cfg, gap, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, a conflict in the "
                                           f"merge queue: {findings[0]}", "merge-queue", where="queue")
                 else:
                     fac.say("gap.sent-back", sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,

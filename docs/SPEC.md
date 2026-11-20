@@ -94,6 +94,15 @@ out, never written.
   name twice is an error**, reported with both files and lines. There is no overriding.
 - A file may set `defaults:` (at present only `system:`), which applies to the stocks, flows,
   goals and blocks defined in that file, and not to the files it includes.
+- **This machine's settings: `ergostat.local.yaml`.** Beside the main file, never required and never tracked (list it
+  in the repository's `.gitignore`), it holds what belongs to the machine a model runs on rather than to the model, so
+  a model shared through git carries no private hostname and a copy placed again keeps them. It is read after the
+  main file and over it. The **per-machine settings** are exactly these: `web:` (section 4d; it replaces the main
+  file's whole) and `intake:`'s `bind:` and `allow:` (section 5c; each over the main file's, whose `hooks:` stay
+  the model's). Any other key, or another key under `intake:`, is an error at its line in `ergostat.local.yaml`
+  (**not-per-machine**). `check` says each setting it took and where (`web: from ergostat.local.yaml:1, this
+  machine's own`; `--json`: `local`). It is not one of the model's files: nothing that edits the model (a proposal,
+  a template's author) writes it, and a change to it reloads the model like any other.
 
 ## 2a. Templates: one shape, used many times
 
@@ -270,7 +279,7 @@ uses:                           # optional: instances of templates (section 2a)
   ...
 remotes:                        # optional: systems other ergostats run, read here (section 4c)
   ...
-web:                            # optional, main file only: the page's public names and their login (section 4d)
+web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
 library:                        # optional, main file only: folders of the owner's templates (section 2a)
   - ...
@@ -555,7 +564,8 @@ most); `ergostat remote refresh` asks each again now.
 The page answers on this machine only: a request must name it as `127.0.0.1:PORT` (or `localhost`, `[::1]`) in its
 `Host`, so a page on another site whose name was pointed at this machine (DNS rebinding) is refused. To reach it
 from elsewhere through a tunnel (cloudflared) at a public name, the main file declares the name and the Cloudflare
-Access application that logs people in there:
+Access application that logs people in there (a tunnel belongs to one machine: put `web:` in that machine's
+`ergostat.local.yaml`, section 2, when the model is shared):
 
 ```yaml
 web:
@@ -1119,6 +1129,7 @@ their ids. An event type is lowercase words joined by dots, never ergostat's own
 intake:
   allow: [10.0.0.0/8]                  # who may push besides this machine (default: nobody else)
   bind: 0.0.0.0                        # where the page listens (default 127.0.0.1); others reach only the push paths
+                                       # (allow: and bind: are this machine's: they may go in ergostat.local.yaml, §2)
   hooks:
     jira:                              # POST /api/hooks/jira
       event: {from: webhookEvent, map: {"jira:issue_created": ticket.found, "jira:issue_updated": ticket.changed}}
