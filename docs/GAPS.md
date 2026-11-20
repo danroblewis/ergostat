@@ -346,8 +346,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `intake-open`, read by hand, in an `expr` that commands it). Either ask once per item before it is leased
   (`block.advised` naming the item), or refuse `mode: advise` with `takes:` in `check`.
 - **A gap continues an existing branch, with main merged in by the factory** (awaiting its gate; branch
-  `factory/continue-branch3`, the salvage of `continue-branch`, `docs/roadmap/overnight/continue-branch.md`,
-  `continue-branch2.md` and `continue-branch3.md`, *Where it stopped*). A request may name `continues: <branch>`;
+  `factory/continue-branch3`, the salvage of `continue-branch`; its definition is
+  `docs/roadmap/overnight/continue-branch.md`, and `continue-branch2.md` and `continue-branch3.md` hold where the later
+  rounds stopped). A request may name `continues: <branch>`;
   implement.py merges origin/main before each session (a clean merge committed by the program, a conflicted one handed
   to the session with its conflict list), and gate 1 reads the continued branch's own definition and holds it to the
   main merged at its build. Main (1f013ba) is merged into the branch. Left: the factory's fast suites on the merged
