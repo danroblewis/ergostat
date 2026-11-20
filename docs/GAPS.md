@@ -103,11 +103,24 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **A step whose goal never goes off** (in progress, `selfimprove`): a `takes:` block runs only while its goal is
   off, so a queue goal with a tolerance (or a setpoint above 0) lets items wait unseen; nothing says so. Found when
   the example's first goals had tolerances and nothing ran.
-- **Proposals superseded by any edit** (open; owner, 2026-11-19): a model change made against a version since
-  changed, even only in its numbers, is superseded and never written (SPEC section 12e). With an agent editing the
-  YAML, or modelling accepting its own changes, nearly every open proposal goes stale before it is judged. Rebase
-  instead: carry a change to the new version when the parts it touches are unchanged and its diff still applies,
-  keeping its evidence; supersede only when its own neighbourhood changed.
+- **Proposals superseded by any edit** (partly done, `churn`; owner, 2026-11-19): a model change made against a version
+  since changed, even only in its numbers, was superseded and never written (SPEC section 12e); and every pass of a
+  finder made a new change for the same thing, letting the last go ("let go: found again otherwise, or no longer
+  found"), the estimator letting go of loops' processes too. **Done:** ergostat's own changes are what they are about,
+  revised in place when found again with new numbers; carried to a new version when their subject is unchanged (a
+  value's or an equation's edit made again on the files as they are); superseded only when their subject was edited or
+  removed, their edit cannot be made again, or their finder no longer finds them, saying which. **Left:** a block's
+  proposal is still superseded by any change of version (`modelling-core` carries words and redesigns and moves waiting
+  edits' lines: `rebase`, `carry`); a structural change whose lines moved is superseded and made again on the same item
+  by the next structural pass rather than carried.
+- **Poor identifications proposed, projections drawn as sure** (done, `churn`; owner, 2026-11-19: a loop's process that
+  followed 2% held out was proposed, and the projections after a burst of 130 tickets were far off): a process is
+  proposed only past a quality floor (what it follows held out, white errors in closed loop, independent of u), else
+  the goal says `loop-not-identifiable` and what would identify it; the process is identified around a large outside
+  step (a burst of arrivals), closer to the truth than from the loop working; the strip leads with "Low confidence"
+  and widens the band where the parts it rests on fit badly. **Left:** a burst's window is chosen from y's own
+  excursion (where it comes half way back), not from the process; several outside steps are not yet fitted together as
+  experiments; the projections do not yet suggest the missing structure (capacity) themselves.
 - **The judge almost never decides on a slow model** (open; owner, 2026-11-19: on the work model nearly every
   change is inconclusive, a few refused, none accepted): a change must gain 2% in every window of at least twice
   its stock's time constant, on record after it was made; a model whose flows run per day rarely has that, and a

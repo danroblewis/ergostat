@@ -936,7 +936,7 @@ def test_the_residuals_and_the_replay_count_on_one_basis(tmp_path):
 
 def test_no_proposal_from_fewer_points_than_a_proposal_needs_or_errors_that_run_together():
     e = {"value": 3.0, "window": 7200, "slowest": 0.5, "at_bound": False, "identifiable": True, "se": 0.01, "logged": True,
-         "n": 24, "after": 0.5, "n_eff": 30}
+         "n": 24, "after": 0.5, "n_eff": 30, "held_before": 1.0, "held_after": 0.5}
     assert "24 points fitted, under 40" in es.judged(e, 2.0)
     e |= {"n": 96, "n_eff": 3, "rho": 0.9}
     assert "independent" in es.judged(e, 2.0)                  # a systematic error left, and few independent points

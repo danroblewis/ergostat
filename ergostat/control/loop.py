@@ -193,12 +193,39 @@ def identify(p, sig: record.Signals, at: float | None = None) -> tuple[dict, dic
             r["tests_used"] = [t["id"] for t in tests]
             r["record"] = dt
             found.insert(0, r)
+    got = around_step(p, sig, d, noise)
+    if got is not None:
+        found.append(got)
     best = max(found, key=lambda r: (bool(r.get("proposable")), bool(r.get("told_apart")), -ident.precision(r)))
     other = next((r for r in found if r is not best), None)
     if other is not None and other.get("found"):
-        best["instead_of"] = {"from": "the step tests" if other.get("test") else "the loop working",
+        best["instead_of"] = {"from": "the step tests" if other.get("test") else "an outside step" if other.get("outside_step")
+                              else "the loop working",
                               **{k: other.get(k) for k in ("K", "tau", "theta", "fit_val", "why", "se")}}
     return best, best.pop("record")
+
+
+def around_step(p, sig: record.Signals, d: dict, noise: float | None) -> dict | None:
+    """The process identified from the record around the largest outside step (a burst of arrivals at the goal's stock,
+    a jump of a measured input beside the path), that input fitted beside u: the step excites the loop from outside,
+    so the estimate leans less toward the controller's inverse than one from the loop working (Ljung §13.4)."""
+    spec = p.model.spec
+    kind, _, name = sig.y.partition(".")
+    from .. import series
+    ins = {f"flow.{f.name}": series.rate(p, f.name, d["since"], d["until"], len(d["t"]), changes=False)
+           for f in (spec.flows_of(name) if kind == "stock" else []) if f.target == name and f.sensors
+           and f"flow.{f.name}" not in (sig.u, *sig.path)}
+    ins = {**{r: (v or [None])[0] for r, v in ins.items() if v and any(x is not None for x in v[0])}, **d["others"]}
+    steps = sorted(((abs(j), r, k) for r, xs in ins.items() for k, j in ident.outside_steps(xs)), reverse=True)
+    if not steps:
+        return None
+    _, ref, k = steps[0]
+    r = ident.around(d["h"], d["t"], d["u"], d["y"], ins, k, noise)
+    r["outside_step"]["input"] = ref
+    w = slice(d["t"].index(r["outside_step"]["since"]), d["t"].index(r["outside_step"]["until"]) + 1)
+    r["record"] = {**d, **{x: d[x][w] for x in ("t", "u", "y", "e")}, "others": {o: xs[w] for o, xs in d["others"].items()},
+                   "since": r["outside_step"]["since"], "until": r["outside_step"]["until"]}
+    return r
 
 
 def windows_left_out(p, sig: record.Signals, d: dict, tests: list[dict], lag: float) -> list[tuple[float, float]]:
@@ -302,7 +329,8 @@ def analyse(p, goal: str, at: float | None = None) -> dict | None:
         out["record"]["yhat"] = _thin(sub(pred), k)
         if r.get("gains") and upart is not None:
             out["record"]["yhat_u"] = _thin(sub(upart), k)
-        out["record"]["held_from"] = r["test"]["back"] if r.get("test") and len(r.get("tests_used") or []) == 1 else \
+        out["record"]["held_from"] = r["outside_step"]["held"] if r.get("outside_step") else \
+            r["test"]["back"] if r.get("test") and len(r.get("tests_used") or []) == 1 else \
             r["test"]["started"] if r.get("test") else d["t"][int(len(d["t"]) * (1 - ident.HOLD_OUT))]
     out["identified"] = r
     mon_since, mon_until, mon_n = record.grid(p, sig, at)
