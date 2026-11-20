@@ -447,3 +447,15 @@ def test_nothing_the_redesigner_makes_on_its_own_is_written_without_the_owner(tm
     assert pr.stored(p)[x["id"]]["state"] != "accepted"                    # the owner's to write (accept: owner)
     from ergostat.numbers import modelling_status as mst
     assert "the redesigner last reviewed model" in mst.of(p)["says"]
+
+
+def test_a_redesign_of_a_system_changes_only_that_system(tmp_path):
+    text = ("systems:\n  front:\n    description: triage\n  back:\n    description: investigation\n"
+            + PIECES.replace("  triage:\n    sensor:", "  triage:\n    system: front\n    sensor:")
+                    .replace("  investigate:\n    unit:", "  investigate:\n    system: back\n    unit:"))
+    p = redesign_project(tmp_path / "m", text)
+    out = rd.submit(p, "redesigner", {"title": "x", "system": "front",
+                                      "edits": [{"part": "stock.investigate", "set": {"description": "elsewhere"}}]})
+    assert out["status"] == "not-proposed" and "outside system front" in out["why"] and "stock.investigate" in out["why"]
+    ok = rd.submit(p, "redesigner", {"title": "y", "system": "front", "edits": [CHAIN[0]]})   # a rename others follow
+    assert ok["status"] == "proposed", ok["why"]

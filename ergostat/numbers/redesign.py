@@ -95,6 +95,10 @@ def validate(p, spec: Spec, by: str, raw: dict, scratch: cs.Scratch | None = Non
     _, before_problems = read(p.model.path)
     card = sc.score(p, spec, before_problems, after, problems)
     parts = card["parts"]
+    beyond = outside(spec, after, system, parts)
+    if beyond:
+        raise im.ProposeError(f"it changes parts outside system {system} ({', '.join(beyond[:6])}): a redesign of a system "
+                              f"changes that system, and other systems only by the names it renames")
     refs = [*parts["added"], *parts["changed"], *(x.split(" → ")[1] for x in parts["renamed"])]
     j = im.joined(es_)
     conf = raw.get("confidence")
@@ -110,6 +114,48 @@ def validate(p, spec: Spec, by: str, raw: dict, scratch: cs.Scratch | None = Non
             "edit": j, "change": "a redesign: many edits judged together by a scorecard",
             "renames": {o: n for o, n in (x.split(" → ") for x in parts["renamed"])
                         if o.split(".")[0] in ("stock", "flow", "auxiliary")}}
+
+
+def outside(before: Spec, after: Spec, system: str, parts: dict) -> list[str]:
+    """The parts a change set changes that are not in ``system`` (none for the whole model): added, taken away,
+    renamed or changed, but for a part whose only change is a name it refers to that the change set renames."""
+    import json
+    import re
+
+    from ..spec.ir import Ref
+    if system == "model":
+        return []
+    renames = dict(x.split(" → ") for x in parts.get("renamed") or [])
+
+    def inside(spec: Spec, ref: str) -> bool:
+        kind, _, name = ref.partition(".")
+        return kind not in ("stock", "flow", "auxiliary", "goal", "block") or spec.inside(Ref(kind, name), system)
+
+    def same_but_names(ref: str) -> bool:
+        from .changeset import _plain
+        kind, _, name = ref.partition(".")
+        table = {"stock": "stocks", "flow": "flows", "auxiliary": "auxiliaries", "goal": "goals", "block": "blocks"}.get(kind)
+        if table is None or name not in getattr(before, table) or name not in getattr(after, table):
+            return False
+        names = {o.split(".", 1)[1]: n.split(".", 1)[1] for o, n in renames.items()}
+
+        def follow(x, key=None):                      # the names it refers to, renamed (its words left as they are)
+            if isinstance(x, dict):
+                return {k: follow(v, k) for k, v in x.items()}
+            if isinstance(x, list):
+                return [follow(v) for v in x]
+            if isinstance(x, str) and key != "description":
+                for o, n in names.items():
+                    x = re.sub(rf'(?<![\w-]){re.escape(o)}(?![\w-])', n, x)
+            return x
+        was = follow(json.loads(_plain(getattr(before, table)[name])))
+        return was == json.loads(_plain(getattr(after, table)[name]))
+    out = [r for r in parts.get("added") or [] if not inside(after, r)]
+    out += [r for r in parts.get("removed") or [] if not inside(before, r)]
+    out += [o for o in renames if not inside(before, o)]
+    out += [r for r in parts.get("changed") or [] if r not in renames.values() and not inside(before, r)
+            and not same_but_names(r)]
+    return out
 
 
 def owners(before: Spec, after: Spec) -> dict:
