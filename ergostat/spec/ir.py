@@ -474,8 +474,9 @@ class Sensor:
 
     @property
     def commands(self) -> bool:
-        """It reads by a program of the model's own: a command each reading, or a daemon (SPEC §9.7)."""
-        return bool(self.run or self.daemon)
+        """It reads by a program of the model's own when asked: a command each reading, or a daemon (SPEC §9.7); not a
+        push sensor, whose daemon sends readings of its own accord."""
+        return bool(self.run or (self.daemon and not self.push))
 
     @property
     def measured(self) -> bool:

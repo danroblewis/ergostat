@@ -253,7 +253,7 @@ as a line of JSON on their standard input, which answer with lines on their stan
 | Daemon | Shape | Serves | Why a daemon |
 |---|---|---|---|
 | `measures` (`bin/measure.py serve`, `factory/oversight.yaml`) | one for several sensors, named under `daemons:` | `ai-spend`, `repings`, `cycle-hours` | they read the same source, the record: the readings asked at the same moment share one read of it |
-| `sensor.arrivals.main` (`bin/watch.py serve`, `factory/intake.yaml`) | a sensor's own, inline | the arrivals flow | the one sensor that reads Jira, so Jira being down takes nothing else with it; a longer back-off rides out an outage |
+| `sensor.arrivals.main` (`bin/watch.py serve`, `factory/intake.yaml`) | a sensor's own, inline | the arrivals flow | the one sensor that reads Jira, kept apart from the rest; Jira being down fails its readings (each says why), and nothing else |
 | `steps` (`bin/step.py serve`, `ergostat.yaml`) | a block daemon, named, shared by blocks | the nine short steps | their runs are frequent and over in a moment; each ticket's run on a thread of its own, 27 at once (the nine pools) |
 | `block.teammate` (`bin/teammate.py serve`, `factory/world.yaml`) | a block's own, inline | the teammate | a look every 5 seconds, with no process each |
 
@@ -275,13 +275,26 @@ sensor's own (`ticket.found`, source `arrivals.main`), exactly as when its comma
 Every event type, series, stock, flow, item kind and state is what it was; only `run:` lines became `daemon:`, so a
 record made before still replays, and the estimates and projections read it as before.
 
-**Living with them.** The Agents page lists each daemon: its state, process, restarts, CPU and memory. What a daemon
-logs goes to `logs/daemon-NAME.log` in the state folder (`~/.ergostat/<project>/`): the short steps' lines are in
-`daemon-steps.log`, not each block's log. A daemon that crashes is started again after a back-off; one that keeps
-crashing is given up, with an alarm (`ergostat status`), until `ergostat block steps --restart` (the daemon's name, or
-one of its blocks') or a change to the model. A changed `factory.conf` is read again by itself, and a step's script
-(`steps/NAME.py`) afresh on every run; after editing `bin/`, restart the daemon that uses it (`ergostat block steps
---restart`, `ergostat block measures --restart`, ...). To try one by hand, pipe lines into it from this folder
+**What changes with them.**
+
+- **Costs are the daemon's.** The Agents page lists each daemon: its state, process, restarts, CPU and memory. A run
+  handed to a daemon records its wall time only: the nine short steps no longer have CPU and memory per run (the
+  series `run/<step>/cpu` and `run/<step>/memory` stop; `run/<step>/seconds` goes on). The AI steps' still do.
+- **Logs.** What a daemon logs goes to `logs/daemon-NAME.log` in the state folder (`~/.ergostat/<project>/`): the
+  short steps' lines are in `daemon-steps.log`, not each block's log.
+- **Timeouts and cancels.** A run handed to a daemon is cancelled after 300 seconds unless its block says
+  `timeout:` (a run of its own had none but its lease's 5 minutes), and when its lease expires or you stop its block.
+  The cancel is answered at once; anything the run still asks for after it, a gated action included, is refused (its
+  lease is gone). A cancelled run still going 10 seconds later (`CANCEL_GRACE`) is stuck, a hung call: the daemon
+  ends, ergostat starts it again, and the runs it held are taken again. Calls outside are bounded too: git and `gh`
+  give up after `GIT_TIMEOUT` (5 minutes), Jira after 30 seconds.
+- **Restarts.** A daemon that crashes is started again after a back-off; one that keeps crashing is given up, with an
+  alarm (`ergostat status`), until `ergostat block steps --restart` (the daemon's name, or one of its blocks') or a
+  change to the model.
+- **Settings and code.** A changed setting in `factory.conf` is read again at the next reading or run, and a step's
+  script (`steps/NAME.py`) afresh on every run. Going online or offline (`factory.conf` made or removed,
+  `TF_OFFLINE`), `SCRATCH`, and any edit to `bin/` need the daemons started again: `ergostat block steps --restart`,
+  `ergostat block measures --restart`, and so on (or `ergostat run --stop` and `ergostat run`). To try one by hand, pipe lines into it from this folder
 (`docs/DAEMONS.md`, "Testing a daemon by hand"):
 
 ```bash

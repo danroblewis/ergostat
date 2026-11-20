@@ -41,7 +41,7 @@ _CRONS: dict = {}
 
 def stale_by(s, last: float) -> float | None:
     """When a reading taken at ``last`` is stale for this sensor (None: it reads on no clock)."""
-    if s.items or s.changes or s.manual or s.push or not (s.commands or s.query or s.builtin):
+    if s.items or s.changes or s.manual or not (s.commands or s.query or s.builtin):
         return None
     if s.cron:
         from ..cron import Cron

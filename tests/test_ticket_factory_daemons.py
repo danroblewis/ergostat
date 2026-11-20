@@ -156,3 +156,68 @@ def test_a_sensor_read_by_a_daemon_is_still_the_arrivals_collector(factory):
     assert stale_by(watcher, 100.0) is not None
     col = next(x for x in drawn(spec, {"*"})["nodes"] if x["id"] == "col:arrivals.main")
     assert col["role"] == "collector" and col["label"] == "watch.py serve"
+    y = factory / "factory" / "intake.yaml"                   # a push daemon is not asked: no collector, no clock
+    y.write_text(y.read_text().replace("      every: 10s\n      averages: 10m\n", "      push: true\n"))
+    pushed = mdl.load(factory).spec
+    s = pushed.flows["arrivals"].sensors["main"]
+    assert s.push and not s.commands and not sensing.collectors(pushed).get("ticket") and stale_by(s, 100.0) is None
+
+
+@pytest.mark.slow
+def test_a_stuck_cancelled_step_ends_its_daemon_and_the_next_ticket_gets_through(factory, monkeypatch):
+    """A step hung in a call outside (a git fetch that never answers, under the clone's lock) is cancelled at its
+    timeout; still going after the grace, its daemon ends, is started again, and the tickets go on."""
+    fake, hang = factory.parent / "fakebin", factory.parent / "hang"
+    fake.mkdir()
+    (fake / "git").write_text(f'#!/bin/sh\ncase "$*" in *fetch*) [ -e {hang} ] && exec sleep 600 ;; esac\n'
+                              f'exec {shutil.which("git")} "$@"\n')
+    (fake / "git").chmod(0o755)
+    hang.write_text("")
+    monkeypatch.setenv("PATH", f"{fake}:{os.environ['PATH']}")
+    monkeypatch.setenv("TF_CANCEL_GRACE", "1s")
+    y = factory / "steps" / "02-locate.yaml"
+    y.write_text(y.read_text().replace("    pool: 3\n", "    pool: 3\n    timeout: 3s\n"))
+    p = Project(mdl.load(factory))
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    try:
+        def restarted():
+            return [x for x in p.events.query(n=None, type="ergostat.daemon.restarted") if x["item"] == "steps"]
+        assert _wait(restarted, 60), "the stuck run's daemon ended, and was started again"
+        hang.unlink()
+        assert _wait(lambda: e.daemons.status()["steps"]["state"] == "running", 20)
+        assert _wait(lambda: p.events.query(n=None, type="ticket.locate"), 60), "a ticket located after the restart"
+    finally:
+        e.close()
+    log = (p.dir / "logs" / "daemon-steps.log").read_text()
+    assert "still going 1s after its cancel" in log
+
+
+def test_the_record_is_read_whole_past_a_page(factory):
+    """tf.items pages through the socket's listing (500 a page): repings over 600 tickets counts every one."""
+    import socket
+    import tempfile
+    import threading
+    tickets = [{"id": f"ticket/T-{n}", "state": "done", "fields": {"repings": 1}} for n in range(600)]
+    where = Path(tempfile.mkdtemp(dir="/tmp")) / "s.sock"
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(where))
+    srv.listen()
+
+    def serve():
+        while True:
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            req = json.loads(c.makefile().readline())
+            off = int(req.get("offset") or 0)
+            c.sendall(json.dumps({"items": tickets[off:off + 500], "total": len(tickets), "offset": off}).encode() + b"\n")
+            c.close()
+    threading.Thread(target=serve, daemon=True).start()
+    try:
+        r = subprocess.run(["python3", "bin/measure.py", "repings"], cwd=factory, capture_output=True, text=True,
+                           env={**_env(factory), "ERGOSTAT_SOCKET": str(where)}, timeout=30)
+    finally:
+        srv.close()
+    assert r.returncode == 0 and r.stdout.strip() == "600", r.stderr

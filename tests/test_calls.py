@@ -190,3 +190,20 @@ def test_the_socket_lists_items_as_the_command_does(engine, tmp_path):
     assert got == json.loads(r.stdout)
     assert sorted(i["id"] for i in got["items"]) == ["job/1", "job/2", "job/3"]
     assert client.call("items", path=e.socket, root=str(tmp_path), kind="job", state="ready")["items"] == []
+
+
+def test_the_socket_pages_through_more_items_than_one_listing_holds(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text("name: many\nitems:\n  doc:\n    id: doc/*\n    states: [open]\n"
+                                            "    on: {doc.opened: open}\n")
+    p = Project(mdl.load(tmp_path))
+    for n in range(600):
+        p.events.add("doc.opened", item=f"doc/{n}", source="test")
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    try:
+        first = client.call("items", path=e.socket, root=str(tmp_path), kind="doc")
+        rest = client.call("items", path=e.socket, root=str(tmp_path), kind="doc", offset=len(first["items"]))
+    finally:
+        e.close()
+    assert first["total"] == 600 and len(first["items"]) == its.LISTED == 500
+    assert len({i["id"] for i in first["items"] + rest["items"]}) == 600, "every one, once, over two pages"

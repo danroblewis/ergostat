@@ -187,6 +187,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
   not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
   ends.
+- **Daemons across the engine's own restarts** (follow-up, found in `tf-daemons`' review): the paths that start the
+  engine's process again in place (`_restart` and `_restart_hard` in `ergostat/cli/running.py`: an exec for a new
+  model's name or store, and the watchdog's last resort after `runner.kill_all()`) do not stop the daemons first. A
+  daemon reading its standard input sees it end when the old process goes and exits, but nothing waits for that,
+  drains its runs or ends its process group, so a daemon that ignores the end of its input, or a child it started,
+  can outlive the engine.
 - **Daemon YAML schema review** (open; owner, 2026-11-19): the functionality landed (`daemons`, `daemons2`; how to
   use and write daemons: `docs/DAEMONS.md`, the skill's `daemons.md`), but the owner is not sure the YAML is the
   best yet, and it may change. Alternatives worth considering:
