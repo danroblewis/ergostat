@@ -252,10 +252,10 @@ def publish(cfg: dict, work: Path, branch: str) -> str:
 
 def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *also: str, was: str) -> str:
     """After the implementor's session: what it left committed, and bundled, in a container with no network (git is
-    never run here on a folder a session had); the bundle fetched into the drop, to a side ref first: the branch moves
-    only when the new head holds the definition's commit and each of `also` (main, when it was merged in), and only
-    from `was`, the sha the session was given (update-ref's old value): a branch another writer moved meanwhile is
-    refused, not overwritten. The new head."""
+    never run here on a folder a session had); the bundle fetched into the drop, to a side ref of its run's own first:
+    the branch moves only when the new head holds the definition's commit and each of `also` (main, when it was merged
+    in), and only from `was`, the sha the session was given (update-ref's old value): a branch another writer moved
+    meanwhile is refused, not overwritten. The new head."""
     ref = fac.git_branch(branch)
     out = home / "out"
     out.mkdir(exist_ok=True)
@@ -278,7 +278,7 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *a
             killed(name)
     d = drop(cfg)
     fac.git(d, "bundle", "verify", "-q", str(out / "out.bundle"))
-    side = f"refs/incoming/{ref}"
+    side = f"refs/incoming/{home.name}/{ref}"            # (one per run: overlapping finishes never share it)
     fac.git(d, "fetch", "-q", str(out / "out.bundle"), f"+refs/heads/{ref}:{side}")
     head = fac.git(d, "rev-parse", side)
     try:
