@@ -250,3 +250,22 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
 {"rc": 1, "wall_s": 258.9, "peak": {"threads": 356, "rss_mb": 1542.5, "procs": 126, "worker_mb": 615.6}, "killed": null, "workers_killed": 0, "left_behind": 0}
 
 ```
+
+### Round 5 (after the park)
+
+- **The parking failure is not this branch's, and main has already fixed it.** It was
+  `test_the_container_mounts_only_the_sessions_own_folder`. That test looked for the home folder's path anywhere in
+  each mount string, and the container side of a mount (`/home/dev/.claude/projects`) can contain it. Main's
+  `acafe80` ("the session mount test checks only the host side of each mount") fixed it, and that fix is merged here
+  (3ff1cae). The file now passes (5 passed). This branch changes nothing in `dev/` or in that test (lesson-13).
+- **What that unit run does show.** It ran to its end this time, with no hang or watchdog kill: 1 failed (the test
+  above), 1895 passed, and `tests/test_leases.py`, the restart test included, passed under `-n 8`. That is one
+  run, with the machine's load not recorded. It is not the 30 loaded runs.
+- **No code changed this round.** No earlier finding is still open in code. The fixed sleep was removed in round 3,
+  where round 2's non-blocking findings were also answered.
+- **The 30 loaded `-n 8` runs: still not run.** This session's harness refused even one watchdogged run
+  (`scripts/suite_watch.py -- pytest -n 8 tests/test_leases.py -k test_leases_survive_a_restart`). I did not get
+  around that. These runs are still the DoD's one open acceptance line, and only the factory's watched run can record
+  them here.
+- **Ran serially:** `tests/test_factory_sessions.py` (5 passed) and `tests/test_leases.py` (26 passed). Ruff is
+  clean. There is no remote, and local `main` (51ec9b7) is already merged.
