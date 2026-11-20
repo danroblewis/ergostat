@@ -204,7 +204,9 @@ order: the queue blocked (`run/queue.json`, or an open intervention of class `qu
 parked within `parked_within_hours` (48) unless another gap carries its branch on; a gap in one state past
 `[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
 lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
-queue's push held; an open intervention, not the manager's own, past `intervention_hours` (12); a heartbeat every
+queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes
+`operator-decision` and `factory-tuning`, or `factory: false`) past `intervention_hours` (12), at most
+`interventions_per_hour` (3) an hour; a heartbeat every
 `heartbeat_minutes` (30), only when the pipeline changed. One situation at a time, and never one whose fingerprint (its
 subject and the visit, park or change it is about) was raised before. `python3 dev/bin/watch.py stuck` counts the
 stuck gaps (the goal `no-stuck-gaps`). Pause it with `[manager] open = 0` in `factory.local.toml`.
