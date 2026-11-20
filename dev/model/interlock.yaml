@@ -1,6 +1,7 @@
 # The load interlock: the test suites running on this machine (anyone's), their threads and memory, and goals that
-# hold the suite-running blocks (the merge queue, flake triage) while the machine is busy. The implementor and the
-# triage wait inside their runs too, before each suite (dev/bin/fac.py, wait_quiet). The hard rule is
+# hold the suite-running blocks (the merge queue, flake triage) while the machine is busy. Inside their runs, the
+# implementor and triage hold a machine-wide suite slot around each suite ([suites] slot) and wait while the machine
+# is full ([load] most_suites; dev/bin/fac.py, wait_quiet); the queue's lock is its slot. The hard rule is
 # scripts/suite_watch.py's: a suite past 1,500 threads or 6 GB is killed.
 defaults:
   system: load
@@ -25,10 +26,10 @@ auxiliaries:
 goals:
   machine-quiet:
     auxiliary: suites-running
-    hold: "<= 0"
+    hold: "<= 3"
     tolerance: 0
     on-stale: "off"                    # not knowing the load holds the suites
-    description: one suite at a time - no other suite runs when the queue or triage starts one
+    description: the machine's suite slots not all taken (three shared, and the queue's) when the queue or triage starts one
   suite-threads-within:
     auxiliary: suite-threads
     hold: "<= 1200"

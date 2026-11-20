@@ -28,10 +28,14 @@ port = 8798
 [load]
 threads = 1500                       # the hard rule (scripts/suite_watch.py kills past these)
 memory_gb = 6.0
-wait = true                          # wait for a quiet machine before each suite (the tests turn it off)
+wait = true                          # wait before each suite while the machine is full (the tests turn it off)
+most_suites = 4                      # full: this many suites running (the queue's slot and three shared ones)
 wait_poll = 20                       # seconds between looks while another suite runs
 
 [suites]                             # run in the checkout (queue) or the gap's worktree (implementor)
+slot = ""                            # a command that holds a machine-wide suite slot around each suite but the
+                                     # queue's (whose lock is its slot): set it in factory.local.toml, e.g. the
+                                     # coordinator's suite-slot.sh
 ruff = "uv run ruff check ergostat tests scripts"
 unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal"
 browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"

@@ -237,10 +237,10 @@ def suites_running() -> int:
 
 
 def wait_quiet(cfg: dict, why: str = "") -> float:
-    """Wait until no suite runs on this machine (the coordinator's, another block's), renewing the lease; the
+    """Wait until fewer than [load] most_suites suites run on this machine (anyone's), renewing the lease; the
     seconds waited."""
-    began, poll = time.time(), float(cfg["load"]["wait_poll"])
-    while cfg["load"].get("wait", True) and suites_running():
+    began, poll, most = time.time(), float(cfg["load"]["wait_poll"]), int(cfg["load"].get("most_suites", 1))
+    while cfg["load"].get("wait", True) and suites_running() >= most:
         renew()
         time.sleep(poll)
     return time.time() - began
@@ -265,9 +265,12 @@ def queue_lock(cfg: dict):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def suite(cfg: dict, name: str, cwd: Path, log: Path, **fmt) -> tuple[int, float]:
-    """One of [suites] in cwd, its output to log; (exit, seconds). Run by the shell, as the coordinator does."""
+def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, **fmt) -> tuple[int, float]:
+    """One of [suites] in cwd, its output to log; (exit, seconds). Run by the shell, as the coordinator does, inside
+    [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is False (the queue: its lock is its slot)."""
     cmd = cfg["suites"][name].format(**fmt)
+    if slot and cfg["suites"].get("slot") and name != "ruff":
+        cmd = f"{cfg['suites']['slot']} {cmd}"
     began = time.time()
     with log.open("w") as out:
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
