@@ -78,14 +78,15 @@ build took 74 s).
 
 | Run | In the container | On the host |
 |---|---|---|
-| unit, `-n 8` | 1698 passed, 12 failed, 14 skipped; 164 s; peak 376 threads, 1.6 GB | 1623 passed, 13 skipped, 1 xfailed; 150 s; peak 385 threads, 2.6 GB (\*) |
+| unit, `-n 8` (after the review fixes, same commit both sides) | rc 0: 1682 passed, 34 skipped, 8 xfailed, 2 xpassed; 162 s; peak 378 threads, 1.6 GB | rc 0: 1712 passed, 13 skipped, 1 xfailed; 157 s; peak 371 threads, 2.1 GB |
 | browser, `-n 4` | 217 passed, 1 failed (fixed since: `SPLIT_SHOTS`; that test then passed 5 runs of 5), no skips; 565 s; peak 556 threads, 4.1 GB | 200 passed, no skips; 463 s; peak 632 threads, 3.7 GB (\*) |
 | `tests/test_sandbox_attacks.py` (`--sandbox`) | 26 passed, 5 failed (bwrap); now 26 passed, 4 xfailed, 1 xpassed | 30 passed, 1 xfailed (seatbelt) |
 
-(\*) On main at 214d864, before the rebase brought 87 unit and 18 browser tests: the host stayed busy with the merge
-queue's suites, so it was not rerun beside them. Inside, every collected test ran (1,718 collected, plus 6
-page modules skipped whole without Playwright; 218 of 218 browser tests). Per test the container is about as
-fast as the host: 0.095 s against 0.092 s for the unit suite, 2.6 s against 2.3 s for the browser suite.
+The unit suite's 1,726 tests are the same on both sides; inside, 20 more skip (the attack suite, without
+`--sandbox`) and the Linux known failures are expected failures. (\*) The browser suite's host figure is from main
+at 214d864, before the rebase brought 18 browser tests: the host stayed busy with the merge
+queue's suites, so it was not rerun beside them. Inside, all 218 browser tests ran. Per test the container is about as fast as the host: the unit suite 162 s
+against 157 s, the browser suite 2.6 s a test against 2.3 s.
 
 The bind mount is not the bottleneck (the venv and the uv cache live in the image), so there is no named volume.
 
