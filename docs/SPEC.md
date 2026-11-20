@@ -3415,8 +3415,8 @@ where the goal read 0.03 to 0.14).
 **The evidence is pooled, with its error rate stated.** At each reading the two scaled errors differ by
 δ(δ + 2(after − record)), δ what the change moves the replay by. δ is known exactly; the only noise is the record's
 own about the better replay, taken as AR(1) (its correlation from one reading to the next, its small-record bias taken
-out, and from a twelfth of the record on, whichever is larger; while the record spans fewer than three of the slower
-time constant of what it touches, with and without the change, noise that drifts at all is taken to last that long,
+out, and from a twelfth of the record on, whichever is larger; while the record spans fewer than three of the time
+constant of what it touches, in whichever of the two replays the record better, noise that drifts at all is taken to last that long,
 since a short record reads a slow noise's correlation low; a stock with no time constant, which keeps whatever it gets
 wrong, is also taken as a walk, its steps read from the record's successive differences, and the larger variance
 counts; its second moment about that replay, so a bias counts as noise). Several stocks' noises may be correlated:
