@@ -107,3 +107,37 @@ Round 1, after the factory's fast suites: `unit` failed one test,
   so it is left for a gap of its own.
 - Left: that lease gap, and the factory's fast suites run again on this branch. If the flake recurs, the coordinator
   should judge it against main: the same test on main's tree under the same load.
+
+## Where it stopped
+
+Round 2 of gap/continue-branch2 (71c4a3b). Each finding of review/continue-branch2-1 and of the queue, answered:
+- Gate 1, "continue-branch2.md is not the branch's first commit" (both the queue's line and the review's): not
+  changed, and it needs the coordinator. It comes from how the salvage was set up (a new gap name on the old
+  branch), not from the code. Two ways out: accept continue-branch.md (19b9998, the first commit) as the definition
+  by hand, or, once this is on main, request it again as `continues: continue-branch`. Changing the gate for one
+  salvage, or rewriting history so a different file comes first, would be outside this definition and hard to
+  undo, so neither was done. The near-copy second definition file stays for the coordinator to drop when merging.
+- review.py:42-43/148, a stale base failing a continued gap after a paid session: fixed. implement.py records
+  the main it merged as `built_main` on gap.built. Gate 1 now requires a continued branch to hold that main, not
+  the main of the moment. If `built_main` is missing or not on main, it falls back to current main (the worst case,
+  lesson-3). Main moving on after the build is left to the merge queue, which merges into the main of its moment and
+  runs the suites again. This takes the most reversible reading of the definition's "checks the merge base is
+  current main": current as of the build, and as of the queue's merge. The README says so.
+  `test_gate_one_accepts_a_continued_branch_definition` now has main move after the build and reviews the gap twice
+  more: both approved, never parked. A `built_main` the branch does not hold is still sent back. With the
+  fix disabled (built_main ignored), the test fails at the first re-review.
+- implement.py:61 and fac.py:457 (lesson-12, from review/continue-branch-1): conflicted files now come from
+  `fac.conflicted` (`git diff -z --name-only --diff-filter=U`, split on NUL, with no strip). implement.py, the
+  stand-in and queue.py:175 all use it. New test: `test_conflicts_are_listed_whole_when_a_path_has_a_space`. It
+  fails when the list is split on whitespace (`['my', 'app.py']`).
+- Non-blocking (lesson-7): main 5ac297a (lesson 13, tests/test_factory_knowledge.py) is 5 commits past the merge
+  base 553b955 and does not touch this branch's files. This session was refused `git merge main` again. Left for
+  the factory's merge before the next session, or for the queue.
+- Non-blocking (lesson-10/13): the tests/test_leases.py flake under load is still a gap of its own that nobody
+  has requested yet. Nothing here touches it.
+
+Size: about 20 net lines of code in dev/bin this round. Run here, one file at a time: `tests/test_factory.py`
+(32 passed, 2 skipped for want of Docker); `tests/test_factory_knowledge.py` with
+`tests/test_ticket_factory_daemons.py` (26 passed); `tests/test_intake.py` with `tests/test_review.py` (43 passed);
+ruff clean. Not run: the whole unit suite and the browser files (the factory's job), and anything after a merge of
+main (refused).
