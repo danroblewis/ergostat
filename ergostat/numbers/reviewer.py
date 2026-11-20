@@ -39,7 +39,9 @@ def kinds(spec: Spec) -> list[str]:
 def seen(x: dict) -> str:
     """What the reviewer read, stamped: the judge's verdict and the edit as they stand. A change made again, revised, or
     carried and judged since has another stamp."""
-    got = {"verdict": x.get("verdict"), "edit": x.get("edit"), "redesign": x.get("redesign"), "version": x.get("version")}
+    v = x.get("verdict") or {}
+    v = v.get("judged", v)                  # its own reject (``failed``) keeps the judge's verdict it read
+    got = {"verdict": v or None, "edit": x.get("edit"), "redesign": x.get("redesign"), "version": x.get("version")}
     return hashlib.sha256(json.dumps(got, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
@@ -72,9 +74,9 @@ def due(p, spec: Spec) -> list[dict]:
 
 
 def tries(p, x: dict) -> int:
-    """Calls on this change since the judge last passed it."""
-    since = float((x.get("verdict") or {}).get("at") or 0)
-    return sum(1 for e in p.events.query(n=None, type=RAN, since=since) if (e.get("data") or {}).get("change") == x["id"])
+    """Calls on this change as it stands (each stamped with what it read): none made on an earlier version count."""
+    return sum(1 for e in p.events.query(n=None, type=RAN) if (d := e.get("data") or {}).get("change") == x["id"]
+               and d.get("read") == seen(x))
 
 
 def author(spec: Spec, x: dict) -> str | None:
@@ -153,7 +155,7 @@ def _record(p, spec: Spec, x: dict, got: dict, by: str, cost: float, now: float 
     pr.event(p, x["id"], "reviewed", {"review": review}, source=by)
     if verdict == "reject":
         pr.event(p, x["id"], "failed", {"verdict": {"verdict": "failed", "why": f"the reviewer rejected it: {said}", "at": now,
-                                                    "by": by}}, source=by)
+                                                    "by": by, "judged": x.get("verdict")}}, source=by)
     elif verdict == "revise" and who is not None:
         pr.event(p, x["id"], "superseded", {"why": f"sent back to {who} by the reviewer: {said}"}, source=by)
         if x.get("kind") == "redesign":           # the redesigner takes it up again, the findings in its prompt
@@ -184,10 +186,10 @@ def asked(p, by: str, parts, system: str | None = None) -> dict:
 def memory(p, by: str, most: int = MEMORY) -> list[dict]:
     """The reviewer's latest verdicts on this author's own changes, newest first: what it said, so it stops repeating
     what was rejected."""
-    mine = [f for _, f in pr.changes(p).values() if f.get("made_by") == by and f.get("review")]
-    mine.sort(key=lambda f: -float(f["review"].get("at") or 0))
-    return [{"title": f.get("title"), "parts": f.get("parts") or [], "verdict": f["review"]["verdict"],
-             "findings": [g["says"] for g in f["review"].get("findings") or []][:3]} for f in mine[:most]]
+    mine = [(f, r) for _, f in pr.changes(p).values() if f.get("made_by") == by and (r := review_of(f))]
+    mine.sort(key=lambda fr: -float(fr[1].get("at") or 0))   # only a review of the version as it stands
+    return [{"title": f.get("title"), "parts": f.get("parts") or [], "verdict": r["verdict"],
+             "findings": [g["says"] for g in r.get("findings") or []][:3]} for f, r in mine[:most]]
 
 
 def lines(p, by: str) -> list[str]:
@@ -226,7 +228,7 @@ def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: floa
             usd = float(got.get("usd") or 0.0)
             out["cost"]["usd"] = round(out["cost"]["usd"] + usd, 6)
             out["cost"]["calls"] += 1
-            p.events.add(RAN, source="reviewer", data={"change": x["id"], "usd": usd, "model": model})
+            p.events.add(RAN, source="reviewer", data={"change": x["id"], "usd": usd, "model": model, "read": seen(x)})
         if on_call is not None:
             on_call(got)
         v = parse(got.get("result") or "")
@@ -249,5 +251,5 @@ def counts(p, since: float, until: float) -> dict[str, int]:
         if v in out:
             out[v] += 1
     out["missed"] = sum(1 for st, f in pr.changes(p).values()
-                        if st == "regressed" and (f.get("review") or {}).get("verdict") == "pass")
+                        if st == "regressed" and (review_of(f) or {}).get("verdict") == "pass")   # a pass of the version written
     return out
