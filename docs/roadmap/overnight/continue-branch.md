@@ -30,3 +30,13 @@ current main. The README says how to continue a parked branch.
 ## Size budget
 
 250 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 2's fast `unit` run did not fail a test: its log stops at 98% with no `FAILED` or `ERROR` line, no pytest
+summary and no watchdog JSON line, so the run was ended from outside (the container, not an assertion). No fault in the
+code was found. Run alone, one file at a time: `tests/test_factory.py` (30 passed, 2 skipped for want of Docker),
+`tests/test_factory_knowledge.py` (20), `tests/test_ticket_factory_daemons.py` (6), `tests/test_intake.py` with
+`tests/test_review.py` (43): all pass. The whole suite was not run here (the session was refused it). Left: the
+factory's run of the fast suites again, and main (e1bf9ed) merged into the branch: this session was refused
+`git merge`, which is this gap's own subject (implement.py merges main before a session once this is on main).
