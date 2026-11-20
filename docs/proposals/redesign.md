@@ -62,8 +62,8 @@ goes back for the next round, up to `rounds`; the best round's copy is proposed.
 each round says how long its prompt, call and scoring took, and the run's cost is printed as a Claude Code result line
 (so `ergostat.cost.*` and `run/redesigner/cost_usd` have it) and kept on the change.
 
-**When it runs**: the owner asks (`ergostat improve --redesign [SYSTEM]`, the Model page's Redesign button), and the
-redesigner block takes the ask up on its next run. At most one redesign waits per system. Template parameters:
+**When it runs**: on its own, a system at a time when it is due (`when: auto`, SPEC §12e), or when the owner asks
+(`ergostat improve --redesign [SYSTEM]`, the Model page's Redesign button), taken up by the redesigner block. At most one redesign waits per system. Template parameters:
 `redesign: {when: ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` and `redesign-every` (10m).
 
 **On the page**: the review queue's entry for a redesign shows what it changes and why (the summary, each edit with its
@@ -163,8 +163,10 @@ The gate review (2026-11-19) passed redesign with these fixes, made on `modellin
   waits for the owner (`judge.owners`); a promoted redesign that cannot be written is superseded, and the pass goes on;
 - the owner's ask is recorded and the redesigner block takes it up: nothing runs in the page server or the command,
   and every run's cost is a result line;
-- the automatic triggers (`when: auto`: findings, coherence, stalling, the first run) are parked, and runs stop at a
-  daily cap; a carried redesign is scored again;
+- the first automatic triggers (the whole model at once) were parked; the owner then decided it should review on its
+  own (2026-11-19), so `when: auto` is back as the default, per system (a subsystem at a time past 40 parts), with
+  bounds (one waiting a system, a rest after one no better, the daily cap charged call by call); a carried redesign
+  is scored again;
 - the results above were made with `when: auto` and the redesigner run by `ergostat improve --redesign` directly.
   With the fixes, the change sets judged better above that chained a kind (poor, the 13 stocks) wait for the owner.
 
