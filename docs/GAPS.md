@@ -148,8 +148,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **A cause for a scheduled run's events** (done, e4800ea, on `causes-join`; SPEC §5b): the run is the cause its
   events cite (no `ergostat.schedule.fired` event per firing); the Process view draws each scheduled block in a
   **schedules** frame with its fan-out. *Left*: an event line still cannot name a cause of its own (`causedby`).
-- **Triggers on an event type** (parked on `triggers`, failed its gate twice; `docs/roadmap/overnight/triggers.md`,
-  *Where it stopped*): a block started by an event type alone, not only by a state change.
+- **Triggers on an event type** (done on `triggers2`, after `triggers` was parked; SPEC §9.3, *Started by an event*):
+  `on: {event: TYPE, where:, emits:}`, a run per event; loops refused when the model is read (`trigger-loop`, any
+  length) and stopped at run time by the chain carried on each run (8 at most, `trigger.stopped`); advise asks per
+  event; lookups by id and prefix types indexed. *Left*: a relay outside ergostat that drops `causedby` starts a new
+  chain (its events are new causes, as a person's are); no `max-age` for a backlog after a long stop.
 - **Closed-loop simulation** (done, `closedloop`; docs/roadmap/overnight/closedloop.md): projection held the blocks still; now it runs with the loops
   running by default (`numbers/closedloop.py`, SPEC §12b): goals and built-ins by the engine's own code, each machine
   block by its identified model (or a flagged assumption), on the causes strip, what-if (parameters,
