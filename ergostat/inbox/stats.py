@@ -13,6 +13,12 @@ PROMOTE = 5                         # approved this many times, none denied: sug
 BY_AGENT = "owner via mcp"          # who an answer given through the MCP is recorded as
 
 
+def by_person(source) -> bool:
+    """An answer the owner gave themself: on this machine (``owner``), or through the page's login, as its email
+    (SPEC §4d)."""
+    return source == "owner" or "@" in str(source or "")
+
+
 def asked(p, spec, since: float, until: float) -> list[dict]:
     """Each thing asked of a person since then: its class, cause, when asked and answered, the answer (approved,
     denied, superseded, or None while it waits) and who gave it. Alarms are added by ``interventions.read``."""
@@ -44,8 +50,8 @@ def asked(p, spec, since: float, until: float) -> list[dict]:
     for e in p.events.query(n=None, type="ergostat.model-change.*", since=since, until=until):
         if e["type"].endswith(".made"):
             made[e["item"]] = (f"change:{e['data'].get('kind')}", e["time"])
-        elif e["item"] in made and e["source"] in ("owner", BY_AGENT) and e["type"].rsplit(".", 1)[1] in ("accepted",
-                                                                                                         "dismissed"):
+        elif (e["item"] in made and (by_person(e["source"]) or e["source"] == BY_AGENT)
+              and e["type"].rsplit(".", 1)[1] in ("accepted", "dismissed")):
             cls, t0 = made.pop(e["item"])
             one(cls, e["item"], t0, e["time"], "approved" if e["type"].endswith("accepted") else "denied", e["source"])
     waiting = {e["id"].split("/", 1)[1] for e in en.entries(p, spec, until) if e["kind"] == "change"}

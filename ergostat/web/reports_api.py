@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from urllib.parse import unquote
 
+from ..webaccess import who
+
 
 def get(p, rid: str) -> dict | None:
     from ..reports import record
@@ -21,7 +23,7 @@ def post(live, path: str, q: dict) -> tuple[int, dict]:
     if not rid or verb not in ("reviewed", "submitted", "dismissed"):
         return 400, {"error": "POST /api/report/ID/reviewed, /submitted or /dismissed"}
     try:
-        got = record.mark(live.get(), rid, verb, by="owner", note=(q.get("note") or [None])[0])
+        got = record.mark(live.get(), rid, verb, by=who(), note=(q.get("note") or [None])[0])
     except record.ReportError as e:
         return 400, {"error": str(e)}
     return 200, {"id": got["id"], "state": got["state"]}

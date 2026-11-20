@@ -278,8 +278,9 @@ def _ran(p, spec, cls: str, cause: str, since: float) -> bool:
     if kind == "alarm":
         return any(not v for _, v in p.measurements.range(f"block/{name}", since, time.time() + DAY))
     if kind == "change":
-        return any(e["source"] not in ("owner",) for e in p.events.query(n=200, type="ergostat.model-change.accepted",
-                                                                           since=since))
+        from .stats import by_person
+        return any(not by_person(e["source"]) for e in p.events.query(n=200, type="ergostat.model-change.accepted",
+                                                                      since=since))
     if kind == "steptest":
         g = spec.goals.get(cause.removeprefix("goal "))
         return bool(g is not None and g.process)

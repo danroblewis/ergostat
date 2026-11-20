@@ -4,6 +4,8 @@ per class) and ``POST /api/action/ID/approve`` or ``/deny`` (``note=``: why), th
 
 from __future__ import annotations
 
+from ..webaccess import who
+
 KEEP = ("id", "state", "action", "class", "gate", "args", "command", "in", "item", "branch", "block", "session", "time",
         "approved_by", "denied_by", "note", "exit", "output", "deliveries")
 
@@ -28,9 +30,9 @@ def post(live, path: str, q: dict) -> tuple[int, dict]:
     note = (q.get("note") or [None])[0]
     try:
         if verb == "approve":
-            a = gate.approve(p, spec, aid, by="owner", note=note)
+            a = gate.approve(p, spec, aid, by=who(), note=note)
         else:
-            a = gate.deny(p, aid, by="owner", note=note)
+            a = gate.deny(p, aid, by=who(), note=note)
     except gate.GateError as e:
         return 400, {"error": str(e)}
     return 200, {k: a.get(k) for k in KEEP}
@@ -52,6 +54,6 @@ def answer(live, path: str, q: dict) -> tuple[int, dict]:
     one = lambda k: (q.get(k) or [None])[0]               # noqa: E731
     try:
         n = float(one("n")) if one("n") not in (None, "") else None
-        return 200, give(p, p.model.spec, eid, verb, n, one("note"))
+        return 200, give(p, p.model.spec, eid, verb, n, one("note"), by=who())
     except (AnswerError, ValueError, AttributeError) as e:
         return 400, {"error": str(e)}
