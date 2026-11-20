@@ -209,3 +209,41 @@ in is the merge this session was refused (the fifth refusal of `git merge main`)
 - Left: someone allowed to run `git merge` merges main (1f013ba) into this branch. The merge base and main share no
   changed file with this branch (see round 3 above), so the merge should be clean, though that has not been tried.
   Then the fast suites run again on the merged tree. Gate 1 for this salvage is still the coordinator's.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-20 09:08).
+
+Its fast suites failed 2 times (the kill rule); the last: the fast suites failed (unit: tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere).
+
+```
+ython
+
+tmp_path = PosixPath('/tmp/pytest-of-dev/pytest-0/popen-gw3/test_the_watchdog_renews_from_0')
+
+    def test_the_watchdog_renews_from_what_the_holder_does_elsewhere(tmp_path):
+        """A run working in a session of its own (another item) keeps its lease on its item."""
+        run = ('for i in 1 2 3 4 5; do $ERGOSTAT_CMD event --add session.said --item session/$ERGOSTAT_LEASE '
+               '--data "{\\"n\\": $i}"; sleep 0.4; done; echo "{\\"event\\": \\"ticket.done\\"}"')
+        p = project(tmp_path, model(run, "{ttl: 1s}"))
+        p.events.add("ticket.opened", item="ticket/1", source="t")
+        e = start(p)
+        try:
+            assert wait_for(lambda: item(p, "ticket/1").state == "done", 15)
+        finally:
+            e.close()
+        lease = item(p, "ticket/1").fields["lease"]
+>       assert [h["how"] for h in lease["history"]] == ["ack"]
+E       AssertionError: assert ['expired', 'ack'] == ['ack']
+E         
+E         At index 0 diff: 'expired' != 'ack'
+E         Left contains one more item: 'ack'
+E         Use -v to get more diff
+
+tests/test_leases.py:380: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere
+1 failed, 1851 passed, 69 skipped in 265.13s (0:04:25)
+{"rc": 1, "wall_s": 266.1, "peak": {"threads": 348, "rss_mb": 1710.9, "procs": 121, "worker_mb": 601.7}, "killed": null, "workers_killed": 0, "left_behind": 0}
+
+```
