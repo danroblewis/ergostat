@@ -113,3 +113,11 @@ outside the supervisor's lock opened a race:
 - **Test added:** `test_a_run_cancelled_before_its_hand_over_is_never_sent` (the owner's stop between hold and
   hand-over). It fails with the check disabled: the line is sent and the stop is not honoured.
 - Size: about 10 more net lines, still within the 400 budget.
+
+### The fast suites after round 2 (2026-11-20)
+
+`unit` failed, but its tail was cut off before any failure was printed. Under load (`-n 8`), one warm test failed
+every time: `test_an_unreaped_child_is_said_not_held_against_the_process`. Its test program dropped its `Popen` of
+`true`, and CPython's `Popen.__del__` reaps a child that has already ended, which on a loaded machine it often has.
+So no child was left unreaped, and ergostat was right to report none. The test program now keeps the `Popen`. No
+ergostat code changed. The failure seen was in the test program, not the code; this is the only one found.

@@ -49,8 +49,8 @@ while (m := q.get())["op"] != "stop":
                         "while time.process_time() - t < 0.6: pass"])
     if "prekid" in mode and count == 1:          # ends during the run, reaped: its whole life moves into this process
         kid.kill(); kid.wait()
-    if "zombie" in mode and count == 1:          # a child that ends, never waited for
-        subprocess.Popen(["true"]); time.sleep(0.3)
+    if "zombie" in mode and count == 1:          # a child that ends, never waited for (kept: an unreferenced Popen
+        z = subprocess.Popen(["true"]); time.sleep(0.3)   # reaps it in __del__ if it has already ended)
     if "leave" in mode and count == 1:
         k = subprocess.Popen(["sleep", "600"]); open("kid.pid", "w").write(str(k.pid))
     end = time.time() + float(f.get("sleep", 0.05))
