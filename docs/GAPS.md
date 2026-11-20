@@ -120,9 +120,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   found"), the estimator letting go of loops' processes too. **Done:** ergostat's own changes are what they are about,
   revised in place when found again with new numbers; carried to a new version when their subject is unchanged (a
   value's or an equation's edit made again on the files as they are); superseded only when their subject was edited or
-  removed, their edit cannot be made again, or their finder no longer finds them, saying which. **Left:** a block's
-  proposal is still superseded by any change of version (`modelling-core` carries words and redesigns and moves waiting
-  edits' lines: `rebase`, `carry`); a structural change whose lines moved is superseded and made again on the same item
+  removed, their edit cannot be made again, or their finder no longer finds them, saying which. `modelling-core` makes it one
+  mechanism: `rebase` moves the waiting edits' lines, and `supersede` carries ergostat's own (subject unchanged) and a
+  description, unit or redesign whoever made it (its edit still applies). **Left:** a block's other proposals (values,
+  equations, structure) are still superseded by any change of version; a structural change whose lines moved is superseded and made again on the same item
   by the next structural pass rather than carried.
 - **Poor identifications proposed, projections drawn as sure** (done, `churn`; owner, 2026-11-19: a loop's process that
   followed 2% held out was proposed, and the projections after a burst of 130 tickets were far off): a process is
