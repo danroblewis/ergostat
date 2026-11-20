@@ -245,6 +245,8 @@ def submit(p, by: str, raw: dict, run: str | None = None, scratch: cs.Scratch | 
             return {"status": "not-proposed", "id": pid, "title": title, "why": str(e)}
         pr.event(p, pid, "made", made, source=by, causedby=run)
         x["edit"] = im.stamped(x["edit"], pid)
+        from . import reviewer as rv
+        x.update(rv.asked(p, by, [], x["system"]))      # sent back by the reviewer: this is its next round
         x["method"] = (f"made by {by} ({im._rung(spec, by) or 'a block'}): {len(x['redesign']['edits'])} edits made in order on "
                        f"a scratch copy, compiled, checked, and scored on the record as it is")
         pr.event(p, pid, "checked", x)
@@ -348,10 +350,12 @@ def charge(p, system: str, got: dict) -> None:
 
 
 def spent(p, now: float | None = None) -> float:
-    """What the redesigner's calls cost over the last day, in dollars (each charged as it was spent)."""
+    """What the template's AI calls cost over the last day, in dollars (each charged as it was spent): the redesigner's
+    and the reviewer's, under one daily cap."""
+    from . import reviewer as rv
     now = now or time.time()
     return round(sum(float(((e.get("data") or {}).get("cost") or {}).get("usd") or 0.0)
-                     for e in p.events.query(n=None, type=RAN, since=now - DAY)), 6)
+                     for e in p.events.query(n=None, type=RAN, since=now - DAY)) + rv.spent(p, now), 6)
 
 
 def last(p) -> dict | None:
