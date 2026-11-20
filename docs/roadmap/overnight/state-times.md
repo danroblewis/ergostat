@@ -78,3 +78,14 @@ and no line from `suite_watch.py`. Something outside the suite stopped it (the c
 in the output. Run alone here, `tests/test_factory_times.py`, `tests/test_factory.py`, `tests/test_factory_knowledge.py`
 and `tests/test_ticket_factory_daemons.py` pass (70 passed, 2 skipped). This session was not allowed to run the whole
 unit suite again, so the code was not changed. The step left is the factory's own unit run, under the watchdog.
+
+Round 3, merging main (05c6dc9): main's own fast-suite triage (`onmain.check`, main-broken) replaced the direct
+`agents.suites` call in `implement.py`, and `status.py` gained `status.py session` and the resources line. Both are
+kept; `fast_seconds` now sums the `ruff` and `unit` seconds of what `onmain.check` returns for each round, and the
+time table follows the resources line. A known undercount, left as it is (changing `onmain.py` is outside this gap):
+when a unit failure passes alone and the flake retry runs, `onmain.check` returns only the retry's result, so the
+first unit run's seconds and the runs alone and on main are not in `gate-fast`. After the merge: ruff clean;
+`tests/test_factory_times.py` 6, `tests/test_factory.py` 41 passed with 2 skipped, `tests/test_factory_knowledge.py`
+22, `tests/test_ticket_factory_daemons.py` 6, `tests/test_factory_resources.py` 8, `tests/test_factory_sessions.py` 5,
+each file run alone. The whole unit suite and the browser files were not run here; the factory's runs remain the
+check. The setpoints are still first guesses until `times.py setpoints` runs in the instance's folder.
