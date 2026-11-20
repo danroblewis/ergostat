@@ -141,6 +141,11 @@ def _not_stopping():
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
+    """Each test's own ergostat home, and nothing inherited from an ergostat running these tests: a suite run as a
+    block of an engine (the factory's merge queue) inherits its ERGOSTAT_SOCKET, ERGOSTAT_RUN and the rest, and a
+    test's CLI would then talk to that engine instead of its own."""
+    for k in [k for k in os.environ if k.startswith("ERGOSTAT_")]:
+        monkeypatch.delenv(k)
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     return tmp_path / "home"
 

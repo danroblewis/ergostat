@@ -346,7 +346,9 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began = time.time()
     with log.open("w") as out:
-        p = subprocess.Popen(cmd, shell=True, cwd=cwd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
+        p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
+                             start_new_session=True)
         try:
             while p.poll() is None:
                 renew()
