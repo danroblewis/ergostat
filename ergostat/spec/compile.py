@@ -80,7 +80,7 @@ AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "descripti
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
-MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease"}
+MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
     "program": MACHINE_COMMON | LAW_KEYS | {"run", "daemon", "parse", "goal", "until", "review", "workspace", "actions"},
@@ -1004,6 +1004,8 @@ class Compiler:
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
+        from . import triggers
+        triggers.check(self, spec)                           # blocks started by an event, and their loops (SPEC §9.3)
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
         for b in judges[1:]:
             self.err(f"block {b.name}: one judge of changes to the model at most ({judges[0].name} is one)", b.where,
@@ -1447,8 +1449,10 @@ class Compiler:
         if t in ONE_INPUT and not inputs:
             self.err(f"{what}: a {t} block needs in: (the signal it works on)", m.where, "missing-key")
         from ..leases import compile as leases
+        from . import triggers
         lease_keys = {"takes": leases.takes(self, m, what), "pool": leases.pool(self, m, what),
-                      "lease": leases.terms(self, m, "lease", what)} if t in MACHINE else {}
+                      "lease": leases.terms(self, m, "lease", what), "on": triggers.compile_on(self, m, what)} \
+            if t in MACHINE else {}
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
                      **lease_keys,
                      system=self.system("blocks", name, m), description=self.text(m, "description"),

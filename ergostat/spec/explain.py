@@ -26,6 +26,8 @@ def _when(x) -> str:
         return f"on cron {x.cron}"
     if getattr(x, "every", None):
         return f"every {human(x.every)}"
+    if getattr(x, "on", None):
+        return f"on each {' or '.join(x.on.events)} event"
     return ""
 
 

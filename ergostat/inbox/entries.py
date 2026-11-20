@@ -70,7 +70,9 @@ def _blocks(p, spec, now: float) -> list[dict]:
         if not last or last[0]["answered"] is not None:
             continue
         x, person, ask = last[0], b.type == "person", str(b.params.get("ask") or "")
-        kind, cmd = ("person" if person else "advise"), f"command {x['data'].get('command', 0):g}"
+        kind, cmd = ("person" if person else "advise"), f"command {x['data'].get('command') or 0:g}"
+        if x["data"].get("event_type"):                   # started by an event: asked about it (SPEC §9.3)
+            cmd = f"run on {x['data']['event_type']} {str(x['data'].get('event'))[:8]}"
         out.append({"id": f"{kind}/{b.name}@{x['seq']}", "kind": kind, "block": b.name, "seq": x["seq"],
                     "time": x["time"], "link": f"/diagram?view=blocks&around=block/{b.name}",
                     "verbs": ["done"] if person else ["approve", "deny"], "class": f"{kind}:{b.name}", "why": "",
