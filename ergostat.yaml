@@ -1,0 +1,228 @@
+# ergostat on ergostat: the factory that develops ergostat itself (dev/README.md). What the coordinator did by hand
+# through the overnight runs (docs/roadmap/overnight-2026-11-19.md) as a model: each gap defined first, built by an AI
+# implementor in its own worktree, judged by a disagreeable AI reviewer, landed one at a time by a merge queue behind
+# the four suites, and the new main installed and switched to, with a revert.
+#
+# Boundary.
+#   Endogenous: the gaps' chain (open to merged), the reviews, the flakes, the upgrades of the instance itself, the
+#   interventions the coordinator records, and the loops that move them.
+#   Exogenous: which gaps the owner lists (docs/GAPS.md) or asks for (gap.requested), their definitions of done
+#   (written by the coordinator), what the suites say, the machine's load from everything else, the push to origin
+#   (held for the coordinator), the AI sessions' cost.
+#   Left out: the session transcripts (kept by Claude Code, never in git), the owner's own merges by hand.
+#
+# Shipped off: the implementor takes nothing until the coordinator opens the intake
+# (`ergostat sensor intake-open.main --read 1`). The cap on what the AI sessions cost a day is the goal ai-budget,
+# in dev/model/budget.yaml.
+name: ergostat-factory
+include:
+  - dev/model/*.yaml
+
+systems:
+  factory:
+    description: ergostat's own development - gaps in, merged and running changes out
+  intake:
+    within: factory
+    description: the gaps found in GAPS.md or asked for, waiting for a definition of done - the slow outer loop
+    show: [stock.gaps-open]
+  building:
+    within: factory
+    description: gaps defined, built by the implementor in their worktrees, and judged by the reviewer
+    show: [stock.gaps-ready, stock.gaps-building, stock.gaps-in-review]
+  landing:
+    within: factory
+    description: the merge queue behind the four suites, flake triage, and the instance upgraded to what landed
+    show: [stock.gaps-approved, stock.gaps-queued, stock.upgrades-installed]
+  pools:
+    within: factory
+    description: the AI pools - one implementor and one reviewer to start, raised on a streak of good gaps, lowered on a bad one
+    show: [stock.implementor-pool, stock.reviewer-pool, auxiliary.good-streak]
+  oversight:
+    within: factory
+    description: what the factory may spend, the machine's load, how well it works, and the coordinator's interventions
+  spending:
+    within: oversight
+    description: the AI sessions' cost over the last day, held under the daily cap
+    show: [auxiliary.ai-spend]
+  load:
+    within: oversight
+    description: the load interlock - the suites running on the machine, their threads and memory
+    show: [auxiliary.suites-running, auxiliary.suite-threads, auxiliary.suite-memory]
+  measures:
+    within: oversight
+    description: how well the factory works - cycle time, first-pass yield, fix rounds, the queue, flakes, cost
+    show: [auxiliary.first-pass-yield, auxiliary.cycle-hours, auxiliary.cost-per-merged]
+  interventions:
+    within: oversight
+    description: the coordinator's interventions, each evidence of a loop the factory lacks
+    show: [stock.interventions-open, auxiliary.interventions-trend]
+  planning:
+    within: factory
+    description: each open gap planned (its definition of done, or a split) and the plan reviewed before it is built
+    show: [stock.gaps-planned, stock.gaps-replan]
+  research:
+    within: factory
+    description: questions from the coordinator or a planner, answered with a report and its sources
+    show: [stock.research-asked]
+  knowledge:
+    within: factory
+    description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
+    show: [stock.knowledge-entries, stock.lessons-proposed, auxiliary.first-pass-with-lessons]
+
+items:
+  gap:
+    id: gap/*
+    description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
+    states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, queue-failed, merged,
+             parked]
+    on:
+      gap.found: open                # intake: an entry of docs/GAPS.md
+      gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
+      gap.planned: planned           # planner: its definition of done written (run/plans/)
+      gap.plan-sent-back: replan             # plan review: sent back to the planner with its findings
+      gap.split: split               # planner: split into sub-gaps, each naming it as parent; joined once all merged
+      gap.defined: ready             # intake, or the plan review: its definition of done exists
+      gap.started: building          # implementor
+      gap.built: built
+      gap.review-started: in-review  # reviewer
+      gap.approved: approved
+      gap.sent-back: fix             # reviewer (fix), queue (a conflict) or triage (a real failure): its findings
+      gap.queued: queued             # merge queue
+      gap.queue-failed: queue-failed
+      gap.retried: approved          # triage: a flake, back to the queue
+      gap.merged: merged
+      gap.parked: parked             # the kill rule, or a park verdict: where it stopped
+    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+    relations:
+      depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
+                                     # one waiting on a parked gap is held by its field waits_on_parked (takes: where)
+      parent: gap                    # a sub-gap of a split (plan.py)
+    fold:
+      rounds: sum
+      reviews_n: sum
+      fix_rounds: sum
+      failed_gates: sum
+      retries: sum
+      queue_attempts: sum
+      sessions: sum
+      ai_cost_usd: sum
+      build_hours: sum
+      review_hours: sum
+      queue_wait_hours: sum
+      reviews: append
+      contexts: append
+      flakes: union
+      plan_failures: sum
+      plan_reviews: append
+      research: union
+      research_waits: sum
+    join:
+      - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
+    lease: {attempts: 2}
+    # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
+
+  review:
+    id: review/*
+    description: one review of a gap's branch - its verdict (merge, fix or park) and its findings
+    states: [written, merge, fix, park]
+    on:
+      review.written: written
+      review.approved: merge
+      review.sent-back: fix
+      review.parked: park
+    show: [gap, round, verdict, ai_cost_usd]
+    relations:
+      gap: gap
+
+  flake:
+    id: flake/*
+    description: a test that failed in the merge queue and passed alone - counted each time, until fixed
+    states: [seen, fixed]
+    on:
+      flake.seen: seen
+      flake.fixed: fixed
+    show: [test, times]
+    fold: {times: sum, gaps: union}
+
+  intervention:
+    id: intervention/*
+    description: the coordinator stepping in by hand, with why - evidence of a loop the factory still lacks
+    states: [open, remedied]
+    on:
+      intervention.recorded: open
+      intervention.remedied: remedied
+    show: [reason, class, remedy]
+
+  pool:
+    id: pool/*
+    description: an AI pool (pool/implementor, pool/reviewer) - how many sessions at once, ramped up on good results
+    states: [held]
+    on:
+      pool.measured: held
+      pool.raise-asked: held
+      pool.lowered: held
+    show: [pool, most, streak, why]
+
+  upgrade:
+    id: upgrade/*
+    description: a version of main the instance may run - installed into its own folder, switched to, kept or reverted
+    states: [available, installed, switched, healthy, reverted, superseded, failed]
+    on:
+      upgrade.opened: available        # merge queue: a new green main
+      upgrade.installed: installed     # upgrader
+      upgrade.superseded: superseded
+      upgrade.failed: failed
+      upgrade.switched: switched       # the switch (live.py), once the coordinator approved it
+      upgrade.kept: healthy
+      upgrade.reverted: reverted
+    show: [sha, check, switch, previous]
+
+  research:
+    id: research/*
+    description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report
+    states: [asked, answered]
+    on:
+      research.asked: asked
+      research.answered: answered
+    show: [question, gap, summary, report]
+
+  lesson:
+    id: lesson/*
+    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, or retired
+    states: [seen, proposed, requested, retired]
+    on:
+      lesson.seen: seen              # librarian: a class not listed, found in one review
+      lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
+      lesson.requested: requested    # knowledge-change approved: a gap with the exact edit (lesson.py)
+      lesson.retired: retired        # lesson.py retire
+    show: [kind, lesson, name, text, times, gap]
+    fold: {times: sum, reviews: union, findings: append}
+
+messages:
+  done: {gap: [merged, parked], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+         lesson: [requested, retired]}   # (finished, for the estimates)
+
+agents:
+  opus:
+    kind: ai
+    model: claude-opus-5-5
+    at-once: 3
+    description: headless Claude Code sessions (claude -p) on Opus for the implementor and the reviewer; dev/factory.toml
+  coordinator:
+    kind: person
+    description: the coordinator (a Claude session for the owner) - defines gaps, opens the intake, approves the push and the switch
+
+leases:
+  ai: {ttl: 60m}
+
+uses:
+  modelling:
+    use: modelling
+    with:
+      run: ""                        # the improver as a claude -p session (on haiku)
+      model: haiku
+      ai: true                       # the improver, modeller and redesigner, so the model improves itself
+      ai-model: haiku
+      redesign: {when: auto, model: haiku, budget: 0.5, daily: 2}
+  interventions:
+    use: interventions               # the inbox's approvals (the push, the switch) as a stock that should fall

@@ -99,8 +99,10 @@ def status(it, info: dict, waiting: list[str]) -> str:
 
 
 def started(it, info: dict) -> bool:
-    """Whether an unfinished item's work has begun: it is past its kind's first state."""
-    return bool(info["working"]) and it.state in info["working"] or held(it.fields) is not None
+    """Whether an unfinished item's work has begun: it is past its kind's first state, and not waiting in a state a
+    block takes from (a queue: its work there begins when it is taken), or it is held."""
+    return (bool(info["working"]) and it.state in info["working"] and it.state not in info["queue"]
+            or held(it.fields) is not None)
 
 
 def remaining(it, info: dict, now: float, fallback: float) -> tuple[float, list[tuple[str, float]], bool]:

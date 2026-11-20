@@ -4,8 +4,8 @@
 # the model as a senior modeller would and proposes changes with their evidence (propose lines). Every change to the
 # model, the improver's and ergostat's own alike, is an item of ergostat's built-in kind ergostat.model-change: Items →
 # ergostat.model-change, and the review queue on the Fit page. The judge (a built-in block) replays each on the record
-# that comes after it, beside the model as it is, in several windows, and passes it only when it is better in every
-# one. A passed change to a parameter's value is written at once; a change to the structure waits for me.
+# that comes after it, beside the model as it is, all of it pooled, and passes it only when it is better beyond
+# the record's noise. A passed change to a parameter's value is written at once; a change to the structure waits for me.
 # What it makes: docs/ADDING.md (modelling).
 #
 # The improver is an ordinary ai block: a Claude Code session with ergostat's tools (JOB_AI=claude,
@@ -20,7 +20,7 @@ uses:
       run: python3 bin/improver.py            # JOB_AI=claude: a Claude Code session with ergostat's tools; otherwise a stand-in
       sessions: true                          # each run of the improver a session item (session/*)
       hold-out: 4m                            # each change judged on four minutes of record after it was made ...
-      windows: [1, 2, 4]                      # ... whole, in halves and in quarters
-      threshold: 2%                           # passed when better by 2% in every one
+      windows: [1, 2, 4]                      # ... shown whole, in halves and in quarters
+      threshold: 2%                           # passed when better by 2%, beyond the record's noise
       accept:
         parameter: auto                       # a value passed is written at once; the structure waits for me

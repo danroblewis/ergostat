@@ -1,0 +1,22 @@
+# What the factory's AI sessions may spend. THE DAILY CAP IS HERE, AND ONLY HERE: the goal ai-budget's hold, in
+# dollars over the last day. The engine's gates (implement-when, review-when) read it, and the implementor's and the
+# reviewer's programs read the same line (dev/bin/fac.py, daily_cap) before each session, against their own ledger
+# (run/costs.jsonl). Both fail closed: a spend not read (no reading yet, a stale one, a ledger that cannot be read)
+# stops the sessions; the modelling loop (haiku) counts against it too.
+defaults:
+  system: spending
+
+auxiliaries:
+  ai-spend:
+    unit: USD
+    description: what the AI sessions cost over the last day, as Claude Code reported it
+    driven-by: [+stock.gaps-building, +stock.gaps-in-review]
+    sensor: {builtin: ergostat.cost.usd, every: 5m, description: AI sessions' cost over a day}
+
+goals:
+  ai-budget:
+    auxiliary: ai-spend
+    hold: "<= 80"
+    tolerance: 0
+    on-stale: "off"                    # a spend not read is counted as over: the gates close
+    description: the implementor and the reviewer spend at most $80 a day (change it here)
