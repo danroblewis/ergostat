@@ -38,6 +38,8 @@ class Param:
     required: bool = False
     has_default: bool = False
     choices: list | None = None
+    least: float | None = None          # a number's floor and ceiling, checked when the model loads
+    most: float | None = None
 
 
 @dataclass
@@ -93,7 +95,7 @@ def read(path: Path, builtin: bool) -> Template:
             raise TemplateError(f"template {t.name}: param {n}: type {ty!r} (known: {', '.join(TYPES)})")
         t.params[str(n)] = Param(str(n), ty, str(spec.get("description") or "").strip(), spec.get("default"),
                                  spec.get("stand-in"), bool(spec.get("required")), "default" in spec,
-                                 spec.get("choices"))
+                                 spec.get("choices"), spec.get("least"), spec.get("most"))
     t.body = {k: data[k] for k in BODY if data.get(k) is not None}
     return t
 

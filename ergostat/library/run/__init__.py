@@ -9,6 +9,8 @@
 - ``due`` and ``report``: a report's clock (a sensor: is a scheduled time past with no report since?) and its
   writer (a block: renders it, keeps the file, records the item) (``daily-report``);
 - ``summary``: a free report of the model now (its goals and items), the stand-in for a report's own renderer;
+- ``upkeep tidy --keep N``: ``use: upkeep``'s index tidier, which works from the state directory alone and removes
+  retired item-index files and the least recently changed live ones down to ``N``, each only as ``itemindex`` allows;
 - ``standin``: free stand-ins for the world (``act``, ``level``, ``lower``), so a template runs offline.
 
 Each reads and keeps only its own state, in the project's state directory under ``library/<instance>/``, and

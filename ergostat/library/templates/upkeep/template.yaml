@@ -1,0 +1,98 @@
+template: upkeep
+once: true
+description: ergostat's own upkeep as loops of the model (SPEC §2a, Upkeep) - its item-index files a stock held under a goal, tidied by a program on the rule rung instead of by the engine on its own; the delete interlock stays in ergostat's code.
+reading: |
+  System dynamics: the item-index files (each an on-disk fold of the record for one shape of the model's item kinds)
+  are a stock (index-files, read by ergostat's built-in measure ergostat.upkeep.index-files: the live
+  <hash>[.n].db files under the state directory's items folder), filled as each change to the model's item kinds
+  makes a new one (index-files-made, the stock's rises) and drained as they are tidied away (index-files-tidied, its
+  falls). Files another process still held when they were due go are retired (retired-index-files, read by
+  ergostat.upkeep.retired-index-files): never opened again, removed once no process holds them
+  (retired-index-files-removed). A file is retired when its mark <hash>[.n].retired stands beside it.
+  Control: one balancing loop on the rule rung. The goal index-files-few holds the live files at or under
+  `index-files`; while it is off the controller index-tidier (a program, ergostat's own) removes the retired files no
+  process holds, then the least recently changed live ones down to `index-files`. The goal no-retired-index-files
+  holds the retired files at 0. Whether one file may go is not the loop's to say: ergostat's code takes the file's
+  lock without waiting and leaves any changed within the last hour, checked again under the lock, and no goal or
+  parameter changes that. If the tidier stops, files only pile up: every index still opens and folds right.
+  With this use the engine no longer tidies the index files itself when it makes one.
+  It is used once a model, and its parts keep the names written here (index-files, index-files-few, index-tidier),
+  in a system named for the use (upkeep, by convention).
+example: |
+  uses:
+    upkeep:
+      use: upkeep
+params:
+  index-files:
+    type: integer
+    default: 6
+    least: 1
+    most: 64
+    description: the most live item-index files kept (a few shapes of the model's kinds at once), from 1 to 64
+  tidy-every:
+    type: duration
+    default: 10m
+    description: the least time between the tidier's runs while there are too many files
+  count-every:
+    type: duration
+    default: 1m
+    description: how often the index files are counted
+  over:
+    type: duration
+    default: 1h
+    description: the window the files made and tidied are measured over
+stocks:
+  index-files:
+    unit: files
+    description: the live item-index files under the state directory's items folder, now
+    sensor:
+      builtin: ergostat.upkeep.index-files
+      every: ${count-every}
+  retired-index-files:
+    unit: files
+    description: index files retired (never opened again) and not yet removed, since a process still held them
+    sensor:
+      builtin: ergostat.upkeep.retired-index-files
+      every: ${count-every}
+flows:
+  index-files-made:
+    to: index-files
+    description: a new index file, made on each change to the model's item kinds
+    sensor:
+      changes: rises
+      over: ${over}
+      every: ${count-every}
+  index-files-tidied:
+    from: index-files
+    driven-by: +stock.index-files
+    description: index files removed by the tidier
+    sensor:
+      changes: falls
+      over: ${over}
+      every: ${count-every}
+  retired-index-files-removed:
+    from: retired-index-files
+    driven-by: +stock.retired-index-files
+    description: retired index files removed by the tidier once no process holds them
+    sensor:
+      changes: falls
+      over: ${over}
+      every: ${count-every}
+goals:
+  index-files-few:
+    stock: index-files
+    hold: "<= ${index-files}"
+    description: at most ${index-files} live index files
+  no-retired-index-files:
+    stock: retired-index-files
+    hold: "<= 0"
+    tolerance: 0
+    description: no retired index file left waiting
+blocks:
+  index-tidier:
+    type: program
+    goal: index-files-few
+    in: [+stock.index-files, +stock.retired-index-files]
+    run: ${lib} upkeep tidy --keep ${index-files}
+    every: ${tidy-every}
+    out: [flow.index-files-tidied, flow.retired-index-files-removed]
