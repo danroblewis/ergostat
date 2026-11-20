@@ -235,6 +235,9 @@ def test_planner_splits_into_sub_gaps(tmp_path):
     said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="new"))
     assert said == ["gap.plan-sent-back"] and "'alpha-one'" in f.item("gap/delta")["fields"]["plan_findings"][0]
     assert f.item("gap/alpha-one")["fields"]["parent"] == gid
+    f.fold([{"event": "gap.found", "item": "gap/a-long-title", "data": {"branch": "short"}}], None)
+    said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="short") + PLAN.format(b="new"))
+    assert said[-1] == "gap.parked" and "'short'" in json.dumps(f.item("gap/delta")["fields"]["plan_findings"])
     plan = f.py("import plan; print(json.dumps([plan.problems([(n, '', b) for n, b in json.loads(sys.argv[1])], "
                 "'big', {'gap/old'})]))", json.dumps(
                     [[f"p{i}", ""] for i in range(7)] + [["Bad_Name", ""], ["late", "depends-on: [later]"],

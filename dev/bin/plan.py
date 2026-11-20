@@ -97,7 +97,8 @@ def planner(cfg: dict, gap: dict) -> int:
         fac.nack("waits for its research", after="30m", count=False)
         return 0
     defs = [(n.strip(), t.strip(), b.strip() + "\n") for n, t, b in TAG.findall(said)]
-    if wrong := problems(defs, branch, {g["id"] for g in fac.items("gap")}):
+    gaps = fac.items("gap")                              # a sub-gap's name is never another gap's id or branch
+    if wrong := problems(defs, branch, {g["id"] for g in gaps} | {f"gap/{g['fields'].get('branch')}" for g in gaps}):
         return send_back(cfg, gap, wrong, **record)
     for name, title, body in defs:
         p = fac.run_dir(cfg, "plans") / f"{name}.md"
