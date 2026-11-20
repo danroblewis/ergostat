@@ -351,6 +351,7 @@
             "properties": {
               "names": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
                         "description": "The public host names the page answers to"},
+              "open": {"enum": ["read"], "description": "The names are public and read only, with no login (in place of access)"},
               "access": {"type": "object", "additionalProperties": false, "required": ["team", "aud", "emails"],
                          "properties": {
                            "team": {"type": "string", "description": "The Access team domain (myteam.cloudflareaccess.com)"},

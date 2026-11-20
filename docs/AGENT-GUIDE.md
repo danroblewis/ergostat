@@ -609,6 +609,10 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
    email. Without the declaration every request through the tunnel is refused (403), even one whose Host was
    rewritten. Pushes (`/api/events`, `/api/hooks/`) and the remote API pass Access only with a service token or a
    bypass policy for those paths; they keep needing their own tokens.
+4. **No login, read only:** when the owner wants the page seen without Access in front (a dev instance), declare
+   `web: {names: [ergostat.example.org], open: read}` and skip step 1. Anyone who reaches the name reads the page;
+   every write there is refused; `check` and the page's header say it is public. The tunnel must still keep the
+   Host (step 2): the declared name is what opens it, and a request through Cloudflare by `127.0.0.1` is refused.
 
 ## 4. Common mistakes
 

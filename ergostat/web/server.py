@@ -738,6 +738,7 @@ def handler(project):
     class Handler(BaseHTTPRequestHandler):
         timeout = 10                                   # an idle browser connection gives its thread back
         public, origins = True, frozenset()            # until _gate says who asks
+        READER = "anyone (public, read only)"          # who asks under a name declared open: read (SPEC §4d)
         def log_message(self, *a):
             pass
 
@@ -795,6 +796,8 @@ def handler(project):
             if not public and not any(self.headers.get(h) for h in wa.HEADERS):
                 self.public = False
                 return "owner"
+            if public and web.open:                       # declared public and read only: no login, and no writes
+                return self.READER
             try:
                 who = wa.verify(web, self.headers.get("Cf-Access-Jwt-Assertion"))
             except wa.Refused as e:
@@ -826,6 +829,8 @@ def handler(project):
             who = self._gate()
             if who is None:
                 return None
+            if who == self.READER:
+                return self._send(403, b'{"error": "this name is public and read only (web: open: read)"}', "application/json")
             origin = self.headers.get("Origin")
             fetch_site = self.headers.get("Sec-Fetch-Site")
             if (not u.path.startswith("/api/") or (origin is not None and origin.lower() not in self.origins)
@@ -929,7 +934,8 @@ def handler(project):
                 return self._remote(u)
             if not self._local():                         # another machine may only push (intake: bind:) or read /remote/
                 return self._send(403, b"only events may be pushed from another machine", "text/plain")
-            if self._gate() is None:                       # another site's name, or no login under a public one
+            who = self._gate()
+            if who is None:                                # another site's name, or no login under a public one
                 return None
             if u.path.startswith("/api/"):
                 try:
@@ -959,6 +965,8 @@ def handler(project):
             if name == "index.html":                       # the page carries this run's token for its writes, and its files' versions
                 body = with_versions(f.read_text()).replace('<meta charset="utf-8">',
                                                             f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">', 1)
+                if who == self.READER:                     # said on the page: no token, and why its buttons do nothing
+                    body = body.replace(f'content="{token}">', 'content="">\n<meta name="ergostat-public" content="read only">', 1)
                 return self._send(200, body.encode(), "text/html; charset=utf-8", True)   # never kept stale: no-cache, ETag
             asked = (parse_qs(u.query).get("v") or [""])[0]
             cache = FOREVER if asked and asked == asset_version(name) else "no-cache"
