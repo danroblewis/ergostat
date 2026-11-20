@@ -738,6 +738,8 @@ def handler(project):
 
     class Handler(BaseHTTPRequestHandler):
         timeout = 10                                   # an idle browser connection gives its thread back
+        public, origins = True, frozenset()            # until _gate says who asks
+        READER = "anyone (public, read only)"          # who asks under a name declared open: read (SPEC §4d)
         def log_message(self, *a):
             pass
 
@@ -765,8 +767,11 @@ def handler(project):
         def _file(self, rel: str, page: bool = False):
             p = live.get()
             roots = [r.resolve() for r in (p.model.path.parent if p.model.path else None, p.dir) if r]
+            state = Path(p.dir).resolve()
             for root in roots:
                 f = (root / rel).resolve()
+                if self.public and (f == state or state in f.parents):   # under a public name: never the state's (its tokens)
+                    continue
                 if (root == f or root in f.parents) and f.is_file():
                     if f.stat().st_size > FILE_LIMIT:
                         return self._send(413, b"too big to show", "text/plain")
@@ -775,11 +780,31 @@ def handler(project):
                     return self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream", True)
             return self._send(404, b"not found", "text/plain")
 
-        def _host_ok(self) -> bool:
-            """Only a request addressed to this server by its own name: a page on another site whose
-            name was pointed at 127.0.0.1 (DNS rebinding) sends its own name as the Host, and is refused."""
+        def _gate(self) -> str | None:
+            """Who asks, or None with the refusal sent. ``owner``: a request addressed to this server by its own name
+            (a page on another site whose name was pointed at 127.0.0.1, DNS rebinding, sends its own name as the
+            Host, and is refused). Under a public name the model declares, or through Cloudflare whatever the Host
+            (a tunnel that rewrites it), only the email a valid Cloudflare Access login names (SPEC §4d)."""
+            from .. import webaccess as wa
             port = self.server.server_address[1]
-            return (self.headers.get("Host") or "").lower() in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+            host = (self.headers.get("Host") or "").lower()
+            local = host in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+            web = wa.of(getattr(live.get().model, "spec", None))
+            public = web is not None and host in web.names
+            self.origins, self.public = {f"http://{host}"}, True
+            if not (public or local):
+                return self._send(403, b"not this server's name", "text/plain")
+            if not public and not any(self.headers.get(h) for h in wa.HEADERS):
+                self.public = False
+                return "owner"
+            if public and web.open:                       # declared public and read only: no login, and no writes
+                return self.READER
+            try:
+                who = wa.verify(web, self.headers.get("Cf-Access-Jwt-Assertion"))
+            except wa.Refused as e:
+                return self._send(e.code, json.dumps({"error": str(e)}).encode(), "application/json")
+            self.origins = {f"https://{n}" for n in web.names}
+            return who
 
         def _local(self) -> bool:
             from ..intake.token import allowed
@@ -802,16 +827,22 @@ def handler(project):
                 return self._remote(u)
             if not self._local():                         # another machine may only push, or read /remote/
                 return self._send(403, b'{"error": "only events may be pushed from another machine"}', "application/json")
+            who = self._gate()
+            if who is None:
+                return None
+            if who == self.READER:
+                return self._send(403, b'{"error": "this name is public and read only (web: open: read)"}', "application/json")
             origin = self.headers.get("Origin")
             fetch_site = self.headers.get("Sec-Fetch-Site")
-            if (not self._host_ok() or not u.path.startswith("/api/")
-                    or (origin is not None and origin.lower() != f"http://{(self.headers.get('Host') or '').lower()}")
+            if (not u.path.startswith("/api/") or (origin is not None and origin.lower() not in self.origins)
                     or (fetch_site is not None and fetch_site not in ("same-origin", "none"))
                     or not secrets.compare_digest(self.headers.get("X-Ergostat-Token") or "", token)):
                 return self._send(403, b'{"error": "only the page may ask"}', "application/json")
             n = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(min(n, 65536)) if n else b""
+            from ..webaccess import acting, done
             from .numbers_api import post
+            as_who = acting(who)                           # what this write records says who made it (SPEC §4d)
             try:
                 q = parse_qs(u.query)
                 if u.path == "/api/message":                # the owner's words to the work in flight (SPEC §12h)
@@ -840,6 +871,8 @@ def handler(project):
             except Exception as e:                      # a broken request never takes the page down
                 crash_noted(live, e, "web")                # a report for the owner (SPEC §12m)
                 code, data = 500, {"error": f"{type(e).__name__}: {e}"}
+            finally:
+                done(as_who)
             return self._send(code, json.dumps(data, default=str).encode(), "application/json")
 
         def _remote(self, u):
@@ -902,8 +935,9 @@ def handler(project):
                 return self._remote(u)
             if not self._local():                         # another machine may only push (intake: bind:) or read /remote/
                 return self._send(403, b"only events may be pushed from another machine", "text/plain")
-            if not self._host_ok():                        # another site's name pointed here: nothing is read
-                return self._send(403, b"not this server's name", "text/plain")
+            who = self._gate()
+            if who is None:                                # another site's name, or no login under a public one
+                return None
             if u.path.startswith("/api/"):
                 try:
                     data = api(live, u.path.removeprefix("/api/"), parse_qs(u.query))
@@ -932,6 +966,8 @@ def handler(project):
             if name == "index.html":                       # the page carries this run's token for its writes, and its files' versions
                 body = with_versions(f.read_text()).replace('<meta charset="utf-8">',
                                                             f'<meta charset="utf-8">\n<meta name="ergostat-token" content="{token}">', 1)
+                if who == self.READER:                     # said on the page: no token, and why its buttons do nothing
+                    body = body.replace(f'content="{token}">', 'content="">\n<meta name="ergostat-public" content="read only">', 1)
                 return self._send(200, body.encode(), "text/html; charset=utf-8", True)   # never kept stale: no-cache, ETag
             asked = (parse_qs(u.query).get("v") or [""])[0]
             cache = FOREVER if asked and asked == asset_version(name) else "no-cache"

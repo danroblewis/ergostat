@@ -24,6 +24,7 @@ import random
 import time
 from dataclasses import dataclass, replace
 
+from ..leases.terms import grace
 from ..spec.ir import DEAD, LEASED
 from .etamodel import Attempt, Inputs
 
@@ -180,8 +181,9 @@ class _Run:
         a = xs[self.rnd.randrange(bisect.bisect_left(ds, near), bisect.bisect_right(ds, near))]
         if fail and a.how == "ack":
             a = replace(a, how="nack")
-        if bl.ttl and d >= bl.ttl:                       # silent past its TTL: expired, counted
-            return Attempt(bl.ttl - (held or 0.0), "expired")
+        limit = bl.ttl + grace(bl.ttl) if bl.ttl else 0.0   # silent past its TTL and the watchdog's grace: expired
+        if limit and d >= limit:
+            return Attempt(limit - (held or 0.0), "expired")
         return replace(a, dur=d - (held or 0.0))
 
     def room(self, b: int) -> bool:

@@ -1,0 +1,202 @@
+"""The judge on a slow model and a sparse record (SPEC §12e; docs/roadmap/overnight/slowjudge.md): a queue drained over
+about a day, filled at random, read every fifteen minutes, as the work model's stocks are. The judge pools the
+record held out in one replay of each model, takes its noise from the record itself, and bounds the change's effect
+with a plug-in confidence sequence (valid under stationary AR(1) noise), so a change no better than the model as it
+is is passed at most ALPHA of the time however often it looks, a clearly better one is passed within a bounded
+record, and one it cannot decide yet says how much more record it needs."""
+
+from __future__ import annotations
+
+import math
+import random
+import time
+
+import pytest
+
+from ergostat import model as mdl
+from ergostat.numbers import identify as idf
+from ergostat.numbers import improve as im
+from ergostat.numbers import judge as jd
+from ergostat.numbers import proposals as pr
+from ergostat.store import Project
+
+SLOW = """\
+name: slow
+parameters:
+  k:
+    value: {k}          # what we believe
+    unit: 1/h
+stocks:
+  queue:
+    unit: jobs
+    sensor:
+      manual: true
+flows:
+  arrivals:
+    to: queue
+    sensor:
+      manual: true
+  served:
+    from: queue
+    driven-by: +stock.queue
+    equation: k * stock.queue
+blocks:
+  judge:
+    type: judge
+    hold-out: 1h
+"""
+BEFORE = 120.0          # hours of record before the change
+WEEK = 168.0
+
+
+def slow_world(tmp_path, seed: int, k_true: float, k_written: float, base: float = 2.0, every: float = 900.0,
+               hours: float = WEEK):
+    """The queue as the world ran it: arrivals at random (more by day), each job leaving at k_true an hour; a reading
+    of the queue and of the arrivals since the last reading every ``every`` seconds."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "ergostat.yaml").write_text(SLOW.format(k=k_written))
+    p = Project(mdl.load(tmp_path))
+    rng = random.Random(seed)
+    now = time.time()
+    t0 = now - (BEFORE + hours) * 3600
+    q, arrived, t, nxt = int(base / k_true), 0, t0, t0
+    rows = []
+    while t <= now:
+        rate = base * (1.6 if 8 <= ((t - t0) / 3600) % 24 < 18 else 0.4)
+        a = sum(rng.random() < rate / 600 for _ in range(10))            # a minute in ten slices
+        q += a - sum(rng.random() < k_true / 60 for _ in range(q))
+        arrived += a
+        if t >= nxt:
+            rows += [("sensor/queue.main", q, t), ("sensor/arrivals.main", arrived * 3600 / every, t)]
+            arrived, nxt = 0, nxt + every
+        t += 60
+    for s, v, at in rows:
+        p.measurements.add(s, v, at=at)
+    return p, now - hours * 3600
+
+
+def judged(p, made: float, k_from: float, k_to: float, step_h: float = 6.0, hours: float = WEEK):
+    """The change k_from → k_to made at ``made``, the judge run every ``step_h`` hours of record after it: its verdict,
+    the hours held out when it came, and every undecided look's (hours, why, more)."""
+    line = f"    value: {k_from}          # what we believe"
+    raw = {"kind": "parameter", "parts": ["parameter.k"], "title": f"k is {k_to}",
+           "edit": {"file": "ergostat.yaml", "replace": line, "with": line.replace(f"{k_from} ", f"{k_to} ", 1)},
+           "reasons": [{"says": "the replay of queue drifts", "evidence": "fit:stock.queue.um"}], "confidence": 0.5}
+    got = im.submit(p, "tester", raw, at=made)
+    assert got["status"] == "proposed", got
+    looks = []
+    for j in range(1, int(hours / step_h) + 1):
+        out = jd.run(p, "judge", at=made + j * step_h * 3600)
+        v = next((v for v in out["verdicts"] if v["id"] == got["id"]), None)
+        if v:
+            return v["verdict"], j * step_h, looks
+        looks += [(j * step_h, w.get("why"), w.get("more")) for w in out["waiting"] if w["id"] == got["id"] and "why" in w]
+    return None, hours, looks
+
+
+@pytest.fixture(autouse=True)
+def _identified(monkeypatch):
+    """What is measured is the judge: the improver's own hold on a value the record cannot yet identify is put aside."""
+    monkeypatch.setattr(idf, "record_says", lambda *a, **k: None)
+
+
+@pytest.mark.slow
+def test_a_worse_change_on_a_slow_record_is_never_passed(tmp_path):
+    """On main a fifth larger drain was passed in about a quarter of seeds (each window one noisy draw); a drain twice
+    too fast is failed."""
+    got = []
+    for seed in range(12):
+        for shape, (k, worse, base) in {"queue": (0.05, 0.06, 2.0), "few": (0.1, 0.15, 0.2)}.items():
+            p, made = slow_world(tmp_path / f"{shape}{seed}", seed, k, k, base=base)
+            got.append(judged(p, made, k, worse)[0])
+    assert "passed" not in got, got             # most of these need more than a week of record to tell: undecided
+    twice = []                                  # one twice too fast is failed within a week, nearly always
+    for seed in range(6):
+        p, made = slow_world(tmp_path / f"twice{seed}", seed, 0.05, 0.05)
+        twice.append(judged(p, made, 0.05, 0.1)[0])
+    assert "passed" not in twice and twice.count("failed") >= 5, twice
+
+
+@pytest.mark.slow
+def test_a_better_change_on_a_slow_record_is_passed_within_a_bounded_record(tmp_path):
+    """A drain written twice too fast, put right: passed within a week of record (a median of two days), nearly always,
+    and never failed. On main 19 of 20 such changes passed, in about a day, but so did a quarter of worse ones."""
+    got = []
+    for seed in range(6):
+        p, made = slow_world(tmp_path / str(seed), seed, 0.05, 0.1)
+        got.append(judged(p, made, 0.1, 0.05))
+    assert "failed" not in [v for v, _, _ in got] and [v for v, _, _ in got].count("passed") >= 5, got
+    assert sorted(h for v, h, _ in got if v == "passed")[2] <= 72, got
+
+
+def test_an_undecided_change_says_how_much_more_record_it_needs(tmp_path):
+    p, made = slow_world(tmp_path, 1, 0.05, 0.052, hours=48)
+    verdict, _, looks = judged(p, made, 0.052, 0.05, step_h=24, hours=48)
+    assert verdict is None and looks, looks
+    hours, why, more = looks[-1]
+    assert more and more > 3600 and "more record" in why                     # how much, in the record's own terms
+    x = next(iter(pr.pending(p)))
+    assert x["state"] == "testing" and x["more"] == more and x["undecided"] == why
+
+
+def _null(rng, steps, kind):
+    """One record on which the two replays are equally good: each off the truth by a drift of its own, the other's
+    mirror, and the record's noise on the truth: AR(1) (``slow``: far slower than the record), a walk (what only
+    accumulates), shared by two stocks, or with both replays off by a bias as well (both wrong, neither better)."""
+    phi = {"ar": 0.97, "slow": 0.999, "walk": 1.0, "two": 0.97, "biased": 0.97}[kind]
+    x, rows, drift, bias = 0.0, ([], []), rng.uniform(-1, 1), rng.uniform(0.5, 1) if kind == "biased" else 0.0
+    for i in range(steps):
+        x = phi * x + rng.gauss(0, 0.05 if kind == "walk" else 0.25)
+        c = drift * math.sin(i / 90)
+        for k, r in enumerate(rows):
+            u = bias + c * (k + 1)
+            r.append((i, 1 + u, 1 - u, 1 + x + rng.gauss(0, 0.05)))
+    return {"stock.q": rows[0], **({"stock.r": rows[1]} if kind == "two" else {})}
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("kind, tau", [("ar", 30.0), ("slow", 250.0), ("walk", None), ("two", 30.0), ("biased", 30.0)])
+def test_the_bound_holds_its_error_rate_however_often_it_is_looked_at(kind, tau):
+    """Two replays equally good, over many records each looked at seven times as it grows (about 120 readings over the
+    record, as compare reads it): a change is passed (the bound's low end above no change) at most ALPHA of the
+    time, and failed at most that (within two standard errors of 300 trials). The time constant given to the
+    floor is the model's (for ``slow``, a quarter of the noise's own: the model's set too low); none for what
+    only accumulates. On ``ar`` the same looks at a fixed 95% pass it more often."""
+    rng = random.Random(7)
+    unit, looks, trials = 120, 7, 300
+    passed = failed = naive = 0
+    for _ in range(trials):
+        stocks = _null(rng, unit * looks, kind)
+        hit = miss = fixed = False
+        for u in range(1, looks + 1):
+            least = jd.floor_of({"tau": tau, "width": u, "since": 0, "until": u * unit})
+            got = jd.pooled({r: v[: u * unit : u] for r, v in stocks.items()}, float(u), least, walk=tau is None)
+            hit, miss = hit or got["lo"] > 0, miss or got["hi"] < 0
+            fixed = fixed or got["est"] - 1.96 * got["se"] > 0
+        passed, failed, naive = passed + hit, failed + miss, naive + fixed
+    most = jd.ALPHA + 2 * math.sqrt(jd.ALPHA * (1 - jd.ALPHA) / trials)    # ALPHA, give or take the trials' own error
+    assert passed / trials <= most and failed / trials <= most, (passed, failed, naive)
+    assert kind != "ar" or naive > passed, (passed, naive)
+
+
+def evidence(b: float, a: float, rb: float | None = None, ra: float | None = None, n: int = 60, fallback=False) -> dict:
+    """What compare returns, made by hand: replays off a noiseless record by √b and √a (and the rest's by √rb, √ra)."""
+    def rows(x, z):
+        return [(i, 1 + math.sqrt(x), 1 + math.sqrt(z), 1.0) for i in range(n)]
+    return {"near": {"stock.q": rows(b, a)}, "rest": {"stock.r": rows(rb, ra)} if rb is not None else {},
+            "goals": {}, "scored": ["stock.q"], "fallback": fallback, "start": 0.0, "width": 10.0}
+
+
+def test_a_change_whose_record_stopped_is_inconclusive_once_its_horizon_has_passed(tmp_path):
+    from .test_gate import TWO, k_to, two_project
+    from .test_improve import judge_block
+    p = two_project(tmp_path, text=TWO + judge_block(**{"hold-out": "10m"}))
+    now = time.time()
+    got = im.submit(p, "improver", k_to(2.0001), at=now - 3600)
+    jd.run(p, "judge", at=now)
+    assert pr.stored(p)[got["id"]]["state"] == "testing"
+    out = jd.run(p, "judge", at=now + 3600)                      # nothing read since: it waits
+    assert "record" in out["waiting"][0]
+    out = jd.run(p, "judge", at=now + 2 * 86400)                 # and not for ever
+    x = pr.stored(p)[got["id"]]
+    assert x["state"] == "inconclusive" and "stopped" in x["verdict"]["why"], x.get("verdict")

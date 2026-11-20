@@ -94,6 +94,15 @@ out, never written.
   name twice is an error**, reported with both files and lines. There is no overriding.
 - A file may set `defaults:` (at present only `system:`), which applies to the stocks, flows,
   goals and blocks defined in that file, and not to the files it includes.
+- **This machine's settings: `ergostat.local.yaml`.** Beside the main file, never required and never tracked (list it
+  in the repository's `.gitignore`), it holds what belongs to the machine a model runs on rather than to the model, so
+  a model shared through git carries no private hostname and a copy placed again keeps them. It is read after the
+  main file and over it. The **per-machine settings** are exactly these: `web:` (section 4d; it replaces the main
+  file's whole) and `intake:`'s `bind:` and `allow:` (section 5c; each over the main file's, whose `hooks:` stay
+  the model's). Any other key, or another key under `intake:`, is an error at its line in `ergostat.local.yaml`
+  (**not-per-machine**). `check` says each setting it took and where (`web: from ergostat.local.yaml:1, this
+  machine's own`; `--json`: `local`). It is not one of the model's files: nothing that edits the model (a proposal,
+  a template's author) writes it, and a change to it reloads the model like any other.
 
 ## 2a. Templates: one shape, used many times
 
@@ -269,6 +278,8 @@ loops:                          # optional: names for feedback loops (section 12
 uses:                           # optional: instances of templates (section 2a)
   ...
 remotes:                        # optional: systems other ergostats run, read here (section 4c)
+  ...
+web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
 library:                        # optional, main file only: folders of the owner's templates (section 2a)
   - ...
@@ -548,6 +559,44 @@ what admits.
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
 most); `ergostat remote refresh` asks each again now.
 
+## 4d. The page behind a public name
+
+The page answers on this machine only: a request must name it as `127.0.0.1:PORT` (or `localhost`, `[::1]`) in its
+`Host`, so a page on another site whose name was pointed at this machine (DNS rebinding) is refused. To reach it
+from elsewhere through a tunnel (cloudflared) at a public name, the main file declares the name and the Cloudflare
+Access application that logs people in there (a tunnel belongs to one machine: put `web:` in that machine's
+`ergostat.local.yaml`, section 2, when the model is shared):
+
+```yaml
+web:
+  names: [ergostat.example.org]          # the tunnel's public hostname(s): no scheme, port or path
+  access:
+    team: myteam.cloudflareaccess.com    # the Access team domain (myteam alone is the same)
+    aud: 4714c1358e65fe4b...             # the Access application's Audience (AUD) tag
+    emails: [owner@example.org]          # who may use the page
+```
+
+| Request | Served |
+|---|---|
+| `Host` the local name, nothing from Cloudflare | as before: the owner |
+| `Host` a declared name, or any request carrying `Cf-Ray`, `Cf-Connecting-Ip` or `Cf-Access-Jwt-Assertion` (a tunnel that rewrites `Host` to the local name) | only with a valid `Cf-Access-Jwt-Assertion` whose `email` is listed; 401 without one, 403 for an email not listed or when `web:` declares no login. Reads too |
+| `Host` a name declared with `open: read` in place of `access:` | reads to anyone, Cloudflare's headers or not; every write 403; the page says it is public and read only, and `check` says so (**web-public**) |
+| any other `Host` | 403 |
+
+`open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
+login: anyone who reaches the name reads everything the page shows, and nothing is changed there. The tunnel must
+keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
+
+The token is verified with the standard library: RS256 only, against the team's keys
+(`https://TEAM/cdn-cgi/access/certs`, fetched again hourly, and on a key not yet seen at most every 30 s; a fetch
+that fails keeps the keys there were), `aud` holding the tag, `iss` the team's `https://TEAM`, `exp` not passed and
+`nbf` reached (30 s of leeway). A write under the public name needs, besides the page's own token, `Origin`
+`https://NAME`, and what it records says the email where a write from this machine says `owner` (who accepted a
+proposal, approved an action, answered the inbox, sent a message); the inbox counts it as the owner's own answer,
+never an agent's. Under a public name `/file/` never serves the state directory (its tokens). The push paths (`/api/events`, `/api/hooks/`,
+section 5c) and the remote API (`/remote/`, section 4c) keep their own tokens. Requests still come only from this
+machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**), and names without `access`.
+
 ## 5. Stocks
 
 A quantity with memory: its value persists when nothing happens, and changes only through its
@@ -725,7 +774,8 @@ for:
   its first state is the schedule's to say); a started item's, what is left of its state and the states after it.
   A kind with no stays yet takes the median of the kinds that have them, else ten minutes, said as assumed.
 - **The critical path** (the critical path method, Kelley and Walker): a forward pass over the unfinished items in
-  precedence order (each starts once what it waits on is expected to end; a started item now), a backward pass
+  precedence order (each starts once what it waits on is expected to end; a started item now: one past its kind's
+  first state and not waiting in a state a block takes from, or held), a backward pass
   from the last expected end, and each item's **slack**, how long it may slip without moving that end; the
   critical items have none. A parent with unfinished children is their summary: what comes before it comes before
   its children, what comes after it waits for all of them. The critical path itself is not levelled (a block's
@@ -1079,6 +1129,7 @@ their ids. An event type is lowercase words joined by dots, never ergostat's own
 intake:
   allow: [10.0.0.0/8]                  # who may push besides this machine (default: nobody else)
   bind: 0.0.0.0                        # where the page listens (default 127.0.0.1); others reach only the push paths
+                                       # (allow: and bind: are this machine's: they may go in ergostat.local.yaml, §2)
   hooks:
     jira:                              # POST /api/hooks/jira
       event: {from: webhookEvent, map: {"jira:issue_created": ticket.found, "jira:issue_updated": ticket.changed}}
@@ -2058,7 +2109,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 | `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
 | `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
-| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`; `item`, `state`, `terminal` | back to `back`, the attempt counted |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `item`, `state`, `terminal` | back to `back`, the attempt counted; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
@@ -2145,7 +2196,8 @@ watches them; `ergostat lease` lists who holds what.
 
 **Stalls, as a watchdog loop.** The built-in measures `ergostat.leases.held` (leases held now),
 `ergostat.leases.expired` (expiries over the last day), `ergostat.leases.dead` (dead letters now) and
-`ergostat.leases.overdue` (held past their expiry, not yet expired: 0 while the watchdog keeps up),
+`ergostat.leases.overdue` (held past their expiry, not yet expired: non-zero during the watchdog's grace below even
+when it keeps up, so a goal on stalls holds `expired`, not `overdue`),
 each narrowed by `@KIND` or `@BLOCK`, are read by a sensor (`builtin:`), so a goal can hold them:
 
 ```yaml
@@ -2157,8 +2209,10 @@ goals:
   no-stalls: {auxiliary: stalled-runs, hold: "<= 0"}
 ```
 
-ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease within a
-second of its TTL, and the item is taken again. Each dead letter, and each lease that expired in the
+ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease on a second look at the same
+expiry, a grace after it first found it past its TTL (a tenth of the TTL, at least a second and at most 30 s; renewed
+meanwhile, the grace starts again: a renewal the run asked for in time may still be on its way into the record, the
+engine or the machine busy), and the item is taken again. Each dead letter, and each lease that expired in the
 last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
 dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
@@ -3405,10 +3459,10 @@ blocks:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `hold-out` | duration | `10m` | How much record after a change it is judged on |
-| `windows` | list of whole numbers | `[1, 2, 4]` | How that record is split into windows: 1 whole, 2 halves, 4 quarters (each at least a minute) |
+| `hold-out` | duration | `10m` | The least record after a change it is judged on (with twice the dominant time constant of what it touches, at most a day): the unit its bound counts in |
+| `windows` | list of whole numbers | `[1, 2, 4]` | How the verdict shows its evidence: the record held out whole, in halves, in quarters (each at least a minute), sliced from the one replay the verdict pools |
 | `warm-up` | duration | `6h` | The longest before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f): three time constants of what the change touches, and never more than the record held before the window |
-| `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better, and the most rise that counts as no worse |
+| `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better (its estimate; the bound must also exclude no change), and the most rise that counts as no worse |
 | `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`, `description`, `unit`, `rename`, `redesign`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged. `accept: auto` promotes `parameter`, `equation`, `structure`, `description` and `unit`; a rename and a redesign are written only when named (`rename: auto`, `redesign: auto`), never by `accept: auto`. Whatever the policy, the judge never writes a change that removes structure or rewires a kind's chain, a redesign that changes control, or any change to who decides (the judge's policy, a block's `accept`, a template instance's `with:`: refused when proposed); those are the owner's. How each is judged differs (the exemptions from the replay): parameter, equation and structure by the replay on the record after the change; description, unit and rename by `check` alone (they change no replay); a redesign by its scorecard on the record it has when the judge takes it up, its fit allowed 10% worse; control and measurement not at all (the owner's). Changes of words are written as many a pass as have passed; the rest one a pass. A change written moves the lines of the others waiting (their hunks shifted, `proposals.rebase`), and a change waiting is carried to the new version rather than superseded when its edit still applies (`proposals.supersede`: ergostat's own when their subject is unchanged; a description, a unit or a redesign whoever made it) |
 | `out` | map of `testing`, `passed`, `failed`, `accepted`, `inconclusive` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
 | `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |
@@ -3437,19 +3491,48 @@ whatever its time constant (the fit's total leaves out a stock slower than its w
 would look better; section 12f); the rest of the model and each goal's stock must be no worse. A mean over every
 stock let one far stock's error dilute any change to 0%. It waits for **record long enough for the change to show**:
 the hold-out, and at least twice the dominant time constant of what it touches (in the model as it is and with the
-change), at most a day; a window shorter than that time constant is not judged. Each window is replayed warm, from
-three of those time constants before it, never longer than `warm-up` nor than the record held before the window (on
-a young record a six-hour warm-up integrated the stocks from where the record did not reach, and scored a regime of
-its own: errors of 12 to 700 where the goal read 0.03 to 0.14). Two scaled errors closer than 0.005 are within the record's noise
-and count neither way. It **passes** one when the scaled error falls by the `threshold` or more in every window
-judged that can tell (the rest within the noise) and is no worse elsewhere; when it is no worse in any window and answers
-findings without making any; or when it is no worse and **simpler** (fewer parts, parameters and terms). It
-**fails** one that is worse by the threshold in any window, near it, elsewhere or on a goal's stock, or better only
-in some. One that no window can tell from the model as it is stays under test for more record, up to three times
-what it needs, and is then **inconclusive** ("needs more record"), not failed; as is one too few windows can judge,
-and one it would pass whose parts the record held out has not exercised (above: it does not vouch for a quiet
-part's rate). Each verdict keeps its windows (each one's span, and the scaled error
-before and after) as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
+change), at most a day. Both are replayed once over all of the record held out, warm, from three of those time
+constants before it, never longer than `warm-up` nor than the record held before it (on a young record a six-hour
+warm-up integrated the stocks from where the record did not reach, and scored a regime of its own: errors of 12 to 700
+where the goal read 0.03 to 0.14).
+
+**The evidence is pooled, with its error rate stated.** At each reading the two scaled errors differ by
+δ(δ + 2(after − record)), δ what the change moves the replay by. δ is known exactly; the only noise is the record's
+own about the better replay, taken as AR(1) (its correlation from one reading to the next, its small-record bias taken
+out, and from a twelfth of the record on, whichever is larger; while the record spans fewer than three of the time
+constant of what it touches, in whichever of the two replays the record better, noise that drifts at all is taken to last that long,
+since a short record reads a slow noise's correlation low; a stock with no time constant, which keeps whatever it gets
+wrong, is also taken as a walk, its steps read from the record's successive differences, and the larger variance
+counts; its second moment about that replay, so a bias counts as noise). Several stocks' noises may be correlated:
+their standard errors add (the worst case). Scaled errors that stay within 0.005 of each other, bound and all, count
+neither way. That gives the change's effect, the share by which it lowers the scaled error, and its standard error; a
+**confidence sequence** (a normal mixture, Robbins 1970; Howard et al. 2021) bounds it, in units of the record the
+change needs. It is a plug-in, asymptotic sequence: valid as far as its standard error is, under stationary AR(1)
+noise (or a walk) read well enough from the record. Then looking again as the record grows does not raise the chance
+of a false verdict: two-sided at 10%, by Ville's inequality it is ever crossed either way at most 10% of the time, and
+each way about 5% (`ALPHA`) by the noise's symmetry: a change no better than the model as it is passes about 5% of
+the time at most, and one no worse fails about that, its several fail tests (near it, the rest of the model, each
+goal's stock) sharing the 5% (Bonferroni). On records made to that noise model (AR(1), far slower than the record, a
+walk, two stocks sharing their noise, both replays wrong) it passed at most 5% and failed at most 6% of equally good
+changes looked at seven times each (1,500 records each; a walk well under 1%). It
+**passes** a change whose bound's low end is above no change and whose estimate is better by the `threshold`, near
+what it touches, with the rest of the model and each goal's stock no worse by the threshold; one the bound holds no
+worse than the threshold that answers findings without making any; or one no worse and **simpler** (fewer parts,
+parameters and terms) where the record replays what it touches. It **fails** one whose bound's high end is below no
+change and whose estimate is worse by the threshold, near it, elsewhere or on a goal's stock, and one no better that
+makes new findings. One the bound holds within the threshold both ways is **inconclusive** once it has three times
+the record it needs (the record tells it from the model as it is by less than the threshold), and one whose replay is
+the same as the model's on all the record waits for record in which what it touches moves. One the bound cannot
+decide yet stays under test and says **about how much more record it needs** (the bound narrows as one over the root
+of the record; on its testing event and in the judge's waiting list), looked at again each time the record it needs,
+or a quarter more, has come; after seven times the record it needs (a day at least) it is inconclusive, saying how
+much more. As is one too few readings can judge, and one it would pass whose parts the record held out has not
+exercised (above: it does not vouch for a quiet part's rate). Measured (docs/roadmap/overnight/slowjudge.md): on a
+queue drained over a day, filled at random and read every 15 minutes, the judge before this passed a change a fifth
+worse in 6 of 20 records and failed one a fifth better in 11 of 20; now it passes none of the worse, and a change
+halving a wrong drain within five days of record.
+Each verdict keeps its windows (each one's span, and the scaled error
+before and after), its pooled estimate and bound, as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
 passed change's kind, it writes the oldest, one a pass, so each is measured alone (never one that removes
 structure: that waits for the owner, whatever the policy): Accept's way (section 12b), the
 smallest edit, refused and put back if `check` would then find an error, recorded as `.accepted` from the judge
@@ -3565,6 +3648,31 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   a modelling request about the system (`source: redesign`, on the Items tab; `ergostat status` says the last). What
   it makes is written only with the owner's approval (the review queue, the inbox, its notifications), unless
   `accept: {redesign: auto}`.
+- **What it learns from** (`ergostat/numbers/redesign_memory.py`). Its prompt also carries, for the system:
+  *what was proposed before*, its past change sets (for the whole model, every system's) newest first, each with what
+  became of it (proposed, judged better or NOT better with the scorecard's verdict and why, refused with why,
+  accepted, dismissed with the owner's reason), its summary and its edits, and the other changes about its parts the
+  owner dismissed with a reason; at most 6, 3,000 characters together, 600 each; and *interventions: evidence of
+  missing loops* (§12p), by class over the interventions loop's window, the most hours blocked first: how many, their
+  causes, how they were answered, the notes given with the answers (`inbox --note`, a person's report, a dismissal's
+  reason; not only the owner's: a person block's report and whoever approved or denied an advised block's command
+  are read too, each note once), and the class's request from `ergostat inbox --requests` with its state and the note it was worked
+  on with (not its remedies: generic, they led haiku to add a goal and a controller for
+  every class, and its change sets stopped compiling; `docs/redesign-bench.md`); a class is the system's when its block, or a part its cause names, is in it; at most 8, 2,500 characters.
+  The guide says never to propose again what was dismissed or judged not better unless the record now answers the
+  reason given, and to read each recurring intervention as a loop the model lacks, with a lookup from symptom to
+  structure (a queue that builds only in bursts: a capacity; items seen twice: rework; a part that lags another: a
+  delay or a stock between; a level that settles whatever its start: a balancing flow).
+- **The benchmark** (`scripts/redesign_bench.py`, `docs/redesign-bench.md`): models of known structure
+  (`tests/redesign_cases/`) each cut (a capacity limit, a rework loop, a delay, a goal gap, a stock merged away, an
+  outflow), the record made from the whole model, the redesigner asked to repair the cut one (nothing submitted), and
+  each case scored: the missing structure found again (by place and shape, a rename followed by `formerly:`, and
+  working on the truth's record: the flow moves something, the limit binds, the goal's sign closes the gap, the delay
+  takes what leaves the stock before (how long it delays is not checked: a DELAY3 of near-zero time passes);
+  necessary for a repair, not sufficient), the parts added beyond the known
+  repair's, the fit before and after, compiled, the verdict, the cost; `--without memory,interventions` for an
+  ablation; haiku by default under a cap for the run ($3), `--stand-in` for the
+  harness alone; one JSON row a case appended to `docs/redesign-bench.jsonl`.
 - **Drawn as proposed**: `GET /api/graph?proposal=ID&view=dynamics|blocks` draws the model as the change would leave it
   (nothing written), with `proposed: {added, changed, renamed, removed}`; the page draws the new parts dashed and
   tinted, the changed and renamed dashed, and names what it takes away; the review section's Dynamics and Blocks
@@ -4727,8 +4835,9 @@ they blocked their processes over the window, then by count; each that recurs (`
 window) and has no request gets one (`ergostat.model-request/<hash of the class>`, `.opened`), with its count, share,
 hours blocked, rank, most common cause, and **candidate remedies**: automate the person's step with a block (the
 person reviewing until its claims hold); graduate the gate (`gate: auto`, `mode: auto`, the judge's `accept:`) with
-its evidence; add the missing loop (a goal and a controller on what an alarm watches, a check that makes an approval
-a rule); change the software so the step no longer needs a person. (3) A request is **resolved** only when its class
+its evidence; add the missing structure (for an alarm, what explains what it watches: a capacity, rework, a delay, a
+balancing flow, with a goal and a controller on it only where something should act before it rises, as the
+redesigner's guide says; a check that makes an approval a rule); change the software so the step no longer needs a person. (3) A request is **resolved** only when its class
 has not intervened for three of its mean intervals over the window (at least `verify`, 1d by default) since it was
 last moved, and the process it blocked has worked in that time without it: its cause's block ran; an alarm was
 evaluated and clear; a change of that kind was decided without the owner; a step test's loop holds its process. A

@@ -5,8 +5,8 @@
 # the model, the improver's and ergostat's own (calibration, structure, simplification) alike, is an item of
 # ergostat's built-in kind ergostat.model-change (made → checked → testing → passed → accepted; or refused, failed,
 # dismissed, superseded): Items → ergostat.model-change, and the review queue on the Fit page. The judge (a built-in
-# block) replays each on the record that comes after it, beside the model as it is, in several windows, and passes it
-# only when it is better in every one. A passed change to a parameter's value is written at once; a change to the
+# block) replays each on the record that comes after it, beside the model as it is, all of it pooled, and passes it
+# only when it is better beyond the record's noise. A passed change to a parameter's value is written at once; a change to the
 # structure waits for the owner. What it makes: docs/ADDING.md (modelling).
 #
 # The improver is an ordinary ai block: a Claude Code session with ergostat's tools (FACTORY_AI=claude,
@@ -19,7 +19,7 @@ uses:
       prompt: prompts/improver.md
       run: bin/ai.sh improver                 # FACTORY_AI=claude: a Claude Code session with ergostat's tools; otherwise a stand-in
       hold-out: 4m                            # each change judged on four minutes of record after it was made ...
-      windows: [1, 2, 4]                      # ... whole, in halves and in quarters
-      threshold: 2%                           # passed when better by 2% in every one
+      windows: [1, 2, 4]                      # ... shown whole, in halves and in quarters
+      threshold: 2%                           # passed when better by 2%, beyond the record's noise
       accept:
         parameter: auto                       # a value passed is written at once; the structure waits for the owner

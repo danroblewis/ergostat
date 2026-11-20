@@ -153,12 +153,21 @@ review into *Done recently*). Newest decisions from the owner first within each 
   and widens the band where the parts it rests on fit badly. **Left:** a burst's window is chosen from y's own
   excursion (where it comes half way back), not from the process; several outside steps are not yet fitted together as
   experiments; the projections do not yet suggest the missing structure (capacity) themselves.
-- **The judge almost never decides on a slow model** (open; owner, 2026-11-19: on the work model nearly every
-  change is inconclusive, a few refused, none accepted): a change must gain 2% in every window of at least twice
-  its stock's time constant, on record after it was made; a model whose flows run per day rarely has that, and a
-  change that cannot move the replay (structure, wiring, descriptions) can never prove itself. Say how much more
-  record a verdict needs, judge such changes by structural measures (as redesign's scorecard does), and let a
-  change carry over edits elsewhere (above).
+- **The judge almost never decides on a slow model** (owner, 2026-11-19: on the work model nearly every change is
+  inconclusive, a few refused, none accepted; partly done on `slowjudge`, docs/roadmap/overnight/slowjudge.md; SPEC
+  §12e): a change had to gain 2% in every window of at least twice its stock's time constant, above an absolute noise
+  floor, so on a slow or noisy record each window was one noisy draw (measured: a change a fifth worse passed in 6 of
+  20 records, one a fifth better failed in 11 of 20). *Done*: one replay of each over the whole record held out, the
+  noise taken from the record about the better replay (AR(1), or a walk for a stock with no time constant), and a
+  plug-in confidence sequence (a normal mixture, valid under that noise model) with its error
+  rate stated (a change no better passes at most 5% of the time, however often looked at); an undecided change says
+  about how much more record it needs and stays under test up to seven times the record it needs (a day at least); a
+  change whose replay is the same as the model's waits for record in which it moves, rather than three hold-outs.
+  Measured after (20 records each, a week of record): no worse change passed (0 of 60), 3 better changes failed in
+  80, a drain twice off decided within a week, most changes a fifth off still undecided after one. *Left*: on a
+  record as slow as the information allows (a fifth off a day-long drain) most changes still need more
+  than a week; a change that cannot move the replay (structure, wiring, descriptions) should be judged by structural
+  measures (as redesign's scorecard does); and a change should carry over edits elsewhere (above).
 - **A cause for a scheduled run's events** (done, e4800ea, on `causes-join`; SPEC §5b): the run is the cause its
   events cite (no `ergostat.schedule.fired` event per firing); the Process view draws each scheduled block in a
   **schedules** frame with its fan-out. *Left*: an event line still cannot name a cause of its own (`causedby`).
@@ -219,6 +228,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `docs/roadmap/overnight/leasekill.md`, says where it stopped); its review's findings were taken as lessons: B4 (a
   `done` for another item) by tagging, B1 (env leaking between items) by env in the line, B3 (a child's CPU never
   charged) by charging no item CPU at all (the daemon's own CPU and memory are sampled and shown).
+- **A renewing run killed because the engine was busy recording its renewal** (parked on `leaserenew`,
+  `docs/roadmap/overnight/leaserenew.md`, *Where it stopped*). A renewal through the engine's socket is recorded only
+  when the engine gets the GIL; the watchdog could expire the lease first and kill a run that asked in time (16 of 32
+  killed with a GIL-holding thread in the engine, 0 of 48 on the branch). The branch adds a grace and a second look,
+  a re-read before the write, and a fold refusal that the raw readers honour; parked because its
+  `refused_expiries` folds each expired item uncached, transcripts included, on every measure sample and estimate
+  read. Still needed: read `refused` from the item index, and a performance test with many expired items and long
+  transcripts.
 - **Daemons, left over:** a daemon's lines are taken one at a time (a run's process batches the lines that arrive
   together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
   not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
@@ -312,6 +329,38 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `check`.
 - **Remodel `the-job`** (open): equations, designed control laws, person steps marked, the coordinator's
   structure and behaviour tests.
+
+## The factory (ergostat on ergostat)
+
+- **The factory's AI sessions in the dev container** (open; from `factory`, `docs/roadmap/overnight/factory.md`): the
+  implementor and the reviewer run `claude -p` on the host, held by their pool caps, the daily dollar cap and the load
+  interlock, with Claude Code's allowed and disallowed tools (no OS sandbox). Inside the container they would get the
+  kernel's limits, but a session there needs three things it lacks: Claude Code itself (the image has no Node and no
+  Linux build of it), a sign-in (the host's is in the macOS keychain; a container would need a token,
+  `CLAUDE_CODE_OAUTH_TOKEN`, as a secret mounted in), and a way out to the API alone (the container has no network,
+  and `--net` opens all of it). ergostat's filtering CONNECT proxy (`ergostat/sandbox/proxy.py`, which can listen on a
+  Unix socket) is the right filter, but Docker Desktop on macOS does not carry a host Unix socket into its VM, so the
+  proxy would have to run inside Docker: a second service on an `internal: true` network, the only one with a route
+  out, allowing `api.anthropic.com:443` (CONNECT, its TLS server name checked). Left: that service, the token's
+  handling, Claude Code in the image, and a measured run of one session inside.
+- **A block's pool set by the model's state** (open; found by `factory`): `pool:` is a number written in the YAML, so
+  the factory's pools, ramped up on good results, are stocks (`implementor-pool`) its gates and runs enforce below the
+  block's `pool:` (the most). The completion estimates and the Blocks view read the most, not the pool now. Either
+  `pool: stock.NAME` (read at each dispatch, drained when lowered, as a lowered `pool:` is), or a block's pool as a
+  setting a controller steps.
+- **`mode: advise` on a block that takes items does nothing** (open; found by `factory`): the dispatcher
+  (`ergostat/leases/dispatch.py`) leases items to a block whatever its `mode`, and `check` does not say so; only
+  commanded and event-started blocks ask. The factory pauses its implementor with a gate instead (the auxiliary
+  `intake-open`, read by hand, in an `expr` that commands it). Either ask once per item before it is leased
+  (`block.advised` naming the item), or refuse `mode: advise` with `takes:` in `check`.
+- **A gap continues an existing branch, with main merged in by the factory** (awaiting its gate; branch
+  `factory/continue-branch3`, the salvage of `continue-branch`; its definition is
+  `docs/roadmap/overnight/continue-branch.md`, and `continue-branch2.md` and `continue-branch3.md` hold where the later
+  rounds stopped). A request may name `continues: <branch>`;
+  implement.py merges origin/main before each session (a clean merge committed by the program, a conflicted one handed
+  to the session with its conflict list), and gate 1 reads the continued branch's own definition and holds it to the
+  main merged at its build. Main (1f013ba) is merged into the branch. Left: the factory's fast suites on the merged
+  tree, and gate 1 for this salvage, which the coordinator judges by hand (its first commit is continue-branch.md).
 
 ## Done recently
 

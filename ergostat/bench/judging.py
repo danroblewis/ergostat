@@ -51,6 +51,7 @@ class Trial:
     verdict: str | None  # passed, failed, inconclusive (the record could not tell it), or None (no verdict)
     written: bool
     why: str | None
+    hours: float | None = None   # the record held out when the verdict came
 
 
 def _off(rng: random.Random) -> float:
@@ -113,16 +114,16 @@ def trial(world: str, seed: int, family: str, kind: str, work: Path | None = Non
     loop = ad.Loop(s.p, ad.Policy.auto(hold_out=HOLD * 3600.0))
     at = s.t(TRAIN)
     got = loop.submit("judge-test", raw, data=ob.measured(s.p, ob.reference(s.p, at)), at=at)
-    verdict, why = None, got.get("why")
+    verdict, why, hours = None, got.get("why"), None
     if got["status"] == "proposed":
         for j in range(1, TRIES + 1):
             out = loop.judge(at=at + j * HOLD * 3600.0)
             v = next((v for v in out["verdicts"] if v["id"] == got["id"]), None)
             if v and v["verdict"] in ("passed", "failed", "inconclusive"):
-                verdict, why = v["verdict"], v["why"]
+                verdict, why, hours = v["verdict"], v["why"], j * HOLD
                 break
     is_written = any(x["id"] == got["id"] for x in loop.accepted())
-    return Trial(world, seed, family, kind, got["status"], verdict, is_written, why)
+    return Trial(world, seed, family, kind, got["status"], verdict, is_written, why, hours)
 
 
 def rates(trials: list[Trial]) -> dict:
@@ -136,7 +137,9 @@ def rates(trials: list[Trial]) -> dict:
         by.setdefault(k, [0, 0])
         by[k][0] += t.written
         by[k][1] += 1
-    return {"trials": len(trials), "false_accepts": len(fa), "false_accept_rate": len(fa) / len(bad) if bad else None,
+    took = sorted(t.hours for t in trials if t.hours is not None and t.verdict in ("passed", "failed"))
+    return {"trials": len(trials), "decided": len(took), "median_hours_to_decide": took[len(took) // 2] if took else None,
+            "false_accepts": len(fa), "false_accept_rate": len(fa) / len(bad) if bad else None,
             "false_rejects": len(fr), "false_reject_rate": len(fr) / len(good) if good else None,
             "written_by_kind": {k: f"{a}/{n}" for k, (a, n) in sorted(by.items())},
             "false_accept_examples": [vars(t) for t in fa[:5]], "false_reject_examples": [vars(t) for t in fr[:5]]}

@@ -97,7 +97,7 @@ def test_a_recurring_class_becomes_a_request_with_remedies_ranked_by_time_blocke
     reqs = iv.requests_now(p)
     assert set(reqs) == {"alarm:hot", "person:reviewer"} and reqs["alarm:hot"]["rank"] == 1          # blocked longest
     assert reqs["alarm:hot"]["state"] == "open" and reqs["alarm:hot"]["cause"] == "flow.arrivals"
-    assert "add the missing loop: a goal and a controller on what hot watches" in reqs["alarm:hot"]["remedies"][0]
+    assert "a goal and a controller on it only where something should act" in reqs["alarm:hot"]["remedies"][0]
     assert reqs["person:reviewer"]["remedies"][0].startswith("automate the person's step with a block")
     assert iv.requests(p, spec, now)["made"] == 0                                 # one request a class
     assert cli(["-C", str(tmp_path), "inbox", "--requests"]) == 0 and capsys.readouterr().out.strip() == "0"

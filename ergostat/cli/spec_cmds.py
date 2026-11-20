@@ -65,6 +65,7 @@ def check_yaml(args, path: Path) -> int:
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                     "file": str(p.where.file) if p.where else None,
                                     "line": p.where.line if p.where else None} for p in problems],
+                         "local": {k: str(w) for k, w in (getattr(spec, "local", None) or {}).items()},
                          **({"coherence": coh} if coh is not None else {})}) or (1 if errors else 0)
 
     def n(k, word):
@@ -75,6 +76,8 @@ def check_yaml(args, path: Path) -> int:
                        n(len(spec.goals), "goal"), n(len(spec.blocks), "block"), n(len(spec.agents), "agent"),
                        n(len(spec.files), "file")])
     print(f"{c('error', 'bad') if errors else c('ok', 'ok')}   {head}")
+    for k, w in (getattr(spec, "local", None) or {}).items():         # this machine's settings (SPEC §2)
+        print(c(f"{k}: from {w}, this machine's own", "dim"))
     for name, r in (getattr(spec, "remotes", None) or {}).items():     # each remote system (SPEC §4c)
         print(c(f"remote {name}: {r['url']}, " + (f"model version {r['version']}, {len(r['parts'])} parts read in"
                                                   if r.get("version") else "its model not read"), "dim"))

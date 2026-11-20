@@ -14,12 +14,15 @@ import yaml
 from . import files
 
 FILE = "ergostat.yaml"
+LOCAL = "ergostat.local.yaml"     # beside the main file, untracked: this machine's settings only (SPEC §2)
+PER_MACHINE = {"web": None, "intake": {"bind", "allow"}}   # what LOCAL may set (and, for a map, which of its keys)
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
             "loops", "claims", "contexts", "actions", "workspaces", "leases", "daemons")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of",
             "daemons": "daemon"}
-TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "notify", "defaults", "uses", "library", "remotes", *SECTIONS}
+TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
+       "defaults", "uses", "library", "remotes", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -131,6 +134,7 @@ class Document:
     storage: object = None
     purpose: str = ""                # what the whole model is for (main file only): goals trace to it (SPEC §4a)
     intake: object = None            # intake: what may push events to the running ergostat (main file only)
+    web: object = None               # web: the page's public names and their login (main file only)
     notify: object = None            # notify: where what waits on a person is sent (main file only)
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
@@ -140,6 +144,7 @@ class Document:
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
+    local: dict[str, Where] = field(default_factory=dict)    # each per-machine setting LOCAL set: where it was written
 
 
 def read_file(path: Path, problems: list[Problem]):
@@ -203,6 +208,11 @@ def load(main: Path) -> Document:
                 doc.intake = data["intake"]
             else:
                 doc.problems.append(Problem("error", "intake: belongs in the main file only", data.at("intake"), "intake-in-include"))
+        if "web" in data:
+            if top:
+                doc.web = data["web"]
+            else:
+                doc.problems.append(Problem("error", "web: belongs in the main file only", data.at("web"), "web-in-include"))
         if "notify" in data:
             if top:
                 doc.notify = data["notify"]
@@ -288,10 +298,41 @@ def load(main: Path) -> Document:
         doc.defaults[(section, name)] = dict(defaults)
 
     take(main, True, None)
+    take_local(doc, main.parent / LOCAL)
     if doc.remotes:                          # local references into each remote, checked against what it serves now
         from ..remote import compose
         compose.finish(doc, put)
     return doc
+
+
+def take_local(doc: Document, path: Path) -> None:
+    """This machine's settings (``ergostat.local.yaml``), read after the main file and over it: never required; a key
+    that is not per-machine is an error at its line. ``web:`` replaces the main file's; ``intake:``'s keys go over its."""
+    try:
+        there = files.is_file(path)
+    except files.NotKept:                     # a model kept before this file was looked for: it read none
+        return
+    data = read_file(path, doc.problems) if there else None
+    if data is None:
+        return
+    if not isinstance(data, dict):
+        doc.problems.append(Problem("error", f"{LOCAL} must be a map of per-machine settings ({', '.join(PER_MACHINE)})",
+                                    Where(path, 1), "not-a-map"))
+        return
+    for k, v in data.items():
+        keys = PER_MACHINE.get(k, ...) if isinstance(k, str) else ...
+        if keys is ...:
+            doc.problems.append(Problem("error", f"{k!r} is not a per-machine setting: {LOCAL} may set only "
+                                        f"{', '.join(PER_MACHINE)}; the model belongs in {FILE}", data.at(k), "not-per-machine"))
+        elif keys and not (isinstance(v, dict) and set(v) <= keys):
+            doc.problems.append(Problem("error", f"{k}: in {LOCAL} may set only {', '.join(sorted(keys))}", data.at(k),
+                                        "not-per-machine"))
+        else:
+            was = getattr(doc, k)
+            if keys and was is not None:      # a map's keys over the main file's (a malformed one left for its own error)
+                v = {**was, **v} if isinstance(was, dict) else was
+            setattr(doc, k, v)
+            doc.local[k] = data.at(k)
 
 
 def find(start: Path) -> Path | None:

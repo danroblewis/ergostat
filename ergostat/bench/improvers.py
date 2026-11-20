@@ -294,7 +294,7 @@ def _rule_says(rule: str) -> str:
 PROMPT = """You are reviewing a system dynamics model written for ergostat, as a senior modeller would. The model
 does not reproduce the record well. Find what is wrong with its structure or its numbers, and propose at most
 {most} changes that fix it. You see only the record so far; each change you propose is replayed on the record that
-comes after it, and kept only when it fits better there in every window.
+comes after it, and kept only when it fits better there than the record's noise can explain.
 
 The model (ergostat.yaml):
 ```yaml

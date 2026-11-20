@@ -17,6 +17,7 @@ released when it ends. A workspace held for an item is cleaned when the item fin
 from __future__ import annotations
 
 from ..leases import ENDED, EXPIRED, TAKEN
+from ..leases.fold import refused_expiries
 from . import pool as pl
 
 TYPES = f"{TAKEN},{ENDED},{EXPIRED}"
@@ -87,6 +88,8 @@ def on_event(p, spec, ev: dict) -> list[dict]:
                                           {**pl._keep(s), "how": "its lease taken again", "run": d.get("run"),
                                            "lease": fence}, ev["id"]))
         return out
+    if ev["type"] == EXPIRED and ev["id"] in refused_expiries(p.events, spec, [ev]):
+        return []                                        # (renewed after it was judged: not an expiry, nothing released)
     how = "expired" if ev["type"] == EXPIRED else "ended"
     done = bool(d["terminal"]) if "terminal" in d else finished(p, spec, item)
     why = f"its lease {how}" + (f" ({d['state']})" if d.get("state") else "")
