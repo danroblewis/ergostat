@@ -577,7 +577,8 @@ The token is verified with the standard library: RS256 only, against the team's 
 that fails keeps the keys there were), `aud` holding the tag, `iss` the team's `https://TEAM`, `exp` not passed and
 `nbf` reached (30 s of leeway). A write under the public name needs, besides the page's own token, `Origin`
 `https://NAME`, and what it records says the email where a write from this machine says `owner` (who accepted a
-proposal, approved an action, answered the inbox, sent a message). The push paths (`/api/events`, `/api/hooks/`,
+proposal, approved an action, answered the inbox, sent a message); the inbox counts it as the owner's own answer,
+never an agent's. Under a public name `/file/` never serves the state directory (its tokens). The push paths (`/api/events`, `/api/hooks/`,
 section 5c) and the remote API (`/remote/`, section 4c) keep their own tokens. Requests still come only from this
 machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**), and names without `access`.
 

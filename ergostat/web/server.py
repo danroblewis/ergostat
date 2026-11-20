@@ -737,6 +737,7 @@ def handler(project):
 
     class Handler(BaseHTTPRequestHandler):
         timeout = 10                                   # an idle browser connection gives its thread back
+        public, origins = True, frozenset()            # until _gate says who asks
         def log_message(self, *a):
             pass
 
@@ -764,8 +765,11 @@ def handler(project):
         def _file(self, rel: str, page: bool = False):
             p = live.get()
             roots = [r.resolve() for r in (p.model.path.parent if p.model.path else None, p.dir) if r]
+            state = Path(p.dir).resolve()
             for root in roots:
                 f = (root / rel).resolve()
+                if self.public and (f == state or state in f.parents):   # under a public name: never the state's (its tokens)
+                    continue
                 if (root == f or root in f.parents) and f.is_file():
                     if f.stat().st_size > FILE_LIMIT:
                         return self._send(413, b"too big to show", "text/plain")
@@ -785,10 +789,11 @@ def handler(project):
             local = host in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
             web = wa.of(getattr(live.get().model, "spec", None))
             public = web is not None and host in web.names
-            self.origins = {f"http://{host}"}
+            self.origins, self.public = {f"http://{host}"}, True
             if not (public or local):
                 return self._send(403, b"not this server's name", "text/plain")
             if not public and not any(self.headers.get(h) for h in wa.HEADERS):
+                self.public = False
                 return "owner"
             try:
                 who = wa.verify(web, self.headers.get("Cf-Access-Jwt-Assertion"))

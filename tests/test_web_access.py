@@ -296,3 +296,71 @@ def test_web_as_written_is_checked(tmp_path):
     (tmp_path / "ergostat.yaml").write_text("name: x\nstocks:\n  q: {}\nweb:\n  names: [x.example.org]\n")
     with pytest.raises(mdl.ModelError, match="web.access"):
         mdl.load(tmp_path)
+
+
+def test_files_under_the_public_name_never_include_the_state(page):
+    p, url = page
+    assert (p.dir / "intake.token").exists()
+    assert ask(url, "/file/intake.token", NAME, jwt())[0] == 404                     # the push token stays here
+    assert ask(url, "/file/ergostat.yaml", NAME, jwt())[0] == 200                     # the model's files are served
+    assert ask(url, "/file/intake.token")[0] == 200                                   # and on this machine, as before
+
+
+def _calls(monkeypatch):
+    """Every write the page's answers make, each recording its ``by``: (module, path, query, the function it calls)."""
+    from ergostat.actions import gate
+    from ergostat.inbox import answer
+    from ergostat.reports import record as reports
+    from ergostat.web import actions_api, control_api, intent_api, numbers_api, reports_api, verdicts_api
+    seen: list = []
+
+    def rec(*a, by=None, **k):
+        seen.append(by)
+        return {"id": "x", "state": "s", "work": "w", "item": "i", "data": {"reopened": "r"}, "status": "ok"}
+    for mod, name in [(gate, "approve"), (gate, "deny"), (answer, "answer"), (control_api.cp, "accept"),
+                      (control_api.cp, "dismiss"), (reports, "mark"), (intent_api.acts, "confirm"), (intent_api.acts, "dismiss"),
+                      (intent_api.acts, "supersede"), (intent_api.acts, "retire"), (verdicts_api.record, "overrule"),
+                      (verdicts_api.record, "reopen"), (numbers_api.pr, "accept"), (numbers_api.pr, "dismiss")]:
+        monkeypatch.setattr(mod, name, rec)
+    monkeypatch.setattr(numbers_api.rv, "control_pending", lambda p, spec: [{"id": "loop-1"}])
+    ok = {"id": ["ergostat.decision/x"], "item": ["work/1"]}
+    calls = [lambda live: actions_api.post(live, "action/a/1/approve", {}),
+             lambda live: actions_api.post(live, "action/a/1/deny", {}),
+             lambda live: actions_api.answer(live, "inbox/a/1/approve", {}),
+             lambda live: control_api.post(live, "control/loop-1/accept"),
+             lambda live: control_api.post(live, "control/loop-1/dismiss"),
+             lambda live: reports_api.post(live, "report/r/1/reviewed", {}),
+             *[lambda live, act=act: intent_api.post(live, f"intent/{act}", ok) for act in ("confirm", "dismiss", "supersede")],
+             lambda live: intent_api.post(live, "intent/retire", {"id": ["ergostat.correction/x"]}),
+             lambda live: verdicts_api.post(live, "verdict/overrule", ok),
+             lambda live: verdicts_api.post(live, "verdict/reopen", ok),
+             *[lambda live, act=act, pid=pid: numbers_api.post(live, f"proposals/{pid}/{act}", 3600.0)
+               for act in ("accept", "dismiss") for pid in ("loop-1", "p-1")]]
+    return calls, seen
+
+
+def test_every_answer_the_page_records_says_who_made_it(page, monkeypatch):
+    """Every write path the page answers, called as a request under the public name would be: each records the
+    email, none ``owner``."""
+    from types import SimpleNamespace
+    p, _ = page
+    live = SimpleNamespace(get=lambda: p, reloaded=lambda: None, _lock=threading.Lock(), _kept={})
+    calls, seen = _calls(monkeypatch)
+    as_who = wa.acting("owner@example.org")
+    try:
+        for call in calls:
+            call(live)
+    finally:
+        wa.done(as_who)
+    assert seen == ["owner@example.org"] * len(calls)
+    seen.clear()
+    calls[0](live)
+    assert seen == ["owner"]                                                          # and on this machine, the owner
+
+
+def test_an_answer_through_the_login_is_the_owners_own_not_an_agents():
+    """The inbox counts an email's answers as a person's (evidence for graduating a class), never as decided without
+    the owner."""
+    from ergostat.inbox.stats import BY_AGENT, by_person
+    assert by_person("owner") and by_person("owner@example.org")
+    assert not by_person(BY_AGENT) and not by_person("modeller") and not by_person(None)
