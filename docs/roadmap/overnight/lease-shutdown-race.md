@@ -331,3 +331,30 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
   it was in round 5.
 - **Ran serially:** `tests/test_leases.py` (26 passed); `test_lease_kill`, `test_leased_workspaces`, `test_daemons`,
   `test_factory` (80 passed, 2 skipped). Ruff is clean. There is no remote, and local `main` is already merged.
+
+### After round 6's unit run (stopped about 3 results short of the end; no test named; no code changed)
+
+- **What the tail showed.** 27 full progress lines and 18 more results: 1,962 results of the about 1,965 in the park's
+  run (1 + 1895 + 69). Then nothing: no failure, no summary and no `suite_watch` closing line. So about three tests
+  never reported, and the watcher was stopped from outside.
+- **A reading (not proven).** The suite has no per-test timeout (no `pytest-timeout`, no `faulthandler_timeout`), so a
+  test that never ends holds its xdist worker until the run is killed. Under `--dist worksteal` the other workers take
+  over that worker's queue, except for the test it is running and the one it holds next. That fits "a few results
+  short of the end" well: one stuck test is enough. The earlier stops at 51 to 80% (and once before the first dot)
+  may be the same thing. The log is a file, so pytest's output can sit in a buffer when the kill comes, and the last
+  visible line need not be how far the run really got. Nothing in the tail shows which test, or whether it is one of
+  this branch's.
+- **Looked for again in the code, and not found.** Every wait this branch adds has a limit (`close`: both locks,
+  `lock_wait`; the `running` wait, 5 s). `_work`'s finally takes the dispatcher's lock with no limit, as main's did,
+  only to pop `going`. The lock order is still dispatcher, then engine, and no caller of `run_block` (so `once`)
+  holds the engine's lock (`_run`, the CLI, the classifier, the step test, the trial). `_kill` kills the run's
+  process group, and `stream.pump` ends a killed run's read after its grace. Serially, `tests/test_leases.py` passed
+  (26) in 34 s. Its slowest test, `test_a_lease_held_by_a_run_survives_a_model_edit` at 13 s, is not changed here.
+- **Refused here:** a serial whole-suite run with `-o faulthandler_timeout=120` (serial, meant to name a stuck test
+  by its stacks). I did not get around that.
+- **Decision taken alone (reversible).** No code change: there is no cause to fix, and a blind change would hide what
+  the next run could show (lesson-10, lesson-13). Adding a per-test timeout to the suite is outside this gap. What
+  would settle it is the factory's next unit run with `-o faulthandler_timeout=300` (a stuck test dumps every thread's
+  stack, which names it) and unbuffered output (`PYTHONUNBUFFERED=1`), plus main's unit suite run in the same slot.
+- **Still open:** a green unit run, and the 30 loaded `-n 8` runs of the restart test (the DoD's last acceptance
+  line). The gap is not done.
