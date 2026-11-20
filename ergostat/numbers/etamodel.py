@@ -208,17 +208,21 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
         for s in kin.states:
             if s not in kin.km:
                 kin.km[s], kin.said[s] = (km_kind, "kind") if km_kind else (km_all, "all")
-    _leases(p, spec, out, since)
+    _leases(p, spec, out, since, ix)
     _relations(spec, ix, out)
     return out
 
 
-def _leases(p, spec, out: Inputs, since: float) -> None:
+def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     """Each block's attempts and its run-time curve; each open item's lease, attempts and put-off."""
+    from ..leases.fold import refused_expiries
     from ..leases.terms import terms
     evs = p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at)
+    void = refused_expiries(p.events, spec, evs, ix=ix)   # (renewed after it was judged: the run went on)
     runs: dict[str, dict] = {}
     for e in evs:
+        if e["id"] in void:
+            continue
         d = e.get("data") or {}
         r = d.get("run")
         if e["type"].endswith("taken"):

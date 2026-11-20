@@ -60,7 +60,8 @@ def cmd_bench(args) -> int:
             print(json.dumps(got, indent=1, default=str))
             return 0
         print(f"{got['trials']} trials: false accepts {got['false_accepts']} (rate {_g(got['false_accept_rate'])}), "
-              f"false rejects {got['false_rejects']} (rate {_g(got['false_reject_rate'])})")
+              f"false rejects {got['false_rejects']} (rate {_g(got['false_reject_rate'])}); decided {got['decided']}, "
+              f"in a median {_g(got['median_hours_to_decide'])} h of record")
         for k, v in got["written_by_kind"].items():
             print(f"  {k}: written {v}")
         for t in got["false_reject_examples"]:

@@ -117,10 +117,13 @@ Work through these steps in order. Ask the person only what you cannot infer.
    stand-in improver until given a prompt and `run: ""` (a Claude session) or a program; its options are in
    `docs/ADDING.md` (modelling). With `ai: true` it also reviews the structure on its own, a system at a time (the
    redesigner, `when: auto`), and what it proposes waits for the owner: keep the systems small (40 parts or fewer)
-   so each can be reviewed whole. With `ai: true` a reviewer also reads every structural change and redesign the
-   judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a change you see
-   failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way they say rather
-   than proposing the same idea again. Do not hand-write these parts.
+   so each can be reviewed whole. It learns from what happened: its past change sets for the system with what
+   became of each, and the interventions about it (approvals, denials, a person's requests, alarms, with their
+   notes) as evidence of missing loops. So when you dismiss a redesign or deny an approval, give the reason
+   (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
+   redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
+   change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
+   they say rather than proposing the same idea again. Do not hand-write these parts.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
@@ -586,6 +589,38 @@ What you set:
   until a sound guard exists (GAPS).
 - **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs
   committed.
+
+## 3j. The page from elsewhere: cloudflared and Cloudflare Access
+
+When the owner wants to watch the page from another device, never bind it to a public address: put it behind a
+Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
+
+1. In Cloudflare Zero Trust, add a **self-hosted Access application** for the hostname (`ergostat.example.org`) with
+   a policy allowing the owner's email. Note its **Application Audience (AUD) tag** and the team domain
+   (`myteam.cloudflareaccess.com`).
+2. Run the tunnel to the page's port on this machine (the one `ergostat run` prints: 8781, or the next free one;
+   ask for one with `--port`), **keeping the Host header** (no `httpHostHeader` rewrite):
+   `cloudflared tunnel route dns NAME ergostat.example.org`, then in the tunnel's `config.yml`
+
+   ```yaml
+   ingress:
+     - hostname: ergostat.example.org
+       service: http://127.0.0.1:8781
+     - service: http_status:404          # cloudflared needs a last rule that catches the rest
+   ```
+
+   and `cloudflared tunnel run NAME`.
+3. Declare it in the main file (`web: {names: [...], access: {team, aud, emails}}`), or, when the model is in a
+   shared repository, in `ergostat.local.yaml` beside it (untracked, in `.gitignore`: the tunnel is this machine's,
+   SPEC §2), `ergostat check` (it says where `web:` came from), and open
+   the name: Access asks for the login, the page opens, and what the owner answers there is recorded as their
+   email. Without the declaration every request through the tunnel is refused (403), even one whose Host was
+   rewritten. Pushes (`/api/events`, `/api/hooks/`) and the remote API pass Access only with a service token or a
+   bypass policy for those paths; they keep needing their own tokens.
+4. **No login, read only:** when the owner wants the page seen without Access in front (a dev instance), declare
+   `web: {names: [ergostat.example.org], open: read}` and skip step 1. Anyone who reaches the name reads the page;
+   every write there is refused; `check` and the page's header say it is public. The tunnel must still keep the
+   Host (step 2): the declared name is what opens it, and a request through Cloudflare by `127.0.0.1` is refused.
 
 ## 4. Common mistakes
 

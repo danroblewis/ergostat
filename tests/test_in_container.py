@@ -28,6 +28,14 @@ def test_compose_sets_the_hard_limits_and_no_network():
     assert any(t.startswith("/tmp:") for t in dev["tmpfs"]) and "${ERGOSTAT_WORK:-.}:/work" in dev["volumes"]
 
 
+def test_bytecode_caches_stay_out_of_the_mounted_checkout():
+    """The host's Python writes the checkout's __pycache__ too: inside, they go to the tmpfs (both services)."""
+    services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
+    assert services["dev"]["environment"]["PYTHONPYCACHEPREFIX"] == "/tmp/pycache"
+    assert "environment" not in services["sandbox"], "sandbox extends dev: its environment is dev's"
+    assert any(t.startswith("/tmp:") for t in services["dev"]["tmpfs"]), "/tmp is the tmpfs"
+
+
 def test_the_command_runs_in_the_dev_service_with_half_the_cpus():
     env, cmd = printed("uv", "run", "python", "-m", "pytest", "-q")
     assert cmd.endswith(" dev uv run python -m pytest -q") and " run --rm " in cmd
