@@ -2,18 +2,17 @@
 again; a failure with nothing to fix (a flaky run) is run again as it was. After CI_MAX_FIXES (3) fixes it
 stops, for a person. Back to `sailed`, where `ci` watches the new run."""
 
-import os
 from pathlib import Path
 
 import agent
 from gated import act
 from step import Move, Stop
-from tf import conf, key_of, now, once
+from tf import conf, env, key_of, now, once
 
 
 def run(ticket):
     f = ticket["fields"]
-    key, ws, repo, pr = key_of(ticket), Path(os.environ["ERGOSTAT_WORKSPACE"]), f["repo"], f["pr"]
+    key, ws, repo, pr = key_of(ticket), Path(env("ERGOSTAT_WORKSPACE")), f["repo"], f["pr"]
     if int(f.get("ci_fixes") or 0) >= int(conf("CI_MAX_FIXES", "3")):
         return Stop(f"CI still fails after {f.get('ci_fixes')} fixes: a person should look")
     def fix():

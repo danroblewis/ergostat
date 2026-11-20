@@ -6,6 +6,7 @@ and answered as soon as the owner answers; a command for another project is neve
 import json
 import os
 import shlex
+import subprocess
 import sys
 import textwrap
 import threading
@@ -173,3 +174,36 @@ def test_a_state_directory_too_deep_for_a_socket_names_one_elsewhere(tmp_path):
     deep = tmp_path / ("d" * 120)
     assert len(str(path_for(deep))) <= LIMIT and path_for(deep).parent != deep
     assert path_for(tmp_path / "x") == tmp_path / "x" / "engine.sock" or len(str(tmp_path / "x" / "engine.sock")) > LIMIT
+
+
+def test_the_socket_lists_items_as_the_command_does(engine, tmp_path):
+    p, e = engine
+    for n in (1, 2, 3):
+        p.events.add("job.arrived", item=f"job/{n}", source="test")
+    assert wait_for(lambda: all(its.one(p.events, p.model.spec, f"job/{n}").state == "done" for n in (1, 2, 3)))
+    assert wait_for(lambda: not its.one(p.events, p.model.spec, "job/3").fields.get("lease", {}).get("holder"), 5)
+    time.sleep(0.3)                                               # (the last run's ending recorded)
+    got = client.call("items", path=e.socket, root=str(tmp_path), kind="job", state="done")
+    r = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "item", "--kind", "job", "--state", "done",
+                        "--json"], capture_output=True, text=True, env={**os.environ, "ERGOSTAT_NO_SOCKET": "1"})
+    assert r.returncode == 0, r.stderr
+    assert got == json.loads(r.stdout)
+    assert sorted(i["id"] for i in got["items"]) == ["job/1", "job/2", "job/3"]
+    assert client.call("items", path=e.socket, root=str(tmp_path), kind="job", state="ready")["items"] == []
+
+
+def test_the_socket_pages_through_more_items_than_one_listing_holds(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text("name: many\nitems:\n  doc:\n    id: doc/*\n    states: [open]\n"
+                                            "    on: {doc.opened: open}\n")
+    p = Project(mdl.load(tmp_path))
+    for n in range(600):
+        p.events.add("doc.opened", item=f"doc/{n}", source="test")
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    try:
+        first = client.call("items", path=e.socket, root=str(tmp_path), kind="doc")
+        rest = client.call("items", path=e.socket, root=str(tmp_path), kind="doc", offset=len(first["items"]))
+    finally:
+        e.close()
+    assert first["total"] == 600 and len(first["items"]) == its.LISTED == 500
+    assert len({i["id"] for i in first["items"] + rest["items"]}) == 600, "every one, once, over two pages"

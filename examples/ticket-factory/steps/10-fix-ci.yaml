@@ -31,7 +31,7 @@ blocks:
     goal: failures-fixed
     agent: ai
     prompt: prompts/ci.md
-    run: python3 bin/step.py fix-ci
+    run: python3 bin/step.py fix-ci        # a process per run: an AI session of minutes, its CPU and cost its own
     takes: {kind: ticket, at: ci-failed, to: [sailed, stopped]}
     pool: 1
     lease: {ttl: 20m, attempts: 2}

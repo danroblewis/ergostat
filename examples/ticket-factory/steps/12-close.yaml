@@ -29,7 +29,7 @@ blocks:
   close:
     type: program
     goal: merged-closed
-    run: python3 bin/step.py close
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: merged, to: [done, stopped]}
     pool: 3
     actions: [jira-transition, jira-comment]
