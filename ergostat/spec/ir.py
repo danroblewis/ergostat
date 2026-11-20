@@ -722,6 +722,8 @@ class Trigger:
     events: list[str]               # types, or a prefix ending in .*
     where: dict = field(default_factory=dict)
     emits: list[str] = field(default_factory=list)
+    max_age: float = 3600.0         # seconds: older events, when looked at, are passed over (trigger.skipped)
+    most: int = 60                  # triggered runs a minute that trip its breaker (trigger.tripped)
 
 
 @dataclass
