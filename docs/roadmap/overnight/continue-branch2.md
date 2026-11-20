@@ -247,3 +247,26 @@ FAILED tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_
 {"rc": 1, "wall_s": 266.1, "peak": {"threads": 348, "rss_mb": 1710.9, "procs": 121, "worker_mb": 601.7}, "killed": null, "workers_killed": 0, "left_behind": 0}
 
 ```
+
+## Where it stopped
+
+Round 4 of gap/continue-branch2 (on 3eae806): no code changed. Every finding listed for this round, answered:
+- Gate 1, "continue-branch2.md is not the branch's first commit": unchanged, for the coordinator, as in rounds 2 and 3.
+  It comes from how the salvage was set up, not from the code. Accept continue-branch.md (19b9998) as the definition
+  by hand, or request the gap again as `continues: continue-branch` once this gate is on main. Rewriting history or
+  special-casing the gate would be hard to undo.
+- review.py:42-43/148 (a stale base failing a continued gap): answered in 71c4a3b (`built_main` on gap.built; gate 1
+  holds a continued branch to it). `test_gate_one_accepts_a_continued_branch_definition` covers it.
+- implement.py:61 / fac.py:457 (conflicts split on whitespace, lesson-12): answered in 71c4a3b (`fac.conflicted`, NUL
+  separated). `test_conflicts_are_listed_whole_when_a_path_has_a_space` covers it.
+- review/continue-branch2-1, non-blocking, "the gap has no entry in docs/GAPS.md": answered now. GAPS.md's factory
+  section names this gap, its branch, its definitions and what is left. The entry is in a different hunk from main's
+  only GAPS.md change since 553b955 (the leaserenew entry near line 220).
+- lesson-7 and the unit failure in tests/test_leases.py: still unanswered, for the same reason as before. This session
+  was refused `git merge main` (the sixth refusal). Making the merge commit some other way (`merge-tree`,
+  `commit-tree`) would get around the refusal rather than respect it, so it was not done. Main's leaserenew (in
+  1f013ba) is expected to end the flake (the watchdog's second look). That is not proven here.
+
+The branch's base is still 553b955; main is 1f013ba. Main shares only docs/GAPS.md with this branch's changed files,
+in a different hunk. Left: main merged in by the factory or a person, then the fast suites on the merged tree; gate 1
+for this salvage, by the coordinator.
