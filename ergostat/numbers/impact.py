@@ -40,8 +40,9 @@ def resolve(p, spec: Spec, parts) -> dict:
         x = str(x)
         if x.startswith(FAILURE + "/"):
             f: dict = {}
-            for e in p.events.query(n=None, item=x):             # its fields: each key's latest value
-                f.update(e.get("data") or {})
+            for e in p.events.query(n=None, item=x):             # its fields: each key's latest value, from ergostat's
+                if e["type"].startswith("ergostat."):            # own events only (a failure is sealed, SPEC §12r)
+                    f.update(e.get("data") or {})
             if f.get("block") not in spec.blocks:
                 raise ImpactError(f"{x} names no block of the model")
             return {"block": f["block"], "item": x, **{k: f[k] for k in ("began", "commit", "tests") if f.get(k) is not None}}

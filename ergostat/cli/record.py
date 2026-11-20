@@ -175,6 +175,11 @@ def add_event(p, args) -> int:
             return 1
         return 0
     p = p or open_project(args)
+    from ..spec.triggers import block_of, undeclared
+    why = run and undeclared(getattr(p.model, "spec", None), block_of(p.events, run), [t])
+    if why:                                              # a run started by events says only what it declares (SPEC §9.3)
+        print(f"not recorded: {why}", file=sys.stderr)
+        return 2
     try:
         ev = p.events.add(t, item=args.item, source=args.by or "user", data=data, causedby=run, patch=got.get("--patch"),
                           set=got.get("--set"))

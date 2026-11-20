@@ -63,7 +63,7 @@ blocks:
   review:
     type: program
     goal: reviews-answered
-    run: python3 bin/step.py review
+    daemon: steps                     # each run handed to the steps' daemon (ergostat.yaml)
     takes: {kind: ticket, at: review-asked, to: [approved, changes-asked, stopped]}
     pool: 3
     actions: [pr-comment]

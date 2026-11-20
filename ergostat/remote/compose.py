@@ -17,6 +17,7 @@ import time
 
 from ..durations import DurationError, parse_duration
 from ..library.expand import BARE, REF, SECTION_OF, rename
+from ..spec import files
 from ..spec.ir import NAME
 from ..spec.load import Map, Problem, Where
 
@@ -124,7 +125,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
     via = RemoteVia(w.file if w else doc.root, w.line if w else 1, name, url)
     from . import cache
     d = cache.folder(doc.name, doc.root, name)
-    if not _OFFLINE.get():
+    if not _OFFLINE.get() and not files.replaying():     # (the last good model: its kept cache only)
         st = cache.status(d)
         if _FRESH.get() or not cache.model(d) or time.time() >= float(st.get("next") or 0):
             cache.refresh(d, url, str(token_file) if token_file else None, doc.root, every,

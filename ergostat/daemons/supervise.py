@@ -35,6 +35,7 @@ class Slot:
         self.state, self.why, self.next_at = "starting", "", 0.0
         self.restarts: deque[float] = deque()
         self.total, self.alarm = 0, None
+        self.spawning = False                        # one _start at a time: sync's and the loop's never both spawn
         self.up = threading.Event()
 
 
@@ -87,29 +88,31 @@ class Supervisor(Hands):
                     self._drain(slot, "its definition changed" if n in want else "nothing uses it now")
                     del self.slots[n]
             for n in set(want) - set(self.slots):
-                self.slots[n] = Slot(want[n])
-                start.append(self.slots[n])
+                self.slots[n] = slot = Slot(want[n])
+                slot.spawning = True                 # claimed before the loop runs: spawned here, never by its tick
+                start.append(slot)
             self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon and s.push}
             if self.slots and (self.thread is None or not self.thread.is_alive()):
                 self.thread = threading.Thread(target=self._loop, name="ergostat-daemons", daemon=True)
                 self.thread.start()
-        for slot in start:                           # at once: the first readings asked find it there
-            self._start(slot)
+        for slot in start:                           # at once, before sync returns: the first readings asked find it
+            self._spawn_claimed(slot)                # running (not "starting", a failure until the sensor is next due)
 
     def revive(self, name: str) -> bool:
         """The owner's ``block NAME --restart``: a daemon given up (or any) started afresh, its restarts forgotten."""
         with self.lock:
             fresh = []
-            for old in self.subs(name):
-                self._drain(old, "the owner asked for a restart")
-                fresh.append(Slot(old.d))
-                self.slots[old.d.name] = fresh[-1]
-                self._release(old.d.name)
+            for old_slot in self.subs(name):
+                self._drain(old_slot, "the owner asked for a restart")
+                slot = self.slots[old_slot.d.name] = Slot(old_slot.d)
+                slot.spawning = True                 # (as in sync: spawned here, before revive returns)
+                fresh.append(slot)
+                self._release(old_slot.d.name)
         if not fresh:
             return False
         self.e.say(f"daemon {name}: restarted, as the owner asked")
         for slot in fresh:
-            self._start(slot)
+            self._spawn_claimed(slot)
         return True
 
     def subs(self, name: str) -> list[Slot]:
@@ -154,7 +157,7 @@ class Supervisor(Hands):
         todo, gone = [], []
         with self.lock:                              # what to do worked out under the lock; done outside it
             for slot in list(self.slots.values()):
-                if slot.state in ("starting", "backoff") and now >= slot.next_at:
+                if slot.state in ("starting", "backoff") and now >= slot.next_at and not slot.spawning:
                     todo.append((slot, None))
                 elif slot.state == "running" and (why := self._trouble(slot, now)):
                     todo.append((slot, why))
@@ -203,6 +206,21 @@ class Supervisor(Hands):
             return next((r for r, h in p.runs.items() if h.cancelled is not None and now - h.cancelled > grace()), None)
 
     def _start(self, slot: Slot) -> None:
+        with self.lock:                              # claimed before spawning: a second caller spawns nothing
+            if self.slots.get(slot.d.name) is not slot or slot.state not in ("starting", "backoff") or slot.spawning:
+                return
+            slot.spawning = True
+        self._spawn_claimed(slot)
+
+    def _spawn_claimed(self, slot: Slot) -> None:
+        """A slot this caller claimed (``spawning``, set under the lock) spawned, and the claim let go."""
+        try:
+            self._spawn(slot)
+        finally:
+            with self.lock:
+                slot.spawning = False
+
+    def _spawn(self, slot: Slot) -> None:
         log = open(old.log_path(self.e.p, f"daemon-{slot.d.name}"), "a", encoding="utf-8")
         from ..spec.engine import callback_env
         try:

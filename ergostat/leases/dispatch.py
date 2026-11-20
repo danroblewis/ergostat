@@ -24,7 +24,7 @@ import time
 import uuid
 
 from ..spec import items as its
-from ..spec.ir import DEAD, LEASED
+from ..spec.ir import DEAD, LEASED, own_kind
 from . import ENDED, EXPIRED, RENEWED, TAKEN
 from .fold import held
 from .kill import kill
@@ -77,7 +77,7 @@ class Dispatcher:
 
     def kinds(self) -> list[str]:
         """The kinds whose leases are watched: every kind of the model's own (a lease outlives the block that took it)."""
-        return [k for k in self.spec.items if not k.startswith("ergostat.")]
+        return [k for k in self.spec.items if own_kind(k)]
 
     # ---- the clock
 

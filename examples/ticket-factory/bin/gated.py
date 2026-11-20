@@ -18,7 +18,7 @@ import json
 import os
 import subprocess
 
-from tf import conf, engine, ergostat, seconds
+from tf import conf, engine, env, ergostat, seconds
 
 
 class Pending(Exception):
@@ -36,10 +36,10 @@ class Failed(Exception):
 def act(name: str, _key: str | None = None, **args) -> str:
     """Ask for the action `name` with these arguments; its output once it ran. `_key` tells this act from the same
     one asked before with the same arguments (a push of a later commit). (`key=` is an argument: a Jira issue.)"""
-    env = {k: os.environ[k] for k in ("ERGOSTAT_ITEM", "ERGOSTAT_LEASE", "ERGOSTAT_RUN", "ERGOSTAT_ACTIONS",
-                                      "ERGOSTAT_SANDBOX") if os.environ.get(k)}
+    run = {k: v for k in ("ERGOSTAT_ITEM", "ERGOSTAT_LEASE", "ERGOSTAT_RUN", "ERGOSTAT_ACTIONS", "ERGOSTAT_SANDBOX")
+           if (v := env(k))}                       # the run's own: in a daemon, from its line (tf.env)
     got = engine("act", name=name, args={k: str(v) for k, v in args.items()}, key=_key,
-                 wait=seconds(conf("ACT_WAIT", "10s")), env=env, _timeout=900)
+                 wait=seconds(conf("ACT_WAIT", "10s")), env=run, _timeout=900)
     if got is not None:                                # the running engine answered (its socket)
         a, code = got["action"], int(got["exit"])
     else:
@@ -48,7 +48,7 @@ def act(name: str, _key: str | None = None, **args) -> str:
             cmd += ["--arg", f"{k}={v}"]
         if _key:
             cmd += ["--key", _key]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900, env={**os.environ, **run})
         if r.returncode == 2 or not r.stdout.strip():
             raise RuntimeError(f"ergostat act {name}: {(r.stderr or r.stdout).strip()[:400]}")
         a, code = json.loads(r.stdout), r.returncode
