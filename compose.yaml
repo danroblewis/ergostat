@@ -21,6 +21,10 @@ services:
     working_dir: /work
     environment:
       SPLIT_SHOTS: /tmp/split-shots     # tests/test_diagram_rendering.py's pictures go beside the checkout: / here
+      # Python's bytecode caches on the tmpfs, never in the checkout's __pycache__: the host's Python writes those too
+      # (another version, the same files), and a run on each side at once once left a truncated one ("marshal data
+      # too short"). Gone with the container: the first import of a run compiles again.
+      PYTHONPYCACHEPREFIX: /tmp/pycache
   # The same with Docker's syscall filter and masked /proc paths off, which bwrap (the Linux sandbox) needs for its
   # namespaces and its own /proc. Only for the sandbox's tests: scripts/in_container.sh --sandbox.
   sandbox:
