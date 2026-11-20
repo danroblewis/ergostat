@@ -194,7 +194,16 @@ ergostat inbox action/<id> --approve --as coordinator
 ```
 
 One merge waits for its push at a time. If you deny the push, the queue undoes that merge (`git reset --keep`) and
-sends the gap back. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
+sends the gap back.
+
+**Batches.** The queue merges up to `batch` approved gaps onto main in turn (in rank order) and runs the suites once
+(`[pools] batch`, 1 to start: one gap a run, as before). A green batch asks for one push, of its last merge, so one
+approval lands the batch, and a denial sends every gap of it back. A red batch is bisected (the suites again on the
+first half of the merges, and so on) to the first merge that fails; that gap goes to flake triage with its failures,
+the merges before it land, and those after it are merged again and run once more. A batch is at most 4 (a batch of 4
+whose every merge fails is at most 8 suite runs, about 2 hours, inside the queue's 3). The pool tuner asks you (`raise-pool`, role
+`batch`) to raise it by one while the queue wait is over its goal (`queue-wait-short`); `merges-per-hour` measures
+what it buys. By hand: `python3 dev/bin/pools.py set batch 2 "why"`. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
 

@@ -53,6 +53,8 @@ token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude set
 implementor_max = 4                  # the most each may reach (the blocks' pool: in the model is this cap)
 reviewer_max = 2
 streak = 3                           # good gaps in a row before an increase is asked for
+batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
+batch_max = 4                        # the most the tuner may ask for while the queue wait is off (never past 4)
 
 [instance]
 port = 8798
