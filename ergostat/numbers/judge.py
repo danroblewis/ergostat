@@ -185,7 +185,8 @@ def needs(p, spec: Spec, after: Spec, x: dict, since: float, hold_out: float, wa
 
 
 def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: float = WARM_UP,
-            stocks: list[str] | None = None, goals: dict[str, str] | None = None, tau: float | None = None) -> dict:
+            stocks: list[str] | None = None, goals: dict[str, str] | None = None,
+            taus: tuple[float | None, float | None] = (None, None)) -> dict:
     """The model as it is and with the change, each replayed once over [since, until] (warmed up beforehand), paired
     with the record bucket by bucket: near what it touches (``stocks``, over those both replay; every stock when none
     is given or none is replayed), the rest of the model, and each goal's own stock. Each stock's rows are (bucket,
@@ -207,12 +208,14 @@ def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: flo
         if len(both) >= 5:
             paired[r] = [(i, rb[r][i][0] / sc, ra[r][i][0] / sc, rb[r][i][1] / sc) for i in both]
     near = [r for r in paired if r in set(stocks or ())]
-    out = {"since": since, "until": until, "start": start, "width": grid.width, "tau": tau, "fallback": not near and bool(stocks),
+    out = {"since": since, "until": until, "start": start, "width": grid.width, "fallback": not near and bool(stocks),
            "scored": near or sorted(paired)}
     near = near or sorted(paired)
     out["near"] = {r: paired[r] for r in near}
     out["rest"] = {r: v for r, v in paired.items() if r not in near}
     out["goals"] = {g: {r: paired[r]} for r, g in (goals or {}).items() if r in paired}
+    err = [sum((v[k] - y) ** 2 for rows in out["near"].values() for *v, y in rows) for k in (1, 2)]
+    out["tau"] = taus[err[1] < err[0]]          # the noise's time scale: the time constant of whichever replays better
     return out
 
 
@@ -247,11 +250,12 @@ def due(looked: float, needs: float) -> float:
 
 
 def floor_of(ev: dict) -> float:
-    """The least noise correlation from one bucket to the next: what the slower time constant of what the change
-    touches carries over, while the record held out spans fewer than ``SPANS`` of them (a short record reads a slow
-    noise's correlation low, and a day of a day-long drain is one draw); none after. What only accumulates (no time
-    constant) keeps whatever it gets wrong: its noise, once it drifts, is as slow as can be (``RHO_MAX``), and is
-    also taken as a walk (``pooled``'s ``walk``)."""
+    """The least noise correlation from one bucket to the next: what the time constant of what the change touches, in
+    whichever of the two replays the record better (``compare``), carries over, while the record held out spans
+    fewer than ``SPANS`` of them (a short record reads a slow noise's correlation low, and a day of a day-long
+    drain is one draw); none after. What only accumulates (no time constant) keeps whatever it gets wrong: its
+    noise, once it drifts, is as slow as can be (``RHO_MAX``), and is also taken as a walk (``pooled``'s
+    ``walk``)."""
     tau = ev.get("tau")
     if not tau:
         return RHO_MAX
@@ -532,8 +536,7 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                                        **({"record": reach - since} if stalled else {})})
                 continue
             judged += 1
-            ev = compare(p, spec, after, since, now, nd["warm_up"], nd["stocks"], nd["goals"],
-                         max((t for t in (nd["tau"], nd["tau_with_it"]) if t), default=None))   # the slower, unknown which is right
+            ev = compare(p, spec, after, since, now, nd["warm_up"], nd["stocks"], nd["goals"], (nd["tau"], nd["tau_with_it"]))
             results = slices(ev, windows(since, now, pol.windows, min(nd["tau"] or 0.0, nd["needs"] / 2)))
             f = x.get("findings") or {}
             verdict, why, more = decide(ev, pol.threshold, len(f.get("answered") or []), len(f.get("new") or []), held,
