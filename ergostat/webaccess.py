@@ -20,6 +20,7 @@ import contextvars
 import hashlib
 import hmac
 import json
+import math
 import re
 import threading
 import time
@@ -28,6 +29,7 @@ from dataclasses import dataclass, field
 
 CERTS = "https://{team}/cdn-cgi/access/certs"     # where a team's keys are published
 REFRESH = 3600.0          # the keys are fetched again at least this often
+STALE = 86400.0           # and keys that could not be fetched again for this long are not trusted
 RETRY = 30.0              # and an unknown key fetches them again, at most this often
 LEEWAY = 30.0             # seconds of clock difference allowed on exp and nbf
 HEADERS = ("Cf-Access-Jwt-Assertion", "Cf-Ray", "Cf-Connecting-Ip")   # any one: the request came through Cloudflare
@@ -114,7 +116,7 @@ def of(spec) -> Web | None:
 # ---- the team's keys
 
 _keys: dict[str, tuple[float, float, dict]] = {}       # team → (fetched, last tried, {kid: (n, e)})
-_fetching = threading.Lock()
+_fetching = threading.Lock()                           # one fetch at a time; the others answer from the cache
 
 
 def _b64(s: str) -> bytes:
@@ -133,21 +135,23 @@ def fetch(url: str) -> dict:
 def key(team: str, kid: str, now: float | None = None) -> tuple[int, int] | None:
     """The team's key ``kid``: from the cache, fetched again when it is older than REFRESH, or when the key is not
     in it and the last try was RETRY ago or more (a key rotated in; a token naming no key never floods the team).
-    A failed fetch keeps the keys there were."""
+    One request fetches while the others answer from the cache (a slow team never holds up the page); a failed fetch
+    keeps the keys there were, for STALE at most."""
     now = time.time() if now is None else now
-    with _fetching:
-        fetched, tried, ks = _keys.get(team, (0.0, 0.0, {}))
-        if (now - fetched > REFRESH or kid not in ks) and now - tried >= RETRY:
-            tried = now
-            try:
-                got = fetch(CERTS.format(team=team))
-                ks = {k["kid"]: (_int(k["n"]), _int(k["e"])) for k in got.get("keys", [])
-                      if k.get("kty") == "RSA" and k.get("kid") and k.get("n") and k.get("e")}
-                fetched = now
-            except Exception:                         # unreachable or malformed: the cached keys stand
-                pass
-            _keys[team] = (fetched, tried, ks)
-        return ks.get(kid)
+    fetched, tried, ks = _keys.get(team, (0.0, 0.0, {}))
+    if (now - fetched > REFRESH or kid not in ks) and now - tried >= RETRY and _fetching.acquire(blocking=False):
+        try:
+            _keys[team] = (fetched, now, ks)
+            got = fetch(CERTS.format(team=team))
+            ks = {k["kid"]: (_int(k["n"]), _int(k["e"])) for k in got.get("keys", [])
+                  if k.get("kty") == "RSA" and k.get("kid") and k.get("n") and k.get("e")}
+            fetched = now
+            _keys[team] = (fetched, now, ks)
+        except Exception:                             # unreachable or malformed: the cached keys stand
+            pass
+        finally:
+            _fetching.release()
+    return ks.get(kid) if now - fetched <= STALE else None
 
 
 def rs256_ok(n: int, e: int, signed: bytes, sig: bytes) -> bool:
@@ -180,16 +184,17 @@ def verify(web: Web | None, jwt: str | None, now: float | None = None) -> str:
         h, c = json.loads(_b64(head)), json.loads(_b64(body))
         if h.get("alg") != "RS256" or not isinstance(c, dict):
             raise ValueError
-        k = key(web.team, str(h.get("kid")), now)
+        k = key(web.team, str(h["kid"]), now)
         if k is None or not rs256_ok(*k, f"{head}.{body}".encode(), _b64(sig)):
             raise ValueError
-    except (ValueError, TypeError, AttributeError):
+    except (ValueError, TypeError, AttributeError, KeyError, RecursionError):
         raise Refused(401, "the Access token is not one this team signed") from None
     aud = c.get("aud") if isinstance(c.get("aud"), list) else [c.get("aud")]
     if web.aud not in aud or c.get("iss") != web.issuer:
         raise Refused(401, "the Access token is for another application")
     exp, nbf = c.get("exp"), c.get("nbf", now)
-    if not all(isinstance(x, (int, float)) for x in (exp, nbf)) or exp < now - LEEWAY or nbf > now + LEEWAY:
+    numbers = all(isinstance(x, (int, float)) and math.isfinite(x) for x in (exp, nbf))
+    if not numbers or exp < now - LEEWAY or nbf > now + LEEWAY:
         raise Refused(401, "the Access token has expired")
     email = str(c.get("email") or "").lower()
     if email not in web.emails:

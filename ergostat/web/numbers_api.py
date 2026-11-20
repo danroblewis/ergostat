@@ -766,7 +766,8 @@ def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, di
                 from ..control import proposals as cp
                 from .control_api import forget
                 try:
-                    got = cp.dismiss(p, parts[1], reason, by=who()) if parts[2] == "dismiss" else cp.accept(p, parts[1], who(), expect)
+                    got = (cp.dismiss(p, parts[1], reason, by=who()) if parts[2] == "dismiss"
+                           else cp.accept(p, parts[1], by=who(), expect=expect))
                 except cp.ProposalError as e:
                     return 409, {"error": str(e)}
                 if parts[2] == "accept":

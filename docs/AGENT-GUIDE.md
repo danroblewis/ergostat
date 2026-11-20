@@ -592,13 +592,23 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 1. In Cloudflare Zero Trust, add a **self-hosted Access application** for the hostname (`ergostat.example.org`) with
    a policy allowing the owner's email. Note its **Application Audience (AUD) tag** and the team domain
    (`myteam.cloudflareaccess.com`).
-2. Run the tunnel to the page's port on this machine, **keeping the Host header** (no `httpHostHeader` rewrite):
-   `cloudflared tunnel route dns NAME ergostat.example.org`, then an ingress rule
-   `{hostname: ergostat.example.org, service: http://127.0.0.1:8781}` and `cloudflared tunnel run NAME`.
+2. Run the tunnel to the page's port on this machine (the one `ergostat run` prints: 8781, or the next free one;
+   ask for one with `--port`), **keeping the Host header** (no `httpHostHeader` rewrite):
+   `cloudflared tunnel route dns NAME ergostat.example.org`, then in the tunnel's `config.yml`
+
+   ```yaml
+   ingress:
+     - hostname: ergostat.example.org
+       service: http://127.0.0.1:8781
+     - service: http_status:404          # cloudflared needs a last rule that catches the rest
+   ```
+
+   and `cloudflared tunnel run NAME`.
 3. Declare it in the main file (`web: {names: [...], access: {team, aud, emails}}`), `ergostat check`, and open
    the name: Access asks for the login, the page opens, and what the owner answers there is recorded as their
    email. Without the declaration every request through the tunnel is refused (403), even one whose Host was
-   rewritten.
+   rewritten. Pushes (`/api/events`, `/api/hooks/`) and the remote API pass Access only with a service token or a
+   bypass policy for those paths; they keep needing their own tokens.
 
 ## 4. Common mistakes
 
