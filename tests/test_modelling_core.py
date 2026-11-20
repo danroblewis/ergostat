@@ -230,11 +230,10 @@ def test_a_carried_redesign_is_checked_again(tmp_path):
     got = rd.submit(p, "redesigner", {"title": "busy read", "edits": READ})
     jd.run(p, "judge")
     assert pr.stored(p)[got["id"]]["state"] == "passed"
-    words = im.submit(p, "modeller", {"kind": "description", "parts": ["stock.triage"], "title": "described",
-                                       "edit": {"part": "stock.triage", "set": {"description": "alerts not yet triaged"}},
-                                       "reasons": [{"says": "none", "evidence": "finding:no-description@stock.triage"}]})
-    jd.run(p, "judge")
-    pr.accept(p, words["id"], {"at": time.time(), "window": 600})       # the model moves on under the redesign
+    f = p.model.path                                                      # the owner edits the model: a new version
+    f.write_text(f.read_text() + "parameters:\n  slack:\n    value: 2\n    unit: alerts\n    description: a margin\n")
+    p.model = mdl.load(f.parent)
+    assert pr.supersede(p, p.model.spec) == []                            # carried, not let go
     x = pr.stored(p)[got["id"]]
     assert x["state"] == "checked" and x.get("carried")                   # carried, and to be scored again
     jd.run(p, "judge")

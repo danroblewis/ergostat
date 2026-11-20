@@ -161,8 +161,10 @@ def _decider(x: dict, state: str) -> str:
 
 def supersede(p, spec: Spec, why: str = "the model changed since it was made") -> list[str]:
     """Every change still open that was made against a model version that has since changed: superseded, unless it is
-    one of ergostat's own, not yet under test, whose subject (``subject``) the change left as it was and whose edit still
-    applies: that one is carried to the version now (``revised``, ``rebased``), keeping its history."""
+    carried to the version now, keeping its history: one of ergostat's own, not yet under test, whose subject
+    (``subject``) the change left as it was and whose edit still applies (``revised``, ``rebased``); or a change of words
+    or a redesign, whoever made it, whose edit still applies (``_carried``). One mechanism, after ``rebase`` has moved
+    the waiting edits' lines."""
     from . import trial as tr
     v, st = ver.version(spec), ver.structure(spec)
     out = []
@@ -170,7 +172,11 @@ def supersede(p, spec: Spec, why: str = "the model changed since it was made") -
         if not (x["state"] in OPEN and x.get("version") and x["version"] != v and x.get("kind") not in ("process", "tuning")):
             continue
         sub, said = x.get("subject") or {}, why
-        if sub and x["state"] == "checked" and not candidate(x):
+        if x.get("kind") in CARRIED:                 # words and redesigns, whoever made them: carried when they apply
+            said = _carried(p, spec, x)
+            if said is None:
+                continue
+        elif sub and x["state"] == "checked" and not candidate(x):
             now = subject(spec, sub["refs"])
             if now["sig"] == sub["sig"]:
                 edit = x["edit"]
@@ -864,36 +870,29 @@ def _write(f: Path, text: str) -> None:
 CARRIED = ("description", "unit", "redesign")        # kept across a change to the model, if its edit still applies
 
 
-def carry(p, ids: list[str]) -> list[str]:
-    """Each change of words (a description, a unit) or redesign among these, made against the version before, still made
-    against the model as it is now: its edit applied to the files as they are (its lines moved, ``rebase``), and a
-    change of words still one. It is said so on its item and stays waiting, rather than superseded and made again; a
-    redesign goes back to checked, for the judge to score again."""
+def _carried(p, spec: Spec, x: dict) -> str | None:
+    """A change of words (a description, a unit) or a redesign, made by anyone against the version before: carried to the
+    version now when its edit applies to the files as they are (its lines moved, ``rebase``) and a change of words is
+    still one; a redesign goes back to checked, for the judge to score again, held to who-decides and its owner flags
+    again. None when carried, else why not."""
     from . import improve as im
     from . import trial as tr
-    spec = p.model.spec
-    v, st = ver.version(spec), ver.structure(spec)
-    out = []
-    for qid in ids:
-        y = stored(p).get(qid)
-        if y is None or y.get("kind") not in CARRIED or y["state"] not in OPEN:
-            continue
-        try:
-            after = tr.spec_after(p, tr.edits_of(y))
-        except tr.TrialError:
-            continue
-        if y["kind"] != "redesign" and im.kind_of(spec, after, y["kind"]) != y["kind"]:
-            continue
-        more = {}
-        if y["kind"] == "redesign":                  # scored again on the model as it is, and held to the same rules
-            if im.governs(spec, after):
-                continue                             # (superseded with the rest: who decides is the owner's)
-            from . import redesign as rd
-            more = {"rewires": False, "control": False, **rd.owners(spec, after)}
-        state = "checked" if y["kind"] == "redesign" else y["state"]
-        event(p, qid, state, {"version": v, "structure": st, "carried": {"from": y.get("version"), "to": v}, **more})
-        out.append(qid)
-    return out
+    try:
+        after = tr.spec_after(p, tr.edits_of(x))
+    except tr.TrialError as e:
+        return f"its edit no longer applies ({e})"
+    if x["kind"] != "redesign" and im.kind_of(spec, after, x["kind"]) != x["kind"]:
+        return f"it is no longer a {x['kind']} change on the model as it is"
+    more = {}
+    if x["kind"] == "redesign":
+        if im.governs(spec, after):
+            return "on the model as it is, it would change who decides"
+        from . import redesign as rd
+        more = {"rewires": False, "control": False, **rd.owners(spec, after)}
+    v = ver.version(spec)
+    event(p, x["id"], "checked" if x["kind"] == "redesign" else x["state"],
+          {"version": v, "structure": ver.structure(spec), "carried": {"from": x.get("version"), "to": v}, **more})
+    return None
 
 
 def rebase(p, written_edits: list, pid: str) -> list[str]:
@@ -938,7 +937,6 @@ def rebase(p, written_edits: list, pid: str) -> list[str]:
                                                              for f_ in files)}
         event(p, qid, y["state"], {"edit": edit})
         out.append(qid)
-    carry(p, [qid for qid, y in stored(p).items() if qid != pid and y["state"] in OPEN])
     return out
 
 
