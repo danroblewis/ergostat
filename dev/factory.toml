@@ -22,6 +22,11 @@ implementor_session_usd = 15.0       # the most one implementor session may spen
 reviewer_session_usd = 5.0
 suite_fix_rounds = 1                 # sessions the implementor gets to make its failing fast suites pass
 
+[pools]                              # the AI pools start at 1 and ramp up on good results (dev/bin/pools.py)
+implementor_max = 4                  # the most each may reach (the blocks' pool: in the model is this cap)
+reviewer_max = 2
+streak = 3                           # good gaps in a row before an increase is asked for
+
 [instance]
 port = 8798
 

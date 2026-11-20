@@ -100,6 +100,10 @@ class Factory:
             implementor_session_usd = 1.0
             reviewer_session_usd = 1.0
             suite_fix_rounds = 0
+            [pools]
+            implementor_max = 4
+            reviewer_max = 2
+            streak = 3
             [instance]
             port = 0
             [load]
@@ -183,7 +187,8 @@ def test_the_factory_model_loads():
     assert {"gap", "review", "flake", "intervention", "upgrade"} <= set(spec.items)
     assert {"intake", "implementor", "reviewer", "merge-queue", "flake-triage", "upgrader"} <= set(spec.blocks)
     assert {"ai-budget", "machine-quiet", "first-pass-good", "suites-in-time"} <= set(spec.goals)
-    assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 2
+    assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 4
+    assert {"implementor-pool", "reviewer-pool"} <= set(spec.stocks) and "raise-pool" in spec.actions
     assert spec.blocks["merge-queue"].pool == 1
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
 
@@ -315,3 +320,57 @@ def test_flake_retried(tmp_path):
     assert f.item("flake/tests-test-x-py-test-y")["fields"]["times"] == 1
     said, _ = f.run("queue.py", gid)
     assert said[:2] == ["gap.queued", "gap.merged"]
+
+
+def pools_module():
+    sys.modules.setdefault("fac", module("fac"))       # (pools.py imports fac from beside it)
+    return module("pools")
+
+
+def gap(n: int, state: str = "approved", fixes: int = 0, at: float = 100.0, **f) -> dict:
+    return {"id": f"gap/g{n}", "state": state, "last": at + n,
+            "fields": {"approved_at": at + n, "fix_rounds": fixes, **f}}
+
+
+def test_pools_raise_only_after_the_streak():
+    pools = pools_module()
+    cfg = {"pools": {"implementor_max": 4, "reviewer_max": 2, "streak": 3}}
+    one = {"since": 0, "implementor": 1, "reviewer": 1}
+    two_good = pools.outcomes([gap(1), gap(2, fixes=1)], [])
+    assert pools.decide(two_good, 0, one, cfg)[0] is None                       # two in a row: not yet
+    three = pools.outcomes([gap(1), gap(2, fixes=1), gap(3)], [])
+    assert pools.decide(three, 0, one, cfg)[:1] == ("raise",)
+    assert pools.decide(three, 102.5, one, cfg)[0] is None                      # only what came since the last change
+    broken = pools.outcomes([gap(1), gap(2, state="parked", parked_at=101.5), gap(3), gap(4)], [])
+    assert pools.decide(broken, 0, one, cfg)[0] is None                         # a park at 1: the streak starts again
+    reverted = pools.outcomes([gap(1), gap(2), gap(3)], [{"state": "reverted", "fields": {"gap": "gap/g2"}}])
+    assert pools.decide(reverted, 0, one, cfg)[0] is None                       # a merge reverted is not good
+    full = {"since": 0, "implementor": 4, "reviewer": 2}
+    assert pools.decide(three, 0, full, cfg)[0] is None                         # the cap
+
+
+def test_pools_drop_on_a_park_and_keep_the_cap(tmp_path):
+    pools = pools_module()
+    cfg = {"pools": {"implementor_max": 4, "reviewer_max": 2, "streak": 3}}
+    two = {"since": 0, "implementor": 2, "reviewer": 1}
+    bad = pools.outcomes([gap(1), gap(2, state="parked", parked_at=101.5)], [])
+    assert pools.decide(bad, 0, two, cfg)[0] == "lower"
+    assert pools.decide(pools.outcomes([gap(1, fixes=2)], []), 0, two, cfg)[0] == "lower"   # a second fix round
+    f = Factory(tmp_path)
+    for want, asked in ((4, "9"), (1, "0"), (2, "2")):
+        r = subprocess.run([sys.executable, str(BIN / "pools.py"), "set", "implementor", asked, "test"],
+                           cwd=f.model, env=f.env, capture_output=True, text=True, check=False)
+        assert r.returncode == 0, r.stderr
+        assert json.loads((f.model / "run" / "pools.json").read_text())["implementor"] == want   # within 1 and 4
+
+
+def test_a_run_waits_its_turn_in_the_pool(tmp_path):
+    f = Factory(tmp_path)
+    lease = lambda t: {"lease": {"block": "implementor", "holder": f"run-{t}", "taken": t}}  # noqa: E731
+    f.fold([{"event": "gap.requested", "item": "gap/a", "data": lease(1)},
+            {"event": "gap.requested", "item": "gap/b", "data": lease(2)}], None)
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, pools; cfg = fac.config(); "
+            "print(pools.my_turn(cfg, 'implementor', 'implementor', 'gap/a'), "
+            "pools.my_turn(cfg, 'implementor', 'implementor', 'gap/b'))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.stdout.split() == ["True", "False"], r.stderr                     # a pool of 1: the first taken goes on

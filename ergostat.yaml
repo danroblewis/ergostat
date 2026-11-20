@@ -33,6 +33,10 @@ systems:
     within: factory
     description: the merge queue behind the four suites, flake triage, and the instance upgraded to what landed
     show: [stock.gaps-approved, stock.gaps-queued, stock.upgrades-installed]
+  pools:
+    within: factory
+    description: the AI pools - one implementor and one reviewer to start, raised on a streak of good gaps, lowered on a bad one
+    show: [stock.implementor-pool, stock.reviewer-pool, auxiliary.good-streak]
   oversight:
     within: factory
     description: what the factory may spend, the machine's load, how well it works, and the coordinator's interventions
@@ -89,6 +93,7 @@ items:
       contexts: append
       flakes: union
     lease: {attempts: 2}
+    # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
 
   review:
     id: review/*
@@ -121,6 +126,16 @@ items:
       intervention.recorded: open
       intervention.remedied: remedied
     show: [reason, class, remedy]
+
+  pool:
+    id: pool/*
+    description: an AI pool (pool/implementor, pool/reviewer) - how many sessions at once, ramped up on good results
+    states: [held]
+    on:
+      pool.measured: held
+      pool.raise-asked: held
+      pool.lowered: held
+    show: [pool, most, streak, why]
 
   upgrade:
     id: upgrade/*
