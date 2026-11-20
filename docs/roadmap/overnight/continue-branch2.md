@@ -326,3 +326,13 @@ FAILED tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_
 {"rc": 1, "wall_s": 257.2, "peak": {"threads": 341, "rss_mb": 1751.6, "procs": 120, "worker_mb": 637.5}, "killed": null, "workers_killed": 0, "left_behind": 0}
 
 ```
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 09:20).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 3: ack
+- attempt 4: nack the fast suites failed (unit: tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere)
+- attempt 5: nack the run ended with gap/continue-branch2 still parked
+- attempt 6: nack the run ended with gap/continue-branch2 still parked
