@@ -3408,7 +3408,9 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   for the owner. No change, a redesign or any other, may change who decides: one that alters the judge's policy, a
   block's `accept` or a template instance's `with:` is refused. While one waits,
   the judge writes no other change whose lines clash with it; a change written that does not clash moves its lines, and
-  it stays waiting (carried by `proposals.supersede`), back to checked, so the judge scores it again on the model as it is. While one is being made (a run started and not ended, for its first 5 minutes at most,
+  it stays waiting (carried by `proposals.supersede`, under the proposals' lock), back to checked and shown as
+  rescoring until the judge scores it again on the model as it is, held to who-decides, its owner flags and its scope
+  again (a carried description or unit goes back to checked too). While one is being made (a run started and not ended, for its first 5 minutes at most,
   so refinement is never frozen by a slow run), the judge writes nothing on its own, so the model the redesigner reads is the one its change set is made
   on; if the model moved anyway (the owner wrote a change), its edits are made again on the model as it is.
 - **The redesigner** (`ergostat/numbers/redesigner.py`; the template's block `redesigner`, an `ai` block, there with
@@ -3428,8 +3430,10 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   error over 1) on at least 30 minutes of record; when a finding says its structure is wrong (`measured-not-caused`,
   `loop-not-identifiable`), or a structural one (a kind's chain, the boundary, a coherence mismatch) has been held for
   an hour; when refinement stalled on it (its last 4 changes turned away); on the first run; and once a day. Bounds:
-  at most one redesign waits for each system; after one judged not better, refused, or that made nothing, the system
-  rests 6 hours unless the model changed since; the runs stop for the day once they have spent `daily` dollars,
+  at most one redesign waits for each system, and systems equally due take turns; after one judged not better,
+  refused, dismissed or superseded, one that made nothing, or a run that never ended (its request closed, saying so),
+  the system rests 6 hours unless its own parts changed since (a hash of them, not the model's version); the cap is
+  checked before anything is planned; the runs stop for the day once they have spent `daily` dollars,
   each call charged as it is spent (one that never says its cost charged the most it could have). And when the owner
   asks (`ergostat improve --redesign [SYSTEM]`, or the Model page's Redesign button), recorded as
   `ergostat.model.redesign-asked` and taken up first; `when: ask` takes only those, `off` none. Each run is recorded
