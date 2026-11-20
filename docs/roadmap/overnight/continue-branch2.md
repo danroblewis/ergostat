@@ -62,3 +62,26 @@ Failed its gates twice (the kill rule). Blocking findings:
 - ergostat/leases/measures.py:42,71 and ergostat/numbers/blockmodels.py:247: refused expiries are counted in ergostat.leases.expired, in the owner's attention list ('expired') and in block models, so a renewal that won the race shows up as an expiry: false alerts and wrong measures.
 - docs/SPEC.md:2101 and 2174-2180: the expiry event's new `renewed` field and the fold's refusal of an expiry written after a renewal are not documented, and SPEC still tells anything holding a resource to release on every lease.expired event (house rule: keep SPEC current with the change).
 - 4352f49 (scope): a change to the lease watchdog and fold in ergostat core is unrelated to this gap's definition of done (continuing a branch, merging main), is not in its acceptance tests, and is not mentioned in its 'Where it stopped'. Main is what people install, and this is the only core code on the branch. Take it off this branch and make it a gap of its own with its own definition.
+
+## Where it stopped
+
+Round 1 of gap/continue-branch2 (the salvage): no code changed. The coordinator's salvage answers every finding of
+review/continue-branch-2; this session checked each one.
+- The three lease findings (fold.py/dispatch.py/workspaces/leases.py; measures.py/blockmodels.py; SPEC's `renewed`
+  field) and the scope finding: 4352f49 is reverted (02089d9). `git diff 553b955 HEAD` touches no file under
+  `ergostat/` and not docs/SPEC.md. The branch changes only dev/bin (agents, fac, implement, intake, queue, review),
+  dev/README.md, tests/test_factory.py and its definition files. If the lease change is wanted, it needs a gap of its own.
+- lesson-7: main (553b955, the kill3 merge) is merged in (445f3b1), so the merge base is current main.
+- Checked, not changed: gate 1 as this branch would meet it. A gap that `continues` a branch works on that branch's
+  own name (fac.branch_of), so gate 1 reads that branch's definition. This salvage gap is named continue-branch2, though,
+  and this file is its last commit, not its first (the first on its first-parent line is 19b9998,
+  continue-branch.md). The mechanical gate 1 may therefore report "continue-branch2.md is not the branch's first
+  commit" unless the coordinator reviews it as `continues: continue-branch` or accepts continue-branch.md as the
+  definition. Nothing was changed to get around it: the coordinator made that choice, and editing the gate for one
+  salvage would be beyond this definition.
+
+Run here, one file at a time, on the merged tree: `tests/test_factory.py` (31 passed, 2 skipped for want of Docker);
+`tests/test_factory_knowledge.py` with `tests/test_ticket_factory_daemons.py` (26 passed); `tests/test_intake.py` with
+`tests/test_review.py` (43 passed); ruff clean. Not run here: the whole unit suite and the browser files (the factory
+runs the fast suites after this session), and the lease/workspace tests (refused to this session; those files are
+identical to main's).
