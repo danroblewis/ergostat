@@ -27,19 +27,19 @@ def asked(p, spec, since: float, until: float) -> list[dict]:
     from . import entries as en
     out = []
 
-    def one(cls, cause, t0, t1, verdict, by=None):
-        out.append({"class": cls, "cause": cause, "time": t0, "answered": t1, "verdict": verdict, "by": by})
+    def one(cls, cause, t0, t1, verdict, by=None, note=None):                # (note: what the answer said, if anything)
+        out.append({"class": cls, "cause": cause, "time": t0, "answered": t1, "verdict": verdict, "by": by, "note": note})
     for a in record.stored(p, since=since, until=until).values() if spec.actions else []:
         if a.get("gate") != "approve" or record.GATE in (a.get("approved_by"), a.get("denied_by")):
             continue                                         # let through, or fenced, by the gate: no one was asked
         ans = next((m for m in a["moves"] if m["to"] in ("approved", "denied")), None)
         one(a.get("class") or a.get("action"), f"block {a.get('block')}" + (f", {a['item']}" if a.get("item") else ""),
-            a["time"], ans and ans["time"], ans and ans["to"], a.get("approved_by") or a.get("denied_by"))
+            a["time"], ans and ans["time"], ans and ans["to"], a.get("approved_by") or a.get("denied_by"), a.get("note"))
     for b in spec.blocks.values():
         if b.type == "person" or b.mode == "advise":
             for x in en.asks(p, b, since, until):
                 one(f"{'person' if b.type == 'person' else 'advise'}:{b.name}", f"block {b.name}", x["time"],
-                    x["answered"], x["verdict"], x.get("by"))
+                    x["answered"], x["verdict"], x.get("by"), x.get("note"))
     done, by = cp.decisions(p), {e["data"].get("id"): e["source"] for e in p.events.query(n=50, type="steptest.approved")}
     for pid, x in en.offers(p, until).items():
         if x["time"] >= since:
@@ -53,7 +53,8 @@ def asked(p, spec, since: float, until: float) -> list[dict]:
         elif (e["item"] in made and (by_person(e["source"]) or e["source"] == BY_AGENT)
               and e["type"].rsplit(".", 1)[1] in ("accepted", "dismissed")):
             cls, t0 = made.pop(e["item"])
-            one(cls, e["item"], t0, e["time"], "approved" if e["type"].endswith("accepted") else "denied", e["source"])
+            one(cls, e["item"], t0, e["time"], "approved" if e["type"].endswith("accepted") else "denied", e["source"],
+                e["data"].get("dismissed_because"))
     waiting = {e["id"].split("/", 1)[1] for e in en.entries(p, spec, until) if e["kind"] == "change"}
     for item, (cls, t0) in made.items():
         if item.split("/", 1)[1] in waiting:
