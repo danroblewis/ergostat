@@ -93,3 +93,65 @@ Today the engine tidies item-index files by itself. `index_for` calls `_tidy` wh
 - If <state>/items is missing or can't be listed, upkeep tidy must exit non-zero with a message, never report a clean result (lesson-3).
 - Put the filename allowlist and the resolve-under-items check inside _tidy itself, so the engine's own tidy is protected too, not only the program (lesson-11).
 - The age re-check after the lock should use lstat, the same TIDY_AGE, and include the -wal file's mtime, since a write may touch only the WAL.
+
+## Where it stopped
+
+Built: every point of the definition, with the acceptance tests passing. Net lines outside tests and docs: 230
+(budget 300). Nothing is left inside this gap. Choices made without anyone to ask (each the more reversible one):
+
+- **One part beyond the list.** The goal `no-retired-index-files` needs a flow its controller moves; without one
+  `test_with_every_default_each_runs_on_stand_ins` (existing) fails with `missing-feedback`. So the template also has
+  the outflow `retired-index-files-removed` (`changes: falls`), `index-tidier` reads both stocks
+  (`in: [+stock.index-files, +stock.retired-index-files]`), and its `out:` is
+  `[flow.index-files-tidied, flow.retired-index-files-removed]`. `goal:`, `run:`, `every:` and `type:` are as written.
+- **The load-time range** needed a floor and ceiling for template parameters, which the library did not have:
+  `least:` and `most:` on a number parameter (`library/templates.py`, `library/expand.py`; 5 lines, files not on the
+  list). The error reads `use upkeep: with.index-files: from 1 to 64 (not 0)`.
+- **"Built-in" only.** The stand-down applies to a `uses:` entry of ergostat's own `upkeep` template
+  (`template: upkeep` and not an owner's template of that name). An owner's look-alike keeps the engine's tidy.
+- **`itemindex.files(d)`** is the one listing of index files (name allowlist, regular file, resolves directly
+  under the resolved folder), used by `_tidy`, the measures and the tidy program. `reindex` still globs `*.db`
+  (not in this gap).
+
+Answers to the plan review:
+
+- Both pile-up tests backdate every file past `TIDY_AGE` with `os.utime` after each fold, and close the indexes
+  (`_cold`) so no shared lock keeps a file.
+- *Retired*: the mark `<hash>[.n].retired` beside the file; `itemindex.retired(p)`, used through `itemindex.files`
+  by the measures and the tidy (SPEC §2a, *Upkeep*).
+- `index_for` reads it from the spec it is given (`itemindex.upkept(spec)`, from `spec.uses`), so a reload that
+  adds or drops `use: upkeep` takes effect on the next new file. The tests pass `mdl.load(root).spec`, the path
+  the engine uses.
+- No backstop: point 6 says `index_for` no longer calls `_tidy`. SPEC's fail-safe paragraph is narrowed instead:
+  nothing else limits the count while the tidier is stopped (one file per change of kinds).
+- The output line is `{"value": REMOVED, "removed": R, "left": L, "held": H, "young": Y}`. The engine reads
+  `value` (the files removed) as the block's output.
+- Missing or unlistable `<state>/items`: `upkeep tidy` prints a message and exits 1 (in
+  `test_tidy_keeps_n_and_removes_retired_files`).
+- The allowlist and the resolve check are in `itemindex.files`, which `_tidy` uses, so the engine's tidy is
+  covered too (the last assertion of `test_tidy_deletes_only_index_names_under_items`).
+- The re-check uses `_touched`, now on `lstat`, over the file, `-wal` and `-shm`, with the same `TIDY_AGE`.
+
+Each new test, watched failing against broken code (lesson-9), then restored:
+
+- stand-down removed (`and not upkept(spec)` dropped): `..._does_not_tidy_..._does[True]` and
+  `test_tidying_stopped_piles_files_up_and_nothing_breaks` fail;
+- stand-down for every model (`and False`): `[False]` fails;
+- the re-check under the lock removed: `test_tidy_checks_age_again_inside_the_lock` fails. `_touched` reading
+  only the `.db`: the same test fails on its WAL half. It first passed, because the file it touched was not the
+  one due to go. Fixed;
+- `files` taking any `*.db`: `test_tidy_deletes_only_index_names_under_items` and the measure test fail. Name
+  check without the regular-file test: the first passed, because the symlink was young. The link itself is now
+  backdated, and it fails;
+- the tidy calling `common.project()`: `test_tidy_never_opens_an_index` fails;
+- the `--keep` bound removed, or `least`/`most` ignored at load: `test_keep_out_of_range_...[0]` and `[500]` fail;
+- the measure giving 0 for an unlistable folder: the measure test fails; retired files never removed:
+  `test_tidy_keeps_n_and_removes_retired_files` fails;
+- a lock that cannot be taken treated as free: `test_a_lock_file_that_cannot_be_opened_counts_as_held` (added for
+  SPEC's claim) fails;
+- `test_upkeep_expands_to_the_index_files_loop` fails on main (no such template).
+
+Not done here: this clone has no `origin` remote. The branch already contains local `main` (05c6dc9), so the
+lesson-7 merge had nothing to take; the factory's merge of the real origin/main is still to run. The full unit
+and browser suites were not run here (the factory runs them under the watchdog). Run: `tests/test_upkeep_template.py`,
+`tests/test_index_files.py`, `tests/test_templates.py` (55 passed), and ruff (clean).

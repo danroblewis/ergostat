@@ -202,6 +202,14 @@ def test_tidy_deletes_only_index_names_under_items(tmp_path, monkeypatch):
     assert ii._tidy(items, 1) and notes.exists() and link.is_symlink() and sub.exists(), "the engine's own tidy too"
 
 
+def test_a_lock_file_that_cannot_be_opened_counts_as_held(tmp_path, monkeypatch, capsys):
+    state = tmp_path / "state"
+    got = _files(state / "items", 2)
+    got[1].with_suffix(".lock").mkdir()                           # its lock cannot be opened: never taken as free
+    assert _tidy(state, 1, monkeypatch) == 0
+    assert got[1].exists() and '"held": 1' in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("n", [0, 500])
 def test_keep_out_of_range_is_refused_at_load_and_at_run(tmp_path, monkeypatch, n, capsys):
     root = _yaml(tmp_path / "u", "open, doing, done", True, f"    with: {{index-files: {n}}}\n")
