@@ -29,6 +29,9 @@ def _why(p, spec, item: str | None) -> str:
     f = it.fields if it else {}
     imp = f.get("impact")
     imp = imp.get("said") if isinstance(imp, dict) else imp
+    if str(item).startswith("ergostat.failure/"):              # the repair loop's fix (SPEC §12r): said plainly
+        return (f"Approving merges this code into your repository; it then runs with your rights, outside the sandbox. "
+                f"Diff: /item/{item}. The fixed program {(f.get('test') or {}).get('how') or 'was not tested'}. {imp or ''}")
     return "; ".join(x for x in (str(imp or ""), f"tests {f['tests']}" if f.get("tests") else "") if x)
 
 

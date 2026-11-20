@@ -31,7 +31,7 @@ actions:
     run: ${python} -m ergostat.repair apply
     gate: ${approve}
     in: .
-    description: "Fast-forward the project onto the tested fix: only when its HEAD is still the commit the fix was made on"
+    description: "Approving merges this code into your repository; it then runs with your rights, outside the sandbox (the diff is on the failure's page)"
 stocks:
   open-failures: {unit: failures, description: failures waiting for a fix, sensor: {items: ergostat.failure, state: open, every: "${count-every}"}}
   fixing: {unit: failures, description: failures the fixer holds, each in a clone of its own, sensor: {items: ergostat.failure, state: leased, every: "${count-every}"}}

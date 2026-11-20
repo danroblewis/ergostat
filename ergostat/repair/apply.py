@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..actions import record as rec
 from ..sandbox import git as sgit
 from . import FAILURE
 from .fix import Refused, failure, owner_repo, record
@@ -27,6 +28,8 @@ def apply() -> int:
         f = it.fields if it else {}
         if it is None or it.state != "awaiting-approval" or not f.get("fix"):
             raise Refused(f"{fid} has no tested fix waiting")
+        if (rec.get(p, os.environ.get("ERGOSTAT_ACTION", "")) or {}).get("key") != f"{name}-{f['fix']}":
+            raise Refused("the approved action was for another fix than the one waiting")
         work = Path(p.dir) / "repair" / name
         c = sgit.Repo(work, work / ".git")
         if c("rev-parse", "HEAD").strip() != f["fix"]:
