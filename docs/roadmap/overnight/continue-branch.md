@@ -52,3 +52,13 @@ different hunks; no merge was tried, so no conflict is known. Re-run here, one f
 `tests/test_intake.py` and `tests/test_review.py` (69 passed); ruff clean. Left, and outside this session's reach: main
 merged in by a session or person allowed to run `git merge`, then the factory's fast suites on the merged tree. The
 round-2 `unit` run that was cut off has not been run again.
+
+## Where it stopped
+
+Parked by the factory (review/continue-branch-2, 2026-11-20 07:49).
+
+Failed its gates twice (the kill rule). Blocking findings:
+- ergostat/leases/fold.py:84 with ergostat/leases/dispatch.py:317-325 and ergostat/workspaces/leases.py:111-118 (lesson-8, lesson-1): an expiry the fold refuses is still written to and kept in the record, and the engine's clock sweep (engine.py:1497 -> workspaces/leases.sweep -> on_event) takes every ergostat.lease.expired event with no check that the fold applied it. The fence is the live lease's, so pool.release (pool.py:198) does not skip it: the workspace of the run that renewed in time is moved to held and marked fenced, and the next lease can take it. The commit's claim 'only an applied expiry releases resources' holds only for the dispatcher's own call. Either do not write the expiry when it would be refused (re-read under the fold's ordering) or make every consumer of lease.expired skip refused events, with a test that runs the sweep after the refused expiry and finds the workspace still in use.
+- ergostat/leases/measures.py:42,71 and ergostat/numbers/blockmodels.py:247: refused expiries are counted in ergostat.leases.expired, in the owner's attention list ('expired') and in block models, so a renewal that won the race shows up as an expiry: false alerts and wrong measures.
+- docs/SPEC.md:2101 and 2174-2180: the expiry event's new `renewed` field and the fold's refusal of an expiry written after a renewal are not documented, and SPEC still tells anything holding a resource to release on every lease.expired event (house rule: keep SPEC current with the change).
+- 4352f49 (scope): a change to the lease watchdog and fold in ergostat core is unrelated to this gap's definition of done (continuing a branch, merging main), is not in its acceptance tests, and is not mentioned in its 'Where it stopped'. Main is what people install, and this is the only core code on the branch. Take it off this branch and make it a gap of its own with its own definition.
