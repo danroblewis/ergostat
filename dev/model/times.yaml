@@ -2,8 +2,8 @@
 # state*): the timer writes them on each gap (time_in, loop_rounds, loop_hours, gates), and each state and gate has a
 # measure, its median and its p90 over the gaps that left it in the last 14 days (dev/bin/measure.py, times.py), with
 # a goal the owner sets (hold:). The holds here are first guesses: `python3 dev/bin/times.py setpoints`, run in the
-# instance's folder, sets each to today's reading. Waiting states (open, ready, fix, built, approved, queued) are the
-# cheapest time to remove.
+# instance's folder, sets each to today's reading. Waiting states (open, replan, planned, split, ready, fix, built,
+# approved, queue-failed, dead) are the cheapest time to remove; working ones are leased, building, in-review, queued.
 defaults:
   system: times
 

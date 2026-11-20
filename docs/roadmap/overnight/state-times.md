@@ -55,3 +55,20 @@ Decisions taken alone (each reversible), and what is left:
   stays inside one loop; its rounds are its builds.
 - `gap.timed` is an event with no state, like `gap.reverted`; the goals are not wired into `factory-off`, so they do
   not ask the coordinator for gaps until the owner chooses to.
+
+Round 2, answering review/state-times-1, every finding:
+
+- **The bookmark (blocking, lesson-1).** It is no longer `timed_n` in the record: `run/times.json` (gap id -> events
+  read) moves on every read, whether or not `gap.timed` is written, so an event that changes no timing
+  (`gap.dependencies`, a late `lease.ended`, one that lands between the read and the write) is read once. Gaps never
+  read come first in the run's 50 slots. An unreadable bookmark counts as none: every gap is read again, and only a
+  changed timing is written. Test: `test_an_event_that_changes_no_timing_is_read_once` (fails with the old rule).
+- **Waiting and working (lesson-8).** Split by what each state waits on: waiting is open, replan, planned, split,
+  ready, fix, built, approved, queue-failed (for triage) and dead (for a park); working is leased (a run holds the gap:
+  the planner's, plan review's and triage's whole run), building, in-review and queued. The definition names `queued`
+  as waiting, but here `gap.queued` is said when the queue's run starts, so the state holds its lock, merge and suites;
+  the wait for the queue is `approved`. Moving one name between the two tuples in `times.py` reverses it.
+- **The fast gate (lesson-8).** `implement.py` now records `fast_seconds`, the ruff and unit seconds of every try in a
+  round; the gate sums those. Builds recorded before this have only their last try (`suites_fast`); the README says so.
+- **The setpoints (not blocking).** Still first guesses: there is still no instance record in this clone. The step
+  left is the same: `python3 dev/bin/times.py setpoints` once in the instance's folder.

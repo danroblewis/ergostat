@@ -120,6 +120,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
     cost, sessions = 0.0, 0
     logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
+    fast_seconds = 0.0                                  # every try's ruff and unit (times.py's gate `fast`)
     for i in range(1 + int(cfg["ai"]["suite_fix_rounds"])):
         prompt = text if i == 0 else (
             f"{text}\n\n# The fast suites failed after your work\n\n`{suites['failed']}` failed"
@@ -134,11 +135,13 @@ def build(cfg: dict, given: dict, began: float) -> int:
         head = was = agents.finish(cfg, home, branch, base_sha, held, base_sha, was=was)   # (main merged in, and
         fac.wait_quiet(cfg)                                     # the branch where it was given: refused when not)
         suites = agents.suites(cfg, home, ("ruff", "unit"), logs, f"{fac.run_tag(branch, began)}-{i}")
+        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in ("ruff", "unit"))
         if not suites.get("failed"):
             break
     net = fac.net_lines(agents.drop(cfg), cfg["git"]["base"], head)
     record = dict(rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
                   net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
+                  fast_seconds=round(fast_seconds, 1),
                   build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:])
     if suites.get("failed"):
         fails = int(f.get("build_failures") or 0) + 1
