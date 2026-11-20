@@ -70,6 +70,10 @@ scripts/in_container.sh uv run --with playwright==1.63.0 python -m tests.layout_
 Write results under `/work` (here `/work/.out/`) to keep them: everything else in the container, `/tmp` included,
 is gone when it ends.
 
+Python's bytecode caches go to `/tmp/pycache` inside (`PYTHONPYCACHEPREFIX`, compose.yaml), never to the
+checkout's `__pycache__` folders: the host writes those too, and a run on each side at once once left a truncated
+cache ("marshal data too short", every worker failing to collect). Inside, a run compiles afresh (a second or two).
+
 ## Measured (2026-11-19)
 
 On the 28-core Mac Studio, Docker Desktop 29.1.2 (a 24-CPU VM), the container at 14 CPUs and 12 GB, with other
