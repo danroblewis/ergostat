@@ -236,7 +236,7 @@ read `clamped`, so a finite but wrong J came out. The fix:
 - Check (d), a non-finite entry, is still reached in practice only through its monkeypatch: the stepper never leaves
   a non-finite V. It stays as a backstop.
 
-Net code is now 311 lines (budget 330). Run one file at a time: test_modes (25), test_closedloop, test_extremes_closed,
+Net code is now 315 lines against main (`git diff --numstat main...HEAD -- ergostat`; budget 330). Run one file at a time: test_modes (25), test_closedloop, test_extremes_closed,
 test_numbers, test_rates, test_aggregation, test_architecture, test_scale_caches, all passing; ruff clean. No newer
 main could be fetched (there is no origin remote and no network). The full unit suite, the browser files and
 `demo_check` are left to the factory.
