@@ -212,6 +212,13 @@ the files they changed, gaps active and ready with the files they touch, 40 line
 program (`plan.lint`, no AI: the sections, tests named `tests/...py::test_name`, a budget within
 `[gates] plan_budget_most`, lessons, `depends-on` names and files that exist or are marked new); one that fails goes
 straight back to the planner (the 6th failure parks), and a lint-clean one is the definition at once: the gap is ready.
+A split is checked further, and sent back the same way, naming the sub-gap or point: each sub-gap's budget must name
+at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a single plan keeps
+`plan_budget_most`), and the answer must hold exactly one `<coverage>` block restating what the parent must do, a
+`- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
+sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
+made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
+file).
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -495,7 +502,9 @@ merge queue in the model); unhealthy, it goes back to the previous version by it
 no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
 never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
 runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
-`drain-minutes` stops counting once the switch begins. The groomer and the plan review start no session while
+`drain-minutes` stops counting once the switch begins. The switcher reads the goal (`in:`) rather than naming it
+(`goal:`): a goal named would command it, and a commanded block leaves its `every:` (`ergostat check` says
+`schedule-removed`); the pipeline watch reads `no-stuck-gaps` the same way. The groomer and the plan review start no session while
 `run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh

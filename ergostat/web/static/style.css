@@ -434,6 +434,7 @@ svg.canvas rect.band { fill: var(--accent); fill-opacity: .08; stroke: var(--acc
 .measure-row { cursor: pointer; }
 .measure-row .measure-bg { fill: var(--bg); stroke: var(--line); stroke-width: 1; }
 .measure-row:hover .measure-bg { stroke: var(--accent); }
+.measure-stale { opacity: 0.5; font-style: italic; }   /* a remote's measure not current: its age, not its number */
 /* tracing a line: the one pointed at, and every piece of the same connection */
 .edge .edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 svg.tracing .edge, svg.tracing .node { opacity: .16; transition: opacity .12s; }
