@@ -105,4 +105,10 @@ changes nothing under ergostat/ or in that test (`git diff main...HEAD -- ergost
 (lesson-13), a load-timing failure for its own gap, and was left alone. No code was changed this round. Refused this
 round: `SPLIT_SHOTS=/tmp/split-shots uv run python scripts/suite_watch.py ...` (an environment variable before the
 allowed command) and a `ps ... | grep` check for running pytest. Neither was worked around; the browser files were run
-in the factory's own form instead.
+in the factory's own form instead. The four browser files under suite_watch.py: rc 1, 2 failed, 228 passed (peak 564
+threads, 4.1 GB, nothing killed). Run again with `--lf`, one passed: the tests/test_page_polling.py frame-time check
+(p95 679 ms against a 559 ms bound under -n 4), a load timing. The other failed again:
+tests/test_diagram_rendering.py::test_a_loop_clicked_chooses_its_members_in_both_panes_and_the_split_is_pictured, the
+same `PermissionError: '/split-shots'` as in round 3 (its screenshot folder is `ROOT.parent`, which is `/` in this
+container). This branch changes neither test nor anything under ergostat/, so both are unrelated (lesson-13) and were
+left alone.
