@@ -135,8 +135,8 @@ def about(events, spec, id: str) -> dict:
         _known(ix, id)
         got = {a: {"id": a, "how": "declared", "relation": r} for a, r, _ in sorted(ix.links_to([id]))}
         holding = ix.items(words=(id.casefold(),), n=VISIT + 1, moves=False)   # the text index: those holding it at all
-        capped = len(got) > VISIT or len(holding) > VISIT
         for it in holding[:VISIT]:
             if it.id != id and it.id not in got and (f := mentions(it.fields, token)):
                 got[it.id] = {"id": it.id, "how": "inferred", "field": f}
+        capped = len(got) > VISIT or len(holding) > VISIT   # after the mentions: declared + inferred past the cap
     return {"query": "about", "id": id, "items": list(got.values())[:VISIT], "capped": capped, "cap": VISIT}

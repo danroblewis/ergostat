@@ -209,3 +209,29 @@ test_cli_fallback, test_relations, test_graph_cli_web (74); test_items_page, tes
 test_factory_knowledge, test_scale_caches (118 passed, 1 skipped). Ruff is clean. Not run: the whole unit suite and
 the four browser files, which the factory runs under the watchdog. Rounds 3 and 4 asked for the next run to keep its
 whole output, and that still stands: no failing test has been named yet.
+
+## Where it stopped, round 5
+
+Built, round 5. Every finding of the review (lesson-12):
+- *`about()` decided `capped` before the inferred mentions were added* (blocking): `capped` is now computed after the
+  loop (`len(got) > VISIT or len(holding) > VISIT`), so declared links and inferred mentions that pass the cap only
+  together are reported as `capped`. New test `test_about_capped_when_declared_and_inferred_together_pass_the_cap`
+  has 3 declared links (their `parent` lies past a lowered `items.TEXT_MOST`, so the text index does not hold them)
+  and 3 mentions. Under a cap of 4 it must say capped with 4 items; under a cap of 6, not capped with 6. lesson-9:
+  moving the `capped` line back above the loop makes this test fail (run, then reverted).
+- *Size: 198 net lines of core code against 170, with no reason written* (blocking). **The size overrun, and its
+  reason: 198 net lines against 170, 28 over**, by `git diff --numstat main -- ergostat`: `spec/itemgraph.py` 142,
+  `cli/record.py` 34, `cli/__init__.py` 7, `web/server.py` 15, `goodmodel.py` 0 net. This round's fix moves a line
+  and adds none. The 28 lines over come from three things the budget did not count:
+  1. the plain-text printing of the three answers for `item ID --near/--path/--about` without `--json` (about 12);
+  2. the API refusing `at=`, and more than one of `near=`/`path=`/`about=`, with a 400, so that it matches the CLI's
+     exit 2 (about 5);
+  3. the docstrings that state each query's bounds (the visit cap, `TEXT_MOST`, links not bounded on their own),
+     which lesson-8 asks for (about 20, the module docstring included).
+  Cutting any of these would either drop a refusal the CLI already makes or drop the statement of a bound, so the
+  overrun is kept and stated here.
+
+**Run here:** tests/test_item_graph_queries.py (13), with test_item_search, test_cli_fallback, test_relations,
+test_graph_cli_web and test_item_about: 103 passed. Ruff is clean. Not run: the whole unit suite and the four browser
+files, which the factory runs under the watchdog. This container has no network, so origin/main was not merged here.
+The coordinator should merge it and run the suites again (lesson-7).

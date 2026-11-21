@@ -14,6 +14,7 @@ from ergostat import goodmodel
 from ergostat import model as mdl
 from ergostat.cli import build, main
 from ergostat.spec import itemgraph as ig
+from ergostat.spec import items
 from ergostat.store import Project
 from tests.ports import free_port
 
@@ -127,6 +128,23 @@ def test_near_and_about_report_capped(tmp_path, monkeypatch):
         p.events.add("ticket.opened", item=f"ticket/m{i}", data={"note": "see epic/hub"})
     monkeypatch.setattr(ig, "VISIT", 7)
     assert ig.about(p.events, spec, "epic/hub")["capped"]
+
+
+def test_about_capped_when_declared_and_inferred_together_pass_the_cap(tmp_path, monkeypatch):
+    """Neither the declared links (3) nor the items the text index finds holding the id (3) pass the cap of 4 alone;
+    together (6) they do. The declared items' parent lies past a lowered TEXT_MOST, so the index does not find them."""
+    monkeypatch.setattr(items, "TEXT_MOST", 20)
+    _, p = _repo(tmp_path)
+    p.events.add("epic.opened", item="epic/hub")
+    for i in range(3):
+        p.events.add("ticket.opened", item=f"ticket/d{i}", data={"note": "x" * 40, "parent": "epic/hub"})
+        p.events.add("ticket.opened", item=f"ticket/m{i}", data={"note": "see epic/hub"})
+    monkeypatch.setattr(ig, "VISIT", 4)
+    got = ig.about(p.events, p.model.spec, "epic/hub")
+    assert got["capped"] and len(got["items"]) == 4
+    monkeypatch.setattr(ig, "VISIT", 6)
+    got = ig.about(p.events, p.model.spec, "epic/hub")
+    assert not got["capped"] and len(got["items"]) == 6
 
 
 def test_about_declared_and_inferred_whole_token(tmp_path):
