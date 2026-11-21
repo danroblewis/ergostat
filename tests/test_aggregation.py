@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import itertools
 import math
+import os
 import time
 
 from ergostat import model as mdl
@@ -264,6 +265,25 @@ def test_stocks_without_a_flow_between_them_are_not_a_group(tmp_path):
     assert groups(p, dom) == [["stock.a", "stock.b"]]
     p, dom, ok = run("two-systems", "other", True)                    # joined, but one in each system
     assert ok == {"stock.a", "stock.b"} and groups(p, dom) == [] and groups(p, dom, "other") == []
+
+
+def test_the_dominance_api_returns_aggregate_and_drops_it_when_the_model_changes(tmp_path):
+    from ergostat.web.server import Live, api
+    p, _, _ = chain(tmp_path)
+    live = Live(p)
+    q = {"since": ["1h"]}
+    got = api(live, "dominance", q)
+    assert [(g["system"], g["stocks"]) for g in got["aggregate"]] == [("plant", ABC)]
+    assert "a candidate to aggregate into one delay" in got["aggregate"][0]["said"]
+    f, was = p.model.path, live.mtime
+    before = f.stat().st_mtime_ns
+    f.write_text(CHAIN.replace("g: 1", "g: 3.9") + BACK)             # the same model with the dominating loop
+    os.utime(f, ns=(before + 2_000_000_000, before + 2_000_000_000))  # its time moved on, whatever the clock's grain
+    p.model = mdl.load(p.model.path.parent)
+    live.reloaded()
+    assert live.mtime != was
+    got = api(live, "dominance", q)
+    assert "a via bc" in got["polarity"] and got["aggregate"] == []
 
 
 BRANCH = """\

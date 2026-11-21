@@ -8,6 +8,7 @@ import threading
 import time
 
 from .. import series
+from ..numbers import aggregation as ag
 from ..numbers import closedloop as cl
 from ..numbers import dominance as dm
 from ..numbers import estimate as es
@@ -371,7 +372,8 @@ def whatif_fit(live, p, snap: dict, whatif: str | None) -> dict:
 def loop_dominance(live, p, snap: dict, n: int = series.POINTS, loop: str | None = None) -> dict | None:
     """Which loops drive the behaviour over the page's window (dominance.py, the Loops That Matter method,
     on the replay at its integration step): per stock, each scored loop's relative score per bucket and which
-    dominates; with ``loop``, only the stocks it runs through, each with every scored loop competing there."""
+    dominates; with ``loop``, only the stocks it runs through, each with every scored loop competing there. With
+    ``aggregate``: each system's stocks that are candidates to aggregate over this window (aggregation.py)."""
     mr = model_run(live, p, snap, n)
     if mr is None:
         return None
@@ -381,7 +383,9 @@ def loop_dominance(live, p, snap: dict, n: int = series.POINTS, loop: str | None
         got = dm.dominance(spec_of(p), mr["data"])
         live.keep(key, got)
     mine = {s: x for s, x in got["stocks"].items() if loop is None or loop in x["loops"]}
-    return {"times": [round(t, 3) for t in got["times"]], "since": mr["data"].grid.since, "until": mr["data"].grid.until,
+    groups = ag.candidates(spec_of(p), got) or {}
+    return {"aggregate": [{"system": k, **g} for k, gs in sorted(groups.items()) for g in gs],
+            "times": [round(t, 3) for t in got["times"]], "since": mr["data"].grid.since, "until": mr["data"].grid.until,
             "loop": loop, "polarity": got["polarity"], "assumed": got["assumed"].get(loop, []) if loop else got["assumed"],
             "not_scored": got["not_scored"] if loop is None else {k: v for k, v in got["not_scored"].items() if k == loop},
             "stocks": [{"stock": s, "loops": len(x["loops"]), "scored": len(x["scored"]), "named": x["named"], "ties": x["ties"],
