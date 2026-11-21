@@ -8,7 +8,8 @@
   the record already, open;
 - each open gap with a definition of done: `gap.defined` (ready). A definition is the gap's `definition` field (a
   file in run/defs/), `run/defs/<branch>.md` in the instance's folder (written by the coordinator), or
-  `docs/roadmap/overnight/<branch>.md` on main or on the gap's branch; nothing else is read;
+  `dev/records/<branch>.md` (or, for a gap begun before the move, `docs/roadmap/overnight/<branch>.md`) on main or on
+  the gap's branch; nothing else is read;
 - a gap waiting for main to move (`waits_on_main`: its fast suites failed only on tests that fail on main too,
   onmain.py) released once the checkout's main is another commit (what the drop gives the implementor, and what the
   queue pushes to origin), so the implementor takes it again;
@@ -108,16 +109,16 @@ def closed_by_gaps(known: dict[str, dict], entries: list[dict]) -> int:
 
 
 def definition(cfg: dict, gap: dict) -> str | None:
-    """Where the gap's definition of done is (only run/defs/ or REF:docs/roadmap/overnight/, brief.definition_text),
+    """Where the gap's definition of done is (only run/defs/ or REF:dev/records/, brief.definition_text),
     or None; None too for a gap whose branch is not a safe name."""
     try:
         branch = fac.branch_of(gap)
     except ValueError as e:
         print(f"intake: {e}: not taken", file=sys.stderr)
         return None
-    rel = f"{fac.DEFS}/{branch}.md"
-    for where in (str(gap["fields"].get("definition") or ""), f"run/defs/{branch}.md", f"{cfg['git']['base']}:{rel}",
-                  f"{fac.git_branch(branch)}:{rel}"):
+    on = (cfg["git"]["base"], fac.git_branch(branch))
+    refs = [f"{ref}:{d}/{branch}.md" for d in (fac.DEFS, fac.OLD_DEFS) for ref in on]     # the new path first
+    for where in (str(gap["fields"].get("definition") or ""), f"run/defs/{branch}.md", *refs):
         if where and brief.definition_text(cfg, where, branch).strip():
             return where
     return None
@@ -177,7 +178,9 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, s
     repo = fac.path(cfg, "checkout")
     merged = set(fac.git(repo, "branch", "--format=%(refname:short)", "--merged", cfg["git"]["base"],
                          check=False).split())
-    want = deps.plan(known, parsed, own, merged)
+    tree = fac.git(repo, "ls-tree", "--name-only", cfg["git"]["base"], "docs/roadmap/overnight/", check=False)
+    landed = {f.rsplit("/", 1)[-1][:-3] for f in tree.split() if f.endswith(".md")}   # unread: none, never 'landed'
+    want = deps.plan(known, parsed, own, merged, landed)
     for gid, why in dups.items():
         if gid in want:
             want[gid]["problems"].append(why)

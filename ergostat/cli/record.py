@@ -74,6 +74,8 @@ def cmd_item(args) -> int:
     if search is not None and (args.name or getattr(args, "at", None)):
         print("ergostat item --search lists the items as they are now: leave out NAME and --at", file=sys.stderr)
         return 2
+    if args.near is not None or args.path_to is not None or args.about_item:
+        return _item_graph(args)
     if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
         from ..calls.client import Refused
         from . import fast
@@ -144,6 +146,30 @@ def cmd_item(args) -> int:
     print()
     for e in d["record"][-args.n:]:
         print(event_line(e))
+    return 0
+
+
+def _item_graph(args) -> int:
+    """``item ID --near [N]``, ``item A --path B``, ``item ID --about`` (``spec/itemgraph.py``), as the record is now."""
+    from ..spec import itemgraph as ig
+    asked = sum(x not in (None, False) for x in (args.near, args.path_to, args.about_item))
+    if getattr(args, "at", None) or getattr(args, "history", None) is not None or not args.name or asked > 1:
+        print("--near, --path, --about: one, of an item, as the record is now (never with --at or --history)", file=sys.stderr)
+        return 2
+    p = open_project(args)
+    ev, spec, n = p.events, getattr(p.model, "spec", None), args.name
+    try:
+        got = ig.near(ev, spec, n, args.near) if args.near is not None else \
+            ig.path(ev, spec, n, args.path_to) if args.path_to is not None else ig.about(ev, spec, n)
+    except (ig.Unknown, ig.Bad) as e:
+        print(f"{n}: {e.args[0]}", file=sys.stderr)
+        return 2
+    if args.json:
+        return out_json(got)
+    for x in got.get("steps") or got.get("items") or []:     # from relation to, or id distance (via) / how relation-or-field
+        print("  " + "  ".join(" ".join(map(str, v.values())) if isinstance(v, dict) else str(v) for v in x.values()))
+    print(c(got.get("says") or f"{len(got['items'])} items" + (f", capped at {got['cap']}" if got["capped"] else ""),
+            "warn" if got["capped"] else "dim"))
     return 0
 
 
