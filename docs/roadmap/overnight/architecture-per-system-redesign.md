@@ -311,3 +311,24 @@ included, passed: 2515 passed, 69 skipped, 1 xfailed, rc 0. Nothing in this bran
 `modelling redesign --review` defaults to `off` outside the template. So it is an intermittent leak between tests on
 one xdist worker, unrelated to this gap (lesson-13): reported, not fixed here. No code was changed for it. A run of
 the suite on a clean export of `main`, to compare, was refused here.
+
+After the fast suites (round 1, second time): the factory's `unit` run again had one `F` (at 16%), and its tail
+again stops before the failures list, so it does not name the test. No code was changed: there is no failure here
+to fix, and a change made on a guess would not be a fix. What was run here, each passing:
+- `tests/test_architecture_review.py`: 16 passed.
+- Every test file that names redesign, modelling or the review (22 files, among them `test_redesign.py`,
+  `test_templates.py`, `test_modelling_*`, `test_modelreview.py`, `test_cli_fallback.py`, `test_inbox.py`,
+  `test_backlog.py`): 347 passed.
+- The files that read the docs or the architecture (`test_spec_schema.py`, `test_parity.py`,
+  `test_factory_knowledge.py`, `test_factory.py`, `test_daemon_yaml_review.py`, `test_architecture.py`,
+  `test_diagram_rendering.py`, `test_blockdiagram.py`): 344 passed, 3 skipped.
+- The files that check every example (`test_spec_compile.py`, `test_demo_check.py`, `test_chains.py`,
+  `test_shards.py` and 10 more): 428 passed.
+
+The whole unit suite (`scripts/suite_watch.py -- pytest -n 4 -rf`) was refused here, as was the earlier compare
+run, so the failing test could not be found. Checked and ruled out as causes in this branch: the review's events are
+stamped with the injected `now`, never the clock (so the once-a-day tests cannot drift under load); every new test
+takes its own `ERGOSTAT_HOME` (conftest) and closes the locks it takes; `modelling redesign --review` defaults to
+`off` outside the template, so no existing test starts a review call. Left: the factory's run with `-rf` (or the
+log's failures section) to name the test. If it is one of this gap's, it is fixed in the next round. If not, it is
+lesson-13's, reported.
