@@ -4472,7 +4472,9 @@ holds the workspace **fenced** (`fenced`: the run and its fence): the next lease
 and the old run's item events (§9.5) and gated actions are refused. A gated action records the lease it was asked for
 under; it is denied when asked for, and fails unrun when approved, once that lease has expired or a later one has been
 taken on the item. An action asked for under a lease that ended (ack or nack) and was not taken again still runs once
-approved: its item waits for review.
+approved: its item waits for review. An action declared `fenced: false` is never fenced: once approved it runs
+whatever became of the lease it was asked for under. That is for an action whose own command keeps it safe whenever
+it runs, such as a push of one exact commit that the remote refuses unless it is a fast-forward.
 
 **Quarantined** workspaces are never given to an item; `ergostat workspaces POOL --free N` (the owner) removes that
 worktree, and the slot is made afresh when next needed. Each workspace is an item, `ergostat.workspace/POOL-N`
@@ -4505,6 +4507,7 @@ actions:
     args: {title: the pull request's title, body: what it changes and why}
     wait: 15m                      # how long the session waits for the owner before going on (default 5m)
     timeout: 2m                    # how long it may run (default 2m)
+    # fenced: false                # run once approved even after a later lease took the item (default true)
 blocks:
   developer:
     type: ai
