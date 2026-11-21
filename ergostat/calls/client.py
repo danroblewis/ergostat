@@ -6,7 +6,8 @@ library only, so a step's own Python can use it as it is:
 
 ``Unavailable`` when no engine listens (the caller does what it did before). A run's call (``ERGOSTAT_SOCKET`` set)
 first tries again with backoff for ``ERGOSTAT_CALL_RETRY`` seconds (default 2 minutes), so an engine restarting does
-not fail it; each call's key makes what it records happen once however often it is asked (``ops.py``)."""
+not fail it (never where the socket's folder is gone: a socket of another machine, or of a project removed); each
+call's key makes what it records happen once however often it is asked (``ops.py``)."""
 
 from __future__ import annotations
 
@@ -121,7 +122,7 @@ def call(op: str, path: str | None = None, timeout: float = 60.0, retry: float |
             raise
         except Unavailable:
             left = end - time.monotonic()
-            if left <= 0:
+            if left <= 0 or not Path(path).parent.is_dir():      # (no folder: no engine comes back there)
                 raise
             time.sleep(min(pause, left))
             pause = min(pause * 2, 2.0)

@@ -33,3 +33,13 @@ The decisions taken alone, each the most reversible one:
   item. `leases/acts.py` (outside the files named) takes an `id` for this: two lines.
 - An `act` asked again after a restart waits its `wait` again from then.
 - One more test beyond the four: `test_a_lease_call_asked_again_is_recorded_once`.
+
+After the factory's unit run stalled (its output stopped at 18%, no failure printed): not reproduced here. Every
+file whose runs call ergostat (`test_calls`, `test_leases`, `test_lease_kill`, `test_spec_engine`,
+`test_program_actions`, `test_triggers2`/`3`, `test_resilience`, `test_gated_actions`, `test_daemons`,
+`test_daemons_restart`) and every file with a `serial` test (a long one holds the whole parallel run back) passed alone
+in its usual time; the whole suite was not run here. The likeliest cause, guarded against: an `ERGOSTAT_SOCKET`
+inherited from an engine whose socket this machine can't reach (another machine's or container's path), so each
+call waited the whole bound where it used to fall back at once. A call no longer tries again when the socket's folder
+does not exist: an engine restarting keeps its state folder (or the short-path folder in the temporary directory),
+so only a socket that can come back is waited for (`test_a_call_past_the_bound_fails`, checked to fail without it).

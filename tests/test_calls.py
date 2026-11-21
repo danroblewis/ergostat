@@ -328,6 +328,10 @@ def test_a_call_past_the_bound_fails(tmp_path, monkeypatch):
     with pytest.raises(client.Unavailable):
         client.call("ping", path=nobody, retry=0.5)
     assert 0.5 <= time.monotonic() - began < 5
+    began = time.monotonic()                                      # a socket whose folder is gone (another machine's,
+    with pytest.raises(client.Unavailable):                       # inherited by a container): no engine comes back
+        client.call("ping", path=str(tmp_path / "gone" / "e.sock"), retry=30)
+    assert time.monotonic() - began < 1
     monkeypatch.delenv("ERGOSTAT_SOCKET", raising=False)
     assert client.bound() == 0                                    # a command from a shell: no waiting
     monkeypatch.setenv("ERGOSTAT_SOCKET", nobody)                 # a run's: the setting, default 2 minutes, at most an hour
