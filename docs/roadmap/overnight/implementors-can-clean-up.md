@@ -119,3 +119,25 @@ is named, so the run was cut off from outside. Here, `unit` in the factory's own
 end with rc 0: 2310 passed, 69 skipped, 1 xfailed (peak 326 threads, 1.7 GB, nothing killed). Ruff is clean. No code
 was changed this round, since no failure was found to fix (the most reversible option). The four browser files were
 not run here.
+
+Round 10 (gap round 7), answering review/implementors-can-clean-up-5 and -6. Every finding:
+(1) Blocking, sessions.py:75-76 with measure.py tool-denials (lesson-3, lesson-12): fixed in dev/bin/measure.py. A
+session whose refusals are unknown (no result: a timeout or a crash, out=None; or a result with no
+`permission_denials`) is still recorded as `tool_denials_unknown: 1` on its session and gap. sessions.py is
+unchanged. But `tool-denials` now leaves such a session out instead of counting it as one refused call, and says how
+many it left out on stderr. With no session in the window that said what it was refused, it has no value (exit 1),
+never 0. A new reading, `tool-denials-unknown` (dev/model/measures.yaml, no goal), counts the unknowns. So a timeout no
+longer turns goal.no-tool-denials off, and an unknown is still never zero. I chose a separate reading with no goal as
+the more reversible option: a goal on it can be added later. The acceptance test now drives the out=None path (the
+fake session raises as agents.py:201 does) and checks the session.errored record. It also checks the measure has no
+value with only unknowns, reads 2.0 with them left out, and that `tool-denials-unknown` reads 2.0. With the old
+counting put back, the test failed (the measure returned 0 with stdout 2.0), so it can fail (lesson-9).
+(2) dev/README.md:122-123 wrap width: rewrapped, and the README now says what the measure leaves out.
+(3) Files outside "Files to touch": unchanged from round 4 (needed to deliver the measure; this round adds to
+dev/README.md, dev/bin/measure.py and dev/model/measures.yaml).
+(4) "Not run by this reviewer": run here as listed below.
+Run here: tests/test_factory.py, test_code_health_coverage, test_factory_knowledge, test_factory_times and
+test_ticket_factory_daemons: 204 passed, 2 skipped. Ruff is clean. `unit` in the factory's form under suite_watch.py:
+rc 0, 2358 passed, 69 skipped, 1 xfailed (peak 392 threads, 1.6 GB, nothing killed). The four browser files were not
+run here. Refused this round: a compound `awk ...; uv run ruff check` (a line-width check). It was not worked around:
+ruff was run alone and the widths were checked with the search tool.
