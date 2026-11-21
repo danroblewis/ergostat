@@ -51,6 +51,8 @@ containers; a test that cancels a hung step and shows the next item gets through
 ## 7. Two things merged that each passed alone
 Branches that pass their own suites conflict once merged: a new CLI flag not classified for the read-only fallback; a
 daemon fix racing another fix's start-up.
+Seen as: the branch called built while the unit suite, the four browser files and test_repair2 were never run on the
+host, and the end-to-end tests that cover the changed stderr path were skipped.
 **Check:** before saying built, merge origin/main into the branch and run the suites again.
 
 ## 8. A score or guarantee stated wider than the code supports

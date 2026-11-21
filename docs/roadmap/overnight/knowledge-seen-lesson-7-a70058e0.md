@@ -21,3 +21,14 @@ From:
 ## Size budget
 
 0 net lines of code (knowledge only).
+
+## Where it stopped
+
+Built, round 1. Lesson 7 had no "Seen as:", so one was added under its first paragraph, wrapped at 120 like the rest
+of the file. The wording was put in the file's style (a past-tense noun phrase ending in a period, like the other
+"Seen as:" entries): "the branch called built ... were skipped" for "the branch is called built ... are skipped";
+otherwise the words are as given. This is the easily reversed choice. Nothing else changed.
+`tests/test_factory_knowledge.py`: 22 passed; ruff clean. This clone has no `origin/main` ref, so origin/main could
+not be merged in here (lesson-7); the factory's merge queue runs the suites on the merged tree. The implementor did
+not run the unit suite or the four browser files, because this is a knowledge-only change and the factory runs them
+afterwards.
