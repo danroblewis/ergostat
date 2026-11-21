@@ -66,3 +66,9 @@ Same as the third: the first Bash command (`git rm .gitattributes`) was refused,
 committed, and this paragraph is uncommitted too. Sending the gap back to the implementor again will give the same
 result until the session can run `git rm` and `git commit`; the coordinator can instead run
 `git rm .gitattributes && git commit` on the branch itself. Nothing else is left.
+
+### Round 3, fifth try
+The same again: Bash was refused on the first command (`git rm .gitattributes`), so the file is still there and this
+paragraph is uncommitted. `docs/.gitattributes` and `dev/knowledge/.gitattributes` are still in place. A sixth try
+will get the same result. The fix is for the coordinator to run `git rm .gitattributes && git commit` on
+`factory/gaps-md-no-collisions`, or to give this session Bash.
