@@ -73,10 +73,11 @@ def due(p, spec: Spec) -> list[dict]:
     return [x for x in pr.pending(p, spec) if x["state"] == "passed" and unread(spec, x)]
 
 
-def tries(p, x: dict) -> int:
-    """Calls on this change as it stands (each stamped with what it read): none made on an earlier version count."""
+def tries(p, x: dict, failed: bool = False) -> int:
+    """Calls on this change as it stands (each stamped with what it read): none made on an earlier version count. Those
+    that failed (``modeller.call``'s ``error``) are no try; ``failed`` counts them instead."""
     return sum(1 for e in p.events.query(n=None, type=RAN) if (d := e.get("data") or {}).get("change") == x["id"]
-               and d.get("read") == seen(x))
+               and d.get("read") == seen(x) and bool(d.get("error")) == failed)
 
 
 def author(spec: Spec, x: dict) -> str | None:
@@ -217,7 +218,7 @@ def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: floa
     call = call or md.call
     spec: Spec = p.model.spec
     out = {"verdicts": [], "cost": {"usd": 0.0, "calls": 0}}
-    for x in due(p, spec)[:most]:
+    for x in sorted(due(p, spec), key=lambda x: tries(p, x, failed=True))[:most]:     # one that keeps failing: behind
         text = prompt(p, spec, x)
         dearest = md.unsaid(text, model)["usd"]
         with rd.held(p, dearest, room, by="reviewer") as fits:
@@ -228,15 +229,19 @@ def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: floa
             usd = float(got.get("usd") or 0.0)
             out["cost"]["usd"] = round(out["cost"]["usd"] + usd, 6)
             out["cost"]["calls"] += 1
-            p.events.add(RAN, source="reviewer", data={"change": x["id"], "usd": usd, "model": model, "read": seen(x)})
+            p.events.add(RAN, source="reviewer", data={"change": x["id"], "usd": usd, "model": model, "read": seen(x),
+                                                            **({"error": got["error"]} if got.get("error") else {})})
         if on_call is not None:
             on_call(got)
-        v = parse(got.get("result") or "")
-        if v is None and tries(p, x) >= TRIES:   # it cannot decide: given up, the owner's
-            v = {"verdict": UNDECIDED, "findings": [], "summary": f"the reviewer could not decide in {TRIES} tries "
-                 f"({got.get('error') or 'no verdict with its reasons'})"}
+        err = got.get("error")
+        v = None if err else parse(got.get("result") or "")
+        if v is None and tries(p, x, failed=bool(err)) >= (md.FAILS if err else TRIES):   # it cannot decide: the owner's
+            v = {"verdict": UNDECIDED, "findings": [], "summary": f"the reviewer could not decide in "
+                 f"{f'{md.FAILS} failed calls' if err else f'{TRIES} tries'} ({err or 'no verdict with its reasons'})"}
         if v is None:                       # no verdict with specific reasons: nothing recorded; it is read again next pass
-            out["verdicts"].append({"id": x["id"], "verdict": None, "why": got.get("error") or "no verdict with its reasons"})
+            out["verdicts"].append({"id": x["id"], "verdict": None, "why": err or "no verdict with its reasons"})
+            if err:                             # a failed call: no more this run (as the modeller's)
+                break
             continue
         out["verdicts"].append({"id": x["id"], "verdict": record(p, spec, x, v, cost=usd)})
     return out
