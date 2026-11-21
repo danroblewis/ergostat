@@ -82,5 +82,4 @@ only: the helper now strips `GIT_*` variables from the script's environment, so 
 its git at `/work`. That is not a proven fix.
 
 Not run: the Bash tool was refused at its first call (`git log --oneline -4 && git diff main...HEAD --stat && ...`).
-So pytest, ruff and git could not be run in this round, and this note and the edit are committed by hand only if git
-is allowed. If the next unit run stops the same way, the stop is not this branch's (lesson-13). It should be its own gap.
+So pytest and ruff were not run in this round. `git commit` was allowed later. If the next unit run stops the same way, the stop is not this branch's (lesson-13). It should be its own gap.
