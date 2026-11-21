@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
+import shutil
+import subprocess
 import sys
 import time
 
@@ -42,10 +45,15 @@ def suites(cfg: dict, repo, branch: str, logs, began: float) -> dict:
     out = {}
     for name in ("ruff", "unit", "browser", "demo"):
         log = logs / f"{fac.run_tag(branch, began)}-{name}.txt"
-        rc, secs = fac.suite(cfg, name, repo, log, slot=False)        # the queue's lock is its slot
+        cov = fac.run_dir(cfg, "coverage") / fac.run_tag(branch, began) \
+            if name == "unit" and cfg["suites"].get("queue_coverage") is True else None
+        cmd = f"ERGOSTAT_COVERAGE={shlex.quote(str(cov))} {cfg['suites']['unit']}" if cov else None
+        rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd)    # the queue's lock is its slot
         text = log.read_text()
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         out[name] = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {})}
+        if cov:
+            out[name]["coverage"] = coverage_kept(cfg, repo, cov, rc)
         if rc or skipped:
             out["failed"] = name
             out["tests"] = fac.failed_tests(text)
@@ -53,6 +61,33 @@ def suites(cfg: dict, repo, branch: str, logs, began: float) -> dict:
             out["log"] = str(log)
             break
     return out
+
+
+COVERAGE_KEEP = 5                                       # coverage reports kept under run/coverage/, by their seq
+COVERAGE_RUN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}-\d{8}T\d{6}Z$")      # (a run_tag: the folders this makes)
+
+
+def coverage_kept(cfg: dict, repo, cov, rc: int) -> str:
+    """The unit run's coverage report made (scripts/coverage_report.py) and the last COVERAGE_KEEP kept, by the seq
+    stamped in each (never a file's time); a red run's worker files, or a run that made no report, removed. It never
+    fails the queue: the measure is read by measure.py, which has no value without a fresh report."""
+    said = "not reported: the unit suite failed"
+    if not rc:
+        r = subprocess.run([sys.executable, "scripts/coverage_report.py", str(cov)], cwd=repo, capture_output=True,
+                           text=True, timeout=600)
+        said = "reported" if r.returncode == 0 else f"no report: {r.stderr.strip()[-300:]}"
+    top = fac.run_dir(cfg, "coverage").resolve()
+    seqs = {}
+    for d in top.iterdir():
+        if not (d.is_dir() and COVERAGE_RUN.match(d.name) and d.resolve().parent == top):
+            continue                                    # (only what this made, by name)
+        try:
+            seqs[d] = int(json.loads((d / "coverage.json").read_text())["seq"])
+        except (OSError, ValueError, KeyError, TypeError):
+            seqs[d] = -1                                # (no report: removed first)
+    for d in sorted(seqs, key=lambda d: (seqs[d], d.name))[:-COVERAGE_KEEP] + ([cov] if said != "reported" else []):
+        shutil.rmtree(d, ignore_errors=True)
+    return said
 
 
 # ---- the queue's own state: the merge whose push is not settled yet, and a block the coordinator must lift

@@ -192,6 +192,26 @@ new sessions (`machine-full`). `disk-cleanup` removes session folders and instal
 than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
 which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
 
+## Coverage: the modules below a floor
+
+The queue's unit run on main (`[suites] queue_coverage = true`; an implementor's runs never) sets
+`ERGOSTAT_COVERAGE`, and a line tracer (`tests/coverage_lines.py`, Python 3.12's `sys.monitoring`, no package)
+records the lines each test process ran of `ergostat/`, `dev/bin/` and `scripts/`. `scripts/coverage_report.py DIR`
+combines the workers' files into `DIR/coverage.json`: per module its statements (from the file's `ast`, docstrings
+not counted), those covered and the share, stamped with the commit and its `seq` (main's first-parent commits). The
+last five reports are kept under `run/coverage/`, by that seq. `coverage_report.py DIR --below 0.6` lists the modules
+under the floor, worst first; the floor is `[code_health] coverage_floor` (0.6).
+
+`python3 dev/bin/measure.py coverage-below-floor` counts the modules under the floor, and `measure.py coverage
+ergostat/model.py` reads one module's share (the auxiliary `coverage-below-floor` in `dev/model/measures.yaml`). With
+no report, an unreadable one, or the latest of a commit on main more than 20 of main's merges old, neither has a
+value (exit 1): never 0, never everything below.
+
+**What it does not see.** Code run only in a child process (the daemons, `python -m ergostat` under a subprocess, a
+`dev/bin` program called by its path) is not traced, so every share is a lower bound. A module no test imported
+in-process is marked `"subprocess-only": true`: its tests, if any, reach it only through a child process, and it is
+not known to be untested.
+
 ## Approve the push
 
 A green merge asks for `push-main` (exactly that commit to origin's main), held for you:
