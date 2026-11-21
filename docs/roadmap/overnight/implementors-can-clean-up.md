@@ -40,5 +40,10 @@ Round 3: main (9acc11c2) merged in; its one conflict, tests/test_factory.py, was
 file's end (this branch's three acceptance tests, main's park-owns-resume tests), and both are kept. After the merge:
 tests/test_factory.py 69 passed, 2 skipped; ruff clean; and `unit` under suite_watch.py, which this round's allowlist
 allowed, rc 0 (2131 passed, 69 skipped, peak 294 threads, 1.6 GB). No code was changed this round. The four browser
-files were started under suite_watch; their result is in the session's report, not here. Refused this round: a
+files under suite_watch: rc 1, 2 failed, 222 passed. Run again alone (`--lf`), one passed and one failed again:
+tests/test_diagram_rendering.py::test_a_loop_clicked_chooses_its_members_in_both_panes_and_the_split_is_pictured,
+with `PermissionError: '/split-shots'`. Its screenshot folder is `ROOT.parent / "split-shots"` (test line 2485,
+unless SPLIT_SHOTS is set), and in this container that is `/`, which cannot be written. This branch changes nothing
+under ergostat/ or in that test, so it is unrelated (lesson-13) and was left alone. The other failure was a 30 s
+Playwright wait for a "page" event during the parallel run, and it passed when run again alone. Refused this round: a
 `timeout ... sh -c 'while ...; sleep'` wait for that run's output, which was not worked around.
