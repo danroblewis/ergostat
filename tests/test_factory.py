@@ -848,7 +848,7 @@ def test_a_file_the_definition_names_is_not_refused(tmp_path):
     said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=named + ",docs/loose.md")
     assert said == ["gap.started", "gap.built"] and not f.item(gid)["fields"]["suites_fast"].get("stray")
     definition = (d / "alpha-thing.md").read_text()
-    loose = ["docs/loose.md", "docs/roadmap/overnight/alpha-thing.md"]       # (its own definition is shown too)
+    loose = ["dev/records/alpha-thing.md", "docs/loose.md"]                  # (its own definition is shown too)
     assert strays_of(f, {}, definition) == [] and sorted(strays_of(f, {}, definition, "unlisted")) == loose
     said, _ = f.run("review.py", gid)                     # a new file matching no pattern, named by no Files to touch:
     text = (tmp_path / "instance" / "run" / "briefs" / "alpha-thing-reviewer-1.md").read_text()   # shown to the reviewer

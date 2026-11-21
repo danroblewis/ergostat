@@ -66,3 +66,14 @@ processes, nothing left behind). `uv run ruff check ergostat tests scripts` is c
 container was stopped from outside (its machine-wide slot or the container's own limits), not a test this branch
 breaks. No code changed, since no test fails. What is left: the factory's next unit run, and if a run is cut off
 again, the reason from the suite runner's side (the container's exit, the slot's log). That is outside this gap.
+
+## Where it stopped
+
+Round 2: main (e1e778c1) merged in. The conflict in `dev/bin/implement.py` was in `strays()`. The fix keeps the
+branch's `unlisted()` (which filters out files main has) and main's addition of `fac.DEFS`'s top folder (`dev/`, now
+where definitions are written) to the folders that count as known. Main's recursive ls-tree for `tops` gives the same
+top-level names as the branch's plain one, so the branch's form is kept. Because main moved definitions to
+`dev/records/`, `test_a_file_the_definition_names_is_not_refused` now expects `dev/records/alpha-thing.md` (the gap's
+own definition, still shown to the reviewer) instead of the old path. After the merge, tests/test_factory.py ran 127
+passed, 2 skipped and 1 failed (that test, at the old path). After the fix, both acceptance tests pass. `uv run ruff
+check ergostat tests scripts` is clean. Not run here: the whole unit suite and the browser files (the factory runs them).
