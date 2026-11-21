@@ -1,5 +1,5 @@
-"""Asking a remote ergostat (SPEC §4c): one GET under ``/remote/v1/``, with the consumer's token, bounded in time.
-Never raises for the remote's failings: (status, body, etag, why) with status 0 when it did not answer."""
+"""Asking a remote ergostat (SPEC §4c): one GET under ``/remote/v1/``, with the consumer's token, bounded in time
+and in size (``BODY_MOST``). Never raises for the remote's failings: (status, body, etag, why) with status 0 when it did not answer."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 
 AGENT = "ergostat-remote/1"
+BODY_MOST = 16 * 2**20                  # an answer longer than this fails the call
 
 
 def token_of(token_file: str | None, root: Path) -> tuple[str | None, str]:
@@ -35,13 +36,15 @@ def get(url: str, path: str, token: str | None, params: dict | None = None, etag
                                                 **({"If-None-Match": f'"{etag}"'} if etag else {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 (a URL the owner wrote)
-            body = r.read()
+            body = r.read(BODY_MOST + 1)
+            if len(body) > BODY_MOST:
+                return 0, None, None, f"answer too large (more than {BODY_MOST // 2**20} MB)"
             return r.status, json.loads(body.decode() or "null"), (r.headers.get("ETag") or "").strip('"') or None, ""
     except urllib.error.HTTPError as e:
         if e.code == 304:
             return 304, None, etag, ""
         try:
-            why = json.loads(e.read().decode()).get("error") or e.reason
+            why = json.loads(e.read(65536).decode()).get("error") or e.reason
         except Exception:
             why = e.reason
         return e.code, None, None, f"{e.code} {why}"

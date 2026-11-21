@@ -20,6 +20,7 @@ from ..library.expand import BARE, REF, SECTION_OF, rename
 from ..spec import files
 from ..spec.ir import NAME
 from ..spec.load import Map, Problem, Where
+from . import instance
 
 KEYS = {"url", "token-file", "systems", "within", "every", "description", "show"}
 SHOW = re.compile(r"^(stock|flow|auxiliary)\.([a-z][a-z0-9-]*)$")
@@ -29,6 +30,8 @@ BLOCK_KEEP = {"in", "out", "agent", "role", "description", "system"}
 KINDS = {"stock": "stocks", "flow": "flows", "auxiliary": "auxiliaries", "variable": "auxiliaries", "goal": "goals",
          "block": "blocks", "parameter": "parameters", "system": "systems"}
 STALE_RUNS = 3
+DEPTH_MOST, VIA_MOST, PARTS_MOST = 3, 8, 2000    # fixed: no remotes: key changes them
+PART_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 _OFFLINE: contextvars.ContextVar[bool] = contextvars.ContextVar("ergostat_remote_offline", default=False)
 
@@ -58,11 +61,13 @@ def offline():
 
 
 class RemoteVia(Where):
-    """Where a remote's part was brought in: its ``remotes:`` entry, and which remote it is."""
+    """Where a remote's part was brought in: its ``remotes:`` entry, which remote it is, the chain of instance ids
+    the part came through (origin first, the remote last; what serving it on names as its ``via``), and whether it
+    is a stand-in (never served on)."""
 
-    def __init__(self, file, line: int, remote: str, url: str = ""):
+    def __init__(self, file, line: int, remote: str, url: str = "", chain=(), stand_in: bool = False):
         super().__init__(file, line)
-        self.remote, self.url = remote, url
+        self.remote, self.url, self.chain, self.stand_in = remote, url, tuple(chain), stand_in
 
     def __str__(self) -> str:
         return f"{self.file.name}:{self.line} (remote {self.remote})"
@@ -157,18 +162,102 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         doc.problems.append(Problem("finding", f"remote {name}: {url} did not answer ({why})"
                                     + (f" since {_ago(since)} ago" if since else "") + age, via, "remote-unreachable",
                                     f"system.{name}"))
-    if served is None:                          # never read: its local show: drawn unchecked, else nothing
+    info["pending"] = []
+    try:
+        mine = instance.own(d.parent.parent)
+    except instance.InstanceError as e:
+        mine = None
+        doc.problems.append(Problem("finding", f"remote {name}: nothing of it is composed, since this ergostat's "
+                                    f"instance id cannot be read ({e})", via, "remote-instance", f"system.{name}"))
+    cut = checked(doc, name, served, mine, via) if served is not None and mine else None
+    if cut is None:                             # never read, or refused: its local show: drawn unchecked, else nothing
         info["show"] = [{"part": _id(x, name), "unchecked": True} for x in shown or []]
         return
     info.update(version=served.get("version"), fetched=served.get("fetched"), name=served.get("name"))
     secs = served.get("sections") or {}
     info["kinds"] = {k: v for k, v in (secs.get("items") or {}).items() if isinstance(v, dict)}
-    made = parts(name, secs, only, every)
+    made = parts(name, secs, only, every, cut)
     for section, entries in made.items():
         for pname, got in entries.items():
-            put(section, pname, as_map(got, via), via, {})
-            info["parts"][f"{SINGULAR[section]}.{pname}"] = True
+            pv = RemoteVia(via.file, via.line, name, url, [*secs[section][pname[len(name) + 1:]]["via"],
+                                                           served["instance"]])
+            info["pending"].append((section, pname, as_map(got, pv), pv))      # put by finish, after every file
     info["show"] = _shown(doc, name, info, secs, made, only, shown, entry.at("show") if shown else via)
+
+
+def _malformed(served: dict) -> str | None:
+    """Why a served model is not one this ergostat composes, or None."""
+    there = served.get("instance")
+    if not instance.is_id(there):
+        return "it serves no instance" if there is None else f"its instance {str(there)[:40]!r} is not 16 hex"
+    secs = served.get("sections")
+    if not isinstance(secs, dict) or not all(isinstance(v, dict) for v in secs.values()):
+        return "sections: is not a map of sections"
+    for section, entries in secs.items():
+        for n, v in entries.items():
+            what = f"{section} {str(n)[:80]}"
+            if not isinstance(v, dict) or "via" not in v:
+                return f"{what} has no via"
+            via = v["via"]
+            if not isinstance(via, list):
+                return f"{what}: its via is not a list"
+            if len(via) > VIA_MOST:
+                return f"{what}: its via holds {len(via)} ids (at most {VIA_MOST})"
+            if not all(instance.is_id(x) for x in via):
+                return f"{what}: its via holds an id that is not 16 hex"
+            if len({*via, there}) != len(via) + 1:
+                return f"{what}: its chain repeats an id"
+    return None
+
+
+def _bad_name(remote: str, section: str, n, v: dict) -> str | None:
+    """The first name of a served part that is not one here: its own, its composed one, or a sensor's."""
+    names = [str(n), f"{remote}-{n}", *map(str, (v.get("sensors") or {}) if isinstance(v.get("sensors"), dict) else ())]
+    bad = next((x for x in names if not PART_NAME.fullmatch(x)), None)
+    return bad or (None if NAME.match(names[1]) else names[1])
+
+
+def checked(doc, name: str, served: dict, mine: str, via: Where) -> set | None:
+    """A served model checked before anything of it is composed (SPEC §4c, *A remote composed of remotes*): None when
+    it is refused whole (malformed, too big, or this ergostat itself), else the parts cut (``(section, name)``): those
+    whose chain comes back here, is longer than ``DEPTH_MOST``, or whose names are not names here. One finding per
+    remote and cause."""
+    def say(code: str, msg: str) -> None:
+        doc.problems.append(Problem("finding", f"remote {name}: {msg}", via, code, f"system.{name}"))
+    why = _malformed(served)
+    if why:
+        return say("remote-malformed", f"its served model is refused, nothing of it is composed: {why}")
+    secs = served["sections"]
+    total = sum(len(v) for v in secs.values())
+    if total > PARTS_MOST:
+        return say("remote-too-big", f"it serves {total} parts (at most {PARTS_MOST}): nothing of it is composed")
+    there = served["instance"]
+    if there == mine:
+        return say("remote-cycle", f"it is this ergostat (instance {mine}): nothing of it is composed")
+    cut: set = set()
+    cycle = deep = 0
+    bad: list[str] = []
+    for section in IMPORTED:
+        for n, v in (secs.get(section) or {}).items():
+            chain = [*v["via"], there]
+            b = None
+            if mine in chain:
+                cycle += 1
+            elif len(chain) > DEPTH_MOST:
+                deep += 1
+            elif (b := _bad_name(name, section, n, v)) is None:
+                continue
+            if b:
+                bad.append(b)
+            cut.add((section, n))
+    if cycle:
+        say("remote-cycle", f"{cycle} of its parts came through this ergostat (instance {mine}): they are cut")
+    if deep:
+        say("remote-too-deep", f"{deep} of its parts come from more than {DEPTH_MOST} ergostats away: they are cut")
+    if bad:
+        say("remote-bad-name", f"{len(bad)} of its parts have a name that is not one here, the first {bad[0]!r} "
+            "(lowercase letters, digits and -, at most 64): they are cut")
+    return cut
 
 
 def _id(ref: str, remote: str) -> str:
@@ -238,8 +327,9 @@ def kept_systems(secs: dict, only: list[str] | None) -> set[str] | None:
     return out
 
 
-def parts(remote: str, secs: dict, only: list[str] | None, every: float) -> dict[str, dict]:
-    """The served sections as this model's: renamed, narrowed to ``only``, blocks external, sensors queries."""
+def parts(remote: str, secs: dict, only: list[str] | None, every: float, cut=frozenset()) -> dict[str, dict]:
+    """The served sections as this model's: renamed, narrowed to ``only``, the parts ``cut`` (``(section, name)``)
+    left out like those, blocks external, sensors queries."""
     keep_sys = kept_systems(secs, only)
 
     def kept(section: str, v) -> bool:
@@ -252,6 +342,8 @@ def parts(remote: str, secs: dict, only: list[str] | None, every: float) -> dict
     chosen: dict[str, dict] = {}
     for section in IMPORTED:
         for n, v in (secs.get(section) or {}).items():
+            if (section, n) in cut:
+                continue
             if section == "systems" and keep_sys is not None:
                 if n in keep_sys:
                     chosen.setdefault(section, {})[n] = v or {}
@@ -267,7 +359,7 @@ def parts(remote: str, secs: dict, only: list[str] | None, every: float) -> dict
     out: dict[str, dict] = {}
     for section, entries in chosen.items():
         for n, v in entries.items():
-            got = rename(dict(v), section, None, renames)
+            got = rename({k: x for k, x in v.items() if k != "via"}, section, None, renames)
             got = _cut(got, section, gone)
             if got is None:
                 continue
@@ -393,6 +485,17 @@ def finish(doc, put) -> None:
     part is an error, since what runs there is changed only there."""
     if not doc.remotes:
         return
+    for remote, info in doc.remotes.items():         # each remote's parts, now every local part is known: local wins
+        for section, pname, got, pv in info.pop("pending", None) or []:
+            one = SINGULAR.get(section, section)
+            if (section, pname) in doc.defined:
+                doc.problems.append(Problem(
+                    "finding", f"remote {remote}: its {one} {pname[len(remote) + 1:]} would be {one} {pname} here, "
+                    f"which is already defined at {doc.defined[(section, pname)]}: that one stands, this is not composed",
+                    pv, "remote-name-taken", f"{one}.{pname}"))
+                continue
+            put(section, pname, got, pv, {})
+            info["parts"][f"{one}.{pname}"] = True
     for section, entries in doc.sections.items():
         for ename, entry in list(entries.items()):
             if isinstance(getattr(entry, "where", None), RemoteVia):
@@ -400,7 +503,7 @@ def finish(doc, put) -> None:
             found: list = []
             _walk(entry, section, None, getattr(entry, "where", None), found)
             for kind, ref_name, at, key in found:
-                remote = next((r for r in doc.remotes if ref_name.startswith(r + "-")), None)
+                remote = max((r for r in doc.remotes if ref_name.startswith(r + "-")), key=len, default=None)
                 if remote is None:
                     continue
                 info = doc.remotes[remote]
@@ -430,7 +533,8 @@ def finish(doc, put) -> None:
 
 
 def _stand_in(doc, put, remote: str, plural: str, name: str, info: dict) -> bool:
-    via = info["where"]
+    w = info["where"]
+    via = RemoteVia(w.file, w.line, remote, w.url, stand_in=True)       # never served on
     gone = f"{remote}-gone"
     desc = f"missing from {remote}'s model: a stand-in for a part this model names"
 
