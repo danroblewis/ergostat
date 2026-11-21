@@ -300,3 +300,20 @@ whole process group was stopped from outside, not by a failing test. No test is 
   (12 files): 228 passed. 0 failed, ruff clean.
 - If the next run stops like this again, the cause of the stop is needed (the container's exit, or the output past
   59%), not only the tail.
+
+## Where it stopped (resumed, round 2: main 24756e50 merged in)
+
+Main's knowledge collector was rewritten: each file has a front-matter `kind:`, entries are `## ` headings,
+decisions.md is no longer an entry but gives `ergostat.decision` proposals, and every event is read before any is
+said. The conflict in `dev/bin/knowledge.py` keeps main's code throughout and adds the branch's part to it: `ABOUT`
+(the *About:* line's regex), `about` on each entry in main's `entries()`, and in `sync()` the found-again
+`about: []` and the clearing of an *About:* line taken out (now beside `areas`, added to main's `said` list). The
+*About:* lines in `dev/knowledge/*.md` merged cleanly and sit inside main's `## ` sections.
+
+`tests/test_factory_knowledge.py::test_sync_carries_about` retired the lesson by writing the rules file over
+review-lessons.md. Main now refuses that (two `rules-process` ids). The test writes an empty lessons file instead
+and still checks the same thing. With the found-again `about: []` taken out, it failed (checked, then reverted).
+
+Tests run here, each file alone and serially (`-p no:randomly`): `test_factory_knowledge.py`, 53 passed and that
+one failed before the test edit, then both about tests passed after it. `test_item_about.py`: 14 passed. Ruff is
+clean. Not run here: the whole unit suite and the four browser files (the factory runs them).

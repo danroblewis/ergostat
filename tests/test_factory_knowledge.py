@@ -687,7 +687,7 @@ def test_sync_carries_about(tmp_path, monkeypatch):
     assert f.item("knowledge/lesson-1")["fields"]["about"] == []
     (k / "review-lessons.md").write_text(about)
     sync(f, dev)
-    (k / "review-lessons.md").write_text(RULES)                                      # retired, then back without it
+    (k / "review-lessons.md").write_text("---\nkind: lesson\n---\n# Lessons\n")     # retired, then back without it
     assert [x["event"] for x in sync(f, dev)] == ["knowledge.retired"]
     (k / "review-lessons.md").write_text(LESSONS)
     lines = sync(f, dev)
