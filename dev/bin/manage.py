@@ -196,7 +196,8 @@ def do_propose(cfg: dict, a) -> str:
 
 
 def do_ask(cfg: dict, a) -> str:
-    mine = [r["id"] for r in fac.items("research", "asked") if r["fields"].get("asked_by") == BY[0]]
+    # open = anything not answered: asked, leased by the researcher, or dead (given up on, for the coordinator to see)
+    mine = [r["id"] for r in fac.items("research") if r["fields"].get("asked_by") == BY[0] and r["state"] != "answered"]
     if mine:
         raise Refused(f"a question of yours waits for the researcher already ({', '.join(mine)}): one at a time")
     question = " ".join(a.question.split())

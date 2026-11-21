@@ -313,3 +313,21 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
 - *Not run here:* this session's shell refused `pytest`, so not even that single test was re-run. This round is judged
   by reading the traceback and the code only.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 12 (2026-11-21): the merge of main 1e9ecb1 and `do_ask`'s count.**
+- *Merge of main 1e9ecb1* (d0147de2): one conflict, in `ergostat.yaml`'s `messages.done`. Both kept: the branch's
+  `situation: superseded` and main's `lesson: applied`. No conflict markers are left.
+- *`do_ask` (blocking; raised in review/manager-sessions-5 and left unanswered in rounds 9-11, lesson-12):* it counted
+  only research items in `asked`, so while the researcher held the manager's question (`leased`), or once it was given
+  up on (`dead`), a second could be asked. It now counts every research item the asker asked that is not `answered`.
+  The choice for `dead`, as the finding asks: a dead question holds the next until the coordinator answers or retires
+  it. This is the reversible side, since a question can always be asked again once it is cleared. The README says so.
+  Test: `test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question` now puts the first question in
+  `leased`, then in `dead`, and sees the second refused each time, then `answered`, and sees it asked. With the old line
+  put back it **failed** (the second question was asked while the first was `leased`). With the fix it passes.
+- *review/manager-sessions-6's non-blocking notes:* `main-twice` counting at once stays as written (see round 1). A gap
+  in `approved` with no `approved_at`, and `load.reading` raising, are left as they are. They are noted here, not changed.
+- *Ran here:* `tests/test_factory_manager.py` 31 passed; `test_factory.py`, `test_factory_knowledge.py` and
+  `test_factory_times.py` together 184 passed, 2 skipped. Ruff is clean. The whole unit suite and the four browser files
+  were not run here.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.

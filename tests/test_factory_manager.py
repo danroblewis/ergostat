@@ -408,6 +408,11 @@ def test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question(tmp_p
     (r,) = [i for i in f.db()["items"].values() if i["kind"] == "research"]
     assert r["state"] == "asked" and r["fields"]["asked_by"] == "coordinator"
     assert {"velocity", "velocity-research"} <= {i["fields"]["class"] for i in f.interventions()}
+    for state in ("leased", "dead"):          # being researched, or given up on: still open, still one at a time
+        f.put(r["id"], state, **r["fields"])
+        assert "one at a time" in f.manage("ask", "Would caching the environments save time?", "--why", "x", ok=False)
+    f.put(r["id"], "answered", **r["fields"])
+    assert " asked" in f.manage("ask", "Would caching the environments save time?", "--why", "x")
 
 
 def test_the_velocity_record_reads_batches_goals_and_the_researchers_answers(tmp_path):

@@ -502,7 +502,8 @@ origin). Every call is an `intervention.recorded` with a class and `by: pipeline
 **The routine review.** Each session's record has queue wait, minutes per merge and per batch, batch size and bisected
 batches, time in state, first-pass yield, merges per hour, each goal against its setpoint and the binding constraint, and
 the answers to its earlier questions. A scheduled session either `propose`s a change (a gap with a definition, one
-open at a time) or `ask`s the researcher how to speed up the merge pipeline (one open at a time), or says why neither.
+open at a time) or `ask`s the researcher how to speed up the merge pipeline (one open at a time:
+a question is open until answered, so one being researched or given up on (`dead`) holds the next), or says why neither.
 The measures `manager-triggers-per-session` and `manager-actions-per-session` say how much each session takes on.
 
 **Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
