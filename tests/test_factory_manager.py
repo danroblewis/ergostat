@@ -254,7 +254,7 @@ def test_reapprove_runs_a_browser_failure_on_main_with_playwright(tmp_path):
         "tests/test_items_page.py::test_b"]})
     f.record.write_text(json.dumps(db))
     cfg = f.config.read_text()
-    f.config.write_text(cfg.replace('rerun = "echo again {tests}"', 'rerun = "echo SKIPPED [1] {tests}: no browser"')
+    f.config.write_text(cfg.replace('rerun = "echo again {tests}"', 'rerun = "echo 1 skipped in 0.01s"')
                         .replace('alone = "true {tests}"', "alone = 'printf \"FAILED %s\\n\" {tests}; false'"))
     assert "not environmental" in f.manage("reapprove", gid, "--why", "skips on main", ok=False)
     f.config.write_text(cfg.replace('rerun = "echo again {tests}"', "rerun = 'printf \"FAILED %s\\n\" {tests}; false'"))

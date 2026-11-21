@@ -67,3 +67,20 @@ Round 2, fixed; every finding of both reviews answered.
   tests/test_factory.py (57 passed, 2 skipped: Docker-only, as on main), tests/test_factory_{resources,sessions,
   knowledge,manager}.py (81 passed). Ruff is clean on ergostat, tests, scripts and dev/bin. origin/main could not be
   fetched again (no remote in the clone).
+
+Round 3, fixed; main (278666f7) merged in first.
+
+- **Merge of main:** the only conflict was implement.py's docstring. It keeps main's stray-file step and the branch's
+  browser files. Main's new `fast_seconds` (times.py's gate `fast`) now sums every suite in `onmain.FAST`, browser
+  included, not only ruff and unit. dev/README.md says the same.
+- **Blocking (review 2), skips under `rerun` not seen without -rs:** `[suites] rerun` now has `-rs`. agents.suites
+  also reads pytest's own summary (`N skipped`), taking the larger of the two counts, so a skip still fails even if
+  a command has no `-rs`. The fake reruns in test_a_browser_failure_that_skips_alone_is_not_a_flake and the manager's
+  reapprove test now print only `1 skipped in 0.01s`, which is what the real command prints without -rs.
+  test_implementor_environment_has_a_browser asserts that the real factory.toml's browser and rerun both carry ` -rs `
+  and that rerun pins Playwright. Broken on purpose, and each failure seen: the summary regex disabled (the flake test
+  fails with flake.seen) and `-rs` taken out of rerun (the environment test fails).
+- **Not run here:** the four browser files and the whole unit suite under suite_watch, for the same reason as
+  round 2. Run here: tests/test_agents.py (4 passed), tests/test_factory_manager.py (19 passed),
+  tests/test_factory.py with tests/test_factory_times.py (73 passed, 2 skipped: Docker-only, as on main). Ruff is
+  clean on ergostat, tests, scripts and dev/bin.

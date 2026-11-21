@@ -338,7 +338,8 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
                 killed(name)
         out[n] = {"rc": rc, "seconds": round(secs)} | ({"resources": use} if use else {})
         text = log.read_text()
-        skipped = len(re.findall(r"^SKIPPED", text, re.M)) if n in ("browser", "rerun") else 0  # (a skip fails, as
+        skipped = max([len(re.findall(r"^SKIPPED", text, re.M))] + [int(k) for k in re.findall(  # (-rs's lines, or
+            r"\b(\d+) skipped\b", text)]) if n in ("browser", "rerun") else 0   # pytest's summary; a skip fails, as
         if rc or skipped:                                                                   # in the queue)
             out[n] |= {"skipped": skipped} if skipped else {}
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))

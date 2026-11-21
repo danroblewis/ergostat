@@ -27,6 +27,9 @@ def test_implementor_environment_has_a_browser():
     assert re.search(r"^FROM ergostat-dev:latest$", agent_image, re.M)          # the implementor's image is the dev one
     assert "PLAYWRIGHT_BROWSERS_PATH" not in agent_image                       # (and finds its browsers where it put them)
     assert f"--with {PIN} " in cfg["browser_ready"] and f"--with {PIN} " in cfg["browser"]
+    assert f"--with {PIN} " in cfg["rerun"]
+    # each browser run prints its skips (-rs: one SKIPPED line per reason), as well as pytest's summary count
+    assert all(" -rs " in cfg[n] for n in ("browser", "rerun"))
     # the session may run the [suites] browser command itself, under the watchdog
     sys.modules.setdefault("fac", module("fac"))
     allowed = [t[len("Bash("):-len(":*)")] for t in module("agents").TOOLS["implementor"] if t.startswith("Bash(")]
@@ -86,7 +89,7 @@ def test_a_browser_failure_that_skips_alone_is_not_a_flake(tmp_path):
     gid = ready(f)
     f.config.write_text(f.config.read_text()
                         .replace('browser = "true"', 'browser = "echo FAILED tests/test_items_page.py::test_b - x; false"')
-                        .replace('rerun = "echo again {tests}"', 'rerun = "echo SKIPPED [1] {tests}: no browser"'))
+                        .replace('rerun = "echo again {tests}"', 'rerun = "echo 1 skipped in 0.01s"'))  # (no -rs lines)
     said, _ = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
     assert f.item(gid)["fields"]["suites_fast"]["failed"] == "browser"

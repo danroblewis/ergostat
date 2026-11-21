@@ -290,7 +290,7 @@ or unreadable bookmark makes it read every gap again (and write only a changed t
   it ends at the approval after it, or at a park or close straight from fix. While it still goes round, `loop_ended` is
   empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
-  `build_hours`), `fast` (its ruff and unit suites, every try in a round, `fast_seconds`; a build recorded before it
+  `build_hours`), `fast` (its fast suites: ruff, unit and browser, every try in a round, `fast_seconds`; a build recorded before it
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
