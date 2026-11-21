@@ -81,7 +81,8 @@ def review_one(cfg: dict) -> int:
 
 def park(gid: str, why: str) -> int:
     """The gated action, once the coordinator approved it (outside a run: recorded with `event --add`)."""
-    fac.add("gap.parked", gid, parked_at=time.time(), parked_by="plan-review", parked_in="plan",
+    fac.add("gap.parked", gid, parked_at=time.time(), parked_by="plan-review", parked_in="plan", parked_for="cancelled",
+            parked_until=None, resumed_as=None, resumed_at=None, need_met=None,
             where_it_stopped=f"The plan review asked that it not be built, and the coordinator agreed:\n{why}"[:4000])
     return 0
 

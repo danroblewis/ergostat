@@ -7,6 +7,7 @@ the kinds the root model declares, so a line the model does not know fails here.
 
 from __future__ import annotations
 
+import fcntl
 import importlib.util
 import json
 import os
@@ -177,7 +178,8 @@ class Factory:
             iid = line.get("item") or about
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
             assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
-                                                                                ".dependencies", ".push-settled", ".groomed")), line
+                                                                                ".dependencies", ".push-settled", ".groomed",
+                                                                                ".resumed", ".need-met")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
                 rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
@@ -206,14 +208,14 @@ class Factory:
         return said
 
     def run(self, program: str, iid: str | None = None, argv: tuple = (), lease: dict | None = None, fails: bool = False,
-            **env) -> tuple[list[str], list[dict]]:
+            timeout: float = 120, **env) -> tuple[list[str], list[dict]]:
         """A run of a block: (the events it said, every JSON line it printed). ``lease``: more of its lease (its
         attempt); ``fails``: it is expected to exit non-zero (a counted attempt)."""
         it = self.item(iid) if iid else None
         given = {"trigger": "item", "item": it,
                  "lease": {"fence": 1, "back": it["state"], **(lease or {})} if it else None}
         r = subprocess.run([sys.executable, str(BIN / program), *argv], input=json.dumps(given), cwd=self.model,
-                           capture_output=True, text=True, timeout=120,
+                           capture_output=True, text=True, timeout=timeout,
                            env={**self.env, **({"ERGOSTAT_ITEM": iid, "ERGOSTAT_LEASE": "1"} if iid else {}), **env})
         assert (r.returncode != 0) == fails, r.stderr
         self.stderr = r.stderr
@@ -378,6 +380,64 @@ def test_flake_retried(tmp_path):
     assert f.item("flake/tests-test-x-py-test-y")["fields"]["times"] == 1
     said, _ = f.run("queue.py", gid)
     assert said[:2] == ["gap.queued", "gap.merged"]
+
+
+def queue_failed(tmp_path) -> tuple[Factory, str]:
+    """A gap whose queue run failed on tests/test_x.py::test_y, waiting for triage; its rerun prints the commit it
+    stands on (HEAD, with the branch merged uncommitted on it) to rerun-head and passes."""
+    red = tmp_path / "red"
+    f = Factory(tmp_path, unit=f"if [ -e {red} ]; then echo 'FAILED tests/test_x.py::test_y - boom'; exit 1; fi")
+    f.config.write_text(f.config.read_text().replace(
+        'rerun = "echo again {tests}"', f'rerun = "git rev-parse HEAD > {tmp_path / "rerun-head"}; echo again {{tests}}"'))
+    gid = ready(f)
+    f.run("implement.py", gid)                                                 # the implementor's fast suite passes
+    f.run("review.py", gid)
+    red.touch()                                                                # the queue's unit run fails
+    said, _ = f.run("queue.py", gid)
+    assert said[-2:] == ["gap.queue-failed", "gap.measured"], said
+    return f, gid
+
+
+def test_triage_runs_while_the_queue_holds_its_lock(tmp_path):
+    f, gid = queue_failed(tmp_path)
+    pre = f.item(gid)["fields"]["pre"]
+    (f.checkout / "later.txt").write_text("main moved on\n")                   # main moves while triage waits
+    git(f.checkout, "add", "later.txt")
+    git(f.checkout, "commit", "-q", "-m", "later")
+    with open(tmp_path / "queue.lock", "a") as lock:                           # the queue's run, holding its lock
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        said, _ = f.run("triage.py", gid, timeout=30)
+    assert said == ["flake.seen", "gap.retried"] and f.item(gid)["state"] == "approved"
+    assert (tmp_path / "rerun-head").read_text().strip() == pre                # judged on the main it failed on (lesson-1)
+    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "later"      # and main left as the queue has it
+
+
+def test_triage_waiting_on_load_does_not_block_the_queue(tmp_path, monkeypatch, capsys):
+    f, gid = queue_failed(tmp_path)
+    monkeypatch.setenv("FACTORY_CONFIG", str(f.config))
+    monkeypatch.syspath_prepend(str(BIN))                                      # (triage.py imports review beside it)
+    sys.modules.setdefault("fac", module("fac"))
+    triage = module("triage")
+    taken = []
+
+    def busy(cfg, why=""):                                                     # the machine busy: the queue comes by
+        with open(tmp_path / "queue.lock", "a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                taken.append(True)
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            except BlockingIOError:
+                taken.append(False)
+        return 0.0
+
+    monkeypatch.setattr(triage.fac, "read_input", lambda: {"item": f.item(gid)})
+    monkeypatch.setattr(triage.fac, "wait_quiet", busy)
+    monkeypatch.setattr(triage, "rerun", lambda *a: (0, {"seconds": 0, "tests": []}))
+    capsys.readouterr()
+    assert triage.main() == 0
+    assert taken == [True]                                                     # the queue took its lock while triage waited
+    said = [json.loads(x)["event"] for x in capsys.readouterr().out.splitlines() if x.startswith("{")]
+    assert said == ["flake.seen", "gap.retried"]
 
 
 def pools_module():
@@ -1892,3 +1952,127 @@ def test_two_lessons_editing_review_lessons_merge_cleanly(tmp_path):
     rc, text = merge_two(tmp_path / "b", rel, base, one, two)
     assert rc == 0 and "<<<<<<<" not in text and text.startswith(base.rstrip("\n"))
     assert "one more case, from the first gap" in text and "## 99. A lesson from the second gap" in text
+
+
+# ---- park-owns-resume (docs/roadmap/overnight/park-owns-resume.md): whoever parks says why and what would end it
+
+def pipe(tmp: Path, **kw):
+    """The pipeline manager's fixture (its fake ergostat records `event --add`)."""
+    from tests.test_factory_manager import Pipe
+    return Pipe(tmp, **kw)
+
+
+def park_verdict(**verdict) -> str:
+    return "The stand-in.\n```json\n" + json.dumps({"verdict": "park", "blocking": [], "where_it_stopped": "work done",
+                                                    **verdict}) + "\n```"
+
+
+def parked_by_review(tmp: Path, **verdict):
+    """A gap built and parked by the reviewer with ``verdict`` (its park fields); (the fixture, the gap)."""
+    f = pipe(tmp)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    assert f.run("review.py", gid, FACTORY_STANDIN_REVIEWER=park_verdict(**verdict))[0][-1] == "gap.parked"
+    return f, gid
+
+
+def resumed(f) -> list[str]:
+    """One pass of the park resumer: the events it recorded."""
+    f.tool("parks.py", "resume")
+    return f.drain()
+
+
+def test_a_park_waiting_on_a_gap_is_resumed_when_it_merges(tmp_path):
+    f, gid = parked_by_review(tmp_path, parked_for="waits_on", waits_on="gap/carried")
+    g = f.item(gid)["fields"]
+    assert g["parked_for"] == "waits_on" and g["parked_until"] == {"gap": "gap/carried"}
+    f.put("gap/carried", "approved", branch="carried")
+    assert resumed(f) == []                                                   # not merged yet: still waits
+    assert (f.watch() or {}).get("trigger") != "parked"                       # nor is the manager asked about it
+    f.put("gap/carried", "merged", branch="carried")
+    assert resumed(f) == ["gap.requested", "gap.resumed"]
+    c = f.item("gap/alpha-thing-continued")
+    assert c["fields"]["continues"] == "alpha-thing" and c["fields"]["requested_by"] == "park-resume"
+    r = f.item(gid)["fields"]
+    assert r["resumed_as"] == "gap/alpha-thing-continued" and r["resumed_for"] == "waits_on"
+    assert r["cleared"] == "gap/carried merged"
+    assert [i for i in f.db()["items"].values() if i["kind"] == "intervention"] == []   # a loop, not an intervention
+    assert resumed(f) == []                                                   # resumed once
+    assert f.py("import measure; print(json.dumps([measure.reading(n, kind='waits_on') for n in "
+                "('parks', 'resumes')]))") == [1.0, 1.0]
+
+
+def test_a_park_needing_an_action_is_resumed_when_it_is_recorded(tmp_path):
+    f = pipe(tmp_path)
+    gid = ready(f)
+    f.fold([{"event": "gap.need-met", "item": gid, "data": {"need_met": "an old measurement"}}], None)   # stale
+    f.run("implement.py", gid)
+    f.run("review.py", gid, FACTORY_STANDIN_REVIEWER=park_verdict(
+        parked_for="needs", needs={"action": "measure the warm start", "who": "coordinator"}))
+    g = f.item(gid)["fields"]
+    assert g["parked_for"] == "needs" and g["parked_until"] == {"action": "measure the warm start", "who": "coordinator"}
+    assert g["need_met"] is None and resumed(f) == []                         # the park cleared the old one
+    f.fold([{"event": "gap.need-met", "item": gid, "data": {"need_met": "4.1 s warm"}}], None)
+    assert resumed(f) == ["gap.requested", "gap.resumed"]
+    assert f.item(gid)["fields"]["cleared"] == "needed measure the warm start (coordinator): done, 4.1 s warm"
+    assert f.item("gap/alpha-thing-continued")["state"] == "open"
+
+
+def test_a_defect_park_is_never_resumed_by_the_program(tmp_path):
+    f, gid = parked_by_review(tmp_path)                                       # a park with no kind said: a defect
+    assert f.item(gid)["fields"]["parked_for"] == "defect"
+    unclear = [{"parked_for": "waits_on"}, {"parked_for": "waits_on", "waits_on": "../x"},
+               {"parked_for": "needs", "needs": {"who": "x"}}, {"parked_for": "split"}, {"parked_for": "kill-rule"}]
+    got = f.py("import parks; print(json.dumps([parks.of_verdict(v) for v in json.loads(sys.argv[1])]))",
+               json.dumps(unclear + [{"parked_for": "waits_on", "waits_on": ["abc1234", "deadbeef00"]}]))
+    assert got[:-1] == [{"parked_for": "defect", "parked_until": None}] * len(unclear)   # nothing that could clear
+    assert got[-1] == {"parked_for": "waits_on", "parked_until": {"commits": ["abc1234", "deadbeef00"]}}
+    f.put("gap/carried", "merged", branch="carried")                          # what a waits_on park would clear on
+    f.put("gap/killed", "parked", branch="killed", parked_for="kill-rule", parked_until={"gap": "gap/carried"},
+          parked_at=f.now - 3600)
+    f.put("gap/flawed", "parked", branch="flawed", parked_for="defect", parked_until={"gap": "gap/carried"},
+          parked_at=f.now - 3600, need_met="x")
+    assert resumed(f) == []
+    raised = set()
+    for _ in range(3):
+        s = f.watch()
+        raised.add((s["trigger"], s["subject"]))
+        f.handled(s["id"])
+    assert raised == {("parked", gid), ("parked", "gap/killed"), ("parked", "gap/flawed")}   # the manager's to look at
+    k = Factory(tmp_path / "k")                                               # the kill rule's park says so
+    kid = ready(k)
+    for _ in range(k.gates["kill_after"]):
+        k.run("implement.py", kid)
+        k.run("review.py", kid, FACTORY_STANDIN_VERDICT="fix")
+    assert k.item(kid)["state"] == "parked" and k.item(kid)["fields"]["parked_for"] == "kill-rule"
+
+
+def test_a_waiting_park_past_its_hours_raises_a_situation(tmp_path):
+    f = pipe(tmp_path, manager="park_wait_hours = 24\n")
+    f.put("gap/carried", "open", branch="carried")
+    f.put("gap/fresh", "parked", branch="fresh", parked_for="waits_on", parked_until={"gap": "gap/carried"},
+          parked_at=f.now - 23 * 3600)
+    f.put("gap/done", "parked", branch="done", parked_for="needs", parked_until={"action": "a", "who": "b"},
+          parked_at=f.now - 30 * 3600, resumed_as="gap/done-continued")
+    s = f.watch()
+    assert s["trigger"] == "heartbeat"                                        # neither: within its hours, or resumed
+    f.handled(s["id"])
+    f.put("gap/fresh", "parked", branch="fresh", parked_for="waits_on", parked_until={"gap": "gap/carried"},
+          parked_at=f.now - 25 * 3600)
+    s = f.watch()
+    assert s["trigger"] == "waiting" and s["subject"] == "gap/fresh" and "not cleared" in s["why"]
+    f.handled(s["id"])
+    assert (f.watch() or {}).get("subject") != "gap/fresh"                    # raised once for the park
+
+
+def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):
+    f = pipe(tmp_path)
+    f.put("gap/whole", "parked", branch="whole", parked_for="split", parked_until={"gaps": ["gap/part"]},
+          parked_at=f.now - 3600)
+    f.put("gap/part", "parked", branch="part", parent=["gap/whole"])
+    assert resumed(f) == []
+    f.put("gap/part", "parked", branch="part", parent=["gap/whole"], resumed_as="gap/part-continued")
+    f.put("gap/part-continued", "open", continues="part")
+    assert resumed(f) == ["gap.measured", "gap.measured", "gap.split", "gap.resumed"]
+    assert f.item("gap/whole")["state"] == "split" and f.item("gap/part")["fields"]["parent"] == []
+    assert f.item("gap/part-continued")["fields"]["parent"] == ["gap/whole"]

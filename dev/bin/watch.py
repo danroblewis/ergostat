@@ -1,7 +1,9 @@
 """pipeline-watch: the triggers of the pipeline manager, from the record (dev/README.md, *The pipeline manager*): while
 managing is open and no situation is raised or leased, the first standing trigger not raised before (its fingerprint)
-is raised as `situation/...`: the queue blocked, a gap dead or parked, a gap stuck in its state, an old intervention,
-the heartbeat. `watch.py stuck` counts the stuck gaps (a sensor); `watch.py open` reads the switch managing-open."""
+is raised as `situation/...`: the queue blocked, a gap dead or parked (for a kind no program resumes: a defect, the
+kill rule, or a kind not said), a waits_on / needs park not cleared in `[manager] park_wait_hours` (parks.py), a gap
+stuck in its state, an old intervention, the heartbeat. `watch.py stuck` counts the stuck gaps (a sensor);
+`watch.py open` reads the switch managing-open."""
 
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import parks  # noqa: E402
 import pools  # noqa: E402
 
 BY = "pipeline-manager"
@@ -24,6 +27,7 @@ STUCK = {"ready": 6, "fix": 6, "leased": 3, "building": 5, "built": 2, "in-revie
 def settings(cfg: dict) -> dict:
     m = cfg.get("manager") or {}
     return {"open": int(m.get("open", 1)), "parked": float(m.get("parked_within_hours", 48)),
+            "park_wait": float(m.get("park_wait_hours", 24)),
             "intervention": float(m.get("intervention_hours", 12)), "heartbeat": float(m.get("heartbeat_minutes", 30)),
             "per_hour": int(m.get("interventions_per_hour", 3)),
             "stuck": {**STUCK, **(m.get("stuck_hours") or {})}}
@@ -115,8 +119,13 @@ def candidates(cfg: dict, now: float) -> list[dict]:
         if g["state"] == "dead" and now - float(g.get("entered") or now) > 1800:     # (dead-letters parks it first)
             out.append(sit("dead", g["id"], f"{g['id']} is a dead letter: {str(g['fields'].get('last_error'))[:300]}",
                            g.get("entered")))
-        elif g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders:
-            out.append(sit("parked", g["id"], f"{g['id']} was parked: {str(g['fields'].get('where_it_stopped'))[:300]}", at))
+        elif parks.waiting(g, now, s["park_wait"]) and branch(g) not in holders:
+            out.append(sit("waiting", g["id"], f"{g['id']} parked for {g['fields']['parked_for']} "
+                           f"{json.dumps(g['fields'].get('parked_until'))[:300]} {(now - at) / 3600:.0f}h, not cleared", at))
+        elif (g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders
+              and g["fields"].get("parked_for") not in (*parks.RESUMED, "deferred", "cancelled")):
+            out.append(sit("parked", g["id"], f"{g['id']} was parked ({g['fields'].get('parked_for') or 'its kind not said'}): "
+                           f"{str(g['fields'].get('where_it_stopped'))[:300]}", at))
     out += stuck(cfg, gaps, now)
     for i in sorted(opened, key=lambda i: float(i["fields"].get("recorded_at") or i.get("first") or 0)):
         at = float(i["fields"].get("recorded_at") or i.get("first") or now)
