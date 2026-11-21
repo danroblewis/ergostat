@@ -60,7 +60,7 @@ def main() -> int:
         why = f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, in the merge queue:\n" + "\n".join(
             f"- {x}" for x in findings)
         fac.say("gap.measured", failed_gates=1, findings=findings, triage=got)
-        review.park(cfg, gap, why, f"queue run {n}", where="triage")
+        review.park(cfg, gap, why, f"queue run {n}", where="triage", kind="kill-rule")
         return 0
     fac.say("gap.sent-back", sent_back_by="triage", findings=findings, failed_gates=1, fix_rounds=1, triage=got)
     return 0

@@ -59,7 +59,16 @@ End with exactly one fenced JSON block:
 {"verdict": "merge | fix | park",
  "blocking": ["each finding that must be fixed before merging: file:line, what is wrong, why it matters"],
  "non_blocking": ["what would be better, and need not stop it"],
- "where_it_stopped": "for park: what is done, what is left, and why it should stop"}
+ "where_it_stopped": "for park: what is done, what is left, and why it should stop",
+ "parked_for": "for park: defect | waits_on | needs",
+ "waits_on": "for waits_on: the gap it waits for (gap/NAME), or a list of the commit SHAs that must be on main",
+ "needs": {"action": "for needs: the action named (a measurement, an approval)", "who": "who must do it"}}
 ```
 
-`merge` only with no blocking finding. `park` when the approach is wrong, not just the details.
+`merge` only with no blocking finding. `park` when the approach is wrong, not just the details. A park says why, as a
+kind, and what would end it: `defect` when the gap's own work is wrong (the findings); `waits_on` when the work is done
+but waits on something outside the gap (the branch carries another gap's unlanded merge: name that gap, or the
+commits); `needs` when it waits on an action only someone else can take (a measurement only the coordinator can take,
+an approval: name it and who). A park with the work done and an outside cause is `waits_on` or `needs`, never `defect`.
+A program resumes `waits_on` and `needs` parks once what they name clears, so name it exactly; one naming nothing that
+can be checked counts as a defect.

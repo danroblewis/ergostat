@@ -279,7 +279,8 @@ on a read-only clone of main like the other sessions, its conversation kept as a
 
 **The triggers** (`dev/bin/watch.py`, the block `pipeline-watch`, every 5 minutes; `[manager]` in the settings), in
 order: the queue blocked (`run/queue.json`, or an open intervention of class `queue`); a gap dead past half an hour, or
-parked within `parked_within_hours` (48) unless another gap carries its branch on; a gap in one state past
+parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or none said) unless
+another gap carries its branch on; a `waits_on` or `needs` park not cleared in `park_wait_hours` (24); a gap in one state past
 `[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
 lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
 queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes
@@ -300,6 +301,19 @@ queue one only once main is clean and pushed). Asked in the inbox: `close GAP` (
 `pool ROLE N`, `change --what` (dev/model, the settings, anything touching origin). Every call is an
 `intervention.recorded` with a class and `by: pipeline-manager`, open like the coordinator's, so the interventions still
 count what the factory lacks. By hand (as the coordinator): `python3 dev/bin/manage.py continue gap/NAME --why ...`.
+
+**Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
+records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in
+`parked_until`), `needs` (an action named for someone), `kill-rule` (rounds, hours or attempts ran out: the implementor,
+the reviewer, the queue, triage, the plan lint, dead letters), `deferred` (the manager's park, once the coordinator
+approved it), `cancelled` (the plan review's), `split` (split-watch: the stopped sub-gaps). The reviewer's park verdict
+gives its kind and condition; one naming nothing checkable is a `defect`. The block `park-resume` (every 5 minutes, no
+AI) resumes `waits_on` once the gap merged or the commits are on main, `needs` once
+`ergostat event --add gap.need-met --item gap/NAME --data '{"need_met": "what was done"}'` is recorded, and `split`
+once each stopped sub-gap is resumed or closed (the split gap back to split, the continuations its children). A resume
+is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the parked gap saying what cleared (a
+continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Measures:
+`measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.
 
 **The velocity watch**: each heartbeat reads queue wait, suite minutes, cycle hours and each waiting state's time; when
 `queue-wait-short` or `suites-in-time` is off it files a gap (merge batching with bisection; faster suites), at most

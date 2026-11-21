@@ -102,7 +102,7 @@ items:
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
       gap.closed: closed             # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
                                      # manager's close, once the coordinator approved it)
-    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason, parked_for]
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
@@ -135,6 +135,8 @@ items:
     lease: {attempts: 2}
     # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
     # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
+    # gap.need-met (no state): the coordinator or owner records a needs park's action done (need_met: what was done)
+    # gap.resumed (no state): a park resumed (resumed_as, resumed_for, resumed_by, cleared: the condition; parks.py)
 
   review:
     id: review/*
