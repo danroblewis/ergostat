@@ -2578,6 +2578,68 @@ def test_a_closed_systems_panel_charts_its_measures(browser, tmp_path):
         assert "…" != got["text"].strip(), got                 # it answered: charts, or "nothing measured"
 
 
+def test_the_system_panel_names_stocks_to_aggregate(browser, tmp_path, monkeypatch):
+    """A system whose chain of stocks no loop beyond each stock's own drove over the window says so in an
+    `aggregate` row of its panel (from /api/dominance); a system with no such chain has no row."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from tests.test_aggregation import CHAIN
+    d = tmp_path / "plant"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CHAIN.replace("stocks:\n", "stocks:\n  e:\n    unit: x\n    system: other\n    sensor:\n"
+                                                   "      manual: true\n", 1)
+                                     + "  oute:\n    from: e\n    system: other\n    driven-by: +stock.e\n    equation: stock.e / tau\n"
+                                     + "  ine:\n    to: e\n    system: other\n    sensor:\n      manual: true\n")
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # the server is given it too
+    p = Project(mdl.load(d))
+    now = time.time()
+    for i in range(61):
+        t = now - 3600 + i * 60
+        p.measurements.add("sensor/in.main", 10 + 8 * math.sin(i / 5), at=t)
+        p.measurements.add("sensor/ine.main", 10 + 8 * math.cos(i / 5), at=t)
+        for s in "abce":
+            p.measurements.add(f"sensor/{s}.main", 2.0, at=t)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    raise AssertionError("the page never answered") from None
+                time.sleep(0.2)
+        got = json.loads(urllib.request.urlopen(url + "/api/dominance?since=1h&points=120", timeout=60).read())
+        assert [(g["system"], g["stocks"]) for g in got["aggregate"]] == [("plant", ["stock.a", "stock.b", "stock.c"])], got
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics", 0)                        # everything closed: each system a module
+        row = """() => { const dt = [...document.querySelectorAll('#detail dt')].find((x) => x.textContent === 'aggregate');
+                         return dt ? dt.nextElementSibling.textContent : null; }"""
+        pg.evaluate("() => openNode(S.graph.nodes.find((x) => x.kind === 'system' && x.label === 'plant'))")
+        pg.wait_for_function(row, timeout=20000)
+        assert pg.evaluate(row) == got["aggregate"][0]["said"]
+        assert "stock.a, stock.b, stock.c: a candidate to aggregate into one delay" in pg.evaluate(row)
+        asked = ("() => performance.getEntriesByType('resource')"
+                 ".filter((r) => r.name.includes('/api/dominance') && r.responseEnd > 0).length")
+        before = pg.evaluate(asked)
+        pg.evaluate("() => openNode(S.graph.nodes.find((x) => x.kind === 'system' && x.label === 'other'))")
+        pg.wait_for_function("() => document.querySelector('#detail h2')?.textContent === 'other'", timeout=5000)
+        pg.wait_for_function(f"() => ({asked})() > {before}", timeout=20000)   # its own answer came, and gave it no row
+        pg.wait_for_timeout(300)
+        assert pg.evaluate(row) is None
+        assert not errors, errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(browser, tmp_path):
     """Clicking a flow's valve (the bowtie) opens the valve: the rate of the flow, its inputs (the
     connectors into it, each signed) and its equation, or what of it is not known yet; clicking its
