@@ -82,7 +82,7 @@ params:
   ai:
     type: bool
     default: false
-    description: the AI tier, an AI agent (claude -p) given the requests the rule tier cannot answer, with the model near each and the modelling guides; off by default, so a fresh model costs nothing
+    description: the AI tier, an AI agent (claude -p) given the requests the rule tier cannot answer, with the model near each and the modelling guides; off by default, so a fresh model costs nothing; within ai-daily (see there)
   ai-model:
     default: haiku
     description: the model the AI tier's session uses
@@ -91,9 +91,17 @@ params:
     default: 10m
     description: the least time between the AI tier's runs while requests wait for it
   ai-most:
-    type: number
+    type: integer
     default: 8
-    description: the requests given to one AI call
+    min: 1
+    max: 16
+    description: the requests given to one AI call (1 to 16), so a prompt's size and cost have a ceiling
+  ai-daily:
+    type: number
+    default: 1
+    min: 0
+    max: 20
+    description: "the AI tier's dollars a day (0 to 20). A call starts only when the day's spend plus its reservation (the most its prompt and longest answer could cost) stays within ai-daily; one call at a time; a call that reports more than its reservation is charged what it reported, so the day can end above ai-daily by that one call's overrun, and none starts after it until the day's spend is back under. A spend ledger that cannot be read means no call"
   redesign:
     type: any
     default: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2}
@@ -363,7 +371,7 @@ blocks:
     description: the AI tier, answering the requests the rule tier cannot, with the model near each and the modelling guides
     goal: requests-handled
     prompt: ${folder}/modeller.md
-    run: ${lib} modelling ai --model ${ai-model} --most ${ai-most} --timeout ${timeout:seconds}
+    run: ${lib} modelling ai --model ${ai-model} --most ${ai-most} --daily ${ai-daily} --timeout ${timeout:seconds}
     model: ${ai-model}
     every: ${ai-every}
     timeout: ${timeout}
