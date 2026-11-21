@@ -338,3 +338,19 @@ docs: 236.
   `test_relations_asof` change stays until the base is rebuilt, because the test needs it on this base.
 
 No code changed in this round, so no test was run again.
+
+### The unit suite after round 7
+
+The tail the factory gave holds only `suite-slot` and uv's rebuild of the package. It has no pytest line, and not
+even the closing JSON line that `scripts/suite_watch.py` always prints unless it is killed itself. So the run was
+stopped from outside the watchdog (a timeout or the slot) before it printed a full line. Under `-n 8`, pytest's
+progress dots have no newline until a row fills, so a line-based tail can show nothing. The tail names no test and
+shows no assertion. Here, `--collect-only` collects 2,025 tests with no error. Run one file list at a time, all pass:
+`tests/test_program_actions.py` (10), and `tests/test_reload_in_place.py`, `tests/test_upkeep_template.py`,
+`tests/test_index_files.py`, `tests/test_watchdog.py`, `tests/test_runner_and_state.py` (78). The whole suite, any
+`-n` run and shell loops over files were refused in this session. I checked the branch's one change to the engine
+(`Engine.run_block`, the `closing` check) for a way to hang. `self.stop` is set only by `close()`, and `_kill`
+kills the run's whole process group, so the pump's pipe closes and the run ends. I found no hang. No code changed:
+a fix made without knowing the failing test would be a guess (lesson-10, lesson-13). Next step: run the unit suite
+again with `-rf` and its full log (with `-o faulthandler_timeout=120`, so a hung test dumps its stack), then run
+whatever it names alone on this branch and on main. The base still holds the backlog merge, as round 7 says.
