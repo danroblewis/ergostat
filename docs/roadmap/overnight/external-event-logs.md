@@ -338,3 +338,14 @@ Each finding of review/external-event-logs-3 is answered here (lesson-12):
 
 Ran: `tests/test_mirror.py` with `-o faulthandler_timeout=120` (30 passed, 12 s) and ruff (clean). The whole unit
 suite and the browser files were not run by me. origin/main was not merged: this clone has no `origin`.
+
+## Where it stopped, round 10
+
+- **`.mut/mut.py` (blocking, review/external-event-logs-4): still committed.** `git ls-files .mut` still lists it.
+  This session's sandbox refused `git rm -q .mut/mut.py` again (don't-ask mode), and I did not get around it with
+  another command. The one thing left is `git rm .mut/mut.py && git commit`, run by the factory or the owner. Nothing
+  else is needed: without the file the code outside `tests/` and `docs/` is 262 lines, within the 300 budget.
+- **The review could not run test_mirror.py:** run here again, 30 passed.
+- No code and no tests changed. Ran: `tests/test_mirror.py` with `-o faulthandler_timeout=120` (30 passed, 12 s) and
+  ruff (clean). The whole unit suite and the browser files were not run by me. origin/main was not merged here: the
+  branch head already carries main (merge 7149d8c1), and the merge queue runs both suites after merging.
