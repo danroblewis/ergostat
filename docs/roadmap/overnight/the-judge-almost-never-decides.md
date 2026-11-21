@@ -363,3 +363,12 @@ Review/the-judge-almost-never-decides-5 and -6, every finding (lesson-12):
 No code changed, so the size stays as it was. **Left:** the person deletes `scratch_probe.py` and commits these doc
 edits with it; finding 3 above, if the review wants it before the merge; the suites under `suite_watch.py` after the
 origin/main merge.
+
+### Resumed, round 3 (2026-11-21, the factory's scratch-file gate)
+
+- The gate refused the build on `scratch_probe.py` alone. Checked again: nothing in `ergostat/`, `tests/` or
+  `scripts/` names it.
+- `git rm -q scratch_probe.py` was refused by this session's permissions (the eighth refusal), and no other route
+  was tried: they would get around the same refusal. No code changed and no test was run.
+- **Left, and only a person can do it:** `git rm scratch_probe.py`, then commit it together with this file's
+  uncommitted doc edits. Another automated round will be refused the same way.
