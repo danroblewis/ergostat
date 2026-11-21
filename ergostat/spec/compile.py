@@ -15,6 +15,7 @@ from .equation import FUNCS as FUNCTIONS
 from .ir import (
     ACTION,
     BUILTIN,
+    CHANGE_CLASSES,
     CLAIM,
     CLAIM_CHECKS,
     CONTEXT,
@@ -90,7 +91,7 @@ TYPE_KEYS = {
                                        "workdir", "workspace", "read", "tools", "actions", "read-only", "network"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
     "external": {"agent", "identify"},
-    "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up",                # judge: model (SPEC §12e)
+    "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up", "reviewed",              # judge: model (SPEC §12e)
               "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
     "compare": {"above", "below", "back-above", "back-below"},
@@ -296,6 +297,13 @@ class Compiler:
                 self.err(f"{what}.warm-up: a duration, 0 or more", m.at("warm-up"), "bad-duration")
             else:
                 out.warm_up = wu
+        rv = m.get("reviewed")                   # the kinds written only after the reviewer's pass
+        if rv is not None:
+            ks = [str(k) for k in (rv if isinstance(rv, list) else str(rv).replace(",", " ").split())]
+            if any(k not in CHANGE_CLASSES for k in ks):
+                self.err(f"{what}.reviewed: kinds of change ({', '.join(CHANGE_CLASSES)})", m.at("reviewed"), "bad-accept")
+            else:
+                out.reviewed = ks
         w = m.get("windows")
         if w is not None:
             if not isinstance(w, list) or not w or not all(isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= 16
