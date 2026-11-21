@@ -246,10 +246,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `done` for another item) by tagging, B1 (env leaking between items) by env in the line, B3 (a child's CPU never
   charged) by charging no item CPU at all (the daemon's own CPU and memory are sampled and shown); a `warm: true`
   daemon now charges it per item (*Done recently*).
-- **Daemons, left over:** a daemon's lines are taken one at a time (a run's process batches the lines that arrive
-  together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
-  not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
-  ends.
 - **Daemon YAML schema review** (open; owner, 2026-11-19): the functionality landed (`daemons`, `daemons2`; how to
   use and write daemons: `docs/DAEMONS.md`, the skill's `daemons.md`), but the owner is not sure the YAML is the
   best yet, and it may change. The options, what each would cost and a recommendation for each are in
@@ -395,6 +391,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Done recently
 
+- **Daemons, left over** (done on `factory/daemons-left-over`; SPEC §6 and §9.7,
+  `docs/roadmap/overnight/daemons-left-over.md`): a daemon's lines that arrive together are taken together, per run,
+  up to 500 at once, in the order printed (`ergostat/daemons/lines.py`), and a line over 1 MiB is dropped; a sensor
+  daemon's observations (`{"event": ..., "item": ..., "sensor": S}`, or a relayed `{"message": ...}`) are checked and
+  recorded as a `run:` sensor's are, from that sensor, at most 50 a second, the drops counted and said once
+  (`ergostat/daemons/observe.py`), and one for a sensor the daemon does not serve is dropped; a new daemon's CPU is
+  sampled about 1 s after it starts, then at doubling gaps up to every 30 s, never two samples within 1 s
+  (`ergostat/costs/sampler.py`).
 - **A renewing run killed because the engine was busy recording its renewal** (done on `leaserenew`, merged as
   1f013ba, its last commit 372533d; SPEC §9.5, `docs/roadmap/overnight/leaserenew.md`): the watchdog expires a lease
   only on a second look at the same expiry, `grace(ttl)` after the first (a tenth of the TTL, 1-30 s), and re-reads
@@ -405,7 +409,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
   before the fix, 0 of 48 after; at 1,000 items × 300 lines, counts / estimate / identify took 0.15 / 0.13 / 0.10 s
   before refused expiries were left out and 0.17 / 0.14 / 0.12 s now. The cost test
   (`tests/test_lease_refused_cost.py`) bounds each read at 2× + 50 ms of the cost without the refusal.
-
 - **Warm processes for blocks** (done on `factory/warm3`, finishing `warm2` and `warm3`, each parked after two failed
   gates; SPEC §9.7, `docs/roadmap/overnight/warm2.md`): `warm: true` on a daemon, a declared promise that the program
   keeps no state between runs: `concurrency` processes, one run each at a time, each run charged its process group's
