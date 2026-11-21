@@ -127,3 +127,12 @@ Its runs failed past their attempts (a dead letter):
 - attempt 5: nack exited 1
 - attempt 6: nack exited 1
 - attempt 7: nack exited 1
+
+## Where it stopped
+
+Round 2: main (2388572a) is merged in. The one conflict was in `tests/test_factory_knowledge.py`. The branch and
+main had each added new tests at the same place: the branch its kind, refusal and decision tests, and main its
+plan-lint, graph-brief and plan-review tests. Both sets are kept whole. No code changed in this round. After the merge,
+`tests/test_factory_knowledge.py` gives 49 passed, `tests/test_factory.py` gives 52 passed and 2 skipped, and ruff is
+clean. Not run, because this session refused the commands: `ergostat check` on the root model, the other factory test
+files, and the unit and browser suites under `scripts/suite_watch.py`. Those are left to the factory.
