@@ -4,6 +4,9 @@ intervention by whoever asked (the coordinator by hand, `pipeline-manager` from 
   continue GAP [--depends-on a,b]       a new gap continuing a parked (or dead) gap's branch
   reapprove GAP --why W                 past an environmental failure: its failed tests run again on main where they
                                         failed (the checkout, or a container) must fail there too
+  measure-runs GAP --runs N --tests T [--load K]   a parked or built gap's named measurement (runs.py): N watched
+                                        runs (1-50) of the pytest selection T on its branch head, the CPU loaded by K
+                                        busy processes (1-8); all passed: back to review, else to fix with the tail
   flake TEST --why W                    the test recorded as a flake
   file-gap --title T --definition-text D [--depends-on a,b] [--branch B]
   remedy INTERVENTION --why W           an open intervention remedied (a queue one: main clean and pushed)
@@ -24,11 +27,12 @@ sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
 import onmain  # noqa: E402
+import runs  # noqa: E402
 
 BY = ["coordinator"]                      # who acts: the coordinator by hand, the pipeline manager from its run
 SITUATION = [""]
 CLASSES = {"continue": "parked-continued", "reapprove": "environment-defect", "flake": "flake", "file-gap": "missing-gap",
-           "remedy": "remedied", "close": "groom", "park": "stuck", "pool": "operator-decision", "change": "factory-change"}
+           "remedy": "remedied", "measure-runs": "operator-decision", "close": "groom", "park": "stuck", "pool": "operator-decision", "change": "factory-change"}
 GATED = {"close": "manager-close", "park": "manager-park", "pool": "manager-pool", "change": "manager-change"}
 
 
@@ -144,6 +148,30 @@ def do_reapprove(cfg: dict, a) -> str:
     return f"{a.gap} back to {to}: {', '.join(tests)} fail on main too ({log})"
 
 
+def do_measure_runs(cfg: dict, a) -> str:
+    """The runs (runs.measure), their counts appended to the gap's `measured_runs` and said in its `findings`, which
+    the reviewer's and implementor's briefs carry. All passed: gap.built at the head measured (review, unchanged); any
+    failed: gap.sent-back, the first failing run's tail its input. The gap and its branch are read again first: one
+    that left parked or built, or whose branch moved, while the runs ran keeps its state, the counts recorded alone."""
+    got = runs.measure(cfg, item(a.gap), a.runs, runs.selection(a.tests), a.load)
+    head, bad = got["head"], [r for r in got["runs"] if not r["passed"]]
+    said = (f"measure-runs at {head[:12]}: {got['passed']} of {got['n']} runs passed, {got['failed']} failed, of "
+            f"`{' '.join(got['tests'])}`" + (f", the CPU loaded by {got['load']} busy processes" if got["load"] else ""))
+    g = item(a.gap)
+    if g["state"] not in ("parked", "built") or runs.tip(cfg, fac.branch_of(g)) != head:
+        record("gap.measured", a.gap, measured_runs=got)
+        raise Refused(f"{said}; recorded alone: {a.gap} is {g['state']} now, or its branch moved since {head[:12]}")
+    if bad:
+        first = bad[0]
+        record("gap.sent-back", a.gap, sent_back_by="measure-runs", measured_runs=got, failed_gates=1, fix_rounds=1,
+               findings=[said, f"run {first['run']} of {got['n']}: {first['why']}; its tail:\n{first.get('tail', '')}"])
+    else:
+        record("gap.built", a.gap, built_at=time.time(), head=head, measured_runs=got,
+               findings=[*list(g["fields"].get("findings") or []), said])
+    intervene("measure-runs", a.gap, a.why or said, a.cls, head=head, passed=got["passed"], failed=got["failed"])
+    return f"{a.gap} back to {'fix' if bad else 'built'}: {said}"
+
+
 def do_flake(cfg: dict, a) -> str:
     if not re.fullmatch(r"[\w./-]+\.py::\S+", a.test):
         raise Refused(f"{a.test!r} is not a test id (path.py::name)")
@@ -226,6 +254,13 @@ def parser() -> argparse.ArgumentParser:
                            **({"default": ""} if x.startswith("--") and not x.endswith("!") else {}))
         p.add_argument("--why", default="", required=name not in ("continue", "file-gap"))
         p.add_argument("--class", dest="cls", default="")
+    p = sub.add_parser("measure-runs", exit_on_error=False)              # (the caps checked here and again in runs.py)
+    p.add_argument("gap")
+    p.add_argument("--runs", type=runs.count, required=True)
+    p.add_argument("--tests", type=lambda t: shlex.join(runs.selection(t)), required=True)
+    p.add_argument("--load", type=runs.procs, default=0)
+    p.add_argument("--why", default="")
+    p.add_argument("--class", dest="cls", default="")
     return ap
 
 
@@ -238,6 +273,7 @@ def run(cfg: dict, argv: list[str]) -> dict:
         if a.cmd in GATED:
             return {"call": argv, "ok": True, "said": gated(cfg, a)}
         do = {"continue": do_continue, "reapprove": do_reapprove, "flake": do_flake, "remedy": do_remedy,
+              "measure-runs": do_measure_runs,
               "file-gap": lambda c, a: file_gap(c, a.title, a.definition_text, a.depends_on, a.branch, a.why, a.cls)}
         return {"call": argv, "ok": True, "said": do[a.cmd](cfg, a)}
     except (Refused, argparse.ArgumentError, KeyError, ValueError) as e:

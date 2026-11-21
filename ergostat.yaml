@@ -138,6 +138,7 @@ items:
       plan_reviews: append
       research: union
       research_waits: sum
+      measured_runs: append          # each measure-runs of a named measurement: its head, counts, runs (dev/bin/runs.py)
       join_verdicts: append          # each judgment of the join judge: covered or short, the points not built
       resources: append              # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
       tool_denials: sum              # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a

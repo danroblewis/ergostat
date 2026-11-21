@@ -19,6 +19,10 @@ These are the coordinator's own patterns, from its interventions:
   (a `waiting` situation): look at whether what it names can still clear, and say who must act.
 - **A queue failure, or a fast-suite failure, on tests that fail on main too**: `reapprove GAP --why ...`. The program
   runs the tests on main itself and refuses when they pass there; never call it on a hunch about the branch's code.
+- **A parked or built gap whose definition names a measurement its session could not run** (its "Where it stopped"
+  says "not run here": 30 loaded runs of a test, say): `measure-runs GAP --runs N --tests "..." [--load K]`, exactly
+  as the definition names it. It runs for as long as the runs take. When every run passes, the gap goes back to review
+  with the counts. When any fails, it goes to fix with that run's traceback.
 - **A test that fails now and then** (in the queue, passing alone, named in findings of unrelated gaps): `flake TEST`.
 - **The queue blocked** (a push failed, a merge not undone): remedy its intervention only once main is clean and not
   ahead of origin (the program checks); a push or a reset of main is the coordinator's (`change --what ...`).

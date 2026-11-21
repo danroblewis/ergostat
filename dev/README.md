@@ -524,6 +524,24 @@ queue one only once main is clean and pushed). Asked in the inbox: `close GAP` (
 `intervention.recorded` with a class and `by: pipeline-manager`, open like the coordinator's, so the interventions still
 count what the factory lacks. By hand (as the coordinator): `python3 dev/bin/manage.py continue gap/NAME --why ...`.
 
+**A definition's named measurement** (`measure-runs GAP --runs N --tests "T" [--load K]`, `dev/bin/runs.py`). Use it
+when a definition's acceptance is a repeated or loaded run that its sessions cannot make, and the gap is parked or
+built with "Where it stopped" saying the measurement was not run here. The first user is gap/lease-shutdown-race:
+`--runs 30 --load 4 --tests "-n 8 tests/test_leases.py"`. It makes N runs (1-50) of the selection T on the branch
+head, in a clone of the drop at it. T is test files or ids under `tests/` and at most one `-n` of 1-8. Each run is
+`[suites] measure`, under `scripts/suite_watch.py`, in the shared suite slot and a suite container. With `--load`, K
+busy processes (1-8) of `[suites] load` run beside the runs under a watchdog of their own. Their process group, and
+their container, are stopped when the runs end, however they end. Each cap is checked when the call is parsed and again
+when it runs. A run passes only on exit 0 with the watchdog's last line saying pytest's rc 0 and nothing killed. A
+killed run counts as a failure, and so does one whose log or watchdog line cannot be read. The counts (passed and
+failed of N, the head, each run's rc, and the log tail of each failed run) are appended to the gap's `measured_runs`.
+They are also said in its `findings`, which both briefs carry. If every run passed, the gap goes to `built` at the same
+head, for review. If any failed, it goes to `fix`, with the first failing run's tail as its input (one failed gate).
+Before the gap is moved, its state and its branch are read again. If the gap left parked or built while the runs ran,
+or its branch moved, it keeps its state, the counts are recorded alone (`gap.measured`) and the call is refused. That
+check takes no lock (the engine's takes have none to share). A reviewer that takes a built gap between the second
+read and the write is not seen: that window is one record read wide.
+
 **Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
 records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in
 `parked_until`), `needs` (an action named for someone), `kill-rule` (rounds, hours or attempts ran out: the implementor,
