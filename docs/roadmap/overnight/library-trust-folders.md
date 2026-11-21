@@ -208,3 +208,20 @@ Both of the earlier review's blocking findings were answered in round 2 (above).
   `test_warm`, which is outside this gap (see above).
 
 **Left:** the unit suite and the four browser files, run under the watchdog with the full output kept.
+
+### The factory's unit run after round 3
+
+The tail it gave holds only start-up (`bringing up nodes...` twice) and 36 dots: no `F`, no `E`, no traceback and no
+summary line. The run was cut off a few seconds in, and it names no failing test, so no code was changed (nothing
+to fix, and this brief says to fix the code, not the tests' bounds). In this worktree I could not run the whole
+suite or start it under `scripts/suite_watch.py` (the call was refused). What I ran here:
+`tests/test_library_trust.py`, `tests/test_templates.py` and `tests/test_modelling_template.py` (86 passed in 110 s).
+`tests/test_library_trust.py` alone took 6.5 s, and its slowest test 0.49 s, so none of this gap's tests can hold a
+worker long enough to stall the run. The 110 s is the existing template tests' trial runs, which this branch does not
+change. Nothing in the diff can loop: the chain's depth is still capped by `expand.MAX_DEPTH`, and `plan` recurses
+exactly where `one` used to. Ruff is clean.
+
+**Left:** the same as before. Run the unit suite and the four browser files again under the watchdog, keep the
+whole output, and name any failure. Three runs have now ended with no named failure from this branch (one
+`test_warm` timing failure outside the gap, then two cut-offs). If the next run is also cut off, look at the slot or
+the watchdog's kill (its JSON line says whether it killed the run and why), not at the code.
