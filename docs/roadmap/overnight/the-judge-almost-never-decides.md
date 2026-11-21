@@ -273,3 +273,14 @@ not threads. Run under the watchdog, its peaks would say. **Left:** the factory 
 `scratch_probe.py` is still committed. This session's permissions refused `git rm scratch_probe.py` again, run on
 its own, so the round-2 blocking finding is still open. Whoever can delete files must run `git rm scratch_probe.py`
 and commit it before the merge.
+
+### Round 3 (the one blocking finding: `scratch_probe.py`)
+
+The queue's only blocking finding is that `scratch_probe.py` is still committed. This round tried
+`git rm -q scratch_probe.py` first, and this session's permissions refused it, as in rounds 1 and 2. It was not
+worked around: overwriting the file with nothing would still leave a scratch file at the root, and a revert of
+6bd6c9f8 is the same deletion. No code changed, so the size stays at 108 net lines and the suites' results above
+stand. **Left, and it blocks the merge:** a session or person allowed to delete files runs
+`git rm scratch_probe.py && git commit -m "the-judge-almost-never-decides: remove the scratch probe"`. Nothing in
+`ergostat/` or `tests/` imports it, so no test changes with it. Still also left: the factory's `unit` run under
+`suite_watch.py`, the four browser files, and the merge of the real origin/main (this clone has no `origin`).
