@@ -360,3 +360,23 @@ either). Merging was the reversible choice, and it leaves the branch's history w
 
 **Not run here:** `test_repair2.py` skips as a module (32 skipped: no OS sandbox in this container). The unit suite
 and the four browser files are left to the factory's watched run. Main's own `test_leases.py` was not run side by side.
+
+### Continued, round 1: after the factory's unit run ("unit failed")
+
+The merge of main (0441187f) was already committed as 7adda75b, with no conflict markers left in
+`dev/model/knowledge.yaml` or `ergostat.yaml`. There was nothing left to resolve.
+
+**No failure found, so no code changed.** The tail of the unit run names no failing test. It shows no `F` or `E` and
+no pytest summary, and it stops in the middle of a progress line at about 2429 results, so the last few tests never
+reported. That looks like the run was stopped from outside (a timeout or a kill whose message is not in the tail)
+or a test stalled, not like a failed assertion. I looked for a way this gap's code could stall a test: the blocking
+`flock`s in `runlog.open_run` and `runlog.finish` are held only across a create or an append, never nested. No code in
+`ergostat/` forks without an exec while one is open. `storage.trim` takes no lock. No unit test polls a block log for
+live output. I found no such path. A whole-suite run in this session was refused, so I ran every test file that
+starts the engine (and every one that reads a log) under `-n 8 --dist worksteal`, in four groups. All passed:
+236 passed and 32 skipped (the gap's files, the engine, daemons, leases, repair2 skipped for want of a sandbox),
+45 passed (the daemon observations, the ticket factory's daemons, the daemon docs), 198 passed and 22 skipped (the
+factory, reload soak, the sandbox attacks, the run costs, ...), and 522 passed and 1 skipped (the other
+engine-starting files). The slowest are `test_reload_soak.py` (127 s) and `test_factory.py` (60-90 s each). Each of
+their waits has a deadline. **Left:** the factory's next unit run, with its whole output (or the `suite_watch` JSON
+line, which says whether it killed the run and why). If it names a test, that test is where to start.
