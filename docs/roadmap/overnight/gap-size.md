@@ -342,3 +342,17 @@ the two size measures), in place of "the last N". The time-in-state measures rea
 `tests/test_factory_times.py` 7 passed. `ruff check ergostat tests scripts dev/bin` is clean.
 `git diff 24756e50...HEAD` touches only the definition's files and this one. Not run: the whole unit suite and the
 browser files (the factory runs them under the watchdog).
+
+**After round 3: the factory's `unit` suite failed again with no test named.** The merge of main (6903a937) was
+already committed. Nothing was left to resolve and no conflict marker remains. The tail shows `bringing up nodes...`
+twice and one line of dots: no `F`, no pytest summary, and not the JSON line `suite_watch.py` always prints at its
+end. So the run was stopped from outside (a timeout or a kill), not failed by an assertion. The same tail was seen
+today on lesson-denied-settles (24b1c81e, now on main), a branch that does not carry this gap. So the symptom is the
+factory's, not this branch's (lesson-10, lesson-13). This session refused a whole-suite run again, and I did not try
+to get around that. Run instead with the suite's own options (`-n 8 --dist worksteal`), at the same time:
+`tests/test_factory_knowledge.py` 59 passed, `tests/test_factory.py` 62 passed and 2 skipped (Docker). Neither
+hangs. Per `--durations`, the only slow test is whichever runs first in a fresh process (about 61 s, a one-off
+warm-up). In file order that is main's `test_brief_carries_knowledge_within_budget`. This gap's tests take under
+1 s each when they are not first. No code was changed. `ruff check ergostat tests scripts dev/bin` is clean.
+**Left:** rerun `unit` and keep its full output (or its summary and the watchdog's JSON line), so the test that was
+running when it stopped is known.
