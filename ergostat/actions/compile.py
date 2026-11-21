@@ -4,12 +4,14 @@ written. Called by the spec compiler with itself."""
 
 from __future__ import annotations
 
+import math
 import re
 import string
 
 from ..spec.ir import GATES, NAME, Action
+from .risk import HIGHEST, THRESHOLD
 
-ACTION_KEYS = {"run", "gate", "class", "args", "timeout", "wait", "in", "description", "fenced"}
+ACTION_KEYS = {"run", "gate", "class", "args", "timeout", "wait", "in", "description", "fenced", "risk"}
 BUILT_IN = ("item", "branch", "workdir", "block", "run")      # what every action's template may name
 TOOL = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\(.+\))?$")         # Read, Edit, Bash(python3:*)
 SANDBOX_KEYS = ("workdir", "workspace", "read", "tools", "actions")
@@ -58,7 +60,30 @@ def actions(c, spec) -> None:
             fenced = True
         spec.actions[name] = Action(name, str(m["run"]), gate, cls, {str(k): str(v) for k, v in args.items()},
                                     c.duration(m, "timeout", what, 120.0), c.duration(m, "wait", what, 300.0),
-                                    str(where) if where else None, c.text(m, "description"), m.where, fenced)
+                                    str(where) if where else None, c.text(m, "description"), m.where, fenced,
+                                    *risk(c, m, what))
+
+
+def risk(c, m, what: str) -> tuple[int | None, float]:
+    """``risk: {severity: 1..5, threshold: 1 < T ≤ 50}`` (SPEC §12k, ``risk.py``): a floor and a ceiling on each."""
+    r = m.get("risk")
+    if r is None:
+        return None, THRESHOLD
+    if not isinstance(r, dict):
+        c.err(f"{what}.risk: a map, {{severity: 1 to 5, threshold: above 1, at most 50 (default 8)}}", m.at("risk"),
+              "not-a-map")
+        return None, THRESHOLD
+    c.keys(r, {"severity", "threshold"}, f"{what}.risk")
+    s, t = r.get("severity"), r.get("threshold", THRESHOLD)
+    if isinstance(s, bool) or not isinstance(s, int) or not 1 <= s <= 5:
+        c.err(f"{what}.risk.severity: a whole number from 1 to 5 (how much harm the act can do), not {s!r}",
+              r.at("severity"), "bad-value")
+        s = 5
+    if isinstance(t, bool) or not isinstance(t, int | float) or not math.isfinite(t) or not 1 < t <= HIGHEST:
+        c.err(f"{what}.risk.threshold: a number above 1 and at most {HIGHEST:g} (the score that steps its gate), "
+              f"not {t!r}", r.at("threshold"), "bad-value")
+        t = THRESHOLD
+    return s, float(t)
 
 
 def blocks(c, spec) -> None:

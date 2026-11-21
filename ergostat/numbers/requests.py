@@ -52,8 +52,9 @@ TIERS = {"rule", "ai"}
 
 
 def fresh() -> dict:
-    """What a dismissed request raised again starts from: a new finding, untried, not the owner's, no dismissal."""
-    return {"tried": {}, "owner": False, **dict.fromkeys(DISMISSAL)}
+    """What a dismissed request raised again starts from: a new finding, untried, no failed call nor error, not the
+    owner's, no dismissal."""
+    return {"tried": {}, "failed": {}, "error": None, "owner": False, **dict.fromkeys(DISMISSAL)}
 
 
 class RequestError(ValueError):
@@ -272,7 +273,7 @@ def approvable(spec: Spec, r: dict) -> bool:
 
 def answer(p, spec: Spec, x: str, yes: bool, note: str | None = None, by: str = "owner") -> str:
     """The owner's answer to a held request (the inbox): approved, it is open again for the ai tier, with its tries
-    given back (the tier skips a request whose tries are used, or held for the owner); denied, it is dismissed with
+    and its failed calls given back (the tier skips a request whose tries are used, or held for the owner); denied, it is dismissed with
     ``note``, until the part it is about changes. Approval is refused when no tier would take it up: it is then the
     owner's own change (citing it) that answers it, or a dismissal. Read and written under ``locked``."""
     with locked(p):
@@ -289,6 +290,7 @@ def _answer(p, spec: Spec, x: str, yes: bool, note: str | None, by: str) -> str:
                                f"{evidence_of(r)}), or --deny --note WHY")
         event(p, x, "reopened", {"why": None, "change": None, "owner": False, "tier": "ai", "since": time.time(),
                                  "tried": {**(r.get("tried") or {}), "ai": 0}, "version": ver.version(spec),
+                                 "failed": {**(r.get("failed") or {}), "ai": 0}, "error": None,
                                  "approved_by": by}, source=by)
         return "approved: open again, for the ai tier"
     if not (note or "").strip():

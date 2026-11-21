@@ -265,6 +265,15 @@ def test_the_factory_model_loads():
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
 
 
+def test_the_factory_blocks_take_their_pools_from_the_pool_stocks():
+    from ergostat.spec.ir import Ref
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    imp, rev = spec.blocks["implementor"], spec.blocks["reviewer"]
+    assert imp.pool_now == Ref("stock", "implementor-pool") and imp.pool == 9   # main's operator: was 4
+    assert rev.pool_now == Ref("stock", "reviewer-pool") and rev.pool == 6     # main's operator: was 2
+
+
 def test_intake_reads_gaps_and_requests(tmp_path):
     f = Factory(tmp_path)
     said, lines = f.run("intake.py")
@@ -377,7 +386,7 @@ def test_fix_then_park(tmp_path):
     assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the last failed gate
     assert f.item(gid)["fields"]["parked_in"] == "review"
     definition = git(tmp_path / "live" / "drop.git", "show",
-                     "factory/alpha-thing:docs/roadmap/overnight/alpha-thing.md")
+                     "factory/alpha-thing:dev/records/alpha-thing.md")
     assert "## Where it stopped" in definition
 
 
@@ -513,6 +522,104 @@ def test_a_run_waits_its_turn_in_the_pool(tmp_path):
             "pools.my_turn(cfg, 'implementor', 'implementor', 'gap/b'))")
     r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
     assert r.stdout.split() == ["True", "False"], r.stderr                     # a pool of 1: the first taken goes on
+
+
+def long_record(tmp_path, monkeypatch, n: int = 600):
+    """A real project (no fake ergostat) with gap/long: a build at its start, then ``n`` events after it, so the build
+    is outside the last 500 that `ergostat item --json` carries; and gap/short, three events."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    (tmp_path / "ergostat.yaml").write_text("name: timer\nitems:\n  gap:\n    id: gap/*\n    states: [ready, building, built]\n"
+                                            "    on: {gap.ready: ready, gap.started: building, gap.built: built}\n")
+    p = Project(mdl.load(tmp_path))
+    p.events.add("gap.ready", item="gap/long", source="test", at=100.0)
+    p.events.add("gap.built", item="gap/long", source="test", data={"build_hours": 0.5}, at=200.0)
+    for i in range(n):
+        p.events.add("gap.noted", item="gap/long", source="test", data={"i": i}, at=300.0 + i)
+    for t, e in ((100.0, "gap.ready"), (110.0, "gap.started"), (120.0, "gap.built")):
+        p.events.add(e, item="gap/short", source="test", data={"build_hours": 0.25} if e == "gap.built" else {}, at=t)
+    monkeypatch.setenv("ERGOSTAT_CMD", f"{sys.executable} -m ergostat -C {tmp_path}")
+    monkeypatch.setenv("ERGOSTAT_NO_SOCKET", "1")
+    sys.modules.setdefault("fac", module("fac"))
+    return module("times")
+
+
+def test_the_timer_reads_a_gap_past_500_events(tmp_path, monkeypatch):
+    """timer-long-records: past 500 events the record is read whole through the real `ergostat event` (it was
+    `ergostat events`, not a command), so the build at its start is counted."""
+    times = long_record(tmp_path, monkeypatch)
+    d = json.loads(times.fac.ergostat("item", "gap/long", "--json").stdout)
+    assert d["record_total"] == 602 and len(d["record"]) == 500                # cut short: the build is not in it
+    assert times.timing(d)["gates"]["implementor"] == {"minutes": 30.0, "at": 200.0}
+    marks = tmp_path / "times.json"
+    gaps = json.loads(times.fac.ergostat("item", "--kind", "gap", "--json").stdout)["items"]
+    assert times.write(gaps, marks) == 2
+    assert json.loads(marks.read_text())["gap/long"] == 603                     # read, and its own gap.timed counted
+
+
+def test_one_unreadable_gap_does_not_stop_the_timer(tmp_path, monkeypatch, capsys):
+    """timer-long-records: a gap that cannot be read (here: not in the record, `ergostat item` exits 2) keeps its
+    bookmark and fails the run by name, after every other gap was timed and the bookmark saved."""
+    times = long_record(tmp_path, monkeypatch, n=0)
+    gaps = json.loads(times.fac.ergostat("item", "--kind", "gap", "--json").stdout)["items"]
+    gone = {"id": "gap/gone", "kind": "gap", "state": "ready", "events": 4, "fields": {}}
+    marks = tmp_path / "times.json"
+    with pytest.raises(SystemExit) as e:
+        times.write([gone, *gaps], marks)                                       # the unreadable one is read first
+    assert "gap/gone" in str(e.value) and "gap/long" not in str(e.value)
+    said = {json.loads(x)["item"] for x in capsys.readouterr().out.splitlines()}
+    assert said == {"gap/long", "gap/short"}                                    # both others timed
+    assert json.loads(marks.read_text()) == {"gap/long": 3, "gap/short": 4}     # saved; gap/gone read again next run
+
+
+def test_a_long_gap_past_its_ceiling_or_a_full_page_is_unreadable_not_half_read(tmp_path, monkeypatch):
+    """timer-long-records: a gap past LONGEST is not read, and one whose record grows past the page while it is read
+    (here: 1,000 events said between `ergostat item` and `ergostat event`) is unreadable, not timed from a cut page."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    times = long_record(tmp_path, monkeypatch)
+    d = json.loads(times.fac.ergostat("item", "gap/long", "--json").stdout)
+    monkeypatch.setattr(times, "LONGEST", 601)
+    with pytest.raises(ValueError, match="past the 601"):
+        times.timing(d)
+    monkeypatch.setattr(times, "LONGEST", 100_000)
+    real = times.fac.ergostat
+
+    def growing(*args, **kw):
+        if args[:1] == ("event",):
+            p = Project(mdl.load(tmp_path))
+            for i in range(1000):
+                p.events.add("gap.noted", item="gap/long", source="test", data={"i": i}, at=5000.0 + i)
+        return real(*args, **kw)
+    monkeypatch.setattr(times.fac, "ergostat", growing)
+    with pytest.raises(ValueError, match="grew past 1602"):
+        times.timing(d)
+
+
+def test_setpoints_refuse_a_model_with_no_stamp_line(tmp_path, monkeypatch):
+    """timer-long-records: with its `# setpoints:` line gone, `times.py setpoints` fails and writes nothing, rather
+    than setting holds with no record of when."""
+    times = long_record(tmp_path, monkeypatch, n=0)
+    copy = tmp_path / "times.yaml"
+    copy.write_text(before := times.GOALS.read_text().replace("# setpoints:", "# set:"))
+    monkeypatch.setattr(times, "GOALS", copy)
+    monkeypatch.setattr(times.fac, "items", lambda kind, state=None: [])
+    with pytest.raises(SystemExit, match="no `# setpoints:` line"):
+        times.setpoints(time.time())
+    assert copy.read_text() == before
+
+
+def test_setpoints_record_when_they_were_derived(tmp_path, monkeypatch):
+    """timer-long-records: `times.py setpoints` rewrites the model's `# setpoints:` line (first guesses until then)."""
+    times = long_record(tmp_path, monkeypatch, n=0)
+    copy = tmp_path / "times.yaml"
+    copy.write_text(times.GOALS.read_text())
+    assert "# setpoints: first guesses, never derived" in copy.read_text()
+    monkeypatch.setattr(times, "GOALS", copy)
+    monkeypatch.setattr(times.fac, "items", lambda kind, state=None: [])
+    times.setpoints(time.mktime((2026, 11, 21, 12, 0, 0, 0, 0, -1)))
+    assert "# setpoints: derived from the record on 2026-11-21, over 0 gaps: 0 holds set" in copy.read_text()
+    assert "first guesses, never derived" not in copy.read_text()
 
 
 def fac_module(tmp_path, monkeypatch):
@@ -1626,7 +1733,7 @@ def test_gate_one_takes_a_continued_gaps_named_definition_first_committed_under_
         return json.loads(r.stdout.strip().splitlines()[-1])
 
     assert gate("docs/roadmap/overnight/warm.md") == []
-    assert gate("") == ["gate 1: docs/roadmap/overnight/warm2.md is not on the branch"]   # (without it)
+    assert gate("") == ["gate 1: dev/records/warm2.md is not on the branch"]   # (without it)
     (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later\n")  # a definition the branch added
     git(wt, "add", "-A")                                                        # later: its place in history is
     git(wt, "commit", "-q", "-m", "a later file")                               # not checked
@@ -1636,6 +1743,122 @@ def test_gate_one_takes_a_continued_gaps_named_definition_first_committed_under_
     assert gate("docs/roadmap/overnight/later.md") == [
         "gate 1: docs/roadmap/overnight/later.md was changed after its first commit (other than a 'Where it "
         "stopped' section)"]
+
+
+# ---- gap-records-out-of-docs: a gap's definition under dev/records/, the old docs/roadmap/overnight/ still read
+
+OLD, NEW = "docs/roadmap/overnight", "dev/records"
+DONE = "## Definition of done\n\nIt works.\n\n## Size budget\n\n600 net lines.\n"
+
+
+def commit_files(f: Factory, files: dict[str, str], branch: str = "main") -> None:
+    """Files committed on main (pushed: the drop's main is main as pushed), or on a new branch of the checkout."""
+    if branch != "main":
+        git(f.checkout, "checkout", "-q", "-b", branch, "main")
+    for rel, text in files.items():
+        (f.checkout / rel).parent.mkdir(parents=True, exist_ok=True)
+        (f.checkout / rel).write_text(text)
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", f"{branch}: the definition of done")
+    if branch == "main":
+        git(f.checkout, "push", "-q", "origin", "main")
+    else:
+        git(f.checkout, "checkout", "-q", "main")
+
+
+def on_head(f: Factory, gid: str, rel: str) -> bool:
+    head = f.item(gid)["fields"]["head"]
+    return subprocess.run(["git", "-C", str(f.tmp / "live" / "drop.git"), "cat-file", "-e", f"{head}:{rel}"],
+                          capture_output=True).returncode == 0
+
+
+def built_and_approved(f: Factory, gid: str, review: str) -> None:
+    """Through the real readers: intake took it, implement.py built it, review.py's gate 1 found its definition."""
+    assert f.item(gid)["state"] == "ready"
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved" and not f.item(review)["fields"]["blocking"]
+
+
+def test_a_new_definition_is_written_under_dev_records(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)                                                              # (run/defs/: the implementor commits it)
+    built_and_approved(f, gid, "review/alpha-thing-1")
+    assert on_head(f, gid, f"{NEW}/alpha-thing.md") and not on_head(f, gid, f"{OLD}/alpha-thing.md")
+    drop = tmp_path / "live" / "drop.git"
+    assert git(drop, "log", "--reverse", "--format=%s", "main..factory/alpha-thing").splitlines()[0] == \
+        "alpha-thing: the definition of done"
+    brief = (tmp_path / "instance" / "run" / "briefs" / "alpha-thing-implementor-1.md").read_text()
+    assert f"committed first, at `{NEW}/alpha-thing.md`" in brief               # the implementor is told the new path
+    g = Factory(tmp_path / "on-main")                                           # one committed on main at the new path
+    commit_files(g, {f"{NEW}/alpha-thing.md": f"# alpha thing\n\n{DONE}"})
+    g.run("intake.py")
+    assert g.item("gap/alpha-thing")["fields"]["definition"] == f"main:{NEW}/alpha-thing.md"
+    built_and_approved(g, "gap/alpha-thing", "review/alpha-thing-1")
+
+
+def test_a_definition_at_the_old_path_still_resolves(tmp_path):
+    f = Factory(tmp_path)                                                       # on main
+    commit_files(f, {f"{OLD}/alpha-thing.md": f"# alpha thing\n\n{DONE}"})
+    f.run("intake.py")
+    assert f.item("gap/alpha-thing")["fields"]["definition"] == f"main:{OLD}/alpha-thing.md"
+    built_and_approved(f, "gap/alpha-thing", "review/alpha-thing-1")
+    assert not on_head(f, "gap/alpha-thing", f"{NEW}/alpha-thing.md")           # no copy at the new path
+    g = Factory(tmp_path / "branch")                                            # on a gap's branch in flight
+    behind_main(g)                                                              # (its definition at the old path)
+    gid = continues(g)
+    assert g.item(gid)["fields"]["definition"] == f"factory/warm:{OLD}/warm.md"
+    built_and_approved(g, gid, "review/warm-1")
+    assert not on_head(g, gid, f"{NEW}/warm.md")
+    said, _ = g.run("review.py", gid, FACTORY_STANDIN_VERDICT="park")           # its park note goes into that file
+    assert said[-1] == "gap.parked"
+    assert "## Where it stopped" in git(tmp_path / "branch" / "live" / "drop.git", "show", f"factory/warm:{OLD}/warm.md")
+
+
+def test_a_ref_to_the_old_path_still_resolves(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, {f"{OLD}/warm.md": f"# warm\n\n{DONE}"}, branch="warm2")    # carried on under a new name
+    gid = "gap/warm2-again"
+    f.fold([{"event": "gap.requested", "item": gid, "data": {
+        "title": "Warm 2", "source": "request", "continues": "warm2", "definition": f"factory/warm2:{OLD}/warm.md"}}],
+        None)
+    f.run("intake.py")
+    assert f.item(gid)["fields"]["definition"] == f"factory/warm2:{OLD}/warm.md"
+    built_and_approved(f, gid, "review/warm2-1")
+    assert not on_head(f, gid, f"{NEW}/warm2.md") and not on_head(f, gid, f"{OLD}/warm2.md")   # no copy made
+    g = Factory(tmp_path / "on-main")                                           # a REF on main, of a gap not continued
+    commit_files(g, {f"{OLD}/ask.md": f"# my ask\n\n{DONE}"})
+    g.fold([{"event": "gap.requested", "item": "gap/my-ask", "data": {
+        "title": "My ask", "source": "request", "definition": f"main:{OLD}/ask.md"}}], None)
+    g.run("intake.py")
+    assert g.item("gap/my-ask")["state"] == "ready"
+
+
+def test_the_new_path_wins_when_both_exist(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, {f"{OLD}/warm.md": "# warm, old\n\nThe old one.\n", f"{NEW}/warm.md": f"# warm, new\n\n{DONE}"},
+                 branch="warm")
+    gid = continues(f)
+    assert f.item(gid)["fields"]["definition"] == f"factory/warm:{NEW}/warm.md"
+    wt = tmp_path / "wt-both"
+    subprocess.run(["git", "clone", "-q", "-b", "warm", str(f.checkout), str(wt)], check=True, capture_output=True)
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, pathlib; "
+            "print(fac.definition_file({'id': 'gap/warm', 'fields': {'branch': 'warm'}}, pathlib.Path(sys.argv[2])))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(wt)], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=60)
+    assert r.stdout.strip() == f"{NEW}/warm.md", r.stderr[-800:]
+    (wt / OLD / "warm.md").unlink()                                             # only the old one: it is taken
+    (wt / NEW / "warm.md").unlink()
+    (wt / OLD / "warm.md").write_text("x\n")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(wt)], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=60)
+    assert r.stdout.strip() == f"{OLD}/warm.md", r.stderr[-800:]
+    built_and_approved(f, gid, "review/warm-1")                                 # gate 1 on the new one
+    g = Factory(tmp_path / "on-main")                                           # both on main: the new one
+    commit_files(g, {f"{OLD}/alpha-thing.md": "# old\n", f"{NEW}/alpha-thing.md": f"# alpha thing\n\n{DONE}"})
+    g.run("intake.py")
+    assert g.item("gap/alpha-thing")["fields"]["definition"] == f"main:{NEW}/alpha-thing.md"
 
 
 def test_a_branch_another_gap_still_holds_is_not_continued_until_it_stops(tmp_path):
@@ -1957,7 +2180,7 @@ def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
     code = ("import sys, json, time; sys.path[:0] = [sys.argv[1]]; import fac, queue; cfg = fac.config(); "
             "repo = fac.path(cfg, 'checkout'); pre = fac.git(repo, 'rev-parse', 'HEAD'); "
             "own = next(g for g in fac.items('gap', 'approved') if g['id'] == 'gap/a'); "
-            "batch, dried = queue.picks(cfg, repo, own, 2, pre); out = {'moved': fac.git(repo, 'rev-parse', 'HEAD') != pre}; "
+            "batch, dried, _ = queue.picks(cfg, repo, own, 2, pre); out = {'moved': fac.git(repo, 'rev-parse', 'HEAD') != pre}; "
             "alone = queue.dry(repo, pre, batch[0][1], 'a alone')[0]\n"
             "try:\n queue.land(cfg, repo, batch, pre, time.time(), 0, alone)\n"
             "except RuntimeError as e:\n out['raised'] = str(e)\n"
@@ -1970,6 +2193,112 @@ def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
     assert out["moved"] is False                                               # a dry merge leaves the checkout be
     assert "differ from its dry merge" in out["raised"] and suite_runs(f) == 1  # never tested: only the true one ran
     assert out["landed"] == ["gap/a", "gap/b"] and out["same"] is True
+
+
+def test_a_failed_suite_stops_its_sibling(tmp_path):
+    fast = "echo 'FAILED tests/test_b.py::test_b - boom'; exit 1"
+    slow = f"sleep 30; echo ran >> {tmp_path}/slow-ran"                 # finished only if it is never stopped
+    for failing, other in (("unit", "browser"), ("browser", "unit")):
+        f = Factory(tmp_path / failing, unit=fast if failing == "unit" else slow)
+        f.config.write_text(f.config.read_text().replace('browser = "true"',
+                                                         f'browser = "{fast if failing == "browser" else slow}"'))
+        approved_gaps(f, {"a": 1})
+        said, _ = f.run("queue.py", "gap/a")
+        assert said == ["gap.queued", "gap.queue-failed", "gap.measured"]
+        got = f.item("gap/a")["fields"]
+        assert got["failed_suite"] == failing and got["failed_tests"] == ["tests/test_b.py::test_b"]   # first to fail
+        assert got["suites_queue"][other]["stopped_by"] == failing and got["suites_queue"][other]["rc"] != 0
+        assert not (tmp_path / "slow-ran").exists()                       # the sibling was killed, never finished
+
+
+def bisect_stand_ins(tmp: Path, unit_names_tests: bool = True, rerun: str = "") -> Factory:
+    """A unit suite that stops at its first failure, as `-x` would (test_b while bad.txt is there, then test_c while
+    badc.txt is), each run logged in ``runs`` and each green one's tree in ``greens``; and the named tests' rerun,
+    which says PASSED or FAILED for each test it is given and logs its arguments in ``reruns``."""
+    say = (lambda t: f"echo 'FAILED tests/{t}.py::{t} - boom'") if unit_names_tests else (lambda t: "echo boom")
+    (tmp / "unit.sh").write_text(f"echo run >> {tmp}/runs\n"
+                                 f"if [ -e bad.txt ]; then {say('test_b')}; exit 1; fi\n"
+                                 f"if [ -e badc.txt ]; then {say('test_c')}; exit 1; fi\n"
+                                 f"git rev-parse 'HEAD^{{tree}}' >> {tmp}/greens\n")
+    (tmp / "rerun.sh").write_text(f'echo "$*" >> {tmp}/reruns\nrc=0\nfor t in "$@"; do\n case "$t" in\n'
+                                  ' *::test_b) f=bad.txt;;\n *::test_c) f=badc.txt;;\n *) continue;;\n esac\n'
+                                  ' if [ -e $f ]; then echo "FAILED $t - boom"; rc=1; else echo "PASSED $t"; fi\n'
+                                  'done\nexit $rc\n')
+    f = Factory(tmp, unit=f"sh {tmp / 'unit.sh'}")
+    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"',
+                                                     f'rerun = "{rerun or "sh " + str(tmp / "rerun.sh")} {{tests}}"'))
+    return f
+
+
+def reruns(f: Factory) -> list[str]:
+    p = f.tmp / "reruns"
+    return p.read_text().splitlines() if p.exists() else []
+
+
+def test_bisect_reruns_only_the_failing_tests(tmp_path):
+    f = bisect_stand_ins(tmp_path)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3
+    # all four red, naming test_b; test_b alone on all four (failed); then on p, q (passed) and on p, q, r (failed): r.
+    # Then p, q, s merged again and run in full: green
+    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 3 and suite_runs(f) == 2
+    r = f.item("gap/r")["fields"]
+    assert r["failed_suite"] == "unit" and r["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert r["suites_queue"]["named"]["tests"] == 1                            # found by the named run
+    assert merges(f) == ["p", "q", "s"] and not (f.checkout / "bad.txt").exists()
+    # p, q never landed as that commit: r's pre is main's head before the batch, which main still holds
+    assert subprocess.run(["git", "merge-base", "--is-ancestor", r["pre"], "main"], cwd=f.checkout).returncode == 0
+    assert git(f.checkout, "rev-parse", f"{r['pre']}^{{tree}}") == git(f.checkout, "rev-parse", "main~3^{tree}")
+
+
+def test_a_named_rerun_green_on_the_red_tree_bisects_in_full(tmp_path):
+    # test_b fails only in the full run (order, pollution, load): alone it passes even on the red tree, so the bisect
+    # runs every suite, and r (not the last merge, s) is blamed
+    (tmp_path / "pass.sh").write_text(f'echo "$*" >> {tmp_path}/reruns\nfor t in "$@"; do echo "PASSED $t"; done\n')
+    f = bisect_stand_ins(tmp_path, rerun=f"sh {tmp_path / 'pass.sh'}")
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+    assert len(reruns(f)) == 1 and suite_runs(f) == 4                          # the check on p..s, then in full
+    r = f.item("gap/r")["fields"]
+    assert r["failed_tests"] == ["tests/test_b.py::test_b"] and "named" not in r["suites_queue"]
+    assert f.item("gap/s")["state"] == "merged"
+
+
+def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
+    f = bisect_stand_ins(tmp_path, unit_names_tests=False)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+    assert reruns(f) == [] and suite_runs(f) == 4                               # today's bisect: every run in full
+    assert f.item("gap/r")["fields"]["failed_tests"] == []
+    # a named run that cannot tell (its test not found: rc 4, no result for it) runs that step in full, never green
+    (tmp_path / "g").mkdir()
+    (tmp_path / "notfound.sh").write_text(f'echo "$*" >> {tmp_path / "g" / "reruns"}\necho "ERROR: not found: $1"\n'
+                                          'exit 4\n')
+    g = bisect_stand_ins(tmp_path / "g", rerun=f"sh {tmp_path / 'notfound.sh'}")
+    approved_gaps(g, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    g.run("queue.py", "gap/p")
+    assert len(reruns(g)) == 1 and suite_runs(g) == 4 and merges(g) == ["p", "q", "s"]   # (the check on p..s)
+    assert g.item("gap/r")["state"] == "queue-failed"
+
+
+def test_nothing_lands_without_a_full_green_run(tmp_path):
+    # q breaks test_c, which the first run never names (the suite stops at r's test_b): on test_b alone, p, q is green.
+    # Landed then, q would be on main broken and s blamed for it. Merged again with s and run in full, it is found.
+    f = bisect_stand_ins(tmp_path)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4, edits={"q": "badc.txt"})
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 2 and said.count("gap.merged") == 2
+    assert merges(f) == ["p", "s"] and f.item("gap/s")["state"] == "merged"
+    assert f.item("gap/q")["fields"]["failed_tests"] == ["tests/test_c.py::test_c"]
+    assert f.item("gap/r")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    greens = (tmp_path / "greens").read_text().split()
+    assert git(f.checkout, "rev-parse", "main^{tree}") in greens               # what landed ran green in full
+    for g in "ps":
+        assert "named" not in f.item(f"gap/{g}")["fields"]["suites_queue"]     # never a named run's green
+    assert len(f.db()["acts"]) == 1
 
 
 def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
@@ -2100,6 +2429,69 @@ def test_no_gap_is_leased_while_a_push_is_pending(tmp_path):
     assert f.run("queue.py", "gap/c")[0] == [] and waiting(f) == "1"
 
 
+def queue_when(pushing: float) -> float:
+    """block.queue-when of the factory's own model, as the engine computes it: gaps approved, the machine quiet."""
+    from ergostat.spec.blocks import Expr
+    spec, _ = read(ROOT / "ergostat.yaml")
+    b = spec.blocks["queue-when"]
+    vals = {"auxiliary.push-waiting": pushing, "goal.approved-gaps-landed.off": 1.0}
+    return Expr(b, spec).compute(lambda r: vals.get(str(r), 0.0), time.time())
+
+
+def nacked(lines: list[dict]) -> dict:
+    return next(x["nack"] for x in lines if "nack" in x)
+
+
+def test_a_waiting_push_puts_gaps_off_for_a_minute(tmp_path):
+    from ergostat.spec.engine import nack_of
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")                                                # a and b landed, their push asked
+    approved_gaps(f, {"c": 3}, batch=2)
+    for now in ("held", "requested", "approved"):                            # leased before the sensor saw the push
+        set_action(f, now)
+        said, lines = f.run("queue.py", "gap/c")
+        nack = nacked(lines)
+        assert said == [] and f"is {now}" in nack["why"]
+        assert nack["after"] == "1m" and nack["count"] is False                # a minute, and not an attempt
+        assert nack_of(nack)["after"] == 60
+        assert waiting(f) == "1" and queue_when(1.0) == 0                     # meanwhile the sensor holds it shut: no spin
+    assert f.item("gap/c")["state"] == "approved" and len(f.db()["acts"]) == 1
+
+
+def test_a_blocked_queue_still_puts_gaps_off_for_ten_minutes(tmp_path):
+    f = Factory(tmp_path)
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")
+    approved_gaps(f, {"c": 3}, batch=2)
+    set_action(f, "failed")                                                  # the push failed: the queue blocked
+    said, lines = f.run("queue.py", "gap/c")
+    assert "intervention.recorded" in said and nacked(lines)["after"] == "10m" and nacked(lines)["count"] is False
+    said, lines = f.run("queue.py", "gap/c")                                 # blocked, read again
+    assert said == [] and "blocked until" in nacked(lines)["why"] and nacked(lines)["after"] == "10m"
+    q = f.model / "run" / "queue.json"
+    q.write_text("{not json")                                                # any other reason: ten minutes too
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == [] and "cannot be read" in nacked(lines)["why"] and nacked(lines)["after"] == "10m"
+
+
+def test_the_next_batch_starts_once_the_push_has_run(tmp_path):
+    from ergostat.spec.engine import nack_of
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")
+    approved_gaps(f, {"c": 3, "d": 4}, batch=2)                             # approved while the push waits
+    set_action(f, "requested")
+    _, lines = f.run("queue.py", "gap/c")
+    put_off = nack_of(nacked(lines))["after"]
+    set_action(f, "ran")                                                     # the approval runs the push
+    assert waiting(f) == "0" and queue_when(0.0) == 1                       # the sensor (every 1m) opens the block
+    assert put_off + 60 <= 120                                               # due again, and seen, within 2 minutes
+    said, lines = f.run("queue.py", "gap/c")                                 # no gap newly approved
+    assert not [x for x in lines if "nack" in x] and "gap.queued" in said
+    assert f.item("gap/c")["state"] == f.item("gap/d")["state"] == "merged"
+
+
 def test_a_gap_that_did_not_land_waits_for_the_push(tmp_path):
     from types import SimpleNamespace
 
@@ -2121,6 +2513,140 @@ def test_a_gap_that_did_not_land_waits_for_the_push(tmp_path):
     assert why is None and said == ["gap.sent-back", "gap.queue-failed"]
     assert f.item("gap/a")["state"] == "queue-failed" and f.item("gap/b")["state"] == "fix"
     assert f.item("gap/a")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+
+
+def settler(f: Factory) -> list[str]:
+    """One run of the block push-settler (`queue.py settle`): the events it said."""
+    return f.run("queue.py", argv=["settle"])[0]
+
+
+def settleable(f: Factory) -> str:
+    """The sensor push-settleable (`queue.py settleable`), which commands push-settler."""
+    r = subprocess.run([sys.executable, str(BIN / "queue.py"), "settleable"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+def test_a_push_settles_with_no_gap_approved(tmp_path):
+    import fcntl
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    assert settleable(f) == "0"                                                # nothing pending: not commanded
+    assert f.run("queue.py", "gap/a")[0][-1] == "gap.push-pending"               # a failed, b landed, the push held
+    assert f.item("gap/a")["state"] == "push-pending" and f.item("gap/b")["state"] == "merged"
+    assert settleable(f) == "0" and waiting(f) == "1"                          # held: nothing to settle yet
+    assert settler(f) == [] and f.item("gap/a")["state"] == "push-pending"
+    set_action(f, "ran")                                                       # approved and run: no gap is approved
+    assert settleable(f) == "1" and waiting(f) == "0"                          # commanded exactly when it has work
+    with open(tmp_path / "queue.lock", "a") as lock:                          # a run starting holds the queue's lock
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        assert settler(f) == [] and "a run holds the queue's lock" in f.stderr  # it settles the push itself
+        assert f.item("gap/a")["state"] == "push-pending"
+    assert settler(f) == ["gap.pushed", "gap.queue-failed"]                    # the held outcome, applied
+    assert f.item("gap/a")["state"] == "queue-failed" and settleable(f) == "0"
+    assert f.item("gap/a")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())
+    assert settler(f) == [] and settle(f) == ([], None)                        # once: neither applies it again
+    approved_gaps(f, {"c": 3})
+    assert f.run("queue.py", "gap/c")[0] == ["gap.queued", "gap.merged", "gap.push-asked"]   # nothing said twice
+    d = Factory(tmp_path / "d", unit=RED.format(runs=tmp_path / "d-runs"))    # denied: b sent back, a's outcome said
+    approved_gaps(d, {"a": 1, "b": 2}, bad="a", batch=2)
+    d.run("queue.py", "gap/a")
+    set_action(d, "denied")
+    assert settleable(d) == "1"
+    assert settler(d) == ["gap.sent-back", "gap.queue-failed"] and d.item("gap/b")["state"] == "fix"
+    assert settleable(d) == "0"
+    x = Factory(tmp_path / "x", unit=RED.format(runs=tmp_path / "x-runs"))    # failed: blocked, a's outcome said
+    approved_gaps(x, {"a": 1, "b": 2}, bad="a", batch=2)
+    x.run("queue.py", "gap/a")
+    set_action(x, "failed")
+    assert settleable(x) == "1"
+    assert settler(x) == ["intervention.recorded", "gap.queue-failed"] and x.item("gap/a")["state"] == "queue-failed"
+    assert "then" not in json.loads((x.model / "run" / "queue.json").read_text())["pending"]
+    assert settleable(x) == "0"                                                # blocked, not remedied: nothing to do
+    iid = next(i for i in x.db()["items"] if i.startswith("intervention/"))
+    x.fold([{"event": "intervention.remedied", "item": iid, "data": {"remedy": "pushed by hand"}}], None)
+    assert settleable(x) == "1"
+    assert settler(x) == ["gap.push-settled"]                                  # (the outcome not said a second time)
+    assert settleable(x) == "0"
+
+
+def test_push_settler_is_commanded_by_push_settleable():
+    spec, _ = read(ROOT / "ergostat.yaml")                                    # the factory's own model
+    block = spec.blocks["push-settler"]
+    assert [(r.kind, r.name) for r in block.inputs.values()] == [("auxiliary", "push-settleable")]
+    assert block.params["run"] == "python3 dev/bin/queue.py settle"
+    assert [s.run for s in spec.auxiliaries["push-settleable"].sensors.values()] == [
+        "python3 dev/bin/queue.py settleable"]                                 # (its readings: the test above)
+
+
+def test_an_unreadable_push_is_read_again_before_it_blocks(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    f.run("queue.py", "gap/a")
+    set_action(f, "")                                                          # its action's state cannot be read
+    assert settleable(f) == "1"
+    assert settler(f) == [] and settler(f) == []                               # read again, twice, nothing said
+    assert f.item("gap/a")["state"] == "push-pending"
+    set_action(f, "ran")                                                       # the read works again: settled
+    assert settler(f) == ["gap.pushed", "gap.queue-failed"]
+    x = Factory(tmp_path / "x", unit=RED.format(runs=tmp_path / "x-runs"))
+    approved_gaps(x, {"a": 1, "b": 2}, bad="a", batch=2)
+    x.run("queue.py", "gap/a")
+    set_action(x, "")
+    assert settler(x) == [] and settler(x) == []
+    assert settler(x) == ["intervention.recorded", "gap.queue-failed"]         # the third: worst case, blocked
+
+
+def test_a_settler_killed_while_saying_says_nothing_twice(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    f.run("queue.py", "gap/a")
+    set_action(f, "ran")
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, queue\n"
+            "def killed(*a, **k): raise SystemExit(143)\n"              # SIGTERM (stop_on_term) at its first event
+            "fac.say = killed; queue.settle_alone(fac.config())")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 143, r.stderr
+    assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())   # saved before it said
+    assert settler(f) == [] and settle(f) == ([], None)                        # at most once: nothing said again
+
+
+def test_a_gap_pending_with_no_push_is_stuck(tmp_path):
+    f = pipe(tmp_path)
+    q = tmp_path / "instance" / "run"
+    q.mkdir(exist_ok=True)
+    aid = "ergostat.action/0000000001"
+    (q / "queue.json").write_text(json.dumps({"pending": {"sha": "a" * 40, "gap": "gap/b", "gaps": ["gap/b"],
+                                                          "action": aid, "then": [{"event": "gap.queue-failed",
+                                                                                   "item": "gap/a", "data": {}}]}}))
+    f.put("gap/a", "push-pending", branch="a")                                 # 10 h, past its 4 h
+    db = f.db()
+    db["actions"] = {aid: "held"}
+    f.record.write_text(json.dumps(db))
+
+    def handled_long_ago(s: dict) -> None:                                    # (answered, and the schedule due again)
+        f.fold([{"event": "situation.handled", "item": s["id"], "data": {"prints": s["prints"]}}], None)
+        db = f.db()
+        db["items"][s["id"]]["fields"]["raised_at"] = f.now - 3 * 3600
+        f.record.write_text(json.dumps(db))
+
+    def stuck(s: dict) -> set[str]:
+        return {t["subject"] for t in s["triggers"] if t["trigger"] == "stuck"}
+
+    s = f.watch()
+    assert stuck(s) == set()                                                   # its push held: a wait explained
+    handled_long_ago(s)
+    db = f.db()
+    db["actions"][aid] = "ran"                                                 # the push ran, nothing settled it
+    f.record.write_text(json.dumps(db))
+    s = f.watch()
+    assert stuck(s) == {"gap/a"}                                               # no longer explained
+    handled_long_ago(s)
+    f.put("gap/c", "push-pending", ago=600, branch="c")                        # no pending push carries it
+    s = f.watch()
+    assert stuck(s) == {"gap/c"}                                               # stuck at once, not after 4 h
 
 
 def test_a_stale_push_is_refused_as_not_a_fast_forward(tmp_path):
@@ -2191,17 +2717,18 @@ def test_the_queue_runs_unit_and_browser_at_once_and_reports_the_first_failure(t
     t = tmp_path / "t"
     f = Factory(tmp_path, unit=f"echo unit-start >> {t}; sleep 1; echo unit-end >> {t}; echo 'FAILED tests/test_u.py::test_u'; exit 1")
     f.config.write_text(f.config.read_text().replace(
-        'browser = "true"', f'browser = "echo browser-start >> {t}; sleep 1; echo browser-end >> {t}; exit 1"').replace(
+        'browser = "true"', f'browser = "echo browser-start >> {t}; sleep 5; echo browser-end >> {t}; exit 1"').replace(
         'demo = "true"', f'demo = "echo demo >> {t}"'))
     approved_gaps(f, {"a": 1})
     said, _ = f.run("queue.py", "gap/a")
     got = t.read_text().split()
     assert sorted(got[:2]) == ["browser-start", "unit-start"] and "demo" not in got    # together; demo not after red
     fields = f.item("gap/a")["fields"]
-    assert said[1] == "gap.queue-failed" and fields["failed_suite"] == "unit"           # the first, in order
+    assert said[1] == "gap.queue-failed" and fields["failed_suite"] == "unit"           # the first to fail
     assert fields["failed_tests"] == ["tests/test_u.py::test_u"]
-    assert fields["suites_queue"]["browser"]["rc"] == 1 and fields["suites_queue"]["unit"]["rc"] == 1
-    f.config.write_text(f.config.read_text().replace("exit 1", "exit 0"))
+    assert fields["suites_queue"]["unit"]["rc"] == 1 and fields["suites_queue"]["browser"]["stopped_by"] == "unit"
+    assert "browser-end" not in got                                                     # stopped by unit's failure
+    f.config.write_text(f.config.read_text().replace("exit 1", "exit 0").replace("sleep 5", "sleep 1"))
     t.unlink()
     approved_gaps(f, {"b": 1})
     said, _ = f.run("queue.py", "gap/b")
@@ -2450,6 +2977,64 @@ def test_an_older_switch_request_is_withdrawn(tmp_path):
     assert f.item(u_new)["state"] == "draining" and f.item(u_newer)["state"] == "installed"
 
 
+def draining(f: Factory) -> tuple[list[str], str]:
+    """Versions running, older, draining and newer; the one draining asked for, approved, and drained while one run
+    goes on: (the versions, the draining upgrade)."""
+    vs = versions(f, 4)
+    uid = asked(f, vs[2], "ran")
+    held(f, "gap/one")
+    assert switcher(f, NOON)[0] == ["upgrade.switch-approved", "upgrade.draining"]
+    return vs, uid
+
+
+def test_a_newer_installed_version_leaves_the_drain_and_its_flag_in_place(tmp_path):
+    f = Factory(tmp_path)
+    (_, old, b, c), uid = draining(f)
+    u_old, u_c = asked(f, old, "held"), asked(f, c, "held")                      # installed during the drain
+    said, why, started = switcher(f, NOON + 60)
+    assert said == ["upgrade.withdrawn"] and started == [] and why == f"{uid} drains: 1 run(s) under way, 1 of 45 minutes"
+    assert f.item(u_old)["state"] == "withdrawn" and f.item(u_old)["fields"]["superseded_by"] == u_c   # older: as today
+    flag = f.model / "run" / "drain.json"
+    assert json.loads(flag.read_text()) == {"sha": b, "since": NOON}
+    assert f.item(uid)["state"] == "draining" and f.item(u_c)["state"] == "installed"
+    assert f.db()["actions"][f.item(u_c)["fields"]["switch_action"]] == "held"   # its request still open
+
+
+def test_the_drain_then_switches_to_the_version_it_was_draining_for_and_the_newer_one_still_waits(tmp_path):
+    f = Factory(tmp_path)
+    (_, _, b, c), uid = draining(f)
+    u_c = asked(f, c, "held")
+    assert switcher(f, NOON + 60)[0] == []
+    held(f)                                                                      # the run finished
+    said, why, started = switcher(f, NOON + 120)
+    assert said == ["upgrade.drained"] and started == [b] and why == f"switching to {b[:12]}"
+    assert switcher(f, NOON + 180)[1:] == (f"switching to {b[:12]}", [])
+    flag = f.model / "run" / "drain.json"                                        # the switch as live.py makes it
+    f.fold([{"event": "upgrade.switched", "item": uid, "data": {"switch": "ran"}},
+            {"event": "upgrade.kept", "item": uid, "data": {}}], None)
+    (f.tmp / "live" / "current").unlink()
+    (f.tmp / "live" / "current").symlink_to(b)
+    flag.unlink()
+    said, why, started = switcher(f, NOON + 240)
+    assert said == [] and why == "no switch approved" and started == []
+    assert f.item(u_c)["state"] == "installed" and "superseded_by" not in f.item(u_c)["fields"]
+    assert f.db()["actions"][f.item(u_c)["fields"]["switch_action"]] == "held"   # it waits, its request open
+
+
+def test_a_newer_approved_version_takes_over_the_drain_with_its_start_time(tmp_path):
+    f = Factory(tmp_path)
+    (_, _, b, c), uid = draining(f)
+    u_c = asked(f, c, "ran")                                                     # approved during the drain
+    said, why, started = switcher(f, NOON + 60)
+    assert said == ["upgrade.withdrawn", "upgrade.switch-approved", "upgrade.draining"] and started == []
+    assert f.item(uid)["state"] == "withdrawn" and f.item(uid)["fields"]["superseded_by"] == u_c
+    assert json.loads((f.model / "run" / "drain.json").read_text()) == {"sha": c, "since": NOON}
+    assert f.item(u_c)["state"] == "draining" and f.item(u_c)["fields"]["drain_began_at"] == NOON
+    held(f)
+    said, _, started = switcher(f, NOON + 120)
+    assert said == ["upgrade.drained"] and started == [c]
+
+
 def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeypatch):
     f = Factory(tmp_path)
     a, b = versions(f, 2)
@@ -2476,6 +3061,110 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
                 {"daily_at": "24:00"}, {"daily_at": "4am"}):
         with pytest.raises(SystemExit):
             drain.settings({"upgrade": bad})
+
+
+ALLOWED = ["Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
+           "Bash(uv run python scripts/suite_watch.py:*)"]
+IMPLEMENTOR = {"ai": {"implementor_model": "opus", "implementor_session_usd": 1.0}}
+
+
+def agents_module():
+    sys.modules.setdefault("fac", module("fac"))                                 # (agents.py imports fac beside it)
+    return module("agents")
+
+
+def test_the_implementor_may_remove_files_and_run_the_watched_suite():
+    agents = agents_module()
+    args = agents.claude_args(IMPLEMENTOR, "implementor")
+    allowed = args[args.index("--allowedTools") + 1].split(",")
+    assert set(ALLOWED) <= set(agents.TOOLS["implementor"]) and set(ALLOWED) <= set(allowed)
+    for role in ("reviewer", "planner", "librarian", "researcher"):              # only the implementor writes
+        assert not set(ALLOWED) & set(agents.TOOLS[role]), role
+    prompt = (BIN.parent / "prompts" / "implementor.md").read_text()
+    assert "under `/tmp`" in prompt and "If a command is refused, say which one" in prompt
+
+
+def test_the_deny_list_still_holds():
+    agents = agents_module()
+    assert agents.DENY == ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)",
+                           "Bash(curl:*)", "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
+    args = agents.claude_args(IMPLEMENTOR, "implementor")
+    assert args[args.index("--disallowedTools") + 1].split(",") == agents.DENY   # every one still refused to it
+    words = lambda t: t.removeprefix("Bash(").removesuffix(":*)")  # noqa: E731   (a tool, or a command's words)
+    denied = tuple(words(d) for d in agents.DENY)
+    assert not [t for t in agents.TOOLS["implementor"] if words(t).startswith(denied)]   # nor a narrower form of one
+
+
+def test_refused_tool_calls_are_recorded_on_the_session(tmp_path, monkeypatch, capsys):
+    import yaml
+    monkeypatch.chdir(tmp_path)
+    fac = module("fac")
+    monkeypatch.setitem(sys.modules, "fac", fac)
+    monkeypatch.setitem(sys.modules, "sessions", module("sessions"))
+    monkeypatch.setenv("ERGOSTAT_ITEM", "gap/alpha-thing")
+    cfg = {"paths": {"run": str(tmp_path / "run"), "live": str(tmp_path / "live")},
+           "ai": {"mode": "container", "implementor_model": "opus", "implementor_session_usd": 5.0}}
+    fake = type(sys)("agents")
+    tok = "s3cr3t-" + "x" * 200                                                  # (longer than a summary's cut)
+    fake.token = lambda cfg: tok
+    answers = [{"permission_denials": [{"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": "rm x.py"}},
+                                       {"tool_name": "Bash", "tool_input": {"command": "uv run python scripts/a.py"}}]},
+               {},                                                              # a result with no denials field
+               {"permission_denials": []},
+               {"permission_denials": [{"tool_name": "Bash", "tool_input": {"command": f"curl -H 'X: {tok}' h"}},
+                                       {"tool_name": "Edit", "tool_input": {"old_string": "a" * 120 + tok}},   # (cut at 160)
+                                       f"odd {tok}"]},
+               None]                                                            # a timeout: no result at all (out=None)
+
+    def session(cfg, role, brief, work, keep=None):
+        keep.copy.tok = tok                                                      # (as agents.session does)
+        answer = answers.pop(0)
+        if answer is None:
+            raise RuntimeError("the implementor session ran past 5400s and was killed")   # (as agents.py does)
+        return {"type": "result", "subtype": "success", "is_error": False, "result": "Done", "total_cost_usd": 0.1,
+                "num_turns": 1, **answer}
+    fake.session = session
+    monkeypatch.setitem(sys.modules, "agents", fake)
+    lines = []
+    for _ in range(5):
+        try:
+            fac.session(cfg, "implementor", "brief", tmp_path)
+        except RuntimeError:
+            pass
+        lines.append([json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith('{"event"')])
+    timed_out = lines.pop()
+    err = next(x["data"] for x in timed_out if x["event"] == "session.errored")
+    assert err["tool_denials_unknown"] == 1 and "tool_denials" not in err and "ran past" in err["error"]
+    end = [next(x["data"] for x in got if x["event"] == "session.ended") for got in lines]
+    on_gap = [[(x["item"], x["data"]) for x in got if x["event"] == "gap.measured"] for got in lines]
+    assert end[0]["tool_denials"] == 2 and end[0]["denied"] == ["Bash: rm x.py", "Bash: uv run python scripts/a.py"]
+    assert on_gap[0] == [("gap/alpha-thing", {"tool_denials": 2, "denied": end[0]["denied"]})]
+    assert end[1]["tool_denials_unknown"] == 1 and "tool_denials" not in end[1]          # unknown, never 0
+    assert on_gap[1] == [("gap/alpha-thing", {"tool_denials_unknown": 1})]
+    assert end[2]["tool_denials"] == 0 and end[2]["denied"] == [] and on_gap[2] == []  # none: nothing more on the gap
+    assert end[3]["tool_denials"] == 3 and end[3]["denied"][0] == "Bash: curl -H 'X: [token]' h"
+    said = json.dumps(lines[3])                                                  # the token, nor a prefix of it, kept
+    assert "s3cr3t" not in said and all("[token]" in d for d in end[3]["denied"]), end[3]["denied"]
+    lines.pop()                                                       # (the folds below count the first three, the timeout)
+    lines.append(timed_out)
+
+    (tmp_path / "f").mkdir()
+    f = Factory(tmp_path / "f")                                                  # the gap and sessions, by the model's folds
+    measure = lambda name: subprocess.run([sys.executable, str(BIN / "measure.py"), name], cwd=f.model,  # noqa: E731
+                                          env=f.env, capture_output=True, text=True)
+    f.fold([x for x in lines[1] + lines[3]], None)                     # only sessions whose refusals are unknown
+    r = measure("tool-denials")
+    assert r.returncode != 0 and "no value" in r.stderr and not r.stdout.strip()    # unknown, never 0
+    f.fold([x for got in (lines[0], lines[2]) for x in got], None)
+    g = f.item("gap/alpha-thing")["fields"]
+    assert g["tool_denials"] == 2 and g["tool_denials_unknown"] == 2 and len(g["denied"]) == 2
+    r = measure("tool-denials")
+    assert r.returncode == 0 and float(r.stdout) == 2.0, r.stderr     # the 2 refused; the timeout and the silent one
+    assert "2 session(s) whose refusals are unknown" in r.stderr              # left out, said, not counted as refused
+    r = measure("tool-denials-unknown")
+    assert r.returncode == 0 and float(r.stdout) == 2.0, r.stderr
+    goal = yaml.safe_load((BIN.parent / "model" / "measures.yaml").read_text())["goals"]["no-tool-denials"]
+    assert (goal["auxiliary"], goal["hold"], goal["tolerance"]) == ("tool-denials", "<= 0", 0)
 
 
 # ---- switcher-actually-runs (docs/roadmap/overnight/switcher-actually-runs.md): the timed blocks on the engine's clock
@@ -2540,7 +3229,8 @@ def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
     (old / "dev" / "model").mkdir()
     for x in (ROOT / "dev" / "model").iterdir():
         (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.drains-within-bound", "goal: drains-"
-                                                    "within-bound").replace("in: goal.no-stuck-gaps", "goal: no-stuck-gaps"))
+                                                    "within-bound").replace("in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]",
+                                                                            "goal: no-stuck-gaps"))
     (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
 
     def noted(path: Path) -> set[str]:      # (a craft note, not an extremes finding: a second model's extremes, ~60 s
@@ -2774,11 +3464,8 @@ def test_a_defect_park_is_never_resumed_by_the_program(tmp_path):
     f.put("gap/flawed", "parked", branch="flawed", parked_for="defect", parked_until={"gap": "gap/carried"},
           parked_at=f.now - 3600, need_met="x")
     assert resumed(f) == []
-    raised = set()
-    for _ in range(3):
-        s = f.watch()
-        raised.add((s["trigger"], s["subject"]))
-        f.handled(s["id"])
+    s = f.watch()                                                             # one session carries them all
+    raised = {(t["trigger"], t["subject"]) for t in s["triggers"]}
     assert raised == {("parked", gid), ("parked", "gap/killed"), ("parked", "gap/flawed")}   # the manager's to look at
     k = Factory(tmp_path / "k")                                               # the kill rule's park says so
     kid = ready(k)
@@ -2795,15 +3482,24 @@ def test_a_waiting_park_past_its_hours_raises_a_situation(tmp_path):
           parked_at=f.now - 23 * 3600)
     f.put("gap/done", "parked", branch="done", parked_for="needs", parked_until={"action": "a", "who": "b"},
           parked_at=f.now - 30 * 3600, resumed_as="gap/done-continued")
+    def handled_long_ago(s: dict) -> None:                                    # (answered, and the schedule due again)
+        f.fold([{"event": "situation.handled", "item": s["id"], "data": {"prints": s["prints"]}}], None)
+        db = f.db()
+        db["items"][s["id"]]["fields"]["raised_at"] = f.now - 3 * 3600
+        f.record.write_text(json.dumps(db))
+
     s = f.watch()
-    assert s["trigger"] == "heartbeat"                                        # neither: within its hours, or resumed
-    f.handled(s["id"])
+    assert s["triggers"] == []                                                # neither: within its hours, or resumed
+    handled_long_ago(s)
     f.put("gap/fresh", "parked", branch="fresh", parked_for="waits_on", parked_until={"gap": "gap/carried"},
           parked_at=f.now - 25 * 3600)
     s = f.watch()
-    assert s["trigger"] == "waiting" and s["subject"] == "gap/fresh" and "not cleared" in s["why"]
-    f.handled(s["id"])
-    assert (f.watch() or {}).get("subject") != "gap/fresh"                    # raised once for the park
+    (t,) = s["triggers"]
+    assert t["trigger"] == "waiting" and t["subject"] == "gap/fresh" and "not cleared" in t["why"]
+    handled_long_ago(s)
+    f.put("gap/other", "ready", ago=60, branch="other")                      # (the pipeline changed)
+    s = f.watch()
+    assert s and "gap/fresh" not in [t["subject"] for t in s["triggers"]]     # raised once for the park
 
 
 def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):

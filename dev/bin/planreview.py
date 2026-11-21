@@ -37,6 +37,16 @@ def classed(findings: list[str]) -> list[dict]:
     return [{"class": m[1] if (m := CLASS.match(x)) else "none", "text": CLASS.sub("", x, 1)} for x in findings]
 
 
+def coverage(cfg: dict, gap: dict) -> str:
+    """A sub-gap's parent's coverage (run/plans/<parent-branch>.md, saved by plan.py at the split), or `(none)`."""
+    parents = fac.ids(gap["fields"].get("parent"))
+    gaps = {g["id"]: g for g in fac.items("gap")} if parents else {}
+    for p in (gaps[p] for p in parents if p in gaps):
+        if (f := fac.run_dir(cfg, "plans") / f"{fac.branch_of(p)}.md").is_file():
+            return f"(of {p['id']})\n\n{f.read_text().strip()}"
+    return "(none)"
+
+
 def review_one(cfg: dict) -> int:
     marked = [g for g in fac.items("gap") if g["fields"].get("plan_review") == "wanted"]
     if not marked or fac.draining(cfg):                 # (a switch drains the runs under way: next turn)
@@ -50,7 +60,7 @@ def review_one(cfg: dict) -> int:
     fac.say("gap.measured", gid, plan_review="started")              # (taken once, whatever happens next)
     _, work = agents.clone(cfg, branch, "plan_reviewer", at=f"origin/{cfg['git']['base']}")
     text, context = brief.assemble(cfg, "plan_reviewer", gap, work, definition=target.read_text(), branch=branch,
-                                   graph=brief.graph(cfg, gap))
+                                   graph=brief.graph(cfg, gap), coverage=coverage(cfg, gap))
     context["brief"] = brief.save(cfg, "plan_reviewer", gap, text)
     import review
     try:

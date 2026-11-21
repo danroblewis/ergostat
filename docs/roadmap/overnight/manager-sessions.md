@@ -1,0 +1,432 @@
+# manager-sessions: the pipeline manager sees the whole pipeline, on a schedule and when the merge pipeline breaks
+
+depends-on: []
+
+Branch `manager-sessions`, from main. The owner, after watching the pipeline manager one situation at a time: "The
+pipeline manager shouldn't work one gap at a time. The pipeline manager should probably be on a schedule, or it should
+be triggered by events (when the merge pipeline is broken somehow for a long enough time). The pipeline manager can
+also routinely review the current pipeline and research potential ways we can speed up the merge pipeline."
+
+## Definition of done
+
+1. **One session sees the whole pipeline.** The watch (`dev/bin/watch.py`) no longer raises one trigger at a time:
+   each session's `situation/*` carries every standing trigger (parks, dead letters, stuck gaps, the queue blocked,
+   aging defects), less those an earlier session already handled (by fingerprint). The brief shows them all; the
+   session acts on all of them through manage.py (at most `[manager] most_actions` calls a session) and says, per
+   trigger, what it did or why it left it (`answers` on the situation).
+2. **When it runs.** On a schedule (`[manager] every`, 2h by default), and at once when the merge pipeline is broken
+   for longer than `[manager] broken_minutes` (30): the queue blocked, a pending push older than that, no merge in that
+   long while approved gaps have waited as long, the same test failing on two different main commits, or the load
+   interlock holding the queue that long while approved gaps wait. The watch keeps when each condition began
+   (`run/manager.json`). No session when nothing changed since the last (no new trigger, no new broken condition, the
+   pipeline the same), whatever the schedule says. The watch is a plain `every: 5m` block (no `goal:`).
+3. **Routine review and research.** Every scheduled session's brief carries the velocity record: queue wait, minutes
+   per merge and per batch, batch size and batch failures (bisected batches), time in each state, first-pass yield,
+   merges per hour, each queue goal's reading against its setpoint and the binding constraint (the goal furthest off),
+   and the answers to the researcher's questions it asked before. It either proposes a change (`propose`, a gap with
+   a definition: at most one of its proposals open at a time) or asks the researcher (`ask`, a `research.asked`: at
+   most one of its questions open) how to speed up the merge pipeline.
+4. **Kept:** the gated asks (close, park, pool, change), the intervention per action, the knowledge brief. Parks that
+   are `deferred` or `cancelled` are not triggers (the instance's edit), and the brief carries the owner's decisions
+   (dev/knowledge/decisions.md: continue, don't rebase; deferred stays deferred).
+5. **The model** (`dev/model/manager.yaml`): the schedule (`minutes-since-manager`, with a goal at `every`) and the
+   broken-pipeline condition (`pipeline-broken-minutes`, with a goal at `broken_minutes`) driving the situations the
+   watch raises; the manager's sessions in the AI spend; the measures `manager-triggers-per-session` and
+   `manager-actions-per-session`.
+
+## Acceptance tests
+
+`tests/test_factory_manager.py`, with the stand-in AI:
+
+- `test_one_session_carries_every_standing_trigger_and_answers_each`: several triggers in one situation, handled in
+  one session, each with its answer; handled ones are not carried again.
+- `test_a_broken_pipeline_starts_a_session_at_once`: a pending push older than `broken_minutes` raises a session before
+  the schedule is due; one younger does not.
+- `test_nothing_changed_means_no_session`: the schedule due and nothing new: no session.
+- `test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question`.
+- `test_deferred_and_cancelled_parks_are_not_triggers`.
+- each broken condition (blocked, push, no merge, main twice, interlock) and the batch measures in the velocity record.
+- The tools' tests as before (continue, reapprove, flake, file-gap, remedy, the gated asks, interventions).
+
+## Size budget
+
+450 net lines of the programs in `dev/bin/` (the model, the prompt, tests and docs apart), most of it rewritten.
+
+## Where it stopped
+
+Built by a coordinator's agent and handed to the factory unmerged. Items 1 to 4 of the definition are built; item 5 is
+built but for the goal named in "Left to do" 3. It has run only on fixtures with the stand-in AI: never on the live
+instance, a real session or the real load probe.
+
+**Suites** (on the work commit, based on main 0ecf249, 14 commits behind origin/main when this was written, with
+`ergostat.yaml` changed on both sides):
+
+- factory and manager tests: 120 passed;
+- unit suite: **1 failed**, 2083 passed, 14 skipped, 1 xfailed;
+- ruff: clean. `ergostat check`: ok, 43 of 43 goals closed by a loop.
+
+**The failure, not fixed:** `tests/test_factory_manager.py::test_a_trigger_left_unanswered_or_a_failed_session_comes_back`
+fails about one run in three, alone too. Cause, measured over 8 runs (3 collisions, and the same 3 failures): `raise_one`
+names a situation by the second (`situation/<reason>-YYYYmmdd-HHMMSS`), so two raised within one second are one item,
+and the later overwrites the earlier's `prints`. The ids need something unique; the test's bound should not be loosened.
+
+**Left to do, found on reading the code (none has a test yet):**
+
+1. `main-twice` reads every `main-broken` intervention, remedied ones too, so once a test has failed on two main commits
+   the condition never clears: `pipeline-broken-minutes` grows and `merge-pipeline-flowing` stays off for good. It should
+   read only unremedied ones, or a recent window.
+2. Situations already in the live record carry `print`, not `prints`, so they do not count as handled: the first session
+   after the switch is given every standing trigger again. One left `raised` by the old code would be taken with no
+   `triggers`. The switch needs both handled.
+3. The definition's goal on `minutes-since-manager` at `every` is **not built**: that reading rightly grows while nothing
+   changes, so such a goal would sit off. Decide whether to drop it from the definition's intent or hold it differently.
+4. `manage-when`'s `max(1, stuck, broken)` always equals 1: it only draws those goals into the loop. The hold of 30 on
+   `merge-pipeline-flowing` repeats `[manager] broken_minutes` and will not follow a change to it.
+5. The earlier cap `interventions_per_hour` is gone, as each session now takes all triggers at once. The limits are now
+   `most_actions` (8) and the 6 gaps given in full; a trigger left unanswered returns at the next session.
+
+**The coordinator's decisions for the implementor (2026-11-21):**
+- Fix the flaky test in the code: give each situation a unique id. Leave `test_a_trigger_left_unanswered_or_a_failed_session_comes_back` as it is.
+- `main-twice` counts only unremedied `main-broken` interventions, with a test that it clears once remedied.
+- Read old situations (`print`, no `prints`) without raising every standing trigger again; an old one still `raised` is closed as superseded, never run with no triggers.
+- Drop the goal on `minutes-since-manager` and keep it as a measure: it rightly grows while nothing changes.
+- Make `manage-when` depend on what it claims to read, or remove the `max(1, ...)` and draw the triggers honestly. The hold on `merge-pipeline-flowing` follows `broken_minutes`.
+- This has run only on fixtures: say so in the report. Main has moved and `ergostat.yaml` changed on both sides, so keep both when merging.
+
+**The implementor, round 1 (2026-11-21): each decision, as built.**
+- *Unique ids:* a situation's id is `situation/<reason>-<UTC second>-<6 hex>` (`secrets.token_hex(3)`), so two raised in
+  one second are two items. Test: `test_each_situation_raised_has_its_own_id`. The flaky test is unchanged and passed
+  5 runs of 5 here (3 alone, 2 in the whole file).
+- *`main-twice`* reads only open `main-broken` interventions with no `remedy` or `remedied_at`.
+  `test_each_broken_condition` now has both open, then remedies one and sees the condition clear.
+- *Old situations:* an old one (`print`, no `prints`) that was handled or failed counts its `print` as looked at (the
+  fingerprints are the same function, `watch.sit`, so they match). One still `raised` is closed with the new event
+  `situation.superseded` (a new state `superseded` of the kind in `ergostat.yaml`, in its `done` list and the block's
+  `takes.to`) before any clone or session. Its trigger is not counted as handled, so if it still stands it goes to the
+  next session. Test: `test_situations_of_the_one_trigger_watch_are_read_and_an_old_raised_one_is_superseded`.
+- *No goal on `minutes-since-manager`:* left as a measure. Its description says why. Definition item 5's "with a goal at
+  `every`" is therefore not built, by the coordinator's decision. The model test asserts that no goal is on it.
+- *`manage-when`* now reads only what its expression uses: `waiting * min(open, 1) * (1 - over)`. The goals
+  `no-stuck-gaps` and `merge-pipeline-flowing` are now read by `pipeline-watch` (`in:`), which is honest because the
+  watch is what finds them. No block commands the watch, so the engine keeps it on its own `every: 5m` schedule
+  (`engine.due`: a block with `every` and no commander runs on its schedule), and it stays a plain block with no
+  `goal:`. The model test asserts that all three manager goals are still closed by a loop (`spec.loop(g).closes`).
+  This is the reversible choice, since the `in:` is drawing only. `ergostat check` itself was refused by this session's
+  shell and was not run.
+- *The hold follows `broken_minutes`:* `watch.py broken` now reads the minutes **past** `broken_minutes` (`main-twice`
+  from its start, as it counts at once), and `merge-pipeline-flowing` holds `<= 0`. Test:
+  `test_the_broken_reading_is_the_minutes_past_broken_minutes`, with `broken_minutes = 20`.
+- *Only on fixtures:* this round too ran only on fixtures with the stand-in AI. It never ran on the live instance, a
+  real session or the real load probe. Local `main` was already merged (4cabb2e). This clone has no `origin/main`, so
+  merging origin/main is left to the merge queue.
+- *Size:* 149 net lines in `dev/bin/` against main, within 450.
+
+**The implementor, round 2 (2026-11-21).**
+- *Merge of main 24756e5:* conflicts in `dev/bin/measure.py` (the docstring: both the manager's measures and main's
+  time-in-state measures kept, "the last three" now "the last four") and `ergostat.yaml` (`messages.done`: the branch's
+  `situation: superseded` and main's `lesson: denied` both kept).
+- *The review's finding (first-pass-yield's `off`):* `manager.off(direction, setpoint, reading)` reads the goal's own
+  direction from its `hold` in `measures.yaml` (the same pattern as `watch.HOLD`), not the measure's name. For a `>=`
+  goal it is `setpoint / max(reading, 0.01)`, so a yield of 0 is the worst case (0.6 / 0.01 = 60), never on target; for
+  a `<=` goal `reading / max(setpoint, 0.01)`. A goal's `hold` in the record now reads with its direction (`">= 0.6"`).
+  Test: `test_a_first_pass_yield_of_zero_is_the_worst_case_and_binds`: a yield of 0 binds over a queue wait off by 2.5;
+  0.5 reads off 1.2 and binds when the queue wait is on target; 1.0 reads 0.6 (the right side). With the old formula
+  put back, the test failed (yield 0 read off 0.0); with the fix it passes.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+- *The fast suites after round 2:* the `unit` run stopped at 64% with no failing test, error or traceback in its tail,
+  as main's own run did for lesson-denied-settles (24b1c81e). That points to a killed or timed-out run, not a failing
+  test. No code was changed for it. Re-run here one file at a time, all pass: `tests/test_factory_manager.py` (26),
+  `tests/test_factory.py` (59, 2 skipped), `tests/test_factory_times.py` (7), `tests/test_factory_knowledge.py` (52),
+  and `tests/test_interventions.py`, `test_gated_actions.py`, `test_leases.py`, `test_backlog.py` (62 together, as they
+  read the kinds in `ergostat.yaml`). Ruff is clean. No conflict markers are left from the merge. The whole unit suite
+  was not run here (it is the factory's to run under the watchdog), so if it stops again the factory should rerun it.
+
+**The implementor, round 3 (2026-11-21): every finding of review/manager-sessions-2.**
+- *Merge of main 278666f:* conflicts in `dev/bin/watch.py`, `dev/bin/measure.py`, `dev/factory.toml` and
+  `dev/README.md`. Main's park kinds (`parks.py`) are kept: a `waiting` trigger for a `waits_on` / `needs` park past
+  `park_wait_hours`, and a `parked` trigger only for a kind no program resumes. The branch's `deferred` / `cancelled`
+  fields stay excluded too. Main's `heartbeat_minutes` / `interventions_per_hour` and its velocity-watch paragraph are
+  dropped, because the branch replaced them with the schedule and the routine review. Main's two park tests in
+  `tests/test_factory.py` (`test_a_defect_park_is_never_resumed_by_the_program`,
+  `test_a_waiting_park_past_its_hours_raises_a_situation`) read the one-trigger shape (`s["trigger"]`). They now read
+  the session's `triggers`, and they check the same things: the three parks are carried in one session, and a waiting
+  park is raised once.
+- *`most_actions` (blocking, lesson-4):* held to 1..12 (`watch.MOST_ACTIONS`) at read time. Test:
+  `test_most_actions_has_a_floor_and_a_ceiling` (-5 and 0 give 1, 500 gives 12, 8 stays 8). With the clamp removed,
+  it failed (`-5 == 1`).
+- *A goal not found (blocking, lesson-3):* if an interlock goal (`watch.INTERLOCK`) has no hold in `interlock.yaml`,
+  that is itself the broken condition `interlock` ("... have no hold"). It is never read as within its limit, and it
+  holds whether or not gaps wait. If a review goal has no hold in `measures.yaml`, it is in the record with
+  `unknown` and `off: null`, and it is the binding constraint. Test:
+  `test_a_goal_the_watch_or_the_review_cannot_find_never_passes_silently`. With either guard removed, it failed (the
+  watch on its own, then the review on its own).
+- *"At once" wording (non-blocking):* the README and the watch's docstring now say that a broken-pipeline session
+  starts before the schedule, but never sooner than `broken_minutes` after the last session of any kind.
+- *From park-owns-resume-1, on this file:* `park_wait_hours` now has a floor of 1h. The README says that a `split` park
+  is never a trigger, because each stopped sub-gap raises its own.
+- *Not run (the review's fourth finding):* this round ran these, one file at a time: `tests/test_factory_manager.py`
+  (28 passed), `tests/test_factory.py` (66 passed, 2 skipped), `tests/test_factory_times.py` (7),
+  `tests/test_factory_knowledge.py` (52), and `test_interventions/gated_actions/leases/backlog` together (62).
+  Ruff is clean. The whole unit suite and the four browser files were **not** run here. The factory runs them under
+  the watchdog.
+- *Only on fixtures:* this round too ran only with the stand-in AI. It never ran on the live instance, a real session
+  or the real load probe.
+- *Size:* 168 net lines in `dev/bin/` against main, within 450.
+
+**The implementor, round 4 (2026-11-21): the `unit` run that stopped at 83%.**
+- *The merge of main 278666f* was already committed (ab8fe4bb), with no conflict markers left. Nothing was left to
+  resolve.
+- *What the tail shows:* the run ends partway through a line of dots. No test failed, there is no error, no xdist
+  "worker crashed" line, and suite_watch printed no closing JSON line, so suite_watch itself was ended from outside.
+  `fac.suite` has no timeout, and `resources.sampled` never kills a container. That points to the suite container
+  being killed (by memory, or by whoever stopped the run), as in round 2 (64%) and in main's own lesson-denied-settles
+  run. No test fails here, so this round changes no code (lesson-13).
+- *Ruled out by measuring:* the slowest thing in the branch's tests is `read(ergostat.yaml)`, about 60 s in a fresh
+  process. Profiled, nearly all of that time is the extreme-conditions run (`extremes_cache.background`), stopped at
+  its `BOUND` of 60 s. This is the same on main: main's model has 457 conditions, with 73 skipped at the bound; the
+  branch's has 466 conditions, with 89 skipped in a cold process. The branch adds 9 conditions, which does not change
+  the cost. The test fixtures (`Pipe`, `Instance`) start only short-lived subprocesses (`subprocess.run`), and nothing
+  is left running.
+- *Ran this round, one file at a time:* `tests/test_factory_manager.py` 28 passed; `tests/test_factory.py` 66 passed,
+  2 skipped. Ruff is clean. The whole unit suite was not run here: the factory runs it under the watchdog and should run
+  it again. If it stops again with no failure shown, the cause is the container, not a test.
+- *A stray file:* `tests/test_zz_profile_tmp.py`, an untracked diagnostic, was emptied to a comment because this
+  session's shell refused `rm`. It is not committed. Delete it.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 5 (2026-11-21): review/manager-sessions-3.**
+- *Merge of main ca35e0b* (c68975f7): conflicts in `dev/bin/measure.py` (the docstring: the branch's "the last four",
+  for its manager measures, and main's coverage measures both kept) and `dev/bin/watch.py` (`STUCK`: main's
+  `push-pending: 4` kept alongside the branch's `MOST_ACTIONS` and `minutes`). No conflict markers are left.
+- *The stray file (blocking):* round 4's note was wrong. `tests/test_zz_profile_tmp.py` had been committed by the
+  factory's auto-commit (f81ac9b8). It is now removed with `git rm` (32ec09f1), so it is not on the branch.
+- *The unit suite never finished (non-blocking):* still not run whole here. The factory runs the unit suite and the
+  four browser files under suite_watch, after merging origin/main.
+- *The reviewer could not run anything (non-blocking):* these ran here after the merge, one file at a time:
+  `tests/test_factory_manager.py` 28 passed; `tests/test_factory.py` 70 passed, 2 skipped;
+  `tests/test_factory_times.py` and `tests/test_factory_knowledge.py` 61 passed together. Ruff is clean. This round
+  changed no code, so no code was broken to watch a test fail.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 6 (2026-11-21): the `unit` run with one `F` at 76%.**
+- *The merge of main ca35e0b* was already committed (c68975f7) with no conflict markers left, and
+  `tests/test_zz_profile_tmp.py` is removed (32ec09f1). Nothing was left to resolve.
+- *The failing test is not named:* the tail shows one `F` at 76%, then the run stops at 89% partway through a line,
+  with no summary, no `FAILED` line and no closing line from suite_watch. So the run was ended from outside, as in
+  rounds 2 and 4, before pytest printed which test failed.
+- *Every file that reads the branch's code passes, under load too:* with `-n 8`, `tests/test_factory_manager.py`,
+  `test_factory.py`, `test_factory_times.py` and `test_factory_knowledge.py` together: 159 passed, 2 skipped. With
+  `-n 8`, `test_factory_manager.py`, `test_interventions.py`, `test_gated_actions.py` and `test_leases.py`: 77 passed.
+  On their own: `test_code_health_coverage.py`, `test_factory_sessions.py`, `test_factory_resources.py` and
+  `test_backlog.py`, 37 passed. Those are the files that read `dev/bin/`, `dev/model/` or the repo's `ergostat.yaml`.
+- *No code changed (lesson-13):* no test fails here, and the failure can't be tied to this branch without its name. The
+  factory should run the unit suite again to completion. If it then names a test outside these files, it should run
+  that test on clean main.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 7 (2026-11-21): the `unit` run that ended after the build.**
+- *The merge of main ca35e0b* was already committed (c68975f7), with no conflict markers under `dev/`, and
+  `tests/test_zz_profile_tmp.py` is still gone. Nothing was left to resolve.
+- *What the tail shows:* the slot is taken, ergostat is built and installed, and the output ends there. No test was
+  collected and none ran: no dots, no `F`, no summary, no closing line from suite_watch. The run was ended from outside
+  before pytest started, so there is no failure to fix, and no code changed (lesson-13).
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 28 passed; `test_factory.py`,
+  `test_factory_times.py`, `test_factory_knowledge.py` and `test_interventions.py` together: 141 passed, 2 skipped.
+  Ruff is clean. The whole unit suite and the four browser files were not run here. The factory should run them again
+  to completion.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 8 (2026-11-21): the merge of main 7c0e4a6 and review/manager-sessions-4.**
+- *Merge of main 7c0e4a6:* one conflict, in `dev/bin/measure.py`'s docstring. Main's text is kept: its size-accuracy
+  measures and its sentence naming the six measures with no value. The branch's manager measures stay listed. They read
+  0 with no session, so they are not among the six. No conflict markers are left.
+- *Decisions in the brief (review finding 2):* the merge brings main's "continue, not rebased" and "Deferred areas stay
+  deferred" into `dev/knowledge/decisions.md`. No test was added that the manager's brief carries them. Item 4 of the
+  definition says the brief carries them, and that relies on `knowledge.block` matching their Areas words, as before.
+- *The lock (finding 3, lesson-1):* `watch.broken` now holds an flock on `run/manager.lock` across the read of
+  `run/manager.json`, the decision and the write. Test: `test_the_broken_clocks_are_kept_under_a_lock`, where another
+  process tries to take the lock during the decision. With the flock removed, it failed (`['0'] == ['1']`).
+- *Floors (finding 4, lesson-4):* `every` is held to at least 15 minutes and `broken_minutes` to at least 5
+  (`watch.EVERY_FLOOR`, `BROKEN_FLOOR`). The README says so. Test: `test_every_and_broken_minutes_have_floors`. With
+  the floors set to 0, it failed (`[0.0, 0.0] == [15.0, 5.0]`).
+- *Not run (finding 1):* these ran here, one file at a time: `tests/test_factory_manager.py` 30 passed, and
+  `test_factory.py`, `test_factory_times.py` and `test_factory_knowledge.py` together 159 passed, 2 skipped. Ruff is
+  clean. The whole unit suite and the four browser files were not run here. The factory runs them under suite_watch.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 9 (2026-11-21): the merge of main e8d3e33 and review/manager-sessions-5.**
+- *Merge of main e8d3e33* (456d8d18): one conflict, in `pipeline-watch`'s `in:` in `dev/model/manager.yaml`. Main reads
+  `goal.no-stuck-gaps` plainly (switcher-actually-runs). The branch read both goals by `.off` port. Both are kept in
+  main's form: `in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]`. Main's
+  `test_check_reports_a_schedule_a_goal_removes` rewrote the literal `in: goal.no-stuck-gaps` to rebuild main's old
+  model. Its replace string now matches the merged line, so it still checks the same thing. The branch's model test now
+  checks which goals the watch reads, not the inputs' names.
+- *Decisions in the brief (finding 3):* new test `test_the_brief_carries_the_owners_decisions_on_continuing_and_deferring`
+  seeds both decisions with their Areas from decisions.md. It **failed** on the code as it was. "Deferred areas stay
+  deferred" was missing, because decisions were matched only against the situation's text, and a plain park names none
+  of `deferred, park, rebuild, continue, re-plan`. Now `manager.py` matches against the prompt plus the situation, so
+  the prompt's "decisions.md, below" is true. A side effect: other decisions whose Areas words appear in the prompt are
+  carried too, within the knowledge budget.
+- *A `manager-` typo (finding 4, lesson-3):* `measure.py` now names its two manager measures exactly. Any other name is
+  refused (`no measure`). With the prefix match put back, `test_the_sessions_are_measured` failed.
+- *origin/main moved (finding 2):* main e8d3e33 is merged here. The merge queue merges anything newer.
+- *Not run (finding 1):* these ran here, one command at a time: `tests/test_factory_manager.py` 31 passed;
+  `test_factory.py`, `test_factory_times.py` and `test_factory_knowledge.py` 172 passed, 2 skipped;
+  `test_interventions.py`, `test_gated_actions.py`, `test_leases.py` and `test_backlog.py` 65 passed. Ruff is clean.
+  The whole unit suite and the four browser files were not run here.
+- *README:* the line on the watch's `in:` names both goals, says the `in:` is drawing only (switcher-actually-runs-2),
+  and is rewrapped.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 10 (2026-11-21): the `unit` run with one `F` at 39%.**
+- *The merge of main e8d3e33* was already committed (456d8d18), and no conflict markers are left. `dev/model/manager.yaml`
+  is resolved as round 9 says. Nothing was left to resolve.
+- *The failing test is not named:* the tail shows one `F` at 39%, and the run ends at 99% partway through a line, with
+  no summary, no `FAILED` line and no closing line from suite_watch. The run was ended from outside before pytest said
+  which test failed. This session's shell refused a whole-suite run (serial, under suite_watch) that would have named it.
+- *Every file that reads the branch's code passes under load:* under suite_watch with `-n 8 --dist worksteal`,
+  `test_factory.py`, `test_factory_knowledge.py`, `test_factory_times.py`, `test_backlog.py`,
+  `test_code_health_coverage.py`, `test_factory_resources.py`, `test_factory_sessions.py`, `test_interventions.py`,
+  `test_gated_actions.py` and `test_leases.py` together gave 263 passed, 2 skipped, rc 0. `test_factory_manager.py` on
+  its own gave 31 passed. A search of `tests/` finds no other file that reads `dev/bin/`, `dev/model/`, `dev/prompts/`,
+  `dev/factory.toml` or the repo's own `ergostat.yaml`. Those are the only things this branch changes, apart from docs.
+- *No code changed (lesson-13):* no test fails here, and without a name the failure can't be tied to this branch. The
+  factory should run the unit suite to completion. If it names a test outside the files above, it should run that test
+  on clean main (`onmain.py`).
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 11 (2026-11-21): the `unit` run that named
+`tests/test_reload_safety.py::test_a_reading_is_never_left_under_way_when_writing_it_fails`.**
+- *The merge of main e8d3e33* was already committed (456d8d18). `git merge-base --is-ancestor e8d3e33 HEAD` holds, and
+  no conflict markers are left under `dev/`. Nothing was left to resolve.
+- *The failure is not this branch's (lesson-13):* `git diff main -- ergostat/ tests/test_reload_safety.py` is empty.
+  The test builds its own model in `tmp_path` (`SMALL`) and reads nothing the branch changes (`dev/`, the repo's
+  `ergostat.yaml`). The traceback shows the *first* `e._readings(False)` raising, at line 262, which the test expects
+  not to raise. That call hands the sensor to the pool and then, in `_take`, drains `e.results`. Under load the pool's
+  `_read_one` can finish and put its result before the drain. That result is then written in the first call, and the
+  test's `busy` raises there. The test assumes the pool thread is slower than the caller. This is a timing race in
+  main's test, or in `Engine._take`'s contract (lesson-10), and not in anything this gap touches. The rest of the run
+  passed (2319, 69 skipped).
+- *No code changed:* a fix to `ergostat/spec/engine.py` or to that test falls outside this definition. It belongs in its
+  own gap. The factory should run the test on clean main (`onmain.py`), ideally under `-n 8` load, where it should fail
+  the same way about as often.
+- *Not run here:* this session's shell refused `pytest`, so not even that single test was re-run. This round is judged
+  by reading the traceback and the code only.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 12 (2026-11-21): the merge of main 1e9ecb1 and `do_ask`'s count.**
+- *Merge of main 1e9ecb1* (d0147de2): one conflict, in `ergostat.yaml`'s `messages.done`. Both kept: the branch's
+  `situation: superseded` and main's `lesson: applied`. No conflict markers are left.
+- *`do_ask` (blocking; raised in review/manager-sessions-5 and left unanswered in rounds 9-11, lesson-12):* it counted
+  only research items in `asked`, so while the researcher held the manager's question (`leased`), or once it was given
+  up on (`dead`), a second could be asked. It now counts every research item the asker asked that is not `answered`.
+  The choice for `dead`, as the finding asks: a dead question holds the next until the coordinator answers or retires
+  it. This is the reversible side, since a question can always be asked again once it is cleared. The README says so.
+  Test: `test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question` now puts the first question in
+  `leased`, then in `dead`, and sees the second refused each time, then `answered`, and sees it asked. With the old line
+  put back it **failed** (the second question was asked while the first was `leased`). With the fix it passes.
+- *review/manager-sessions-6's non-blocking notes:* `main-twice` counting at once stays as written (see round 1). A gap
+  in `approved` with no `approved_at`, and `load.reading` raising, are left as they are. They are noted here, not changed.
+- *Ran here:* `tests/test_factory_manager.py` 31 passed; `test_factory.py`, `test_factory_knowledge.py` and
+  `test_factory_times.py` together 184 passed, 2 skipped. Ruff is clean. The whole unit suite and the four browser files
+  were not run here.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 13 (2026-11-21): the `unit` run that ended at its first line of dots.**
+- *The merge of main 1e9ecb1* was already committed (d0147de2): `git merge-base --is-ancestor 1e9ecb1 HEAD` holds and
+  no conflict markers are left in `ergostat.yaml` or under `dev/`. Nothing was left to resolve.
+- *What the tail shows:* the build, the xdist nodes coming up, and 18 dots. No `F`, no error, no summary and no closing
+  line from suite_watch. The run was ended from outside, as in rounds 2, 4, 6, 7 and 10. There is no failure to fix, so
+  no code changed (lesson-13).
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 31 passed; `test_factory.py`,
+  `test_factory_knowledge.py`, `test_factory_times.py` and `test_interventions.py` together 194 passed, 2 skipped. Ruff
+  is clean. The whole unit suite and the four browser files were not run here. The factory should run them again to
+  completion.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 14 (2026-11-21): the `unit` run that ended after 24 dots.**
+- *The merge of main 1e9ecb1* was already committed (d0147de2). `git merge-base --is-ancestor 1e9ecb1 HEAD` holds, the
+  tree is clean, and no conflict markers are left in `ergostat.yaml`. Nothing was left to resolve.
+- *What the tail shows:* the build, the xdist nodes coming up, and 24 dots. There is no `F`, no error, no summary and no
+  closing line from suite_watch. As in rounds 2, 4, 6, 7, 10 and 13, the run was ended from outside. There is no failure
+  to fix, so no code changed (lesson-13).
+- *`do_ask` (the blocking finding):* this was answered in round 12 and is unchanged here. Every research item the asker
+  asked that is not `answered` counts as open (`dev/bin/manage.py` `do_ask`), and the test covers `leased` and `dead`.
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 31 passed; `test_factory.py`,
+  `test_factory_knowledge.py`, `test_factory_times.py` and `test_interventions.py` together 194 passed, 2 skipped. Ruff
+  is clean. The whole unit suite and the four browser files were not run here. The factory should run them again to
+  completion. Several runs in a row have been ended early, so the factory should check what is killing the suite
+  container (its memory or its time limit).
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 15 (2026-11-21): review/manager-sessions-6, and the merge of main 6ad359c0.**
+- *`do_ask` (blocking):* already built in round 12 and unchanged. It counts every research item the asker asked that is
+  not `answered`, and `test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question` covers `leased` and
+  `dead`. Round 12 showed that it fails with the old line put back.
+- *The lock in `do_propose`/`do_ask` (non-blocking, lesson-1; lesson-12, as no earlier round answered it):* the check for
+  an open proposal or question and its write now happen under an flock on `run/one-open.lock` (`manage.one_open`).
+  Test: `test_the_one_open_check_and_its_write_hold_a_lock`, where another process tries to take the lock during the
+  check. With the flock removed it **failed** (`['0'] == ['1']`). With the flock it passes. The README says so.
+- *`main-twice` counting at once (non-blocking):* stays as written (rounds 1 and 12), because two main commits already
+  span time. This departs from the definition's wording, and the README and the model say so.
+- *Not run by the reviewer (non-blocking):* this round's runs are listed below.
+- *The merge of main 6ad359c0* (d3aecad8, already committed) brought in `test_a_gap_pending_with_no_push_is_stuck`
+  (`tests/test_factory.py`). It read the one-trigger shape (`s["trigger"]`, a `heartbeat`) and failed with `KeyError`.
+  It now reads the session's `triggers` and checks the same things: no `stuck` trigger while the push is held, `gap/a`
+  stuck once the push has run, and `gap/c` stuck at once. With `watch.push_waits` made to return False, it failed
+  (`{'gap/a'} == set()`).
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 32 passed. `test_factory.py`,
+  `test_factory_knowledge.py`, `test_factory_times.py` and `test_interventions.py` together: 204 passed, 2 skipped and
+  1 failed (the test above, before its fix). After the fix, `tests/test_factory.py` alone: 113 passed, 2 skipped. Ruff
+  is clean. The whole unit suite and the four browser files were not run here. The factory runs them under suite_watch.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 16 (2026-11-21): the `unit` run with one `F` at 26%.**
+- *The failing test is not named:* the tail shows one `F` at 26%, then the run stops at 34% partway through a line. There
+  is no summary, no `FAILED` line and no closing line from suite_watch. The run was ended from outside before pytest
+  named the test, as in rounds 6 and 10. This session's shell refused the whole-suite run under suite_watch
+  (`-n 4 -x -rf`) that would have named it.
+- *Every file that reads the branch's code, or that main's merge 6ad359c0 brought in, passes:*
+  `tests/test_factory_manager.py`, `test_factory.py`, `test_factory_knowledge.py`, `test_factory_times.py` and
+  `test_interventions.py` together gave 237 passed, 2 skipped. `test_pool_now.py`, `test_spec_schema.py` and
+  `test_backlog.py` (from main's merge) gave 71 passed. `test_eta.py`, `test_intent.py`, `test_leased_workspaces.py`,
+  `test_messages.py`, `test_recipes.py`, `test_run_costs.py`, `test_take_order.py`, `test_workspaces.py`,
+  `test_in_container.py`, `test_code_health_coverage.py`, `test_factory_resources.py`, `test_factory_sessions.py`,
+  `test_gated_actions.py` and `test_leases.py` gave 195 passed. Together these are every test file that names `dev/` or
+  the repo's `ergostat.yaml`.
+- *No code changed (lesson-13):* no test fails here, and without a name the failure can't be tied to this branch. It
+  may be the same failure as round 11's named one (`test_reload_safety.py`, a race in main's test). The factory should
+  run the unit suite to completion with `-rf`. If it names a test outside the files above, it should run that test on
+  clean main (`onmain.py`).
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 17 (2026-11-21): the `unit` run that ended at 2%.**
+- *What the tail shows:* the build, the xdist nodes coming up, and 102 dots (2%), ending partway through a line. There is
+  no `F`, no error, no summary and no closing line from suite_watch. As in rounds 2, 4, 7, 13 and 14, the run was ended
+  from outside. There is no failure to fix, so no code changed (lesson-13).
+- *State:* the tree was clean on 6e306c83, and no conflict markers are left in `ergostat.yaml` or under `dev/`.
+- *Ran here:* `tests/test_factory_manager.py` 32 passed. Ruff is clean. The whole unit suite and the four browser files
+  were not run here. The factory should run them again to completion with `-rf`. Many runs in a row have been ended
+  early, so it should also find out what is stopping the suite container (its memory or its time limit).
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 18 (2026-11-21): the merge of main b24eb901.**
+- *Merge of main b24eb901* (0bc848e2): conflicts in four files. Main brought two changes into them: the coordinator's
+  park fields `deferred: true` / `cancelled: true` as non-triggers, and the measures `tool-denials` /
+  `tool-denials-unknown`.
+  - `dev/bin/measure.py`: both kept (the branch's manager measures, and main's tool-denials).
+  - `dev/bin/watch.py`: the branch's side is kept. It already excludes both fields and both park kinds, so main's
+    line is the same rule in the old one-trigger loop.
+  - `tests/test_factory_manager.py`: the branch's side is kept. Main had added the two fields to the old one-trigger
+    test (`test_dead_and_parked_gaps_are_raised_but_not_old_or_carried_on_ones`), which the branch replaced. The
+    branch's `test_deferred_and_cancelled_parks_are_not_triggers` already puts both fields.
+  - `dev/README.md`: the branch's "When it runs" is kept, and its trigger list now names the fields as well as the
+    kinds.
+  No conflict markers are left.
+- *`do_ask` (the blocking finding):* built in round 12 and unchanged. It counts every research item the asker asked
+  that is not `answered` (`dev/bin/manage.py`), and the test covers `leased` and `dead`.
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 32 passed; `test_factory.py`,
+  `test_factory_knowledge.py`, `test_factory_times.py` and `test_factory_sessions.py` 203 passed, 2 skipped;
+  `test_interventions.py`, `test_gated_actions.py`, `test_leases.py` and `test_backlog.py` 70 passed. Ruff is clean.
+  The whole unit suite and the four browser files were not run here.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
