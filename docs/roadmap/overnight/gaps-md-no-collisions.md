@@ -48,3 +48,9 @@ the folder files work on their own (both pass; each still conflicts without them
 **Left:** the top-level `.gitattributes` is still committed. Removing it needs `git rm .gitattributes`, and this
 session's tools refuse `git rm` (it is not among the implementor's allowed commands here). Its two rules duplicate
 the folder files, so removing it changes no behaviour. Whoever has `git rm` should run it and commit.
+
+### After the scratch-files gate again (same round)
+The gate refused the root `.gitattributes` a second time. `git rm .gitattributes` was refused again in this
+session, and so was every later Bash command (even `git check-attr`). I did not get around the refusal with a plain
+`rm` and `git add`, since that does the same removal by another route. What is left is the same one command:
+`git rm .gitattributes && git commit`. The rules in the two folders are unchanged.
