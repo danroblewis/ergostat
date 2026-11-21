@@ -53,6 +53,11 @@ auxiliaries:
     description: 1 while the merge queue can take no gap - its last batch's push waits for approval, or the queue is blocked (run/queue.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/queue.py waiting, every: 1m, timeout: 1m, description: the merge queue's state}
+  push-settleable:
+    unit: switch
+    description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
 
 flows:
   gaps-approved:
@@ -319,11 +324,11 @@ blocks:
     out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures]
   push-settler:
     type: program
-    description: settles the last batch's push once it ran, failed or was denied, with no gap approved to start a run - under the queue's lock when it is free (a run holding it settles the push itself), its held outcome said once
+    description: settles the last batch's push once it ran, failed or was denied, with no gap approved to start a run - under the queue's lock when it is free (a run holding it settles the push itself), its held outcome said at most once; commanded by push-settleable
     run: python3 dev/bin/queue.py settle
     every: 2m
     timeout: 1m
-    in: auxiliary.push-waiting
+    in: auxiliary.push-settleable
 
   triage-when:
     type: expr
