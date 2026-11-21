@@ -55,6 +55,13 @@ def program_of(spec, b) -> str | None:
     return None
 
 
+def ended(data: dict) -> str:
+    """How a run ended, from its end event's data: ``signal``, else its note's first words; begins with one of
+    ``NOT_THE_CODE`` when a change to the code is not for it."""
+    code, note = data.get("exit"), str(data.get("note") or "")
+    return "signal" if runrecord.by_signal(code) else note.split(":")[0].split(" after")[0] or f"exited {code}"
+
+
 def guarded(p, b, cause: str | None) -> bool:
     """The repair loop's own runs, and runs a failure's events caused (a few steps up the cause chain), are never kept."""
     if b.name in BLOCKS:
@@ -78,8 +85,7 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
     from ..spec.items import one
     tb = traceback_of(stderr, spec.root)
     program = program_of(spec, b) if b.type in ("program", "ai") else None
-    code, note = data.get("exit"), str(data.get("note") or "")
-    how = "signal" if runrecord.by_signal(code) else note.split(":")[0].split(" after")[0] or f"exited {code}"
+    code, note, how = data.get("exit"), str(data.get("note") or ""), ended(data)
     sig = hashlib.sha1(repr((b.name, program, tb["type"], tb["file"], tb["function"]) if tb else
                             (b.name, program, how)).encode()).hexdigest()[:8]
     name = f"{b.name}-{sig}"
@@ -96,12 +102,14 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
          "item": data.get("item"), "read_only": b.params.get("read-only") is True, "count": 1,
          "first_seen": begun["time"], "began": begun["time"]}
     it = one(p.events, spec, fid)
-    if it is not None and it.state != "applied":
+    if it is not None and it.state != "verified":
         d.pop("began")                                       # (when this run of failures began: the impact report's)
-    opens = program is not None and not how.startswith(NOT_THE_CODE) and (it is None or it.state in ("noted", "applied"))
+    # opened from noted or verified only: an applied fix failing again is settle's to judge (regressed), and a
+    # regressed or reverted one is a person's
+    opens = program is not None and not how.startswith(NOT_THE_CODE) and (it is None or it.state in ("noted", "verified"))
     rows = [{"type": "ergostat.run.failed", "item": fid, "source": "ergostat", "causedby": begun["id"], "data": d}]
-    if opens:
+    if opens:                                                # a new cycle: the last one's verdict and revert cleared
         rows.append({"type": f"{FAILURE}.opened", "item": fid, "source": "ergostat", "causedby": begun["id"],
-                     "data": {"reopened": it is not None}})
+                     "data": {"reopened": it is not None, "verdict": None, "revert": None, "revert_key": None}})
     p.events.add_many(rows, new=True)
     return rows[0]

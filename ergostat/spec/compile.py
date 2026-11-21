@@ -904,12 +904,17 @@ class Compiler:
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
-        from ..repair import BLOCKS, FAILURE, failure_kind
+        from ..repair import BLOCKS, FAILURE, VERIFY_MAX, VERIFY_MIN, failure_kind   # (verify: clamped again in settle)
         if BLOCKS[0] in self.doc.sections.get("blocks", {}):
             spec.items[FAILURE] = failure_kind()             # built in, under use: repair: failing runs (SPEC §12r)
             if "--approver ai" in str(self.doc.sections["blocks"][BLOCKS[0]].get("run")):
                 self.err("use: repair: approver: ai: not yet: a sound allowlist guard is needed (GAPS)",
                          self.doc.defined[("blocks", BLOCKS[0])], "not-yet")
+            settle = str((self.doc.sections["blocks"].get(BLOCKS[1]) or {}).get("run") or "").split()
+            n = settle[settle.index("--verify") + 1] if "--verify" in settle[:-1] else None
+            if "--verify" in settle and not (n and re.fullmatch(r"\d{1,3}", n) and VERIFY_MIN <= int(n) <= VERIFY_MAX):
+                self.err(f"use: repair: verify: {n!r} is not a whole number from {VERIFY_MIN} to {VERIFY_MAX}",
+                         self.doc.defined.get(("blocks", BLOCKS[1])) or self.doc.defined[("blocks", BLOCKS[0])], "bounds")
         if any(u.get("template") == "interventions" for u in d.uses.values()):
             from .ir import MODEL_REQUEST, model_request_kind
             spec.items[MODEL_REQUEST] = model_request_kind()  # built in, with the interventions loop (SPEC §12p)
