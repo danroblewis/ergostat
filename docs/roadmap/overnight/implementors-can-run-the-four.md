@@ -201,3 +201,18 @@ Round 8, the round's unit suite failed again; no code changed (lesson 13).
   `cat >> ... && git add && git commit` was also refused; this section was written with Edit instead.
 - **Run here:** tests/test_agents.py (4 passed, 102 s; the first test really launched Chromium). Ruff is clean on
   ergostat, tests and scripts. The whole unit suite was not run by me (the brief says never in parallel yourself).
+
+Round 9, the round's unit suite stopped early a third time; no code changed (lesson 13).
+
+- **Merge of main:** main (20339898) is still the one merged in round 7 (4de10272). Nothing was left to resolve.
+- **What the failure showed:** the same as rounds 6 and 8. It stopped after 28 dots, with no `F`, no summary and no
+  suite_watch JSON line. No test is named, so there is nothing in the branch to fix.
+- **Leads for the gap that owns this, from reading only:** suite_watch catches SIGTERM and still prints its JSON
+  line. fac.suite's stop sends SIGTERM first, and `docker run` passes it on. So a missing JSON line means a SIGKILL
+  or an OOM kill of suite_watch or pytest inside the container. Also, the tail says `holding slot 2 of 3`. Up to three
+  suite containers can run at once, each allowed `--memory 12g --cpus 4`, in one Docker VM. The house rule says
+  suites run one at a time. A VM out of memory would explain the same tail at different points in many gaps' runs.
+  This is not proven. To prove it, someone needs the container's `docker inspect` state (OOMKilled, ExitCode) and the
+  VM's memory, and this session cannot read either.
+- **Run here:** tests/test_agents.py (4 passed, 86 s; Chromium launched). Ruff is clean on ergostat, tests and
+  scripts. The whole unit suite and the four browser files were not run by me this round.
