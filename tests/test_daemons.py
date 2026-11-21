@@ -738,6 +738,24 @@ def test_a_warm_run_failed_between_its_done_s_charge_and_its_pop_is_charged_and_
     assert p.served == 0 and p.recycle is None, "a run done never took is not counted as served"
 
 
+def test_a_warm_run_whose_charge_raises_in_fail_all_is_still_ended_and_unknown():
+    import types
+
+    from ergostat.daemons.proc import Handle, Process
+    p = Process.__new__(Process)                 # (no program: only fail_all)
+    p.d = types.SimpleNamespace(warm=True)
+    p.lock, p.requests = threading.Lock(), {}
+    h = Handle(take=lambda lines: None)
+    h.sent, p.runs = True, {"r1": h}
+
+    def charge():
+        raise IndexError("a /proc read cut short")
+    p.charge = charge
+    p.fail_all("its daemon exited 3", requeue=False)
+    assert h.done.is_set() and h.note == "its daemon exited 3", "ended, never left waiting for its charge"
+    assert h.resources == {"unmeasured": "its group's CPU could not be read (IndexError)", "method": "warm"}
+
+
 def test_a_warm_run_whose_leader_cannot_be_read_when_it_ends_is_unknown_never_zero():
     import subprocess
 

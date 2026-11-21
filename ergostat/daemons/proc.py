@@ -335,8 +335,12 @@ class Process:
             self.runs.clear()
             self.requests.clear()
         for h in runs:                               # (warm: a run sent, crashed or hung, charged what it used)
-            if self.d.warm and h.sent:
-                h.resources = self.charge()[0]   # (and replaced: what it left running does not matter)
+            if self.d.warm and h.sent:               # (and replaced: what it left running does not matter)
+                try:
+                    h.resources = self.charge()[0]
+                except Exception as err:             # (unknown, never zero; never the run left unended for it)
+                    h.resources = {"unmeasured": f"its group's CPU could not be read ({type(err).__name__})",
+                                   "method": "warm"}
             h.end(None, note, requeue and h.cancelled is None)
         for h in reqs:
             h.answer(None, note)

@@ -58,3 +58,19 @@ Round 3 (answers to review 2). Still 7 net lines of code outside tests and docs 
 Run here in round 3: `tests/test_daemons.py` (33 passed), `tests/test_daemon_observations.py` (10 passed), ruff
 (clean). Not run here: the whole unit suite and the four browser files. Main was not merged again. The branch
 already holds 20339898, and origin was not fetched (no network).
+
+Round 3, suite fix. The factory's `unit` run failed, but its tail names no test. It ends after 28 dots, with no pytest
+summary and no `suite_watch` JSON line, so the run was cut short: most likely a hang. From reading the code (the
+cause was not seen): if `charge()` raised inside `fail_all`, the run's `h.end` was skipped and whatever waited on it
+waited forever (lesson-3: an exception that skips the end bookkeeping). `fail_all` now records such a run as
+unmeasured, naming the exception, and still ends it.
+`test_a_warm_run_whose_charge_raises_in_fail_all_is_still_ended_and_unknown` covers this. With the guard narrowed to
+`KeyError` it fails; with the guard it passes. Now 11 net lines of code outside tests and docs (`proc.py` +8,
+`usage.py` +3), within 25. Whether this was the failure is not known.
+
+Run here: `tests/test_daemons.py` (34 passed, with the change) and ruff (clean). Run before the change, all passed:
+`test_daemon_observations.py`, `test_warm.py`, `test_daemon_lines.py`, `test_daemons_restart.py`,
+`test_sampler_ramp.py`, `test_ticket_factory_daemons.py`, `test_run_costs.py`, `test_streamed_output.py`,
+`test_spec_auxiliaries.py`, `test_daemon_docs.py`. Refused here: running the unit suite in chunks under
+`scripts/suite_watch.py`, so the test that hung was not found. If the unit run is cut off again, its full log, not the
+tail, should name the test that was still running.
