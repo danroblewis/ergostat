@@ -131,8 +131,8 @@ def _worse(new: dict, old: dict) -> str | None:
     return None
 
 
-def _nothing(t: list, lines: list[str]) -> dict:
-    return {"found": False, "proposable": False, "told_apart": False, "why": list(lines),
+def _nothing(t: list, lines: list[str], said: list[str] = ()) -> dict:
+    return {"found": False, "proposable": False, "told_apart": False, "why": list(lines) + list(said),
             "outside_step": {"at": t[0], "input": None, "since": t[0], "until": t[-1], "held": t[-1], "steps": [],
                              "experiments": [], "window": "excursion", "passes": [], "dropped": list(lines)}}
 
@@ -164,7 +164,8 @@ def around_steps(h: float, t: list, u: list, y: list, ins: dict[str, list], nois
         exps, drop = _plan(t, u, ins, steps, lambda s, c=c: (s["k"] + c, s["k"] + c + max(c, P // 2)), True, h)
         drops.append(drop)
         if not exps and any("has no readings" in x for _, x in drop):
-            return _nothing(t, [x for _, x in drop])
+            return _nothing(t, [x for _, x in drop], [f"pass {kept_i} found a process on shorter windows; it is not "
+                                                      "used, since the windows its process needs have no readings"])
         short = [x for k, x in drop if k in used and "covers" in x and x not in kept["why"]]
         if short:              # the kept pass fitted a step its process says is too short: not trusted from there either
             kept = {**kept, "why": kept["why"] + short, "proposable": False}
