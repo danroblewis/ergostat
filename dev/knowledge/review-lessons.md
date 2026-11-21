@@ -1,5 +1,5 @@
 ---
-kind: lessons
+kind: lesson
 about: the classes of mistake independent gate reviews keep finding in ergostat branches
 use: every implementor brief (check your branch against each before saying built); every reviewer brief (look for each)
 ---
@@ -35,6 +35,7 @@ Seen as: `concurrency: 5000` spawning 5,000 processes (the machine has kernel-pa
 a breaker-free loop running 212 times in 15 seconds; retries with no end.
 **Check:** every number that multiplies processes, threads, calls or money has a hard maximum, enforced at config time
 and again at run time (counting the ones still draining).
+*About:* goal.threads-within, goal.suite-threads-within, goal.machine-quiet.
 
 ## 5. Stale state surviving under a reused id
 Items are keyed by their subject, so a thing made again gets the same id and the fold merges old fields into it.
@@ -47,11 +48,13 @@ Seen as: a daemon step that kept its git lock after cancel; containers left runn
 a killed suite whose pytest kept going under `sh -c` as PID 1.
 **Check:** on cancel or timeout, what actually stops? Kill the process group or container by name; `--init` in
 containers; a test that cancels a hung step and shows the next item gets through.
+*About:* goal.machine-quiet, goal.suite-threads-within.
 
 ## 7. Two things merged that each passed alone
 Branches that pass their own suites conflict once merged: a new CLI flag not classified for the read-only fallback; a
 daemon fix racing another fix's start-up.
 **Check:** before saying built, merge origin/main into the branch and run the suites again.
+*About:* goal.approved-gaps-landed, goal.queue-failures-triaged.
 
 ## 8. A score or guarantee stated wider than the code supports
 Docs and docstrings claiming "never", "each side ≤ 5%", "never the repair", "found" for a check that a trivial
@@ -60,15 +63,18 @@ Seen as: a benchmark's "found" accepting `MIN(x, 1e9)` and an equation of `0`; p
 "anytime-valid" bound that assumed independent stocks; a guard described as safe that was a denylist.
 **Check:** for each claim in the docs, name the test that would fail if it were false. If there isn't one, narrow the
 claim or write the test. Prefer allowlists to denylists for anything called a guard.
+*About:* goal.first-pass-good.
 
 ## 9. A test that can't fail
 Tests that assert on a happy path, or with `A and B or C`, or that never exercise the window they're named for.
 **Check:** for each new test, break the code it guards and watch it fail (say so in the report).
+*About:* goal.first-pass-good.
 
 ## 10. Load-dependent flakes blamed on the branch, or ignored
 Timing tests that pass alone and fail under `-n 8` with other suites running.
 **Check:** a test that fails under load is either a real race in ergostat (often: a first spawn, a lease renewal, a
 fold read before a write is visible) or a fixed sleep in the test. Find which; never only raise the timeout.
+*About:* goal.flakes-rare, goal.queue-failures-triaged, goal.suites-in-time.
 
 ## 11. Destructive operations on paths built from input
 `rm -rf`, `git add -A`, `reset`, worktree creation, on a path made from a branch name, a request field or an empty
@@ -83,9 +89,11 @@ blocking stray-file finding answered in rounds 2 and 3 by rewording a comment (c
 file, so it stayed committed across rounds.
 **Check:** list every finding of the review you are answering, blocking and not, and for each say in the report what
 changed or why it stays; a non-blocking finding left unanswered becomes blocking in the next round.
+*About:* goal.few-fix-rounds, goal.first-pass-good.
 
 ## 13. Stay inside the gap: an unrelated failure is reported, not fixed in the branch
 Seen as: continue-branch: a lease-renewal test failed under load; the implementor wrote its own lease fix into the
 branch, and the review failed the gap on it.
 **Check:** when a suite fails on something your change did not touch, name the test and why it is unrelated in your
 report and stop there; a fix outside the definition of done belongs in its own gap
+*About:* goal.first-pass-good, goal.flakes-rare.

@@ -4,7 +4,8 @@ landed like any other, since the knowledge is in the repository. Run in the inst
 
     lesson.py add "TITLE" --check "CHECK" [--seen "SHAPE"]   a new lesson, by the coordinator
     lesson.py retire N "WHY"                                  lesson N removed (briefs carried it to no effect)
-    lesson.py request lesson/ID                               the action knowledge-change: an approved proposal"""
+    lesson.py request lesson/ID                               the action knowledge-change: an approved proposal
+    lesson.py settle                                          each proposal the coordinator denied: settled denied"""
 
 from __future__ import annotations
 
@@ -35,6 +36,20 @@ def request(cfg: dict, name: str, what: str, edit: str, who: str, item: str = ""
     print(f"gap/{branch} requested ({fac.rel(p)})")
 
 
+def settle() -> None:
+    """Each proposal whose knowledge-change the coordinator denied, settled `denied` with who and why. A denial by the
+    gate (fencing) is no decision; a record that cannot be read stops this with nothing written (lesson-3)."""
+    open_ = {i["id"] for i in fac.items("lesson", "proposed")}
+    for a in fac.items("ergostat.action", "denied"):
+        f = a.get("fields") or {}
+        lid = (f.get("args") or {}).get("lesson")
+        if f.get("action") == "knowledge-change" and lid in open_ and f.get("denied_by") not in (None, "", "gate"):
+            fac.add("lesson.denied", lid, denied_by=f["denied_by"], why=f.get("note") or "", action=a["id"],
+                    denied_at=time.time())
+            open_.discard(lid)
+            print(f"{lid} denied by {f['denied_by']}")
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="lesson.py", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -46,9 +61,13 @@ def main(argv: list[str]) -> int:
     r.add_argument("n", type=int)
     r.add_argument("why")
     sub.add_parser("request").add_argument("item")
+    sub.add_parser("settle")
     args = ap.parse_args(argv)
     cfg = fac.config()
     fac.cli(cfg)
+    if args.cmd == "settle":
+        settle()
+        return 0
     lessons = {int(e["id"][7:]): e for e in knowledge.entries() if e["id"].startswith("lesson-")}
     if args.cmd == "add":
         n = max(lessons) + 1
