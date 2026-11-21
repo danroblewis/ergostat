@@ -565,6 +565,34 @@ def test_the_graph_and_the_timeline_left_open_change_nothing(browser, roadmap, v
     assert kept and not errors, errors
 
 
+def test_a_snapshot_draws_the_graph_and_timeline(browser, tmp_path):
+    """A snapshot (``ergostat snapshot``) of a model with relations in two systems, opened from its file: the Graph
+    and the Timeline of each system drawn from the answers it holds, keyed as the page's ``snapKey`` asks."""
+    from ergostat.web.snapshot import build
+    from tests.test_graph_cli_web import related_project
+    (tmp_path / "m").mkdir()
+    f = tmp_path / "snapshot.html"
+    f.write_text(build(related_project(tmp_path / "m")))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f.as_uri() + "#/items?view=graph")
+    for system, ids in (("planning", {"epic/e1", "epic/e2", "goal/g"}), ("delivery", {"ticket/a", "ticket/b", "epic/e1"})):
+        sel = f'section.sys-group[data-system="{system}"] .rg-graph[data-drawn] .rg-node'
+        pg.wait_for_selector(sel, timeout=20000)
+        assert ids <= {n["id"] for n in drawn(pg, sel)}, (system, drawn(pg, sel))
+    assert "not in a snapshot" not in pg.locator(".page").inner_text()
+    pg.locator(".rg-viewbar button", has_text="Timeline").first.click()
+    for system in ("planning", "delivery"):
+        pg.wait_for_selector(f'section.sys-group[data-system="{system}"] .rg-timeline[data-drawn] .rg-row', timeout=20000)
+    rows = {r["id"] for r in drawn(pg, '.rg-timeline .rg-row')}
+    assert {"ticket/a", "ticket/b", "goal/g"} <= rows, rows
+    assert pg.locator(".rg-timeline .rg-seg").count() >= 4                         # what happened, state by state
+    assert "not in a snapshot" not in pg.locator(".page").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
 # ---- a report upstream's page (SPEC §12m): the text to paste, a Copy button, the link to a new issue, the scrub log
 
 def seed_report(d: Path, home: Path) -> str:

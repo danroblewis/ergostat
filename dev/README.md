@@ -159,9 +159,16 @@ A gap with no definition is **planned** (`dev/bin/plan.py`), once you open plann
 (`ergostat sensor planning-open.main --read 1`): the planner reads the code, docs and knowledge in a read-only clone of
 main and writes its definition of done to `run/plans/<branch>.md` (acceptance tests, a budget, the review lessons that
 apply as risks, the files to touch); a gap too large for one branch becomes sub-gaps with `depends-on` among them, the
-gap waiting in `split` until each is merged. A short plan review (the plan and the lessons only) approves it into
-`run/defs/` (the gap is ready) or sends it back; a second failure parks it. A definition you write yourself skips all
-of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
+gap waiting in `split` until each is merged. The planner is given the task graph (gaps merged in the last 3 days and
+the files they changed, gaps active and ready with the files they touch, 40 lines at most). Each plan is linted by the
+program (`plan.lint`, no AI: the sections, tests named `tests/...py::test_name`, a budget within
+`[gates] plan_budget_most`, lessons, `depends-on` names and files that exist or are marked new); one that fails goes
+straight back to the planner (the 6th failure parks), and a lint-clean one is the definition at once: the gap is ready.
+The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
+`dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
+findings are appended to the definition as notes the implementor answers, and recorded by class on
+`review/<branch>-plan` for the knowledge loop. "This should not be built" is only asked of you (`park-gap`, in the
+inbox). `plan-review-agreement` and `plan-{flagged,clean}-{fix-rounds,parks}` say what the stage is worth. A definition you write yourself skips all of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
 
 ```sh
 python3 dev/bin/status.py                                   # one screen: in flight, blocked, failed, queue, spend
@@ -219,6 +226,42 @@ ergostat event --add intervention.recorded --item intervention/2026-11-20-unstic
   --data '{"reason": "the worktree was left mid-rebase", "class": "worktree", "recorded_at": 1795160000}'
 ergostat event --add intervention.remedied --item intervention/2026-11-20-unstick-alpha --data '{"remedy": "gap/..."}'
 ```
+
+## The pipeline manager
+
+What the coordinator did by hand and recorded as interventions (a gap parked on main's own failures continued, a gap
+re-approved after an environmental queue failure, the queue unblocked, a missing gap filed) is the pipeline manager's:
+an AI block (`pipeline-manager`, `dev/model/manager.yaml`; `[ai] pipeline_manager_model`, Opus, and its own
+`pipeline_manager_session_usd`; pool 1; within the daily cap) that looks at one **situation** at a time, in a container
+on a read-only clone of main like the other sessions, its conversation kept as a session item related to the situation.
+
+**The triggers** (`dev/bin/watch.py`, the block `pipeline-watch`, every 5 minutes; `[manager]` in the settings), in
+order: the queue blocked (`run/queue.json`, or an open intervention of class `queue`); a gap dead past half an hour, or
+parked within `parked_within_hours` (48) unless another gap carries its branch on; a gap in one state past
+`[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
+lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
+queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes
+`operator-decision` and `factory-tuning`, or `factory: false`) past `intervention_hours` (12), at most
+`interventions_per_hour` (3) an hour; a heartbeat every
+`heartbeat_minutes` (30), only when the pipeline changed. One situation at a time, and never one whose fingerprint (its
+subject and the visit, park or change it is about) was raised before. `python3 dev/bin/watch.py stuck` counts the
+stuck gaps (the goal `no-stuck-gaps`). Pause it with `[manager] open = 0` in `factory.local.toml`.
+
+**The brief** (`dev/bin/manager.py`): the situation, its gap's fields, moves, reviews, sessions and log tails, the
+queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity, and the knowledge.
+
+**The tools** (`dev/bin/manage.py`): the session answers with its calls in a fenced JSON block, each run through
+manage.py's own checks; refused calls are said on the situation. Directly: `continue GAP`, `reapprove GAP --why` (the
+failed tests are run again on main where they failed, the checkout for the queue's or a container for the fast
+suites', and must fail there too: back to approved, or to built), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a
+queue one only once main is clean and pushed). Asked in the inbox: `close GAP` (a new state, closed), `park GAP`,
+`pool ROLE N`, `change --what` (dev/model, the settings, anything touching origin). Every call is an
+`intervention.recorded` with a class and `by: pipeline-manager`, open like the coordinator's, so the interventions still
+count what the factory lacks. By hand (as the coordinator): `python3 dev/bin/manage.py continue gap/NAME --why ...`.
+
+**The velocity watch**: each heartbeat reads queue wait, suite minutes, cycle hours and each waiting state's time; when
+`queue-wait-short` or `suites-in-time` is off it files a gap (merge batching with bisection; faster suites), at most
+one of its own open at a time, and never one whose branch exists.
 
 ## Upgrade and revert
 
