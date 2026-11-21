@@ -848,6 +848,29 @@ what an item names and what names it (the inverse: `blocks`, `children`) are bot
 them both ways, each related item with its state, and what it waits on first. A link to an id that was never
 recorded is kept, and said: what it names is not known to be finished.
 
+**Graph queries.** Three questions over the links, both ways, and the items' fields (`spec/itemgraph.py`), as the
+record is now: `ergostat item ID --near [N]`, `ergostat item A --path B`, `ergostat item ID --about`, each with
+`--json`, and `GET /api/items-query?near=ID&depth=N`, `?path=A&to=B`, `?about=ID`, which answer the same JSON.
+- **near**: the items within `N` hops (1 to 4, default 1), each with its distance and the step that first reached it
+  (`via`: the item it came from and the relation).
+- **path**: a shortest chain of relations from A to B (breadth first, the fewest steps), walked either way. A step
+  walked backward is named by the relation's inverse: the one the kind declares (`inverse:`), else `blocks`,
+  `children`, `before`, `dependents`, `duplicated_by`, `related_from` for the relations of those names, and `NAME_of`
+  for any other (`relations.inverse_of`; any relation may be walked, the names are not an allowlist). `says` is
+  `found`, `no path` (every item reachable was visited), or `none within the cap`.
+- **about**: the items linking to it by a declared relation (`declared`, with the relation), then those whose fields
+  hold its id as a whole token (`inferred`, with the first such field): `ticket/1` is not in `ticket/12`,
+  `ticket/1/x` or `xticket/1`. Each string value of a field is matched, nested ones too, so an id at the start of a
+  line counts. The mentions are looked for among the items whose indexed text (*Search*: the first
+  65,536 characters of their fields' strings) holds the id, newest first; a mention past that is not found.
+
+Each visits at most 2,000 items (`itemgraph.VISIT`), and says `capped` when it stopped there: a path not found
+within the cap is never said to be "no path"; a walk that runs out of items to visit exactly at the cap is.
+An unknown id is an error (the command exits 2, the API answers 404); a depth outside 1 to 4 or not a number, a path
+with no `to=`, more than one of `near=`, `path=` and `about=` (the CLI's flags likewise), or one of them with `--at`
+(`at=`) is refused (exit 2, 400), never answered with a default (only
+no depth at all is 1; the API reads an empty `depth=` as none).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:
@@ -2335,11 +2358,16 @@ dispatcher's next look. A run stopped with ergostat gives its item
 back uncounted, unless what it printed before had already moved the item on (its lines take effect as it prints
 them, section 9.1): that is an ack. Once ergostat has begun stopping it takes no lease; a take that raced the stop is
 given back uncounted before its run starts, and a run still going when ergostat has waited its last for it has its
-lease given back uncounted as ergostat exits. A lease that could not be given back (the write failed, or ergostat was
-killed, or restarted itself at once) is expired by the next engine's watchdog on its TTL, so after a restart no item
-stays leased by a run that never ran; that expiry counts no attempt (`count: false`), since its holder was not a run
-this engine process took (the dispatcher keeps, in memory, the runs it took whose leases have not ended). A
-lease that expired is not ended again when its run ends.
+lease given back uncounted as ergostat exits. Before the engine records `ergostat.stopped`, every lease it took and
+has not ended is given back uncounted (one whose run's own end failed too), each ended once. A process that a run of a
+block's own `run` starts while its engine stops is killed (its process group) before the engine exits; this keys on
+that engine's own stop, so another engine in the same process keeps a run it starts after the first one's kill (a run
+of another engine already going when one engine kills its runs is killed with them, and one that then exits non-zero
+is said to be stopped with ergostat). A daemon's item is stopped by the daemon's own close (section 9.7). A lease
+that could not be given back (the write failed, or ergostat was killed, or restarted itself at once) is expired by the
+next engine's watchdog on its TTL, so after a restart no item stays leased by a run that never ran; that expiry counts
+no attempt (`count: false`), since its holder was not a run this engine process took (the dispatcher keeps, in
+memory, the runs it took whose leases have not ended). A lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
