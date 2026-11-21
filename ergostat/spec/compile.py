@@ -754,9 +754,9 @@ class Compiler:
         if m is None:
             return
         if not isinstance(m, dict):
-            self.err("messages: a map (classifier:, finished:, follow-up:, reopen-to:, done:)", w, "not-a-map")
+            self.err("messages: a map (classifier:, finished:, follow-up:, reopen-to:, done:, paused:)", w, "not-a-map")
             return
-        self.keys(m, {"classifier", "finished", "follow-up", "reopen-to", "done", "description"}, "messages")
+        self.keys(m, {"classifier", "finished", "follow-up", "reopen-to", "done", "paused", "description"}, "messages")
         got = Messages(where=getattr(m, "where", None) or w)
         c = m.get("classifier")
         if c is not None:
@@ -780,7 +780,7 @@ class Compiler:
                          f"kinds" + self.suggest(str(fu), spec.items), m.at("follow-up"), "unknown-ref")
             else:
                 got.follow_up = str(fu)
-        for key, attr in (("reopen-to", "reopen_to"), ("done", "done")):
+        for key, attr in (("reopen-to", "reopen_to"), ("done", "done"), ("paused", "paused")):
             raw = m.get(key)
             if raw is None:
                 continue
