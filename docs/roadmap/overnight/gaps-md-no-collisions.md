@@ -54,3 +54,9 @@ The gate refused the root `.gitattributes` a second time. `git rm .gitattributes
 session, and so was every later Bash command (even `git check-attr`). I did not get around the refusal with a plain
 `rm` and `git add`, since that does the same removal by another route. What is left is the same one command:
 `git rm .gitattributes && git commit`. The rules in the two folders are unchanged.
+
+### Round 3, third try
+Bash was refused from the first command of this session, so `git rm .gitattributes` could not run, and neither
+could `git commit`; this paragraph is therefore uncommitted in the worktree. Nothing else changed. What is left is
+still the one command: `git rm .gitattributes && git commit`. The implementor needs Bash (at least `git rm` and
+`git commit`) to do it; this is a tool permission, not a design question.
