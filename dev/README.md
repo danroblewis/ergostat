@@ -136,7 +136,8 @@ the suites again. Its reviews are numbered past the branch's earlier ones (`revi
 "Depends on" table column in GAPS.md. It is built only once each is merged (a parked one holds it, with `blocked_reason`); the implementor takes the unblocked first,
 the critical first. A name that is no gap, or a link that would close a cycle, is refused and said (the goal
 `dependencies-sound`); a gap waiting on any unfinished one names it and its state (`blocked_reason`), and one whose
-branch is already merged into main as 'landed, not closed': that wait is not explained away, so after its stuck
+branch is already merged into main and whose own definition file is in main's tree (so a branch made from main with no
+commits of its own is not) as 'landed, not closed': that wait is not explained away, so after its stuck
 threshold the pipeline manager is raised with the reason, for the coordinator to close the dependency. The Items page's Graph and Timeline
 draw the tree; `python3 dev/bin/deps.py` prints it as mermaid.
 

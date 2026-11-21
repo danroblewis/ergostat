@@ -177,7 +177,9 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, s
     repo = fac.path(cfg, "checkout")
     merged = set(fac.git(repo, "branch", "--format=%(refname:short)", "--merged", cfg["git"]["base"],
                          check=False).split())
-    want = deps.plan(known, parsed, own, merged)
+    tree = fac.git(repo, "ls-tree", "--name-only", cfg["git"]["base"], "docs/roadmap/overnight/", check=False)
+    landed = {f.rsplit("/", 1)[-1][:-3] for f in tree.split() if f.endswith(".md")}   # unread: none, never 'landed'
+    want = deps.plan(known, parsed, own, merged, landed)
     for gid, why in dups.items():
         if gid in want:
             want[gid]["problems"].append(why)

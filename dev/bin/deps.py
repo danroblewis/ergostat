@@ -100,11 +100,13 @@ def reaches(graph: dict[str, set[str]], start: str, goal: str) -> list[str] | No
 
 
 def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: dict[str, set[str]],
-         merged: set[str] = frozenset()) -> dict[str, dict]:
+         merged: set[str] = frozenset(), landed: set[str] = frozenset()) -> dict[str, dict]:
     """Each gap's dependencies as they should be: {gap id: {depends_on, sources, problems, blocked_reason}}. Links are
     added one at a time; one that would close a cycle is refused and said. A name that is no gap but a branch already
     merged into main (``merged``) is work done: satisfied, kept as a source, no link; one the backlog took away
-(``depends_on_removed``) is kept as a source, no link."""
+(``depends_on_removed``) is kept as a source, no link. A dependency is 'landed, not closed' only when its branch is in
+    ``merged`` and its own work is on main: its definition (its branch's first commit) is in main's tree (``landed``,
+    the stems of docs/roadmap/overnight/*.md there), so a branch made from main with no commits of its own is not."""
     find = resolver(gaps, own)
     graph = {gid: set(g["fields"].get("depends_on") or []) for gid, g in gaps.items()}
     out = {gid: {"sources": [], "problems": []} for gid in gaps}
@@ -142,17 +144,17 @@ def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: d
         waits = [d for d in sorted(graph[gid]) if gaps[d]["state"] not in DONE]
         out[gid]["waits_on_parked"] = any(gaps[d]["state"] in ("parked", "dead") for d in waits)
         out[gid]["blocked_reason"] = "" if gaps[gid]["state"] in DONE else "; ".join(
-            waiting(d, gaps[d], merged) for d in waits)
+            waiting(d, gaps[d], merged, landed) for d in waits)
     return out
 
 
-def waiting(d: str, g: dict, merged: set[str]) -> str:
-    """Why a gap waits on ``d``: its state, and 'landed, not closed' when its branch is already merged into main."""
+def waiting(d: str, g: dict, merged: set[str], landed: set[str] = frozenset()) -> str:
+    """Why a gap waits on ``d``: its state, and 'landed, not closed' when its branch and its definition are on main."""
     try:
         b = fac.branch_of(g)
     except ValueError:
         b = ""
-    if b and {b, f"factory/{b}"} & set(merged):
+    if b and b in landed and {b, f"factory/{b}"} & set(merged):
         return f"waits on {d} ({g['state']}): landed, not closed (its branch {b} is on main; close it)"
     if g["state"] in ("parked", "dead"):
         return f"waits on {d}, which is {g['state']}: {stopped(g)}"
