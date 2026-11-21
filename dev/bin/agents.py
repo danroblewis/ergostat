@@ -226,18 +226,34 @@ def scrub(text: str, tok: str) -> str:
 
 def drop(cfg: dict) -> Path:
     """The factory's own bare repository: what sessions return lands here, never in the owner's. Its main is the
-    checkout's ``refs/remotes/<remote>/<base>`` (main as pushed), never the checkout's own main."""
+    checkout's ``refs/remotes/<remote>/<base>`` (main as pushed), never the checkout's own main. Under
+    <live>/drop.git.lock (sessions starting together fetched at once and failed on git's ref lock); a fetch that still
+    fails on a ref lock is tried again, at most DROP_TRIES times in all; any other error raises at once."""
+    import fcntl
     d = fac.path(cfg, "live") / "drop.git"
-    if not (d / "HEAD").exists():
-        d.parent.mkdir(parents=True, exist_ok=True)
-        fac.git(d.parent, "init", "-q", "--bare", str(d))
-    base = cfg["git"]["base"]
-    fac.git(d, "symbolic-ref", "HEAD", f"refs/heads/{base}")
-    # main as pushed (the checkout's <remote>/<base>), never the checkout's own main, where the queue merges before
-    # testing: branches forked from that carried merges that later failed and were undone (operator, 2026-11-20)
-    remote = cfg["git"].get("remote", "origin")
-    fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")), f"+refs/remotes/{remote}/{base}:refs/heads/{base}")
+    d.parent.mkdir(parents=True, exist_ok=True)
+    with open(d.parent / "drop.git.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)              # (released when the file closes, on any way out)
+        if not (d / "HEAD").exists():
+            fac.git(d.parent, "init", "-q", "--bare", str(d))
+        base = cfg["git"]["base"]
+        fac.git(d, "symbolic-ref", "HEAD", f"refs/heads/{base}")
+        # main as pushed (the checkout's <remote>/<base>), never the checkout's own main, where the queue merges
+        # before testing: branches forked from that carried merges that later failed and were undone (2026-11-20)
+        remote = cfg["git"].get("remote", "origin")
+        for tried in range(1, DROP_TRIES + 1):
+            try:
+                fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")),
+                        f"+refs/remotes/{remote}/{base}:refs/heads/{base}")
+                break
+            except RuntimeError as e:
+                if "cannot lock ref" not in str(e) or tried == DROP_TRIES:
+                    raise
+                time.sleep(0.2 * tried)
     return d
+
+
+DROP_TRIES = 3                           # a hard ceiling (lesson-4): fetches of the drop's main, in all
 
 
 def scratch(cfg: dict, branch: str, role: str) -> Path:
