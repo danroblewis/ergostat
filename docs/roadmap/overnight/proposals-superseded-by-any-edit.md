@@ -194,3 +194,10 @@ Under eight workers, starting that child can take longer than the ttl, so the wa
 a load-dependent timing test in the leases (lesson-10). Its fix belongs in a gap of its own (lesson-13), so no code was
 changed for it here. The two failed factory runs stopped in different places (cut short at 32%, then this test), and
 neither failure is in a test this branch touches.
+
+**Round 2.** No review findings came with this round, so there was nothing to fix. `main` (8eb0fc06) is still an
+ancestor of the branch and there is no `origin` here, so there was nothing to merge. No code was changed. Run again
+here: `tests/test_churn_carry.py` (17 passed), and the six named files in one invocation (`test_churn`,
+`test_modelling_core`, `test_modelling_core2`, `test_review`, `test_bench`, `test_improve`: 109 passed). Ruff is clean.
+Not run here: the whole unit suite, the four browser files and `suite_watch` (left to the factory). The lease timing
+test above is still outside this gap.
