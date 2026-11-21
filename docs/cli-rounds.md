@@ -412,6 +412,8 @@ click a part, switch to the block view or see the loops.
   residuals) into one HTML file, scripts and style inline. It opens offline; the header says it is
   a snapshot and when; ages are counted from then; the slider, window and project switcher are
   gone. A view it does not hold (around one part) says so rather than "the server is not answering".
+  It holds the item sets its panels link to (each part's, each process map node's and line's), listed and on
+  the Items page, up to 400; a set typed by hand says "not in this snapshot".
 
 ## Round 22: a fourth independent review (a cold start with the user's own cron jobs)
 
