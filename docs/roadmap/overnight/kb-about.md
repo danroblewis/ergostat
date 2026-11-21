@@ -186,3 +186,20 @@ as backlog did for `test_relations.py`. No bound changed, and the test checks th
 renamed back, because that would break backlog's tests and its Items-tab legend. If backlog is instead taken out
 of this branch (the open scope finding above), this test edit goes with it. Run alone: `test_relations_asof.py`
 9 passed, `test_relations.py` + `test_item_about.py` 32 passed, ruff clean.
+
+After the factory's third `unit` run failed, on `tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped`
+(the stopped run's replacement process had not written `starts.log` within 5 s): this branch did not cause it, so
+no code is changed (lesson-13). Changing code outside the gap is what failed continue-branch's review.
+- Nothing on its path is touched. `git diff main HEAD` is empty for `ergostat/daemons/`, `ergostat/costs/`,
+  `ergostat/spec/engine.py`, `ergostat/runner.py`, `tests/test_warm.py`, `tests/test_daemons.py` and
+  `tests/test_leases.py`. The test's kind declares no `about:`, so the new index code (`k.about` is None) runs
+  exactly as before. The only dispatch change the branch carries is backlog's `ordered`, a sort that leaves the
+  items as they are when there is no `order:`.
+- The path, read through: cancel, then the `done` line, then `charge` sets `recycle`, then the next tick (0.2 s)
+  runs `_recycle`, then the next tick spawns. A process marked for recycling is never handed a run (`_room`
+  checks `not p.recycle`), so nothing can hold the slot. Nothing here waits on the record or the index. The 5 s
+  go on starting a fresh `python3` under the suite at `-n 8` (315 threads, 119 processes at the peak): lesson-10's
+  "fixed time in the test" case, not a race found in ergostat.
+- Run here alone with `-p no:randomly`: that test passed, and all of `tests/test_warm.py` passed (21 in 24.8 s).
+- Left for a gap of its own: give the replacement a bound that covers a start-up under load, or wait on
+  `ergostat.daemon.started` rather than on the process's first write.
