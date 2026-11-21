@@ -291,3 +291,28 @@ merge, all passed: `test_library_trust` (46), `test_templates` and `test_modelli
 
 **Left:** run the unit suite and the four browser files under the watchdog, and keep the whole output. If the run is
 cut off again, read the watchdog's JSON line (whether it killed the run, and why) before looking at this branch.
+
+### The factory's unit run after round 5, run again here
+
+The factory's tail had 4 `F` and no names, so the whole unit suite was run here under `scripts/suite_watch.py`
+(`-n 4`, `-rfE`): **6 failed, 2480 passed, 69 skipped, 1 xfailed** in 21 min. rc 1, not killed, peak 369 threads,
+nothing left behind. No code was changed (lesson-13): none of the six is in this gap's files, and none of their models
+has a `library:` or `uses:` line.
+- `test_index_files.py` (4 tests) and `test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`
+  share one cause. Their `spawn` children fail at start-up with `ImportError: cannot import name 'Empty' from 'queue'
+  (/work/dev/bin/queue.py)`. `tests/test_backlog.py:24`, `tests/test_factory.py:3111` and
+  `tests/test_factory_times.py:36` put `dev/bin` first on `sys.path` in the pytest worker and never take it off, so a
+  later spawn test on that worker imports the factory's `queue.py` instead of the stdlib's. All of that is on main
+  (`git diff main...HEAD` touches neither `dev/` nor those tests). It is a test-isolation bug that belongs in its own
+  gap: restore `sys.path` in those tests, or rename `dev/bin/queue.py`.
+- `test_inbox.py::test_at_most_per_hour_per_channel_and_quiet_hours`: `sweep` sent 1 in what should have been quiet
+  hours. It does not touch libraries.
+- Run alone here, `test_inbox`, `test_index_files` and `test_modelling_ai_cap` all pass (60 passed). Also run here
+  after the merge, all passing: `test_library_trust` (46), `test_templates` and `test_modelling_template`,
+  `test_factory_knowledge` and `test_backlog` (134 with those two), `test_factory` (116, 2 skipped), and
+  `test_spec_schema`, `test_parity`, `test_daemon_yaml_review` and `test_sandbox_attacks` (88, 20 skipped). Ruff is
+  clean. The merge of main at 0216e0e5 is already done (b899163e), and there are no conflict markers left.
+- **Not run here:** the four browser files.
+
+**Left:** the four browser files, and a unit run once main's `sys.path` leak is fixed. Expect the same five spawn
+failures on clean main whenever xdist puts a `dev/bin` test before them on the same worker.
