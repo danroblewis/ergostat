@@ -145,3 +145,10 @@ permission mode. Nothing else was tried to delete the file. No code changed, mai
 were run. What is left is still one command and a commit, for a person or a session allowed to delete files:
 `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending this
 item back to an implementor with these permissions has now failed ten times in a row.
+
+Round 11 (the factory's "round 5"), after main (9acc11c2) was merged into the branch (fb030abf): the eleventh refusal.
+`git rm -r .bench` was denied by the "don't ask" permission mode, and nothing else was tried to delete the file. No
+code changed. After the merge, test_resilience (31) and test_streamed_output + test_spec_engine (20) pass, and
+`ruff check ergostat tests scripts` is clean. Not run: the full unit suite and the browser files. Still left, for a
+person or a session allowed to delete files: `git rm -r .bench && git commit -m "rs-detach: the stray benchmark
+removed"`, then the factory's suites. Sending the item back to an implementor with these permissions will not move it.
