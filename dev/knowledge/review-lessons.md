@@ -69,6 +69,9 @@ Seen as: a benchmark's "found" accepting `MIN(x, 1e9)` and an equation of `0`; p
 "anytime-valid" bound that assumed independent stocks; a guard described as safe that was a denylist;
 merge-batching: merges-per-hour counting only runs that merged, stamped at land time, so failed, conflicted and tail
 suite runs were dropped while the docs said all of the queue's runs.
+"anytime-valid" bound that assumed independent stocks; a guard described as safe that was a denylist; a schema that
+SPEC §9.5 calls the machine-checkable form of the spec still typing `pool` as an integer only, so the documented
+mapping form and the factory's own building.yaml were refused, and no test checked it.
 **Check:** for each claim in the docs, name the test that would fail if it were false. If there isn't one, narrow the
 claim or write the test. Prefer allowlists to denylists for anything called a guard.
 *About:* goal.first-pass-good.
