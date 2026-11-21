@@ -172,3 +172,27 @@ committed (36d5c37d); `.bench/test_bench_detach.py` is no longer tracked. No cod
 no suites were run this round. The code is the same as when they last passed, in round 11 after main 9acc11c2 was
 merged in. Main has been merged since then (8426a568) and nothing has been run on it. Still owed: the factory's
 suites (unit, the four browser files, ruff) on this branch.
+
+Round 15 (after the factory's unit suite "failed"): **the failure was not found.** The tail it gave stops at 78% with
+no failing test named, no watchdog line and no closing JSON line from `suite_watch`, so the run was stopped from
+outside (a hang or too slow, not a reported failure). This session could not run the whole unit suite: a serial run
+under the watchdog, a loop over the files one at a time, and a parallel run of the files a–l were all denied by the
+"don't ask" permission mode. What was run passes. One at a time: test_factory (70, 2 skipped), test_trial_stops +
+test_warm + test_cli_fallback (40), test_reload_in_place + test_reload_safety + test_program_actions +
+test_lease_refused_cost + test_cron (42), test_sandbox_attacks + test_triggers2 + test_triggers3 +
+test_ticket_factory_daemons + test_workspaces + test_watchdog + test_take_order (56 passed, 20 skipped). Together under
+`-n 6` and the watchdog, the twelve files that start runs (test_resilience, test_streamed_output, test_spec_engine,
+test_run_costs, test_leases, test_lease_kill, test_parallel_runs, test_reload_in_place, test_spec_blocks,
+test_runner_and_state, test_daemons, test_triggers2): 223 passed in 59 s, at most 334 threads, nothing left behind.
+
+Reading the code for a way a run could hang turned up one, and it is fixed (+3 net lines in `runrecord.py`, now +56
+against main). A command that exits with 128 plus a stop signal's number (147–150 on Linux: STOP, TSTP, TTIN, TTOU)
+made the wrapper send itself that signal. That *stops* the wrapper, so its run never ends unless a timeout kills it.
+The wrapper now exits with the code for those four. New check in
+`test_the_run_wrapper_records_the_exit_under_each_shell` (with a 10 s timeout). Its failure with the old wrapper was
+not shown: that run was denied too. No test on main exits with those codes, so **this is not shown to be the cause
+of the stopped suite.** Also: the run's files are now named by an absolute path (`resolve()`), because the wrapper
+writes `RUN.exit` from the run's cwd, which a relative `ERGOSTAT_HOME` would have got wrong. After the change:
+test_resilience + test_streamed_output + test_spec_engine (51) pass, and ruff is clean. **Still owed:** the factory's
+unit suite under `-n 8`. If it stops again, the tests still running when it stopped (e.g. from `pytest -v` or
+`--timeout`) are what is needed to go further.
