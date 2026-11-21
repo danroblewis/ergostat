@@ -32,7 +32,7 @@ class Wire:
 class Shard:
     name: str
     systems: list[str]               # the top-level systems in it, sorted
-    parts: list[str]                 # its parts' keys, sorted
+    parts: list[str]                 # its parts' keys, sorted (a daemon's, daemon.NAME, is in Plan.where only)
 
 
 @dataclass
@@ -44,7 +44,7 @@ class Plan:
     where: dict[str, str] = field(repr=False)     # a part's key → its shard
 
     def of(self, ref) -> str:
-        """The shard a part is in: a Ref, or a key (stock.x, stock.x.sensor, goal.x, agent.x, kind.x). KeyError if
+        """The shard a part is in: a Ref, or a key (stock.x, stock.x.sensor, goal.x, agent.x, kind.x, daemon.x). KeyError if
         not in the spec: never a default. A stock's estimate or uncertainty is the stock's (its observer's)."""
         r = ref if isinstance(ref, Ref) else Ref.parse(ref)
         if r is not None and r.kind == "stock" and r.port in PORTS and key(r) not in self.where:
@@ -110,6 +110,9 @@ def plan(spec, most: int = MAX_SHARDS) -> Plan:
         for because, via in (("agent", b.agent), ("kind", taken), ("daemon", b.params.get("daemon"))):
             if via and isinstance(via, str):
                 shared.setdefault((because, via), []).append(seed[f"block.{name}"])
+    for s in spec.sensors():                     # a sensor's daemon too: one process, started by one shard (SPEC §9.7)
+        if isinstance(s.daemon, str) and s.daemon:
+            shared.setdefault(("daemon", s.daemon), []).append(seed[f"{s.of.kind}.{s.of.name}.{s.name}"])
     for (because, via), ss in sorted(shared.items()):
         for s in sorted(set(ss))[1:]:
             union(min(ss), s, because, via)
@@ -123,6 +126,9 @@ def plan(spec, most: int = MAX_SHARDS) -> Plan:
         on = sorted(n for n, b in spec.blocks.items() if b.takes and joined.get(b.takes.kind, b.takes.kind) == group)
         chain = spec.chain(k.system) if not name.startswith("ergostat.") else []
         seed[f"kind.{name}"] = seed[f"block.{on[0]}"] if on else (1, chain[-1]) if chain else _LEAD
+    for name in sorted(getattr(spec, "daemons", None) or {}):    # a daemon: with what it serves (merged), else the lead
+        on = sorted(shared.get(("daemon", name), ()))
+        seed[f"daemon.{name}"] = on[0] if on else _LEAD
 
     # the ceiling: the two smallest (in parts; ties by name) merge until there are at most `most`
     size = dict.fromkeys(sorted({find(s) for s in seeds}), 0)
@@ -135,11 +141,20 @@ def plan(spec, most: int = MAX_SHARDS) -> Plan:
 
     where = {k: names[find(s)] for k, s in seed.items()}
     shards = {names[r]: Shard(names[r], sorted(s[1] for s in seeds if s != _LEAD and find(s) == r),
-                              sorted(k for k, n in where.items() if n == names[r]))
+                              sorted(k for k, n in where.items() if n == names[r] and not k.startswith("daemon.")))
               for r in sorted({find(s) for s in seeds})}
     p = Plan(LEAD, dict(sorted(shards.items())), {names[r]: w for r, w in sorted(why.items()) if w}, [], where)
     p.wires = _wires(spec, p)
     return p
+
+
+def planned(spec) -> Plan:
+    """This model's plan, worked out once and kept with its lookups: whoever reads a model reads the plan of that model,
+    never one of the model before or after a swap."""
+    kept = spec.lookups().kept
+    if "shards.plan" not in kept:
+        kept["shards.plan"] = plan(spec)
+    return kept["shards.plan"]
 
 
 def _join_kinds(spec) -> dict[str, str]:
