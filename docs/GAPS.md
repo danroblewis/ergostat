@@ -21,12 +21,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
     (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
-    `examples/remote-pair/` and its two-instance test.
+    `examples/remote-pair/` and its two-instance test. A remote's measures on its closed box (done on
+    `remote-box-measures`): its top systems' served `show:`, or a `show:` on its `remotes:` entry in its own
+    names (`remote-show-unresolved` for one it does not serve), each marked stale with its age when the remote
+    or the reading is not current.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
     it); lines in the process map between our items and theirs (needs an id both logs carry); proposals
     written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
-    not served); a remote's measures on its closed box (`show:` of the remote's systems); mutual TLS.
+    not served); mutual TLS.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
@@ -175,9 +178,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   proposed only past a quality floor (what it follows held out, white errors in closed loop, independent of u), else
   the goal says `loop-not-identifiable` and what would identify it; the process is identified around a large outside
   step (a burst of arrivals), closer to the truth than from the loop working; the strip leads with "Low confidence"
-  and widens the band where the parts it rests on fit badly. **Left:** a burst's window is chosen from y's own
-  excursion (where it comes half way back), not from the process; several outside steps are not yet fitted together as
-  experiments; the projections do not yet suggest the missing structure (capacity) themselves.
+  and widens the band where the parts it rests on fit badly. Up to six outside steps are fitted together as experiments
+  (`poor-identifications-proposed`), their windows sized in passes from the process found. A step whose record after
+  it is too short, or whose window has an input with no readings, is dropped and said. **Left:** the projections do not
+  yet suggest the missing structure (capacity) themselves (with *Finding structure from residuals*). On a slow process
+  under integral control, a process window is often not reached: `ident.moves` finds no step of u in the longer window,
+  because integral action ramps u (the SPEC says what is measured).
 - **The judge almost never decides on a slow model** (owner, 2026-11-19: on the work model nearly every change is
   inconclusive, a few refused, none accepted; partly done on `slowjudge`, docs/roadmap/overnight/slowjudge.md; SPEC
   §12e): a change had to gain 2% in every window of at least twice its stock's time constant, above an absolute noise

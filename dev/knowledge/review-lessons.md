@@ -39,7 +39,9 @@ and again at run time (counting the ones still draining).
 
 ## 5. Stale state surviving under a reused id
 Items are keyed by their subject, so a thing made again gets the same id and the fold merges old fields into it.
-Seen as: an old `pass` applying to a new version; an old `revise` sticking forever; a cancelled id never cleared.
+Seen as: an old `pass` applying to a new version; an old `revise` sticking forever; a cancelled id never cleared;
+two distinct approved facts truncated to the same 32-char slug share one id, so block() merges both texts and sync
+flip-flops knowledge.changed each pass.
 **Check:** when an item is made again, which old fields must be cleared? Test the same-id remake.
 
 ## 6. Work that keeps running after it was cancelled
@@ -64,7 +66,9 @@ host, and the end-to-end tests that cover the changed stderr path were skipped.
 Docs and docstrings claiming "never", "each side ≤ 5%", "never the repair", "found" for a check that a trivial
 change passes.
 Seen as: a benchmark's "found" accepting `MIN(x, 1e9)` and an equation of `0`; planted hints that named the answer; an
-"anytime-valid" bound that assumed independent stocks; a guard described as safe that was a denylist.
+"anytime-valid" bound that assumed independent stocks; a guard described as safe that was a denylist;
+merge-batching: merges-per-hour counting only runs that merged, stamped at land time, so failed, conflicted and tail
+suite runs were dropped while the docs said all of the queue's runs.
 **Check:** for each claim in the docs, name the test that would fail if it were false. If there isn't one, narrow the
 claim or write the test. Prefer allowlists to denylists for anything called a guard.
 *About:* goal.first-pass-good.

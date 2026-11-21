@@ -64,6 +64,12 @@ def sized(b: str, line: str) -> str:
     return PLAN.format(b=b).replace("size: M (confidence: medium)", line)
 
 
+def covered(*names: str, points: tuple[str, ...] = ()) -> str:
+    """A split's coverage block: one point per sub-gap, or the points given."""
+    return "<coverage>\n" + "".join(f"- {p}\n" for p in points or [f"{n} is built (by: {n})" for n in names]) + \
+        "</coverage>\n"
+
+
 class Instance(Factory):
     """The factory fixture with the knowledge roles' settings, and a fake ergostat that also records `event --add`."""
 
@@ -299,7 +305,8 @@ def test_planner_splits_into_sub_gaps(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
     split = (PLAN.format(b="alpha-one").replace('branch="alpha-one"', 'branch="alpha-one" title="One"')
-             + PLAN.format(b="alpha-two").replace("depends-on: []", "depends-on: [alpha-one]"))
+             + PLAN.format(b="alpha-two").replace("depends-on: []", "depends-on: [alpha-one]")
+             + covered("alpha-one", "alpha-two"))
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=split)
     assert said == ["gap.requested", "gap.defined", "gap.requested", "gap.defined", "gap.split"]
     assert f.item(gid)["state"] == "split" and f.item(gid)["fields"]["children"] == ["gap/alpha-one", "gap/alpha-two"]
@@ -324,6 +331,106 @@ def test_planner_splits_into_sub_gaps(tmp_path):
     assert "a split into 10 sub-gaps: at most 6" in plan
     assert any("'Bad_Name'" in p for p in plan) and any("'late' depends on gap/later" in p for p in plan)
     assert not any("'later' depends" in p for p in plan)       # an earlier sub-gap, or a gap: fine
+
+
+def budgeted(b: str, budget: str) -> str:
+    return PLAN.format(b=b).replace("100 net lines.", budget)
+
+
+def sent_back(f: Instance, gid: str, answer: str) -> list[str]:
+    """The planner answers; the split must be sent back with no sub-gap made and no coverage saved: its findings."""
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=answer)
+    assert said == ["gap.plan-sent-back"] and f.item(gid)["state"] == "replan"
+    assert not any(i.startswith("gap/alpha-") and i != gid for i in f.db()["items"])
+    assert not (f.model / "run" / "plans" / "alpha-thing.md").exists()
+    return f.item(gid)["fields"]["plan_findings"]
+
+
+def test_a_split_sub_gap_over_250_lines_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    for budget, why in [("251 net lines.", "251 net lines, at most 250"), ("About a hundred.", "names no number")]:
+        found = sent_back(f, gid, PLAN.format(b="alpha-one") + budgeted("alpha-two", budget)
+                          + covered("alpha-one", "alpha-two"))
+        assert any("'alpha-two'" in x and why in x for x in found), found
+        assert not any("'alpha-one'" in x for x in found)
+    assert f.item(gid)["fields"]["plan_lint_failures"] == 2               # toward the lint-failure park
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one")
+                    + budgeted("alpha-two", "250 net lines.") + covered("alpha-one", "alpha-two"))
+    assert said[-1] == "gap.split" and f.item(gid)["state"] == "split"
+
+
+def test_a_single_plan_over_250_lines_is_still_accepted(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=budgeted("alpha-thing", "400 net lines."))
+    assert said == ["gap.defined"] and f.item(gid)["state"] == "ready"
+    assert "400 net lines" in (f.model / "run" / "defs" / "alpha-thing.md").read_text()
+
+
+def test_a_split_without_one_coverage_block_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    split = PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+    assert sent_back(f, gid, split) == ["a split needs exactly one <coverage>...</coverage> block, not 0"]
+    two = sent_back(f, gid, split + covered("alpha-one", "alpha-two") + covered("alpha-one", "alpha-two"))
+    assert two == ["a split needs exactly one <coverage>...</coverage> block, not 2"]
+
+
+def test_a_coverage_point_naming_no_or_an_unknown_sub_gap_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    split = PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+    for point, why in [("it locks", "'it locks' names no sub-gap"), ("it locks (by: )", "'it locks (by: )' names no"),
+                       ("it locks (by: alpha-on)", "names 'alpha-on', not a sub-gap of this split")]:
+        found = sent_back(f, gid, split + covered(points=(point, "both work (by: alpha-one, alpha-two)")))
+        assert any(why in x for x in found), found
+        assert not any("both work" in x for x in found)                   # the good point is not blamed
+
+
+def test_a_sub_gap_no_coverage_point_names_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    split = PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two") + PLAN.format(b="alpha-three")
+    found = sent_back(f, gid, split + covered(points=("it locks (by: alpha-one, alpha-two)",)))
+    assert found == ["sub-gap 'alpha-three': no coverage point names it"]
+
+
+def test_accepted_coverage_is_the_parents_plan_and_a_resplit_replaces_it(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    saved = f.model / "run" / "plans" / "alpha-thing.md"
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+          + covered(points=("the old lock (by: alpha-one)", "the old ledger (by: alpha-two)")))
+    assert f.item(gid)["state"] == "split"
+    assert "- the old lock (by: alpha-one)\n- the old ledger (by: alpha-two)" in saved.read_text()
+    f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["replan it"]}}], None)
+    assert f.item(gid)["state"] == "replan"
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="beta-one") + PLAN.format(b="beta-two")
+                    + covered(points=("the new lock (by: beta-one, beta-two)",)))
+    assert said[-1] == "gap.split" and f.item(gid)["state"] == "split"
+    text = saved.read_text()
+    assert "the new lock (by: beta-one, beta-two)" in text and "old" not in text and "alpha-" not in text
+    assert f.run("plan.py", argv=("lint",))[0] == [] and f.item(gid)["state"] == "split"
+    f.fold([{"event": "gap.planned", "item": gid, "data": {}}], None)        # even in planned: never a definition
+    assert f.run("plan.py", argv=("lint",))[0] == [] and not (f.model / "run" / "defs" / "alpha-thing.md").exists()
+
+
+def test_a_sub_gaps_plan_review_is_given_the_parents_coverage(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="delta"))          # no parent
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+          + covered(points=("the lock holds (by: alpha-one)", "the ledger is read (by: alpha-two)")))
+    for _ in range(3):
+        f.run("planreview.py")
+    brief_of = lambda g: (f.model / f.item(g)["fields"]["contexts"][-1]["brief"][5:]).read_text()  # noqa: E731
+    one = brief_of("gap/alpha-one")
+    assert "Its parent's coverage" in one and "this review covers sub-gap `alpha-one`" in one
+    assert "- the lock holds (by: alpha-one)\n- the ledger is read (by: alpha-two)" in one and "{coverage}" not in one
+    alone = brief_of("gap/delta")
+    assert "Its parent's coverage" in alone and "(none)" in alone and "the lock holds" not in alone
+    assert f.item("gap/delta")["fields"]["plan_review"] == "done"
 
 
 def test_researcher_answers(tmp_path):
@@ -389,7 +496,8 @@ def test_planned_gap_records_size_and_confidence(tmp_path):
         "gap.defined"]
     assert {k: f.item(gid)["fields"][k] for k in ("size", "planned_size", "size_confidence")} == {
         "size": 6, "planned_size": "M", "size_confidence": "low"}       # `size` stays the groomer's (the solver's)
-    split = sized("beta-one", "size: XL (confidence: high)") + sized("beta-two", "`size: S (confidence: medium)`")
+    split = (sized("beta-one", "size: XL (confidence: high)") + sized("beta-two", "`size: S (confidence: medium)`")
+             + covered("beta-one", "beta-two"))
     # an earlier whole plan's class on the parent, which the split must clear
     f.fold([{"event": "gap.measured", "item": "gap/delta", "data": {"planned_size": "L", "size_confidence": "high"}}],
            None)
@@ -673,7 +781,9 @@ def test_a_gap_whose_id_is_not_its_branch_is_one_item(tmp_path):
 def test_a_split_whose_sub_gap_parks_is_parked(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
-    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two"))
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+          + covered("alpha-one", "alpha-two"))
+    assert f.item(gid)["state"] == "split"
     assert f.run("plan.py", argv=("splits",))[0] == []                # nothing stopped: it waits on
     f.fold([{"event": "gap.parked", "item": "gap/alpha-two", "data": {"where_it_stopped": "The lock order."}}], None)
     said, _ = f.run("plan.py", argv=("splits",))

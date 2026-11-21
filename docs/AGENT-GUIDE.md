@@ -361,7 +361,10 @@ keeps running it; this model reads it.
    ```
 
    `ergostat remote` says whether it answers and which version of its model was read; `ergostat explain
-   system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`.
+   system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
+   box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in
+   the **remote's** names (`stock.open`, never `stock.incidents-open`); `remote-show-unresolved` means it does
+   not serve one. A measure dimmed there is stale: it says how old its last reading is.
 3. **Link to its parts by those names**, only to read them: a cause (`driven-by: [+stock.incidents-open]`)
    for the load it puts on our stocks, a goal here on one of its measures, a block's input. Never point a
    block's `out:` at a remote part (`remote-output`): its actuators are its own. If it should act
@@ -447,8 +450,10 @@ Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `p
 owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
 is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p). `mode: advise` asks before a command or
 an event, never before each item, so `check` refuses it on a block with `takes:` (`advise-with-takes`); to have a
-person hold such a block's items, gate it with `goal:` or `in: block.X` from a block they command, and its items wait
-while that is off (SPEC §9.5, *Dispatch*):
+person hold such a block's items, gate it with `in: block.X` from an `expr` block reading a `sensor: {manual: true}`
+stock: `ergostat sensor STOCK --read 1` opens it for all the items at once (not one by one), `--read 0` shuts it, and
+the items wait while it is off. A `person` block is no gate (its `--done` never sets a command; `check` refuses it as
+one, `person-gate`) (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`; a held modelling request is denied with `--deny --note WHY`,
@@ -550,9 +555,10 @@ blocks:
   of the record held out, or its errors are not white, or not independent of u): no `process:` is proposed, and you must
   not write one by hand from those numbers. Do what the finding says would identify it: approve the **step test** it
   offers (from the loop's panel, or the inbox; ergostat must be running), or wait for a large outside change in its
-  input (a burst of arrivals identifies it best: ergostat looks around one by itself and says "identified around an
-  outside step at T"), or for more record. A loop that never sees either stays unidentified, and that is the honest
-  answer.
+  input (bursts of arrivals identify it best: ergostat finds them by itself, fits them together and says "identified
+  around outside steps at T1, T2"), or for more record. If it says "the record after it covers X of the Y its process
+  needs to settle", the burst was too recent: wait until the record covers Y after it, and do not write a process from
+  the earlier, shorter window. A loop that never sees either stays unidentified, and that is the honest answer.
 - **Projections far off after a burst** (the strip says "Low confidence: ..." in front, the band wide): the model fit the
   quiet record, and the burst found what it lacks. Before tuning a value, suspect missing structure: a **capacity**
   (reviewers or workers at their most: a `MIN(stock / time, capacity)` outflow, or a block's `pool:`), a queue that
