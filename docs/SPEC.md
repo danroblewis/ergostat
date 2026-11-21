@@ -213,8 +213,9 @@ go, and it is never opened again. The goal `index-files-few` holds `index-files 
 `index-tidier` is a program on the rule rung, `${lib} upkeep tidy --keep ${index-files}` every `tidy-every` (10m).
 It works from the state directory alone (never the project, its model or an index, which it only locks), refuses
 `--keep` outside 1 to 64 (exit 2), and exits 1 with a message when `<state>/items` is missing or cannot be listed.
-It prints one line, `{"value": REMOVED, "removed": ..., "left": ..., "held": ..., "young": ...}`, whose value (the
-files removed) is the block's output.
+It prints one line per output: `{"out": "flow.index-files-tidied", "moved": LIVE, "left": ..., "held": ...,
+"young": ...}` (the live files it removed) and `{"out": "flow.retired-index-files-removed", "moved": RETIRED}` (the
+retired ones), so the engine opens each flow's valve by its own count.
 
 **The engine stands down.** In a model whose `uses:` holds ergostat's own `upkeep`, `index_for` no longer tidies the
 folder when it makes a new file; the `index-tidier` does. The engine reads that from the model it is given (the
@@ -224,7 +225,8 @@ spec it folds with, after each reload). A model without it tidies as before (`KE
 engine and the tidier alike, and no goal, parameter or template changes it: only a regular file named
 `^[0-9a-f]{16}(\.[0-9]+)?\.db$` directly in the resolved items folder (never a symlink, never another name), with
 its `-wal`, `-shm` and `.lock`; only under its exclusive lock taken without waiting (a lock file that cannot be
-opened counts as held); and only when neither it nor its WAL or shared memory changed within `TIDY_AGE` (an hour),
+opened counts as held). A retired file goes once its lock is taken, whatever its age (it is never opened again). A
+live file goes only when, besides, neither it nor its WAL or shared memory changed within `TIDY_AGE` (an hour),
 checked before the lock and again once it is held.
 
 **Fail-safe.** A measure with no state directory, or a folder it cannot list, gives no reading, never 0. If the

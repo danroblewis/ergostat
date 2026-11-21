@@ -155,3 +155,22 @@ Not done here: this clone has no `origin` remote. The branch already contains lo
 lesson-7 merge had nothing to take; the factory's merge of the real origin/main is still to run. The full unit
 and browser suites were not run here (the factory runs them under the watchdog). Run: `tests/test_upkeep_template.py`,
 `tests/test_index_files.py`, `tests/test_templates.py` (55 passed), and ruff (clean).
+
+### Round 2 (answering review/upkeep-index-files-1)
+
+- **The tidier's output was refused (blocking).** The round-1 answer above ("the engine reads `value` ... as the
+  block's output") was false: with two outputs and no `out`, the engine refused the line. `upkeep tidy` now prints
+  one line per flow, `{"out": "flow.index-files-tidied", "moved": LIVE, "left": L, "held": H, "young": Y}` and
+  `{"out": "flow.retired-index-files-removed", "moved": RETIRED}`. `_tidy` counts the two apart (`removed`, live;
+  `retired`, retired). New test `test_the_tidier_block_moves_its_two_flows_through_the_engine` runs the block
+  through `Engine.run_block` and finds each valve opened by its own count and no `agent.refused`. Watched failing
+  on round 1's line (`agent.refused`) and on retired files counted into the live flow (amounts 3 and 1, not 2 and
+  1); `test_tidy_keeps_n_and_removes_retired_files` now asserts both lines exactly and fails on both breaks too.
+  SPEC's sentence on the output is rewritten to match.
+- **SPEC's age claim was wider than the code.** SPEC (*Upkeep*, the interlock), the template's `reading:` and
+  `_tidy`'s docstring now say a retired file goes once its lock is taken, whatever its age, and only live files
+  need the `TIDY_AGE` test, before the lock and again under it.
+
+Net lines outside tests and docs: 233. Run: `tests/test_upkeep_template.py`, `tests/test_index_files.py`,
+`tests/test_templates.py` (56 passed), ruff clean. The origin/main merge and the full suites are still the
+factory's to run (no `origin` here).

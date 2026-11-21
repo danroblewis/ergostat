@@ -865,17 +865,18 @@ def _tidy(d: Path, keep: int | None = None, new: bool = False) -> dict:
     """At most ``keep`` (``KEPT_FILES``) indexes per record, one fewer when one is about to be made (``new``): the
     least recently changed go, but only those no process has open (the exclusive lock taken without waiting) and none
     changed in ``TIDY_AGE``, checked again once the lock is held. Retired files go as soon as no process has them
-    open. Only index files (``files``) are touched. Returns how many were removed, are left, and were skipped as held
-    or young; OSError when ``d`` exists and cannot be listed."""
+    open, whatever their age (never opened again). Only index files (``files``) are touched. Returns how many live
+    files were removed, retired ones removed, live ones left, and how many skipped as held or young; OSError when
+    ``d`` exists and cannot be listed."""
     keep = KEPT_FILES if keep is None else keep
-    out = {"removed": 0, "left": 0, "held": 0, "young": 0}
+    out = {"removed": 0, "retired": 0, "left": 0, "held": 0, "young": 0}
     if not d.exists():
         return out
     live, old = files(d)
     for p in old:
         if (fd := _take(p)) is not None:
             _remove(p, fd)                          # (its mark stays: the name is not used again)
-            out["removed"] += 1
+            out["retired"] += 1
         else:
             out["held"] += 1
     got = sorted(live, key=_touched)

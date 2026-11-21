@@ -3,6 +3,7 @@ the rule rung (``library/run/upkeep.py``) instead of by the engine; the delete i
 
 from __future__ import annotations
 
+import json
 import os
 import textwrap
 import time
@@ -122,11 +123,26 @@ def test_tidy_keeps_n_and_removes_retired_files(tmp_path, monkeypatch, capsys):
     assert _tidy(state, 6, monkeypatch) == 0
     left = sorted(p.name for p in (state / "items").glob("*.db"))
     assert left == sorted(p.name for p in got[1:7]), "the six most recently changed live files are left"
-    line = capsys.readouterr().out.strip().splitlines()
-    assert len(line) == 1 and '"value": 4' in line[0] and '"removed": 4' in line[0] and '"left": 6' in line[0]
+    lines = [json.loads(x) for x in capsys.readouterr().out.strip().splitlines()]
+    assert lines == [{"out": "flow.index-files-tidied", "moved": 3, "left": 6, "held": 0, "young": 0},
+                     {"out": "flow.retired-index-files-removed", "moved": 1}], "each flow moved by what it lost"
     assert not list((state / "items").glob("*.lock")), "the lock files of what went went with them"
     assert _tidy(tmp_path / "none", 6, monkeypatch) == 1, "no items folder: an error, never a clean result"
     assert "cannot be listed" in capsys.readouterr().err
+
+
+def test_the_tidier_block_moves_its_two_flows_through_the_engine(tmp_path):
+    """The block run by the engine as the model has it: each of its two outputs moved by its line, nothing refused."""
+    from ergostat.spec.engine import Engine
+    root = _yaml(tmp_path / "e", "open, doing, done", True)
+    p = Project(mdl.load(root))
+    got = _files(Path(p.dir) / "items", 9)
+    got[0].with_suffix(".retired").touch()
+    Engine(p, say=lambda s: None).run_block(p.model.spec.blocks["index-tidier"], "test")
+    assert not p.events.query(n=None, type="agent.refused"), p.events.query(n=None, type="agent.refused")
+    opened = {e["data"]["flow"]: e["data"]["amount"] for e in p.events.query(n=None, type="valve.opened")}
+    assert opened == {"index-files-tidied": 2, "retired-index-files-removed": 1}, opened
+    assert len(ii.files(Path(p.dir) / "items")[0]) == 6
 
 
 def test_tidy_never_opens_an_index(tmp_path, monkeypatch):

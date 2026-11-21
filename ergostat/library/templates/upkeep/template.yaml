@@ -13,7 +13,7 @@ reading: |
   `index-files`; while it is off the controller index-tidier (a program, ergostat's own) removes the retired files no
   process holds, then the least recently changed live ones down to `index-files`. The goal no-retired-index-files
   holds the retired files at 0. Whether one file may go is not the loop's to say: ergostat's code takes the file's
-  lock without waiting and leaves any changed within the last hour, checked again under the lock, and no goal or
+  lock without waiting and leaves any live one changed within the last hour, checked again under the lock, and no goal or
   parameter changes that. If the tidier stops, files only pile up: every index still opens and folds right.
   With this use the engine no longer tidies the index files itself when it makes one.
   It is used once a model, and its parts keep the names written here (index-files, index-files-few, index-tidier),
