@@ -62,9 +62,16 @@ auxiliaries:
     sensor: {run: python3 dev/bin/measure.py cost-per-merged, every: 10m, timeout: 1m, description: the factory's measures}
   tool-denials:
     unit: calls
-    description: tool calls refused to the AI sessions (a session whose result said nothing of them counts as one)
+    description: >-
+      tool calls refused to the AI sessions that said what they were refused; one with no result or a result silent
+      on them is left out (tool-denials-unknown), and with none that said there is no value
     driven-by: [+stock.gaps-building]
     sensor: {run: python3 dev/bin/measure.py tool-denials, every: 10m, timeout: 1m, description: the factory's measures}
+  tool-denials-unknown:
+    unit: sessions
+    description: AI sessions whose refused tool calls are unknown (a timeout, a crash, a result silent on them)
+    driven-by: [+stock.gaps-building]
+    sensor: {run: python3 dev/bin/measure.py tool-denials-unknown, every: 10m, timeout: 1m, description: the factory's measures}
   size-accuracy:
     unit: share
     description: of merged gaps the planner sized, the share whose merged lines fell inside their size class (S/M/L/XL)
