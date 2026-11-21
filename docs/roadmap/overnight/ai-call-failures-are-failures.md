@@ -102,3 +102,32 @@ Run here, one file at a time or a few together: `test_modeller` (15), `test_mode
 `test_redesign`, `test_redesign_memory` (82 together), `test_modelling_core`, `test_modelling_core2`,
 `test_redesign_bench`, `test_sd_review`, `test_inbox`, `test_improve` (104 together), all passing. Ruff is clean.
 Not run: the whole unit suite, the browser files, the merge of origin/main (this clone has no `origin`).
+
+### After the factory's unit run (round 2)
+
+The factory reported `unit` failed again, and again the tail it gave stops partway, this time at 97%, in the middle of a
+line. It shows no failed test, no pytest summary, and no closing JSON line from `suite_watch`. The run was cut off, and
+no test is named. Nothing in the code was changed for it. Without a failing test, any change would be a guess.
+
+Run here, one batch at a time, with `-o faulthandler_timeout=120` (or 240) so a hanging test would have been named:
+- `test_modelling_template`, `test_self_improve`, `test_mended`, `test_unmoved`, `test_triggers2`, `test_spec_causal`,
+  `test_spec_items`, `test_spec_mcp_explain`, `test_reports`, `test_recipes`, `test_goal_per`, `test_item_systems`,
+  `test_interventions`, `test_churn`, `test_backlog`, `test_control`, `test_decisions`, `test_cli_fallback`,
+  `test_numbers`, `test_modeller`, `test_modelling_ai_cap`: 350 passed and 1 failed, in 219 s, with no hang.
+  - The failure is `test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`. It depends on test
+    order and this branch did not cause it. Its spawned child failed with `ImportError: cannot import name 'Empty'
+    from 'queue' (/work/dev/bin/queue.py)`: an earlier file in the same process (`test_backlog` puts `dev/bin` on
+    `sys.path`) leaves `dev/bin/queue.py` in front of the standard library's `queue`. Run alone, the file passes,
+    22 of 22. The branch does not change either file, `sys.path`, or `dev/bin`. Reported, not fixed (lesson-13).
+- `test_templates`, `test_daemons_restart`, `test_web_access`, `test_agents_page`, `test_blockdiagram`, the
+  `test_factory_*` files (`knowledge`, `manager`, `resources`, `sessions`, `times`), `test_repair2`, `test_parity`,
+  `test_intent`: 276 passed and 33 skipped, in 274 s, with no hang.
+- Ruff is clean.
+
+Checked by reading the code: every stand-in in the tests that reaches `modeller.call` says a `total_cost_usd`, so none
+of them turns into an endless "failed call". Every path for a failed call is bounded: the tier holds a request after
+`FAILS`, the reviewer stops the pass, and the redesigner rests after `FAILS` errors.
+
+Not run: the whole unit suite (again not permitted in this session) and the browser files. Left: the factory's full
+unit run with its output past the cut-off, or with `-o faulthandler_timeout=240` so a hanging test is named, and the
+fix if one is named.
