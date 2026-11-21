@@ -28,6 +28,20 @@ import fac  # noqa: E402
 MOST_SPLIT, MOST_RESEARCH, KILL, MOST_WAITS = 6, 3, 2, 12      # 12 waits of 30 minutes
 TAG = re.compile(r'<definition branch="([^"]*)"(?: title="([^"]*)")?>\n?(.*?)</definition>', re.S)
 DEPS = re.compile(r"^depends-on:\s*\[([^\]]*)\]", re.M)
+SIZE = re.compile(r"\bsize:\s*([A-Za-z]+)\s*\(confidence:\s*([A-Za-z]+)\s*\)")
+CLASSES, CONFIDENCES = ("S", "M", "L", "XL"), ("low", "medium", "high")
+
+
+def size_of(body: str) -> dict | str:
+    """The size line of a definition's `## Size budget`: {size, size_confidence}, or why it cannot be taken (never a
+    default class: a guess would be scored as the planner's)."""
+    m = re.search(r"^## Size budget.*?$(.*?)(?=^## |\Z)", body, re.M | re.S)
+    got = SIZE.search(m.group(1)) if m else None
+    if not got:
+        return "no size line `size: S|M|L|XL (confidence: low|medium|high)` in its ## Size budget"
+    if got[1] not in CLASSES or got[2] not in CONFIDENCES:
+        return f"size {got[1]!r} (confidence {got[2]!r}): the class is one of S, M, L, XL, the confidence low, medium, high"
+    return {"size": got[1], "size_confidence": got[2]}
 
 
 def send_back(cfg: dict, gap: dict, why: list[str], park: bool = False, **record) -> int:
@@ -52,9 +66,10 @@ def deps_of(body: str) -> list[str]:
 def problems(defs: list[tuple[str, str, str]], branch: str, known: set[str]) -> list[str]:
     """What makes a planner's definitions unusable: none, too many, one not for the gap, a sub-gap named as the gap or
     as a gap that exists (its id reused would merge old fields in), a name that is not lowercase words and dashes, or
-    a dependency on a later sub-gap or on no gap."""
+    a dependency on a later sub-gap or on no gap, or a size line missing or not understood."""
+    sizes = [f"{name!r}: {why}" for name, _, body in defs if isinstance(why := size_of(body), str)]
     if len(defs) == 1:
-        return [] if defs[0][0] == branch else [f"a single definition must be for {branch}, not {defs[0][0]!r}"]
+        return sizes + ([] if defs[0][0] == branch else [f"a single definition must be for {branch}, not {defs[0][0]!r}"])
     names = [d[0] for d in defs]
     out = [] if defs else ["the planner wrote no <definition>"]
     out += [f"a split into {len(defs)} sub-gaps: at most {MOST_SPLIT}"] if len(defs) > MOST_SPLIT else []
@@ -63,7 +78,7 @@ def problems(defs: list[tuple[str, str, str]], branch: str, known: set[str]) -> 
             out.append(f"sub-gap {name!r}: not a new name of lowercase words and dashes")
         out += [f"sub-gap {name!r} depends on {d}, neither an earlier sub-gap nor a gap" for d in deps_of(body)
                 if d[4:] not in names[:i] and d not in known]
-    return out
+    return out + sizes
 
 
 def planner(cfg: dict, gap: dict) -> int:
@@ -116,9 +131,11 @@ def planner(cfg: dict, gap: dict) -> int:
                     parent=[gap["id"]], depends_on=deps_of(body), requested_at=now)
         fac.say("gap.planned", gap["id"] if name == branch else f"gap/{name}", plan=fac.rel(p), planned_at=now, risks=sorted(set(re.findall(
             r"\blesson-\d+\b", body))), replanned=name == branch and bool(f.get("plan_failures")),
+            **size_of(body), merged_lines=None, merged_lines_error=None,     # a new size, never scored on old lines
             **(record if name == branch else {}))
-    if defs[0][0] != branch:
-        fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, **record)
+    if defs[0][0] != branch:                             # a split parent merges nothing: no size of its own
+        fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, size=None, size_confidence=None,
+                **record)
     return 0
 
 

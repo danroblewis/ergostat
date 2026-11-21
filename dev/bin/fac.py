@@ -224,11 +224,12 @@ def run_tag(branch: str, began: float) -> str:
     return f"{branch}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(began))}"
 
 
-def net_lines(repo: Path, base: str, head: str) -> int:
-    """Net lines of ergostat's core changed: outside tests/, docs/, dev/ and the root model."""
+def net_lines(repo: Path, base: str, head: str, core: bool = True) -> int:
+    """Net lines changed outside tests/ and docs/: of ergostat's core (dev/ and the root model left out too), or, with
+    core=False, with dev/ and the root model counted (a merge's lines, scored against its planned size class)."""
     add = rem = 0
     out = git(repo, "diff", "--numstat", f"{base}...{head}", "--", ".", ":(exclude)tests", ":(exclude)docs",
-              ":(exclude)dev", ":(exclude)ergostat.yaml")
+              *((":(exclude)dev", ":(exclude)ergostat.yaml") if core else ()))
     for line in out.splitlines():
         a, d, _ = line.split("\t", 2)
         if a != "-":
@@ -472,7 +473,7 @@ def attempt(cfg: dict, role: str, brief: str, work: Path) -> dict | None:
 STANDIN = {
     "planner": '<definition branch="{b}">\n# {b}: planned by the stand-in\n\ndepends-on: []\n\n## Definition of done\n\n'
                'It works.\n\n## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
-               '100 net lines.\n</definition>',
+               'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
     "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```"}

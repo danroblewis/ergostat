@@ -46,7 +46,11 @@ prevented.
    - `## Risks`: the review lessons that apply, by id (`lesson-1`), each with how this change could fall into it;
    - `## Acceptance tests`: by name (`tests/test_x.py::test_name`), what each shows, and for each risk the test that
      fails if the change falls into it (a test that can't fail is lesson-9);
-   - `## Size budget`: `N net lines` of code outside `tests/` and `docs/`.
+   - `## Size budget`: `N net lines` of code outside `tests/` and `docs/`, and the line
+     `size: S|M|L|XL (confidence: low|medium|high)`: the class of the net lines outside `tests/` and `docs/`, `dev/`
+     counted, that will merge: S is 50 or fewer (a net removal is S), M 51 to 150, L 151 to 400, XL over 400. Say
+     `low` when you are unsure. A definition without this line, or with another class or confidence, is sent back;
+     the merge queue counts the lines that merged and the factory measures how often the class held.
 
 # Your answer
 

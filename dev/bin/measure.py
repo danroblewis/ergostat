@@ -18,7 +18,12 @@ own measures do).
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
-The last three, like first-pass-yield, have no value with nothing to measure."""
+  size-accuracy       of merged gaps the planner sized (a size and its confidence), the share whose merged_lines fall
+                      inside their class: S <= 50 (a net removal too), M 51-150, L 151-400, XL > 400. The window is
+                      on the latest merge (merged_at). A gap whose latest merge has no merged_lines is left out of
+                      the share, never a hit, and named on stderr.
+  size-accuracy-high  the same, of the gaps sized with high confidence only
+The last five, like first-pass-yield, have no value with nothing to measure."""
 
 from __future__ import annotations
 
@@ -54,6 +59,8 @@ def reading(name: str, now: float | None = None) -> float:
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
+    if name in ("size-accuracy", "size-accuracy-high"):
+        return size_accuracy(name, since)
     gaps = fac.items("gap")
     merged = [g["fields"] for g in recent(gaps, "merged_at", since) if g["state"] == "merged"]
     f = lambda k: [float(g.get(k) or 0) for g in merged]  # noqa: E731
@@ -85,6 +92,22 @@ def share(xs: list[bool], name: str) -> float:
     if not xs:
         raise SystemExit(f"{name}: no value yet (nothing to measure in the window)")
     return round(sum(xs) / len(xs), 3)
+
+
+def size_class(lines: int) -> str:
+    return "S" if lines <= 50 else "M" if lines <= 150 else "L" if lines <= 400 else "XL"
+
+
+def size_accuracy(name: str, since: float) -> float:
+    """Only gaps with the planner's confidence: the groomer's `size` (gap.groomed) carries none."""
+    sized = [g for g in recent(fac.items("gap"), "merged_at", since) if g["state"] == "merged"
+             and g["fields"].get("size") and g["fields"].get("size_confidence") in (
+                 ("high",) if name == "size-accuracy-high" else ("low", "medium", "high"))]
+    counted = lambda f: type(f.get("merged_lines")) is int and not f.get("merged_lines_error")  # noqa: E731
+    if left := [g["id"] for g in sized if not counted(g["fields"])]:
+        print(f"{name}: left out, no merged_lines: {', '.join(left)}", file=sys.stderr)
+    return share([size_class(g["fields"]["merged_lines"]) == g["fields"]["size"] for g in sized
+                  if counted(g["fields"])], name)
 
 
 def knowledge_reading(name: str, since: float) -> float:
