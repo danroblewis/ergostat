@@ -321,3 +321,16 @@ The implementation is done and, read without running it, meets the definition of
   session so far has been refused file deletion, so another automated round will not clear it. After that commit,
   the branch can go to review for merge, and the merge queue runs the suites under `suite_watch.py` after merging the
   real origin/main.
+
+### After resumed round 2: the factory's `unit` run "failed"
+
+- The tail it gave is only uv's build lines ("Built ergostat", "Installed 1 package") with no pytest output: not one
+  dot, no failing test, no error, no summary. The run stopped before pytest printed anything, so it was stopped from
+  outside (the slot or the watchdog) or failed to start. It was not a test failing. `pyproject.toml` has
+  `testpaths = ["tests"]`, so `scratch_probe.py` (at the root, not named `test_*`) is not collected and did not cause it.
+- Run here again, one file set at a time: `tests/test_unmoved.py` 17 passed; `test_slowjudge.py`, `test_redesign.py`,
+  `test_improve.py`, `test_gate.py`, `test_bench.py` 93 passed; ruff clean. The last whole serial unit run (round 2)
+  was 1948 passed, 0 failed. No failing test was found, so no code changed. The tests' bounds were not touched.
+- `git rm -q scratch_probe.py` was refused again (the seventh refusal), and no other route was tried.
+- **Left:** the factory runs `unit` again under `suite_watch.py` and reads the watchdog's last JSON line (whether it
+  killed the run, and its peaks). A person runs `git rm scratch_probe.py` and commits.
