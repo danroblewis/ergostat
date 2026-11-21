@@ -84,3 +84,11 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
    `merge-pipeline-flowing` repeats `[manager] broken_minutes` and will not follow a change to it.
 5. The earlier cap `interventions_per_hour` is gone, as each session now takes all triggers at once. The limits are now
    `most_actions` (8) and the 6 gaps given in full; a trigger left unanswered returns at the next session.
+
+**The coordinator's decisions for the implementor (2026-11-21):**
+- Fix the flaky test in the code: give each situation a unique id. Leave `test_a_trigger_left_unanswered_or_a_failed_session_comes_back` as it is.
+- `main-twice` counts only unremedied `main-broken` interventions, with a test that it clears once remedied.
+- Read old situations (`print`, no `prints`) without raising every standing trigger again; an old one still `raised` is closed as superseded, never run with no triggers.
+- Drop the goal on `minutes-since-manager` and keep it as a measure: it rightly grows while nothing changes.
+- Make `manage-when` depend on what it claims to read, or remove the `max(1, ...)` and draw the triggers honestly. The hold on `merge-pipeline-flowing` follows `broken_minutes`.
+- This has run only on fixtures: say so in the report. Main has moved and `ergostat.yaml` changed on both sides, so keep both when merging.
