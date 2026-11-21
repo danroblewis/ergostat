@@ -70,3 +70,13 @@ clone, the files outside "Files to touch") were answered in round 4 and stay as 
 `python3 - <<EOF ... ; git add ... && git commit` that resolved the conflict markers. It was not worked around in
 the shell; the markers were removed with the editor and the commit made as separate commands. The unit suite and the
 four browser files were not run here; they are the factory's fast suites after this session.
+
+Round 6: the merge of main (7c0e4a60) was already committed (a92ff3e4), with no conflict markers left. The `unit`
+failure handed to this round has a tail that ends just after uv rebuilt the package, before pytest printed anything.
+No test is named, so the run was cut off from outside. Here, `unit` under suite_watch.py ran to the end with rc 1:
+2235 passed, 69 skipped, 1 failed (peak 309 threads, 1.9 GB, nothing killed). The failure was
+tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped, a 5 s wait for a warm worker to be
+replaced, under -n 8. Run again alone, tests/test_warm.py passed (21 passed). This branch changes nothing under
+ergostat/ and nothing that test reads: it builds its own project in tmp_path and never reads the repository's
+ergostat.yaml. So it is unrelated (lesson-13), a load flake for its own gap, and was left alone. tests/test_factory.py:
+94 passed, 2 skipped. No code was changed this round. The four browser files were not run here.
