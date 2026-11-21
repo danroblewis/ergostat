@@ -13,7 +13,7 @@ It ships **off**: the implementor takes nothing until you open the intake.
 | | |
 |---|---|
 | `~/ergostat` | the checkout the queue merges into, runs the suites in, and pushes from. Never the instance's code |
-| `~/ergostat-live/drop.git` | the factory's own bare repository: each gap's work, on `factory/<branch>`, as the sessions bundled it back; the queue fetches the reviewed commit from it |
+| `~/ergostat-live/drop.git` | the factory's own bare repository: each gap's work, on `factory/<branch>`, as the sessions bundled it back; the queue fetches the reviewed commit from it. Its main is fetched under `drop.git.lock` beside it, one session at a time |
 | `~/ergostat-live/sessions/` | each session's clone (made from the drop, never the owner's repository) |
 | `~/ergostat-live/<sha>` | each installed version: a detached worktree with its own `.venv` |
 | `~/ergostat-live/current`, `previous` | the version running, and the one a revert goes back to |
@@ -119,8 +119,11 @@ the intake says so on stderr and takes it once the other stops (of two requests 
 read is taken, the other waits). Each run fetches its session's work to a side ref of its own
 (`refs/incoming/<run>/factory/NAME`). Before each implementor run on a branch behind main, implement.py merges main in
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
-(it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
-the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
+(it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
+`uv run python scripts/suite_watch.py`; its refused calls are kept as `tool_denials`, and a session with no result or
+a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
+`tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
+merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
 after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
@@ -223,7 +226,14 @@ at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a si
 `- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
 sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
 made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
-file).
+file). Once every sub-gap is merged the join moves the parent to `joined`, never to `merged`, and the **join judge**
+(`plan.py join`, the plan reviewer's model and session cap, `[ai] join_judge_*`) reads, in a read-only clone of main,
+the parent's entry, its coverage, and each sub-gap's definition and last review (anything unreadable shown as
+`(missing: why)`). `covered` merges the parent, its verdict, reasons and `judged_at` recorded. `short` requests a new
+sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points not built), adds those points to the
+coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
+most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
+cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -414,6 +424,13 @@ bisecting, or one where the dry merge was clean) is undone and sent back as a fa
 suites, so what is tested is still what lands. If git cannot make a dry merge at all, the run fails there: gaps
 already sent back stay sent back, the rest stay `approved`.
 
+A batch that comes back empty says why, and picks() gives the reason from its walk. Either the own gap was sent back
+(its findings name what for, a conflict naming no file among them), and that is its outcome, or its dry merge failed
+only with batch-mates on both walks. In that second case the gap is given back with the reason (uncounted, taken again
+after 10 minutes), and the count is kept on the gap as `empty_batches`, per reviewed commit. The third such run on
+the same commit (`EMPTY_MOST` in queue.py) sends the gap back instead, as a failed gate, with the reason as its finding,
+so it is never taken forever.
+
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
 `run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
@@ -486,33 +503,53 @@ ergostat event --add intervention.remedied --item intervention/2026-11-20-unstic
 What the coordinator did by hand and recorded as interventions (a gap parked on main's own failures continued, a gap
 re-approved after an environmental queue failure, the queue unblocked, a missing gap filed) is the pipeline manager's:
 an AI block (`pipeline-manager`, `dev/model/manager.yaml`; `[ai] pipeline_manager_model`, Opus, and its own
-`pipeline_manager_session_usd`; pool 1; within the daily cap) that looks at one **situation** at a time, in a container
-on a read-only clone of main like the other sessions, its conversation kept as a session item related to the situation.
+`pipeline_manager_session_usd`; pool 1; within the daily cap). **One session sees the whole pipeline**, in a container
+on a read-only clone of main, its conversation kept as a session item related to its `situation/*`.
 
-**The triggers** (`dev/bin/watch.py`, the block `pipeline-watch`, every 5 minutes; `[manager]` in the settings), in
-order: the queue blocked (`run/queue.json`, or an open intervention of class `queue`); a gap dead past half an hour, or
-parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or none said) unless
-another gap carries its branch on; a `waits_on` or `needs` park not cleared in `park_wait_hours` (24); a gap in one state past
-`[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
-lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
-queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes
-`operator-decision` and `factory-tuning`, or `factory: false`) past `intervention_hours` (12), at most
-`interventions_per_hour` (3) an hour; a heartbeat every
-`heartbeat_minutes` (30), only when the pipeline changed. One situation at a time, and never one whose fingerprint (its
-subject and the visit, park or change it is about) was raised before. `python3 dev/bin/watch.py stuck` counts the
-stuck gaps (the goal `no-stuck-gaps`). Pause it with `[manager] open = 0` in `factory.local.toml`.
+**When it runs** (`dev/bin/watch.py`, the block `pipeline-watch`, a plain `every: 5m`; `[manager]` in the settings):
 
-**The brief** (`dev/bin/manager.py`): the situation, its gap's fields, moves, reviews, sessions and log tails, the
-queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity, and the knowledge.
+- on a schedule, `every` (2h, never under 15 minutes; `broken_minutes` never under 5): the routine review;
+- before the schedule is due when the merge pipeline has been broken past `broken_minutes` (30), but never sooner than
+  `broken_minutes` after the last session of any kind (scheduled, broken or failed), so a break found just after a
+  session waits up to that long again: the queue blocked, a pending push that
+  old, no merge in that long while approved gaps have waited as long, the interlock holding the queue that long, or the
+  same test failing on two main commits (at once; only while those `main-broken` interventions are unremedied). The
+  sensor `pipeline-broken-minutes` reads the minutes past `broken_minutes`, so its goal holds at 0 and follows the
+  setting; `minutes-since-manager` is a measure with no goal, as it rightly grows while nothing changes. When each
+  began is kept in `run/manager.json`; a new push or block
+  has its own clock. A break already looked at does not start another session;
+- never when nothing changed since the last session (no new trigger, no new break, the pipeline the same).
 
-**The tools** (`dev/bin/manage.py`): the session answers with its calls in a fenced JSON block, each run through
-manage.py's own checks; refused calls are said on the situation. Directly: `continue GAP`, `reapprove GAP --why` (the
-failed tests are run again on main where they failed, the checkout for the queue's or a container for the fast
-suites', and must fail there too: back to approved, or to built), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a
-queue one only once main is clean and pushed). Asked in the inbox: `close GAP` (a new state, closed), `park GAP`,
-`pool ROLE N`, `change --what` (dev/model, the settings, anything touching origin). Every call is an
-`intervention.recorded` with a class and `by: pipeline-manager`, open like the coordinator's, so the interventions still
-count what the factory lacks. By hand (as the coordinator): `python3 dev/bin/manage.py continue gap/NAME --why ...`.
+**What it is given.** Every standing trigger no earlier session answered (by fingerprint): the queue blocked; a gap dead
+past half an hour, or parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or
+none said), unless another gap carries its branch on or the park is `deferred` or `cancelled` (its kind, or the
+coordinator's `deferred: true` or `cancelled: true`); a `waits_on` or `needs`
+park not cleared in `park_wait_hours` (24, at least 1); a `split` park never (each stopped sub-gap raises its own
+trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
+else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
+`intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
+`factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
+queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
+It answers per trigger what it did or why it left it; a trigger it did not answer comes back in the next session.
+Situations of the earlier one-trigger watch (a `print`, no `prints`) count as looked at once handled or failed; one
+still `raised` is closed `superseded`, never run, and its trigger, if it still stands, goes to the next session. Each
+situation's id ends in a random suffix, so two raised in one second are two items.
+
+**The tools** (`dev/bin/manage.py`, at most `most_actions` (8, held to 1..12) calls a session, each through its own checks). Directly:
+`continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, and must fail there too),
+`flake TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
+in the inbox: `close GAP`, `park GAP`, `pool ROLE N`, `change --what` (dev/model, the settings, anything touching
+origin). Every call is an `intervention.recorded` with a class and `by: pipeline-manager`. By hand, as the coordinator:
+`python3 dev/bin/manage.py continue gap/NAME --why ...`. Pause it with `[manager] open = 0` in `factory.local.toml`.
+
+**The routine review.** Each session's record has queue wait, minutes per merge and per batch, batch size and bisected
+batches, time in state, first-pass yield, merges per hour, each goal against its setpoint and the binding constraint, and
+the answers to its earlier questions. A scheduled session either `propose`s a change (a gap with a definition, one
+open at a time) or `ask`s the researcher how to speed up the merge pipeline (one open at a time:
+a question is open until answered, so one being researched or given up on (`dead`) holds the next), or says why neither.
+Both check what is open and write under one lock (`run/one-open.lock`), so a session's and the coordinator's at once
+never both get past the rule.
+The measures `manager-triggers-per-session` and `manager-actions-per-session` say how much each session takes on.
 
 **Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
 records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in
@@ -526,10 +563,6 @@ once each stopped sub-gap is resumed or closed (the split gap back to split, the
 is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the parked gap saying what cleared (a
 continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Measures:
 `measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.
-
-**The velocity watch**: each heartbeat reads queue wait, suite minutes, cycle hours and each waiting state's time; when
-`queue-wait-short` or `suites-in-time` is off it files a gap (merge batching with bisection; faster suites), at most
-one of its own open at a time, and never one whose branch exists.
 
 ## Upgrade and revert
 
@@ -550,8 +583,9 @@ never begun again. A drain never switches in the step that began it, and no requ
 runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
 `drain-minutes` stops counting once the switch begins. The switcher reads the goal (`in:`) rather than naming it
 (`goal:`): a goal named would command it, and a commanded block leaves its `every:` (`ergostat check` says
-`schedule-removed`); the pipeline watch reads `no-stuck-gaps` the same way. The groomer and the plan review start no session while
-`run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
+`schedule-removed`); the pipeline watch reads `no-stuck-gaps` and `merge-pipeline-flowing` the same way. The `in:`
+is drawing only: neither program reads the goal's value, as each finds what the goal measures itself. The groomer and
+the plan review start no session while `run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
 python3 dev/bin/live.py switch <sha>           # the same, in the foreground

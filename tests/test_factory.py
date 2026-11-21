@@ -2064,7 +2064,7 @@ def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
     code = ("import sys, json, time; sys.path[:0] = [sys.argv[1]]; import fac, queue; cfg = fac.config(); "
             "repo = fac.path(cfg, 'checkout'); pre = fac.git(repo, 'rev-parse', 'HEAD'); "
             "own = next(g for g in fac.items('gap', 'approved') if g['id'] == 'gap/a'); "
-            "batch, dried = queue.picks(cfg, repo, own, 2, pre); out = {'moved': fac.git(repo, 'rev-parse', 'HEAD') != pre}; "
+            "batch, dried, _ = queue.picks(cfg, repo, own, 2, pre); out = {'moved': fac.git(repo, 'rev-parse', 'HEAD') != pre}; "
             "alone = queue.dry(repo, pre, batch[0][1], 'a alone')[0]\n"
             "try:\n queue.land(cfg, repo, batch, pre, time.time(), 0, alone)\n"
             "except RuntimeError as e:\n out['raised'] = str(e)\n"
@@ -2446,18 +2446,28 @@ def test_a_gap_pending_with_no_push_is_stuck(tmp_path):
     db = f.db()
     db["actions"] = {aid: "held"}
     f.record.write_text(json.dumps(db))
+
+    def handled_long_ago(s: dict) -> None:                                    # (answered, and the schedule due again)
+        f.fold([{"event": "situation.handled", "item": s["id"], "data": {"prints": s["prints"]}}], None)
+        db = f.db()
+        db["items"][s["id"]]["fields"]["raised_at"] = f.now - 3 * 3600
+        f.record.write_text(json.dumps(db))
+
+    def stuck(s: dict) -> set[str]:
+        return {t["subject"] for t in s["triggers"] if t["trigger"] == "stuck"}
+
     s = f.watch()
-    assert s["trigger"] == "heartbeat"                                         # its push held: a wait explained
-    f.handled(s["id"])
+    assert stuck(s) == set()                                                   # its push held: a wait explained
+    handled_long_ago(s)
     db = f.db()
     db["actions"][aid] = "ran"                                                 # the push ran, nothing settled it
     f.record.write_text(json.dumps(db))
     s = f.watch()
-    assert (s["trigger"], s["subject"]) == ("stuck", "gap/a")                  # no longer explained
-    f.handled(s["id"])
+    assert stuck(s) == {"gap/a"}                                               # no longer explained
+    handled_long_ago(s)
     f.put("gap/c", "push-pending", ago=600, branch="c")                        # no pending push carries it
     s = f.watch()
-    assert (s["trigger"], s["subject"]) == ("stuck", "gap/c")                  # stuck at once, not after 4 h
+    assert stuck(s) == {"gap/c"}                                               # stuck at once, not after 4 h
 
 
 def test_a_stale_push_is_refused_as_not_a_fast_forward(tmp_path):
@@ -2816,6 +2826,110 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
             drain.settings({"upgrade": bad})
 
 
+ALLOWED = ["Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
+           "Bash(uv run python scripts/suite_watch.py:*)"]
+IMPLEMENTOR = {"ai": {"implementor_model": "opus", "implementor_session_usd": 1.0}}
+
+
+def agents_module():
+    sys.modules.setdefault("fac", module("fac"))                                 # (agents.py imports fac beside it)
+    return module("agents")
+
+
+def test_the_implementor_may_remove_files_and_run_the_watched_suite():
+    agents = agents_module()
+    args = agents.claude_args(IMPLEMENTOR, "implementor")
+    allowed = args[args.index("--allowedTools") + 1].split(",")
+    assert set(ALLOWED) <= set(agents.TOOLS["implementor"]) and set(ALLOWED) <= set(allowed)
+    for role in ("reviewer", "planner", "librarian", "researcher"):              # only the implementor writes
+        assert not set(ALLOWED) & set(agents.TOOLS[role]), role
+    prompt = (BIN.parent / "prompts" / "implementor.md").read_text()
+    assert "under `/tmp`" in prompt and "If a command is refused, say which one" in prompt
+
+
+def test_the_deny_list_still_holds():
+    agents = agents_module()
+    assert agents.DENY == ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)",
+                           "Bash(curl:*)", "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
+    args = agents.claude_args(IMPLEMENTOR, "implementor")
+    assert args[args.index("--disallowedTools") + 1].split(",") == agents.DENY   # every one still refused to it
+    words = lambda t: t.removeprefix("Bash(").removesuffix(":*)")  # noqa: E731   (a tool, or a command's words)
+    denied = tuple(words(d) for d in agents.DENY)
+    assert not [t for t in agents.TOOLS["implementor"] if words(t).startswith(denied)]   # nor a narrower form of one
+
+
+def test_refused_tool_calls_are_recorded_on_the_session(tmp_path, monkeypatch, capsys):
+    import yaml
+    monkeypatch.chdir(tmp_path)
+    fac = module("fac")
+    monkeypatch.setitem(sys.modules, "fac", fac)
+    monkeypatch.setitem(sys.modules, "sessions", module("sessions"))
+    monkeypatch.setenv("ERGOSTAT_ITEM", "gap/alpha-thing")
+    cfg = {"paths": {"run": str(tmp_path / "run"), "live": str(tmp_path / "live")},
+           "ai": {"mode": "container", "implementor_model": "opus", "implementor_session_usd": 5.0}}
+    fake = type(sys)("agents")
+    tok = "s3cr3t-" + "x" * 200                                                  # (longer than a summary's cut)
+    fake.token = lambda cfg: tok
+    answers = [{"permission_denials": [{"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": "rm x.py"}},
+                                       {"tool_name": "Bash", "tool_input": {"command": "uv run python scripts/a.py"}}]},
+               {},                                                              # a result with no denials field
+               {"permission_denials": []},
+               {"permission_denials": [{"tool_name": "Bash", "tool_input": {"command": f"curl -H 'X: {tok}' h"}},
+                                       {"tool_name": "Edit", "tool_input": {"old_string": "a" * 120 + tok}},   # (cut at 160)
+                                       f"odd {tok}"]},
+               None]                                                            # a timeout: no result at all (out=None)
+
+    def session(cfg, role, brief, work, keep=None):
+        keep.copy.tok = tok                                                      # (as agents.session does)
+        answer = answers.pop(0)
+        if answer is None:
+            raise RuntimeError("the implementor session ran past 5400s and was killed")   # (as agents.py does)
+        return {"type": "result", "subtype": "success", "is_error": False, "result": "Done", "total_cost_usd": 0.1,
+                "num_turns": 1, **answer}
+    fake.session = session
+    monkeypatch.setitem(sys.modules, "agents", fake)
+    lines = []
+    for _ in range(5):
+        try:
+            fac.session(cfg, "implementor", "brief", tmp_path)
+        except RuntimeError:
+            pass
+        lines.append([json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith('{"event"')])
+    timed_out = lines.pop()
+    err = next(x["data"] for x in timed_out if x["event"] == "session.errored")
+    assert err["tool_denials_unknown"] == 1 and "tool_denials" not in err and "ran past" in err["error"]
+    end = [next(x["data"] for x in got if x["event"] == "session.ended") for got in lines]
+    on_gap = [[(x["item"], x["data"]) for x in got if x["event"] == "gap.measured"] for got in lines]
+    assert end[0]["tool_denials"] == 2 and end[0]["denied"] == ["Bash: rm x.py", "Bash: uv run python scripts/a.py"]
+    assert on_gap[0] == [("gap/alpha-thing", {"tool_denials": 2, "denied": end[0]["denied"]})]
+    assert end[1]["tool_denials_unknown"] == 1 and "tool_denials" not in end[1]          # unknown, never 0
+    assert on_gap[1] == [("gap/alpha-thing", {"tool_denials_unknown": 1})]
+    assert end[2]["tool_denials"] == 0 and end[2]["denied"] == [] and on_gap[2] == []  # none: nothing more on the gap
+    assert end[3]["tool_denials"] == 3 and end[3]["denied"][0] == "Bash: curl -H 'X: [token]' h"
+    said = json.dumps(lines[3])                                                  # the token, nor a prefix of it, kept
+    assert "s3cr3t" not in said and all("[token]" in d for d in end[3]["denied"]), end[3]["denied"]
+    lines.pop()                                                       # (the folds below count the first three, the timeout)
+    lines.append(timed_out)
+
+    (tmp_path / "f").mkdir()
+    f = Factory(tmp_path / "f")                                                  # the gap and sessions, by the model's folds
+    measure = lambda name: subprocess.run([sys.executable, str(BIN / "measure.py"), name], cwd=f.model,  # noqa: E731
+                                          env=f.env, capture_output=True, text=True)
+    f.fold([x for x in lines[1] + lines[3]], None)                     # only sessions whose refusals are unknown
+    r = measure("tool-denials")
+    assert r.returncode != 0 and "no value" in r.stderr and not r.stdout.strip()    # unknown, never 0
+    f.fold([x for got in (lines[0], lines[2]) for x in got], None)
+    g = f.item("gap/alpha-thing")["fields"]
+    assert g["tool_denials"] == 2 and g["tool_denials_unknown"] == 2 and len(g["denied"]) == 2
+    r = measure("tool-denials")
+    assert r.returncode == 0 and float(r.stdout) == 2.0, r.stderr     # the 2 refused; the timeout and the silent one
+    assert "2 session(s) whose refusals are unknown" in r.stderr              # left out, said, not counted as refused
+    r = measure("tool-denials-unknown")
+    assert r.returncode == 0 and float(r.stdout) == 2.0, r.stderr
+    goal = yaml.safe_load((BIN.parent / "model" / "measures.yaml").read_text())["goals"]["no-tool-denials"]
+    assert (goal["auxiliary"], goal["hold"], goal["tolerance"]) == ("tool-denials", "<= 0", 0)
+
+
 # ---- switcher-actually-runs (docs/roadmap/overnight/switcher-actually-runs.md): the timed blocks on the engine's clock
 
 def instance_engine(f: Factory):
@@ -2878,7 +2992,8 @@ def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
     (old / "dev" / "model").mkdir()
     for x in (ROOT / "dev" / "model").iterdir():
         (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.drains-within-bound", "goal: drains-"
-                                                    "within-bound").replace("in: goal.no-stuck-gaps", "goal: no-stuck-gaps"))
+                                                    "within-bound").replace("in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]",
+                                                                            "goal: no-stuck-gaps"))
     (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
 
     def noted(path: Path) -> set[str]:      # (a craft note, not an extremes finding: a second model's extremes, ~60 s
@@ -3112,11 +3227,8 @@ def test_a_defect_park_is_never_resumed_by_the_program(tmp_path):
     f.put("gap/flawed", "parked", branch="flawed", parked_for="defect", parked_until={"gap": "gap/carried"},
           parked_at=f.now - 3600, need_met="x")
     assert resumed(f) == []
-    raised = set()
-    for _ in range(3):
-        s = f.watch()
-        raised.add((s["trigger"], s["subject"]))
-        f.handled(s["id"])
+    s = f.watch()                                                             # one session carries them all
+    raised = {(t["trigger"], t["subject"]) for t in s["triggers"]}
     assert raised == {("parked", gid), ("parked", "gap/killed"), ("parked", "gap/flawed")}   # the manager's to look at
     k = Factory(tmp_path / "k")                                               # the kill rule's park says so
     kid = ready(k)
@@ -3133,15 +3245,24 @@ def test_a_waiting_park_past_its_hours_raises_a_situation(tmp_path):
           parked_at=f.now - 23 * 3600)
     f.put("gap/done", "parked", branch="done", parked_for="needs", parked_until={"action": "a", "who": "b"},
           parked_at=f.now - 30 * 3600, resumed_as="gap/done-continued")
+    def handled_long_ago(s: dict) -> None:                                    # (answered, and the schedule due again)
+        f.fold([{"event": "situation.handled", "item": s["id"], "data": {"prints": s["prints"]}}], None)
+        db = f.db()
+        db["items"][s["id"]]["fields"]["raised_at"] = f.now - 3 * 3600
+        f.record.write_text(json.dumps(db))
+
     s = f.watch()
-    assert s["trigger"] == "heartbeat"                                        # neither: within its hours, or resumed
-    f.handled(s["id"])
+    assert s["triggers"] == []                                                # neither: within its hours, or resumed
+    handled_long_ago(s)
     f.put("gap/fresh", "parked", branch="fresh", parked_for="waits_on", parked_until={"gap": "gap/carried"},
           parked_at=f.now - 25 * 3600)
     s = f.watch()
-    assert s["trigger"] == "waiting" and s["subject"] == "gap/fresh" and "not cleared" in s["why"]
-    f.handled(s["id"])
-    assert (f.watch() or {}).get("subject") != "gap/fresh"                    # raised once for the park
+    (t,) = s["triggers"]
+    assert t["trigger"] == "waiting" and t["subject"] == "gap/fresh" and "not cleared" in t["why"]
+    handled_long_ago(s)
+    f.put("gap/other", "ready", ago=60, branch="other")                      # (the pipeline changed)
+    s = f.watch()
+    assert s and "gap/fresh" not in [t["subject"] for t in s["triggers"]]     # raised once for the park
 
 
 def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):
