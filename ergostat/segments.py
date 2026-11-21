@@ -971,7 +971,7 @@ class Segments:
 
     def prune(self, before: float) -> int:
         """As ``store.Events.prune``: older than ``before``, but the model's history, each loop's last
-        crossing, and every item that has anything newer. Only the segments that lose something are
+        crossing, ``store.KEPT``, and every item that has anything newer. Only the segments that lose something are
         rewritten, read by their columns."""
         alive = {it for it, t in self.last_times().items() if t >= before}
         last_loop: dict[str | None, int] = {}            # each loop's last crossing, of all time, from the columns
@@ -988,9 +988,10 @@ class Segments:
             if e["type"].startswith("loop."):
                 last_loop[e.get("item")] = max(last_loop.get(e.get("item"), 0), e["seq"])
         loops = set(last_loop.values())
+        from .store import KEPT
 
         def old(it, ty, seq) -> bool:
-            if ty == "model.changed":
+            if ty == "model.changed" or ty.startswith(KEPT):
                 return False
             if it and "/" in it:
                 return it not in alive

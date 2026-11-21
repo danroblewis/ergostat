@@ -428,7 +428,8 @@ the item's page shows "Show the full history", which reads them (`/api/items/ID?
 at a time). A transcript read again from its start records none of its rolled-up lines.
 
 **Keeping.** `keep:` (top level, default 30 days) is how long events are kept: older ones are
-forgotten, except the model's history (`model.changed`) and each loop's last crossing. An item is
+forgotten, except the model's history (`model.changed`), each loop's last crossing and the operating
+states' events (`ergostat.operating.*`, §9.5: an item holding one is never rolled up either). An item is
 forgotten whole, once nothing about it is newer than `keep`; until then its older events are in its
 snapshot (the engine never keeps more than `keep` outside one). Archive months older than `keep`
 are deleted.
@@ -2309,13 +2310,17 @@ decision and the write. Each trip `(state, goal)` has a current **spell**, read 
 
 - *crossing*: the goal's newest unvoided `loop.*` event is `loop.off`: the spell `off:<its id>`. The engine restores
   each goal's status from the record when it starts, so a restart records no new `loop.off` for a goal already off.
-- *unread* (with `unknown-after:`): each sensor of the goal's part has its newest reading; the clock starts at the
-  **oldest** of them, so one live sensor never hides a dead one. When a sensor was never read, it starts at the
-  trip's `ergostat.operating.watching` event (about `goal.<name>`, data `{state}`), written once by the first look
-  that finds none. Past `unknown-after`, the spell is `unread:<sensor>:<its reading's time>` or
-  `unread:<sensor>:never`. The engine's start time is never used, so a restart neither resets nor restarts the clock,
-  and time asleep counts. A sensor added to a part later and never read starts from that trip's first watching
-  event, so it may trip at once.
+- *unread* (with `unknown-after:`): each sensor of the goal's part has a clock of its own, starting at its newest
+  reading, and a spell of its own: past `unknown-after`, `unread:<sensor>:<its reading's time>`. So one live sensor
+  never hides a dead one, and a sensor whose silence the owner has left never hides another's later silence. When a
+  sensor was never read, its clock starts at the trip's `ergostat.operating.watching` event (about `goal.<name>`,
+  data `{state}`), written once by the first look that finds a sensor never read, and its spell is
+  `unread:<sensor>:never`. The engine's start time is never used, so a restart neither resets nor restarts the
+  clock, and time asleep counts. A sensor added to a part later and never read starts from that trip's first
+  watching event, so it may trip at once.
+
+The events of `ergostat.operating.*` (entries, leaves, watching) are never rolled up into a snapshot nor forgotten
+past `keep` (§4b), so a spell the owner left stays answered and a watching clock is never restarted, however old.
 
 A trip fires once per spell: a spell no earlier `entered` of the state names is recorded as `entered` (`by: trip`,
 `goal`, `spell`; caused by the `loop.off` for a crossing), whether the state is entered already or not, so the

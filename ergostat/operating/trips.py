@@ -1,7 +1,8 @@
 """Trips (SPEC §9.5, *Operating states*): a goal's crossing (``off:<loop.off id>``) or its part unread past
-``unknown-after`` (``unread:<sensor>:<time>|never``, the clock at the oldest sensor's newest reading, or at the trip's
-``watching`` event) entering a state once per spell, judged from the record only. Spells are compared for equality on
-what was read, never as newer or older. Run in the dispatcher's thread under its lock, read to write."""
+``unknown-after`` (``unread:<sensor>:<time>|never``, one per sensor, each clock at that sensor's newest reading, or
+at the trip's ``watching`` event) entering a state once per spell, judged from the record only (its events are never
+rolled up nor forgotten: ``store.KEPT``). Spells are compared for equality on what was read, never as newer or older.
+Run in the dispatcher's thread under its lock, read to write."""
 
 from __future__ import annotations
 
@@ -36,19 +37,17 @@ def _spells(p, spec, state: str, goal: str, after: float | None, now: float, wat
     reads = {name: p.measurements.latest(s.series) for name, s in sorted((part.sensors if part else {}).items())}
     if not reads:
         raise LookupError(f"goal {goal}: its part has no sensor to time")
-    never = [n for n, r in reads.items() if r is None]
-    if never:
-        start = _watching(p, state, goal)
-        if start is None:                                      # (written once; its time is the clock's start)
+    began = None
+    if any(r is None for r in reads.values()):
+        began = _watching(p, state, goal)
+        if began is None:                                      # (written once; its time is the clock's start)
             watch.append((state, goal))
-            start = now
-        sensor, spell = never[0], f"unread:{never[0]}:never"
-    else:
-        sensor = min(reads, key=lambda n: reads[n][0])
-        start = reads[sensor][0]
-        spell = f"unread:{sensor}:{start!r}"
-    if now - start > after:
-        out.append((spell, None, f"goal {goal}: sensor {sensor} unread for {now - start:.0f}s (unknown-after {after:g}s)"))
+            began = now
+    for sensor, r in reads.items():                            # one spell per sensor: none hides another's silence
+        start = began if r is None else r[0]
+        if now - start > after:
+            out.append((f"unread:{sensor}:{'never' if r is None else repr(start)}", None,
+                        f"goal {goal}: sensor {sensor} unread for {now - start:.0f}s (unknown-after {after:g}s)"))
     return out
 
 

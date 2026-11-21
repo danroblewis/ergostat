@@ -441,15 +441,15 @@ def test_unknown_after_trips_on_record_clock(tmp_path):
     trips.check(p, s, now=t0 + 59)
     assert not entries(p)
     trips.check(p, s, now=t0 + 61)
-    assert [x["data"]["spell"] for x in entries(p)] == [f"unread:a:{t0!r}"]
+    assert [x["data"]["spell"] for x in entries(p)] == [f"unread:a:{t0!r}", f"unread:b:{t0!r}"], "one spell per sensor"
     acts.leave(p, s, "freeze", "seen", env=OWNER)
     t1 = t0 + 100
     for x in ("a", "b"):
         p.measurements.add(f"sensor/disk.{x}", 1, at=t1)
     trips.check(p, s, now=t1 + 10)
-    assert len(entries(p)) == 1, "read again: no trip"
+    assert len(entries(p)) == 2, "read again: no trip"
     trips.check(p, s, now=t1 + 61)
-    assert [x["data"]["spell"] for x in entries(p)][-1] == f"unread:a:{t1!r}", "silent again: a new spell"
+    assert [x["data"]["spell"] for x in entries(p)][-2:] == [f"unread:a:{t1!r}", f"unread:b:{t1!r}"], "a new spell"
     acts.leave(p, s, "freeze", "seen", env=OWNER)
     t3 = t1 + 1000                                               # b goes silent; a keeps reading
     for x in ("a", "b"):
@@ -459,6 +459,74 @@ def test_unknown_after_trips_on_record_clock(tmp_path):
     trips.check(p, s, now=t3 + 101)
     assert [x["data"]["spell"] for x in entries(p)][-1] == f"unread:b:{t3!r}", "one live sensor never hides a dead one"
     e.close()
+
+
+def test_a_sensor_left_silent_never_hides_another_going_silent(tmp_path):
+    """The order the dead sensor is already the oldest does not cover: a goes silent and the owner leaves its spell;
+    then b, still reading, goes silent too. a is still the oldest, yet b's silence is a spell of its own and trips."""
+    p, e, _ = setup(tmp_path, UNREAD, n=0)
+    s = e.spec
+    t0 = time.time() - 5000
+    p.measurements.add("sensor/disk.a", 1, at=t0)
+    for k in range(0, 200, 30):
+        p.measurements.add("sensor/disk.b", 1, at=t0 + k)
+    trips.check(p, s, now=t0 + 190)
+    assert [x["data"]["spell"] for x in entries(p)] == [f"unread:a:{t0!r}"]
+    acts.leave(p, s, "freeze", "a is known to be dead", env=OWNER)
+    trips.check(p, s, now=t0 + 200)
+    assert len(entries(p)) == 1 and state_of(p).state == "left"
+    trips.check(p, s, now=t0 + 180 + 61)                        # b's newest reading is t0+180
+    assert [x["data"]["spell"] for x in entries(p)][-1] == f"unread:b:{t0 + 180!r}" and state_of(p).state == "entered"
+    e.close()
+    # a never read, its unread:a:never left: b's later silence still trips
+    other = tmp_path / "n"
+    other.mkdir()
+    write(other, UNREAD)
+    p = Project(mdl.load(other))
+    e = Engine(p, say=lambda s: None)
+    t = time.time() - 5000
+    trips.check(p, e.spec, now=t)                               # (the watching event: a's clock)
+    p.measurements.add("sensor/disk.b", 1, at=t + 50)
+    trips.check(p, e.spec, now=t + 61)
+    assert [x["data"]["spell"] for x in entries(p)] == ["unread:a:never"]
+    acts.leave(p, e.spec, "freeze", "a is not wired yet", env=OWNER)
+    trips.check(p, e.spec, now=t + 50 + 61)
+    assert [x["data"]["spell"] for x in entries(p)][-1] == f"unread:b:{t + 50!r}"
+    e.close()
+
+
+@pytest.mark.parametrize("events", ["segments", "sqlite"])
+def test_rolled_up_and_pruned_record_still_answers_its_spells(tmp_path, events):
+    """The engine's upkeep rolls an item's events older than 7 days into a snapshot, and forgets what is older than
+    keep (30 days). Neither may take a trip's entry, the owner's leave or a watching event: a sensor still silent,
+    or one never read, must not trip again, and the never-read clock must not restart."""
+    from ergostat import rollup
+    write(tmp_path, UNREAD.replace("      room: {unknown-after: 60s}", "      room: {unknown-after: 60s}\n"
+                                   "  maintenance-2:\n    rank: 4\n    pool: 0\n    description: x\n"
+                                   "    trips:\n      room: {unknown-after: 60s}")
+          + f"storage: {{events: {events}}}\n")
+    p = Project(mdl.load(tmp_path))
+    s = p.model.spec
+    t0 = time.time() - 100
+    p.measurements.add("sensor/disk.a", 1, at=t0)                # b never read
+    trips.check(p, s, now=t0)
+    assert len(p.events.query(n=None, type=WATCHING)) == 2      # two states trip on room: two on goal.room
+    trips.check(p, s, now=t0 + 61)
+    for st in ("freeze", "maintenance-2"):
+        assert {x["data"]["spell"] for x in entries(p, st)} == {f"unread:a:{t0!r}", "unread:b:never"}
+        acts.leave(p, s, st, "seen", env=OWNER)
+    for days in (8, 40):                                         # rolled up past 7 days; then all of it past keep
+        now = time.time() + days * 86400
+        rollup.compact(p, now=now)
+        p.events.prune(now - (86400 if days > 8 else 30 * 86400))
+        for st in ("freeze", "maintenance-2"):
+            assert len(entries(p, st)) == 2 and state_of(p, st).state == "left", "the answered spells kept"
+        assert len(p.events.query(n=None, type=WATCHING)) == 2
+        trips.check(p, s, now=now)
+        for st in ("freeze", "maintenance-2"):
+            assert state_of(p, st).state == "left", "the owner's leave not undone by the same silence"
+            assert len(entries(p, st)) == 2, "no second entry for a spell the owner left"
+        assert len(p.events.query(n=None, type=WATCHING)) == 2, "the never-read clock not restarted"
 
 
 def test_restart_neither_reenters_nor_resets_clock(tmp_path):
@@ -492,7 +560,7 @@ def test_restart_neither_reenters_nor_resets_clock(tmp_path):
         p.measurements.add(f"sensor/disk.{x}", 1, at=t0)
     e3 = Engine(p, say=lambda s: None)                           # (now: t0 + 50)
     e3.dispatch.trip(now=t0 + 61)
-    assert [x["data"]["spell"] for x in entries(p)] == [f"unread:a:{t0!r}"]
+    assert [x["data"]["spell"] for x in entries(p)] == [f"unread:a:{t0!r}", f"unread:b:{t0!r}"]
     e3.close()
     # (c) left by the owner: no restart nor later check enters it again for that spell
     acts.leave(p, p.model.spec, "freeze", "seen", env=OWNER)
@@ -500,7 +568,7 @@ def test_restart_neither_reenters_nor_resets_clock(tmp_path):
         e4 = Engine(Project(mdl.load(other)), say=lambda s: None)
         e4.dispatch.trip(now=t0 + k)
         e4.close()
-    assert len(entries(p)) == 1 and state_of(p).state == "left"
+    assert len(entries(p)) == 2 and state_of(p).state == "left"
 
 
 def test_never_read_clock_starts_at_watching_event(tmp_path):
@@ -516,7 +584,7 @@ def test_never_read_clock_starts_at_watching_event(tmp_path):
     assert len(p.events.query(n=None, type=WATCHING)) == 1, "a restart finds it and writes none"
     assert not entries(p)
     e2.dispatch.trip(now=t + 61)
-    assert [x["data"]["spell"] for x in entries(p)] == ["unread:a:never"]
+    assert [x["data"]["spell"] for x in entries(p)] == ["unread:a:never", "unread:b:never"]
     e2.close()
 
 

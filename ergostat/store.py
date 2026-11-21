@@ -36,6 +36,7 @@ create index if not exists events_item_own on events(item, seq) where (type < 'c
 create table if not exists meta (key text primary key, value);
 """
 OWN_LINES = "(type < 'claude.' or type >= 'claude/')"     # not a transcript's line: events_item_own holds just these
+KEPT = "ergostat.operating."     # never rolled up nor forgotten: the spells a trip answered, the clocks it started
 MEASUREMENTS = """
 create table if not exists samples (
   series text not null,
@@ -450,16 +451,17 @@ class Events:
 
     def prune(self, before: float) -> int:
         """Forget events older than ``before``, except the model's history, which is kept whole, and
-        each loop's last crossing (whether it was off is what its hysteresis needs). An item is
+        each loop's last crossing (whether it was off is what its hysteresis needs) and ``KEPT``. An item is
         forgotten whole, once nothing about it is newer: until then its older events are its
         snapshot's (``rollup.py`` folds them in first)."""
         with self._c() as c:
             c.execute("begin immediate")
             n = c.execute("delete from events where time < ? and type != 'model.changed' and item not like '%/%' and seq not in "
-                          "(select max(seq) from events where type like 'loop.%' group by item)", (before,)).rowcount
-            n += c.execute("delete from events where (item is null and time < ? and type != 'model.changed') or item in "
-                           "(select item from events where item like '%/%' group by item having max(time) < ?)",
-                           (before, before)).rowcount
+                          "(select max(seq) from events where type like 'loop.%' group by item) and substr(type, 1, ?) != ?",
+                          (before, len(KEPT), KEPT)).rowcount
+            n += c.execute("delete from events where substr(type, 1, ?) != ? and ((item is null and time < ? and "
+                           "type != 'model.changed') or item in (select item from events where item like '%/%' group by "
+                           "item having max(time) < ?))", (len(KEPT), KEPT, before, before)).rowcount
             if n:
                 self._bump(c)
             c.execute("commit")

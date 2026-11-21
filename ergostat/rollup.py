@@ -28,6 +28,7 @@ import uuid
 from pathlib import Path
 
 from .spec.items import SNAPSHOT, TRANSCRIPT_TYPES, field_of, fold, kind_of
+from .store import KEPT  # (an item holding an operating state's events is never rolled up: operating/trips.py)
 
 MIN_EVENTS = 2              # a prefix of fewer events is left as it is: one event is already as small as a snapshot
 
@@ -211,7 +212,7 @@ def batches(p, now: float | None = None, cap: float | None = None):
                     break
                 prefix.append(e)
             originals = sum(1 for e in prefix if e["type"] != SNAPSHOT)
-            if originals == 0 or len(prefix) < MIN_EVENTS:
+            if originals == 0 or len(prefix) < MIN_EVENTS or any(e["type"].startswith(KEPT) for e in prefix):
                 continue
             out.append((id, k, prefix, evs[len(prefix):]))
         if out:

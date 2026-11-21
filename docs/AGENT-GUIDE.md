@@ -443,7 +443,7 @@ operating:
     description: the mainline is red
     trips:
       mainline-green: {}                  # the goal going off enters freeze
-      tests-read: {unknown-after: 2h}     # so does its part's sensors going unread for 2 h
+      tests-read: {unknown-after: 2h}     # so does any of its part's sensors going unread for 2 h (each its own trip)
   maintenance: {rank: 1, pool: 1, description: one run at a time while the owner works}
 ```
 

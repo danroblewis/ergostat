@@ -177,3 +177,53 @@ Not broken separately: part (b) of the restart test. There is no engine-start cl
 test pins the record clock with a fresh engine created 50 s after the reading.
 
 Size: 447 net lines outside tests and docs (the schema counted).
+
+Round 3 (the fix round for round 2's review, after main 7b39bc9 was merged in):
+
+Merge: the factory's merge of main conflicted in six factory files. Each kept both sides: the groomer (the branch's
+backlog) and the pipeline manager (main) in `dev/bin/agents.py`, `fac.py` and `dev/factory.toml`; the plan reviewer
+given main's read-only tools; the planner's `takes:` with main's `to:` (no `planned`) and the backlog's
+`unblocked: true, order: rank`; `gap.closed` commented for both; `messages.done` with main's `situation:` but `gap`
+kept as `[merged, closed]`, because the backlog moved `parked` to `paused:` (the owner's rule). The factory tests of
+those files pass (`test_factory_knowledge.py`, `test_factory_manager.py`: 52).
+
+The two findings:
+
+1. **Roll-up (and forgetting) took the answered spells and the watching clocks.** Fixed by the review's second
+   option, exempting them. I also found and covered a third path the review didn't name: `prune` (past `keep`, 30
+   days) forgets a `/` item whole once nothing is newer, and an unkinded item's (`goal.<name>`) old events. So a
+   state left 30 days ago with its sensor still silent tripped again, and the watching events were deleted.
+   `store.KEPT = "ergostat.operating."`: `rollup.batches` skips an item whose prefix holds such an event, and
+   both backends' `prune` keep every event of those types (`store.Events.prune`'s two deletes, `segments.prune`'s
+   `old`). SPEC §4b (*Keeping*) and §9.5 say so. Test:
+   `test_rolled_up_and_pruned_record_still_answers_its_spells[segments|sqlite]`. It uses two states tripping on one
+   goal, so there are two watching events on `goal.room`. It runs `rollup.compact(now=+8d)` and `prune`, then
+   compact and prune again past +40 d, and checks after each that the entries, leaves and watching events are all
+   still there. Then `check()` records no new entry, every state stays left, and no new watching event is written.
+   Broken separately, each failed: the roll-up exemption removed (the owner's leave undone: `'entered' == 'left'`);
+   the segments prune exemption removed; each of sqlite's two prune clauses removed (the leaves gone, and the
+   watching events gone). Cost: those items' events are never archived, which is a few events per trip spell and
+   per owner act.
+2. **One unread spell per trip hid other sensors.** `_spells` now gives one spell per sensor past `unknown-after`
+   (`unread:<sensor>:<time>` or `unread:<sensor>:never`, the never-read ones timed from the watching event). Each
+   is answered on its own. The reviewer's case is a new test,
+   `test_a_sensor_left_silent_never_hides_another_going_silent`. a goes silent, its spell is left, then b goes
+   silent while a is still the oldest: b trips. The same holds with a never read and `unread:a:never` left. With
+   only the first spell per trip emitted, this test fails, and so do the existing unread tests whose expectations
+   now list a spell per sensor (`test_unknown_after…`, `test_restart…`, `test_never_read…`).
+
+Not resolved, reported (lesson-7, lesson-13): **the branch base.** This branch was made from the container's local
+`main` (dc0d5ac6, "Merge branch 'backlog'"), and the factory's main (7b39bc9) does not hold that merge. So
+`git diff 7b39bc9...HEAD` also lands the backlog feature (`leases/ready.py`, `numbers/eta*.py`, `precedence.py`,
+`cli/spec_cmds.py`, `leases/compile.py`, `pages.js`, `relations.js`, `style.css`, `ergostat.yaml`'s rank fields,
+`dev/bin/backlog.py`…), as the other branches cut from that base do. The implementor's tools allow no rebase or
+revert of it, and removing it is outside this gap. The coordinator has to either land the backlog first or recut
+the branch on main and replay commits e94c6a20, 0848a040 and this round's.
+
+Size: this gap's own code is 450 net lines (447 + 3 this round: trips −1, rollup +1, segments +1, store +2), exactly
+the budget. Tests run this round, one file at a time: `test_operating.py` (33 including both parametrised cases),
+`test_rollup.py`, `test_store_conformance.py`, `test_storage.py`, `test_cli_fallback.py`,
+`test_factory_knowledge.py` and `test_factory_manager.py`, all passing; ruff clean. Not run by the implementor: the
+full unit suite and the four browser files (the factory runs them under the watchdog). No demo is touched, so
+`demo_check` is not needed. A stray empty file, `docs/roadmap/overnight/operating-states.md.tail`, was created by
+mistake in this round and is untracked. It is not committed, and it can be deleted.
