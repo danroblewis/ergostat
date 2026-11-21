@@ -415,6 +415,22 @@ def test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question(tmp_p
     assert " asked" in f.manage("ask", "Would caching the environments save time?", "--why", "x")
 
 
+def test_the_one_open_check_and_its_write_hold_a_lock(tmp_path):
+    """propose and ask read what is open, decide and write: another process cannot take the lock in between."""
+    f = Pipe(tmp_path)
+    probe = ("import fcntl, sys\nf = open(sys.argv[1], 'a')\ntry:\n    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)"
+             "\n    print(0)\nexcept BlockingIOError:\n    print(1)")
+    code = ("import argparse, subprocess, sys, manage\ncfg = manage.fac.config()\nseen = []\n"
+            f"probe = {probe!r}\nlk = str(manage.fac.run_dir(cfg) / 'one-open.lock')\nitems = manage.fac.items\n"
+            "def taken(*a):                              # (the check, before the write)\n"
+            "    seen.append(subprocess.run([sys.executable, '-c', probe, lk], capture_output=True, text=True)"
+            ".stdout.strip())\n    return items(*a)\n"
+            "manage.fac.items = taken\n"
+            "manage.do_ask(cfg, argparse.Namespace(question='Would caching the environments save time?', why='x',"
+            " cls=''))\nprint(json.dumps(seen))")
+    assert f.py(code) == ["1"]
+
+
 def test_the_velocity_record_reads_batches_goals_and_the_researchers_answers(tmp_path):
     f = Pipe(tmp_path)
     for n, (batch, runs) in enumerate((("b1", 1), ("b1", 1), ("b2", 3))):

@@ -358,3 +358,25 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   completion. Several runs in a row have been ended early, so the factory should check what is killing the suite
   container (its memory or its time limit).
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 15 (2026-11-21): review/manager-sessions-6, and the merge of main 6ad359c0.**
+- *`do_ask` (blocking):* already built in round 12 and unchanged. It counts every research item the asker asked that is
+  not `answered`, and `test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question` covers `leased` and
+  `dead`. Round 12 showed that it fails with the old line put back.
+- *The lock in `do_propose`/`do_ask` (non-blocking, lesson-1; lesson-12, as no earlier round answered it):* the check for
+  an open proposal or question and its write now happen under an flock on `run/one-open.lock` (`manage.one_open`).
+  Test: `test_the_one_open_check_and_its_write_hold_a_lock`, where another process tries to take the lock during the
+  check. With the flock removed it **failed** (`['0'] == ['1']`). With the flock it passes. The README says so.
+- *`main-twice` counting at once (non-blocking):* stays as written (rounds 1 and 12), because two main commits already
+  span time. This departs from the definition's wording, and the README and the model say so.
+- *Not run by the reviewer (non-blocking):* this round's runs are listed below.
+- *The merge of main 6ad359c0* (d3aecad8, already committed) brought in `test_a_gap_pending_with_no_push_is_stuck`
+  (`tests/test_factory.py`). It read the one-trigger shape (`s["trigger"]`, a `heartbeat`) and failed with `KeyError`.
+  It now reads the session's `triggers` and checks the same things: no `stuck` trigger while the push is held, `gap/a`
+  stuck once the push has run, and `gap/c` stuck at once. With `watch.push_waits` made to return False, it failed
+  (`{'gap/a'} == set()`).
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 32 passed. `test_factory.py`,
+  `test_factory_knowledge.py`, `test_factory_times.py` and `test_interventions.py` together: 204 passed, 2 skipped and
+  1 failed (the test above, before its fix). After the fix, `tests/test_factory.py` alone: 113 passed, 2 skipped. Ruff
+  is clean. The whole unit suite and the four browser files were not run here. The factory runs them under suite_watch.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.

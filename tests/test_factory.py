@@ -2446,18 +2446,28 @@ def test_a_gap_pending_with_no_push_is_stuck(tmp_path):
     db = f.db()
     db["actions"] = {aid: "held"}
     f.record.write_text(json.dumps(db))
+
+    def handled_long_ago(s: dict) -> None:                                    # (answered, and the schedule due again)
+        f.fold([{"event": "situation.handled", "item": s["id"], "data": {"prints": s["prints"]}}], None)
+        db = f.db()
+        db["items"][s["id"]]["fields"]["raised_at"] = f.now - 3 * 3600
+        f.record.write_text(json.dumps(db))
+
+    def stuck(s: dict) -> set[str]:
+        return {t["subject"] for t in s["triggers"] if t["trigger"] == "stuck"}
+
     s = f.watch()
-    assert s["trigger"] == "heartbeat"                                         # its push held: a wait explained
-    f.handled(s["id"])
+    assert stuck(s) == set()                                                   # its push held: a wait explained
+    handled_long_ago(s)
     db = f.db()
     db["actions"][aid] = "ran"                                                 # the push ran, nothing settled it
     f.record.write_text(json.dumps(db))
     s = f.watch()
-    assert (s["trigger"], s["subject"]) == ("stuck", "gap/a")                  # no longer explained
-    f.handled(s["id"])
+    assert stuck(s) == {"gap/a"}                                               # no longer explained
+    handled_long_ago(s)
     f.put("gap/c", "push-pending", ago=600, branch="c")                        # no pending push carries it
     s = f.watch()
-    assert (s["trigger"], s["subject"]) == ("stuck", "gap/c")                  # stuck at once, not after 4 h
+    assert stuck(s) == {"gap/c"}                                               # stuck at once, not after 4 h
 
 
 def test_a_stale_push_is_refused_as_not_a_fast_forward(tmp_path):

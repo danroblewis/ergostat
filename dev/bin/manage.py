@@ -188,15 +188,33 @@ def do_remedy(cfg: dict, a) -> str:
     return f"{a.intervention} remedied"
 
 
+def one_open(cfg: dict):
+    """The lock held across the check for an open proposal or question and its write (lesson-1): a session's
+    manage.py and the coordinator's by hand never both get past the one-open rule."""
+    lock = open(fac.run_dir(cfg) / "one-open.lock", "a")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    return lock
+
+
 def do_propose(cfg: dict, a) -> str:
-    open_ = [g["id"] for g in fac.items("gap") if g["fields"].get("velocity") and g["state"] not in ("merged", "parked", "closed")]
+    with one_open(cfg):
+        return propose(cfg, a)
+
+
+def do_ask(cfg: dict, a) -> str:
+    with one_open(cfg):
+        return ask(a)
+
+
+def propose(cfg: dict, a) -> str:
+    open_ =[g["id"] for g in fac.items("gap") if g["fields"].get("velocity") and g["state"] not in ("merged", "parked", "closed")]
     if open_:
         raise Refused(f"a proposal of the review's is open already ({', '.join(open_)}): one at a time")
     return file_gap(cfg, a.title, a.definition_text, a.depends_on, a.branch, a.why, a.cls or "velocity", velocity=True)
 
 
-def do_ask(cfg: dict, a) -> str:
-    # open = anything not answered: asked, leased by the researcher, or dead (given up on, for the coordinator to see)
+def ask(a) -> str:
+    # open =anything not answered: asked, leased by the researcher, or dead (given up on, for the coordinator to see)
     mine = [r["id"] for r in fac.items("research") if r["fields"].get("asked_by") == BY[0] and r["state"] != "answered"]
     if mine:
         raise Refused(f"a question of yours waits for the researcher already ({', '.join(mine)}): one at a time")
