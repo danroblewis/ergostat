@@ -5,7 +5,9 @@ coordinator, or standing: the action's `gate: auto` in the instance's model) onl
 run/switch.lock:
 
 - every switch asked for a version older than the newest waiting, or than the one running, is **withdrawn**: its held
-  action denied (by the switcher, saying which version supersedes it) and its upgrade `withdrawn`; only the newest waits;
+  action denied (by the switcher, saying which version supersedes it) and its upgrade `withdrawn`; only the newest waits,
+  but for a drain under way: a newer version only installed leaves it (and its flag) be, and waits for the next switch;
+  one approved takes the drain over, keeping its start;
 - the newest, once approved, waits for a **quiet moment** (at most `[upgrade] quiet_runs` AI runs under way) or, at the
   latest, the **daily window** (`[upgrade] daily_at`, local) passing after its approval; then it **drains**:
   run/drain.json is written, and each AI run takes no new item while it is there (fac.drain_holds);
@@ -39,7 +41,8 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import live  # noqa: E402
 
-AI = ("implementor", "reviewer", "planner", "researcher", "pipeline-manager", "groomer")   # the type: ai blocks
+AI = ("implementor", "reviewer", "planner", "researcher", "pipeline-manager", "groomer",   # the type: ai blocks
+      "join-judge")
 KINDS = ("gap", "research", "situation")                                                          # what they take
 WAITING = ("installed", "approved", "draining")
 STALE = 30 * 60                       # a switch begun this long ago whose process never cleared the flag: given up
@@ -164,13 +167,18 @@ def step(cfg: dict, now: float | None = None) -> str:
         tops = [u for u in waiting if not any(older(u["fields"]["sha"], v["fields"]["sha"]) for v in waiting)]
         if len(tops) > 1:
             return f"cannot tell the newest of {', '.join(u['id'] for u in tops)}: none switched"
-        for u in waiting:
-            if tops and u is not tops[0]:
-                withdraw(u, tops[0]["id"], now)
         top = tops[0] if tops else None
-        if top is not None and top["state"] == "installed" and action_state(top) in ("approved", "ran"):
+        ok = top is not None and top["state"] == "installed" and action_state(top) in ("approved", "ran")
+        drains = [u for u in waiting if st is not None and u["state"] == "draining" and u is not top]
+        keep = drains[0] if top is not None and top["state"] == "installed" and not ok and len(drains) == 1 else None
+        for u in waiting:                   # (a newer version only installed: the drain under way goes on, it waits)
+            if tops and u is not tops[0] and u is not keep:
+                withdraw(u, tops[0]["id"], now)
+        if ok:
             fac.say("upgrade.switch-approved", top["id"], approved_at=now)
             top = {**top, "state": "approved", "fields": {**top["fields"], "approved_at": now}}
+        elif keep is not None:
+            top = keep
         if top is None or top["state"] == "installed":
             flag_path(cfg).unlink(missing_ok=True)
             return "no switch approved"
