@@ -38,13 +38,13 @@ def gates(cfg: dict, wt: Path, branch: str, base: str, continued: bool = False,
     is in the branch's history. The branch's own commits are its first-parent line (main merged in is not the
     branch's). The definition is ``rel`` (fac.definition_file: for a continued gap, the file its `definition`
     names, first committed on the continued branch under whatever name that branch had), else
-    `docs/roadmap/overnight/<branch>.md`. A continued branch must hold the main implement.py merged at its build
-    (``built_main``), not the main of this moment: main moving between build and review is the merge queue's to
+    `dev/records/<branch>.md` (or the old `docs/roadmap/overnight/<branch>.md` when the branch has only that). A
+    continued branch must hold the main implement.py merged at its build (``built_main``), not the main of this moment: main moving between build and review is the merge queue's to
     settle (it merges and runs the suites again), never a failed gate. A ``built_main`` missing, or not on main,
     counts as the worst case: current main."""
     if not (re.fullmatch(r"[0-9a-f]{40}", built_main) and fac.git_ok(wt, "merge-base", "--is-ancestor", built_main, base)):
         built_main = fac.git(wt, "rev-parse", base)
-    rel = rel or f"{fac.DEFS}/{branch}.md"
+    rel = rel or fac.definition_file({"id": f"gap/{branch}", "fields": {"branch": branch}}, wt)
     found = []
     own = ("--first-parent", "--topo-order", "--reverse")
     touched = fac.git(wt, "log", *own, "--format=%H", f"{base}..HEAD", "--", rel).split()
@@ -81,10 +81,11 @@ def park(cfg: dict, gap: dict, why: str, by: str, where: str = "review", kind: s
     of its own, pushed to the drop), then the gap parked: why as a kind (parks.KINDS) and, for the kinds a program
     resumes, what would end it (``until``). A park clears the last one's resume and need met (the same id parked
     again)."""
-    branch, rel = fac.branch_of(gap), fac.definition_file(gap)
+    branch = fac.branch_of(gap)
     d = agents.drop(cfg)
     if fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{fac.git_branch(branch)}"):
         _, work = agents.clone(cfg, branch, "park")
+        rel = fac.definition_file(gap, work)
         if (work / rel).is_file():
             with (work / rel).open("a") as fh:
                 fh.write(f"\n## Where it stopped\n\nParked by the factory ({by}, {time.strftime('%Y-%m-%d %H:%M')})."
@@ -139,7 +140,7 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
         raise RuntimeError(f"{gap['id']} has no built head to review")
     home, wt = agents.clone(cfg, branch, "reviewer", at=head)
     blocking, definition = gates(cfg, wt, branch, base, continued=bool(f.get("continues")),
-                           built_main=str(f.get("built_main") or ""), rel=fac.definition_file(gap))
+                           built_main=str(f.get("built_main") or ""), rel=fac.definition_file(gap, wt))
     net, budget = fac.net_lines(wt, base, "HEAD"), fac.budget_of(definition)
     if net > budget and not re.search(r"over.*reason|reason.*over", definition, re.I | re.S):
         blocking.append(f"size: {net} net lines of core code against a budget of {budget}, with no reason written")

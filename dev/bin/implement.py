@@ -1,7 +1,7 @@
 """implementor: takes a gap at ready (or at fix, sent back with its findings), under a lease, and builds it:
 
 1. a clone of the factory's drop repository (agents.py: never the owner's), on the branch factory/<branch> from main;
-   the definition of done committed first (`docs/roadmap/overnight/<branch>.md`) when the branch lacks it, by this
+   the definition of done committed first (`dev/records/<branch>.md`) when the branch lacks it, by this
    program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
    left for the session, its files in the brief); then published to the drop;
 2. a session in a container of its own (or the stand-in) on a brief assembled from dev/prompts/implementor.md;
@@ -40,7 +40,7 @@ import pools  # noqa: E402
 def definition_first(cfg: dict, gap: dict, work: Path) -> tuple[str, str]:
     """The definition file (fac.definition_file), committed as the branch's first commit when the branch does not have
     it (by this program, in the clone it made, before any session); (its text, the commit that holds it)."""
-    branch, rel = fac.branch_of(gap), fac.definition_file(gap)
+    branch, rel = fac.branch_of(gap), fac.definition_file(gap, work)
     target = work / rel
     if not target.is_file():
         text = brief.definition_text(cfg, str(gap["fields"].get("definition", "")), branch)
@@ -93,7 +93,8 @@ def strays(cfg: dict, repo: Path, base: str, head: str, definition: str) -> list
     if not isinstance(pats, list) or not all(isinstance(p, str) for p in pats):
         raise ValueError(f"[gates] scratch_patterns must be a list of globs, not {pats!r}")
     tops = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "--name-only", base).splitlines())
-    tops |= {p.split("/", 1)[0] for p, _ in brief.files_of(definition)}
+    tops |= {p.split("/", 1)[0] for p, _ in brief.files_of(definition)} | {
+        fac.DEFS.split("/", 1)[0]}                                         # (the definition's own folder: dev/records)
     listed = brief.section(definition, "Files to touch") is not None
     return [p for p in unlisted(repo, base, head, definition) if
             any(fnmatch.fnmatchcase(part, pat) for part in p.split("/") for pat in pats)
