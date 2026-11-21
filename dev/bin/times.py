@@ -29,7 +29,8 @@ import fac  # noqa: E402
 WAITING = ("open", "replan", "planned", "split", "ready", "fix", "built", "approved", "queue-failed", "dead")
 WORKING = ("leased", "building", "in-review", "queued")
 GATES = ("implementor", "fast", "review", "unit", "browser", "demo", "push-wait")
-EXITS = ("approved", "parked", "dead")
+EXITS = ("approved", "parked", "dead", "closed")
+SNAPSHOT = "ergostat.item.snapshot"            # a gap's older events rolled up into one (ergostat/rollup.py)
 MOST = 50                                      # gaps timed in one run, at most (each is one read of its record)
 GOALS = fac.HERE / "model" / "times.yaml"
 GOAL = re.compile(r'auxiliary: ([a-z0-9-]+), hold: "<= ([0-9.]+)"')
@@ -49,7 +50,7 @@ def visits(moves: list[dict]) -> dict:
 
 def loop(moves: list[dict]) -> dict:
     """The build-review loop: from the first time the gap is taken to build (leased from ready or fix, else started)
-    to the first approval, park or dead letter after its last build; its rounds are its builds. While it is still
+    to the first approval, park, close or dead letter after its last build; its rounds are its builds. While it is still
     going round, its span runs to its latest move and loop_ended is None."""
     first = next((i for i, m in enumerate(moves) if m["to"] == "building"
                   or (m["to"] == "leased" and m.get("from") in ("ready", "fix"))), None)
@@ -62,16 +63,16 @@ def loop(moves: list[dict]) -> dict:
             "loop_ended": float(end["time"]) if end else None}
 
 
-def gates(events: list[dict]) -> dict:
-    """{gate: {"minutes", "at"}} summed over the gap's events (in the record's order): the implementor's runs and the
+def gates(events: list[dict], base: dict | None = None, merged: float | None = None) -> dict:
+    """{gate: {"minutes", "at"}} summed over the gap's events (in the record's order), added to ``base`` (the gates of
+    what was rolled up before them; ``merged``, a merge in it not yet pushed): the implementor's runs and the
     reviews (build_hours, review_hours), the fast suites (suites_fast), the queue's suites (suites_queue: unit, browser,
     demo), and the push wait (a merge to its push, or the coordinator settling it)."""
-    out: dict = {}
+    out: dict = {g: dict(v) for g, v in (base or {}).items()}
 
     def add(gate: str, minutes: float, at: float) -> None:
         g = out.setdefault(gate, {"minutes": 0.0, "at": 0.0})
         g["minutes"], g["at"] = round(g["minutes"] + minutes, 2), at
-    merged = None
     for e in events:
         d, t = e.get("data") or {}, float(e["time"])
         for field, gate in (("build_hours", "implementor"), ("review_hours", "review")):
@@ -94,12 +95,26 @@ def gates(events: list[dict]) -> dict:
 
 
 def timing(d: dict) -> dict:
-    """What `gap.timed` says of an item's detail (`ergostat item ID --json`: its moves and its record)."""
+    """What `gap.timed` says of an item's detail (`ergostat item ID --json`: its moves and its record). A record rolled
+    up (ergostat/rollup.py) starts with a snapshot: the moves are in it, and the gates as its last `gap.timed` said them
+    (its `set`), so only the events after it are added. A snapshot with no gates in it (never timed before it was
+    rolled up) leaves them unknown: None, not counted in any gate's measure."""
     moves = d.get("moves") or []
     evs = d.get("record") or []
     if int(d.get("record_total") or len(evs)) > len(evs):        # its record cut short: read the gap's events whole
-        evs = json.loads(fac.ergostat("events", "--item", d["id"], "--type", "gap.*", "--json", "-n", "100000").stdout)
-    return {"time_in": visits(moves), **loop(moves), "gates": gates([e for e in evs if e["type"].startswith("gap.")])}
+        evs = json.loads(fac.ergostat("events", "--item", d["id"], "--json", "-n", "100000").stdout)
+    evs = [e for e in evs if e["type"].startswith("gap.") or e["type"] == SNAPSHOT]
+    snap = max((i for i, e in enumerate(evs) if e["type"] == SNAPSHOT), default=None)
+    base, merged = None, None
+    if snap is not None:
+        s = evs[snap]
+        if not isinstance((s.get("set") or {}).get("gates"), dict):
+            return {"time_in": visits(moves), **loop(moves), "gates": None}
+        base, r = s["set"]["gates"], (s.get("data") or {}).get("rollup") or {}
+        if r.get("state") == "merged" and float((base.get("push-wait") or {}).get("at") or 0) < float(r.get("entered") or 0):
+            merged = float(r["entered"])                       # merged inside the snapshot, its push not yet seen
+        evs = evs[snap + 1:]
+    return {"time_in": visits(moves), **loop(moves), "gates": gates(evs, base, merged)}
 
 
 def write(gaps: list[dict], marks: Path) -> int:

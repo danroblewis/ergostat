@@ -173,6 +173,38 @@ def test_gate_times_from_the_lease_and_queue_events():
     assert {"queue-failed", "dead", "planned", "replan", "split"} <= set(times.WAITING)
 
 
+def test_gates_survive_the_roll_up_of_a_gaps_record():
+    """review/state-times-3: a record rolled up starts with a snapshot; the gate events are archived, so the gates
+    start from the snapshot's (its last gap.timed) and only later events are added, the same on every re-read."""
+    def ev(kind: str, h: float, **data) -> dict:
+        return {"type": f"gap.{kind}", "time": T0 + h * H, "data": data}
+    before = {"implementor": {"minutes": 45.0, "at": T0 + 2 * H}, "review": {"minutes": 15.0, "at": T0 + 3 * H}}
+    snap = {"type": times.SNAPSHOT, "time": T0 + 5 * H, "set": {"gates": before},
+            "data": {"rollup": {"state": "merged", "entered": T0 + 5 * H}}}
+    later = [ev("dependencies", 200), ev("push-settled", 200.5, push="settled")]
+    d = {"id": "gap/x", "moves": FIXED_TWICE, "record": [snap, *later], "record_total": 3}
+    got = times.timing(d)["gates"]
+    assert got["implementor"] == before["implementor"] and got["review"] == before["review"]
+    assert got["push-wait"] == {"minutes": 195.5 * 60, "at": T0 + 200.5 * H}     # its merge was in the snapshot
+    assert times.timing(d)["gates"] == got and before == snap["set"]["gates"]    # a re-read says the same
+    pushed = {**before, "push-wait": {"minutes": 5.0, "at": T0 + 6 * H}}         # pushed before the roll-up
+    d2 = {**d, "record": [{**snap, "set": {"gates": pushed}}, *later]}
+    assert times.timing(d2)["gates"] == pushed                                   # not counted twice
+    # added on: a build after the snapshot (a long record, read whole through `ergostat events`)
+    was = times.fac.ergostat
+    whole = [snap, ev("built", 201, build_hours=0.5), {"type": "ergostat.lease.renewed", "time": T0 + 201 * H}]
+    times.fac.ergostat = lambda *a, **k: type("R", (), {"stdout": json.dumps(whole)})()
+    try:
+        long = times.timing({**d, "record": whole[1:], "record_total": 900})["gates"]
+    finally:
+        times.fac.ergostat = was
+    assert long["implementor"]["minutes"] == 75.0 and long["review"] == before["review"]
+    # rolled up before it was ever timed: unknown, not zero, and in no gate's measure
+    blind = times.timing({**d, "record": [{**snap, "set": {}}, *later]})
+    assert blind["gates"] is None and blind["loop_rounds"] == 3
+    assert times.values("gate-review-minutes", [{"fields": blind}], 0) == []
+
+
 def gap(gid: str, state: str, ready_hours: float | None, left: float, **fields) -> dict:
     t = {"ready": {"hours": ready_hours, "visits": 1, "left": left}} if ready_hours is not None else {}
     return {"id": gid, "kind": "gap", "state": state, "events": 1, "entered": left,
