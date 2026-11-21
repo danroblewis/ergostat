@@ -843,8 +843,12 @@ item changed since folded again from the record up to then (`spec/asof.py`; when
 the whole record up to then is folded instead), and each kind's time per state counts only the moves by then. Three things
 stay of now: which states a kind counts as finished (as the item index says now, unless `messages: done:` says),
 the completion estimates (none at a moment travelled to), and the status's list of relation cycles. A snapshot
-(`ergostat snapshot`) holds the Graph and the Timeline the Items page asks for: each system's related kinds
-together, and each such kind alone. The Process view draws relations too (§5b).
+(`ergostat snapshot`) holds the Items page's list with no kind chosen; each kind chosen alone, its list (the
+first 500 of its items, as `items?kind=K` answers) and its list in each state it declares or counts; and the
+Graph and the Timeline of each system's related kinds together and of each kind alone, related or not. An
+answer that could not be got is left out, and the page says it is not in the snapshot. A set chosen (`where`,
+`moved`, a process map's `through`, `followed` or `caused`) is not held: in a snapshot it says so. The Process
+view draws relations too (§5b).
 
 **Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
 letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what

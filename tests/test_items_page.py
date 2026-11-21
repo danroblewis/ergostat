@@ -634,6 +634,44 @@ def test_a_snapshot_draws_the_graph_and_timeline(browser, tmp_path):
     pg.close()
 
 
+def test_a_snapshot_lets_a_kind_and_its_state_be_chosen(browser, tmp_path):
+    """The same snapshot, opened from its file with a kind chosen: its list, one of its states, and its Graph and
+    Timeline (a kind without relations too), each from what the snapshot holds; a set chosen is not held, and says so."""
+    from ergostat.web.snapshot import build
+    from tests.test_graph_cli_web import related_project
+    (tmp_path / "m").mkdir()
+    f = tmp_path / "snapshot.html"
+    f.write_text(build(related_project(tmp_path / "m")))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    listed = lambda: {t.strip() for t in pg.locator("table.items tr.click td:first-child").all_inner_texts()}   # noqa: E731
+    said = lambda: pg.locator(".page").inner_text()                                                         # noqa: E731
+    pg.goto(f.as_uri() + "#/items?kind=ticket")
+    pg.wait_for_function("() => document.querySelectorAll('table.items tr.click').length >= 2", timeout=20000)
+    assert listed() == {"ticket/a", "ticket/b"}, listed()
+    assert "epic/e1" not in listed() and "not in this snapshot" not in said()
+    pg.locator('.kind-flow:has(.kname.on) a.stbox', has_text="doing").first.click()      # the chart's state: its items
+    pg.wait_for_function("() => document.querySelectorAll('table.items tr.click').length === 1", timeout=20000)
+    assert listed() == {"ticket/a"}, listed()
+    assert "not in this snapshot" not in said()
+    for view, sel in (("graph", ".rg-graph[data-drawn] .rg-node"), ("timeline", ".rg-timeline[data-drawn] .rg-row")):
+        pg.goto(f.as_uri() + f"#/items?kind=ticket&view={view}")
+        pg.wait_for_selector(sel, timeout=20000)
+        assert {"ticket/a", "ticket/b"} <= {n["id"] for n in drawn(pg, sel)}, (view, drawn(pg, sel))
+        assert "not in this snapshot" not in said() and "not in a snapshot" not in said()
+    pg.goto(f.as_uri() + "#/items?kind=note&view=graph")                          # a kind without relations
+    pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
+    assert "note/n" in {n["id"] for n in drawn(pg, ".rg-graph[data-drawn] .rg-node")}
+    assert "not in this snapshot" not in said() and "not in a snapshot" not in said()
+    assert not errors, errors
+    pg.goto(f.as_uri() + "#/items?kind=ticket&moved=doing")                       # a set: not held, and said so
+    pg.wait_for_selector(".set-chip.bad", timeout=20000)
+    assert "items: not in this snapshot" in pg.locator(".set-chip.bad").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
 # ---- a report upstream's page (SPEC §12m): the text to paste, a Copy button, the link to a new issue, the scrub log
 
 def seed_report(d: Path, home: Path) -> str:
