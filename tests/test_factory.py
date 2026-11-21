@@ -661,6 +661,76 @@ def test_no_reruns_past_the_building_hours(tmp_path):
     assert len(runs(tmp_path)) == 1 and "no building hours" in f.item(gid)["fields"]["suites_fast"]["not_checked"]
 
 
+def quarantined(tmp: Path, says: str, rc: int = 0) -> Factory:
+    """A factory whose main quarantines T: the unit suite fails T unless it is deselected, and the run of the
+    quarantined tests (`alone`, and triage's `rerun`) prints ``says`` and exits ``rc``."""
+    unit, alone = tmp / "unit.sh", tmp / "alone.sh"
+    unit.write_text(f'#!/bin/sh\necho "unit $*" >> {tmp}/runs.log\ncase "$*" in *"--deselect {T}"*) echo "1 passed";'
+                    f' exit 0;; esac\necho "FAILED {T} - boom"; exit 1\n')
+    (tmp / "alone.out").write_text(says)
+    alone.write_text(f'#!/bin/sh\necho "alone $*" >> {tmp}/runs.log\ncat {tmp}/alone.out\nexit {rc}\n')
+    for sh in (unit, alone):
+        sh.chmod(0o755)
+    f = Factory(tmp, unit=str(unit), alone=str(alone))
+    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"', f'rerun = "{alone} {{tests}}"'))
+    (f.checkout / "tests").mkdir()
+    (f.checkout / "tests" / "quarantine.txt").write_text(f"# test | who | when | why\n{T} | t | 2026-11-21 | flaky\n")
+    git(f.checkout, "add", "tests")
+    git(f.checkout, "commit", "-q", "-m", "quarantine T")
+    git(f.checkout, "push", "-q", "origin", "main")
+    return f
+
+
+def last_runs(lines: list[dict]) -> list[str]:
+    return [x["data"]["last_run"] for x in lines if x.get("event") == "flake.measured"]
+
+
+def test_a_quarantined_test_does_not_block_the_queue(tmp_path):
+    f = quarantined(tmp_path, f"FAILED {T} - boom\n", rc=1)            # T fails every run
+    gid = ready(f)
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "flake.measured", "gap.built"]
+    f.run("review.py", gid)
+    said, lines = f.run("queue.py", gid)
+    assert said == ["gap.queued", "flake.measured", "gap.merged", "gap.push-asked"] and last_runs(lines) == ["fail"]
+    unit = [r for r in runs(tmp_path) if r.startswith("unit ")]
+    assert len(unit) == 2 and all(r.endswith(f"--deselect {T}") for r in unit)     # deselected from both suites
+    assert [r for r in runs(tmp_path) if r.startswith("alone ")] == [f"alone {T} -rA"] * 2   # run beside each
+
+
+def test_a_skipped_quarantined_test_is_not_a_pass(tmp_path, monkeypatch):
+    f = quarantined(tmp_path, f"SKIPPED [1] {T.split('::')[0]}:3: no port\n1 skipped\n")    # exits 0
+    gid = ready(f)
+    said, lines = f.run("implement.py", gid)
+    assert "gap.built" in said and last_runs(lines) == ["unknown"]
+    flake = f.item("flake/tests-test-x-py-test-y")["fields"]
+    assert flake["last_run"] == "unknown" and flake["quarantined"] is True
+    fac = fac_module(tmp_path, monkeypatch)
+    assert fac.outcomes(f"PASSED {T}\n", [T]) == {T: "pass"}                        # (what a pass looks like)
+    assert fac.outcomes(f"PASSED {T}\nERROR {T} - teardown\n", [T]) == {T: "fail"}  # passed, then errored
+    assert fac.outcomes("", [T]) == {T: "unknown"}                                  # an empty log
+    def gone(_):
+        raise FileNotFoundError("no suite")
+    assert fac.beside(f.checkout, tmp_path / "never.txt", gone) == {T: "unknown"}   # a run that never ran
+
+
+def test_a_quarantined_failure_is_recorded(tmp_path):
+    f = quarantined(tmp_path, f"FAILED {T} - boom\n", rc=1)
+    gid = ready(f)
+    said, lines = f.run("implement.py", gid)
+    flake = f.item("flake/tests-test-x-py-test-y")["fields"]
+    assert last_runs(lines) == ["fail"] and flake["last_run"] == "fail" and flake["test"] == T
+    assert f"FAILED {T}" in Path(flake["last_run_log"]).read_text()                 # read from the run's whole log
+    f.run("review.py", gid)
+    git(f.checkout, "fetch", "-q", str(tmp_path / "live" / "drop.git"), "factory/alpha-thing")  # (as the queue does)
+    pre = git(f.checkout, "rev-parse", "main")                                      # a queue failure naming T (a run
+    f.fold([{"event": "gap.queue-failed", "item": gid, "data": {"failed_suite": "unit", "failed_tests": [T],  # from
+                                                                 "pre": pre}}], None)                # before the list)
+    said, lines = f.run("triage.py", gid)
+    assert said == ["flake.measured", "flake.seen", "gap.retried"] and last_runs(lines) == ["fail"]
+    assert [r for r in runs(tmp_path) if r.startswith("alone ")][-1] == f"alone {T} -rA"   # never rerun as blocking
+
+
 def test_upgrades_follow_the_pushed_main(tmp_path):
     f = Factory(tmp_path)
     said, lines = f.run("upgrade.py", argv=["watch"])

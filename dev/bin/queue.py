@@ -10,7 +10,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    (SIGKILL, a crash) strands nothing: the next run puts main back where it began and takes them again;
 4. merge each into a clean main of the checkout in turn (`--no-ff`); a conflict is undone and sent back;
 5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py, then
-   demo_check, once for the batch; a browser test skipped counts as a failure;
+   demo_check, once for the batch; a browser test skipped counts as a failure. The tests in tests/quarantine.txt are
+   deselected from unit and browser and run after them (`alone`), their results recorded and never blocking
+   (fac.beside());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    bisected to the first failing merge (land()), which goes on to flake triage with what failed (`queue-failed`) and
@@ -94,9 +96,14 @@ def suites(cfg: dict, repo, tag: str, logs) -> dict:
                 raise got[n]
         return {n: got[n] for n in names}
 
+    def quarantined(tests: list[str]) -> None:
+        fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, tests=tests)
+
     out = {}
     for step in (("ruff",), ("unit", "browser"), ("demo",)):
         got = together(step)
+        if step[0] == "unit":                          # the quarantined tests after them, whatever they said
+            fac.beside(repo, logs / f"{tag}-quarantined.txt", quarantined)
         for name in step:
             failure = got[name].pop("failure", None)
             out[name] = got[name]
