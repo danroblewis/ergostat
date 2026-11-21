@@ -175,3 +175,23 @@ test_gated_actions, test_factory_manager (81 passed, 2 min 47 s); test_daemon_do
 test_item*, test_relations*, test_take_order, test_resilience (307 passed, 1 skipped). Not run: the whole unit suite
 (this session was not permitted to run it). Left: the factory should run the unit suite again and name the test that
 fails or hangs; if it is one this branch's code does not reach, it is unrelated (lesson-13).
+
+## Where it stopped, round 4 (the unit suite's failure, again)
+
+The factory's unit run stopped at 89% again. Its tail has no failing test, no error and no summary, so the run was
+killed or it hung, and the tail does not say which. This session was not allowed to run the suite in parallel under
+the watchdog, so it ran **every unit test file one after another, in groups**, on this branch's HEAD (2882fde8). All
+of them passed:
+- the files that touch the item command or the API that round 3 did not run (test_backlog through test_warm, 41
+  files, plus test_messages and test_inbox on their own): 155 + 407 + 256 + 20 + 17 passed, 43 skipped;
+- every other file that neither round had run (test_architecture through test_yaml_readings, plus test_agents_page
+  and test_page_refresh, 49 files): 376 + 217 passed, 22 skipped (the skips are page tests, and this container has no
+  browser);
+- test_cli_fallback again (17), on top of round 3's groups.
+
+Ruff is clean. No test fails or hangs when the files run one at a time, so this round changes no code. There is no
+failing test to fix, and changing code on a guess would not fix anything (lesson-10, lesson-13). The likeliest
+causes are load (a test that hangs only under `-n 8` while other suites are running) or the watchdog killing the run.
+The serial runs show nothing in this branch's code that would cause either. Left: the factory should run the unit
+suite again and keep its whole output (or `-rf` and the watchdog's closing JSON line), so the output names the test
+that hangs or the reason the run was killed.
