@@ -54,3 +54,13 @@ ruff is clean. Run in a fixed order, `tests/test_backlog.py` followed by
 above, and this branch touches neither file. Running the same pair on a clean worktree of main was refused
 (`git worktree add -q --detach /tmp/mainchk main && ...`), so the claim that main fails too rests on reading the code,
 not on a run. Under lesson-13 the leak is left for its own gap; nothing in this gap's code needs fixing.
+
+Round 4: nothing new to resolve: main (b24eb901) is already an ancestor of HEAD (`git merge-base --is-ancestor`), and
+`dev/bin/queue.py` has no conflict markers. Compared with b24eb901, the branch changes only `dev/bin/queue.py`,
+`tests/test_factory.py` and this file. Again the `unit` tail names no test. Rerun here: `tests/test_factory.py` 119
+passed, 2 skipped; ruff clean; `pytest -p no:randomly tests/test_backlog.py <the index-files test>` 1 failed, 19 passed,
+with the same `cannot import name 'Empty' from 'queue' (/work/dev/bin/queue.py)`. That is main's `sys.path` leak, in two
+files this branch does not touch, so under lesson-13 (and review/relative-gain-array-1, which failed a branch for fixing
+the same leak in passing) it stays unfixed here. The most reversible choice is to leave the code as it is. The leak
+needs its own gap: take `BIN` off `sys.path` in `tests/test_backlog.py` `intake()` and `tests/test_factory.py`'s import
+helper, as `tests/test_factory_knowledge.py` does.
