@@ -31,10 +31,12 @@ takes no gap: it gives its lease back, uncounted, and says nothing of it.
 It merges exactly the commit the reviewer approved, fetched from the drop (never the branch's name), and refuses a
 branch that moved since. A conflict is a failed gate (the second parks).
 
-`queue.py push SHA` is the action's command: it pushes exactly that commit to the remote's main, never anything else."""
+`queue.py push SHA` is the action's command: it pushes exactly that commit to the remote's main, never anything else.
+`queue.py settle` (the block push-settler) settles a push that ran, failed or was denied with no run started."""
 
 from __future__ import annotations
 
+import fcntl
 import json
 import re
 import shlex
@@ -236,10 +238,10 @@ def save(cfg: dict, st: dict) -> None:
 def block(cfg: dict, st: dict, why: str) -> str:
     """Stop the queue and ask the coordinator: an intervention, open until they record it remedied."""
     iid = f"intervention/queue-{time.strftime('%Y%m%d-%H%M%S')}"
+    st["blocked"] = {"why": why, "intervention": iid, "at": time.time()}
+    save(cfg, st)                                      # saved, then said: a run killed between says it at most once
     fac.say("intervention.recorded", iid, reason=f"the merge queue stopped: {why}", recorded_at=time.time(),
             **{"class": "queue"})
-    st["blocked"] = {"why": why, "intervention": iid, "at": time.time()}
-    save(cfg, st)
     return why
 
 
@@ -289,11 +291,21 @@ def waits(cfg: dict) -> str | None:
     return None
 
 
+def settleable(cfg: dict) -> bool:
+    """The sensor push-settleable (`queue.py settleable`): a pending push that ran, was denied, failed or cannot be
+    read, or a block remedied: what push-settler settles. Unreadable: 1, so its runs fail where they can be seen."""
+    try:
+        st = state(cfg)
+    except Unreadable:
+        return True
+    return bool(st.get("pending") or st.get("blocked")) and not waits(cfg)
+
+
 def settle(cfg: dict, repo) -> str | None:
     """Before a merge: what became of the last merge's push. None when the queue may go on; else why it waits.
     Pushed: done. Held: wait (one unpushed merge at a time, so a denial undoes only its own). Denied: the merge undone
     (`reset --keep` to before it) and its gap sent back. Failed, or an undo that fails: the queue blocked, with an
-    intervention, until the coordinator records it remedied."""
+    intervention, until the coordinator records it remedied (a failed push's held outcome is said at once)."""
     st = state(cfg)
     if st.get("blocked"):
         iid = st["blocked"]["intervention"]
@@ -301,11 +313,11 @@ def settle(cfg: dict, repo) -> str | None:
             return f"blocked until {iid} is remedied: {st['blocked']['why']}"
         st.pop("blocked")
         p = st.pop("pending", None)                    # the coordinator's remedy settled that merge, whatever its push
+        save(cfg, st)                                  # (saved before said, here and below: said at most once)
         for gid in pushed(p):
             fac.say("gap.push-settled", gid, push="settled by the coordinator", settled_by=iid,
                     settled_at=time.time())
         release(p)
-        save(cfg, st)
         return None
     p = st.get("pending")
     if not p:
@@ -314,26 +326,54 @@ def settle(cfg: dict, repo) -> str | None:
     if now == "held" and not p.get("action"):
         return block(cfg, st, f"the push of {p['sha'][:12]} is held, and its action's id was not said: "
                               f"it cannot be followed")
+    if now == "unknown" and p.get("action") and p.get("unread", 0) < 2:   # a read that failed: blocked the third time
+        p["unread"] = p.get("unread", 0) + 1
+        save(cfg, st)
+        return f"the push of {p['sha'][:12]} cannot be read ({p['unread']} of 3)"
     if now == "ran":
+        st.pop("pending")
+        save(cfg, st)
         for gid in pushed(p):
             fac.say("gap.pushed", gid, pushed_at=time.time(), push="pushed")
-        release(st.pop("pending"))
-        save(cfg, st)
+        release(p)
         return None
     if now == "denied":
         head = fac.git(repo, "rev-parse", "HEAD")
         if head != p["sha"] or not fac.git_ok(repo, "reset", "-q", "--keep", p["pre"]):
             return block(cfg, st, f"the push of {p['sha'][:12]} was denied, and its merge could not be undone "
                                   f"(main at {head[:12]})")
+        st.pop("pending")
+        save(cfg, st)
         for gid in pushed(p):                          # one approval for the batch: a denial sends back all of it
             fac.say("gap.sent-back", gid, sent_back_by="queue", push="denied",
                     findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])
-        release(st.pop("pending"))
-        save(cfg, st)
+        release(p)
         return None
     if now in ("held", "requested", "approved"):
         return f"the push of {p['sha'][:12]} ({p['gap']}) is {now}"
-    return block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
+    then = {"then": p.pop("then", None)}               # failed: the held outcome said now, not once it is remedied
+    why = block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
+    release(then)
+    return why
+
+
+def settle_alone(cfg: dict) -> str | None:
+    """`queue.py settle` (the block push-settler, every few minutes): a push that ran, failed or was denied is settled
+    with no gap approved to start a run. Under the queue's lock, taken only if free: a run holding it settles the push
+    itself (take()), and each re-reads run/queue.json inside the lock, so the outcome is applied once. Why it did
+    nothing, or None."""
+    lock = fac.path(cfg, "queue_lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock, "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return "a run holds the queue's lock"
+        try:
+            repo = fac.path(cfg, "checkout")
+            return recover(cfg, repo) or settle(cfg, repo)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def reviewed(cfg: dict, repo, gap: dict) -> tuple[str | None, str]:
@@ -659,5 +699,12 @@ def push(sha: str) -> int:
 if __name__ == "__main__":
     if sys.argv[1:2] == ["waiting"]:                   # the sensor push-waiting: 1 while the queue can take no gap
         print(1 if waits(fac.config()) else 0)
+        sys.exit(0)
+    if sys.argv[1:2] == ["settleable"]:                # the sensor push-settleable: 1 while push-settler has work
+        print(1 if settleable(fac.config()) else 0)
+        sys.exit(0)
+    if sys.argv[1:2] == ["settle"]:                    # the block push-settler (unreadable: raised, a failed run)
+        fac.stop_on_term()
+        print(f"settle: {settle_alone(fac.config()) or 'nothing waits'}", file=sys.stderr)
         sys.exit(0)
     sys.exit(push(sys.argv[2]) if sys.argv[1:2] == ["push"] else main())
