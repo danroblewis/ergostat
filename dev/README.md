@@ -79,7 +79,9 @@ ergostat sensor intake-open.main --read 1      # the implementor may take ready 
 The reviewer, the queue and triage work on what is already in the pipe whatever the intake says. Each AI session is
 held to the daily cap (fails closed: a spend not read stops them), each costs at most its `*_session_usd`, and the
 merge queue and triage hold while the machine's suite slots are all taken; the implementor's and triage's suites each
-hold a slot (`[suites] slot`), the queue's lock being its own (the load interlock).
+hold a slot (`[suites] slot`), the queue's lock being its own (the load interlock). Triage never takes the queue's lock:
+it reruns the failed tests in its own worktree, on the main the run failed on (`pre`), so neither its rerun nor its
+wait for a quiet machine holds the queue.
 
 ## Submit a gap
 
