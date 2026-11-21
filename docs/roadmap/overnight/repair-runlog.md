@@ -201,7 +201,7 @@ Each new test was seen to fail with this code broken:
 - overlapping runs: the child's `stderr=` pointed back at the block log, and capture given the block log;
 - block log whole: the header written at run start;
 - finish: the block log's lock removed; trim moved outside the lock;
-- long output: the header dropped;
+- long output: the whole run file copied with no cap; the header dropped;
 - daemons: the daemon's log added to the failure's text;
 - prune by seq: sorted by name; sorted by mtime;
 - prune skips a live run: the `LOCK_NB` check removed;
