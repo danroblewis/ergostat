@@ -123,11 +123,25 @@ def folders(extra: list[Path] | None = None) -> list[Path]:
     return [*out, HERE]
 
 
+def _forms(p) -> set[str]:
+    return {os.path.normpath(os.path.abspath(p)), os.path.realpath(p)}
+
+
+def within(f: Path, bad: set[Path]) -> Path | None:
+    """The untrusted folder ``f`` lies under, or None."""
+    fs = _forms(f)
+    for b in sorted(bad, key=str):
+        if any(x == y or x.startswith(y.rstrip(os.sep) + os.sep) for x in fs for y in _forms(b)):
+            return b
+    return None
+
+
 def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None) -> tuple[dict[str, Template], list[str]]:
     """Every template, by name: an owner's template shadows ergostat's own of the same name (said in the notes),
     and the first folder wins between the owner's own. A folder in ``untrusted`` is read after every trusted one, so its
     templates never shadow a trusted one, whatever the order (said, marked). Also what could not be read, and what was
-    shadowed; a note from an untrusted folder has its library text marked."""
+    shadowed; a note from an untrusted folder has its library text marked. A file under any untrusted folder is
+    untrusted, even when a trusted folder (its parent) also reaches it."""
     got: dict[str, Template] = {}
     notes: list[str] = []
     bad = {d for d in untrusted or () if d != HERE}
@@ -138,14 +152,19 @@ def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None
                 notes.append(f"{'untrusted ' if d in bad else ''}library folder {ut.escape(d) if d in bad else d} does not exist")
             continue
         for f in sorted([*files.glob(d, "*.yaml"), *files.glob(d, "*.yml"), *files.glob(d, "*/template.yaml")]):
+            # Trust is the file's own: under any untrusted folder (as written or with links followed), it is untrusted,
+            # whichever folder reached it; a trusted folder leaves it to the untrusted pass.
+            owner = None if d == HERE else within(f, bad)
+            if owner is not None and d not in bad:
+                continue
             try:
-                t = read(f, d == HERE, d in bad)
+                t = read(f, d == HERE, owner is not None)
             except TemplateError as e:
-                notes.append(ut.note(d, str(e)) if d in bad else str(e))
+                notes.append(ut.note(owner, str(e)) if owner is not None else str(e))
                 continue
             if t.name in got:
                 if t.untrusted and not got[t.name].untrusted:
-                    notes.append(ut.note(d, f"template {t.name} in {f} is not used: a trusted one of that name comes first "
+                    notes.append(ut.note(owner, f"template {t.name} in {f} is not used: a trusted one of that name comes first "
                                             f"({'ergostat' if got[t.name].builtin else got[t.name].path})"))
                 elif t.builtin and not got[t.name].builtin:
                     notes.append(f"template {t.name}: {got[t.name].path} is used in place of ergostat's own")

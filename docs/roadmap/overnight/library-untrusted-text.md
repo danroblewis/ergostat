@@ -204,3 +204,21 @@ under `-n 4` (a–co, cr–g, h–p, q–z): 2,383 passed, 69 skipped, 1 xfailed
 in collection order (changesets to counts, with chains, calls, bench and backlog) were also run serially: 288 passed.
 No code was changed, since nothing failed that could be fixed. If the factory's log names the test, it should be
 checked against lesson-10 (a race under `-n 8`, or a sleep in the test) before it is put down to this branch.
+
+**Round 2.** Review 1 had one finding, and it was blocking (lesson-3). `find_all` decided trust by the folder that
+reached a file first, so with `library: [lib, {folder: lib/shared, untrusted: true}]` the file
+`lib/shared/template.yaml` was read through `lib` as trusted. Now each file decides its own trust
+(`templates.within`). A file under any untrusted folder is untrusted, compared both as the path is written and with
+links followed. A trusted folder that reaches such a file skips it, and the untrusted pass reads it through its
+untrusted folder. Its notes carry that folder's path, and it is not refused as "shadowed by itself". ergostat's own
+folder is never checked this way (its templates are trusted, as the definition says). A file under an untrusted
+folder is untrusted even when a trusted folder *inside* that untrusted folder also lists it, so the check fails
+closed both ways. SPEC §2a says the same in one sentence. The new test is
+`test_untrusted_child_of_a_trusted_folder_stays_untrusted`. It covers a trusted parent with an untrusted child holding
+`template.yaml`, with the folders listed in both orders. It checks that the template is untrusted, that there is no
+"is not used" note, that the instance is untrusted, that `pool: 3` gives `untrusted-limit`, and that the templates
+tool's entry is marked. Broken once: going back to trust by the reaching folder (`owner = d if d in bad else None`)
+makes it fail at `got["vend"].untrusted is True`. Net code +22 lines (about 246 of the 340).
+Run: `test_library_untrusted` (21), `test_library_untrusted_runs` (8), `test_templates` with
+`test_modelling_template` (40), all passing. ruff is clean. Not run here: the whole unit suite and the browser files
+(left to the factory). This clone has no `origin`, and local `main` is already an ancestor, so there was nothing to merge.

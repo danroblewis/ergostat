@@ -159,7 +159,8 @@ on them, and `check` lists the instances still on stand-ins (**template-stand-in
 untrusted: true|false}`: both keys required, `untrusted` a YAML bool; any other key, a key left out or a value that
 is not a bool is **bad-library**. Only the main file declares trust: a `uses:` entry takes only `use`, `with`,
 `within` and `description`, so `trusted:` or `untrusted:` there is **unknown-key**. `$ERGOSTAT_LIBRARY` folders and
-ergostat's own templates are trusted. A template read from an untrusted folder has `Template.untrusted` set (the one
+ergostat's own templates are trusted. A template file under an untrusted folder (as written, or with links followed)
+has `Template.untrusted` set, even when a trusted folder that holds it, such as its parent, reaches it too (the one
 attribute a later source of trust sets too); its name and each parameter's name must match `^[a-z][a-z0-9-]{0,63}$`,
 or the template is refused; and it never shadows a trusted template: one of the same name from ergostat or from a
 trusted folder is used, whatever the folders' order. An instance is untrusted when its template is or when any
