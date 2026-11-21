@@ -238,3 +238,16 @@ whether it belongs to this gap (lesson-10, lesson-13).
   (lesson-13). The follow-up is to send its listing through `itemindex.files()` as well (lesson-11).
 
 No code changed in this round, so no test was run again.
+
+### Round 5 (the unit suite, `-n 8`, two `F`s at about 36% and 86%)
+
+The tail names neither test. The whole suite, and a quarter of it under `-n 4`, were refused in this session, so I
+could not name them either. These ran and passed: `tests/test_upkeep_template.py` (13), `tests/test_index_files.py`
+(8), `tests/test_templates.py` (35), and the files that reach `itemindex` together under `-n 4` (205). Ruff is clean.
+One hazard of this branch's own under xdist is fixed: `test_tidy_never_opens_an_index` patched `Index.__init__`,
+`index_for` and `common.project` for the whole worker process, so another thread of the same worker that opened an
+index meanwhile would have raised. The patches now raise only in the test's own thread, where the tidy runs. Any
+other thread gets the real function. The test was watched failing again with the tidy calling `common.project()`,
+then restored. No code under test changed. Whether this explains the two `F`s is not known. If they show again,
+`-rf` names them; then run each alone on this branch and on main (lesson-10, lesson-13). The size and the
+backlog-merge base stand as round 4 left them: main still lacks 2b101c6.

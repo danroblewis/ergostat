@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import textwrap
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -158,11 +159,18 @@ def test_tidy_never_opens_an_index(tmp_path, monkeypatch):
     _files(items, 8)
     _age(items)
 
-    def boom(*a, **k):
-        raise AssertionError("the tidier went through the project or an index")
-    monkeypatch.setattr(ii.Index, "__init__", boom)
-    monkeypatch.setattr(ii, "index_for", boom)
-    monkeypatch.setattr(common, "project", boom)
+    me = threading.get_ident()
+
+    def boom(real):
+        """Raises in this test's thread (where the tidy runs); any other thread of the worker gets the real one."""
+        def f(*a, **k):
+            if threading.get_ident() == me:
+                raise AssertionError("the tidier went through the project or an index")
+            return real(*a, **k)
+        return f
+    monkeypatch.setattr(ii.Index, "__init__", boom(ii.Index.__init__))
+    monkeypatch.setattr(ii, "index_for", boom(ii.index_for))
+    monkeypatch.setattr(common, "project", boom(common.project))
     before = {p.name for p in items.iterdir()}
     assert _tidy(items.parent, 2, monkeypatch) == 0
     after = {p.name for p in items.iterdir()}
