@@ -393,6 +393,22 @@ clean). What the coordinator has to do, two commands with no other effect:
 branch waits on it. The other findings of review operating-states-5 were answered in round 7 and are unchanged.
 No demo is touched, so `demo_check` is not needed.
 
+Round 9, after the fast suites (`unit` cut off at 84%, no `F`, no summary). The stray `.tail` file is gone (commit
+4d6834ea). The cause of the stop is on main, not in this gap. I ran the unit files serially in batches
+(`-p no:randomly`): a–c 457 passed; s–z 461 passed; d–k stopped at
+`tests/test_index_files.py::test_two_processes_one_tidying_never_corrupt_an_index_another_has_open`. Its spawned
+children die with `ImportError: cannot import name 'Empty' from 'queue' (/work/dev/bin/queue.py)`, and the parent
+waits on them for about a minute. It reproduces with two of main's tests alone:
+`tests/test_factory.py::test_two_gaps_editing_gaps_md_merge_cleanly` and then that index test (1 failed, 68 s). Run
+alone, `tests/test_index_files.py` passes (8). `tests/test_factory.py:2998` and `tests/test_backlog.py:24` put
+`dev/bin` on `sys.path` and never take it out again, so `dev/bin/queue.py` shadows the standard library's `queue` in
+every process spawned later in that pytest worker. Under `-n 8`, the workers that reach a spawning test after one of
+these fail or stall, at a point that changes from run to run (45%, 49%, 84%). Neither file is in
+`git diff main...HEAD`, so main fails the same way. Per lesson-13 I did not change it here. The fix belongs in its
+own gap: load the `dev/bin` modules with `monkeypatch.syspath_prepend` (or by file path), or rename
+`dev/bin/queue.py`. No code changed in this round. Run: `tests/test_operating.py` + `tests/test_leases.py` (64
+passed). h–r was not finished: the d–k batch stopped at the failure above.
+
 ## Where it stopped
 
 Parked by the factory (review/operating-states-6, 2026-11-21 00:31).
