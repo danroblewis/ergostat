@@ -475,7 +475,7 @@ STANDIN = {
                '100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
-    "librarian": "```json\n[]\n```"}
+    "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```"}
 
 
 def standin(role: str, brief: str, cwd: Path) -> dict:
