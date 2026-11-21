@@ -298,6 +298,8 @@ function partLink(name) {                              // ergostat's own events 
 function itemLink(id) {
   return id.includes("/") ? h("a", { href: `/item/${encodeURIComponent(id)}` }, id) : partLink(id);
 }
+/* an event's item: a remote's event (marked ``remote``) links to that remote's item, read there (SPEC §4c) */
+const eventItemLink = (e) => (e.remote ? remoteItemLink(e.item, e.remote) : itemLink(e.item));
 function dataCell(d) {                                  // the whole of it, one click away (rounded: the event's panel has it exactly)
   const flat = JSON.stringify(tidy(d || {}));
   if (flat === "{}") return h("td", { class: "mono muted" }, "");
@@ -309,12 +311,12 @@ function eventsTable(evs, compact) {
   return h("div", { class: "table-wrap" }, h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
     evs.slice().reverse().map((e) => h("tr", { key: e.id }, h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
       h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: `event ${e.id}`, onclick: (ev) => { ev.preventDefault(); showEvent(e); } }, e.type)),
-      compact ? null : h("td", { class: "nowrap" }, e.item ? itemLink(e.item) : "–"),
+      compact ? null : h("td", { class: "nowrap" }, e.item ? eventItemLink(e) : "–"),
       h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))))));
 }
 function showEvent(e) {                                 // one event, all of it, in the side panel
-  showDetail(h("div", { class: "kind" }, "Event"), h("h2", {}, e.type),
-    dl([["item", e.item ? itemLink(e.item) : null], ["source", e.source], ["when", new Date(e.time * 1000).toLocaleString()], ["id", e.id],
+  showDetail(h("div", { class: "kind" }, e.remote ? `Event, remote ${e.remote}` : "Event"), h("h2", {}, e.type),
+    dl([["item", e.item ? eventItemLink(e) : null], ["source", e.source], ["when", new Date(e.time * 1000).toLocaleString()], ["id", e.id],
         ["caused by", e.causedby]]),
     h("pre", {}, JSON.stringify(changeOf(e), null, 2)));
 }

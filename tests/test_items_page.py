@@ -634,3 +634,91 @@ def test_a_reports_page_shows_its_text_a_copy_button_the_issue_link_and_the_scru
     pg.wait_for_function("() => document.querySelector('.track .stbox.on')?.textContent === 'submitted'", timeout=15000)
     assert not errors, errors
     ctx.close()
+
+
+REMOTE_LOCAL = """
+name: home
+remotes:
+  r:
+    url: {url}
+    token-file: r.token
+stocks:
+  queue:
+    sensor: {{run: echo 1}}
+"""
+
+
+def fake_remote():
+    """An in-process stdlib remote: /remote/v1/counts, items, items/ID, status and events, one item and one event."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    now = time.time()
+    ev = {"seq": 1, "id": "e1", "type": "incident.opened", "item": "t-1", "time": now - 30, "data": {"title": "disk full"}}
+    answers = {"counts": {"kinds": {"incident": {"open": 1, "closed": 4}}, "total": 5},
+               "items": {"items": [{"id": "t-1", "kind": "incident", "state": "open"}], "total": 5, "kinds": []},
+               "items/t-1": {"id": "t-1", "state": "open", "fields": {"title": "disk full"}, "events": 1,
+                             "moves": [{"time": now - 30, "from": None, "to": "open", "type": "incident.opened"}],
+                             "record": [ev]},
+               "status": {"last_seq": 1},
+               "events": {"events": [ev], "next": 1, "more": False, "last_seq": 1}}
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = answers.get(self.path.split("?")[0].removeprefix("/remote/v1/"))
+            self.send_response(200 if body is not None else 404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(body if body is not None else {"error": "not here"}).encode())
+
+        def log_message(self, *a):
+            pass
+    srv = ThreadingHTTPServer(("127.0.0.1", free_port()), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}"
+
+
+def test_a_remotes_items_and_events_are_shown_marked_remote(browser, tmp_path, monkeypatch):
+    from ergostat import model as mdl
+    from ergostat.remote import events, items
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    monkeypatch.setattr(items, "MOST", 1.0)            # the period clamped to a second: it passes without a wait of ten
+    items._state.clear()
+    events._kept.clear()
+    remote, rurl = fake_remote()
+    d = tmp_path / "home"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(REMOTE_LOCAL.format(url=rurl))
+    (d / "r.token").write_text("tok")
+    server, url = web_serve(Project(mdl.load(d)), free_port())
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        pg.goto(f"{url}/items")
+        sec = pg.locator('section.sys-group.remote[data-remote="r"]')
+        sec.locator("a", has_text="t-1").first.wait_for()
+        text = sec.inner_text()
+        assert "remote r" in text and rurl in text and "incident" in text and "closed" in text
+        assert sec.locator(f'a[href="{rurl}/item/t-1"]').count() == 1
+        sec.locator('a[href="/item/t-1?remote=r"]').click()
+        pg.wait_for_function("() => document.body.innerText.includes('disk full')")
+        assert pg.url.endswith("/item/t-1?remote=r")
+        assert "remote r" in pg.locator("h1").inner_text() and pg.locator("textarea").count() == 0
+        pg.goto(f"{url}/record?remote=r")
+        pg.wait_for_function("() => document.body.innerText.includes('incident.opened')")
+        assert pg.locator(".remote-links a", has_text="remote r").count() == 1
+        remote.shutdown()
+        remote.server_close()
+        pg.wait_for_function("() => document.body.innerText.includes('r does not answer')", timeout=20000)
+        body = pg.locator("#main").inner_text()
+        assert "these were read" in body and "ago" in body and "Nothing recorded yet." not in body
+        assert "incident.opened" in body                   # what was read before, still shown
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+        items._state.clear()
+        events._kept.clear()
