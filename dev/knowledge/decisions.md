@@ -38,3 +38,11 @@ One implementor, one reviewer; pools rise only after a streak of good results. *
 ## Security effort goes where code nobody vouched for runs
 The sandbox, repair. For the owner's own tooling, review for correctness and these rules rather than hardening.
 *Areas: sandbox, repair, security, guard, container.*
+
+## A branch carrying another gap's merge is continued once that merge lands
+When a branch holds another gap's unlanded merge and that gap then lands on main, the branch is continued (main merged
+in), not rebased. *Areas: branch, merge, rebase, continue.*
+
+## Deferred areas stay deferred
+A gap the coordinator parked with `deferred: true` gets no rebuild, continue or re-plan until it is reopened. *Areas:
+deferred, park, rebuild, continue, re-plan.*

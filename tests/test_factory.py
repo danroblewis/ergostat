@@ -878,6 +878,88 @@ def test_a_denied_push_undoes_its_merge(tmp_path):
     assert git(f.checkout, "log", "-1", "--format=%s", "main") == "start"     # the merge undone
 
 
+def add_lines(f: Factory, files: dict[str, int], name: str = "alpha-thing") -> None:
+    """Lines added on the gap's branch in the drop, the stand-in's note taken out (so only these lines count), and
+    recorded as its built head (what the review judges)."""
+    wt = f.tmp / f"edit-{len(list(f.tmp.glob('edit-*')))}"
+    subprocess.run(["git", "clone", "-q", "-b", f"factory/{name}", str(f.tmp / "live" / "drop.git"), str(wt)],
+                   check=True, capture_output=True)
+    for rel, n in files.items():
+        p = wt / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text((p.read_text() if p.exists() else "") + "x = 1\n" * n)
+    git(wt, "rm", "-rq", "standin")
+    git(wt, "add", "-A")
+    git(wt, "commit", "-qm", "lines")
+    git(wt, "push", "-q", "origin", f"factory/{name}")
+    f.fold([{"event": "gap.measured", "item": f"gap/{name}", "data": {"head": git(wt, "rev-parse", "HEAD")}}], None)
+
+
+def queue_with(f: Factory, gid: str, patch: str = "") -> list[str]:
+    """queue.py run in one process with ``patch`` applied first (e.g. a line count that raises)."""
+    it = f.item(gid)
+    given = {"trigger": "item", "item": it, "lease": {"fence": 1, "back": it["state"]}}
+    code = f"import sys; sys.path[:0] = [{str(BIN)!r}]; import fac, queue\n{patch}\nsys.exit(queue.main())"
+    r = subprocess.run([sys.executable, "-c", code], input=json.dumps(given), cwd=f.model, capture_output=True,
+                       text=True, timeout=120, env={**f.env, "ERGOSTAT_ITEM": gid, "ERGOSTAT_LEASE": "1"})
+    assert r.returncode == 0, r.stderr
+    return f.fold([json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")], gid)
+
+
+BOOM = "def boom(*a, **k):\n    raise RuntimeError('git diff failed')\nfac.net_lines = boom"
+
+
+def merge_again(f: Factory, gid: str, files: dict[str, int], patch: str = "") -> list[str]:
+    """The pending push denied (the merge undone, the gap sent back), then built, reviewed and merged again."""
+    set_action(f, "denied")
+    assert settle(f)[0] == ["gap.sent-back"]
+    f.run("implement.py", gid)
+    add_lines(f, files)
+    f.run("review.py", gid)
+    return queue_with(f, gid, patch)
+
+
+def test_merge_records_merged_lines(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    add_lines(f, {"dev/bin/extra.py": 30, "ergostat/extra.py": 20, "tests/test_extra.py": 100})
+    f.run("review.py", gid)
+    assert f.run("queue.py", gid)[0] == ["gap.queued", "gap.merged", "gap.push-asked"]
+    assert f.item(gid)["fields"]["merged_lines"] == 50 and f.item(gid)["fields"]["merged_lines_error"] is None
+    assert merge_again(f, gid, {"dev/bin/extra.py": 10})[:2] == ["gap.queued", "gap.merged"]
+    assert f.item(gid)["fields"]["merged_lines"] == 60             # the newer merge's count (from main before it)
+
+
+def test_merge_stands_when_lines_unreadable(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    f.run("review.py", gid)
+    assert queue_with(f, gid, BOOM) == ["gap.queued", "gap.merged", "gap.push-asked"]
+    gap = f.item(gid)
+    assert gap["state"] == "merged" and gap["fields"]["merged_lines"] is None
+    assert "git diff failed" in gap["fields"]["merged_lines_error"]
+    assert git(f.checkout, "rev-parse", "main") == gap["fields"]["main_sha"]   # the merge stands
+
+
+def test_a_merge_again_whose_count_fails_keeps_no_old_count(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    add_lines(f, {"dev/bin/extra.py": 40})
+    f.run("review.py", gid)
+    f.run("queue.py", gid)
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"planned_size": "S", "size_confidence": "high"}}], None)
+    assert f.item(gid)["fields"]["merged_lines"] == 40
+    assert merge_again(f, gid, {"dev/bin/extra.py": 5}, BOOM)[:2] == ["gap.queued", "gap.merged"]
+    gap = f.item(gid)["fields"]
+    assert gap["merged_lines"] is None and "git diff failed" in gap["merged_lines_error"]
+    r = subprocess.run([sys.executable, str(BIN / "measure.py"), "size-accuracy"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 1 and "no value yet" in r.stderr and gid in r.stderr    # left out, named, not a hit
+
+
 def test_a_failed_push_blocks_the_queue_until_the_coordinator_looks(tmp_path):
     f = Factory(tmp_path)
     merged(f)
@@ -1471,6 +1553,7 @@ def test_a_green_batch_lands_every_gap(tmp_path):
         it = f.item(f"gap/{g}")
         assert it["state"] == "merged" and it["fields"]["main_sha"] == head and it["fields"]["batch_size"] == 3
         assert it["fields"]["queue_attempts"] == 1 and len(it["fields"]["queue_runs"]) == 1
+        assert it["fields"]["merged_lines"] == 1                       # its own merge's line, not the batch's 3
     assert f.item("gap/d")["state"] == "approved" and f.item("gap/e")["state"] == "approved"
     acts = f.db()["acts"]
     assert len(acts) == 1 and acts[0][:2] == ["act", "push-main"] and f"sha={head}" in acts[0]   # one approval
@@ -1495,6 +1578,8 @@ def test_a_red_batch_is_bisected_to_the_failing_merge(tmp_path):
     assert git(f.checkout, "log", "--first-parent", "--format=%s", "-1", onto) == "Merge branch 'factory/q'"
     assert git(f.checkout, "rev-parse", "main~1") == onto                      # and the rest landed on it
     assert all(f.item(f"gap/{g}")["state"] == "merged" for g in "pqs")
+    assert [f.item(f"gap/{g}")["fields"]["merged_lines"] for g in "pqs"] == [1, 1, 1]   # s: its merge onto p, q
+    assert "merged_lines" not in f.item("gap/r")["fields"]                     # not merged: no count
     assert len(f.db()["acts"]) == 1
     run = {g: f.item(f"gap/{g}")["fields"]["queue_runs"] for g in "pqrs"}
     assert all(v == run["p"] for v in run.values()) and len(run["p"]) == 1     # the one run, on all four
