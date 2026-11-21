@@ -75,7 +75,7 @@ def conflict_brief(main: str, conflicts: list[str]) -> str:
 def park(cfg: dict, gap: dict, why: str) -> None:
     """The kill rule on the implementor's side: where it stopped, on its branch and its item."""
     import review
-    review.park(cfg, gap, why, "implementor", where="building")
+    review.park(cfg, gap, why, "implementor", where="building", kind="kill-rule")
 
 
 def main() -> int:

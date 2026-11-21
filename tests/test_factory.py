@@ -177,7 +177,8 @@ class Factory:
             iid = line.get("item") or about
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
             assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
-                                                                                ".dependencies", ".push-settled", ".groomed")), line
+                                                                                ".dependencies", ".push-settled", ".groomed",
+                                                                                ".resumed", ".need-met")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
                 rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
@@ -1773,3 +1774,127 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
                 {"daily_at": "24:00"}, {"daily_at": "4am"}):
         with pytest.raises(SystemExit):
             drain.settings({"upgrade": bad})
+
+
+# ---- park-owns-resume (docs/roadmap/overnight/park-owns-resume.md): whoever parks says why and what would end it
+
+def pipe(tmp: Path, **kw):
+    """The pipeline manager's fixture (its fake ergostat records `event --add`)."""
+    from tests.test_factory_manager import Pipe
+    return Pipe(tmp, **kw)
+
+
+def park_verdict(**verdict) -> str:
+    return "The stand-in.\n```json\n" + json.dumps({"verdict": "park", "blocking": [], "where_it_stopped": "work done",
+                                                    **verdict}) + "\n```"
+
+
+def parked_by_review(tmp: Path, **verdict):
+    """A gap built and parked by the reviewer with ``verdict`` (its park fields); (the fixture, the gap)."""
+    f = pipe(tmp)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    assert f.run("review.py", gid, FACTORY_STANDIN_REVIEWER=park_verdict(**verdict))[0][-1] == "gap.parked"
+    return f, gid
+
+
+def resumed(f) -> list[str]:
+    """One pass of the park resumer: the events it recorded."""
+    f.tool("parks.py", "resume")
+    return f.drain()
+
+
+def test_a_park_waiting_on_a_gap_is_resumed_when_it_merges(tmp_path):
+    f, gid = parked_by_review(tmp_path, parked_for="waits_on", waits_on="gap/carried")
+    g = f.item(gid)["fields"]
+    assert g["parked_for"] == "waits_on" and g["parked_until"] == {"gap": "gap/carried"}
+    f.put("gap/carried", "approved", branch="carried")
+    assert resumed(f) == []                                                   # not merged yet: still waits
+    assert (f.watch() or {}).get("trigger") != "parked"                       # nor is the manager asked about it
+    f.put("gap/carried", "merged", branch="carried")
+    assert resumed(f) == ["gap.requested", "gap.resumed"]
+    c = f.item("gap/alpha-thing-continued")
+    assert c["fields"]["continues"] == "alpha-thing" and c["fields"]["requested_by"] == "park-resume"
+    r = f.item(gid)["fields"]
+    assert r["resumed_as"] == "gap/alpha-thing-continued" and r["resumed_for"] == "waits_on"
+    assert r["cleared"] == "gap/carried merged"
+    assert [i for i in f.db()["items"].values() if i["kind"] == "intervention"] == []   # a loop, not an intervention
+    assert resumed(f) == []                                                   # resumed once
+    assert f.py("import measure; print(json.dumps([measure.reading(n, kind='waits_on') for n in "
+                "('parks', 'resumes')]))") == [1.0, 1.0]
+
+
+def test_a_park_needing_an_action_is_resumed_when_it_is_recorded(tmp_path):
+    f = pipe(tmp_path)
+    gid = ready(f)
+    f.fold([{"event": "gap.need-met", "item": gid, "data": {"need_met": "an old measurement"}}], None)   # stale
+    f.run("implement.py", gid)
+    f.run("review.py", gid, FACTORY_STANDIN_REVIEWER=park_verdict(
+        parked_for="needs", needs={"action": "measure the warm start", "who": "coordinator"}))
+    g = f.item(gid)["fields"]
+    assert g["parked_for"] == "needs" and g["parked_until"] == {"action": "measure the warm start", "who": "coordinator"}
+    assert g["need_met"] is None and resumed(f) == []                         # the park cleared the old one
+    f.fold([{"event": "gap.need-met", "item": gid, "data": {"need_met": "4.1 s warm"}}], None)
+    assert resumed(f) == ["gap.requested", "gap.resumed"]
+    assert f.item(gid)["fields"]["cleared"] == "needed measure the warm start (coordinator): done, 4.1 s warm"
+    assert f.item("gap/alpha-thing-continued")["state"] == "open"
+
+
+def test_a_defect_park_is_never_resumed_by_the_program(tmp_path):
+    f, gid = parked_by_review(tmp_path)                                       # a park with no kind said: a defect
+    assert f.item(gid)["fields"]["parked_for"] == "defect"
+    unclear = [{"parked_for": "waits_on"}, {"parked_for": "waits_on", "waits_on": "../x"},
+               {"parked_for": "needs", "needs": {"who": "x"}}, {"parked_for": "split"}, {"parked_for": "kill-rule"}]
+    got = f.py("import parks; print(json.dumps([parks.of_verdict(v) for v in json.loads(sys.argv[1])]))",
+               json.dumps(unclear + [{"parked_for": "waits_on", "waits_on": ["abc1234", "deadbeef00"]}]))
+    assert got[:-1] == [{"parked_for": "defect", "parked_until": None}] * len(unclear)   # nothing that could clear
+    assert got[-1] == {"parked_for": "waits_on", "parked_until": {"commits": ["abc1234", "deadbeef00"]}}
+    f.put("gap/carried", "merged", branch="carried")                          # what a waits_on park would clear on
+    f.put("gap/killed", "parked", branch="killed", parked_for="kill-rule", parked_until={"gap": "gap/carried"},
+          parked_at=f.now - 3600)
+    f.put("gap/flawed", "parked", branch="flawed", parked_for="defect", parked_until={"gap": "gap/carried"},
+          parked_at=f.now - 3600, need_met="x")
+    assert resumed(f) == []
+    raised = set()
+    for _ in range(3):
+        s = f.watch()
+        raised.add((s["trigger"], s["subject"]))
+        f.handled(s["id"])
+    assert raised == {("parked", gid), ("parked", "gap/killed"), ("parked", "gap/flawed")}   # the manager's to look at
+    k = Factory(tmp_path / "k")                                               # the kill rule's park says so
+    kid = ready(k)
+    for _ in range(k.gates["kill_after"]):
+        k.run("implement.py", kid)
+        k.run("review.py", kid, FACTORY_STANDIN_VERDICT="fix")
+    assert k.item(kid)["state"] == "parked" and k.item(kid)["fields"]["parked_for"] == "kill-rule"
+
+
+def test_a_waiting_park_past_its_hours_raises_a_situation(tmp_path):
+    f = pipe(tmp_path, manager="park_wait_hours = 24\n")
+    f.put("gap/carried", "open", branch="carried")
+    f.put("gap/fresh", "parked", branch="fresh", parked_for="waits_on", parked_until={"gap": "gap/carried"},
+          parked_at=f.now - 23 * 3600)
+    f.put("gap/done", "parked", branch="done", parked_for="needs", parked_until={"action": "a", "who": "b"},
+          parked_at=f.now - 30 * 3600, resumed_as="gap/done-continued")
+    s = f.watch()
+    assert s["trigger"] == "heartbeat"                                        # neither: within its hours, or resumed
+    f.handled(s["id"])
+    f.put("gap/fresh", "parked", branch="fresh", parked_for="waits_on", parked_until={"gap": "gap/carried"},
+          parked_at=f.now - 25 * 3600)
+    s = f.watch()
+    assert s["trigger"] == "waiting" and s["subject"] == "gap/fresh" and "not cleared" in s["why"]
+    f.handled(s["id"])
+    assert (f.watch() or {}).get("subject") != "gap/fresh"                    # raised once for the park
+
+
+def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):
+    f = pipe(tmp_path)
+    f.put("gap/whole", "parked", branch="whole", parked_for="split", parked_until={"gaps": ["gap/part"]},
+          parked_at=f.now - 3600)
+    f.put("gap/part", "parked", branch="part", parent=["gap/whole"])
+    assert resumed(f) == []
+    f.put("gap/part", "parked", branch="part", parent=["gap/whole"], resumed_as="gap/part-continued")
+    f.put("gap/part-continued", "open", continues="part")
+    assert resumed(f) == ["gap.measured", "gap.measured", "gap.split", "gap.resumed"]
+    assert f.item("gap/whole")["state"] == "split" and f.item("gap/part")["fields"]["parent"] == []
+    assert f.item("gap/part-continued")["fields"]["parent"] == ["gap/whole"]
