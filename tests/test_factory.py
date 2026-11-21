@@ -563,6 +563,43 @@ def test_one_unreadable_gap_does_not_stop_the_timer(tmp_path, monkeypatch, capsy
     assert json.loads(marks.read_text()) == {"gap/long": 3, "gap/short": 4}     # saved; gap/gone read again next run
 
 
+def test_a_long_gap_past_its_ceiling_or_a_full_page_is_unreadable_not_half_read(tmp_path, monkeypatch):
+    """timer-long-records: a gap past LONGEST is not read, and one whose record grows past the page while it is read
+    (here: 1,000 events said between `ergostat item` and `ergostat event`) is unreadable, not timed from a cut page."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    times = long_record(tmp_path, monkeypatch)
+    d = json.loads(times.fac.ergostat("item", "gap/long", "--json").stdout)
+    monkeypatch.setattr(times, "LONGEST", 601)
+    with pytest.raises(ValueError, match="past the 601"):
+        times.timing(d)
+    monkeypatch.setattr(times, "LONGEST", 100_000)
+    real = times.fac.ergostat
+
+    def growing(*args, **kw):
+        if args[:1] == ("event",):
+            p = Project(mdl.load(tmp_path))
+            for i in range(1000):
+                p.events.add("gap.noted", item="gap/long", source="test", data={"i": i}, at=5000.0 + i)
+        return real(*args, **kw)
+    monkeypatch.setattr(times.fac, "ergostat", growing)
+    with pytest.raises(ValueError, match="grew past 1602"):
+        times.timing(d)
+
+
+def test_setpoints_refuse_a_model_with_no_stamp_line(tmp_path, monkeypatch):
+    """timer-long-records: with its `# setpoints:` line gone, `times.py setpoints` fails and writes nothing, rather
+    than setting holds with no record of when."""
+    times = long_record(tmp_path, monkeypatch, n=0)
+    copy = tmp_path / "times.yaml"
+    copy.write_text(before := times.GOALS.read_text().replace("# setpoints:", "# set:"))
+    monkeypatch.setattr(times, "GOALS", copy)
+    monkeypatch.setattr(times.fac, "items", lambda kind, state=None: [])
+    with pytest.raises(SystemExit, match="no `# setpoints:` line"):
+        times.setpoints(time.time())
+    assert copy.read_text() == before
+
+
 def test_setpoints_record_when_they_were_derived(tmp_path, monkeypatch):
     """timer-long-records: `times.py setpoints` rewrites the model's `# setpoints:` line (first guesses until then)."""
     times = long_record(tmp_path, monkeypatch, n=0)
