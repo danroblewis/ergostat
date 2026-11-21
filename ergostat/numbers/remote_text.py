@@ -90,8 +90,10 @@ def _equation(spec, x: dict, name, window: float) -> tuple[str, str, dict]:
     target = name(x["target"])
     f = spec.flows[x["target"].split(".", 1)[1]]
     causes = [name(f"{r.kind}.{r.name}") for r in f.driven_by]
-    names = (spec.remotes[x["_remote"]].get("names") or {}).values()
-    taken = {_bare(r) for r in names if r.startswith("parameter.")}
+    served = spec.remotes[x["_remote"]].get("served_parameters")   # all it serves, not only those kept here
+    if not isinstance(served, list):
+        raise _Miss("its parameters' names")
+    taken = {str(n) for n in served}
     new: dict[str, str] = {}
     for nm, (role, of) in ((x.get("for_text") or {}).get("roles") or {}).items():
         made = {"per": f"{_bare(target)}-per-{_bare(name(of))}" if role == "per" else "",

@@ -222,3 +222,13 @@ back:
 Tests added beyond the 23 named: equation names built from the remote's names, a text found again with another text,
 the bad-name lock path, a local record remade from a text folding without `for_remote`, and the four cases of test 5,
 each one its own parametrised test.
+
+**Round 2.** main (e1e778c1) is merged in. It conflicted in `compose.py` only: main's `show` was kept alongside the
+branch's `names`. The one finding of round 1 was that new parameter names were made free only against the parameters
+brought in here (`info["names"]`), which a `systems:` narrowing cuts short. It is fixed: `compose.one` now keeps
+`info["served_parameters"]`, every parameter the remote serves at the version read, and `_equation` takes its taken
+set from that list. When the list is missing, nothing is written. Test
+`test_new_names_are_free_against_every_parameter_served_even_those_left_out_by_systems` failed with the old taken set
+(seen) and passes now. Run again after the merge, one file at a time: test_remote_proposals (31), test_cli_fallback,
+test_remote and test_remote_pair (62 in all), test_numbers, test_review and test_inbox (107 in all). ruff is clean. The
+whole unit suite and the four browser files were not run here.

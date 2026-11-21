@@ -163,6 +163,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
     info.update(version=served.get("version"), fetched=served.get("fetched"), name=served.get("name"))
     secs = served.get("sections") or {}
     info["kinds"] = {k: v for k, v in (secs.get("items") or {}).items() if isinstance(v, dict)}
+    info["served_parameters"] = sorted(secs.get("parameters") or {})   # every one, systems: or not (taken names)
     made = parts(name, secs, only, every)
     for section, entries in made.items():
         for pname, got in entries.items():

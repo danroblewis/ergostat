@@ -202,6 +202,26 @@ def test_an_equations_new_parameter_names_are_built_from_the_remote_names(tmp_pa
     assert "incidents-" not in got["text"]
 
 
+def test_new_names_are_free_against_every_parameter_served_even_those_left_out_by_systems(tmp_path):
+    """systems: [ops] brings in none of the remote's model-level parameters, but time-in-queue is still its name."""
+    two = EQ.replace("name: incidents\n", "name: incidents\nsystems:\n  ops: {}\n").replace(
+        "    unit: jobs\n", "    unit: jobs\n    system: ops\n").replace(
+        "    to: queue\n", "    to: queue\n    system: ops\n").replace(
+        "    from: queue\n", "    from: queue\n    system: ops\n")
+    local = LOCAL.replace("    token-file: incidents.token\n", "    token-file: incidents.token\n    systems: [ops]\n")
+    p, _ = _project(tmp_path, text=two, local=local)
+    spec = p.model.spec
+    assert "parameter.incidents-time-in-queue" not in spec.remotes["incidents"]["names"]   # narrowed away here
+    x = {"id": "e1", "kind": "equation", "target": "flow.incidents-served", "parts": ["flow.incidents-served"],
+         "equation": "stock.incidents-queue / time-in-incidents-queue",
+         "parameters": {"time-in-incidents-queue": {"value": 0.5, "unit": "h"}},
+         "for_text": {"roles": {"time-in-incidents-queue": ["time-in", "stock.incidents-queue"]}, "points": 50}}
+    got = rt.text_of(spec, x, 3600.0)
+    assert "stock.queue / time-in-queue-2" in got["text"] and "time-in-queue = " not in got["text"]
+    spec.remotes["incidents"].pop("served_parameters")                 # not known: nothing is written
+    assert isinstance(rt.text_of(spec, x, 3600.0), str)
+
+
 def test_a_for_remote_record_stores_no_fit_field(tmp_path):
     p, _, _ = _made(tmp_path)
     [(pid, x)] = _texts(p).items()
