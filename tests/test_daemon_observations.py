@@ -196,6 +196,41 @@ def test_a_burst_with_nothing_after_it_is_reported_by_the_supervisor(tmp_path):
     assert [x.get("dropped") for x in refused(p)] == [10]
 
 
+def test_a_reads_observations_are_judged_at_the_time_it_was_read(tmp_path, clock):
+    """Review 1 (lesson-10): 60 lines of one read, the clock moving 0.03 s with each one recorded (as a loaded
+    machine's would). Judged when each is recorded, the window would close at the 34th and nothing be dropped."""
+    p = setup(tmp_path, QUIET)
+    e = start(p)
+    try:
+        d = mine(e)
+        e.daemons.tick = lambda: None
+        record = e._observer
+
+        def slow(name):
+            def put(*a):
+                clock[0] += 0.03
+                return record(name)(*a)
+            return put
+        e._observer = slow
+        proc = e.daemons.slots[d].proc
+        proc.chunk(b"".join(json.dumps(met(i)).encode() + b"\n" for i in range(60)))
+        assert len(events(p, "case.met")) == 50
+        e.daemons.flush_observed()
+        assert [x.get("dropped") for x in refused(p)] == [10]
+    finally:
+        e.close()
+
+
+def test_a_line_after_the_stops_flush_is_logged_not_counted(tmp_path, clock):
+    """Review 1: a line read after ``close`` said the drops opens no window whose drops would never be said."""
+    p = setup(tmp_path, QUIET)
+    e = start(p)
+    d = mine(e)
+    e.close()
+    assert not e.daemons._observed(d, "q.main", met(1))
+    assert not e.daemons.observed.windows and not events(p, "case.met")
+
+
 def test_a_burst_just_before_ergostat_stops_is_reported_at_close(tmp_path, clock):
     p = setup(tmp_path, QUIET)
     e = start(p)

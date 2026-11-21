@@ -151,14 +151,17 @@ class Hands:
             self.e.wake.set()
         return True
 
-    def _observed(self, daemon: str, sensor, obj: dict) -> bool:
-        """An observation line of a sensor this daemon serves, recorded as that sensor's (as a ``run:`` sensor's
-        output is), within the cap (``observe.py``); False for any other sensor: never recorded under another."""
+    def _observed(self, daemon: str, sensor, obj: dict, now: float | None = None) -> bool:
+        """An observation line of a sensor this daemon serves, read at ``now``, recorded as that sensor's (as a
+        ``run:`` sensor's output is), within the cap (``observe.py``); False for any other sensor (never recorded
+        under another), or once ergostat's stop has said the drops."""
         with self.lock:
             s = self.observers.get((daemon, sensor)) if isinstance(sensor, str) else None
         if s is None:
             return False
-        ok, closed = self.observed.admit(sensor)     # (counted only once routed: the windows are the sensors')
+        ok, closed = self.observed.admit(sensor, now)   # (counted only once routed: the windows are the sensors')
+        if ok is None:
+            return False
         if closed:
             self._dropped(sensor, closed)
         if ok:
