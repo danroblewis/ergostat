@@ -112,3 +112,19 @@ commit is undone and its flake is reported above. No code changed, so it is stil
 Run here in round 4: `tests/test_daemons.py` (34 passed, also under `suite_watch.py`: rc 0, 60 s, peak 68 threads),
 ruff (clean). Not run here: the whole unit suite and the four browser files. Main was not merged again (no network;
 the local `main` is still 20339898, which the branch already holds).
+
+Round 4, suite fix. The factory's `unit` run was cut short a third time, at 11%: ten dots into a line, with no `F`, no
+pytest summary and no closing `suite_watch` JSON line. The three cut-offs stopped at different points (about 1%, 84%,
+11%). Under xdist a single hung test stops only its own worker, so progress stopping near the start points to the run
+being stopped from outside. Other gaps' notes report the same thing (`daemons-left-over`, `implementors-can-clean-up`,
+`code-health-coverage`, `ai-call-failures-are-failures`). **No code was changed** (lesson-9, lesson-13). On reading,
+nothing in this branch's diff can block: `fail_all` ends every run, even one whose charge raises; the `done` path
+returns early only for a run `fail_all` has already ended; `charge` makes no waiting call (a `/proc` read and
+`Measured.rusage`).
+Run here: `tests/test_daemons.py`, `test_warm.py`, `test_daemons_restart.py`, `test_daemon_lines.py` and
+`test_daemon_observations.py` together under `scripts/suite_watch.py` with `-n 4 -o faulthandler_timeout=120`: 78
+passed, rc 0, 35 s, peak 153 threads, `left_behind: 0` (none of the hung or crashed `burn.py` daemons outlives the
+tests). Ruff is clean. Refused here: `ps -A -o command= | grep -E '^[^ ]*python[0-9.]* -m pytest' | head; nproc; free -g`,
+the whole unit suite run serially under the watchdog (`uv run python scripts/suite_watch.py -- uv run python -m pytest
+-q -p no:xdist -o faulthandler_timeout=120`, logged to `/tmp`), and a shell heredoc that appended this note. That
+serial run would name a hung test if there is one. It is the next thing to run if the factory's run is cut off again.
