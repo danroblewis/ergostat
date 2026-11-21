@@ -58,3 +58,13 @@ the gap). Run here: tests/test_knowledge.py (4 passed), tests/test_factory_knowl
 Running the tests under suite_watch, to see its exit line, was refused (the command was `uv run python
 scripts/suite_watch.py -- uv run python -m pytest -q -n 2 tests/test_knowledge.py tests/test_factory_knowledge.py`).
 The next run needs the suite's rc and the container's exit state (`docker inspect` OOMKilled) from the factory's log.
+
+After the fourth unit run (its tail cut off again, at 90%, with no failure line and no suite_watch JSON line): this is
+the same silent stop as the runs at 28%, 74% and after the full summary. No test is named, so there is nothing in the
+code to fix. Checked again: module_map starts no thread or process apart from two short git calls. fac.py, which the
+test fixture loads once per test, has no side effects at import (no threads, atexit or signal handlers). fac.run_dir
+creates run/modules before mkstemp runs. No code changed in this round (lesson-13). Run here, one file at a time:
+tests/test_knowledge.py (4 passed), tests/test_factory_knowledge.py (75 passed), tests/test_backlog.py (19 passed),
+ruff clean. Left for the factory: the suite's rc, suite_watch's exit line, and the container's exit state (OOMKilled)
+from its own log. Without them, the next round can only repeat this. Refused this round: a `cat >> <file> <<'EOF'`
+heredoc append chained with `git commit`.
