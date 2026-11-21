@@ -111,3 +111,24 @@ Its runs failed past their attempts (a dead letter):
 - attempt 5: nack exited 1
 - attempt 6: nack exited 1
 - attempt 7: nack exited 1
+
+## Where it stopped
+
+Round 2. The blocking finding, the denied push of its merge, was the queue's and not the code's. The branch has
+main (7b39bc94) merged in (63614dda), and `snapshot.py` and `pages.js` are unchanged since round 1. Each of the
+round 1 review's non-blocking findings (lesson-12):
+
+- **`eta` in the equality check (lesson-10).** `test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states`
+  now monkeypatches `server._estimates` to give none, for the snapshot and the live call alike, so the two answers
+  are compared whole and cannot differ by when the background worker finished. Nothing is stripped.
+- **The left-out test never checked the broken requests were made (lesson-9).** The fake api now records every
+  call. The test asserts each broken request was asked, then that its key is absent. It also asserts that
+  `items?kind=ticket&state=doing` was never asked once ticket's own answer failed.
+- **Item pages held for the first 40 of the no-kind list only.** That was already so on main and is outside this
+  definition. It is now a line in GAPS *A set chosen in a snapshot*.
+- **Cost of the per-kind listings.** Not measured. Running an ad-hoc timing script on an example was refused in
+  this session. The cost is bounded: 1 + (number of states) `items` listings per kind, each of up to 500 items.
+  Timing `ergostat snapshot` once on a real project, with and without the kind loop, is left to someone who can.
+
+Not run here: the browser tests (no playwright in this container, as in round 1). Run: `tests/test_graph_cli_web.py`,
+31 passed, and ruff clean.

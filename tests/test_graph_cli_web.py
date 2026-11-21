@@ -600,9 +600,13 @@ def _timeless(x):
     return {k: v for k, v in x.items() if k not in ("now", "since", "at")} if isinstance(x, dict) else x
 
 
-def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path):
+def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monkeypatch):
+    from ergostat.web import server
     from ergostat.web.server import Live, api
     from ergostat.web.snapshot import key
+    # the completion estimates come from a background worker, so the snapshot and a later live call could differ only
+    # by when it finished (lesson-10): none in either, so the two answers are compared whole
+    monkeypatch.setattr(server, "_estimates", lambda *a, **k: None)
     p = related_project(tmp_path)
     data = _snapshot_data(p)
     kinds = {k["name"]: k for k in data["items"]["kinds"]}
@@ -630,15 +634,20 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     broken = [("items", {"kind": "ticket"}), ("items", {"kind": "epic", "state": "underway"}),
               ("items-graph", {"kinds": "note"})]
 
+    seen = []
+
     def api(live, path, q):
         asked = {k: v[0] for k, v in q.items() if k != "since"}
+        seen.append((path, asked))
         if (path, asked) in broken:
             raise RuntimeError("cannot be answered")
         return real(live, path, q)
     monkeypatch.setattr(snapshot, "api", api)
     data = _snapshot_data(related_project(tmp_path))
     for path, params in broken:
+        assert (path, params) in seen, (path, params)                     # asked, so its absence is the failure's
         assert snapshot.key(path, params) not in data                                # absent, not empty
+    assert ("items", {"kind": "ticket", "state": "doing"}) not in seen   # no states asked without the kind's own answer
     assert not any(k.startswith("items?kind=ticket") for k in data)    # its states, from its own answer: none to be had
     assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
             "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)
