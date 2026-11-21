@@ -188,3 +188,15 @@ tie by name. A new test, `test_a_complex_pair_ranks_by_modulus_not_by_real_part`
 newer could be fetched (no network). The full unit suite, the four browser files and `demo_check` were not run by
 the implementor (no example is changed); the factory runs them. The touched and stepper-path files were run one at a
 time, all passing.
+
+**After the factory's unit run failed.** The factory's `unit` suite (under `-n`) reported three failures, but the
+tail it gave did not name them. Running the whole suite in one go was refused here. So every test file was run
+instead, serially, in batches of 2 to 23 files. All passed except one, and only inside a batch:
+`test_store_conformance.py::test_a_second_instance_threads_and_processes_lose_nothing[sqlite]`. Its spawned process
+imported main's `dev/bin/queue.py` in place of the standard `queue` ("no attribute 'LifoQueue'"). It passes alone
+(35 passed). This branch touches neither the store nor `dev/bin`, so it is order-dependent and comes from main, not
+from this branch (lesson-13). The three failures are therefore not identified. One real cost against main was found
+and fixed: `jacobian()` padded J by scanning every (live, live) pair and copying the dict on each call. `rates()` pays
+that once per replay window. It now pads in place, and only the columns that no equation reads. The entries,
+`rates()`'s sums and their order are unchanged (test_modes, closedloop, extremes, numbers, scale_caches and rates
+pass).

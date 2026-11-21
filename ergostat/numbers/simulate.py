@@ -231,7 +231,12 @@ class _Stepper:
             for r, c in self.pl.eqs.items():
                 c.faults.clear()
                 c.faults.update(saved[r])
-        return J | {(i, j): 0.0 for j in live for i in live if (i, j) not in J}, faulted
+        moved = set(felt)
+        for j in live:                                   # in place, only the columns no equation reads: rates is hot
+            if j not in moved:
+                for i in live:
+                    J[(i, j)] = 0.0
+        return J, faulted
 
     def rates(self, state: dict[str, float | None]) -> float:
         """How fast the stocks move here, per hour: Gershgorin's bound on their Jacobian (``jacobian``).
