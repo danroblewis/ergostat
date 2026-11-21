@@ -346,7 +346,7 @@ def test_planned_gap_records_size_and_confidence(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
     assert f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: M (confidence: low)"))[0] == [
-        "gap.planned"]
+        "gap.defined"]
     assert {k: f.item(gid)["fields"][k] for k in ("size", "planned_size", "size_confidence")} == {
         "size": "M", "planned_size": "M", "size_confidence": "low"}
     split = sized("beta-one", "size: XL (confidence: high)") + sized("beta-two", "`size: S (confidence: medium)`")
@@ -367,7 +367,7 @@ def test_plan_without_valid_size_is_sent_back(line, tmp_path):
     gap = f.item(gid)
     assert said == ["gap.plan-sent-back"] and gap["state"] == "replan" and "size" not in gap["fields"]
     assert any("size" in p and "'alpha-thing'" in p for p in gap["fields"]["plan_findings"])
-    assert not (f.model / "run" / "plans" / "alpha-thing.md").exists()   # nothing planned
+    assert not any((f.model / "run" / d / "alpha-thing.md").exists() for d in ("plans", "defs"))   # nothing planned
     # in a split, one sub-gap's bad line sends the whole plan back, and no sub-gap is made
     said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="d-one") + sized("d-two", line))
     assert said == ["gap.plan-sent-back"] and "gap/d-one" not in f.db()["items"]
@@ -382,11 +382,14 @@ def test_replan_replaces_size(tmp_path):
     gid = f.opened()
     f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: S (confidence: high)"))
     assert f.item(gid)["fields"]["size"] == "S"
-    f.run("plan.py", gid, argv=("review",), FACTORY_STANDIN_VERDICT="fix")
-    f.fold([{"event": "gap.measured", "item": gid, "data": {"merged_lines": 40}}], None)   # an earlier merge's count
+    (f.model / "run" / "defs" / "alpha-thing.md").unlink()       # its definition gone: the planner plans it again
+    f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["again"]}},   # sent back to replan
+            {"event": "gap.measured", "item": gid, "data": {"merged_lines": 40}}], None)   # an earlier merge's count
+    assert f.item(gid)["state"] == "replan"
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: L (confidence: low)"))
     g = f.item(gid)["fields"]
-    assert said == ["gap.planned"] and (g["size"], g["planned_size"], g["size_confidence"]) == ("L", "L", "low")
+    assert said == ["gap.defined"] and (g["size"], g["planned_size"], g["size_confidence"]) == ("L", "L", "low")
+    assert g["replanned"] is True
     assert g["merged_lines"] is None                                      # never scored on the old branch's lines
 
 

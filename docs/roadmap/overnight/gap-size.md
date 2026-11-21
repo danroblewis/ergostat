@@ -231,3 +231,44 @@ dev/bin` is clean. Not run: the whole unit suite and the browser files.
 Parked by the factory (review/gap-size-3, 2026-11-20 18:01).
 
 Done: the gap's own work (plan.py size_of/problems, the size reset on replan and split, queue.py merged_lines/merged_lines_error written on every gap.merged, measure.py size-accuracy and size-accuracy-high with unmeasured gaps left out and named on stderr, the planner prompt, measures.yaml, the README, and the acceptance tests). Its code was found sound in rounds 2-4. Left: the branch is built on top of the unmerged backlog merge 2b101c6, so it cannot reach main without landing backlog unreviewed. Implementor sessions were refused the replay in every round, so further fix rounds cannot finish it. Someone allowed to rewrite the branch must replay only the gap's commits onto origin/main (d3cd937, 860a76f, c7e0faf, 39d6fb8, 093f942, the gap-size part of 1e16402's notes; not the tests/test_relations_asof.py change and not merges b6c5872 and 1a5cd15), for example `git rebase --onto origin/main 2b101c6 factory/gap-size` and drop the merges and the relations-as-of change. Then confirm `git diff origin/main...HEAD` touches only the definition's 'Files to touch' (plus docs/roadmap/overnight/gap-size.md), and run the acceptance tests, the unit suite, the browser files and ruff again before the branch is reviewed.
+
+### Resumed (gap/gap-size-resumed, round 1)
+
+**The branch base is settled by main, not by a replay.** Main (0ecf249c) now holds backlog's work, so merging it in
+made the carried backlog commits main's (the owner's rule: continued, not rebased; no history rewritten).
+`git diff 0ecf249c...HEAD` now touches only `dev/README.md`, `dev/bin/fac.py`, `measure.py`, `plan.py`, `queue.py`,
+`dev/model/measures.yaml`, `dev/prompts/planner.md`, this file, `tests/test_factory.py` and
+`tests/test_factory_knowledge.py`: all in the definition's list. The earlier `tests/test_relations_asof.py` change
+dropped out: main's version and the branch's now agree.
+
+**Main's merge, resolved (six conflicts).**
+- `agents.py`, `ergostat.yaml`: main's side (it adds nothing of this gap's).
+- `fac.STANDIN["planner"]`: main's longer stand-in (Files to touch, Risks) with this gap's size line kept.
+- `planner.md`: main's new "The format" section. The size line is now in its `## Size budget` bullet.
+- `plan.py`: main no longer says `gap.planned`. A lint-clean plan goes straight to `gap.defined` via `define()`.
+  The size fields (`size`, `size_confidence`, `planned_size`, and `merged_lines`/`merged_lines_error` cleared to null)
+  are now passed through `define()` for the whole gap and for each sub-gap. The split parent's reset is unchanged.
+  "Records `size` on `gap.planned`" in the definition now reads "on `gap.defined`": main renamed the event, and
+  the fields and their rules are the same.
+- `queue.py`: main lands batches of gaps. If the count ran from the batch's `pre` to its head, every gap of a batch
+  would get the whole batch's lines. So `land()` now counts each gap's own merge, from main just before it to its
+  merge commit, in the last try that landed it (a gap merged again onto other heads after a bisection gets that
+  merge's count). A gap that failed the queue gets no count. The rule is the same as before: both fields are always
+  written, and a count that raises gives null and the error.
+
+**Tests changed by the merge.** `test_planned_gap_records_size_and_confidence` and `test_replan_replaces_size` expect
+`gap.defined`. In main, a gap with a definition is never planned again (plan.py takes the existing definition as
+the coordinator's). So the replan test now removes the earlier definition and sends the gap back to replan. It
+asserts L/low, `replanned`, and `merged_lines` cleared. The "nothing planned" check also covers `run/defs/`.
+Added in main's batch tests: in a green batch of 3 each gap reads `merged_lines == 1` (not 3), and in the bisected
+batch p, q, s each read 1 and the failed r has no count.
+
+**Lesson-9 (this round):** dropping `**sized` from the gap's `define()` failed both plan tests. Counting from the
+batch's `pre` failed both batch tests (3 != 1).
+
+**Size:** 102 insertions and 15 deletions in `dev/` against main (about 87 net), and 0 core lines. Within the 110
+budget, class M.
+
+**Run here:** `tests/test_factory_knowledge.py` 41 passed; `tests/test_factory.py` 60 passed, 2 skipped (Docker).
+`ruff check ergostat tests scripts dev/bin` is clean. Not run (the factory runs them under the watchdog): the whole
+unit suite and the four browser files.
