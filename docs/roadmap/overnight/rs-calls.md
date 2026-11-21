@@ -88,3 +88,17 @@ Round 3 (review rs-calls-1), finding by finding:
 
 Not run here: the whole unit suite and the browser files. Net lines outside tests, docs and dev: 100 of 100 (131
 added, 31 removed).
+
+After round 3's unit run failed (its tail shows only `uv` building the package: no pytest line, no dot, and not even
+`suite_watch`'s closing JSON line, so the log does not show what stopped it): not reproduced, and no code changed. The
+whole unit suite, run here serially (`-p no:randomly`, 36 min), finished: 2333 passed, 69 skipped, 1 xfailed, 6 failed.
+None of the six involves a call. Every one fails the same way: `AttributeError: module 'queue' has no attribute
+'LifoQueue'` in a spawned process. `tests/test_backlog.py`, `test_factory.py` and `test_factory_times.py` put
+`dev/bin` on `sys.path`, where `dev/bin/queue.py` hides the standard library's `queue` from every process spawned
+after them in the same worker. They are `test_index_files.py` (4), `test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`
+and `test_store_conformance.py::test_a_second_instance_threads_and_processes_lose_nothing[sqlite]`. They depend on test
+order, the branch touches none of these files, and the fault belongs to main (lesson 13): reported, not fixed here.
+Every test's duration was checked for a wait on a call's bound (5 s, `GONE` 10 s, a 60 s read timeout), and no
+call-related test shows one. The only tests near 60 s are `test_index_files`' four, which are the failures above, and
+`test_factory.py::test_the_factory_model_loads` (60 s alone too). That one only reads the factory's model and makes
+no call. ruff is clean.
