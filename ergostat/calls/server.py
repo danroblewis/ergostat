@@ -77,7 +77,8 @@ class Server:
         return str(self.path)
 
     def close(self) -> None:
-        s, self.sock = self.sock, None
+        with self.plock:                                       # (after it, nothing is queued behind the stop markers)
+            s, self.sock = self.sock, None
         if s is not None:
             try:
                 s.close()
@@ -96,12 +97,16 @@ class Server:
             self.parked = []
 
     def _accept(self) -> None:
-        while not self.e.stop.is_set() and self.sock is not None:
+        s = self.sock
+        while not self.e.stop.is_set() and s is not None:
             try:
-                conn, _ = self.sock.accept()
+                conn, _ = s.accept()
             except OSError:
                 return
-            self.jobs.put(conn)
+            with self.plock:                                   # accepted as it closed: closed, so asked again
+                if self.sock is None:
+                    return self._close(conn)
+                self.jobs.put(conn)
 
     def _work(self) -> None:
         while True:

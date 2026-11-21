@@ -129,3 +129,26 @@ its caller asks the new engine, is parked there, is asked of the owner once, and
 changed this round. Run here, one file at a time, all passing: `test_calls` (14), `test_gated_actions`, `test_leases`,
 `test_resilience`, `test_program_actions`, `test_daemons`, `test_lease_kill`; ruff is clean. Not run here: the whole
 unit suite and the browser files. Budget unchanged: about 3 net lines over 100, for the reason given above.
+
+After round 4's unit run stalled (its tail: xdist up, 73 dots, then nothing; no failure printed): not reproduced. The
+call-related files and every file with a `serial` test (`test_watchdog`, `test_notify`, `test_parallel_runs`,
+`test_daemons`, `test_daemons_restart`, with `test_calls`, `test_leases`, `test_lease_kill`, `test_resilience`,
+`test_gated_actions`, `test_program_actions`, `test_spec_engine`, `test_ticket_factory_daemons`) passed together under
+`-n 8 --dist worksteal` in 71 s (173 passed, 1 skipped). The whole suite was not run in parallel here (the house rule).
+One thing in the suite fits a stall of every worker at once: `tests/conftest.py`'s run-wide lock. A `serial` test
+holds it alone, so one serial test that hangs holds back all eight workers. Nothing here shows any serial test hangs.
+Fixed this round, in the engine's call handler: the gap left open above. A connection accepted as `Server.close` ran
+was queued behind the workers' stop markers and never answered or closed. Its caller then waited out its read timeout
+(an `act`: its wait plus an hour) instead of seeing the stop and asking again, which goes against the first point of
+the definition of done. `close` now clears `sock` under `plock`, and the accept thread queues a connection under
+`plock` only while the socket is open; otherwise it closes the connection. So every connection is either queued ahead
+of the stop markers (and answered) or closed. The accept thread also keeps its own reference to the socket, so `close`
+can no longer turn it into `None` between the check and `accept()` (an `AttributeError` that killed the thread). New
+test `test_a_call_accepted_as_the_engine_stops_is_closed_so_its_caller_asks_again` puts the close between the accept
+and the hand-over. With the check removed it fails (seen: `TimeoutError` after its 20 s read timeout). It is not shown
+to be the stall's cause. Run here, all passing: `test_calls` (15), `test_gated_actions`, `test_leases`,
+`test_program_actions`, `test_resilience`, `test_lease_kill`, `test_daemons`, `test_spec_engine`, `test_watchdog`
+(157 passed, serially in one process); ruff is clean. Not run here: the whole unit suite and the browser files.
+Budget: about 7 net lines over 100. The 4 lines of this fix belong in the call handler, and nothing smaller closes the
+gap. Refused this session: `env | grep -i ergostat` (to look for an inherited socket) and `git worktree add` of main
+under /tmp (to compare test durations with main).

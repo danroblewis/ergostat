@@ -452,3 +452,29 @@ def test_a_call_past_the_bound_fails(tmp_path, monkeypatch):
     assert main(["event", "--add", "job.noted", "--item", "job/1"]) == 0     # then it does what it does today
     assert time.monotonic() - began >= 0.4
     assert len(p.events.query(n=None, type="job.noted")) == 1
+
+
+def test_a_call_accepted_as_the_engine_stops_is_closed_so_its_caller_asks_again(tmp_path):
+    """The stop lands between the accept and the hand-over to a worker (queued behind the workers' stop markers, it
+    would never be answered): its connection is closed, so its caller sees the stop at once, not after its timeout."""
+    import ergostat.calls.server as srv
+    p = project(tmp_path, f"{PY} -c pass")
+    box, real = {}, srv.socket.socket
+
+    class Stopping(real):
+        def accept(self):
+            got = super().accept()
+            box["e"].calls.close()                                # the stop, in the gap
+            return got
+    srv.socket.socket = Stopping
+    try:
+        box["e"] = e = started(p)
+    finally:
+        srv.socket.socket = real
+    try:
+        began = time.monotonic()
+        with pytest.raises(client.Unavailable):
+            client.call("ping", path=e.socket, timeout=20, retry=0, root=str(tmp_path))
+        assert time.monotonic() - began < 5, "closed, not left to its read timeout"
+    finally:
+        e.close()
