@@ -15,10 +15,12 @@ import ast
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 from pathlib import Path
 
@@ -164,13 +166,24 @@ def first_line(src: str) -> str:
     return (doc if len(doc) <= 140 else doc[:137].rsplit(" ", 1)[0] + "...") if doc else "(no docstring)"
 
 
+def mtime(p: Path) -> float:
+    try:
+        return p.stat().st_mtime
+    except FileNotFoundError:   # pruned by another session already: sorted oldest, and its unlink is a no-op
+        return 0.0
+
+
 def module_map(cfg: dict) -> tuple[str, dict[str, list[list[str]]]]:
     """(main's sha, {package: [[module, its docstring's first sentence]]}), read from the checkout's main with git,
-    cached by its sha: a merge makes a new one. The last three are kept; only files named for a sha are removed."""
+    cached by its sha: a merge makes a new one. The last three are kept; only files named for a sha are removed.
+    Safe with sessions starting together: one read (a missing or partial file is made again), a renamed whole write,
+    and a prune that keeps its own sha's file and skips one already gone."""
     repo, d = fac.path(cfg, "checkout"), fac.run_dir(cfg, "modules")
     sha = fac.git(repo, "rev-parse", cfg["git"]["base"])
-    if (d / f"{sha}.json").is_file():
+    try:                    # one read: a file another session removed or is half-way writing is made again
         return sha, json.loads((d / f"{sha}.json").read_text())
+    except (FileNotFoundError, ValueError):
+        pass
     there = fac.git(repo, "ls-tree", "--name-only", sha, "--", "ergostat", "dev/bin", "scripts").split()
     raw = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", sha, "--", *there], capture_output=True,
                          check=True, timeout=300).stdout if there else b""
@@ -179,10 +192,18 @@ def module_map(cfg: dict) -> tuple[str, dict[str, list[list[str]]]]:
         for m in sorted((m for m in tar if m.isfile() and m.name.endswith(".py")), key=lambda m: m.name):
             pkg, _, mod = m.name.rpartition("/")
             out.setdefault(pkg, []).append([mod, first_line(tar.extractfile(m).read().decode(errors="replace"))])
-    (d / f"{sha}.json").write_text(json.dumps(out))
-    for p in sorted((p for p in d.glob("*.json") if re.fullmatch(r"[0-9a-f]{40}", p.stem)),
-                    key=lambda p: p.stat().st_mtime)[:-3]:
-        p.unlink()
+    tmp = ""
+    try:                    # written whole, then renamed into place: no reader sees part of it
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=f".{sha}.", suffix=".tmp")
+        with os.fdopen(fd, "w") as w:
+            w.write(json.dumps(out))
+        os.replace(tmp, d / f"{sha}.json")
+    except OSError:         # a cache that cannot be written is not a failure: the map is still the map
+        if tmp:
+            Path(tmp).unlink(missing_ok=True)
+    for p in sorted((p for p in d.glob("*.json") if re.fullmatch(r"[0-9a-f]{40}", p.stem) and p.stem != sha),
+                    key=mtime)[:-2]:        # its own sha's file is never pruned; one already gone is skipped
+        p.unlink(missing_ok=True)
     return sha, out
 
 

@@ -18,7 +18,9 @@ headings of one id.
 specific: a class of mistake with where it was seen and the check, not a story. Their ids: `rules-process` (the first
 word of each house-rule heading), `lesson-3` (each `## 3. Title`), and `<kind>-<slug of the heading>` for the other
 kinds (`finding-stale-cache`). Every brief carries the rules and lessons, then, within the `[knowledge]` budget of
-`dev/factory.toml`, the relevant decisions, related gaps, past findings on the files it touches and the module map; its
+`dev/factory.toml`, the relevant decisions, related gaps, past findings on the files it touches and the module map (cached by
+main's sha in `run/modules/`, safe for sessions starting together: one read, a missing or half-written file made again,
+a whole write renamed into place, and a prune that keeps its own sha's file and skips one already gone); its
 recorded context lists the ids it carried and dropped. Entries of the four other kinds are synced as items but not yet
 carried in briefs. Each entry is an item, `knowledge/<id>` (active, or retired once no file holds it), kept by the
 collector `knowledge-sync` (`knowledge.py sync`) from the running version's files, with how many briefs carried it
