@@ -20,3 +20,8 @@ depends-on: []
 
 ## Size budget
 5 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+Built, round 1. 0 net lines outside `tests/` and `docs/`.
+- The reload entry now names the coordinator. The released lease entry stays in the file as a `# Released:` comment line, which `fac.quarantine` skips. It keeps who added it (the coordinator), why, and the evidence for its release. This was a choice nobody could confirm: deleting that one line undoes it.
+- The 10 runs: each ran `pytest -q -n 8 --dist worksteal -rA tests/test_leases.py tests/test_reload_in_place.py tests/test_factory.py` under `scripts/suite_watch.py`, one after another (the unit suite's own flags, on a 3-file slice of 123 tests rather than the whole suite, which the implementor must not run itself). The lease restart test printed PASSED in all 10 runs, so it is released. Runs 3 and 5 each failed 2 other tests, both named in run 5: `tests/test_leases.py::test_renewed_by_events_and_expired_when_silent_then_retried` and `::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`. This branch does not touch them (lesson 13). They are load flakes for their own gap.

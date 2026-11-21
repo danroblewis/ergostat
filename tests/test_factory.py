@@ -881,6 +881,23 @@ def test_a_skipped_quarantined_test_is_not_a_pass(tmp_path, monkeypatch):
     assert fac.beside([T], tmp_path / "never.txt", gone) == {T: "unknown"}          # a run that never ran
 
 
+def test_the_quarantine_list_parses_with_who_when_why():
+    """Each line of the real tests/quarantine.txt is `test id | who | when | why`: an id naming a test that exists,
+    who added it, an ISO date and a reason, all four given; and the id is what fac.quarantine reads."""
+    import datetime
+    text = (ROOT / "tests" / "quarantine.txt").read_text()
+    lines = [x for x in text.splitlines() if x.strip() and not x.lstrip().startswith("#")]
+    for line in lines:
+        fields = [x.strip() for x in line.split("|")]
+        assert len(fields) == 4 and all(fields), line
+        test, who, when, why = fields
+        path, name = test.split("::")
+        assert f"def {name}(" in (ROOT / path).read_text(), test                    # a test that exists
+        datetime.date.fromisoformat(when)
+    ids = [x.split("|")[0].strip() for x in lines]
+    assert len(set(ids)) == len(ids)                                                # each test listed once
+
+
 def test_a_quarantined_failure_is_recorded(tmp_path):
     f = quarantined(tmp_path, f"FAILED {T} - boom\n", rc=1)
     gid = ready(f)
