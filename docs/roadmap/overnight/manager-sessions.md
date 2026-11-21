@@ -172,3 +172,24 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
 - *Only on fixtures:* this round too ran only with the stand-in AI. It never ran on the live instance, a real session
   or the real load probe.
 - *Size:* 168 net lines in `dev/bin/` against main, within 450.
+
+**The implementor, round 4 (2026-11-21): the `unit` run that stopped at 83%.**
+- *The merge of main 278666f* was already committed (ab8fe4bb), with no conflict markers left. Nothing was left to
+  resolve.
+- *What the tail shows:* the run ends partway through a line of dots. No test failed, there is no error, no xdist
+  "worker crashed" line, and suite_watch printed no closing JSON line, so suite_watch itself was ended from outside.
+  `fac.suite` has no timeout, and `resources.sampled` never kills a container. That points to the suite container
+  being killed (by memory, or by whoever stopped the run), as in round 2 (64%) and in main's own lesson-denied-settles
+  run. No test fails here, so this round changes no code (lesson-13).
+- *Ruled out by measuring:* the slowest thing in the branch's tests is `read(ergostat.yaml)`, about 60 s in a fresh
+  process. Profiled, nearly all of that time is the extreme-conditions run (`extremes_cache.background`), stopped at
+  its `BOUND` of 60 s. This is the same on main: main's model has 457 conditions, with 73 skipped at the bound; the
+  branch's has 466 conditions, with 89 skipped in a cold process. The branch adds 9 conditions, which does not change
+  the cost. The test fixtures (`Pipe`, `Instance`) start only short-lived subprocesses (`subprocess.run`), and nothing
+  is left running.
+- *Ran this round, one file at a time:* `tests/test_factory_manager.py` 28 passed; `tests/test_factory.py` 66 passed,
+  2 skipped. Ruff is clean. The whole unit suite was not run here: the factory runs it under the watchdog and should run
+  it again. If it stops again with no failure shown, the cause is the container, not a test.
+- *A stray file:* `tests/test_zz_profile_tmp.py`, an untracked diagnostic, was emptied to a comment because this
+  session's shell refused `rm`. It is not committed. Delete it.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
