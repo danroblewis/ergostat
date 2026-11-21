@@ -207,6 +207,25 @@ python3 dev/bin/ask.py "How does the queue decide a flake?"  # answered in run/r
 python3 dev/bin/lesson.py add "Title" --check "the check"   # or: retire N "why"; proposals wait in the inbox
 ```
 
+**Size classes.** Each plan's `## Size budget` holds `size: S|M|L|XL (confidence: low|medium|high)`, a class of the
+net lines that will merge outside `tests/` and `docs/` (everything else counts: `dev/`, `scripts/`, `examples/`,
+root files): S 50 or fewer (a net removal is S), M 51-150, L 151-400, XL over 400. A definition without it, or with
+another class or confidence, is sent back like any other planner problem, never given a default; each sub-gap of a
+split has its own. A replan replaces the size, and clears the lines of any earlier merge. At each merge the queue
+counts the net lines from main before it to the merged head (in a batch, each gap's own merge, not the batch's) and
+records `merged_lines` on `gap.merged`; when that count cannot be read the merge stands, `merged_lines` is null and
+`merged_lines_error` says why (a merge again always writes both, so no older count survives).
+
+`measure.py size-accuracy` is, over 14 days by each gap's latest merge, the share of merged gaps the planner sized
+whose lines fell inside their class; `size-accuracy-high` is the same for high-confidence gaps. The class scored is
+`planned_size` (with `size_confidence`), which only the planner writes. The planner never writes `size`: that is the
+groomer's (`gap.groomed`, S/M/L or hours), which the solver ranks by, and it is never scored. A sized gap with no
+count is left out of the share (never a hit) and named on stderr; with nothing measurable either one has no value
+(exit 1), and `-high` too when only low or medium gaps can be measured.
+
+**Not covered:** gaps whose definitions you wrote (no planner, no size; a plan that finds your definition already
+there records no size either), and split parents (they merge nothing; a split clears an earlier size).
+
 ## The pools: one at a time, raised on good results
 
 One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 4 and 2, in

@@ -349,6 +349,15 @@ def merge(cfg: dict, repo, g: dict, sha: str, began: float) -> bool:
     return False
 
 
+def lines(repo, before: str, after: str) -> dict:
+    """A merge's net lines outside tests/ and docs/, dev/ counted. Both always said, so a merge again never keeps an
+    old count; unreadable, the merge stands and its count is unknown (null and why), never 0."""
+    try:
+        return {"merged_lines": fac.net_lines(repo, before, after, core=False), "merged_lines_error": None}
+    except Exception as e:
+        return {"merged_lines": None, "merged_lines_error": f"{type(e).__name__}: {e}"[-300:]}
+
+
 def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float, waited: float) -> tuple[list, str]:
     """Merge the batch onto main in turn and run the suites once. Green: every merge lands. Red: bisected (the suites
     run again on the first half of the merges, then on half of what is left, ...) to the first merge whose prefix
@@ -368,19 +377,22 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         return dict(queue_wait_hours=waited_hours(g, began), queue_minutes=round((time.time() - began) / 60, 1),
                     lock_and_load_wait_s=round(waited), suites_queue=got, batch_size=len(batch), batch_id=tag,
                     batch_runs=runs[0])
+    counted = {}                                           # each gap's own merge: main before it to it (its last try)
     while todo:
         fac.git(repo, "reset", "-q", "--keep", base)
         kept, heads = [], []                               # heads[i]: main with the first i + 1 merges
         for g, sha in todo:
+            before = fac.git(repo, "rev-parse", "HEAD")
             if merge(cfg, repo, g, sha, began):
                 kept.append((g, sha))
                 heads.append(fac.git(repo, "rev-parse", "HEAD"))
+                counted[g["id"]] = lines(repo, before, heads[-1])
         todo = kept
         if not todo:
             break
         red = run()
         if not red.get("failed"):
-            landed += [(g, timing(g, red)) for g, _ in todo]
+            landed += [(g, timing(g, red) | counted[g["id"]]) for g, _ in todo]
             base = heads[-1]
             break
         lo, hi, green = 0, len(todo), {}         # the first lo merges ran green (or none); the first hi red
@@ -394,7 +406,8 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
                 findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
                 + ([f"the first failing merge of a batch of {len(todo)}, found by bisecting"] if len(todo) > 1 else []),
                 **timing(g, red))
-        landed += [(x, timing(x, green)) for x, _ in todo[:hi - 1]]    # (hi - 1 == lo: that prefix's run was green)
+        # (hi - 1 == lo: that prefix's run was green)
+        landed += [(x, timing(x, green) | counted[x["id"]]) for x, _ in todo[:hi - 1]]
         base, todo = onto, todo[hi:]
     fac.git(repo, "reset", "-q", "--keep", base)
     return landed, base
