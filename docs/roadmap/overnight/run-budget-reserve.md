@@ -172,3 +172,22 @@ were not run here either; the factory runs them, under the watchdog. Run here, o
 17 existing test files that touch these modules (leases, schema, structure, costs, CLI fallback, run logs,
 architecture, coherence, runner, streamed output, messages, control, resilience, claims, workspaces, auxiliaries,
 gated actions).
+
+After the factory's fast suites: its `unit` tail held only the package build, no pytest line and no line from
+`suite_watch` (which prints its JSON line at any end it sees), so it names no failing test. Not reproduced here.
+`-n 8` was not run here (the rules keep a parallel run of the whole suite for the factory). The whole unit suite was run
+serially, twice: the first run stopped at its first failure, and the second deselected that test. Across the two,
+7 failed, none in this gap's files. The second run: 2373 passed, 69 skipped, 6 failed. Each of the 7 passes when its file
+is run alone:
+
+- Five multiprocessing tests: `test_index_files.py` (four tests), `test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`
+  and `test_store_conformance.py::test_a_second_instance_threads_and_processes_lose_nothing[sqlite]`.
+  Four show `ImportError: cannot import name 'Empty' from 'queue' (/work/dev/bin/queue.py)` in their spawned
+  children. The store test lost exactly the 50 events its extra process should have written. The cause is
+  `tests/test_backlog.py`, `tests/test_factory.py` and `tests/test_factory_times.py` inserting `dev/bin` into
+  `sys.path`, so every later spawn child in the same process imports `dev/bin/queue.py` as `queue`. That is on
+  main, it depends on test order, and it is outside this gap (lesson-13).
+- `test_modeller.py::test_a_response_with_no_cost_is_charged_its_reservation[missing]`: the modeller's own AI cap,
+  which this gap does not touch.
+
+No code was changed for this round: no failure traced to this branch was found.
