@@ -200,8 +200,22 @@ measure below has no value. A line tracer (`tests/coverage_lines.py`, Python 3.1
 records the lines each test process ran of `ergostat/`, `dev/bin/` and `scripts/`. `scripts/coverage_report.py DIR`
 combines the workers' files into `DIR/coverage.json`: per module its statements (from the file's `ast`, docstrings
 not counted), those covered and the share, stamped with the commit and its `seq` (main's first-parent commits). The
-last five reports are kept under `run/coverage/`, by that seq. `coverage_report.py DIR --below 0.6` lists the modules
-under the floor, worst first; the floor is `[code_health] coverage_floor` (0.6).
+last five reports are kept under `run/coverage/`, by that seq; one that cannot be read is removed at once. The queue
+runs main's copy of the script (before the merge), so a branch never scores its own coverage, and a report that fails
+or times out is "no report", never a failed merge. `coverage_report.py DIR --below 0.6` lists the modules under the
+floor, worst first; the floor is `[code_health] coverage_floor` (0.6).
+
+To turn it on, time the fast unit suite twice, the second time with the tracer, and compare:
+
+```sh
+scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal
+scripts/in_container.sh env ERGOSTAT_COVERAGE=run/coverage/probe uv run python scripts/suite_watch.py -- \
+  uv run python -m pytest -q -n 8 --dist worksteal       # (set inside: the container is not given the caller's env)
+```
+
+At 15% overhead or less, set `queue_coverage = true` and note both times in
+`docs/roadmap/overnight/code-health-coverage.md`. Above 15%, the tracer belongs on a nightly unit run, which is not
+built yet.
 
 `python3 dev/bin/measure.py coverage-below-floor` counts the modules under the floor, and `measure.py coverage
 ergostat/model.py` reads one module's share (the auxiliary `coverage-below-floor` in `dev/model/measures.yaml`). With

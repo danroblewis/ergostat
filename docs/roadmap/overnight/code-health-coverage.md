@@ -153,3 +153,39 @@ If the unit suite fails again with a named test, that test is the next thing to 
 Also added: `test_a_report_of_a_commit_not_on_main_is_not_read`. `test_tracer_off_without_the_variable` also runs the
 tracer for real in a child pytest with the variable set, and checks that a module the probe imported
 (`ergostat/durations.py`) is in its file.
+
+### Round 2, by the implementor (answering review/code-health-coverage-1)
+
+**Point 3 is still not done, and this session cannot do it.** Each command that set `ERGOSTAT_COVERAGE` (a one-file
+probe with the variable before `uv run`, and again through `env`) was denied by the session's permission mode, as in
+round 1. Running the tracer some other way, for instance from inside a test, would get around that denial instead of
+respecting it, so it was not tried. Neither timing exists, `queue_coverage` stays `false`, and no real report of this
+repository exists. As the review says, **the owner must take this measurement.** The two commands are now in
+`dev/README.md` (*Coverage*). Round 1's "Left" put the variable before `scripts/in_container.sh`, but that script does
+not pass the caller's environment into the container. The variable goes inside it:
+`scripts/in_container.sh env ERGOSTAT_COVERAGE=run/coverage/probe uv run python scripts/suite_watch.py -- ...`. Then
+either set `queue_coverage = true` (overhead 15% or less) or build the nightly run (more than 15%). The nightly run is
+not built because the measurement that would call for it does not exist. Building it blind would be building what was
+not asked. This is the second round, so by the house rules the branch should be parked or held for the owner, not
+merged as done.
+
+**The review's other findings (lesson-12), all answered in `dev/bin/queue.py`:**
+- *The report's timeout escaped `suites()`.* `coverage_made` catches `TimeoutExpired` (and an `OSError`) and returns
+  `"no report: timed out"`, so the queue run goes on.
+- *A branch could score its own coverage.* The queue now runs `scripts/coverage_report.py` as it is in `pre` (main
+  before the merge, by `git show`), with `--root` set to the merged checkout. If that script is missing, the result is
+  "no report".
+- *An unreadable report blocked the measure for up to five merges.* An unreadable `coverage.json` in a folder the queue
+  made (matched by name) is now removed at once. Only the readable reports count toward the five kept.
+
+**Tests.** New: `test_the_queue_scores_with_mains_script_and_survives_a_timeout`.
+`test_the_queue_keeps_the_last_reports_by_seq` now also has an unreadable report next to the others. Each break below
+was made alone and then undone:
+- the script read from `HEAD` instead of `pre`: the new test failed (`'no report: the branch scores itself' != 'reported'`);
+- `TimeoutExpired` not caught: the new test failed (the child raised);
+- unreadable reports kept: `test_the_queue_keeps_the_last_reports_by_seq` failed (`gap-torn-…` left).
+
+Run here: `tests/test_code_health_coverage.py` (9 passed), with `tests/test_factory.py` (50 passed, 2 skipped, its
+Docker tests); `uv run ruff check ergostat tests scripts`, clean. Local `main` is this branch's merge base, so there was
+nothing to merge in. There is no network to fetch origin. The unit suite and the four browser files were not run by
+this session, which may not start the whole suite. The factory runs them after it.

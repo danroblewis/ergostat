@@ -41,7 +41,7 @@ def clean_main(cfg: dict, repo) -> str | None:
     return None
 
 
-def suites(cfg: dict, repo, branch: str, logs, began: float) -> dict:
+def suites(cfg: dict, repo, branch: str, logs, began: float, pre: str = "HEAD") -> dict:
     out = {}
     for name in ("ruff", "unit", "browser", "demo"):
         log = logs / f"{fac.run_tag(branch, began)}-{name}.txt"
@@ -53,7 +53,7 @@ def suites(cfg: dict, repo, branch: str, logs, began: float) -> dict:
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         out[name] = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {})}
         if cov:
-            out[name]["coverage"] = coverage_kept(cfg, repo, cov, rc)
+            out[name]["coverage"] = coverage_kept(cfg, repo, cov, rc, pre)
         if rc or skipped:
             out["failed"] = name
             out["tests"] = fac.failed_tests(text)
@@ -67,15 +67,35 @@ COVERAGE_KEEP = 5                                       # coverage reports kept 
 COVERAGE_RUN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}-\d{8}T\d{6}Z$")      # (a run_tag: the folders this makes)
 
 
-def coverage_kept(cfg: dict, repo, cov, rc: int) -> str:
-    """The unit run's coverage report made (scripts/coverage_report.py) and the last COVERAGE_KEEP kept, by the seq
-    stamped in each (never a file's time); a red run's worker files, or a run that made no report, removed. It never
-    fails the queue: the measure is read by measure.py, which has no value without a fresh report."""
+def coverage_made(repo, cov, pre: str) -> str:
+    """scripts/coverage_report.py as it is in ``pre`` (main before the merge, so a branch never scores its own
+    coverage), run on the merged checkout. "reported", or why not; a timeout or a missing script is a "no report"."""
+    try:
+        script = fac.git(repo, "show", f"{pre}:scripts/coverage_report.py")
+    except (RuntimeError, subprocess.SubprocessError) as e:
+        return f"no report: main's scripts/coverage_report.py unreadable ({str(e)[-200:]})"
+    path = cov / "coverage_report_main.py"
+    try:
+        path.write_text(script + "\n")
+        r = subprocess.run([sys.executable, str(path), str(cov), "--root", str(repo)], cwd=repo, capture_output=True,
+                           text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return "no report: timed out"
+    except OSError as e:
+        return f"no report: {e}"
+    finally:
+        path.unlink(missing_ok=True)
+    return "reported" if r.returncode == 0 else f"no report: {r.stderr.strip()[-300:]}"
+
+
+def coverage_kept(cfg: dict, repo, cov, rc: int, pre: str = "HEAD") -> str:
+    """The unit run's coverage report made (coverage_made) and the last COVERAGE_KEEP kept, by the seq stamped in each
+    (never a file's time); a red run's worker files, a run that made no report, and an unreadable report (which would
+    hold the measure at no value) removed at once. It never fails the queue: the measure is read by measure.py, which
+    has no value without a fresh report."""
     said = "not reported: the unit suite failed"
     if not rc:
-        r = subprocess.run([sys.executable, "scripts/coverage_report.py", str(cov)], cwd=repo, capture_output=True,
-                           text=True, timeout=600)
-        said = "reported" if r.returncode == 0 else f"no report: {r.stderr.strip()[-300:]}"
+        said = coverage_made(repo, cov, pre)
     top = fac.run_dir(cfg, "coverage").resolve()
     seqs = {}
     for d in top.iterdir():
@@ -84,8 +104,9 @@ def coverage_kept(cfg: dict, repo, cov, rc: int) -> str:
         try:
             seqs[d] = int(json.loads((d / "coverage.json").read_text())["seq"])
         except (OSError, ValueError, KeyError, TypeError):
-            seqs[d] = -1                                # (no report: removed first)
-    for d in sorted(seqs, key=lambda d: (seqs[d], d.name))[:-COVERAGE_KEEP] + ([cov] if said != "reported" else []):
+            seqs[d] = -1                                # (no readable report: removed now)
+    good = sorted((d for d in seqs if seqs[d] >= 0), key=lambda d: (seqs[d], d.name))
+    for d in good[:-COVERAGE_KEEP] + [d for d in seqs if seqs[d] < 0] + ([cov] if said != "reported" else []):
         shutil.rmtree(d, ignore_errors=True)
     return said
 
@@ -220,7 +241,7 @@ def main() -> int:
                 done = True
                 return 0
             logs = fac.run_dir(cfg, "queue")
-            got = suites(cfg, repo, branch, logs, began)
+            got = suites(cfg, repo, branch, logs, began, pre)
             minutes = round((time.time() - began) / 60, 1)
             timing = dict(queue_wait_hours=round((began - approved) / 3600, 3), queue_minutes=minutes,
                           lock_and_load_wait_s=round(waited), suites_queue=got)
