@@ -196,3 +196,14 @@ writes `RUN.exit` from the run's cwd, which a relative `ERGOSTAT_HOME` would hav
 test_resilience + test_streamed_output + test_spec_engine (51) pass, and ruff is clean. **Still owed:** the factory's
 unit suite under `-n 8`. If it stops again, the tests still running when it stopped (e.g. from `pytest -v` or
 `--timeout`) are what is needed to go further.
+
+Round 16 (after the factory's unit suite "failed" again): **no failure to fix was found, and nothing was changed.**
+This time the tail ends after uv's build and install (`Installed 1 package`). pytest printed nothing: no collection
+line, no progress, no failing test, no watchdog or `suite_watch` line. So the run stopped before or as pytest started,
+not on a test. A collection error or an import error in the branch's code would have been printed. Reading
+`runrecord.py` (imported by `engine.py`) found nothing that could fail or block at import: it only compiles a regex
+and defines functions. This session's "don't ask" mode denied the shell entirely (a read-only `git log` was refused),
+so nothing could be run, reproduced or committed. This note was written with the file editor and is **not
+committed**. Still owed: the factory's unit suite run again. If it stops with no pytest output again, the cause is in
+the suite runner or the machine (slot, build, watchdog), not something this branch's code can change. Its full output,
+not only the tail, is what is needed to go further.
