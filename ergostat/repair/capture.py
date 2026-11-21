@@ -69,7 +69,9 @@ def guarded(p, b, cause: str | None) -> bool:
 
 
 def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict | None:
-    """Record the failed run on its failure, opened when it may be repaired; None when it is the loop's own."""
+    """Record the failed run on its failure, opened when it may be repaired; None when it is the loop's own.
+    ``stderr``: the tail of the run's own log file (``data["log"]``), never the block's log, so no other run's lines;
+    a daemon's run has only what it handed back that was not an event, usually nothing (SPEC §12r)."""
     if guarded(p, b, begun.get("causedby")):
         return None
     from ..spec.items import one
@@ -88,7 +90,8 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
         tb["message"] = scrub(p, tb["message"])
     d = {"block": b.name, "run": begun["id"], "signature": sig, "program": program, "exit": code, "note": note,
          "error": f"{tb['type']}: {tb['message']}" if tb else note, "traceback": tb,
-         "stderr": scrub(p, stderr[-TAIL:]), "input": f"file:repair/{name}.input", "model": data.get("model"),
+         "stderr": scrub(p, stderr[-TAIL:]), **({"log": data["log"]} if data.get("log") else {}),
+         "input": f"file:repair/{name}.input", "model": data.get("model"),
          "item": data.get("item"), "read_only": b.params.get("read-only") is True, "count": 1,
          "first_seen": begun["time"], "began": begun["time"]}
     it = one(p.events, spec, fid)
