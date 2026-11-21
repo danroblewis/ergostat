@@ -68,6 +68,7 @@ from . import observe as ob
 from . import proposals as pr
 from . import simulate as sim
 from . import trial as tr
+from . import unmoved as un
 from .improve import WORDING  # what a reader is told: judged by check alone, not the record
 
 SPLITS = (1, 2, 4)            # the record held out, whole, in halves and in quarters
@@ -190,7 +191,8 @@ def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: flo
     """The model as it is and with the change, each replayed once over [since, until] (warmed up beforehand), paired
     with the record bucket by bucket: near what it touches (``stocks``, over those both replay; every stock when none
     is given or none is replayed), the rest of the model, and each goal's own stock. Each stock's rows are (bucket,
-    before, after, record), scaled by the record's root mean square, so their squared errors are its scaled error."""
+    before, after, record), scaled by the record's root mean square, so their squared errors are its scaled error.
+    ``same``: both replays follow the same stocks and every reading of each is equal as a float, with no tolerance."""
     start = since - warm_up
     width = max(ob.MIN_BUCKET, (until - since) / 120, (until - start) / 600)
     grid = ob.Grid(start, until, max(2, int(round((until - start) / width))))
@@ -201,6 +203,8 @@ def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: flo
         run = sim.replay(s, data)
         got.append(readings(s, data, run, first) if run.valid else {})
     rb, ra = got
+    same = bool(rb) and set(rb) == set(ra) and all(      # exactly equal, reading by reading (a NaN never is)
+        set(rb[r]) == set(ra[r]) and all(rb[r][i][0] == ra[r][i][0] for i in rb[r]) for r in rb)
     paired = {}
     for r in sorted(set(rb) & set(ra)):
         both = sorted(set(rb[r]) & set(ra[r]))
@@ -209,7 +213,7 @@ def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: flo
             paired[r] = [(i, rb[r][i][0] / sc, ra[r][i][0] / sc, rb[r][i][1] / sc) for i in both]
     near = [r for r in paired if r in set(stocks or ())]
     out = {"since": since, "until": until, "start": start, "width": grid.width, "fallback": not near and bool(stocks),
-           "scored": near or sorted(paired)}
+           "scored": near or sorted(paired), "same": same}
     near = near or sorted(paired)
     out["near"] = {r: paired[r] for r in near}
     out["rest"] = {r: v for r, v in paired.items() if r not in near}
@@ -537,6 +541,22 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                 continue
             judged += 1
             ev = compare(p, spec, after, since, now, nd["warm_up"], nd["stocks"], nd["goals"], (nd["tau"], nd["tau_with_it"]))
+            if ev["same"] and held + 1.0 >= nd["needs"] and un.exercised_now(p, spec, nd, since, now):
+                try:                                          # the replay cannot tell it: judged by structure
+                    verdict, why, card, v = un.judged(p, x, spec, nd, since, now)
+                except tr.TrialError as e:                    # its edit no longer applies to the files as they are
+                    verdict, why, card, v = None, str(e), None, None
+                if v != x.get("version"):                     # a hand edit came first: superseded on the next pass
+                    out["waiting"].append({"id": x["id"], "held": held, "needs": due(held, nd["needs"]), "why": why})
+                elif verdict is None:
+                    pr.event(p, x["id"], "testing", {"looked": held, "undecided": why, "more": None})
+                    out["waiting"].append({"id": x["id"], "held": held, "needs": due(held, nd["needs"]), "why": why})
+                else:
+                    pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by, "held": held,
+                                                               "on": "structure", "scorecard": card, "version": v}})
+                    out[verdict] += 1
+                    out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
+                continue
             results = slices(ev, windows(since, now, pol.windows, min(nd["tau"] or 0.0, nd["needs"] / 2)))
             f = x.get("findings") or {}
             verdict, why, more = decide(ev, pol.threshold, len(f.get("answered") or []), len(f.get("new") or []), held,
@@ -625,8 +645,9 @@ def pause(got: dict, every: float, idle: int) -> float:
 
 def owners(x: dict) -> bool:
     """A change only the owner writes, whatever the policy (SPEC §12e, ``accept``): one that takes structure away or
-    rewires a kind's chain, and a redesign that changes control."""
-    return removes(x) or bool(x.get("rewires")) or (x.get("kind") == REDESIGN and bool(x.get("control")))
+    rewires a kind's chain, a redesign that changes control, and one passed on structure alone (its replay the model's)."""
+    return removes(x) or bool(x.get("rewires")) or (x.get("kind") == REDESIGN and bool(x.get("control"))) or \
+        (x.get("verdict") or {}).get("on") == "structure"
 
 
 def removes(x: dict) -> bool:
