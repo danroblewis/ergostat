@@ -941,7 +941,10 @@ stand now):
   more items wait on, which agree on a chain but may differ between items of unequal durations). An item waiting in a state
   whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
   the engine would from the newest readings) is projected not to move: no bar, its reason "waits for B, which is
-  switched off now (by C)", at most the block's capacity at once: its `pool`, its agent's
+  switched off now (by C)", at most the block's capacity at once: its pool now (its `pool:` number, or its stock's
+  newest reading at or before the moment estimated, at most its `most`; a pool read as 0 or not read at all is
+  estimated at 1, and each item waiting there says so: "its pool (stock.S) is 0 now: estimated at 1 run at once";
+  the what-if `block.NAME.pool` overrides it), its agent's
   `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
   them), and its `workspace:` pool (§12k): a workspace taken at the item's first run of such a block is held by the
   item across every state until it finishes, so a pool of three keeps at most three items between that take and their
@@ -2200,12 +2203,17 @@ blocks:
     lease: {ttl: 45m, attempts: 2}     # optional: this block's terms
     goal: backlog-short                # optional: it takes items only while its command is on
     run: $ERGOSTAT_CMD session developer --model sonnet
+  reviewer:
+    type: ai
+    takes: {kind: ticket, at: review, to: [done, ready]}
+    pool: {now: stock.reviewers, most: 4}   # as many at once as the stock (measured) reads now, never more than 4
+    run: $ERGOSTAT_CMD session reviewer --model sonnet
 ```
 
 | Key | On | Meaning |
 |---|---|---|
 | `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
-| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped |
+| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
 
@@ -2218,8 +2226,16 @@ changed in the model reaches the next lease.
 **Dispatch.** While nothing commands the block, or what commands it is on (a `goal:` on it gates
 it, as on any machine block), every item of its kind in a state of `at`, not held, not put off, and
 matching `where`, is leased to a new run, oldest first (by when it entered its state), while the
-leases its runs hold are fewer than its `pool`. With `unblocked: true`, an item a precedence relation says waits on
-an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
+leases its runs hold are fewer than its pool now. A pool written `{now: stock.NAME, most: N}` is read at each look,
+with the dispatcher's lock held, in the same hold as the count of the leases and the take: the stock's level as the
+engine last read it (its newest reading, whatever its age; no sensor runs at dispatch), rounded down, at most `N`, and
+0 when it has no reading (also before the engine's first pass has loaded the readings, when it is not said). A raised
+stock starts more runs at the next look, with no reload; a lowered one drains (no new lease until fewer than the pool
+now are held; nothing running is stopped). The lock is this engine's: a lease another engine takes after the count is
+counted at the next look; on the same item the fold refuses the second lease, on another item both stand, as for a
+`pool:` number. The pool's stock is not one of the block's reads, so its `on-stale` (section 9.6) does not watch it.
+`ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says
+waits on an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
 slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
@@ -3013,7 +3029,7 @@ slowest time constant the replay met, within a twentieth and a quarter of the wi
 
   | The block | Its identified model | Identified from |
   |---|---|---|
-  | takes items (`takes:`, §9.5) | *servers*, a multi-server queue: success × min(waiting, servers) / the time a server is held (a run's median time; its lease's TTL for an attempt that expired) | its runs' times, the share that ended well, the expiries; its pool and lease terms |
+  | takes items (`takes:`, §9.5) | *servers*, a multi-server queue: success × min(waiting, servers) / the time a server is held (a run's median time; its lease's TTL for an attempt that expired) | its runs' times, the share that ended well, the expiries; its pool now (at the end of the record: 1 when its stock reads 0 or nothing, said in its basis) and lease terms |
   | moves a flow with an equation | the equation, while commanded, at most its servers over their time | the model; its runs for the cap |
   | reads the goal on the stock it fills (a dispatcher reading its work-in-progress limit) | *fill*: at most the 95th percentile of its rate, never past that goal's setpoint, a run every `every` | the flow's record while commanded |
   | drains a stock | *drain*: min(the 95th percentile of its rate, waiting / residence time) while commanded | the residence time (time in system) by Little's law over the buckets it was commanded, mean level over mean outflow |
