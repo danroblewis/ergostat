@@ -74,8 +74,8 @@ systems:
     show: [stock.research-asked]
   managing:
     within: oversight
-    description: the pipeline manager - an AI session per situation (a gap stuck, parked or dead, the queue blocked, an intervention left), acting through manage.py and recording each act as an intervention
-    show: [stock.situations-raised, auxiliary.stuck-gaps]
+    description: the pipeline manager - one AI session over the whole pipeline, on a schedule and at once when the merge pipeline breaks, acting through manage.py and recording each act as an intervention
+    show: [stock.situations-raised, auxiliary.stuck-gaps, auxiliary.pipeline-broken-minutes]
   knowledge:
     within: factory
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
@@ -209,15 +209,16 @@ items:
 
   situation:
     id: situation/*
-    description: one thing the pipeline manager is asked to look at - the queue blocked, a gap dead, parked or stuck, an intervention unremedied, or its heartbeat - raised one at a time by pipeline-watch (dev/bin/watch.py)
-    states: [raised, handled, failed]
+    description: one pipeline manager session - every standing trigger no earlier session handled (the queue blocked, gaps dead, parked or stuck, aging defects) and the merge pipeline's broken conditions, raised by pipeline-watch on its schedule or at once when the merge pipeline breaks (dev/bin/watch.py)
+    states: [raised, handled, failed, superseded]
     on:
-      situation.raised: raised
-      situation.handled: handled     # the session's calls run (manage.py), each with what it said
+      situation.raised: raised       # reason: scheduled or broken; triggers, each with its fingerprint (prints)
+      situation.handled: handled     # the session's calls run (manage.py), each with what it said; an answer per trigger
       situation.failed: failed
-    show: [trigger, subject, why, summary, ai_cost_usd]
+      situation.superseded: superseded   # one raised by the one-trigger watch (no prints): closed, never run
+    show: [reason, triggers_n, actions_n, summary, ai_cost_usd]
     relations:
-      gap: gap                       # the gap it is about: the gap's page lists it
+      gap: gap                       # the gaps its triggers are about: each gap's page lists it
     lease: {attempts: 2}
 
   pool:
@@ -284,7 +285,7 @@ items:
     show: [kind, title, file, areas, about, carried, text]
 
 messages:
-  done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, applied, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
