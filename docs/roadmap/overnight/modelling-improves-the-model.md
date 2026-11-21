@@ -242,3 +242,9 @@ here (lesson-13). The one way this branch could reach another test in the same w
 DeprecationWarning in that run) and joined only its first child. It now uses `spawn`, joins and kills both children,
 and waits until the second is up before asserting it is held off by the lock. Broken again by releasing the lock
 before the call: it fails.
+
+**Round 2 (no review findings to answer):** nothing in the code changed. Checked again: `tests/test_modelling_ai_cap.py`
+(22 passed), `test_modelling_core.py` and `test_modelling_core2.py` (35 passed), `test_self_improve.py`,
+`test_modelling_template.py` and `test_improve.py` (44 passed); ruff clean. Still not run here: `demo_check`, the full
+unit suite and the four browser files, and the origin/main merge (still no `origin` remote in this clone). All are left
+to the factory.
