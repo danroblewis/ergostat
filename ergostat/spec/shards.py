@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 
 from .ir import Ref
+from .observer import PORTS, opted
 
 MAX_SHARDS = 16
 LEAD = "lead"
@@ -45,7 +46,10 @@ class Plan:
 
     def of(self, ref) -> str:
         """The shard a part is in: a Ref, or a key (stock.x, stock.x.sensor, goal.x, agent.x, kind.x). KeyError if
-        not in the spec: never a default."""
+        not in the spec: never a default. A stock's estimate or uncertainty is the stock's (its observer's)."""
+        r = ref if isinstance(ref, Ref) else Ref.parse(ref)
+        if r is not None and r.kind == "stock" and r.port in PORTS and key(r) not in self.where:
+            return self.where[f"stock.{r.name}"]
         return self.where[key(ref)]
 
     def json(self) -> dict:
@@ -132,10 +136,13 @@ def plan(spec, most: int = MAX_SHARDS) -> Plan:
         seed[f"kind.{name}"] = seed[f"block.{on[0]}"] if on else (1, chain[-1]) if chain else _LEAD
 
     # the ceiling: the two smallest (in parts; ties by name) merge until there are at most `most`
-    while len(roots := sorted({find(s) for s in seeds})) > most:
-        size = {r: sum(find(s) == r for s in seed.values()) for r in roots}
-        a, b = sorted(roots, key=lambda r: (size[r], names[r]))[:2]
+    size = dict.fromkeys(sorted({find(s) for s in seeds}), 0)
+    for s in seed.values():
+        size[find(s)] += 1
+    while len(size) > most:                      # sizes kept as they merge: linear in parts, not their square
+        a, b = sorted(size, key=lambda r: (size[r], names[r]))[:2]
         union(a, b, "ceiling", names[max(a, b)])
+        size[min(a, b)] = size.pop(a) + size.pop(b)
 
     where = {k: names[find(s)] for k, s in seed.items()}
     shards = {names[r]: Shard(names[r], sorted(s[1] for s in seeds if s != _LEAD and find(s) == r),
@@ -166,7 +173,8 @@ def _join_kinds(spec) -> dict[str, str]:
 
 
 def _wires(spec, p: Plan) -> list[Wire]:
-    """Every in-memory value read across shards. A part with sensors is read from the measurements: never a wire."""
+    """Every in-memory value read across shards. Reading a part with sensors is reading the measurements: never a wire;
+    a stock's estimate and uncertainty are its observer's, in memory: a wire."""
     out: set[Wire] = set()
 
     def read(reader: str, r: Ref):
@@ -175,9 +183,12 @@ def _wires(spec, p: Plan) -> list[Wire]:
             return
         if r.kind in ("stock", "flow", "auxiliary"):
             part = _table(spec, r.kind)[r.name]
-            if r.port or part.sensors:
+            if r.kind == "stock" and r.port in PORTS and r.port not in part.sensors:
+                kind = "estimate"
+            elif r.port or part.sensors:
                 return
-            kind = "equation" if getattr(part, "equation", None) else "memory"
+            else:
+                kind = "equation" if getattr(part, "equation", None) else "memory"
         else:
             kind = "goal" if r.kind == "goal" else "cascade"
         out.add(Wire(str(r), p.where[k], p.where[reader], kind))
@@ -189,7 +200,15 @@ def _wires(spec, p: Plan) -> list[Wire]:
             for text in sorted(part.equation.refs if part.equation else []):
                 if (r := Ref.parse(text)) is not None:
                     read(f"{kind}.{name}", r)
+    for name in opted(spec).stocks:             # the observer adds up an estimated stock's flows (observer.rates)
+        for f in sorted(spec.flows_of(name), key=lambda f: f.name):
+            read(f"stock.{name}", Ref("flow", f.name))
+    served = {g: spec.loop(g).actuators for g in sorted(spec.goals)}
     for name, b in sorted(spec.blocks.items()):
+        goals = {r.name for r in b.reads() if r.kind == "goal"} | {g for g, a in served.items() if name in a}
+        for g in sorted(goals & set(spec.goals)):  # a block is given each goal it reads or serves (Engine.context)
+            read(f"block.{name}", Ref("goal", g))
+            read(f"block.{name}", spec.goals[g].of)
         for r in b.reads():
             read(f"block.{name}", r)
         for t in b.targets():

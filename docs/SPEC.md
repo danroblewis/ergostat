@@ -2411,7 +2411,7 @@ model and changes nothing. Nothing on the running path uses it yet.
 - **Parts.** Every stock, flow, auxiliary, goal, block, sensor, agent and kind of item is in exactly one shard. A
   sensor is in its part's shard, an agent in the shard of the blocks that run on it, a kind in the shard of the
   blocks that take it, else in its system's, else in the lead. `Plan.of(ref)` names a part's shard and raises
-  `KeyError` for one not in the model; it has no default.
+  `KeyError` for one not in the model; it has no default. A stock's estimate or uncertainty is in the stock's shard.
 - **Merges.** Two shards are merged when blocks in each run on the same agent (its `at-once` is counted in one
   process), take items of the same kind (a lease is locked in one process), or are served by the same daemon. Kinds
   tied by a join (a parent kind and the kinds whose relation names it) count as one kind here. Nothing else merges
@@ -2420,9 +2420,12 @@ model and changes nothing. Nothing on the running path uses it yet.
 - **Wires.** `Plan.wires` lists, sorted, each value a part in one shard reads from a part in another that exists only
   in memory, with the shard it comes from and the one that reads it: a goal's setpoint, error or off (`goal`), a
   block's output read by another block (`cascade`), a block's output to a goal's setpoint (`setpoint`) or to a block,
-  flow or auxiliary (`command`), a flow or auxiliary worked out from its equation (`equation`), and any other stock,
-  flow or auxiliary with no sensor (`memory`). A part with a sensor is read from the measurements by whichever shard
-  needs it, so it is never a wire; its sensors are read only by the shard that owns it.
+  flow or auxiliary (`command`), a flow or auxiliary worked out from its equation (`equation`), a stock's estimate or
+  uncertainty, which its shard's observer keeps (`estimate`), and any other stock, flow or auxiliary with no sensor
+  (`memory`). The readers counted are goals (their part), equations, blocks (their inputs, and each goal they read or
+  act in as an actuator, with that goal's part, as the engine gives them), and the observer of an estimated stock
+  (each flow it adds up). Reading a part with a sensor is reading the measurements, which any shard can do, so it is
+  never a wire; its sensors are read only by the shard that owns it. Writing to one (a command) still is.
 - **Ceiling.** `most` is clipped to 1 to 16. While there are more shards than that, the two smallest (counted in
   parts, ties broken by name) are merged (`ceiling`). With `most` 1 there is one shard, the lead, with every part.
 - **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
