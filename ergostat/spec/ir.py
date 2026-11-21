@@ -264,14 +264,21 @@ class RunBudget:
         return None
 
 
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files)$")
+UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
+    "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
+    "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
+}
+
+
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
     intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
     ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``), the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``) or what the runs
-    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``)."""
-    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
+    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), or ergostat's upkeep (``ergostat.upkeep.*``)."""
+    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES or bool(UPKEEP.match(name))
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
             or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES
             or name in BUDGET_MEASURES)
@@ -449,7 +456,8 @@ class Action:
     ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``; ``cls``: the class it is counted in (its name, else);
     ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
     ``in_``: where it runs (else the session's working directory); ``fenced``: False for an action that runs once
-    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs)."""
+    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs);
+    ``severity`` (1 to 5; None: no ``risk:``) and ``threshold``: its act-risk (``actions/risk.py``)."""
     name: str
     run: str
     gate: str = "approve"
@@ -461,6 +469,8 @@ class Action:
     description: str = ""
     where: Where | None = None
     fenced: bool = True
+    severity: int | None = None
+    threshold: float = 8.0
 
 
 @dataclass
@@ -677,7 +687,8 @@ class Block:
     implied: bool = False      # put in by ergostat (a machine block's goal:), not written
     signs: dict[str, int] = field(default_factory=dict)         # port → +1 or -1, for an input written with a sign (+stock.x)
     takes: Takes | None = None   # the items it works, one run per item, each leased (SPEC §9.5)
-    pool: int = 1                # the most runs of it at once, when it takes items
+    pool: int = 1                # the most runs of it at once, when it takes items (``pool: N``, or ``most:``)
+    pool_now: Ref | None = None  # ``pool: {now: stock.S}``: the pool read from S at each dispatch, at most ``pool``
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)

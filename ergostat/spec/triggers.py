@@ -197,7 +197,8 @@ class Triggers:
 
     def _look(self) -> None:
         e = self.e
-        blocks = [b for b in e.spec.blocks.values() if b.on is not None and b.machine]
+        spec = e.spec                            # (its shard's blocks only: SPEC §9.8)
+        blocks = [b for b in spec.blocks.values() if b.on is not None and b.machine and e.own(f"block.{b.name}", spec)]
         if not blocks:
             return
         top = e.p.events.last_seq()

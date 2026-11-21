@@ -24,6 +24,19 @@ def test_each_example_in_the_spec_is_valid(path):
     assert not errors, errors
 
 
+@pytest.mark.parametrize("pool, ok", [
+    (2, True), ({"now": "stock.reviewers", "most": 3}, True),
+    (0, False), ({"now": "stock.reviewers"}, False), ({"most": 3}, False), ({"now": "stock.reviewers", "most": 0}, False),
+    ({"now": "stock.reviewers", "most": True}, False), ({"now": "flow.x", "most": 3}, False),
+    ({"now": "stock.reviewers.x", "most": 3}, False), ({"now": "stock.reviewers", "most": 3, "least": 1}, False),
+])
+def test_a_block_s_pool_is_a_number_or_a_stock_with_its_most(pool, ok):
+    """SPEC §9.5: ``pool: N`` or ``pool: {now: stock.NAME, most: N}``, both keys and no others."""
+    model = yaml.safe_load((ROOT / "docs/spec-examples/relations.yaml").read_text())
+    model["blocks"]["reviewer"]["pool"] = pool
+    assert (not list(VALIDATOR.iter_errors(model))) == ok
+
+
 @pytest.mark.parametrize("path", sorted((ROOT / "tests/spec-invalid").glob("*.yaml")), ids=lambda p: p.stem)
 def test_each_broken_file_is_refused(path):
     assert list(VALIDATOR.iter_errors(yaml.safe_load(path.read_text())))

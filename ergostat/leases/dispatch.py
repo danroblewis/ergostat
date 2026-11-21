@@ -3,8 +3,9 @@
 - **Dispatch.** For each block that takes items: while nothing commands it, or what commands it is on, every item of
   its kind in one of its ``at`` states, not held, not put off (``not_before``), and matching its ``where``, is leased
   to a run of its own, oldest first, while the block's runs in flight (its leases held, from the fold, and the runs
-  going here) are fewer than its ``pool``. An item put off (``not_before``) is looked at again when it falls due. It
-  looks whenever the record has something new (an item reaching its
+  going here) are fewer than its pool now (``poolnow.py``: its ``pool:``, or its stock's level as the engine last read
+  it, at most its ``most``, read in the same hold of the lock as the count and the take). An item put off
+  (``not_before``) is looked at again when it falls due. It looks whenever the record has something new (an item reaching its
   state starts a run at once; the lease is caused by that event), woken by the write itself (``notify.py``; another
   process's write by the kernel's file notification, else at its next check, every quarter second), and every second
   besides.
@@ -34,7 +35,7 @@ import uuid
 from ..costs import budget
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, RENEWED, TAKEN
+from . import ENDED, EXPIRED, RENEWED, TAKEN, poolnow
 from .fold import held
 from .kill import kill
 from .ready import Ready, ordered, unblocked
@@ -70,12 +71,15 @@ class Dispatcher:
         self.ours: set[str] = set()                   # the runs this engine took whose leases have not ended
         self.holding = False                          # whether the last watch found a lease held (one outlives its block)
         self.lock = threading.RLock()
+        self.ends = threading.Lock()                  # finish's read and its write of lease.ended, as one
         self.seq = 0
         self.kept = Ready()                           # the items a look needs, followed as events arrive (ready.py)
         self.stale = True                             # read the record again before the next use: once a look, and after a take
         self.due = float("inf")                       # when the first item put off (not_before) may be taken
         self.due_now: set[str] = set()                # items put off that may be taken now (their daemon revived)
         self.overdue: dict[tuple, float] = {}         # (item, fence, expires) → when (monotonic) a pass first found it overdue
+        self.mine: dict[str, tuple] = {}              # run → (block, item, fence): the leases taken here, not yet ended
+        self.unread: set[str] = set()                 # blocks whose pool's stock has no reading, said once
 
     @property
     def spec(self):
@@ -84,11 +88,14 @@ class Dispatcher:
 
     @property
     def blocks(self) -> list:
-        return [b for b in self.spec.blocks.values() if b.takes and b.machine]
+        spec = self.spec
+        return [b for b in spec.blocks.values() if b.takes and b.machine and self.e.own(f"block.{b.name}", spec)]
 
     def kinds(self) -> list[str]:
-        """The kinds whose leases are watched: every kind of the model's own (a lease outlives the block that took it)."""
-        return [k for k in self.spec.items if own_kind(k)]
+        """The kinds whose leases are watched: every kind of the model's own (a lease outlives the block that took it),
+        of the engine's shard (SPEC §9.8: a kind is in the shard of the blocks that take it, else of its system)."""
+        spec = self.spec
+        return [k for k in spec.items if own_kind(k) and self.e.own(f"kind.{k}", spec)]
 
     # ---- the clock
 
@@ -163,7 +170,7 @@ class Dispatcher:
             with self.lock:
                 every, ix = self.items_of(b.takes.kind)
                 mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-                room = b.pool - len(mine | set(self.going.get(b.name, {})))
+                room = self.pool_now(b) - len(mine | set(self.going.get(b.name, {})))
                 if b.params.get("daemon"):           # the daemon's room, shared by every block it serves (SPEC §9.7)
                     room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
                 if room <= 0:
@@ -171,6 +178,21 @@ class Dispatcher:
                 for it in ordered(b, unblocked(self, b, self.ready(b, every, now)))[:room]:
                     self.stale = True
                     self.take(b, self.whole(ix, it))
+
+    def pool_now(self, b) -> int:
+        """The block's pool now: its ``pool:``, or its stock's level as the engine last read it (a stored value: no
+        sensor runs here), at most its ``most``. Unread: 0, said once until it is read again (not said before the
+        engine's first pass has loaded the readings: still 0 then)."""
+        if b.pool_now is None:
+            return b.pool
+        v = self.e.get(b.pool_now)
+        if poolnow.unread(v) and self.e.measured:
+            if b.name not in self.unread:
+                self.unread.add(b.name)
+                self.e.say(f"{b.name}: its pool ({b.pool_now}) has no reading: it takes nothing new")
+        else:
+            self.unread.discard(b.name)
+        return poolnow.now(b, v)
 
     def ready(self, b, every, now: float) -> list:
         """The items a block may take now, in the order it takes them: oldest in its first state first."""
@@ -246,6 +268,7 @@ class Dispatcher:
             with self.e.lock:
                 self.e.running.discard(key)
             return None
+        self.mine[run] = (b, it.id, fence)                        # (close() gives it back, whatever its run's end does)
         self.resources(ev)
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}
         if self.e.stop.is_set():                                  # it raced the stop: given back, not counted, not run
@@ -312,23 +335,38 @@ class Dispatcher:
             self.e.say("leases: not given back (the dispatcher is busy); they expire")   # next watchdog expires them)
             return
         try:                                                   # claimed under the lock (as _work does), ended outside it
-            back = [(name, i, runs.pop(i)) for name, runs in self.going.items() for i in list(runs)
-                    if (block, item) in ((None, None), (name, i))]
+            back = [(g["block"], i, g["fence"], g["run"]) for name, runs in self.going.items() for i in list(runs)
+                    if (block, item) in ((None, None), (name, i)) and (g := runs.pop(i))]
+            if block is None:                                  # and every lease taken here not ended yet (its run's
+                back += [(b, i, f, run) for run, (b, i, f) in self.mine.copy().items()]   # own end failed, or under way)
         finally:
             self.lock.release()
-        for name, i, g in back:
+        for b, i, fence, run in back:
             try:
-                self.finish(g["block"], i, g["fence"], g["run"], {"stopped": True})
+                self.finish(b, i, fence, run, {"stopped": True})
             except Exception as e:                             # (the next engine's watchdog expires it)
-                self.e.say(f"{name}: giving back {i}: {type(e).__name__}: {e}")
+                self.e.say(f"{b.name}: giving back {i}: {type(e).__name__}: {e}")
 
     def finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
-        """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired)."""
+        """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired). Read and
+        written under one lock of its own (never waited on for good), so close()'s give-back and the run's own end
+        never both end it; a look never waits on it."""
+        if not self.ends.acquire(timeout=self.e.lock_wait):
+            raise TimeoutError("another end of a lease is wedged")
+        try:
+            ev = self._finish(b, item, fence, run, out)
+            self.mine.pop(run, None)
+        finally:
+            self.ends.release()
+        if ev is not None:
+            self.resources(ev)
+
+    def _finish(self, b, item: str, fence: int, run: str, out: dict) -> dict | None:
         it = its.one(self.p.events, self.spec, item)
         lease = held(it.fields) if it else None
         if not lease or lease.get("fence") != fence or lease.get("holder") != run:
             self.ours.discard(run)                       # (ended already: expired, or given back from outside)
-            return
+            return None
         data = {"run": run, "fence": fence, "exit": out.get("exit"), **({"note": out["note"]} if out.get("note") else {})}
         nack = out.get("nack")
         stopping = self.e.stop.is_set() or out.get("stopped")
@@ -343,12 +381,13 @@ class Dispatcher:
             data.update({"how": "nack", "why": out.get("note") or f"the run ended with {item} still {it.state}"})
         data.update(self.after(it, lease, data["how"] == "nack" and data.get("count", True) is not False,
                                it.state if data["how"] == "ack" else None))
-        self.resources(self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data))
+        ev = self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data)
         self.ours.discard(run)
         if data["how"] == "nack":
             after = its.one(self.p.events, self.spec, item)
             dead = after is not None and after.state == DEAD
             self.e.say(f"{b.name}: gave {item} back ({data['why']})" + (": a dead letter now" if dead else ""))
+        return ev
 
     def resources(self, ev: dict) -> None:
         """What holds a resource as long as a lease, told at once (the engine's clock sweeps the same events later, for
