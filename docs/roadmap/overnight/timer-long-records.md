@@ -57,3 +57,23 @@ Parked by the factory (review/timer-long-records-1, 2026-11-21 04:42).
 Done: a long record (past the 500 events `ergostat item --json` carries) is read through the real `ergostat event --item ID --type gap.*,ergostat.item.snapshot --json -n N`, with a ceiling (LONGEST) and a full page counted as unreadable. One unreadable gap keeps its bookmark, the others are timed, the bookmark is saved, and the run fails naming it. `times.py setpoints` stamps a `# setpoints:` line in dev/model/times.yaml. The two acceptance tests run the real command. Left: the definition's last sentence, setpoints derived from the record once and committed. This needs `python3 dev/bin/times.py setpoints` run in the instance's folder, which no implementor container has, so another fix round cannot finish it. Either someone with the instance runs it on this branch and commits the rewritten times.yaml (then it can be reviewed for merge), or the owner moves that sentence to its own gap done in the instance and this branch is judged on the timer part alone.
 
 **The coordinator's decision (2026-11-21):** the definition's last sentence ("Setpoints are derived from the record once and recorded") is out of this gap's scope. It needs the live instance's record, which no implementor session or reviewer has, so asking for it here was the coordinator's mistake. Judge this branch on the timer alone: it reads a gap of any length through a real command, and one unreadable gap does not stop the rest. The coordinator runs `times.py setpoints` in the instance once this version is live.
+
+## Where it stopped
+
+Round 2, by the implementor (headless), answering every finding of review/timer-long-records-1 (lesson-12):
+
+- dev/model/times.yaml:7, setpoints not derived: out of scope by the coordinator's decision above. The holds and the
+  `# setpoints: first guesses` line stay as they are, for the coordinator to run in the instance.
+- The full-page and LONGEST guards untested: `test_a_long_gap_past_its_ceiling_or_a_full_page_is_unreadable_not_half_read`
+  (LONGEST monkeypatched below the gap's 602 events; then 1,000 events said between `ergostat item` and the real
+  `ergostat event`, so the page comes back full). Broken on purpose: `>=` made `>` fails it, and LONGEST*10 fails it.
+- KeyError and TypeError in the per-gap except: removed. Only a failed read (RuntimeError from a failed command,
+  ValueError from bad JSON or a guard, OSError, SubprocessError) counts as unreadable; a bug in timing() is a traceback.
+- The stamp quietly skipped when the `# setpoints:` line is gone: `setpoints` now fails (SystemExit) and writes
+  nothing (`test_setpoints_refuse_a_model_with_no_stamp_line`; broken on purpose, the check made `if False`, it fails).
+
+Size: 27 net lines in dev/ (times.py +33/-7, times.yaml +1), within the 30.
+Run: tests/test_factory.py whole, 102 passed and 2 skipped (they need Docker and the agent image, which this branch
+doesn't touch); ruff on ergostat, tests, scripts and dev/bin/times.py, clean. Not run: the whole unit suite and the
+four browser files (the factory runs them under the watchdog). No origin remote to merge; main (4c21667b) is already
+merged in.

@@ -147,7 +147,7 @@ def write(gaps: list[dict], marks: Path) -> int:
         try:
             d = json.loads(fac.ergostat("item", g["id"], "--json").stdout)
             got = timing(d)
-        except (RuntimeError, ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as e:
+        except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as e:   # unread; a bug: its traceback
             bad.append(f"{g['id']}: {e}"[:300])
             continue
         seen[g["id"]] = int(d.get("events") or 0)
@@ -236,6 +236,8 @@ def setpoints(now: float) -> int:
         set_.append(m[1])
         return f'auxiliary: {m[1]}, hold: "<= {math.ceil(v * 100) / 100:g}"'
     text = GOAL.sub(today, GOALS.read_text())
+    if not re.search(r"(?m)^# setpoints: ", text):
+        raise SystemExit(f"times.py: no `# setpoints:` line in {GOALS}: when they were derived would go unrecorded")
     stamp = (f"# setpoints: derived from the record on {time.strftime('%Y-%m-%d', time.localtime(now))}, over "
              f"{len(gaps)} gaps: {len(set_)} holds set, the rest kept (no gap in their window)")
     GOALS.write_text(re.sub(r"(?m)^# setpoints: .*$", lambda _: stamp, text, count=1))
