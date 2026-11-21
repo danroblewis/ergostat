@@ -256,3 +256,11 @@ No code was changed, because I found no failing test and no cause in the code. R
 `tests/test_churn_carry.py` (17 passed, 5.0 s), the six named files together (109 passed, 38.2 s), ruff clean. The
 shell refused the whole suite and `suite_watch` in this session, so the peaks were not seen. If the next run is cut
 short, check the slot's and the container's time limits and the watchdog's stderr before looking at this branch again.
+
+**Round 4.** The queue found one failure, and it is this branch's:
+`tests/test_backlog.py::test_intake_done_rule_on_the_real_gaps_md` reads the real `docs/GAPS.md` and expected this gap's
+entry to read as `open`. Item 9 of the definition moves that entry to done, so the test stated the old fact. Its
+expectation for "Proposals superseded by any edit" is now `done` (the test's own comment, "while GAPS.md still lists
+it", expects entries to change this way). No code was changed. Run here: `tests/test_backlog.py` (1 failed before the
+change, 13 passed after it), ruff clean. Not run here: the whole unit suite, the four browser files and `suite_watch`
+(left to the factory).
