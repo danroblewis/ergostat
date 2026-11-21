@@ -79,10 +79,22 @@ def cmd_item(args) -> int:
             return 2
         if got is not None:
             return out_json(got["item"])
+    search = getattr(args, "search", None)
+    if search is not None and not args.name:
+        if getattr(args, "at", None):
+            print("--search reads the items as they are now: it does not take --at", file=sys.stderr)
+            return 2
+        try:
+            search = its.words_of(search)
+        except its.BadSearch as e:
+            print(f"--search: {e}", file=sys.stderr)
+            return 2
+        args.n = max(1, min(args.n, its.LISTED))
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
     if not args.name:
-        got = its.listing(p.events, spec, kind=args.kind, state=args.state)
+        got = its.listing(p.events, spec, kind=args.kind, state=args.state, search=search,
+                          n=args.n if search else its.LISTED)
         if args.json:
             return out_json(got)
         for k in got["kinds"]:

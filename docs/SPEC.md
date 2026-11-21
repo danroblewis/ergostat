@@ -1064,6 +1064,18 @@ latest move), at most 500 a page (`n`, `offset`), with `total` (and `moves`); `a
 kinds and counts. A filter that is not one (an unknown state, `where` without a `:`) is a 400 that says why.
 Sets are read from the item index: a state's items counted and paged there, a span's moves read there alone.
 
+**Search.** `ergostat item --search WORDS [--kind K] [--state S] [-n N] [--json]` and `GET /api/items?search=WORDS`
+(with `kind`, `state`, `n`, `offset`) list the items whose fields' text contains every word, in the listing's usual
+shape, newest first, and give the same ids. An item's text is the values of its fields, nested ones too, casefolded
+(`Straße` is found by `STRASSE`); only its first 65,536 characters are searched. Each word is matched as a plain
+substring (`50%` and `a_b` match only themselves): no ranking, no stemming, no fuzzy match. A search holds 1 to 8
+words; a blank one, or more, is refused (the command exits 2, the API answers 400). `-n` is held to 1..500. Search
+reads the items as they are now: `--search` with `--at` is refused, and `search=` does not combine with a set's
+filters above. The Items page's own box (`q`, in the id or any field) stays as it was. The text is kept on each
+item's row of the item index and written again whenever the item is folded (a field replaced, a same-id `set`, a
+snapshot), so old words stop matching; an item forgotten by a prune leaves the search. An index of an older layout
+is built again; a row found without its text makes the search build the index again first, never "no match".
+
 ## 5b. The Process view: how the items really moved
 
 The Diagram page's third view, beside Dynamics and Blocks, draws the work as the record says it went:

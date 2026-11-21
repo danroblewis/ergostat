@@ -109,6 +109,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `relations-as-of`): `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py`
   asks Jira for summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and
   folded as relations first.
+- **Searching items and querying their graph** (`gap/item-search`, split in two): full-text search and graph queries
+  over items, from the CLI and API.
+  - *Search*: **done** on `factory/searching-items-and-querying` (carried from the parked `factory/item-text-search`;
+    SPEC §5a, *Search*): `ergostat item --search WORDS` and `/api/items?search=WORDS` list the items whose fields'
+    text contains every word (a casefolded substring, no ranking, no fuzzy match; the first 65,536 characters of each
+    item's text), kept in the item index. Not the Items page's own box, not MCP, not `--at`.
+  - *near, path and about*: **open** (`gap/item-graph-queries`): the items near one, the path between two, and what is
+    about one, from the index's links and text.
 - **A kind chosen in a snapshot** (open; found on `relations-as-of`): a snapshot holds the Items page's list with no
   kind chosen only (`items`, not `items?kind=K`), so choosing a kind in it says "not in this snapshot", and the
   Graph of one kind it holds (`items-graph?kinds=K`) is not reached from the page.

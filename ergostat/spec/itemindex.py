@@ -7,7 +7,8 @@ a chunk at a time, and the others read what it wrote. A process that starts read
 folds only what is newer than it.
 
 - ``items``: per item its kind, state, times, counts and its document (``body``: its fields and
-  what was refused, packed by ``codec.py``); kinds, states and event types are numbers (``names``).
+  what was refused, packed by ``codec.py``) and its ``text`` (``items.text_of``, what a search reads, written each
+  time it is folded); kinds, states and event types are numbers (``names``).
 - ``moves``: every move of every item (when, from, to, by which event), so a flow counted from
   items reads only its window, and a count of items in a state reads only that state.
 - ``left`` and ``reached``: each kind's states some item has left, and has reached, so what a kind
@@ -50,10 +51,10 @@ from pathlib import Path
 
 from ..store import damaged
 from . import codec
-from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of
+from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 3                 # of the index's layout: a different one is rebuilt
+VERSION = 4                 # of the index's layout: a different one is rebuilt (4: each item's text, for search)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
 IDLE = 86400.0              # an item with no event for this long is not kept in memory (storage: items: idle)
@@ -68,7 +69,7 @@ create table if not exists names (id integer primary key, name text unique not n
 create table if not exists items (
     rid integer primary key, id text unique not null, kind integer, state integer,
     first real, last real, newest real, entered real, n integer, latest integer,
-    arrived real, raw integer, raw_first real, body blob);
+    arrived real, raw integer, raw_first real, body blob, text text);
 create index if not exists items_kind_state_last on items(kind, state, last);
 create index if not exists items_kind_last on items(kind, last);
 create index if not exists items_last on items(last);
@@ -253,6 +254,8 @@ class Index:
                 c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
                 c.execute("pragma temp_store=memory")
                 c.executescript(SCHEMA)
+                if "text" not in {r[1] for r in c.execute("pragma table_info(items)")}:   # an older layout: its
+                    c.execute("alter table items add column text")                       # VERSION rebuilds it
             except BaseException:
                 c.close()
                 raise
@@ -354,6 +357,15 @@ class Index:
             if self._events is not None:
                 self.catch_up.__wrapped__(self, self._events)
 
+    def _rebuild(self) -> None:
+        """The whole index folded again from the record (its version cleared: ``_step`` resets it)."""
+        if self._events is None:
+            raise RuntimeError(f"the item index {self.path} cannot be rebuilt: it has followed no record")
+        log.warning("ergostat: the item index %s has rows without their text; building it again", self.path)
+        self.db.execute("update meta set value = null where key = 'version'")
+        self.seq = -1
+        self.catch_up.__wrapped__(self, self._events)
+
     def guard(self, fn):
         """``fn()``, which reads the index's file directly, under the index's lock, healed and run again when the file
         cannot be read."""
@@ -442,13 +454,14 @@ class Index:
             if (restored or arrived is None) and it.moves:
                 arrived = it.moves[0]["time"]
             values = (self.nid(it.kind), self.nid(it.state), it.first, it.last, newest, it.entered, it.n,
-                      self.nid(it.latest), arrived, raw, raw_first, codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled}))
+                      self.nid(it.latest), arrived, raw, raw_first, codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled}),
+                      text_of(it.fields))                     # its words as its fields hold them now (search)
             if rid is None:
                 rid = self.db.execute("insert into items(id, kind, state, first, last, newest, entered, n, latest, arrived, "
-                                      "raw, raw_first, body) values (?,?,?,?,?,?,?,?,?,?,?,?,?)", (id, *values)).lastrowid
+                                      "raw, raw_first, body, text) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (id, *values)).lastrowid
             else:
                 self.db.execute("update items set kind=?, state=?, first=?, last=?, newest=?, entered=?, n=?, latest=?, "
-                                "arrived=?, raw=?, raw_first=?, body=? where rid=?", (*values, rid))
+                                "arrived=?, raw=?, raw_first=?, body=?, text=? where rid=?", (*values, rid))
             if restored:
                 self.db.execute("delete from moves where rid = ?", (rid,))
             if k is not None and k.relations:                  # its links, as its fields now hold them
@@ -521,9 +534,15 @@ class Index:
         """Whether any item has an event after ``t`` (else nothing need be left out as of then)."""
         return t is not None and self.db.execute("select 1 from items where newest > ? limit 1", (t,)).fetchone() is not None
 
-    def _where(self, kind: str | None, states=None, until: float | None = None) -> tuple[str, list]:
-        """``kind`` (None: any; ``""``: items of no kind), in ``states`` (None: any; ``""`` among them: no state)."""
+    def _where(self, kind: str | None, states=None, until: float | None = None, words=()) -> tuple[str, list]:
+        """``kind`` (None: any; ``""``: items of no kind), in ``states`` (None: any; ``""`` among them: no state), whose
+        text holds every one of ``words`` (casefolded) as a plain substring."""
         sql, args = [], []
+        if words:
+            if self.db.execute("select 1 from items where text is null limit 1").fetchone():
+                self._rebuild()                             # a row without its text is not "no match": made again
+            sql += ["instr(text, ?) > 0"] * len(words)
+            args += list(words)
         if kind == "":
             sql.append("kind is null")
         elif kind is not None:
@@ -564,16 +583,16 @@ class Index:
         return out
 
     @_healing
-    def count(self, kind: str | None, states=None, until: float | None = None) -> int:
-        w, a = self._where(kind, states, until)
+    def count(self, kind: str | None, states=None, until: float | None = None, words=()) -> int:
+        w, a = self._where(kind, states, until, words)
         return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
 
     @_healing
     def items(self, kind: str | None = None, states=None, until: float | None = None, n: int | None = None,
-              offset: int = 0, moves: bool = True, ids=None, has: str | None = None) -> list[Item]:
+              offset: int = 0, moves: bool = True, ids=None, has: str | None = None, words=()) -> list[Item]:
         """Items, the latest first (by their last event): ``n`` of them from ``offset``, with their moves;
-        among ``ids``, or with ``has`` in their id, when given."""
-        w, a = self._where(kind, states, until)
+        among ``ids``, with ``has`` in their id, or whose text holds every one of ``words``, when given."""
+        w, a = self._where(kind, states, until, words)
         if has is not None:
             w = (w + " and " if w else " where ") + "instr(id, ?) > 0"
             a = [*a, has]

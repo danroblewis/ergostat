@@ -24,6 +24,7 @@ from .. import state as st
 from ..reports.crash import noted as crash_noted
 from ..series import off_stretches
 from ..spec.item_sets import BadSet
+from ..spec.items import BadSearch
 
 STATIC = Path(__file__).parent / "static"
 GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)    # the client went away mid-answer
@@ -569,6 +570,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
+        words = its.words_of(one("search")) if "search" in q else None      # (SPEC §5a, *Search*)
+        if words and want is not None and (item_sets.asked(q) or one("alone")):
+            raise its.BadSearch("search= does not combine with a set's filters")
         if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
             if one("alone"):                              # the side panel's list: the set, and nothing of the page
@@ -577,9 +581,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
                         "kinds": []}
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
-        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
+        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset,
+                          search=words)
         pk = int(one("per_kind") or 0)
-        if pk and not one("kind") and not one("state") and spec is not None:   # each kind's newest, however busy the rest
+        if pk and not words and not one("kind") and not one("state") and spec is not None:   # each kind's newest
             have = {}
             for i in got["items"]:
                 have[i.get("kind")] = have.get(i.get("kind"), 0) + 1
@@ -939,9 +944,12 @@ def handler(project):
             if who is None:                                # another site's name, or no login under a public one
                 return None
             if u.path.startswith("/api/"):
+                q = parse_qs(u.query)
+                if "search" in (blank := parse_qs(u.query, keep_blank_values=True)):
+                    q["search"] = blank["search"]         # a blank search is refused, not dropped (parse_qs drops it)
                 try:
-                    data = api(live, u.path.removeprefix("/api/"), parse_qs(u.query))
-                except BadSet as e:                     # an Items filter that is not one: said, as the asker's
+                    data = api(live, u.path.removeprefix("/api/"), q)
+                except (BadSet, BadSearch) as e:        # an Items filter that is not one: said, as the asker's
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except Exception as e:                  # a broken request never takes the page down
                     crash_noted(live, e, "web")                # a report for the owner (SPEC §12m)
