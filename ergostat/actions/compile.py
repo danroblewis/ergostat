@@ -9,7 +9,7 @@ import string
 
 from ..spec.ir import GATES, NAME, Action
 
-ACTION_KEYS = {"run", "gate", "class", "args", "timeout", "wait", "in", "description"}
+ACTION_KEYS = {"run", "gate", "class", "args", "timeout", "wait", "in", "description", "fenced"}
 BUILT_IN = ("item", "branch", "workdir", "block", "run")      # what every action's template may name
 TOOL = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\(.+\))?$")         # Read, Edit, Bash(python3:*)
 SANDBOX_KEYS = ("workdir", "workspace", "read", "tools", "actions")
@@ -51,10 +51,14 @@ def actions(c, spec) -> None:
             c.err(f"{what}.class: a name (lowercase letters, digits and -): the class it is counted in", m.at("class"),
                   "bad-name")
             cls = name
-        where = m.get("in")
+        where, fenced = m.get("in"), m.get("fenced", True)
+        if not isinstance(fenced, bool):
+            c.err(f"{what}.fenced: true (the default: not run once a later lease is taken on its item, or its own "
+                  f"expired) or false (run once approved, whatever became of that lease)", m.at("fenced"), "bad-value")
+            fenced = True
         spec.actions[name] = Action(name, str(m["run"]), gate, cls, {str(k): str(v) for k, v in args.items()},
                                     c.duration(m, "timeout", what, 120.0), c.duration(m, "wait", what, 300.0),
-                                    str(where) if where else None, c.text(m, "description"), m.where)
+                                    str(where) if where else None, c.text(m, "description"), m.where, fenced)
 
 
 def blocks(c, spec) -> None:

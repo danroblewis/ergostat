@@ -140,7 +140,7 @@ def test_intake_done_rule_on_the_real_gaps_md():
              "Poor identifications proposed, projections drawn as sure": "done",       # its parenthetical spans lines
              "Extreme-conditions tests and calibration per part of the model": "done",
              "A run whose lease expired is killed": "done", "Warm workers instead of a process per item": "superseded",
-             "Remote systems": "open", "System architecture review": "open", "Proposals superseded by any edit": "open",
+             "Remote systems": "open", "System architecture review": "open", "Proposals superseded by any edit": "done",
              "Relations, what is left": "open", "Shared libraries": "parked"}
     for title, want in known.items():                  # (each, while GAPS.md still lists it)
         if title in got:
