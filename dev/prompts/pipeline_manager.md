@@ -13,7 +13,10 @@ These are the coordinator's own patterns, from its interventions:
 - **A gap parked on a failure that is not its own** (tests that fail on main too, a test that only fails in the Linux
   suite container, a lease race fixed on main since): continue it (`continue GAP`), naming the gap that fixes the
   cause with `--depends-on` when one is open. A park for its own findings (the kill rule after real review findings)
-  is left parked unless main changed what blocked it.
+  is left parked unless main changed what blocked it; one whose findings are fixable may be continued for more rounds.
+  A park says its kind (`parked_for`): you are raised for `defect` and `kill-rule` parks; `waits_on` and `needs` parks
+  are resumed by a program when what they name clears, and you see them only once one has waited past its hours
+  (a `waiting` situation): look at whether what it names can still clear, and say who must act.
 - **A queue failure, or a fast-suite failure, on tests that fail on main too**: `reapprove GAP --why ...`. The program
   runs the tests on main itself and refuses when they pass there; never call it on a hunch about the branch's code.
 - **A test that fails now and then** (in the queue, passing alone, named in findings of unrelated gaps): `flake TEST`.

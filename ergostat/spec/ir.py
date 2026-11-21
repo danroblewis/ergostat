@@ -93,6 +93,10 @@ MODEL_MEASURES = {                 # the model's own quality (SPEC §12e), read 
     "ergostat.model.fit-gained": "what the changes written over the last week lowered the scaled error by, together",
     "ergostat.model.cost-per-accepted": "dollars the blocks that make changes spent over the last week, over the changes "
                                         "written",
+    "ergostat.model.reviews-passed": "changes the reviewer passed over the last week",
+    "ergostat.model.reviews-revised": "changes the reviewer sent back to their author over the last week",
+    "ergostat.model.reviews-rejected": "changes the reviewer rejected over the last week",
+    "ergostat.model.review-misses": "changes the reviewer passed that the prediction check later flagged for revert",
 }
 MODEL_CHANGE = "ergostat.model-change"   # the built-in item kind: every change to the model, made, judged and decided
 MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded",
@@ -256,6 +260,7 @@ class Improve:
     windows: list[int] = field(default_factory=lambda: [1, 2, 4])
     warm_up: float = 6 * 3600.0     # each window replayed from this long before it, its stocks and delays warm
     block: str | None = None
+    reviewed: list[str] = field(default_factory=list)   # kinds written only after the reviewer's pass (numbers/reviewer.py)
 
 
 def template_made(x) -> bool:
@@ -384,6 +389,7 @@ class Messages:
     follow_up: str | None = None
     reopen_to: dict[str, str] = field(default_factory=dict)
     done: dict[str, list[str]] = field(default_factory=dict)
+    paused: dict[str, list[str]] = field(default_factory=dict)   # by kind: states an item waits in, held by hand
     where: Where | None = None
 
 
@@ -751,6 +757,8 @@ class Takes:
     to: list[str] = field(default_factory=list)   # the states that count as done: the lease's ack (else any state but these)
     where: dict = field(default_factory=dict)     # only items whose fields match (as a sensor's where:)
     unblocked: bool = False         # only items whose predecessors are all finished, the critical first (SPEC §5a, relations)
+    order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
+                                                     # without one after those with it; the order above among equals
 
 
 @dataclass

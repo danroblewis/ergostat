@@ -43,7 +43,7 @@ def send_back(cfg: dict, gap: dict, why: list[str], **record) -> int:
         import review
         fac.say("gap.measured", gap["id"], plan_findings=why, **record)
         review.park(cfg, gap, f"Its plan failed the lint {n} times:\n" + "\n".join(f"- {w}" for w in why),
-                    "plan-lint", where="plan")
+                    "plan-lint", where="plan", kind="kill-rule")
     else:
         fac.say("gap.plan-sent-back", gap["id"], plan_findings=why, plan_sent_back_by="lint", plan_lint_failures=n,
                 **record)
@@ -204,7 +204,8 @@ def splits(cfg: dict) -> int:
         if stopped:
             review.park(cfg, g, "Its sub-gaps stopped:\n" + "\n".join(
                 f"- {c['id']} ({c['state']}): {str(c['fields'].get('where_it_stopped') or '').strip()[:600]}"
-                for c in stopped), "split-watch", where="split")
+                for c in stopped), "split-watch", where="split", kind="split",
+                until={"gaps": sorted(c["id"] for c in stopped)})
     return 0
 
 
@@ -230,4 +231,5 @@ if __name__ == "__main__":
     fac.stop_on_term()
     if sys.argv[1:] in (["splits"], ["lint"]):
         sys.exit((splits if sys.argv[1] == "splits" else sweep)(fac.config()))
-    sys.exit(planner(fac.config(), fac.read_input()["item"]))
+    cfg, item = fac.config(), fac.read_input()["item"]
+    sys.exit(0 if fac.drain_holds(cfg) else planner(cfg, item))

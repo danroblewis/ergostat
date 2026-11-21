@@ -180,14 +180,14 @@ def test_each_item_is_done_active_ready_or_blocked(tmp_path):
     ev.add("ticket.started", item="ticket/d", at=T0 + 5)
     g = pr.build(ev, p.model.spec, ["ticket"], T0 + 10, T0 - 10)
     st = {x["id"]: x["status"] for x in g["items"]}
-    assert st == {"ticket/a": "ready", "ticket/b": "blocked", "ticket/c": "blocked", "ticket/d": "active"}
+    assert st == {"ticket/a": "unblocked", "ticket/b": "blocked", "ticket/c": "blocked", "ticket/d": "active"}
     waits = {x["id"]: x["waiting"] for x in g["items"]}
     assert waits["ticket/c"] == ["ticket/a", "ticket/nowhere"]      # an item never seen is not known to be finished
     ev.add("ticket.started", item="ticket/a", at=T0 + 20)
     ev.add("ticket.done", item="ticket/a", at=T0 + 30)
     g = pr.build(ev, p.model.spec, ["ticket"], T0 + 40, T0 - 10)
     st = {x["id"]: x["status"] for x in g["items"]}
-    assert st["ticket/a"] == "done" and st["ticket/b"] == "ready" and st["ticket/c"] == "blocked"
+    assert st["ticket/a"] == "done" and st["ticket/b"] == "unblocked" and st["ticket/c"] == "blocked"
 
 
 def test_the_critical_path_method_on_a_textbook_network():

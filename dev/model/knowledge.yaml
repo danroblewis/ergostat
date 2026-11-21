@@ -29,7 +29,7 @@ stocks:
   knowledge-entries:
     system: knowledge
     unit: entries
-    description: the entries of dev/knowledge/ (house rules, review lessons, decisions) the briefs carry, in the running version
+    description: the entries of dev/knowledge/ in the running version, each of a declared kind (component, rule, lesson, finding, question, source); the owner's decisions are ergostat.decision items, not entries
     sensor: {items: knowledge, state: active, every: 1m}
   plan-reviews:
     system: knowledge
@@ -211,6 +211,11 @@ flows:
     driven-by: [+stock.lessons-proposed]
     equation: stock.lessons-proposed / lesson-approve-time
     sensor: {items: lesson, entering: requested, over: 1d}
+  lessons-denied:
+    system: knowledge
+    from: lessons-proposed
+    description: a proposal the coordinator denied - settled denied, with who and why, and never proposed again
+    sensor: {items: lesson, entering: denied, over: 1d}
   lessons-added:
     system: knowledge
     to: knowledge-entries
@@ -338,8 +343,9 @@ blocks:
     description: a session per gap in a read-only clone of main - its definition of done (acceptance tests, budget, risks from the lessons, files), a split into sub-gaps, or research questions first
     run: python3 dev/bin/plan.py
     prompt: dev/prompts/planner.md
-    takes: {kind: gap, at: [open, replan], to: [split, ready, replan, parked]}
-    pool: 1
+    takes: {kind: gap, at: [open, replan], to: [split, ready, replan, parked], unblocked: true, order: rank,
+            where: {continues: null}}  # a gap continuing a branch waits for the intake (its definition is on it)
+    pool: 12                           # operator: planners spend AI budget, not machine
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h
     in: block.plan-when
@@ -419,11 +425,19 @@ blocks:
   knowledge-sync:
     type: program
     system: knowledge
-    description: the collector - each entry of the running version's dev/knowledge/ an item (knowledge.found, .changed, .retired), with how many briefs carried it
+    description: the collector - each entry of the running version's dev/knowledge/ an item (knowledge.found, .changed, .retired), with how many briefs carried it; each decision of decisions.md whose ergostat.decision is in no state proposed; a file it cannot read stops it with nothing recorded
     run: python3 dev/bin/knowledge.py sync
     every: 10m
     timeout: 2m
     out: flow.lessons-added
+  lesson-settle:
+    type: program
+    system: knowledge
+    description: each proposed lesson whose knowledge-change the coordinator denied, settled denied with who and why (lesson.py settle); a denial by the gate is no decision, and a record it cannot read stops it with nothing written
+    run: python3 dev/bin/lesson.py settle
+    every: 10m
+    timeout: 2m
+    out: flow.lessons-denied
   approve-lesson:
     type: external
     system: knowledge

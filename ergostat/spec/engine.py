@@ -94,6 +94,7 @@ def every_pass(b: Block) -> bool:
 
 class Engine:
     incremental = True                                 # a pass works out only what changed (False: everything, each pass)
+    lock_wait = 5.0                                    # seconds ``close`` waits for a lock it stops under, at most
 
     def __init__(self, project, say=print):
         self.p, self.say = project, say
@@ -798,6 +799,10 @@ class Engine:
                "outputs": {p: [str(r) for r in rs] for p, rs in b.outputs.items()}}
         if stale := self.stale_in(b):
             out["stale"] = {k: round(v, 1) for k, v in stale.items()}
+        if self.spec.improve.reviewed and b.type in ("ai", "person"):   # an author: the reviewer's verdicts on its changes
+            from ..numbers import reviewer as rv
+            if said := rv.memory(self.p, b.name):
+                out["reviewer"] = said
         law = {k: b.params[k] for k in ("gain", "integral-time", "deadband", "resolution", "limits") if b.params.get(k) is not None}
         if law:
             out["params"] = law                                   # its control law's constants, as the model writes them
@@ -951,6 +956,8 @@ class Engine:
                     note = refused or f"could not start: {e}"
                 else:
                     old.LIVE.add(proc)
+                    if self.stop.is_set():                       # this engine stopping (set before its kill_all): it may
+                        old._kill(proc)                          # have missed this run (not STOPPING: process-wide)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
@@ -1734,7 +1741,14 @@ class Engine:
                                                              "record": round(time.monotonic() - took, 3)}}
 
     def close(self) -> None:
-        self.stop.set()
+        # Set under the lock: a lease taken past this waits in ``running``. Never waited on for good (a lock held by
+        # something wedged, as the watchdog allows): a take needs the same lock to pass its check, so it sees the stop.
+        got = self.lock.acquire(timeout=self.lock_wait)
+        try:
+            self.stop.set()
+        finally:
+            if got:
+                self.lock.release()
         self.wake.set()
         if self.calls is not None:
             self.calls.close()
@@ -1746,6 +1760,10 @@ class Engine:
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
             time.sleep(0.05)
+        # A run still going: its lease given back, not counted (SPEC §9.5). Its process outlived kill_all (or a daemon
+        # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
+        # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
+        self.dispatch.give_back()
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 
