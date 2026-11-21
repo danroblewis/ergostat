@@ -36,3 +36,23 @@ depends-on: [split-verified-2]
 ## Size budget
 70 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built: everything above, the six acceptance tests passing. Notes for the review:
+- **Size.** 79 net lines in `dev/`: `measure.py` +56 (about 44 of code, the rest its docstring), `knowledge.yaml` +18,
+  `dev/README.md` +5. That is 9 over the 70. The overrun is the written-down claims (the docstring and README), which
+  lesson-8 asks to be exact about who is left out. The code alone is within budget.
+- **Choices taken where the definition is silent (the most reversible ones).**
+  - A split parent is a gap with a non-empty `children`.
+  - `split-overhead` takes only parents whose state is `merged` and whose `merged_at` is in the window.
+  - A parent with no usable `ai_cost_usd` of its own is also left out and named. "Usable" means missing, not a
+    number, negative or NaN is refused. This is a fifth reason, added so the parent's cost never counts as 0
+    (lesson-3).
+  - An unsplit gap with no usable cost is left out of its class's baseline, never counted as 0.
+- **Not run here.** `ergostat check` was refused as a shell command. The first join test covers it instead: it compares
+  the model's problems against main's, and it passed. The clone has no `origin` remote and `git fetch` was refused, so
+  origin/main was not merged. Local `main` has nothing the branch lacks. The unit suite and the four browser files were
+  not run by me: that is left to the factory's suites.
+- **Lesson-9.** I broke the guarded lines and the tests failed. Taking the last verdict failed the quality test. Dropping
+  the window failed both quality tests. Dropping the parent's own cost failed both overhead tests. Letting an unmerged
+  child through failed the leave-out test.
