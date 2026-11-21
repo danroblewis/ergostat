@@ -225,6 +225,19 @@ that, it runs off the screen one way while the screen is empty the other.
   than one row.
 - **A crossing costs the router less where a view has over 150 lines.** Its search is most of the routing time,
   and the bigger views' routing must stay within the page's bound.
+- **A large view's lines are routed in groups of at most 100, and a crossing is weighed only within a group**
+  (`routeparts.js`). Over 150 lines, each open system's own lines form a group and the rest a shared one, as before;
+  a group of more than 100 (the shared one included, which holds every line of a one-system view) is then parted. The
+  lines at a part with more than 8 of the group's lines (a hub), lines with an end that has no position, and, in the
+  shared group, lines at a part that also has a line of a system's group, stay shared. The rest are split where they
+  share no part, and a piece of more than 100 is cut into bands along its wider side, the lines between two bands
+  shared. What it guarantees: (i) every group but the shared one has at most 100 lines; (ii) two lines that share a
+  part and are both outside the shared group are in one group, so a net is split only between the shared group and
+  one other, at a hub, a band's edge or a part with lines of two groups; (iii) a group of n lines becomes at most
+  2·⌈n/100⌉ + 1 groups; (iv) a group of at most 100 lines is left as it was, so a view whose groups all are is
+  grouped as before. The shared group is not bounded by this: a cut where a chain runs across the band's axis can
+  share many lines. Past 100 lines it is routed with no weight on crossings, and the spacing pass that follows the
+  groups reroutes, unweighed, two lines of one point that cross.
 
 ## Fit against main
 

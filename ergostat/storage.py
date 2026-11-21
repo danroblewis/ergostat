@@ -17,7 +17,8 @@ suite holds them all to it (``tests/test_store_conformance.py``).
       items:
         idle: 1d                       # an item with no event for this long is read from the item index, not kept folded in memory
       logs:
-        block: 5MB                     # a block's log past this is cut to its last fifth, at its next run
+        block: 5MB                     # a block's log past this is cut to its last fifth, as a run's entry is added
+        runs: 50                       # each block's own run files kept (logs/runs/<block>/), 1 to 1000, newest by seq
         run: 5MB                       # run.log past this is moved to run.log.1, at each start and every hour
         threads: 1MB                   # threads.txt (kill -USR1's stacks) past this is cut to its last fifth
         transcripts: 30d               # a transcript unchanged this long is forgotten by transcripts.json, never read again
@@ -42,7 +43,8 @@ ROLLUP_AFTER = 7 * 86400.0
 EVERY = 3600.0
 ITEM_IDLE = 86400.0
 MB = 2**20
-LOGS = {"block": 5 * MB, "run": 5 * MB, "threads": MB, "transcripts": 30 * 86400.0}
+LOGS = {"block": 5 * MB, "runs": 50, "run": 5 * MB, "threads": MB, "transcripts": 30 * 86400.0}
+RUNS_MOST = 1000                                   # (runs: a count of files, held to 1 to this)
 
 
 @dataclass
@@ -156,6 +158,11 @@ def parse(raw, problems: list[str]) -> Storage:
             problems.append(f"storage.logs: unknown key {k!r} (known: {', '.join(LOGS)})")
         elif k == "transcripts":
             s.logs[k] = _dur(v, "storage.logs.transcripts", problems) or LOGS[k]
+        elif k == "runs":
+            if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= RUNS_MOST:
+                s.logs[k] = v
+            else:
+                problems.append(f"storage.logs.runs: a whole number of run files from 1 to {RUNS_MOST}, not {v!r}")
         else:
             m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(KB|MB|GB)\s*", str(v), re.I)
             if m:
@@ -163,7 +170,7 @@ def parse(raw, problems: list[str]) -> Storage:
             else:
                 problems.append(f"storage.logs.{k}: a size, as 500KB, 5MB or 1GB")
     if lg is not None and not isinstance(lg, dict):
-        problems.append("storage.logs: a map (block:, run:, threads:, transcripts:)")
+        problems.append("storage.logs: a map (block:, runs:, run:, threads:, transcripts:)")
     return s
 
 

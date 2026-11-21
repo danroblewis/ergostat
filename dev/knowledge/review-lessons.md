@@ -39,7 +39,9 @@ and again at run time (counting the ones still draining).
 
 ## 5. Stale state surviving under a reused id
 Items are keyed by their subject, so a thing made again gets the same id and the fold merges old fields into it.
-Seen as: an old `pass` applying to a new version; an old `revise` sticking forever; a cancelled id never cleared.
+Seen as: an old `pass` applying to a new version; an old `revise` sticking forever; a cancelled id never cleared;
+two distinct approved facts truncated to the same 32-char slug share one id, so block() merges both texts and sync
+flip-flops knowledge.changed each pass.
 **Check:** when an item is made again, which old fields must be cleared? Test the same-id remake.
 
 ## 6. Work that keeps running after it was cancelled
@@ -64,7 +66,12 @@ host, and the end-to-end tests that cover the changed stderr path were skipped.
 Docs and docstrings claiming "never", "each side ≤ 5%", "never the repair", "found" for a check that a trivial
 change passes.
 Seen as: a benchmark's "found" accepting `MIN(x, 1e9)` and an equation of `0`; planted hints that named the answer; an
-"anytime-valid" bound that assumed independent stocks; a guard described as safe that was a denylist.
+"anytime-valid" bound that assumed independent stocks; a guard described as safe that was a denylist;
+merge-batching: merges-per-hour counting only runs that merged, stamped at land time, so failed, conflicted and tail
+suite runs were dropped while the docs said all of the queue's runs.
+"anytime-valid" bound that assumed independent stocks; a guard described as safe that was a denylist; a schema that
+SPEC §9.5 calls the machine-checkable form of the spec still typing `pool` as an integer only, so the documented
+mapping form and the factory's own building.yaml were refused, and no test checked it.
 **Check:** for each claim in the docs, name the test that would fail if it were false. If there isn't one, narrow the
 claim or write the test. Prefer allowlists to denylists for anything called a guard.
 *About:* goal.first-pass-good.
@@ -97,7 +104,9 @@ changed or why it stays; a non-blocking finding left unanswered becomes blocking
 
 ## 13. Stay inside the gap: an unrelated failure is reported, not fixed in the branch
 Seen as: continue-branch: a lease-renewal test failed under load; the implementor wrote its own lease fix into the
-branch, and the review failed the gap on it.
+branch, and the review failed the gap on it; external-event-logs: a scratch mutation script that rewrites ergostat
+source (.mut/mut.py, 1e563e30), committed to the branch outside the gap and counted against the size limit (its 55
+lines the whole overrun), still committed when raised for the fifth round.
 **Check:** when a suite fails on something your change did not touch, name the test and why it is unrelated in your
 report and stop there; a fix outside the definition of done belongs in its own gap
 *About:* goal.first-pass-good, goal.flakes-rare.

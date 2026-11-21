@@ -341,6 +341,60 @@ def test_a_duplicate_close_that_would_close_a_cycle_is_refused_and_nothing_is_wr
     assert "~ gap/d waits on gap/one instead of gap/a" in gaps[0] and gaps[1] == []   # the re-pointing shown
 
 
+# ---- a link the coordinator refused is not proposed again
+
+LINKS = {"links_add": [["gap/three", "gap/one", "it builds on one"], ["gap/three", "gap/two", "it needs two"]]}
+
+
+def proposal(f: Instance) -> str:
+    p = f.model / "run" / "backlog" / "links.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(LINKS))
+    return str(p)
+
+
+def test_a_refused_link_is_not_proposed_again(tmp_path):
+    f = seeded(tmp_path)
+    f.tool("backlog.py", "refuse-link", "three", "one", "--why", "its definition names no need of one")
+    rec = [json.loads(x) for x in (f.model / "run" / "backlog" / "refused-links.jsonl").read_text().splitlines()]
+    assert [(r["gap"], r["depends_on"], r["why"]) for r in rec] == [
+        ("gap/three", "gap/one", "its definition names no need of one")]
+    out = f.tool("backlog.py", "propose", proposal(f)).stdout
+    assert "+ gap/three waits on gap/one" not in out and "+ gap/three waits on gap/two: it needs two" in out
+    assert ("! refused: link gap/three -> gap/one: refused before by the coordinator "
+            "(its definition names no need of one)") in out
+    assert f.drain() == []                                              # propose writes nothing
+    said, _ = f.run("backlog.py", argv=("groom",), FACTORY_STANDIN_GROOMER="```json\n" + json.dumps(LINKS) + "\n```")
+    act = f.db()["acts"][-1]
+    args = dict(a.split("=", 1) for a in act[act.index("--arg") + 1::2])
+    assert args["summary"].startswith("1 links added")                  # the groomer's proposal drops it too
+    f.tool("backlog.py", "apply", args["proposal"])
+    f.drain()
+    assert f.item("gap/three")["fields"]["depends_on"] == ["gap/two"]
+
+
+def test_an_explicit_dep_add_clears_a_refused_link(tmp_path):
+    f = seeded(tmp_path)
+    f.tool("backlog.py", "refuse-link", "three", "one", "--why", "not needed")
+    f.tool("backlog.py", "dep", "add", "three", "one")                  # the coordinator's own decision: it applies
+    f.drain()
+    assert f.item("gap/three")["fields"]["depends_on"] == ["gap/one"]
+    assert json.loads((f.model / "run" / "backlog" / "refused-links.jsonl").read_text().splitlines()[-1])["cleared"]
+    f.tool("backlog.py", "dep", "rm", "three", "one")
+    f.drain()
+    out = f.tool("backlog.py", "propose", proposal(f)).stdout
+    assert "+ gap/three waits on gap/one: it builds on one" in out and "refused before" not in out
+
+
+def test_an_unreadable_refusal_file_stops_nothing(tmp_path):
+    f = seeded(tmp_path)
+    f.tool("backlog.py", "refuse-link", "three", "one", "--why", "not needed")
+    (f.model / "run" / "backlog" / "refused-links.jsonl").write_text('{"gap": "gap/three", "depends_on": "gap/one"\n')
+    out = f.tool("backlog.py", "propose", proposal(f)).stdout
+    assert "+ gap/three waits on gap/one: it builds on one" in out and "+ gap/three waits on gap/two" in out
+    assert "! refused: refused-links.jsonl could not be read, so it refuses no link" in out
+
+
 # ---- a split never abandons built work
 
 CHECK = ("import backlog, fac; fac.cli(fac.config()); g = {x['id']: x for x in fac.items('gap')}\n"

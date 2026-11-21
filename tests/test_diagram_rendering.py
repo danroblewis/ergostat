@@ -1285,6 +1285,45 @@ def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_o
     assert not errors, errors
 
 
+def test_a_snapshot_lists_a_process_lines_items(browser, tmp_path):
+    """From the file (snapshot_sets.py): a process map node's panel and a line's list their items, and the line's
+    Items page link shows them; nothing says "not in this snapshot", and nothing is asked of a server."""
+    from ergostat.web.snapshot import build
+    from tests.test_snapshot_sets import sets_project
+    (tmp_path / "m").mkdir()
+    out = tmp_path / "snapshot.html"
+    out.write_text(build(sets_project(tmp_path / "m")))
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors, asked = [], []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
+             else (asked.append(rt.request.url), rt.abort()))
+    pg.goto(f"file://{out}#/diagram?view=process")
+    pg.wait_for_function(READY, timeout=60000)
+    listed = "() => [...document.querySelectorAll('#detail .item-set table.item-list a')].map((a) => a.textContent).sort()"
+    pg.evaluate("() => openProcessNode(S.graph.nodes.find((n) => n.itemKind === 'ticket' && n.activity === 'awaiting'))")
+    pg.wait_for_selector("#detail .item-set table.item-list", timeout=20000)
+    assert pg.evaluate(listed) == [f"ticket/{i}" for i in range(1, 7)]
+    assert "not in this snapshot" not in pg.locator("#detail").inner_text()
+    for kind, want in (("caused", ["ticket/1", "ticket/2"]), ("follows", None)):
+        e = pg.evaluate(f"() => S.graph.edges.filter((e) => e.kind === '{kind}').sort((a, b) => b.count - a.count)[0]")
+        pg.evaluate("(id) => openProcessEdge(S.graph.edges.find((e) => e.id === id))", e["id"])
+        pg.wait_for_selector("#detail .item-set table.item-list", timeout=20000)
+        got = pg.evaluate(listed)
+        assert got == (want or got) and len(got) == min(10, e["items"]), (kind, got, e)
+        assert "not in this snapshot" not in pg.locator("#detail").inner_text()
+    pg.locator("#detail .item-set a[href^='#/items?']").first.click()          # the follows line's set
+    pg.wait_for_selector(".set-chip", timeout=20000)
+    pg.wait_for_function("(n) => [...document.querySelectorAll('.page table td:first-child')]"
+                         ".filter((t) => t.textContent.trim().startsWith('ticket/')).length === n", arg=len(got), timeout=20000)
+    shown = pg.evaluate("() => [...document.querySelectorAll('.page table td:first-child')].map((t) => t.textContent.trim())"
+                        ".filter((t) => t.startsWith('ticket/')).sort()")
+    assert shown == got
+    assert "not in this snapshot" not in pg.locator(".page").inner_text()
+    pg.close()
+    assert not errors and not asked, (errors, asked)
+
+
 # ---- the Process view in hand: the same dragging, pinning and unpinning as the other views (interact.js, places.js)
 
 PM_SLANTED = """() => {
@@ -2578,6 +2617,68 @@ def test_a_closed_systems_panel_charts_its_measures(browser, tmp_path):
         assert "…" != got["text"].strip(), got                 # it answered: charts, or "nothing measured"
 
 
+def test_the_system_panel_names_stocks_to_aggregate(browser, tmp_path, monkeypatch):
+    """A system whose chain of stocks no loop beyond each stock's own drove over the window says so in an
+    `aggregate` row of its panel (from /api/dominance); a system with no such chain has no row."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from tests.test_aggregation import CHAIN
+    d = tmp_path / "plant"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CHAIN.replace("stocks:\n", "stocks:\n  e:\n    unit: x\n    system: other\n    sensor:\n"
+                                                   "      manual: true\n", 1)
+                                     + "  oute:\n    from: e\n    system: other\n    driven-by: +stock.e\n    equation: stock.e / tau\n"
+                                     + "  ine:\n    to: e\n    system: other\n    sensor:\n      manual: true\n")
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # the server is given it too
+    p = Project(mdl.load(d))
+    now = time.time()
+    for i in range(61):
+        t = now - 3600 + i * 60
+        p.measurements.add("sensor/in.main", 10 + 8 * math.sin(i / 5), at=t)
+        p.measurements.add("sensor/ine.main", 10 + 8 * math.cos(i / 5), at=t)
+        for s in "abce":
+            p.measurements.add(f"sensor/{s}.main", 2.0, at=t)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    raise AssertionError("the page never answered") from None
+                time.sleep(0.2)
+        got = json.loads(urllib.request.urlopen(url + "/api/dominance?since=1h&points=120", timeout=60).read())
+        assert [(g["system"], g["stocks"]) for g in got["aggregate"]] == [("plant", ["stock.a", "stock.b", "stock.c"])], got
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics", 0)                        # everything closed: each system a module
+        row = """() => { const dt = [...document.querySelectorAll('#detail dt')].find((x) => x.textContent === 'aggregate');
+                         return dt ? dt.nextElementSibling.textContent : null; }"""
+        pg.evaluate("() => openNode(S.graph.nodes.find((x) => x.kind === 'system' && x.label === 'plant'))")
+        pg.wait_for_function(row, timeout=20000)
+        assert pg.evaluate(row) == got["aggregate"][0]["said"]
+        assert "stock.a, stock.b, stock.c: a candidate to aggregate into one delay" in pg.evaluate(row)
+        asked = ("() => performance.getEntriesByType('resource')"
+                 ".filter((r) => r.name.includes('/api/dominance') && r.responseEnd > 0).length")
+        before = pg.evaluate(asked)
+        pg.evaluate("() => openNode(S.graph.nodes.find((x) => x.kind === 'system' && x.label === 'other'))")
+        pg.wait_for_function("() => document.querySelector('#detail h2')?.textContent === 'other'", timeout=5000)
+        pg.wait_for_function(f"() => ({asked})() > {before}", timeout=20000)   # its own answer came, and gave it no row
+        pg.wait_for_timeout(300)
+        assert pg.evaluate(row) is None
+        assert not errors, errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(browser, tmp_path):
     """Clicking a flow's valve (the bowtie) opens the valve: the rate of the flow, its inputs (the
     connectors into it, each signed) and its equation, or what of it is not known yet; clicking its
@@ -3345,3 +3446,319 @@ def test_a_remote_boxs_panel_dims_a_stale_measure_and_shows_its_age(browser, tmp
                                                              { part: "stock:incidents-waiting", missing: true }] })""") is None
         assert not errors, errors
         pg.close()
+
+
+# ---- one large system's lines routed in parts (routeparts.js: partGroups)
+
+PART_GROUPS = "([c, a, g]) => partGroups(c, a, g)"
+CAP = 100                                              # routeparts.js GROUP_CAP and SHARED_CAP
+HUB_OVER = 8                                           # routeparts.js HUB
+
+
+@pytest.fixture(scope="module")
+def parts_page(browser, tmp_path_factory):
+    """A served page, for partGroups on lines made up here (no DOM, no router: it is pure)."""
+    with served("software-factory", tmp_path_factory.mktemp("parts")) as url:
+        pg = browser.new_page()
+        pg.goto(f"{url}/diagram", timeout=DRAWN_S * 1000)
+        pg.wait_for_function("() => typeof partGroups === 'function'", timeout=DRAWN_S * 1000)
+        yield pg
+        pg.close()
+
+
+def chain(parts: int = 261) -> tuple[list[dict], dict, dict]:
+    """A straight chain along x, each part joined to the next (conns[i] from the i-th to the next); the parts' and the
+    lines' ids in no order of x, so that only their positions put them in order."""
+    import random
+    ids = [f"p{n:03d}" for n in random.Random(3).sample(range(parts), parts)]
+    lines = [f"l{n:03d}" for n in random.Random(4).sample(range(parts - 1), parts - 1)]
+    conns = [{"id": lines[i], "s": ids[i], "t": ids[i + 1]} for i in range(parts - 1)]
+    return conns, {p: [i * 10, 0] for i, p in enumerate(ids)}, {c["id"]: "s0" for c in conns}
+
+
+def check_parts(conns: list[dict], given: dict, at: dict, out: dict) -> dict:
+    """The guarantees (routeparts.js) on a grouping: (i) each group but "" within the cap; (ii) a part's lines outside ""
+    all in one group; every line in "" there for a reason: it touches a hub of its group, an end has no position, its
+    ends lie in two different groups' parts (a band's edge), or it was in "" at a part with a line of another group
+    given. Its group sizes, by name."""
+    sizes: dict[str, int] = {}
+    for c in conns:
+        sizes[out[c["id"]]] = sizes.get(out[c["id"]], 0) + 1
+    assert all(n <= CAP for g, n in sizes.items() if g), sizes                                       # (i)
+    part_group: dict[str, set] = {}
+    for c in conns:
+        if out[c["id"]]:
+            for p in (c["s"], c["t"]):
+                part_group.setdefault(p, set()).add(out[c["id"]])
+    assert all(len(x) == 1 for x in part_group.values()), {p: x for p, x in part_group.items() if len(x) > 1}   # (ii)
+    degree: dict[tuple, int] = {}
+    for c in conns:
+        for p in {c["s"], c["t"]}:
+            degree[(given[c["id"]], p)] = degree.get((given[c["id"]], p), 0) + 1
+    grouped = {p for c in conns if given[c["id"]] for p in (c["s"], c["t"])}
+    for c in conns:
+        if out[c["id"]]:
+            continue
+        g, s, t = given[c["id"]], c["s"], c["t"]
+        hub = degree[(g, s)] > HUB_OVER or degree[(g, t)] > HUB_OVER
+        # (a band's edge: its ends not both in one group. Not "in two groups": a part may join a band with no line to
+        # its parts yet, both its lines then cross, and it is in no group itself. Every line in "" passes this, so the
+        # tests also count the groups)
+        bands = not (s in part_group and t in part_group and part_group[s] == part_group[t])
+        edge = g == "" and (s in grouped or t in grouped)
+        assert hub or s not in at or t not in at or bands or edge, f"{c['id']} in \"\" for no reason"
+    return sizes
+
+
+def bound(n: int) -> int:                               # guarantee (iii): the most groups a group of n lines is parted into
+    return 2 * -(-n // CAP) + 1
+
+
+def test_a_chain_over_the_cap_is_cut_into_bands(parts_page):
+    conns, at, given = chain()
+    r = parts_page.evaluate(PART_GROUPS, [conns, at, given])
+    sizes = check_parts(conns, given, at, r["groups"])
+    bands = sorted(g for g in sizes if g)
+    assert len(bands) >= 3 and all(g.startswith("s0#") for g in bands), sizes
+    shared = sorted(i for i, g in r["groups"].items() if g == "")
+    assert len(shared) == len(bands) - 1, (shared, sizes)            # one line at each cut, and only those
+    assert sizes == {"s0#0": CAP, "s0#1": CAP, "s0#2": 58, "": 2}, sizes   # each band as full as the cap lets it
+    assert len(sizes) <= bound(len(conns)) and not r["free"]
+    # the same inputs as sets: the lines in another order, the positions in reverse key order
+    import random
+    mixed = conns[:]
+    random.Random(7).shuffle(mixed)
+    again = parts_page.evaluate(PART_GROUPS, [mixed, dict(reversed(list(at.items()))), given])
+    assert again == r
+
+
+def test_a_part_with_more_than_eight_lines_is_a_hub_and_its_lines_alone_go_to_the_shared_group(parts_page):
+    conns, at = [], {"hub": [-50, 300]}
+    for k in range(12):                                 # 12 chains of 11 lines, and a line from the hub to each one's first
+        for i in range(12):
+            at[f"c{k:02d}p{i:02d}"] = [i * 10, k * 50]
+        conns += [{"id": f"c{k:02d}l{i:02d}", "s": f"c{k:02d}p{i:02d}", "t": f"c{k:02d}p{i + 1:02d}"} for i in range(11)]
+        conns.append({"id": f"h{k:02d}", "s": "hub", "t": f"c{k:02d}p00"})
+    given = {c["id"]: "s0" for c in conns}
+    assert len(conns) == 144
+    r = parts_page.evaluate(PART_GROUPS, [conns, at, given])
+    sizes = check_parts(conns, given, at, r["groups"])                # (i), (ii), and a reason for each "" line
+    assert sorted(i for i, g in r["groups"].items() if g == "") == [f"h{k:02d}" for k in range(12)]
+    for k in range(12):
+        assert len({r["groups"][f"c{k:02d}l{i:02d}"] for i in range(11)}) == 1, f"chain {k} split"
+    assert len(sizes) <= bound(len(conns)), sizes                     # (iii)
+
+
+def test_groups_within_the_cap_are_returned_unchanged(parts_page):
+    conns = [{"id": f"l{i:03d}", "s": f"p{i:03d}", "t": f"p{i + 1:03d}"} for i in range(210)]
+    at = {f"p{i:03d}": [i * 10, 0] for i in range(211)}
+    given = {c["id"]: ("a" if i < 100 else "b" if i < 160 else "") for i, c in enumerate(conns)}
+    r = parts_page.evaluate(PART_GROUPS, [conns, at, given])
+    assert r == {"groups": given, "free": False}
+
+
+def test_a_part_with_no_position_sends_its_lines_to_the_shared_group(parts_page):
+    conns, at, given = chain()
+    # the 51st part along x, its lines conns[49] and conns[50]: taken as at 0, it would be in its neighbours' band
+    del at[conns[50]["s"]]
+    r = parts_page.evaluate(PART_GROUPS, [conns, at, given])
+    assert r["groups"][conns[49]["id"]] == "" and r["groups"][conns[50]["id"]] == ""
+    sizes = check_parts(conns, given, at, r["groups"])
+    assert sum(1 for g in sizes if g) >= 3, sizes
+
+
+def test_the_shared_group_over_the_cap_is_parted_and_keeps_its_lines_at_a_systems_parts(parts_page):
+    # an open system a (60 lines) and "" over the cap: a chain of 120 lines between parts in no system, and 10 lines
+    # from it to a's parts; those 10 stay in "" (else they would share an end with a's lines in another group: (ii))
+    conns = [{"id": f"a{i:03d}", "s": f"pa{i:03d}", "t": f"pa{i + 1:03d}"} for i in range(60)]
+    conns += [{"id": f"x{i:03d}", "s": f"px{i:03d}", "t": f"px{i + 1:03d}"} for i in range(120)]
+    conns += [{"id": f"e{i}", "s": f"px{i * 10:03d}", "t": f"pa{i * 6:03d}"} for i in range(10)]
+    at = {**{f"pa{i:03d}": [i * 10, 0] for i in range(61)}, **{f"px{i:03d}": [i * 10, 200] for i in range(121)}}
+    given = {c["id"]: "a" if c["id"].startswith("a") else "" for c in conns}
+    r = parts_page.evaluate(PART_GROUPS, [conns, at, given])
+    out = r["groups"]
+    sizes = check_parts(conns, given, at, out)
+    assert all(out[f"a{i:03d}"] == "a" for i in range(60))             # (iv): a, within the cap, as it was
+    assert all(out[f"e{i}"] == "" for i in range(10))
+    assert sorted(sizes) == ["", "#0", "#1", "a"] and sizes[""] == 11, sizes   # the chain in two bands, one line between
+    assert len(sizes) - 1 <= bound(130) and not r["free"]
+
+
+def hubs_of_ten(n: int, extra: int = 0) -> tuple[list[dict], dict]:
+    """n hubs of 10 lines each, and a chain of extra lines."""
+    conns = [{"id": f"h{j:02d}l{i}", "s": f"h{j:02d}", "t": f"h{j:02d}x{i}"} for j in range(n) for i in range(10)]
+    conns += [{"id": f"z{i:03d}", "s": f"z{i:03d}", "t": f"z{i + 1:03d}"} for i in range(extra)]
+    parts = sorted({x for c in conns for x in (c["s"], c["t"])})
+    return conns, {p: [k * 7, (k * 13) % 50] for k, p in enumerate(parts)}
+
+
+def test_the_shared_group_over_its_cap_is_routed_free(parts_page, browser, tmp_path):
+    # pure: 15 hubs of 10 lines each are all in "" and it is free; at exactly SHARED_CAP (given in "" or in a group) it
+    # is not yet
+    conns, at = hubs_of_ten(15)
+    given = {c["id"]: "s0" for c in conns}
+    r = parts_page.evaluate(PART_GROUPS, [conns, at, given])
+    check_parts(conns, given, at, r["groups"])
+    assert sum(1 for g in r["groups"].values() if g == "") == 150 and r["free"] is True
+    conns, at = hubs_of_ten(10, 20)
+    for name in ("s0", ""):
+        given = {c["id"]: name for c in conns}
+        r = parts_page.evaluate(PART_GROUPS, [conns, at, given])
+        check_parts(conns, given, at, r["groups"])
+        assert sum(1 for g in r["groups"].values() if g == "") == CAP and r["free"] is False, (name, r)
+        assert {g for g in r["groups"].values() if g} == {f"{name}#0"}, r
+    # end to end: 12 valves each driving the 10 flows of a chain, in one system (12 lines at each: 144 in "")
+    with model_served(tmp_path, hub_chains()) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=s0", 0)
+        got = pg.evaluate(SPEC_GROUPS)
+        pg.close()
+    shared = sum(1 for g in got["groups"].values() if g == "")
+    print(f"hubs: {len(got['conns'])} lines, \"\" {shared}, prof {got['prof']}")
+    assert shared > CAP and got["penalties"] == {"": 0}
+    assert got["prof"]["free"] == shared == got["prof"]["shared"], got["prof"]
+    assert got["invalid"] == 0 and not errors, (got["invalid"], errors)
+
+
+# the routed view's lines, its groups and what the router said of them
+SPEC_GROUPS = """() => { const s = avoidSpec(S.layout, S.graph);
+  return { groups: s.groups, penalties: s.penalties || null, conns: s.conns.map((c) => ({ id: c.id, s: c.s, t: c.t })),
+           at: Object.fromEntries(s.shapes.map((x) => [x.id, [x.x + x.w / 2, x.y + x.h / 2]])),
+           edges: S.graph.edges.map((e) => [e.id, e.source, e.target]), prof: AV.prof, invalid: AV.invalid }; }"""
+
+
+@contextlib.contextmanager
+def model_served(tmp_path: Path, model: str):
+    """A generated model's page, served (the model is not run)."""
+    d = tmp_path / "model"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(model)
+    port = free_port()
+    log = tmp_path / "web.log"
+    with log.open("w") as err:
+        proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                                env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}, stdout=err, stderr=err)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    raise AssertionError(f"the model's page never answered: {log.read_text()[-2000:]}") from None
+                time.sleep(0.2)
+        yield url
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+def hub_chains(hubs: int = 12, each: int = 10) -> str:
+    """One system: `hubs` chains of `each` flows between stocks, and a flow by each (draining the chain's first stock)
+    driving every flow of its chain. (Shaped otherwise it was worse to test with: each ten flows filling one stock took
+    minutes to route; one long chain of 120 flows left a line libavoid found no way for, grouped as on main too.)"""
+    stocks, flows = ["stocks:"], ["flows:"]
+    for j in range(hubs):
+        stocks += [f"  c{j}-{i}:\n    system: s0\n    unit: jobs\n    sensor:\n      manual: true" for i in range(each + 1)]
+        flows += [f"  h{j}:", "    system: s0", f"    from: c{j}-0"]
+        flows += [f"  d{j}-{i}:\n    system: s0\n    from: c{j}-{i}\n    to: c{j}-{i + 1}\n    driven-by: flow.h{j}"
+                  for i in range(each)]
+    return "name: hubs\nsystems:\n  s0:\n    description: one system\n" + "\n".join(stocks + flows) + "\n"
+
+
+def one_system(chains: list[int], hub: bool) -> str:
+    """One system of chains of stocks, a flow between each two (as big_model writes them); with hub, one flow driving
+    each chain's first flow."""
+    stocks, flows = ["stocks:"], ["flows:"]
+    for k, n in enumerate(chains):
+        for i in range(n):
+            stocks += [f"  q{k}-{i}:", "    system: s0", "    unit: jobs", "    sensor:", "      manual: true"]
+            if i + 1 < n:
+                flows += [f"  f{k}-{i}:", "    system: s0", f"    from: q{k}-{i}", f"    to: q{k}-{i + 1}"]
+                if hub and i == 0:
+                    flows.append("    driven-by: flow.hub")
+    if hub:
+        stocks += ["  qhub:", "    system: s0", "    unit: jobs", "    sensor:", "      manual: true"]
+        flows += ["  hub:", "    system: s0", "    to: qhub"]
+    return "name: one\nsystems:\n  s0:\n    description: one system\n" + "\n".join(stocks + flows) + "\n"
+
+
+@pytest.mark.slow
+@pytest.mark.serial
+def test_one_systems_lines_are_routed_in_parts(browser, tmp_path):
+    with model_served(tmp_path, one_system([8] * 12, hub=True)) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=s0", 0)
+        first, final = pg.evaluate(TIMED)
+        r = pg.evaluate(AUDIT)
+        got = pg.evaluate(SPEC_GROUPS)
+        pg.close()
+    conns, out = got["conns"], got["groups"]
+    print(f"one system: {len(conns)} lines, routed {final:.0f}ms, {got['prof']['groups']} groups, "
+          f"\"\" {got['prof']['shared']}, net crossings {len(r['netCrossings'])}")
+    assert len(conns) > 150 and got["prof"]["groups"] >= 3
+    # "" counted on its own: the lines at a part with more than HUB of the view's lines (in a one-system view no part
+    # is in an open system, so every line is in "" before the parting: the view's lines are the group's)
+    ids = {c["id"] for c in conns}
+    degree: dict[str, int] = {}
+    for eid, s, t in got["edges"]:
+        if eid in ids:
+            for p in {s, t}:
+                degree[p] = degree.get(p, 0) + 1
+    hubs = {eid for eid, s, t in got["edges"] if eid in ids and (degree[s] > HUB_OVER or degree[t] > HUB_OVER)}
+    assert hubs and {i for i, g in out.items() if g == ""} == hubs
+    sizes = check_parts(conns, {c["id"]: "" for c in conns}, got["at"], out)     # (i), (ii)
+    assert len(sizes) <= bound(len(conns)), sizes                                   # (iii)
+    assert got["invalid"] == 0 and not errors, (got["invalid"], errors)
+    assert not r["through"] and not r["detour"], (r["through"][:5], r["detour"][:5])
+    assert final < ROUTED_BOUND_MS, f"routed in {final:.0f}ms"
+
+
+@pytest.mark.slow
+@pytest.mark.serial
+def test_one_long_chain_with_no_hub_is_routed_in_bands(browser, tmp_path):
+    with model_served(tmp_path, one_system([90], hub=False)) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=s0", 0)
+        r = pg.evaluate(AUDIT)
+        got = pg.evaluate(SPEC_GROUPS)
+        drawn(pg, url, "system=s0", 1)                                # a reload: the same groups
+        again = pg.evaluate(SPEC_GROUPS)
+        pg.close()
+    conns, out = got["conns"], got["groups"]
+    print(f"one chain: {len(conns)} lines, {got['prof']['groups']} groups, \"\" {got['prof']['shared']}")
+    assert len(conns) > 150
+    sizes = check_parts(conns, {c["id"]: "" for c in conns}, got["at"], out)
+    assert sum(1 for g in sizes if g) >= 2, sizes
+    # every line in "" at a band's edge (checked in check_parts: its ends not in one group; where the chain runs across
+    # the axis, its parts may join a band with no line to it, so that many lines cross at one cut)
+    shared = [c for c in conns if out[c["id"]] == ""]
+    assert shared and len(shared) <= CAP, len(shared)
+    assert again["groups"] == out
+    assert got["invalid"] == 0 and not errors, (got["invalid"], errors)
+    assert not r["through"] and not r["detour"], (r["through"][:5], r["detour"][:5])
+
+
+def test_a_snapshot_page_still_routes_its_lines(browser, tmp_path, monkeypatch):
+    """No snapshot test routes a large view: the parting (routeparts.js) is at least inlined in a snapshot page."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    d = tmp_path / "first-loop"
+    shutil.copytree(ROOT / "examples" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    out = tmp_path / "snapshot.html"
+    out.write_text(build(Project(mdl.load(d))))
+    pg = browser.new_page()
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:")) else rt.abort())
+    pg.goto(f"file://{out}")
+    assert pg.evaluate("() => typeof partGroups") == "function"
+    pg.close()

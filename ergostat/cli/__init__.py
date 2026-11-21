@@ -68,6 +68,7 @@ see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
   item           The items (ticket/12): each one's kind, state and fields, folded from its events; --search WORDS
+                 (ID --near [N], ID --path B, ID --about: what its relations and mentions reach, 2,000 items at most)
   lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
   decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
   corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
@@ -214,6 +215,9 @@ def build() -> argparse.ArgumentParser:
                                                      "characters of each item's text)")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
+    i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N hops (1-4, default 1)")
+    i.add_argument("--path", dest="path_to", metavar="B", help="with an item: a shortest chain of relations to B, either way")
+    i.add_argument("--about", dest="about_item", action="store_true", help="with an item: what relates to it or names its id")
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")
     ls.add_argument("--redrive", action="store_true", help="with ITEM: give a dead letter another go (its attempts from nothing)")
     ls.add_argument("--to", metavar="STATE", help="with --redrive: the state it goes back to (default: where it was taken from)")
