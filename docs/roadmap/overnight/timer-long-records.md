@@ -49,3 +49,9 @@ rewritten times.yaml. Until then, the last sentence of the definition of done is
 
 Not run: the whole unit suite and the four browser files (the factory runs them under the watchdog). There is no origin
 remote in this clone; local `main` (3e006736) is already an ancestor of the branch.
+
+## Where it stopped
+
+Parked by the factory (review/timer-long-records-1, 2026-11-21 04:42).
+
+Done: a long record (past the 500 events `ergostat item --json` carries) is read through the real `ergostat event --item ID --type gap.*,ergostat.item.snapshot --json -n N`, with a ceiling (LONGEST) and a full page counted as unreadable. One unreadable gap keeps its bookmark, the others are timed, the bookmark is saved, and the run fails naming it. `times.py setpoints` stamps a `# setpoints:` line in dev/model/times.yaml. The two acceptance tests run the real command. Left: the definition's last sentence, setpoints derived from the record once and committed. This needs `python3 dev/bin/times.py setpoints` run in the instance's folder, which no implementor container has, so another fix round cannot finish it. Either someone with the instance runs it on this branch and commits the rewritten times.yaml (then it can be reviewed for merge), or the owner moves that sentence to its own gap done in the instance and this branch is judged on the timer part alone.
