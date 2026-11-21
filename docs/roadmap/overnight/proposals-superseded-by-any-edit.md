@@ -232,3 +232,11 @@ No code was changed: no test failed, and I found nothing in the code to fix. The
 different places (cut short at 32%, a lease test, a lease test and a warm test, cut short at 14%). None of them is in
 a test this branch touches. If the next run is cut short again, read the watchdog's JSON line (which limit was hit,
 the peak threads and RSS) first.
+
+**Round 3.** No review findings came with this round, so there was nothing to fix. `main` is still an ancestor of the
+branch and there is no `origin` here, so there was nothing to merge (lesson-7 stays with the coordinator's merge). No
+code was changed. Run again here: `tests/test_churn_carry.py` (17 passed, 5.6 s), and the six named files in one
+invocation (`test_churn`, `test_modelling_core`, `test_modelling_core2`, `test_review`, `test_bench`, `test_improve`:
+109 passed, 37.9 s). Ruff is clean. Not run here: the whole unit suite, the four browser files and `suite_watch` (the
+brief leaves them to the factory). The earlier factory failures (two runs cut short, then the lease and warm timing
+tests) are still outside this gap, as said above.
