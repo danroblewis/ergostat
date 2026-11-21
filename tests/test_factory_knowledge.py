@@ -394,8 +394,7 @@ def test_the_knowledge_model_loads():
     assert [p for p in problems if p.level == "error"] == []
     assert {"research", "lesson"} <= set(spec.items) and "knowledge-change" in spec.actions
     assert {"planned", "replan", "split"} <= set(spec.items["gap"].states)
-    for name in ("planner", "researcher"):
-        assert spec.blocks[name].pool == 1
+    assert spec.blocks["planner"].pool == 12 and spec.blocks["researcher"].pool == 1
     assert spec.blocks["planner"].takes.at == ["open", "replan"] and spec.blocks["plan-review"].takes is None
     assert "ready" in spec.blocks["planner"].takes.to and "planned" not in spec.blocks["planner"].takes.to
     assert {"knowledge-entries", "gaps-planned", "lessons-proposed"} <= set(spec.stocks)
