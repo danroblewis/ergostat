@@ -262,3 +262,26 @@ None of those files is this gap's.
 
 Size: 231 net lines of code outside tests and docs (runlog.py 201, engine.py +20, storage.py +7, capture.py +3),
 budget 240.
+
+### Round 3, after the factory's unit run (3 failed, 1969 passed, 69 skipped)
+
+The merge of main was already committed (825696ef). There was nothing left to resolve.
+
+- **`tests/test_relations_asof.py::test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers`
+  (both parameters).** Fixed in the test, at the factory's request. Its two `"ready"` expectations are now
+  `"unblocked"`. That is the derived status's name in this branch's base: the backlog's rename (600535dc) changed
+  `precedence.status` and `tests/test_relations.py` the same way, but main's relations-as-of test came later and was
+  never updated. No code changed: precedence's vocabulary is the backlog's, and the web page (`relations.js`) already
+  draws `unblocked`. This is the most reversible choice. If the backlog lands with the old name restored, these two
+  words go back too. `test_relations_asof.py` and `test_relations.py` pass (27).
+- **`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`.** Not fixed (lesson-13).
+  It passes alone. `tests/test_leases.py` run whole twice here: once 20 passed; once
+  `test_leases_survive_a_restart_the_fold_is_the_truth` failed and then passed alone and in the next whole-file run.
+  So the lease tests are intermittent in this container too. The failing test has a 1 s TTL renewed by
+  `$ERGOSTAT_CMD event` processes, and under the suite's load (115 processes) the first of them can take over a
+  second to start, so the lease expires (`['expired', 'ack']`). Nothing this branch changed is on that path:
+  `runlog.open_run`/`finish`/`prune` add only a few uncontended per-block `flock`s and small writes, with no fsync and
+  no sleep. Neither lease test changed since 6b7e258e. I could not run main's own copy of the file to compare (not
+  allowed in this session), so "unrelated" rests on that reading, not on a run.
+
+ruff is clean.
