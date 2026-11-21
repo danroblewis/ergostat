@@ -192,3 +192,30 @@ No code changed this round. Run here at the branch's head, one batch of files at
 unit suite and the browser files. Budget not recounted this round; it is unchanged since round 4 (about 7 net lines
 over 100). Refused this session: a `git diff --numstat` piped through `awk` to recount the budget, which was
 chained after the second test batch (the batch was then run alone).
+
+After round 5's unit run failed (its tail: xdist up, then dots to 75%, mid-line, with no pytest summary and no
+`suite_watch` JSON line): not reproduced. No code changed, because reading found no defect. What the tail shows,
+going by the factory's own code:
+- `agents.suites` gives the suite no timeout of its own, so the run either ended by itself or was killed.
+  `suite_watch` turns a SIGTERM into a clean stop that still prints its JSON line (`_interrupted`). A log without that
+  line means `suite_watch` died by SIGKILL: either the suite container was killed (`agents.killed`, after the
+  implementor was stopped or raised) or the memory cgroup's OOM killer stepped in. The suite's `rc` and the
+  container's `OOMKilled` would tell which, and neither can be seen from this worktree.
+- A hung test of the branch could stall every worker only through `tests/conftest.py`'s run-wide lock. A `serial`
+  test waits to hold that lock alone, so a hung test holding it shared blocks each worker as that worker reaches a
+  serial test. That cannot explain the earlier run that stopped after 15 dots, before most workers reach any serial
+  test. A serial test that hung while holding the lock alone could. The serial files (`test_daemons`, `test_notify`,
+  `test_parallel_runs`, `test_watchdog`) passed here in 66 s (36 passed, 1 skipped). The slowest test took 8.5 s, and
+  none waited out a call's bound.
+- Every retry ends. `call` gives up at its bound: 5 s under the suite's `home` fixture, and 2 minutes only where a
+  test strips every `ERGOSTAT_` variable, which strips the socket too, so nothing retries. No loop in `client.py` or
+  `server.py` waits without a deadline, and nothing new holds `plock` across a wait (the job queue is unbounded).
+Run here, one file or batch at a time, all passing: `test_calls` (15), then `test_resilience`, `test_lease_kill`,
+`test_daemons_restart`, `test_gated_actions` (66), then `test_notify`, `test_parallel_runs`, `test_daemons`,
+`test_watchdog` (36 passed, 1 skipped). ruff is clean. Not run here: the whole unit suite and the browser files.
+Budget unchanged (about 7 net lines over 100). Refused this session: `git worktree add --detach /tmp/rsmain main`
+(to compare timings with main); test files a to i under `-n 8` with `suite_watch.py` and
+`-o faulthandler_timeout=240` (to catch a hung test's stack); `ps -A -o pid,ppid,etime,rss,command` after the
+restart tests (to look for processes they leave behind); and a heredoc append to this file chained with the commit.
+The next step needs the factory: the failed run's `rc`, its container's `OOMKilled`, and one unit run with
+`-o faulthandler_timeout=300`, which prints the stack of any test still running after 5 minutes.
