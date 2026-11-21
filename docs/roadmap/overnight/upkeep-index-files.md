@@ -198,3 +198,17 @@ refused in this session, so I could not reproduce the load or map the 40% positi
 unexplained, and no code changed in this round: a change made without knowing the failing test would be a guess
 (lesson-10, lesson-13). Next step: run the unit suite again with `-rf` (or read its full log) to name the test,
 then run it alone on this branch and on main (`alone`, `onmain.py`) to see whether this branch causes it.
+
+### Round 3 (after the factory merged main, 2b101c6)
+
+No code changed. Main's merge touched `spec/compile.py` and `spec/ir.py` (`messages: paused:`, `takes: order:`) far
+from this branch's lines (the `bad-measure` message, `UPKEEP`), and the two fit. Run after the merge, all passing:
+`tests/test_upkeep_template.py`, `tests/test_index_files.py`, `tests/test_templates.py` (56 passed); the files
+that check the docs or were changed by the merge, `test_backlog`, `test_factory`, `test_factory_knowledge`,
+`test_spec_schema`, `test_parity` (110 passed, 2 skipped); and every file that reaches `itemindex`, in one process
+so they share its module state as tests in one xdist worker do (`test_upkeep_template`, `test_index_files`,
+`test_item_index`, `test_counts`, `test_reload_safety`, `test_relations`, `test_resilience`: 170 passed). Ruff clean.
+`pytest-randomly` is not installed, so the order is fixed and a shuffled order is not the cause. The one `F` of the
+earlier `-n 8` run is still not named: this clone has no log of that run, and running the suite under `-n` is the
+factory's job. If it shows again, `-rf` names it. Then run that test alone on this branch and on main to decide
+whether it belongs to this gap (lesson-10, lesson-13).
