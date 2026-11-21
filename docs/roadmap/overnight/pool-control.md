@@ -370,3 +370,14 @@ passed (`-n 4`). Main's load-dependent files named in earlier parks (`test_lease
 pass too: 66 passed (`-n 4`). Ruff is clean (`ergostat tests scripts`). Left: a full `unit` run whose output reaches
 pytest's summary, so that the `F` gets a name. If it names a test outside this branch's files, it belongs to its own
 gap (lesson-13). Also left: the four browser files.
+
+Continued, round 3, after the next fast-suite run: the merge of main c5eb54e6 was already committed (be5c85c0; main
+an ancestor of HEAD, no conflict markers in `dev/bin/pools.py` or `dev/model/pools.yaml`). The `unit` tail given shows
+two `F`s (about 16% and 19%) and is cut off at about 47%, with no pytest summary and no `suite_watch` JSON line, so it
+names no test. This session refused the whole-suite run (`uv run python scripts/suite_watch.py -- uv run python -m
+pytest -q -n 8 --dist worksteal -p no:cacheprovider -rf`), so the failures are still not named. No code was changed,
+because nothing names a fault. Here: `tests/test_factory.py` 132 passed, 2 skipped; `test_factory_resources`,
+`test_factory_knowledge`, `test_factory_sessions`, `test_factory_times` and `test_backlog` 116 passed; main's
+load-dependent `test_leases`, `test_warm`, `test_index_files` and `test_queue` 69 passed (`-n 4`); `ruff check
+ergostat tests scripts` is clean. Left: a full `unit` run that reaches pytest's summary (the `-rf` lines name the
+`F`s), and the four browser files. A failure outside this branch's files belongs to its own gap (lesson-13).
