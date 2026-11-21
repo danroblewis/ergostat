@@ -12,17 +12,21 @@ import threading
 import time
 
 
-def tree() -> dict[int, tuple[int, int]]:
-    """Every process: pid → (parent pid, process group)."""
+def tree(started: dict | None = None) -> dict[int, tuple[int, int]]:
+    """Every process: pid → (parent pid, process group); with ``started``, each one's start time put in it too
+    (pid → ``ps``'s ``lstart``), from the same look, so a pid used again by another process is told apart."""
     try:
-        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], capture_output=True, text=True, timeout=10).stdout
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,lstart="], capture_output=True, text=True,
+                             timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
         return {}
     got = {}
     for line in out.splitlines():
-        parts = line.split()
-        if len(parts) == 3 and all(x.isdigit() for x in parts):
+        parts = line.split(None, 3)
+        if len(parts) == 4 and all(x.isdigit() for x in parts[:3]):
             got[int(parts[0])] = (int(parts[1]), int(parts[2]))
+            if started is not None:
+                started[int(parts[0])] = parts[3].strip()
     return got
 
 
@@ -66,16 +70,30 @@ def _alive(pids: set[int]) -> set[int]:
 
 class Watch:
     """Every descendant of ``pid`` seen, looked for every ``every`` seconds while it runs: what a run started and then
-    left (its parent killed, or gone) is still known when the time comes to stop it."""
+    left (its parent killed, or gone) is still known when the time comes to stop it. Each is kept with its start time
+    as first seen (``pid`` too), so ``still`` names only those that are still the process seen, never a pid used again.
+    One that started and was left within a single look (``every``) is not seen."""
 
     def __init__(self, pid: int, every: float = 0.5):
-        self.pid, self.every, self.seen = pid, every, set()
-        self._stop = threading.Event()
+        self.pid, self.every, self.seen, self.started = pid, every, set(), {}
+        self._lock, self._stop = threading.Lock(), threading.Event()
         self._t = threading.Thread(target=self._loop, daemon=True, name="reap-watch")
         self._t.start()
 
     def look(self) -> None:
-        self.seen |= descendants(self.pid)
+        now: dict[int, str] = {}
+        got = descendants(self.pid, tree(now))
+        with self._lock:
+            for p in (got | {self.pid}) & now.keys():
+                self.started.setdefault(p, now[p])
+            self.seen |= got
+
+    def still(self) -> set[int]:
+        """Those seen (and ``pid``) that live now with the start time they were seen with."""
+        now: dict[int, str] = {}
+        tree(now)
+        with self._lock:
+            return {p for p, s in self.started.items() if s and now.get(p) == s}
 
     def _loop(self) -> None:
         while not self._stop.wait(self.every):
@@ -91,16 +109,23 @@ def stop(pid: int, grace: float = 3.0, also_group: bool = False, also: set[int] 
     """Stop every descendant of ``pid`` and the process groups they lead or share (never this process's own group,
     nor the caller's): SIGTERM, then SIGKILL after ``grace`` seconds for what is left, scanning again for anything
     started meanwhile. With ``also_group``, ``pid``'s own group too (a child started in a session of its own); ``also``,
-    pids seen under it before (a ``Watch``'s), stopped too while they live. Returns the pids it signalled."""
+    pids seen under it before (a ``Watch``'s), stopped too while they live; or a function asked for them at each round
+    (a ``Watch``'s ``still``: only those still the process seen), and then ``pid`` is looked under only while it is
+    among them. Returns the pids it signalled."""
     mine = {os.getpgrp()}
-    seen: set[int] = set(also or ())
+    seen: set[int] = set() if callable(also) else set(also or ())
     for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 1.0)):
-        if sig == signal.SIGKILL and seen and not _alive(seen - {os.getpid()}):
-            break                                       # all gone: ``pid`` may be another's now, so not looked under again
+        if callable(also):
+            known = set(also())
+            under = pid in known                        # (``pid`` used again by another: not looked under)
+        else:
+            if sig == signal.SIGKILL and seen and not _alive(seen - {os.getpid()}):
+                break                                   # all gone: ``pid`` may be another's now, so not looked under again
+            known, under = (_alive(seen) if seen else set()), True
         procs = tree()
-        pids = descendants(pid, procs) | (_alive(seen) if seen else set())
+        pids = (descendants(pid, procs) if under else set()) | known
         groups = {procs[p][1] for p in pids if p in procs} - mine
-        if also_group and pid in procs and procs[pid][1] not in mine:
+        if also_group and under and pid in procs and procs[pid][1] not in mine:
             groups.add(procs[pid][1])
         groups.discard(0)
         seen |= pids

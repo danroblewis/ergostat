@@ -1,6 +1,8 @@
 """A run whose lease expired is stopped (SPEC §9.5, *Fencing*; the owner, 2026-11-18): its item is back in the queue,
 so nothing it still does is wanted. Its process group and every descendant get SIGTERM, then SIGKILL after the grace
-(``ERGOSTAT_KILL_GRACE``, seconds) for whatever is left (``library/reap.py``), and ``ergostat.run.killed`` is
+(``ERGOSTAT_KILL_GRACE``, seconds) for whatever is left (``library/reap.py``): those its ``Watch`` saw too (one
+detached, its parent gone), each only while it is still the process seen (a pid used again is left alone), and
+``ergostat.run.killed`` is
 recorded. Only a run this engine started is signalled (one left behind by an engine that stopped is not its to
 kill). The run then ends as any run does: ``agent.failed``, its note why, its resources and cost measured."""
 
@@ -50,7 +52,11 @@ def _stop(eng, proc, run, why, item, fence, block) -> None:
         if eng.live.get(run) is not proc or proc.poll() is not None:
             return
     g, t0 = grace(), time.monotonic()
-    pids = reap.stop(proc.pid, grace=g, also_group=True, also={proc.pid})   # (the run itself waited on too)
+    watch = getattr(proc, "watch", None)            # every process the run was seen to start, its own pid among them
+    if watch is not None:
+        watch.look()
+    also = watch.still if watch is not None else {proc.pid}   # (only those still the process seen: no pid used again)
+    pids = reap.stop(proc.pid, grace=g, also_group=True, also=also)   # (the run itself waited on too)
     sig = "TERM" if time.monotonic() - t0 < g else "KILL"     # (TERM was enough when it ended inside the grace)
     eng.p.events.add(KILLED, item=block, source="ergostat", causedby=run,
                      data={"run": run, "why": why, "signal": sig, "pids": sorted(pids), "grace": g,
