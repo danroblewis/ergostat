@@ -307,3 +307,24 @@ No code changed this round. Tests run after the merge, one file group at a time:
 `tests/test_daemon_yaml_review.py` (the files the merge touched: 119 passed, 2 skipped); ruff clean. Not run by the
 implementor: the full unit suite and the four browser files (the factory runs them under the watchdog). No demo is
 touched, so `demo_check` is not needed.
+
+Round 6 (the fix round for review operating-states-4). This session's shell was refused from its first command, so
+it ran no `git`, `pytest` or `ruff`, and committed nothing: the edits below are in the working tree, uncommitted.
+Each finding:
+
+1. **The stray `operating-states.md.tail`** (blocking). Still in the branch. `git rm` was refused once more (the
+   whole shell was), and the file tools can't delete a file. The coordinator has to run
+   `git rm docs/roadmap/overnight/operating-states.md.tail` and commit.
+2. **A trip write that raises left the old hold** (non-blocking, `dispatch.py` `Dispatcher.trip`). Fixed:
+   `trips.check` is now called in a `try`, and any exception, a write's included, sets `hold` ("the trips could not
+   be checked: …"), so that look dispatches at pool 0 until a check runs cleanly. New test
+   `test_a_trip_write_that_raises_holds_dispatch`: `p.events.add` raises for `ergostat.operating.*`, so the watching
+   write fails after a clean read. Then `hold` names the failure and `tick` takes no lease. Not run, and not checked
+   by breaking the fix, because the shell was refused. Without the fix the OSError leaves `trip()` and the test
+   fails with that error.
+3. **Not run by the round 4 reviewer** (a note). Not run this round either, for the same reason.
+
+Size: 453 net lines, 3 over the 450 budget. The reason: the `try`/`except` the review asked for, and nothing else
+could go to make room for it. What has to happen next (needs a shell): commit the working tree, `git rm` the `.tail`
+file, run `tests/test_operating.py` (and break the new `try` once to see the new test fail), `tests/test_cli_fallback.py`
+and ruff.

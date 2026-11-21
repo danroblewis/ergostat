@@ -608,3 +608,22 @@ def test_unreadable_trip_inputs_hold_dispatch(tmp_path, monkeypatch):
     e.dispatch.tick()
     assert held_n(p) == 2
     release(tmp_path, p, e)
+
+
+def test_a_trip_write_that_raises_holds_dispatch(tmp_path, monkeypatch):
+    """The trip's read succeeds but its write (the watching event) raises: that look holds at pool 0 as well, rather
+    than dispatching on the previous hold (review operating-states-4)."""
+    p, e, _ = setup(tmp_path, UNREAD, n=2)
+    real = p.events.add
+
+    def boom(type_, *a, **k):
+        if type_.startswith("ergostat.operating."):
+            raise OSError("record not writable")
+        return real(type_, *a, **k)
+    with monkeypatch.context() as m:
+        m.setattr(p.events, "add", boom)
+        e.dispatch.trip()
+        assert e.dispatch.hold and "could not be checked" in e.dispatch.hold
+        e.dispatch.tick()
+        assert held_n(p) == 0, "pool 0 after a trip write raised"
+    release(tmp_path, p, e)

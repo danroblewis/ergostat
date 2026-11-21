@@ -127,7 +127,10 @@ class Dispatcher:
         dispatch at pool 0 until a look reads them cleanly."""
         from ..operating import trips
         with self.lock:
-            self.hold = trips.check(self.p, self.spec, now, say=self.e.say)
+            try:
+                self.hold = trips.check(self.p, self.spec, now, say=self.e.say)
+            except Exception as e:                             # a write that raised holds too (worst case, lesson-3)
+                self.hold = f"the trips could not be checked: {type(e).__name__}: {e}"
         if self.hold:
             self.e.say(f"operating: {self.hold}")
 
