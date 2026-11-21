@@ -1,0 +1,126 @@
+# operating-states: operating states declared in the model, entered by the owner's typed act or by a goal's trip, capping the pool of every block that takes items
+depends-on: []
+
+## Definition of done
+
+Gap: `docs/proposals/coordinator/08-modes-and-protection.md` §2 and §5.3 (operating states, trips) is designed but not built. Nothing in `ergostat/` today knows an operating state. This branch builds the first part: states declared in the model, entered and left, tripped by goals, and the state in force capping the lease dispatcher's pool. Gates and act categories scheduled by state, bypass leases, act-risk, P3/T1 and presence (away) are other gaps (`operating-gates`, `act-risk-gating`, `run-budget-permissive`) and are not built here.
+
+When it is done, all of the following is true:
+
+1. **Declared.** A model may have a top-level `operating:` section. Each entry is a state named `^[a-z0-9][a-z0-9-]{0,63}$` with these keys:
+   - `rank:` a whole number, 1 or more, unique among the states. A higher rank takes precedence.
+   - `pool:` optional, a whole number, 0 or more. It is the most runs at once of each block that takes items while the state is entered. Left out, the state sets no cap.
+   - `description:`.
+   - `trips:` a map from goal name to `{unknown-after: DURATION}` or `{}`/null.
+
+   The compiler (`ergostat/operating/compile.py`, called from `spec/compile.py`) refuses each mistake with its own code: `bad-name`, `bad-number` (rank or pool), `rank-taken`, `unknown-ref` (a trip on a goal that does not exist), `bad-duration`, `unknown-after-unmeasured` (unknown-after on a goal whose part has no sensor) and unknown keys. It also refuses **`pool-rises-with-rank`**: going up the ranks, a state's pool must stay the same or fall, where no cap counts as infinite. So the SPEC's example has incident (rank 3, pool 0) over freeze (rank 2, pool 0) over maintenance (rank 1, pool 1). A model with maintenance at rank 3 and pool 1 over freeze at rank 2 and pool 0 is refused. A model without `operating:` gets nothing: no built-in kind, no fold read and no trip check (invariant 12).
+
+2. **Folded from the record.** The built-in item kind `ergostat.operating` is added only when `operating:` is declared.
+   - Its ids are `ergostat.operating/<state>` and its states are `entered` and `left`.
+   - It is changed by the events `ergostat.operating.entered` and `ergostat.operating.left`. Its fields are `by` (owner | run | trip), `why`, `since` and `trips` (a list of `{goal, spell, event}`).
+   - An `entered` on an item already entered keeps it entered and appends to `trips`.
+   - An `entered` after a `left` starts afresh: `by`, `why` and `trips` from the earlier entry are cleared (lesson-5).
+   - The fold refuses a `left` that was recorded during a run (its `causedby` is set).
+   - It shows in the Items tab like every kind. No new page or panel.
+
+   `ergostat/operating/fold.py::in_force(p, spec)` returns `(top, pool, why)`:
+   - `top` is the highest-ranked entered state.
+   - `pool` is the **smallest pool among all entered states** (None when no entered state sets one).
+   - An entered state the model no longer declares counts as pool 0 until it is left.
+   - **If the record cannot be read (any exception from the query or the fold), it returns pool 0, whatever any declared state's pool is**, and the reason says so.
+
+3. **Entered and left.**
+   - `ergostat operating` lists the states: rank, pool, entered or left, by, since and the trips that entered it.
+   - `ergostat operating enter NAME --why TEXT` records the owner's entry.
+   - `ergostat operating leave NAME --why TEXT` records the owner's leaving. It works for any entered state, including one the model no longer declares.
+   - The CLI refuses `leave` (rc 1) when `ERGOSTAT_RUN` is in its environment. `enter` from a run is allowed (it moves toward the safe state) and is recorded as caused by the run, with `by: run`.
+   - Only the owner leaves a state. Trips never leave one in this branch.
+   - The docs claim exactly this much: the refusal covers a run that carries its environment or records through `ergostat record`. It is not a guard against a process that writes the record by other means; that is the sandbox's job (lesson-8).
+   - `operating` is not a read topic for the last-good-model fallback (`goodmodel.READS` is unchanged), so `tests/test_cli_fallback.py` still holds.
+
+4. **Trips** (`ergostat/operating/trips.py::check(p, spec, now)`). These run in the dispatcher's thread once a second (its `EVERY` branch), holding `Dispatcher.lock` across the read, the decision and the write. Each trip `(state, goal)` has a current **spell**, taken from the record only:
+   - **Crossing:** if the goal's newest unvoided `loop.*` event is `loop.off`, the spell is `off:<that event's id>`. Otherwise there is no crossing spell. The engine restores goal status from the record at start (`engine._initial`), so a restart does not record a new `loop.off` for a goal already off.
+   - **Unreadable** (only with `unknown-after:`, declared per trip under the state): the clock starts at the newest reading's time over the sensors of the goal's part (`p.measurements.latest`). If the part has never been read, the clock starts at the time of the `ergostat.operating.watching` event (item: the goal, data: `{state}`). The first `check` that finds no such event writes it once, and a restart finds it and writes nothing. When `now − start > unknown-after`, the spell is `unread:<newest reading's time>` or `unread:never`. Neither the engine's start time nor `born` is used, so a restart does not reset the clock. Time asleep counts (worst case).
+   - A trip fires **once per spell**: when the spell is not in the `trips` of any earlier `ergostat.operating.entered` of that state in the record, `check` records `entered` with `{by: trip, goal, spell}`, caused by the `loop.off` for a crossing. It fires whether the state is entered already or not, so that the owner's later `leave` covers it. Spells are compared for equality on what was read (ids and stored reading times), never by comparing wall-clock times (lesson-2). So an owner's `leave` is not undone by the same crossing or the same unread spell: neither on later passes nor after an engine restart. A new crossing, or a new reading followed by a new silence, is a new spell and trips again.
+   - If a trip's inputs cannot be read (the event query or the measurements raise), `check` records nothing, the engine says why, and **that look's dispatch uses pool 0** (lesson-3).
+
+5. **Scheduling the pool** (`leases/dispatch.py`):
+   - Each `tick` reads `in_force` once. For each block, `room = min(b.pool, pool) − in flight` (the daemon's room as before), so a state never raises a block's pool.
+   - With pool 0 nothing new is leased. Runs already holding leases are not killed: they run on and end as usual ("running work finishes, nothing new starts").
+   - `ergostat block NAME --now` (`Dispatcher.once`) still ignores the block's pool, but is refused under pool 0, naming the state.
+   - **The race:** right after `take` writes `TAKEN` (the fold re-read it already does), it reads `in_force` again. If the cap now leaves no room for this run, counting the runs already in flight, it ends the lease at once (`ENDED`, nack, `count: False`, why "operating state X entered"). The item goes back to the state it was taken from with its attempts unchanged, and no run starts. Any entry with a lower seq than the `TAKEN` is visible to that read. An entry after it is work that started before the state and finishes under it (lesson-1).
+   - Blocks that do not take items (every:, cron:, commanded) run as before. Gating those by state is `operating-gates`.
+
+6. **Docs:**
+   - SPEC §9.5 gets a subsection "Operating states" covering points 1 to 5, with the example and the claim limits above.
+   - `docs/AGENT-GUIDE.md` gets how to declare `operating:` and trips.
+   - `docs/GAPS.md`'s "Operating modes…" entry gets "operating states and trips capping the pool: done (`operating-states`); left: gates by state, bypass leases, act-risk, P3/T1, presence".
+   - `dev/model/` is not changed.
+
+Done also means everything in the house rules: the acceptance tests exist and pass; the unit suite and the four browser files pass with rc 0 (no page test skipped for want of a port); ruff is clean; origin/main is merged in and the suites are run again. No example under `~/ergostat-demos` is touched, so `demo_check` is not required (say so in the report).
+
+## Files to touch
+
+- `ergostat/operating/__init__.py` (new: event types, the built-in kind)
+- `ergostat/operating/compile.py` (new)
+- `ergostat/operating/fold.py` (new: `in_force`)
+- `ergostat/operating/trips.py` (new)
+- `ergostat/operating/acts.py` (new: enter, leave)
+- `ergostat/spec/ir.py` (an `OperatingState` dataclass, `Spec.operating`)
+- `ergostat/spec/compile.py` (the section in the known sections, call to compile, the kind added when declared)
+- `ergostat/leases/dispatch.py` (the cap in `tick` and `once`, the re-check after `take`, trips in the `EVERY` branch)
+- `ergostat/cli/operating.py` (new), `ergostat/cli/__init__.py` (the topic)
+- `docs/SPEC.md`, `docs/AGENT-GUIDE.md`, `docs/GAPS.md`
+- `tests/test_operating.py` (new)
+
+## Risks
+
+- **lesson-1:** `tick` decides room, then `take` writes `TAKEN`, and an owner's `enter` can land in between. Separately, `trips.check` reads "spell not yet answered" and then writes. The fix for the first is the post-write re-read in `take`, ordered by seq. For the second, `check` runs only in the dispatcher thread under `Dispatcher.lock`, and the only other writers (owner, runs) do not touch the trip's spell key.
+- **lesson-2:** comparing reading times with `>` to decide whether a spell is new. Spells are compared by equality on event ids and stored reading times, never as newer/older.
+- **lesson-3:** an unreadable operating record treated as "no state entered". It must give pool 0 even when the top state's pool is 1. Other cases: trip inputs unreadable; an entered state no longer declared (a lookup that misses); a goal never read (must not wait forever: its clock is the `watching` event).
+- **lesson-4:** a state's `pool` read with a floor and no ceiling. It is applied only as `min(b.pool, pool)`, so it can't raise anything. Tested.
+- **lesson-5:** the item id `ergostat.operating/freeze` re-entered after a `left` keeps the old `by`, `why` and `trips`, for example a stale trip spell that then suppresses a new one, or `by: trip` shown on an owner's entry.
+- **lesson-6:** pool 0 must not kill running work, and the run given back in the race must never start its program. Tested both ways.
+- **lesson-7:** a new CLI topic and flags interacting with the last-good-model fallback classification; main's dispatcher changes conflicting at merge.
+- **lesson-8:** "only the owner leaves a state" stated wider than the env/`causedby` check supports; "a restart never resets the clock" stated without a test.
+- **lesson-9:** pool tests that would pass with the top state's pool, or with the latest-entered state's pool. Each test below says what it breaks.
+- **lesson-10:** dispatch and trip tests that wait with sleeps. Drive `tick()` and `trips.check(now=…)` directly with injected `now`, and poll the record with a deadline for a run's end.
+- **lesson-12 and lesson-13:** in a fix round answer every finding; report unrelated suite failures, don't fix them.
+
+## Acceptance tests
+
+All in `tests/test_operating.py`. The implementor breaks the guarded code for each one and reports that it fails.
+
+- `test_compile_example_and_kind_only_when_declared`: the SPEC example compiles, and `ergostat.operating` is in `spec.items`. A model without `operating:` has no such kind, and its dispatcher never calls `in_force` (monkeypatched to raise; leases are still taken).
+- `test_compile_refuses_bad_states`: each code in point 1 except `pool-rises-with-rank`, one case each.
+- `test_pool_rises_with_rank_refused`: maintenance (rank 3, pool 1) over freeze (rank 2, pool 0) gives `pool-rises-with-rank`, and the equal-pool and falling-pool orders compile. Fails if the check is removed (lesson-8/9).
+- `test_state_caps_block_pool`: a block with pool 3 and five ready items. With `careful` (pool 1) entered, exactly one lease; left, three. A state with pool 5 over a block with pool 2 gives two (lesson-4).
+- `test_pool_zero_takes_nothing_running_work_finishes`: a run holding a lease when freeze (pool 0) is entered is not killed and ends ack. No new lease is taken while freeze is entered (lesson-6).
+- `test_freeze_and_maintenance_both_entered_take_nothing`: the example model. Freeze is entered first and maintenance (pool 1) second, so the latest entered has pool 1. No lease is taken. Fails if dispatch uses the latest-entered or lowest-ranked state's pool.
+- `test_pool_is_smallest_among_entered`: a `Spec` built directly (the check bypassed) with a higher rank at pool 2 and a lower rank at pool 0, both entered. `in_force` gives 0 and no lease is taken. Fails if the top state's pool is used.
+- `test_unreadable_fold_is_worst_case`: a model whose only and top state, `careful`, has pool 1 and is entered, with a block of pool 2. With the operating query monkeypatched to raise, `in_force` gives pool 0 with a reason, and no lease is taken. The control case (readable) takes exactly one. Fails if the top state's pool (1) or "none entered" (2) is used (lesson-3/9).
+- `test_undeclared_entered_state_counts_as_pool_zero`: freeze entered, then the model reloaded without freeze: no lease. After `ergostat operating leave freeze`: leases resume (lesson-3).
+- `test_state_entered_between_check_and_take_gives_back`: monkeypatch the step between `tick`'s room computation and the `TAKEN` write so that it records the owner's freeze entry. The lease is ended nack with `count: False` naming freeze, the item is back in its state with attempts unchanged, and the block's program never ran (its marker file is absent). Fails without the re-read in `take` (lesson-1/6).
+- `test_owner_leave_in_trip_gap`: monkeypatch between `trips.check`'s read and write to record an owner's `leave`. The state ends up entered by the trip, and the next `check` writes no second `entered` (lesson-1).
+- `test_owner_enter_leave_cli`: `enter`, the listing, and `leave`, with their rc. With `ERGOSTAT_RUN` set, `leave` is rc 1 and `enter` is recorded `by: run`. A `left` event recorded with `causedby` is refused by the fold (lesson-8).
+- `test_reentered_state_clears_old_fields`: entered by a trip (goal, spell), the owner leaves, the owner enters. Then `by == owner`, `why` is the new one and `trips == []` (lesson-5).
+- `test_crossing_trips_once_per_crossing`: the goal goes off, so the state is entered by trip with spell `off:<loop.off id>`. The owner leaves, and later checks don't re-enter. The goal holds, then goes off again: it re-enters (lesson-2/5).
+- `test_unknown_after_trips_on_record_clock`: the part was last read at t0, and `check(now=t0+unknown-after+1)` enters with spell `unread:t0`. A new reading means no trip. Silence again trips with a new spell.
+- `test_restart_neither_reenters_nor_resets_clock`: (a) after a crossing trip and the owner's leave, a new engine and dispatcher on the same project (a restart) record no new `loop.off` and no `entered`. (b) The part was last read at t0 and the engine restarts at t0+50 s with unknown-after 60 s: `check(now=t0+61)` enters. A clock from engine start would wait until t0+110. (c) After the owner leaves that unread spell, a restart and later checks don't re-enter (lesson-3/5).
+- `test_never_read_clock_starts_at_watching_event`: the first `check` writes one `watching` event, and a restart writes none. The trip enters only after unknown-after from that event's time (lesson-3).
+- `test_unreadable_trip_inputs_hold_dispatch`: with `measurements.latest` raising, that look takes no lease and records nothing. When it reads again, dispatch resumes (lesson-3).
+- `test_now_refused_under_pool_zero`: `Dispatcher.once` with freeze entered starts nothing, and the message names freeze.
+- Existing `tests/test_cli_fallback.py` passes unchanged (lesson-7).
+
+## Size budget
+
+450 net lines (outside `tests/` and `docs/`): the operating package about 260, the CLI about 70, dispatch about 45, spec IR and compile hooks about 30, with room to spare.
+
+## Notes from the plan review (answer each)
+
+- Removing the whole `operating:` section while a state is entered drops the fold read (invariant 12) and silently lifts every state: dispatch goes back to full pool with no `left` in the record. This contradicts 'an undeclared entered state counts as pool 0 until it is left' and widens 'only the owner leaves a state' (lesson-3/8). Choose one: keep the fold read and `leave` whenever the record holds an `entered` with no later `left`; refuse to load a model that drops the section while a state is entered; or document that removing the section lifts all states and narrow the claim. Add a test for whichever is chosen.
+- Unknown-after clock: the newest reading over all the part's sensors lets one live sensor hide a dead one forever (lesson-3 fail-open). Start the clock at the oldest of the per-sensor latest readings, count as `never` if any sensor was never read, and put the sensor in the spell (e.g. `unread:<sensor>:<time>`). Add a two-sensor case to test_unknown_after_trips_on_record_clock where one sensor goes silent and the trip fires.
+- Say whether `Dispatcher.once` shares `take`'s post-TAKEN re-check. It must not nack a --now run under a state with pool >= 1 because of in-flight runs (once ignores block pool). Test pool 1 with one run in flight.
+- Define how long 'that look's dispatch uses pool 0' lasts after unreadable trip inputs when tick runs more often than the once-a-second trip check: until the next trip check that reads cleanly.
+- test_owner_leave_in_trip_gap: name the bug it guards (check skipping its write because the fold read showed the state entered), break exactly that, and report that the test fails.
+- Docs: `pool-rises-with-rank` is for readability only, since in_force already takes the smallest pool among entered states. Don't present it as a safety guard (lesson-8).
