@@ -93,3 +93,41 @@ there are more than the cap, the answer keeps the first 2,000 and says `capped`.
 **Run here:** tests/test_item_graph_queries.py (11), test_cli_fallback.py, test_relations.py and
 test_graph_cli_web.py: 75 passed. Ruff is clean. Not run: the full unit suite and the four browser files, which the
 factory runs under the watchdog.
+
+## Where it stopped, round 2
+
+Built, round 2. Main (31cffd8f) is merged in. The conflicts in `docs/GAPS.md`, `ergostat/cli/__init__.py`,
+`ergostat/cli/record.py` and `ergostat/goodmodel.py` were resolved by keeping both sides: `READ_FLAGS` has `search`
+and the three graph flags, the `item` help line names `--search` and the queries, and `cmd_item` refuses `--search`
+with NAME before it hands the graph flags to `_item_graph`.
+
+**Size overrun, with its reason: 194 net lines of core code against a budget of 170 (24 over).** That is
+`itemgraph.py` at 137 (14 of them the module docstring, 6 more other docstrings), plus 57 in `cli/record.py` (34),
+`cli/__init__.py` (7), `web/server.py` (16) and `goodmodel.py` (0 net), as measured by `git diff --numstat main --
+ergostat`. The overrun comes from three things the budget did not count: the plain-text printing of the three answers
+(about 12 lines), the API's refusal of `at=`, which keeps it in step with the CLI's refused `--at` (about 4), and the
+docstrings that state each query's bounds, as lesson-8 asks (about 20). Round 1's scan of every item's fields is gone,
+which makes the code 8 lines shorter than round 1's 202.
+
+**Round 1's review findings, every one (lesson-12):**
+- *Size with no reason written* (blocking): the reason is the paragraph above.
+- *The dependency is now on main, so GAPS.md's "Left" would be false*: the GAPS.md entry is now a sub-bullet of main's
+  gap/item-search entry, marked **done**. `itemgraph.about` now asks the item index's text (`ix.items(words=(id,))`,
+  from gap/item-text-search) for the items that hold the id at all, at most `VISIT + 1` of them. It then checks the
+  whole token against their fields. A mention past the index's first `TEXT_MOST` characters is not found (stated in
+  the module docstring). Breaking the lookup (searching a word no item holds) fails
+  `about_declared_and_inferred_whole_token` and `near_and_about_report_capped`.
+- *lesson-4, links read are not bounded by a constant*: unchanged. The cap is on items visited, so the links read are
+  bounded only by the links of at most `VISIT` items. Capping the links too would need a limit argument on
+  `itemindex.links_from`/`links_to`, which this gap does not need to touch. This is stated here, not claimed as
+  bounded.
+- *`_index` with no index on disk gave 404*: it now raises `Bad`, so the CLI exits 2 and the API answers 400. An unknown
+  item is still `Unknown`, which gives 404.
+- *Other item flags silently ignored*: `--history` with `--near`, `--path` or `--about` is now refused with exit 2
+  (asserted in `test_the_queries_with_at_or_a_bad_depth_are_refused`). `--search` with an item id was already refused
+  by main's check, which runs first.
+- *Merge main and run again (lesson-7)*: the merge is done (fc60cb6c), and the suites below were run after it.
+
+**Run here, after the merge:** tests/test_item_graph_queries.py (11), test_cli_fallback.py, test_relations.py and
+test_graph_cli_web.py: 77 passed together. tests/test_item_search.py: 8 passed. Ruff is clean. Not run: the full unit
+suite and the four browser files, which the factory runs under the watchdog.

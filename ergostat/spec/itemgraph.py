@@ -7,7 +7,8 @@
   backward is named by its relation's inverse as the kind declares it (``inverse:``), else the derived one
   (``relations.inverse_of``: ``blocks``, ``children``, ``before``, ..., any other ``NAME_of``).
 - ``about(ID)``: the items linking to it by a declared relation (``declared``), then those whose fields hold its id as a
-  whole token (``inferred``: ``ticket/1`` is not in ``ticket/12``).
+  whole token (``inferred``: ``ticket/1`` is not in ``ticket/12``), among those the index's text (``items.text_of``,
+  its first ``TEXT_MOST`` characters) holds it in.
 
 Each visits at most ``VISIT`` items and says ``capped`` when it stopped there: a capped path is "none within the cap",
 never "not connected". An unknown id is ``Unknown``, a bad depth ``Bad``: never an empty answer."""
@@ -22,7 +23,6 @@ from .relations import inverse_of
 
 VISIT = 2000            # items a query visits at most
 DEPTH_MOST = 4          # near's farthest hop
-PAGE = 500              # items read at once by about's scan
 
 
 class Unknown(LookupError):
@@ -45,7 +45,7 @@ def _index(events, spec):
     from .itemindex import index_for
     ix = index_for(events, spec, False)
     if ix is None:
-        raise Unknown("the record keeps no item index (a record on disk does)")
+        raise Bad("the record keeps no item index (a record on disk does)")
     return ix
 
 
@@ -129,16 +129,9 @@ def about(events, spec, id: str) -> dict:
     with ix.lock:
         _known(ix, id)
         got = {a: {"id": a, "how": "declared", "relation": r} for a, r, _ in sorted(ix.links_to([id]))}
-        offset, capped = 0, len(got) > VISIT
-        while not capped:
-            page = ix.items(n=PAGE, offset=offset, moves=False)
-            for it in page:
-                if offset >= VISIT:
-                    capped = True
-                    break
-                offset += 1
-                if it.id != id and it.id not in got and (f := mentions(it.fields, token)):
-                    got[it.id] = {"id": it.id, "how": "inferred", "field": f}
-            if len(page) < PAGE:
-                break
+        holding = ix.items(words=(id.casefold(),), n=VISIT + 1, moves=False)   # the text index: those holding it at all
+        capped = len(got) > VISIT or len(holding) > VISIT
+        for it in holding[:VISIT]:
+            if it.id != id and it.id not in got and (f := mentions(it.fields, token)):
+                got[it.id] = {"id": it.id, "how": "inferred", "field": f}
     return {"query": "about", "id": id, "items": list(got.values())[:VISIT], "capped": capped, "cap": VISIT}

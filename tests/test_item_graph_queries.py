@@ -177,6 +177,8 @@ def test_the_queries_with_at_or_a_bad_depth_are_refused(tmp_path, capsys):
     for args, _q in QUERIES:
         assert main(["-C", str(d), "item", *args, "--at", "1m"]) == 2, args
         assert "never with --at" in capsys.readouterr().err
+        assert main(["-C", str(d), "item", *args, "--history"]) == 2, args   # not silently dropped
+        assert "or --history" in capsys.readouterr().err
     assert main(["-C", str(d), "item", "ticket/1", "--near", "5"]) == 2
     assert main(["-C", str(d), "item", "ticket/1", "--near", "two"]) == 2
     assert main(["-C", str(d), "item", "ticket/1", "--near", "--about"]) == 2

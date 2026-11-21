@@ -153,9 +153,9 @@ def _item_graph(args) -> int:
     """``item ID --near [N]``, ``item A --path B``, ``item ID --about`` (``spec/itemgraph.py``), as the record is now."""
     from ..spec import itemgraph as ig
     asked = sum(x not in (None, False) for x in (args.near, args.path_to, args.about_item))
-    if getattr(args, "at", None) or not args.name or asked > 1:
+    if getattr(args, "at", None) or getattr(args, "history", None) is not None or not args.name or asked > 1:
         print("--near, --path and --about: one of them, of an item (ergostat item ID --near), as the record is now "
-              "(never with --at)", file=sys.stderr)
+              "(never with --at or --history)", file=sys.stderr)
         return 2
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
