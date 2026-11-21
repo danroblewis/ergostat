@@ -233,14 +233,21 @@ LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or 
 }
 
 
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files)$")
+UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
+    "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
+    "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
+}
+
+
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
     intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
     ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``), the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``) or what the runs
-    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``)."""
-    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
+    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), or ergostat's upkeep (``ergostat.upkeep.*``)."""
+    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES or bool(UPKEEP.match(name))
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
             or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES)
 

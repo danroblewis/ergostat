@@ -6,7 +6,8 @@ use: every implementor and reviewer brief
 # House rules
 
 ## Process
-- The definition of done is the branch's first commit (`docs/roadmap/overnight/<branch>.md`): the gap, what done means,
+- The definition of done is the branch's first commit (`dev/records/<branch>.md`; a branch begun before 2026-11-21
+  keeps its `docs/roadmap/overnight/<branch>.md`, and `docs/` is for human readers): the gap, what done means,
   acceptance tests by name, and a size budget (net lines outside tests and docs). After that it changes only by
   appending "Where it stopped". An overrun needs a written reason.
 - Done means: the acceptance tests exist and pass; the unit suite and the four browser files pass with rc 0 and no page

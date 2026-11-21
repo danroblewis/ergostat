@@ -292,6 +292,11 @@ def waits(cfg: dict) -> str | None:
     return None
 
 
+class Waits(str):
+    """settle()'s answer while the last push waits for approval: take() puts its gap off for a minute, not ten (the
+    push-waiting sensor keeps the queue from leasing meanwhile), so the next batch starts soon after the push runs."""
+
+
 def settleable(cfg: dict) -> bool:
     """The sensor push-settleable (`queue.py settleable`): a pending push that ran, was denied, failed or cannot be
     read, or a block remedied: what push-settler settles. Unreadable: 1, so its runs fail where they can be seen."""
@@ -351,7 +356,7 @@ def settle(cfg: dict, repo) -> str | None:
         release(p)
         return None
     if now in ("held", "requested", "approved"):
-        return f"the push of {p['sha'][:12]} ({p['gap']}) is {now}"
+        return Waits(f"the push of {p['sha'][:12]} ({p['gap']}) is {now}")
     then = {"then": p.pop("then", None)}               # failed: the held outcome said now, not once it is remedied
     why = block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
     release(then)
@@ -648,7 +653,7 @@ def take(cfg: dict, gap: dict, repo) -> int:
         except Unreadable as e:                        # (it cannot tell whether a push waits: no gap is taken)
             why = str(e)
         if why:
-            fac.nack(f"queue: {why}", after="10m", count=False)
+            fac.nack(f"queue: {why}", after="1m" if isinstance(why, Waits) else "10m", count=False)
             return 0
         fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
         pre = fac.git(repo, "rev-parse", "HEAD")
