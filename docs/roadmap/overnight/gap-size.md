@@ -48,3 +48,57 @@ For each test, the implementor reports breaking the code it guards and watching 
 - State which timestamp the 14-day window uses (the latest gap.merged of the gap) and test a gap first merged outside the window and merged again inside it.
 - Assert that the unmeasured gap is listed on stderr in test_size_accuracy_counts_hits_over_measured; the definition promises it and no test checks it.
 - Say whether a replan after a merge (a gap continued) clears merged_lines, so a new size is never scored against the old branch's lines before it merges again.
+
+## Where it stopped
+
+Built, round 1. Every item of the definition of done is in, with the deviations and answers below. Nobody could be
+asked, so where the definition and the plan review's notes differ, the review's (stricter) reading was taken.
+
+**Deviation from "merged_lines is left out".** Every `gap.merged` writes both fields: `merged_lines` (the count) with
+`merged_lines_error: null`, or `merged_lines: null` with `merged_lines_error`. Under the record's replace fold, leaving
+the field out would keep an earlier merge's count under the same id. A null `merged_lines` is "left out" of the
+measure, never 0.
+
+**The plan review's notes, answered:**
+- Re-merge with a failing count: the newer `gap.merged` writes `merged_lines: null` and the error. The measure counts a
+  gap only when `merged_lines` is an integer and there is no `merged_lines_error`. Test:
+  `tests/test_factory.py::test_a_merge_again_whose_count_fails_keeps_no_old_count` (merge with 40 lines, merge again
+  with the count raising: null, error present, `size-accuracy` exits 1 and names the gap on stderr).
+- Class edges: 50->S, 51->M, 150->M, 151->L, 400->L, 401->XL, -30->S, 0->S are asserted in
+  `test_size_accuracy_counts_hits_over_measured`.
+- `size-accuracy-high` with only low-confidence gaps measurable (and a high one unmeasured) exits 1 with "no value yet":
+  `test_size_accuracy_high_only_and_no_value`.
+- The window is on the gap's latest merge (`merged_at`, replaced by each `gap.merged`). A gap first merged 20 days ago
+  and merged again yesterday is counted, which the test asserts (0.667 -> 0.5).
+- The unmeasured gap is asserted on stderr in `test_size_accuracy_counts_hits_over_measured`.
+- A replan clears `merged_lines` and `merged_lines_error` (`gap.planned` writes both as null), so a new size is never
+  scored against an earlier branch's lines. Asserted in `test_replan_replaces_size`. A split also clears a parent's
+  earlier `size` and `size_confidence` (`gap.split`), so a gap first planned whole and then split is not measured.
+
+**Beyond the listed tests.** In a split, one sub-gap's bad size line sends the whole plan back and no sub-gap is made.
+A size line outside `## Size budget` is not taken.
+
+**Known limit (said in dev/README.md).** The backlog groomer (`backlog.py`, `gap.groomed`) also writes a field named
+`size` (S/M/L or hours), including on gaps already planned. The measure counts only gaps with a planner's
+`size_confidence`, so a coordinator-written gap the groomer sized is never measured. But a groomer regrade after the
+plan replaces the planner's class, and that regrade is then what is scored. A fix belongs in `backlog.py`: do not
+write `size` on a gap that has `size_confidence`. That file is outside this gap's list, so it is left for its own gap.
+
+**Lesson-9, each test broken and watched fail:**
+- Not recording the size on `gap.planned` failed `test_planned_gap_records_size_and_confidence` and
+  `test_replan_replaces_size`.
+- Leaving size findings out of `problems()` failed all three cases of `test_plan_without_valid_size_is_sent_back`.
+- Not clearing `merged_lines` on `gap.planned` failed `test_replan_replaces_size`.
+- Counting core lines only (dev/ excluded) failed `test_merge_records_merged_lines` (20 != 50).
+- Omitting `merged_lines` on a failed count failed `test_merge_stands_when_lines_unreadable` and
+  `test_a_merge_again_whose_count_fails_keeps_no_old_count` (40 survived).
+- Testing S with `< 50` failed the edge assertions.
+- Scoring unmeasured gaps as misses failed both measure tests and the re-merge test.
+- Dropping the high-only filter failed `test_size_accuracy_high_only_and_no_value`.
+- Ignoring the window failed `test_size_accuracy_counts_hits_over_measured`.
+
+**Size.** About 74 net lines in `dev/` (45 in `dev/bin`, plus the model, the prompt and README), and 0 core lines.
+That is within the 110 budget and is class M.
+
+**Not run here.** The whole unit suite and the browser files (the factory runs them under the watchdog). There is no
+remote in this container, so origin/main could not be fetched. Local `main` has not moved past the branch base.
