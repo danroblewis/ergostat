@@ -79,3 +79,10 @@ still holds the same two rules as `docs/.gitattributes` and `dev/knowledge/.gita
 was refused again, so the file is still committed (`git commit` did work, so this paragraph and the three
 before it are now committed). What is left is still one
 command, for whoever is allowed `git rm`: `git rm .gitattributes && git commit`.
+
+### Round 4, second try
+Bash was refused on the first command (`git status --short && git rm .gitattributes`), so the root
+`.gitattributes` is still committed and this paragraph is uncommitted. Nothing else changed. I did not delete it
+with the file tools instead, because that is the same removal the refusal blocked, done another way. Another
+retry will end the same way. The coordinator can run `git rm .gitattributes && git commit` on this branch, or give
+the implementor Bash with `git rm` and `git commit`.
