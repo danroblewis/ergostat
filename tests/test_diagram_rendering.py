@@ -2360,7 +2360,7 @@ FLOWS_SEEN = """() => {
   const seen = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 || r.height > 0; };
   const of = (sel) => [...document.querySelectorAll('svg.canvas ' + sel)].filter(seen).length;
   const where = (sel) => [...document.querySelectorAll('svg.canvas ' + sel)].map((el) => el.getAttribute('transform'));
-  return { info: of('.edge .info'), aux: of('g.node.k-auxiliary'), goals: of('g.node.k-auxiliary[data-id^="desired:"]'),
+  return { info: of('.edge .info'), aux: of('g.node.k-auxiliary'), pins: of('g.pins .pin'),
            markers: of('.loop-markers'), stocks: of('g.node.k-stock'), valves: of('g.node.k-valve'),
            pipes: of('.edge.pipe .pipe-out, .edge.pipe .sd-pipe-out, .edge.pipe path:not(.edge-hit)'),
            places: where('g.node.k-stock').join('|') };
@@ -2380,12 +2380,18 @@ def test_flows_only_hides_links_and_non_flow_parts(browser, tmp_path):
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
         assert pg.evaluate("() => S.graph.kind") == "dynamics"
+        pinned = pg.evaluate("""() => {
+          const c = S.layout.children.find((c) => S.graph.nodes.find((n) => n.id === c.id)?.kind === 'auxiliary');
+          S.pins[c.id] = pinFor(S.layout, S.graph, c.id, c.x, c.y); savePins(); return c.id; }""")
+        drawn(pg, url, "open=*", 1)                                 # an auxiliary, pinned (kept in this browser)
+        assert pg.locator(f"svg.canvas g.pins .pin[data-id={json.dumps(pinned)}]").count() == 1, pinned
         before = pg.evaluate(FLOWS_SEEN)
         assert before["info"] and before["aux"] and before["markers"] and before["stocks"] and before["pipes"], before
+        assert before["pins"] == 1, before                          # (only it: nothing else here is pinned)
         flows_menu(pg)
         on = pg.evaluate(FLOWS_SEEN)
         assert pg.evaluate("() => document.body.classList.contains('flows-only')")
-        assert on["info"] == on["aux"] == on["goals"] == on["markers"] == 0, on
+        assert on["info"] == on["aux"] == on["pins"] == on["markers"] == 0, on   # its pin hidden with it: nothing to unpin unseen
         assert (on["stocks"], on["valves"], on["pipes"]) == (before["stocks"], before["valves"], before["pipes"]), (before, on)
         assert on["places"] == before["places"], "the parts keep their places"
         flows_menu(pg)
