@@ -471,7 +471,8 @@ def attempt(cfg: dict, role: str, brief: str, work: Path) -> dict | None:
 
 STANDIN = {
     "planner": '<definition branch="{b}">\n# {b}: planned by the stand-in\n\ndepends-on: []\n\n## Definition of done\n\n'
-               'It works.\n\n## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
+               'It works.\n\n## Files to touch\n\n- `x.py` (new)\n\n## Risks\n\n- none.\n\n'
+               '## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
                '100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
