@@ -127,6 +127,6 @@ the same one command, `git rm .gitattributes && git commit`, for the coordinator
 ### Round 6, third try
 Read-only Bash worked once (the tree was clean, the merge of main already committed, and the three
 `.gitattributes` files unchanged). Then `git rm .gitattributes` was refused, twice, so the root `.gitattributes` is
-still committed and this paragraph may be uncommitted. I did not remove it with the file tools (the same removal by
+still committed (`git commit` worked, so this paragraph is committed). I did not remove it with the file tools (the same removal by
 another route). Nothing else changed. What is left is the same one command, `git rm .gitattributes && git commit`,
 which only the coordinator or a session allowed `git rm` can run; another implementor retry will end the same way.
