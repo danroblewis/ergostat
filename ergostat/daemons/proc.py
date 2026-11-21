@@ -91,7 +91,6 @@ class Process:
     def __init__(self, d, cwd, env: dict, log, on_push, on_observe=lambda sensor, obj, now: False):
         self.d, self.log, self.on_push, self.on_observe = d, log, on_push, on_observe
         self.partial, self.skipping = b"", False     # (the reader's: a line not yet whole; one over LINE_MAX)
-        self.read_at: float | None = None            # (the reader's: when this read came, on observe's clock)
         self.q: queue.Queue = queue.Queue(QUEUE)
         self.lock = threading.Lock()
         self.runs: dict[str, Handle] = {}
@@ -181,7 +180,7 @@ class Process:
         """One read's bytes: its whole lines (UTF-8, what is not replaced) taken in ``lines.plan``'s order, a run's
         together; a partial line kept for the rest of it (at the end of the output, taken as it is). A line over
         ``LINE_MAX`` is dropped up to its newline, said once, never held."""
-        self.last_out, self.read_at = time.monotonic(), observe._now()   # (its observations judged at one time)
+        self.last_out, at = time.monotonic(), observe._now()   # (its observations judged at one time: this read's)
         if self.skipping:                            # (the rest of a line over LINE_MAX, up to its newline)
             cut = data.find(b"\n")
             if cut < 0:
@@ -203,7 +202,7 @@ class Process:
         for step in lines.plan(texts):
             if step[0] == "one":
                 try:
-                    self.line(step[1])
+                    self.line(step[1], at)
                 except Exception as err:             # (a run ended meanwhile, its log closed): never the reader's end
                     self.stray(step[1], f"{type(err).__name__}: {err}", False)
                 continue
@@ -227,7 +226,7 @@ class Process:
             with self.lock:
                 self.recycle = self.recycle or (f"printed a line for no run it holds ({why})", True)
 
-    def line(self, text: str) -> None:
+    def line(self, text: str, at: float | None = None) -> None:
         if not text:
             return
         try:
@@ -275,7 +274,7 @@ class Process:
         if "sensor" in obj and ("event" in obj or "message" in obj):
             if "reading" in obj:
                 return self.stray(text, "a reading or an observation, not both")
-            if self.on_observe(obj["sensor"], obj, self.read_at):
+            if self.on_observe(obj["sensor"], obj, at):
                 return None
             return self.stray(text, "an observation for no sensor of its own, not one in shape "
                                     "(an event, or a message object), or after ergostat stopped")
