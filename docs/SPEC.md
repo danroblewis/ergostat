@@ -654,7 +654,9 @@ consumer L, which composes them like any of M's (`stock.m-a-open`, in the system
 - *Names taken.* A remote's parts are put after every file and include is read. A local part always wins: a
   remote part whose name is defined here is not put (**remote-name-taken**, naming both; never
   `defined-twice`); between two remotes whose parts get the same name (remote `m`'s `a-open`, remote `m-a`'s
-  `open`) the first declared wins. A local reference belongs to the remote with the longest matching prefix.
+  `open`) the first declared wins. The part not put is cut from the rest of its remote, as above (a flow's
+  end at it becomes a cloud, a cause or an equation naming it is dropped), so a remote's flow never drains
+  the local part, or another remote's part, that took its name. A local reference belongs to the remote with the longest matching prefix.
 - *Readings through a middle.* When M reads A, it keeps A's whole answer in
   `<state>/remotes/a/readings.json`, replaced each time, never merged: A's `instance` (from A's `/readings`),
   when M got it, and each reading's value and age at A (A's `now` less its `time`). When A does not answer the

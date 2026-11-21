@@ -208,3 +208,24 @@ and fell back to the local clock. The other refusal tests assert on their own fi
 - `demo_check`: no example was touched.
 - origin/main: this clone has no `origin`, and `main` holds nothing the branch lacks, so there was nothing to merge.
   The merge queue has to do it (lesson-7).
+
+### Round 2
+
+The review's one finding (blocking, lesson-3): a remote part whose name was taken was skipped, but the same
+remote's kept parts that named it were put unchanged, so a served flow drained the local stock that won the name.
+This is fixed in `compose.finish`. A taken name now counts as gone for that remote, and the remote's pending parts
+are cut against it with `_cut` before any is put: a flow end becomes a cloud, and a cause or an equation is dropped.
+This repeats until nothing changes, since a cut can leave a flow with no ends, which is then gone too. A system
+named inside a taken system falls back to the remote's box. The `remote-name-taken` message now says that what
+names the part is cut. SPEC §4c *Names taken* says the same.
+
+`test_a_local_part_named_like_an_imported_one_wins` now serves `flow a-drain {from: a-open, to: other}` and an
+auxiliary whose equation names `a-open`. It asserts that `m-a-drain` has no source (not the local `m-a-open`) and
+that the equation is dropped. For m / m-a it serves `flow leak {from: open, to: pool}` from `m-a` and asserts that
+`m-a-leak` has no source, so it does not attach to m's `m-a-open`. To show each half fails without the fix, the cut
+was turned off by hand and then reverted. Turned off for every remote, the test fails with `'m-a-open' is None`.
+Turned off only for `m-a`, the m / m-a assertion fails the same way.
+
+Size: 324 net lines outside `tests/` and `docs/` (297 + 27), within 380. The tests in `test_remote_chain.py` (29),
+`test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` pass, and ruff is clean. What round 1 says
+was not run is still not run.

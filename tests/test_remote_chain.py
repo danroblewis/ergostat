@@ -288,17 +288,26 @@ def test_a_local_part_named_like_an_imported_one_wins(tmp_path):
     lroot = tmp_path / "l"
     write(lroot, L + "include: [more.yaml]\n")
     write(lroot, "stocks:\n  m-a-open:\n    description: our own\n    sensor: {run: echo 1}\n", "more.yaml")
-    plant(lroot, "l", "m", body("e" * 16, {"stocks": {"a-open": {"via": []}, "other": {"via": []}}}))
+    plant(lroot, "l", "m", body("e" * 16, {"stocks": {"a-open": {"via": []}, "other": {"via": []}},
+                                           "flows": {"a-drain": {"from": "a-open", "to": "other", "via": []}},
+                                           "auxiliaries": {"a-load": {"equation": "stock.a-open * 2", "via": []}}}))
     spec, problems = load(lroot / "ergostat.yaml")
     assert not codes(problems, "defined-twice")
     assert spec.stocks["m-a-open"].description == "our own" and "m-other" in spec.stocks
+    drain = spec.flows["m-a-drain"]                     # the remote's flow never drains the local stock
+    assert drain.source is None and drain.target == "m-other"
+    assert "m-a-open" not in str(spec.auxiliaries["m-a-load"].equation or "")
     taken = codes(problems, "remote-name-taken")
     assert taken and "more.yaml" in taken[0].message and "remote m" in taken[0].message
     assert "stock.m-a-open" not in spec.remotes["m"]["parts"]
     write(lroot, L + "  m-a:\n    url: http://127.0.0.1:1\n    token-file: ma.token\n")       # two remotes collide
-    plant(lroot, "l", "m-a", body("d" * 16, {"stocks": {"open": {"via": [], "description": "from m-a"}}}))
+    plant(lroot, "l", "m-a", body("d" * 16, {"stocks": {"open": {"via": [], "description": "from m-a"},
+                                                        "pool": {"via": []}},
+                                             "flows": {"leak": {"from": "open", "to": "pool", "via": []}}}))
     spec, problems = load(lroot / "ergostat.yaml")
     assert spec.stocks["m-a-open"].where.remote == "m" and "stock.m-a-open" in spec.remotes["m"]["parts"]
+    leak = spec.flows["m-a-leak"]                       # m-a's flow never drains m's stock of the same name
+    assert leak.where.remote == "m-a" and leak.source is None and leak.target == "m-a-pool"
     taken = [p for p in codes(problems, "remote-name-taken") if p.about == "stock.m-a-open"]
     assert taken and "remote m-a" in taken[0].message and not codes(problems, "defined-twice")
 

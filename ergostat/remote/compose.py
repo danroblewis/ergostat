@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import copy
 import re
 import time
 
@@ -187,7 +188,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         for pname, got in entries.items():
             pv = RemoteVia(via.file, via.line, name, url, [*secs[section][pname[len(name) + 1:]]["via"],
                                                            served["instance"]])
-            info["pending"].append((section, pname, as_map(got, pv), pv))      # put by finish, after every file
+            info["pending"].append((section, pname, got, pv))      # put by finish, after every file
     info["show"] = _shown(doc, name, info, secs, made, only, shown, entry.at("show") if shown else via)
 
 
@@ -492,16 +493,35 @@ def finish(doc, put) -> None:
     if not doc.remotes:
         return
     for remote, info in doc.remotes.items():         # each remote's parts, now every local part is known: local wins
-        for section, pname, got, pv in info.pop("pending", None) or []:
+        pending = info.pop("pending", None) or []
+        gone: set[str] = set()
+        for section, pname, _got, pv in pending:
             one = SINGULAR.get(section, section)
             if (section, pname) in doc.defined:
+                gone.add(pname)
                 doc.problems.append(Problem(
                     "finding", f"remote {remote}: its {one} {pname[len(remote) + 1:]} would be {one} {pname} here, "
-                    f"which is already defined at {doc.defined[(section, pname)]}: that one stands, this is not composed",
-                    pv, "remote-name-taken", f"{one}.{pname}"))
-                continue
-            put(section, pname, got, pv, {})
-            info["parts"][f"{one}.{pname}"] = True
+                    f"which is already defined at {doc.defined[(section, pname)]}: that one stands, this is not "
+                    f"composed, and what of {remote} names it is cut from it", pv, "remote-name-taken", f"{one}.{pname}"))
+        while True:            # a taken name is gone for this remote: what of it names one is cut, to a fixpoint
+            kept: dict = {}
+            for section, pname, got, pv in pending:
+                if pname in gone:
+                    continue
+                got = _cut(copy.deepcopy(got), section, gone)
+                if got is None:
+                    gone.add(pname)
+                    break
+                if section == "systems" and got.get("within") in gone:
+                    got["within"] = remote
+                elif section not in ("systems", "agents") and got.get("system") in gone:
+                    got["system"] = remote
+                kept[(section, pname)] = (got, pv)
+            else:
+                break
+        for (section, pname), (got, pv) in kept.items():
+            put(section, pname, as_map(got, pv), pv, {})
+            info["parts"][f"{SINGULAR.get(section, section)}.{pname}"] = True
     for section, entries in doc.sections.items():
         for ename, entry in list(entries.items()):
             if isinstance(getattr(entry, "where", None), RemoteVia):
