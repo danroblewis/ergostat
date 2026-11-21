@@ -109,3 +109,9 @@ reason. It is not a pass, and the browser suite, which runs with Playwright, run
 failed (`suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal tests/test_page_polling.py`) now gives
 19 skipped, rc 0. No bound, test body or page code changed. Items 1, 3 and 4 of round 1's list are still left: this
 container still has no Playwright, so nothing here has run in a browser.
+
+## Where it stopped
+
+Parked by the factory (review/dynamics-open-dom-growth-1, 2026-11-21 15:46).
+
+Done: the test-side changes (idle_metrics and quiet_metrics reads, settle and the old test's end read using them, and the two acceptance tests on scale_model.py 20, one with 4x CDP throttling and three overlapping relayouts). The bound is unchanged and no page code changed. By reading, every page name used exists, and the browser suite runs these tests (slow is not deselected). Left: the measurement of definition item 1, the lesson-9 run with a planted leak, and, depending on what the measurement shows, keeping item 3 or fixing the page under item 2. In every round so far the implementor's shell has been refused or has had no Playwright, so another fix round cannot make progress.
