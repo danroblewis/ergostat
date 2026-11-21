@@ -325,3 +325,16 @@ Left for the factory: `git rm tests/test_zz_scratch.py`; commit this round's two
 Run in round 5, green: `tests/test_outside_experiments.py`, `tests/test_churn.py` and `tests/test_control.py` (71
 passed, 1 xfailed), and `ruff check ergostat tests scripts`. Not run here: the whole unit suite, the four browser
 files and `demo_check` (the factory runs them under the watchdog).
+
+**Round 5, after the factory's `unit` failure.** The tail ends at a row of 15 dots, with no failing test, no summary
+and no JSON line from `suite_watch.py`. So the run was stopped from outside, and it names no test. No code was changed,
+because no fault was found to fix.
+- The unit suite was run here under `scripts/suite_watch.py`, in four groups by file name (`tests/test_[a-e]*`,
+  `[f-m]*`, `[n-r]*`, `[s-z]*`), each with `-n 4`. All rc 0: 645 + 672 + 449 + 447 = 2,213 passed, 69 skipped,
+  1 xfailed (this branch's strict 8(ii) test), 0 failed. The watchdog killed nothing (peak 234 threads, 1.1 GB).
+- The slowest test seen is `tests/test_factory.py::test_the_factory_model_loads`, 61 s alone. It spends the time in
+  `spec.read` → findings → `extremes` → `closedloop`, which never imports `ergostat/control`, so this branch does not
+  slow it. It could not be timed on main here (a worktree of main was refused). If the factory's `unit` run has a time
+  limit, this test is the likeliest to be cut off. That is outside this gap (lesson-13).
+- `ruff check ergostat tests scripts` is clean. The whole suite was not run in one go at `-n 8` (the session may not run
+  it in parallel), and the browser files and `demo_check` were not run.
