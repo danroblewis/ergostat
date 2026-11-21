@@ -296,3 +296,19 @@ the daemons' sampler, so they are reported here and not fixed (lesson-13). Read 
 No code was changed for this round, because nothing found could be shown to be the cause. A fix made without one
 would be a guess. If the factory's next run stops again, its full log (beyond the 3,000-character tail) and the
 container's exit reason (OOM or not) are what is needed.
+
+**Round 2.** There were no review findings to answer. The branch has local `main` (7b39bc94) merged in as
+5985495d, and local `main` has no commit the branch lacks. `daemons-across-the-engine-s-own-restarts` is not on that
+`main` yet (no `GROUPS` or `CLOSING` in `ergostat/daemons/`). Once it lands, merge it and run the suites again
+(lesson-7). The branch's code under `ergostat/` was read again against the stopped suite, looking for:
+- a reader that spins: `_read` breaks on an empty read and on `OSError`;
+- a sampler loop that spins or never ends: `wait` and the check for tracked runs happen in one hold of the lock,
+  `sample` moves every `due` forward before it lists, and nothing replaces `sample`;
+- processes or threads left behind by the new tests: each `sleep` and daemon is killed and waited for, and the
+  real-thread sampler's runs are finished, so its thread ends.
+
+None was found, and no code was changed. In this round the shell did not allow listing processes, so leftover
+processes could not be counted after a run. Run here, one command each: the three new test files (17 passed),
+`tests/test_daemons.py`, `tests/test_warm.py`, `tests/test_run_costs.py` and `tests/test_daemon_docs.py` (92 passed),
+and `ruff check ergostat tests scripts` (clean). The cause of the stopped unit suite is still unknown. The same
+things as before are needed to find it: the full log and the container's exit reason.
