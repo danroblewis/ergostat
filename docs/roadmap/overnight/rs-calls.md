@@ -152,3 +152,32 @@ to be the stall's cause. Run here, all passing: `test_calls` (15), `test_gated_a
 Budget: about 7 net lines over 100. The 4 lines of this fix belong in the call handler, and nothing smaller closes the
 gap. Refused this session: `env | grep -i ergostat` (to look for an inherited socket) and `git worktree add` of main
 under /tmp (to compare test durations with main).
+
+After round 4's second unit run failed (three `F`s at about 6%, 11% and 17%, then the output stops at 94%, mid-line,
+with no pytest summary and not even `suite_watch`'s closing JSON line): no code changed, because no defect was found.
+The log names no test, so `onmain.py` could rerun none. A log that ends with neither a summary nor the watchdog's line
+means the suite was cut off from outside the suite (its container), not that pytest found a failure and ended. What
+was run here, at this branch's head:
+- Every test file, serially (`-p no:randomly`), in six chunks of files: all pass. The only failure seen was
+  `test_recipes.py::test_the_schema_knows_contexts_and_a_blocks_context_and_review`, run from `tests/` by mistake (it
+  opens a relative path), and it passes from the root.
+- Two large subsets under `-n 8 --dist worksteal` and `suite_watch.py`. The first holds every file whose runs call
+  ergostat, every file with a `serial` test, and the files order-dependent on main (`test_index_files`,
+  `test_modelling_ai_cap`, `test_store_conformance`, `test_backlog`, `test_factory_times`): 490 passed, 1 failed;
+  peaks of 405 threads, 172 processes, 1.3 GB. The second holds the factory, reload, shard, storage, sandbox and
+  repair files: 488 passed. Neither stalled.
+- The one failure, `test_runner_and_state.py::test_a_run_past_its_timeout_is_stopped_with_what_it_started`, is
+  main's and not this branch's (lesson 13). It looks for `sleep 30` with `pgrep -f`, so under `-n 8` it finds another
+  test's `sleep 30`. It then runs `lsof`, which this container does not have (`FileNotFoundError`). It passes alone.
+- No test that makes a call took longer than its bound would explain. The slow tests (`test_backlog`'s and
+  `test_factory`'s 60 s, `test_factory_join`'s 88 s, `test_reload_soak`'s 127 s) load the factory's model or poll
+  HTTP, and make no call.
+Not found, so not fixed: which three tests failed, and what cut the run off. The order-dependent failures on main
+(the `queue` hidden by `dev/bin/queue.py`, above) fit the three `F`s, but that is not shown. The suite container's
+limits (12 GB, 4096 pids, a 2 GB tmpfs `/tmp`, 4 CPUs) are candidates. This session found `/tmp` already 561 MB full
+after only some of the serial chunks: 268 MB of it from one test of main's,
+`test_index_files.py::test_two_processes_one_tidying_never_corrupt_an_index_another_has_open`. A whole parallel run
+keeps every test's `tmp_path`, so it may outgrow a 2 GB `/tmp`. Neither is shown. Refused this session: the whole
+unit suite run serially in the background (with and without `suite_watch.py`), `taskset -c 0-3` (to run under the
+container's 4 CPUs), and a `du` of `/tmp`'s pytest folder piped through `sort` and `wc`.
+Budget unchanged: about 7 net lines over 100. ruff is clean.
