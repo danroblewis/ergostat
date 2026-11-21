@@ -121,13 +121,21 @@ def ai(argv: list[str]) -> int:
                 for e in ([r.get("evidence")] if not isinstance(r.get("evidence"), list) else r.get("evidence"))}
     cannot = {x.get("cannot"): x.get("why") for x in got["cannot"]}
     share = round(c["usd"] / max(len(group), 1), 6)
+    if c.get("error") and not got["tried"]:      # its first call failed: charged, the error said, no try used
+        for r in group:
+            rq.event(p, r["id"], r["state"], {"why": f"the ai tier's call failed: {c['error']}"[:500], "error": c["error"][:500],
+                                              "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
+        note(f"modeller ({a.model}): {c['error']}; ${c['usd']:.4f} charged, no try used for {len(group)} requests{said}")
+        return 0
     for r in group:
         tried = {**(r.get("tried") or {}), "ai": int((r.get("tried") or {}).get("ai") or 0) + 1}
         if rq.evidence_of(r) in answered:
-            rq.event(p, r["id"], r["state"], {"tried": tried, "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
+            rq.event(p, r["id"], r["state"], {"tried": tried, "error": None,
+                                              "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
             continue
-        why = cannot.get(r["id"]) or "the ai tier proposed nothing that would be proposed"
-        rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried,
+        why = cannot.get(r["id"]) or (f"its second call failed: {c['error']}"[:500] if c.get("error")
+                                      else "the ai tier proposed nothing that would be proposed")
+        rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried, error=c.get("error"),
                 cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
     n = submitted(p, got["proposals"], "modeller")
     note(f"modeller ({a.model}): {n} proposed for {len(group)} requests, {len(cannot)} it cannot; "
@@ -196,6 +204,8 @@ def redesign(argv: list[str]) -> int:
     from ...numbers import requests as rq
     if out.get("result") == "proposed":
         rq.event(p, req, "proposed", {"change": out.get("id"), "why": None})
+    elif out.get("result") == "error":           # its call failed: the request stays open, saying so
+        rq.event(p, req, "open", {"why": f"the redesigner's call failed: {out['why_not']}"[:500]})
     else:
         rq.event(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")})
     for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner

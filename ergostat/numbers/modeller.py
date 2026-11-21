@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -143,7 +144,9 @@ def parse(text: str) -> tuple[list[dict], list[dict]]:
 
 def call(text: str, model: str, timeout: float = 600.0) -> dict:
     """One ``claude -p`` call, tools off: ``{"result", "usd", "tokens_in", "tokens_out", "seconds"}`` (``ERGOSTAT_AI`` names
-    another command that answers the same way, as the tests' stand-in does)."""
+    another command that answers the same way, as the tests' stand-in does). One that fails (times out, exits non-zero,
+    says ``is_error``, or says no cost that is a number) has an ``error`` saying what it said, and is charged its
+    reservation (``unsaid``), or what it said if more."""
     cmd = [os.environ.get("ERGOSTAT_AI") or "claude", "-p", "--model", model, "--output-format", "json",
            "--disallowedTools", TOOLS_OFF]
     if Path(cmd[0]).name == "claude":              # its reservation as claude's budget (checked after a turn: no ceiling)
@@ -151,13 +154,27 @@ def call(text: str, model: str, timeout: float = 600.0) -> dict:
     t0 = time.perf_counter()
     try:
         got = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=timeout)
-        out = json.loads(got.stdout)
+        try:
+            out = json.loads(got.stdout)
+        except ValueError:
+            if not got.returncode:
+                raise
+            out = {"result": got.stdout}                              # a failed exit: what it printed is what it said
     except (subprocess.TimeoutExpired, ValueError, OSError) as e:      # what it cost is not said: charged as the most it
         return {"result": "", **unsaid(text, model), "seconds": time.perf_counter() - t0,   # could have (fail closed)
                 "error": f"{type(e).__name__}: {e}"}
+    out = out if isinstance(out, dict) else {"result": str(out)}
+    usd = out.get("total_cost_usd")
+    said = isinstance(usd, (int, float)) and not isinstance(usd, bool) and math.isfinite(usd) and usd >= 0
+    if got.returncode or out.get("is_error") or not said:         # failed, or its cost unsaid:
+        why = f"exit {got.returncode}" if got.returncode else "is_error" if out.get("is_error") else "no cost said"
+        told = str(out.get("result") or got.stderr or "").strip()[:300]                      # charged its reservation,
+        r = unsaid(text, model)                                                                # or more if it said more
+        return {"result": "", **r, "usd": max(r["usd"], float(usd) if said else 0.0), "seconds": time.perf_counter() - t0,
+                "error": f"the call failed ({why})" + (f": {told}" if told else "")}
     u = out.get("usage") or {}
     tin = int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0)
-    return {"result": str(out.get("result") or ""), "usd": float(out.get("total_cost_usd") or 0.0), "tokens_in": tin,
+    return {"result": str(out.get("result") or ""), "usd": float(usd), "tokens_in": tin,
             "tokens_out": int(u.get("output_tokens") or 0), "seconds": round(time.perf_counter() - t0, 1)}
 
 
