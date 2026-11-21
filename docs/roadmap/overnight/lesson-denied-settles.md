@@ -45,3 +45,10 @@ Built: 34 net lines, inside the budget. Here is what was decided with nobody to 
   `tests/test_factory_knowledge.py` was run (51 passed) and ruff (clean). The unit suite and the browser files were
   left to the factory. `dev/knowledge/README.md` (the librarian's loop) does not yet say that a denial settles a lesson.
   That file is not in this gap's files.
+- **The factory's unit run after round 1.** Its tail shows no failing test: it stops at about 96% partway through a
+  progress line, with no pytest summary and no closing JSON line from `suite_watch.py`. So the run was stopped from
+  outside, not by an assertion. I could not tie it to this branch. These files were re-run one at a time and all pass:
+  test_factory_knowledge, test_spec_structure, test_factory, test_factory_resources, test_factory_manager,
+  test_architecture, test_coherence, test_daemon_yaml_review, test_daemon_docs, test_cli_fallback, test_sd_tools,
+  test_repair2, test_program_actions, test_gated_actions, test_messages. No code was changed for it. The whole suite was
+  not run here (the brief forbids it in parallel), so which test was running when it stopped is not known.
