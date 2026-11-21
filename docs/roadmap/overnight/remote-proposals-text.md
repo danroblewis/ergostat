@@ -145,3 +145,80 @@ Risk to test: lesson-1 → 9, 10, 11, 13; lesson-3 → 5, 6, 7, 8; lesson-5 → 
 - Same kind, same version, different text: say whether it is remade (all FIELDS overwritten) and whether a dismissed one stays dismissed.
 - Lesson-11: the remote NAME used to build <state>/remotes/NAME/model.lock must be validated against ^[a-z0-9][a-z0-9-]{0,63}$ and the resolved path confirmed under <state>/remotes.
 - Test 16 is satisfied by the pending() exclusion alone; also drive the judge's accept step directly on the record so the _accept refusal is what is exercised.
+
+## Where it stopped
+
+Round 1 is built: points 1 to 11, every acceptance test (1 to 23, plus five more listed below), and 380 net lines of
+code outside tests and docs (budget 400). Point 12 is only partly done: this clone has no `origin`. Local `main` is
+this branch's base (9c9140ec), so there was nothing to merge here. The queue must merge origin/main and run the suites
+again. Expect conflicts in `compose.py` and `cli/remote.py` with remote-of-remotes, remote-box-measures and
+remote-items-record.
+
+**Not run here:** the four browser files and the whole unit suite (the factory runs them after this). Run here, one
+file at a time: tests/test_remote_proposals.py (30 passed), test_cli_fallback.py (18), test_remote.py (12),
+test_numbers.py (55), test_churn.py (7), test_review.py (22), test_inbox.py (17), test_improve.py (28),
+test_bench.py (17) and test_remote_pair.py (1). ruff is clean. No example was touched, so demo_check does not apply.
+
+**What exists that the definition got wrong.** `make()` already held `locked(p)` across `stored()` … `admit` …
+`save()` on main (proposals.py, the `with locked(p)` before `current_now`). The text is now recorded inside that same
+region. The only callers of `make` are `cli/numbers.py:143` and `web/numbers_api.py:752`, and neither holds the lock
+(checked by grep).
+
+**Answers to the plan review**
+- *Lock re-entrance.* `make` calls `remote_text._record`, which assumes the proposals' lock is held, inside its own
+  locked region. `record` takes the lock itself, for every other caller. Both locks are `fcntl.flock` on a fresh
+  `open()` each time. Such a lock belongs to the open file description, so two threads of one process block each
+  other. Tests 9, 10, 11 and 13 were each seen to fail with the lock taken away.
+- *Tests 9/10 determinism.* The patched step starts the refresh thread, then `join(0.5)`, then checks `is_alive()`.
+  The fake `client.get` answers at once, so without the lock the thread is done inside that window, and the test
+  fails (seen).
+- *Lesson-5 at a new version.* A dismissed text at version A that is found at version B is made again: open, with no
+  `dismissed_*`, `decided` or `why` (test 23). A superseded one is out of `stored()` and is made again the same way.
+- *A lookup miss.* Nothing is written. What is under the id is left exactly as it was: a local `edit.error` record
+  stays pending, as on main (test 6). A version refusal leaves it the same way.
+- *FIELDS and state.* The fold works out the state (`checked`) from the `made` and `checked` events. On a new record,
+  the made event's keys are a subset of `FIELDS` (test 3). When a record is made again, the made event also sets each
+  old key outside `FIELDS` to None, which is how `save` clears them on main.
+- *Same kind, same version, other text.* It is made again: one made event that overwrites every field in `FIELDS`,
+  then checked (test `..._found_again_with_another_text_is_remade`). A dismissed one stays dismissed at the same
+  version, whatever its text.
+- *Lesson-11.* `remote_text.folder` checks the name against `^[a-z0-9][a-z0-9-]{0,63}$`. It also checks that the
+  resolved path is directly under `<state>/remotes` and equal to the `dir` that compose recorded. Otherwise nothing
+  is locked or written (test `test_a_bad_remote_name_never_builds_a_lock_path`).
+- *Test 16.* It also calls `pr.accept(..., policy=...)` on the record, as the judge's accept step does, and that
+  raises the refusal.
+
+**Choices made alone (each the more reversible one)**
+- `make`'s "no longer found" pass never lets a text go. Texts carry no calibration scope (the `FIELDS` allowlist), so
+  they are superseded only when the remote's version moves, or made again.
+- The refresh holds `model.lock` from reading `have` to writing `model.json`, as point 4 says. That includes the GET,
+  which is bounded by its 3 s timeout.
+- The text says "± one standard error of the estimate", as point 3 asks. So test 3 checks for "error" only after
+  removing "standard error".
+- Made again from a local record: superseded, then made, then checked. Made again from an older text: made, then
+  checked (no superseded).
+- `ergostat remote proposals --revoke` exits with rc 2. On the last good model it is refused as an act.
+
+**Break-and-fail (lesson-9).** Each guard below was broken, the tests named after it failed, and then the code was put
+back:
+- the cache lock in `_record`: test 9;
+- the lock in `refresh`: tests 9 and 10;
+- the cache lock in `moved`: test 10;
+- `pr.locked` in `record`: tests 11 and 13;
+- `make`'s lock: test 13;
+- `_same` as a plain `==`: test 7;
+- the `pending()` exclusion: tests 1 and 17;
+- the `_accept` refusal: tests 14 to 18;
+- clearing the old keys: tests 11, 12 and 23;
+- a lookup that falls back to the local name: test 6;
+- the version check in `_record`: test 5, all four cases (the change is made at the step just before the record's
+  lock);
+- the dismissed check: test 23;
+- an empty `READ_WHAT`: test 21;
+- a fit field copied into the record: test 3;
+- a GET that carries the text: test 19 (it decodes the URL before searching it);
+- the new names not made free against the remote's: test 2 and the names test.
+
+Tests added beyond the 23 named: equation names built from the remote's names, a text found again with another text,
+the bad-name lock path, a local record remade from a text folding without `for_remote`, and the four cases of test 5,
+each one its own parametrised test.
