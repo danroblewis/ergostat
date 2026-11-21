@@ -161,3 +161,51 @@ about 12, `capture.py` about 5, plus room for review fixes.
 ## Notes from the plan review (answer each; not blocking)
 
 - test_a_run_starting_during_the_prune_is_not_pruned cannot fail (lesson-9): a file created after the prune's listing is never in the listing, so it survives even with no directory lockfile. The race the lockfile guards is between O_EXCL create and LOCK_SH in runlog.open, for a run whose start seq is old enough to fall beyond runs: N. Rewrite the test to stop runlog.open between create and lock, with such a seq, while a prune runs on another thread, and show the file is deleted without the directory lockfile and kept with it. Replace the 'wait briefly' with a barrier (lesson-10).
+
+## Where it stopped
+
+Built, round 1. All eleven acceptance tests are in `tests/test_runlog.py` and pass. 228 net lines of code outside
+tests and docs (budget 240). Decisions taken alone (the most reversible choice in each case):
+
+- **The plan review's note.** `test_a_run_starting_during_the_prune_is_not_pruned` is rewritten as asked. A seam
+  (`runlog._created`) stops `open_run` between the `O_EXCL` create and the `LOCK_SH`, for a run with start seq 5 when
+  files with seqs 50 and 60 exist and `runs: 1` applies. A prune starts on another thread. The test waits on a barrier
+  (the prune reaching its directory lock, or finishing), not on a sleep. With the directory lock the new file is kept
+  and only 50 goes. With the lock removed from `open_run`, the prune deletes the new file and the test fails.
+- **O_RDWR, not O_WRONLY.** The run file is opened `O_RDWR|O_APPEND|O_CREAT|O_EXCL|O_NOFOLLOW`, so that triage's tail
+  can be read from the run's own descriptor (point 4) without opening the name again. `O_APPEND` keeps `take`'s
+  writes and the child's writes in order.
+- **A run id that is not hex.** Ergostat's run ids are uuid hex, but `run_block(run_id=...)` accepts any string, and
+  `tests/test_daemons.py` passes `"r2"`. Such an id names its file by the first 12 hex characters of its sha1. That
+  keeps the name safe and still matched by the prune's allowlist. The run is not refused.
+- **One write, split in the test.** `finish` calls `_append(fd, header + body)` once. The finish test splits that call
+  at the header, so the run stops between its header and its body. It shows trim happens under the lock with a probe:
+  a non-blocking `flock` on the lockfile from inside `trim` must fail.
+- **`origin/main`.** This clone has no `origin` remote and fetching is not allowed here. The local `main` (dc0d5ac)
+  is an ancestor of the branch. The factory's merge step must still merge the real `origin/main` and run the suites
+  again.
+
+Existing tests changed: only `tests/test_resilience.py::test_block_logs_threads_and_run_log_are_capped`. Its literal
+`cfg.logs == {...}` now includes `"runs": 50`, the new default. `test_streamed_output.py`, `test_runner_and_state.py`,
+`test_daemons.py`, `test_leases.py`, `test_ticket_factory_daemons.py`, `test_daemon_docs.py`, `test_warm.py`,
+`test_inbox.py`, `test_storage.py` and `test_trial_stops.py` pass unchanged. `test_repair2.py` skips here: the
+container has no OS sandbox (bwrap cannot make namespaces).
+
+Not changed (point 8): the legacy runner (`ergostat/runner.py` agents) and the daemon supervisor's own
+`logs/daemon-<name>.log` write as before, and `ergostat reset` still removes `logs/` along with `runs/`.
+`docs/AGENT-GUIDE.md` does not describe block logs, so it is left alone.
+
+Not run by the implementor: the whole unit suite and the four browser files (left to the factory's watched run).
+
+Each new test was seen to fail with this code broken:
+- overlapping runs: the child's `stderr=` pointed back at the block log, and capture given the block log;
+- block log whole: the header written at run start;
+- finish: the block log's lock removed; trim moved outside the lock;
+- long output: the header dropped;
+- daemons: the daemon's log added to the failure's text;
+- prune by seq: sorted by name; sorted by mtime;
+- prune skips a live run: the `LOCK_NB` check removed;
+- run during prune: the directory lock removed from `open_run`;
+- existing name or link: `O_EXCL|O_NOFOLLOW` removed from the file's open;
+- unsafe path: `O_NOFOLLOW` removed from the directories' opens; capture given the block log;
+- runs range: the ceiling removed from parse.
