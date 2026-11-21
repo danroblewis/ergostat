@@ -575,9 +575,10 @@ def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
     groups = {g["name"]: [n for n in g["kinds"] if n in rel] for g in listed["systems"]}
     assert groups["planning"] == ["epic", "goal"] and groups["delivery"] == ["ticket"]      # notes: no relations
     want = {key("items-graph", {"kinds": ",".join(ks)}) for ks in groups.values() if ks}
-    want |= {key("items-graph", {"kinds": k}) for ks in groups.values() for k in ks}
-    assert want == {"items-graph?kinds=epic,goal", "items-graph?kinds=epic", "items-graph?kinds=goal",
-                    "items-graph?kinds=ticket"}
+    want |= {key("items-graph", {"kinds": k["name"]}) for k in listed["kinds"]}    # a kind chosen: related or not
+    own = {k["name"] for k in listed["kinds"] if k["name"].startswith("ergostat.")}    # ergostat's own kinds, alone too
+    assert own and want == {"items-graph?kinds=epic,goal", "items-graph?kinds=epic", "items-graph?kinds=goal",
+                            "items-graph?kinds=ticket", "items-graph?kinds=note", *(f"items-graph?kinds={k}" for k in own)}
     got = {k for k in data if k.startswith("items-graph")}
     assert got == want, got
     t = {x["id"]: x for x in data["items-graph?kinds=ticket"]["items"]}
@@ -585,3 +586,69 @@ def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
     assert "epic/e1" in t and t["ticket/a"]["status"] == "active"                   # what its relations reach
     both = {x["id"] for x in data["items-graph?kinds=epic,goal"]["items"]}
     assert {"epic/e1", "epic/e2", "goal/g"} <= both and data["items-graph?kinds=epic,goal"]["asked"] == ["epic", "goal"]
+
+
+def _snapshot_data(p) -> dict:
+    import re as _re
+
+    from ergostat.web.snapshot import build
+    return json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
+
+
+def _timeless(x):
+    """An answer without what says when it was taken (the snapshot's moment is not the test's)."""
+    return {k: v for k, v in x.items() if k not in ("now", "since", "at")} if isinstance(x, dict) else x
+
+
+def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monkeypatch):
+    from ergostat.web import server
+    from ergostat.web.server import Live, api
+    from ergostat.web.snapshot import key
+    # the completion estimates come from a background worker, so the snapshot and a later live call could differ only
+    # by when it finished (lesson-10): none in either, so the two answers are compared whole
+    monkeypatch.setattr(server, "_estimates", lambda *a, **k: None)
+    p = related_project(tmp_path)
+    data = _snapshot_data(p)
+    kinds = {k["name"]: k for k in data["items"]["kinds"]}
+    assert {"epic", "goal", "ticket", "note"} <= set(kinds)                       # and ergostat's own kinds
+    want = []
+    for name, k in kinds.items():
+        want += [("items", {"kind": name}), ("items-graph", {"kinds": name})]
+        want += [("items", {"kind": name, "state": s}) for s in k["states"]]
+    live = Live(p)
+    for path, params in want:
+        k = key(path, params)
+        assert k in data, k
+        assert _timeless(data[k]) == _timeless(json.loads(json.dumps(
+            api(live, path, {"since": ["1h"], **{a: [b] for a, b in params.items()}}), default=str))), k
+    ids = lambda k: sorted(i["id"] for i in data[k]["items"])                       # noqa: E731
+    assert ids("items?kind=ticket") == ["ticket/a", "ticket/b"]
+    assert ids("items?kind=ticket&state=doing") == ["ticket/a"]                     # ticket.started: doing
+    assert ids("items?kind=ticket&state=todo") == ["ticket/b"]
+    assert "note/n" in {i["id"] for i in data["items-graph?kinds=note"]["items"]}
+
+
+def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_path, monkeypatch):
+    from ergostat.web import snapshot
+    real = snapshot.api
+    broken = [("items", {"kind": "ticket"}), ("items", {"kind": "epic", "state": "underway"}),
+              ("items-graph", {"kinds": "note"})]
+
+    seen = []
+
+    def api(live, path, q):
+        asked = {k: v[0] for k, v in q.items() if k != "since"}
+        seen.append((path, asked))
+        if (path, asked) in broken:
+            raise RuntimeError("cannot be answered")
+        return real(live, path, q)
+    monkeypatch.setattr(snapshot, "api", api)
+    data = _snapshot_data(related_project(tmp_path))
+    for path, params in broken:
+        assert (path, params) in seen, (path, params)                     # asked, so its absence is the failure's
+        assert snapshot.key(path, params) not in data                                # absent, not empty
+    assert ("items", {"kind": "ticket", "state": "doing"}) not in seen   # no states asked without the kind's own answer
+    assert not any(k.startswith("items?kind=ticket") for k in data)    # its states, from its own answer: none to be had
+    assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
+            "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)
+    assert sorted(i["id"] for i in data["items?kind=epic"]["items"]) == ["epic/e1", "epic/e2"]
