@@ -287,3 +287,35 @@ one, and I did not try to get around that. Every file that reads `dev/` or might
 `test_intake` and `test_review` (92). Ruff is clean. No failing test was named, so I changed no code: a guessed fix
 would be less reversible than this note. **Left:** rerun `unit` and keep its full output, or at least its summary,
 not only the head. If a test then fails, fix it here only if it touches this gap's files (lesson-13).
+
+### Resumed, round 2 (review/gap-size-4's findings)
+
+**Blocking: the planner wrote the groomer's `size` (plan.py with solve.py).** Fixed by the review's first option,
+the more reversible one: **the planner no longer writes `size`.** `size_of()` gives `planned_size` and
+`size_confidence`, which is all the measure reads, and a split parent clears only those two. `size` is left to the
+groomer (`backlog.py` FIELDS), on its own scale (S/M/L or hours), and the solver ranks by it as before. So a plan
+neither overwrites the groomer's estimate nor makes an XL that `POINTS` would rank as M. `solve.py` is not touched
+(it is outside this gap's files). **Deviation from the definition:** "records `size` and `size_confidence`" now
+reads "records `planned_size` and `size_confidence`": the class and its rules are the same, only the field's name
+differs, because `size` already had an owner on main. If the owner wants the planner's class to rank the backlog,
+that is a solver change (read `planned_size`, add `XL` to `POINTS`) for its own gap. Test:
+`test_planned_gap_records_size_and_confidence` grooms the gap to `size: 6` (hours) first and asserts it is still 6
+after the plan, with `planned_size == "M"`; the sub-gaps carry no `size`.
+
+**Non-blocking: a coordinator definition found by `define()`.** When the definition file already exists,
+`defined_by` is `coordinator` and `define()` now writes `planned_size` and `size_confidence` as null (cleared, not
+only left out, so an earlier plan's class does not survive under the id, lesson-5). Test: the same test calls
+`plan.define()` after the coordinator's file is written and asserts both null.
+
+**Non-blocking: measure.py's opening sentence** now says first-pass-yield and the last five measures have no value
+(exit 1) with nothing to measure, not 0.
+
+**Lesson-9:** writing `size` again from `size_of()` failed `test_planned_gap_records_size_and_confidence`
+('M' != 6). Not clearing the size on a coordinator definition failed it as well (('S', 'high') != (None, None)).
+
+**Size:** 107 insertions and 18 deletions in `dev/` against main (about 89 net), 0 core lines: class M, within 110.
+
+**Run here:** `tests/test_factory_knowledge.py` 56 passed; `tests/test_factory.py` 60 passed, 2 skipped (Docker);
+`test_backlog` 13 and `test_take_order` 4 passed. `ruff check ergostat tests scripts dev/bin` is clean. Not run:
+the whole unit suite and the browser files (the factory runs them under the watchdog). Main was not merged again
+here: the branch holds main 0ce61cf5, and there is no remote to fetch.

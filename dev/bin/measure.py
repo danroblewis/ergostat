@@ -1,6 +1,6 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
-when nothing in the window to measure, but for first-pass-yield, which has no value then (it exits 1, as ergostat's
-own measures do).
+when nothing in the window to measure, but for first-pass-yield and the last five below, which have no value then
+(they exit 1, as ergostat's own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
   build-hours         median hours the implementor's runs took per merged gap (every round)

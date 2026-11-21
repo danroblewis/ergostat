@@ -208,12 +208,13 @@ own merge, not the batch's) and records `merged_lines` on `gap.merged`; when tha
 
 `measure.py size-accuracy` is, over 14 days by each gap's latest merge, the share of merged gaps the planner sized
 whose lines fell inside their class; `size-accuracy-high` is the same for high-confidence gaps. The class scored is
-`planned_size`, which only the planner writes (it writes `size` too); the groomer's `size` (`gap.groomed`, its own
-scale) is never scored, even when it regrades a planned gap. A sized gap with no count is left out of the share (never
+`planned_size` (with `size_confidence`), which only the planner writes. The planner never writes `size`: that is the
+groomer's (`gap.groomed`, S/M/L or hours), which the solver ranks by, and it is never scored. A sized gap with no count is left out of the share (never
 a hit) and named on stderr; with nothing measurable either one has no value (exit 1), and `-high` too when only low
 or medium gaps can be measured.
 
-**Not covered:** gaps whose definitions you wrote (no planner, no size), and split parents (they merge nothing; a
+**Not covered:** gaps whose definitions you wrote (no planner, no size; a plan that finds your definition already
+there records no size either), and split parents (they merge nothing; a
 split clears an earlier size).
 
 ## The pools: one at a time, raised on good results

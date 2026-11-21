@@ -383,18 +383,27 @@ def test_librarian_proposes_from_a_finding(tmp_path):
 def test_planned_gap_records_size_and_confidence(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
+    f.fold([{"event": "gap.groomed", "item": gid, "data": {"size": 6}}], None)    # the groomer's estimate, in hours
     assert f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: M (confidence: low)"))[0] == [
         "gap.defined"]
     assert {k: f.item(gid)["fields"][k] for k in ("size", "planned_size", "size_confidence")} == {
-        "size": "M", "planned_size": "M", "size_confidence": "low"}
+        "size": 6, "planned_size": "M", "size_confidence": "low"}       # `size` stays the groomer's (the solver's)
     split = sized("beta-one", "size: XL (confidence: high)") + sized("beta-two", "`size: S (confidence: medium)`")
     assert f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=split)[0][-1] == "gap.split"
     one, two = f.item("gap/beta-one")["fields"], f.item("gap/beta-two")["fields"]
     assert (one["planned_size"], one["size_confidence"], two["planned_size"], two["size_confidence"]) == (
         "XL", "high", "S", "medium")
-    assert (one["size"], two["size"]) == ("XL", "S")
+    assert "size" not in one and "size" not in two
     parent = f.item("gap/delta")["fields"]                                # the split parent merges nothing: no size
-    assert parent.get("size") is None and parent.get("planned_size") is None
+    assert parent.get("planned_size") is None and parent.get("size_confidence") is None
+    # a definition the coordinator wrote meanwhile is kept, and the planner's size is not recorded against it
+    f.define()
+    said = f.py("import contextlib, io, fac, plan\nout = io.StringIO()\nwith contextlib.redirect_stdout(out):\n"
+                "    plan.define(fac.config(), 'gap/alpha-thing', 'alpha-thing', 'x', 'plan', planned_size='S', "
+                "size_confidence='high')\nprint(json.dumps(out.getvalue().splitlines()))")
+    f.fold([json.loads(x) for x in said if x.startswith("{")], gid)
+    g = f.item(gid)["fields"]
+    assert g["defined_by"] == "coordinator" and (g["planned_size"], g["size_confidence"]) == (None, None)
 
 
 @pytest.mark.parametrize("line", ["", "size: XXL (confidence: high)", "size: M (confidence: sure)"])
@@ -403,7 +412,7 @@ def test_plan_without_valid_size_is_sent_back(line, tmp_path):
     gid = f.opened()
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", line))
     gap = f.item(gid)
-    assert said == ["gap.plan-sent-back"] and gap["state"] == "replan" and "size" not in gap["fields"]
+    assert said == ["gap.plan-sent-back"] and gap["state"] == "replan" and "planned_size" not in gap["fields"]
     assert any("size" in p and "'alpha-thing'" in p for p in gap["fields"]["plan_findings"])
     assert not any((f.model / "run" / d / "alpha-thing.md").exists() for d in ("plans", "defs"))   # nothing planned
     # in a split, one sub-gap's bad line sends the whole plan back, and no sub-gap is made
@@ -419,14 +428,14 @@ def test_replan_replaces_size(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
     f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: S (confidence: high)"))
-    assert f.item(gid)["fields"]["size"] == "S"
+    assert f.item(gid)["fields"]["planned_size"] == "S"
     (f.model / "run" / "defs" / "alpha-thing.md").unlink()       # its definition gone: the planner plans it again
     f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["again"]}},   # sent back to replan
             {"event": "gap.measured", "item": gid, "data": {"merged_lines": 40}}], None)   # an earlier merge's count
     assert f.item(gid)["state"] == "replan"
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: L (confidence: low)"))
     g = f.item(gid)["fields"]
-    assert said == ["gap.defined"] and (g["size"], g["planned_size"], g["size_confidence"]) == ("L", "L", "low")
+    assert said == ["gap.defined"] and (g["planned_size"], g["size_confidence"]) == ("L", "low")
     assert g["replanned"] is True
     assert g["merged_lines"] is None                                      # never scored on the old branch's lines
 
