@@ -38,7 +38,9 @@ and again at run time (counting the ones still draining).
 
 ## 5. Stale state surviving under a reused id
 Items are keyed by their subject, so a thing made again gets the same id and the fold merges old fields into it.
-Seen as: an old `pass` applying to a new version; an old `revise` sticking forever; a cancelled id never cleared.
+Seen as: an old `pass` applying to a new version; an old `revise` sticking forever; a cancelled id never cleared;
+two distinct approved facts truncated to the same 32-char slug share one id, so block() merges both texts and sync
+flip-flops knowledge.changed each pass.
 **Check:** when an item is made again, which old fields must be cleared? Test the same-id remake.
 
 ## 6. Work that keeps running after it was cancelled
