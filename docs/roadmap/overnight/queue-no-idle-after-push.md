@@ -24,3 +24,14 @@ Measured on 2026-11-21: over 23 queue runs in 7.4 h the merge queue sat idle for
 
 ## Size budget
 15 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built; the acceptance tests and `tests/test_factory.py` pass. The fast-suite `unit` run failed on one test this branch
+does not touch: `tests/test_index_files.py::test_two_processes_one_tidying_never_corrupt_an_index_another_has_open`.
+Its spawned children `import queue` (multiprocessing) and get `dev/bin/queue.py` instead of the standard library
+(`cannot import name 'Empty' from 'queue'`), because tests on main put `dev/bin` on `sys.path` and never take it off
+(`tests/test_backlog.py:24` `intake()`, `tests/test_factory.py:2830`). It depends on the order: it passes alone, and
+fails when run after `tests/test_backlog.py` alone (`pytest -p no:randomly tests/test_backlog.py` then the test),
+with no file of this gap involved. Under lesson-13 it is reported, not fixed here; the fix (take `BIN` off `sys.path`
+after the import, as `tests/test_factory_knowledge.py` does) belongs in its own gap.
