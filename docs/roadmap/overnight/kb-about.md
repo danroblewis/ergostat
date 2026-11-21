@@ -113,3 +113,19 @@ failed (a-c 426, d-g 284, i-m 371, n-r 428, s 289, t-z 137). The files this bran
 workers in random order (104 passed), and the new tests write only under `tmp_path` (`ERGOSTAT_HOME` set per test;
 `git status` clean after the runs). No code changed: no failure was found to fix. The whole suite at `-n 8` was not
 run here (the rules forbid it). If the next run fails again, its full output, not the tail, is needed to name the test.
+
+After the factory's second `unit` run failed, on `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`
+(`['expired', 'ack']`, not `['ack']`): this is not caused by this branch, so no code is changed (lesson-13).
+- The branch changes nothing on that test's path. Nothing under `ergostat/leases/`, `ergostat/store.py`, the `event`
+  command or the engine is touched. The new import of `spec/about.py` in `itemindex.py` brings in only
+  `spec/load.py`, which `ergostat/spec/__init__.py` already imports, so every `ergostat event --add` starts no slower.
+  The index's VERSION bump rebuilds an index once, and that test's record is new, so nothing is rebuilt there.
+- Why it fails: the lease has a TTL of 1 s, and the watchdog's grace is at least 1 s (`leases/terms.py` `grace`). It
+  expires only when the run says nothing for about 2 s. The run starts a fresh Python `ergostat event` process for each
+  event, and the first one starts right after the take. Under the suite at `-n 8` (290 threads, 118 processes at the
+  peak), one start-up can take that long. Then the lease expires as designed, the item is taken again, and the second
+  run acks. That is the "fixed time in the test, failing under load" case of lesson-10, not a race in ergostat. The
+  watchdog and the fold give the same answer for the same silence.
+- Run here alone with `-p no:randomly`: it passed (1 passed in 3.47 s).
+- Left for a gap of its own, outside this one: give that test a TTL that covers a CLI start-up under load, or have
+  the watchdog's first look wait for the run's first event. This branch does neither.
