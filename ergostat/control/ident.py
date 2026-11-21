@@ -456,11 +456,10 @@ def outside_steps(x: list, least: int = POINTS_MIN) -> list[tuple[int, float]]:
     return out
 
 
-def around(h: float, t: list, u: list, y: list, ins: dict[str, list], k: int, noise: float | None = None) -> dict:
-    """The process identified around an outside step at ``k``, the inputs from outside fitted beside u: from
-    ``POINTS_MIN`` buckets before it to where y has come half way back from its furthest, fitted; from there on, as long
-    again, held out (the loop answering the step, which still moves past its noise)."""
-    n = len(t)
+def excursion(y: list, k: int) -> tuple[int, int, int]:
+    """y's excursion after an outside step at ``k``, in buckets: ``POINTS_MIN`` before it, where y has come half way back
+    from its furthest, and that again as long on (``POINTS_MIN``/2 at least), within the record."""
+    n = len(y)
     a = max(0, k - POINTS_MIN)
     before = [v for v in y[a:k] if v is not None]
     base = sum(before) / len(before) if before else 0.0
@@ -468,7 +467,14 @@ def around(h: float, t: list, u: list, y: list, ins: dict[str, list], k: int, no
     top = max(off, default=0.0)
     pk = k + off.index(top) if off else k
     half = next((i for i in range(pk, n) if y[i] is not None and abs(y[i] - base) <= top / 2), n)
-    b = min(n, half + max(half - k, POINTS_MIN // 2))
+    return a, half, min(n, half + max(half - k, POINTS_MIN // 2))
+
+
+def around(h: float, t: list, u: list, y: list, ins: dict[str, list], k: int, noise: float | None = None) -> dict:
+    """The process identified around an outside step at ``k``, the inputs from outside fitted beside u: from
+    ``POINTS_MIN`` buckets before it to where y has come half way back from its furthest, fitted; from there on, as long
+    again, held out (the loop answering the step, which still moves past its noise)."""
+    a, half, b = excursion(y, k)
     r = identify(h, t[a:b], u[a:b], y[a:b], {o: xs[a:b] for o, xs in ins.items()}, list(range(half - a)),
                  list(range(half - a, b - a)), noise=noise)
     r["outside_step"] = {"at": t[k], "since": t[a], "until": t[b - 1], "held": t[min(half, b - 1)]}
