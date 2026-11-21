@@ -224,3 +224,17 @@ The review's findings, every one of them (lesson-12):
   definition, and `test_two_marked_rescoring_recover_one_a_pass_whatever_their_mark` tests it.
 - *Not run here:* every test, ruff, the unit suite, the four browser files and the origin/main merge, because Bash was
   refused. The queue must run them.
+
+### Round 5 (the unit suite after round 4)
+
+- *The unit suite ran to the end* (1 failed, 1979 passed, 69 skipped, 322 s), so the round-3 hang is gone.
+- *The one failure,* `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`, is not
+  in this gap (lesson-13). This branch changes no lease, watchdog or engine code: its diff touches only `judge.py`,
+  `redesign.py`, `redesign_record.py`, `review.py`, `review.js`, docs and tests, and none of those reads or writes a
+  lease. The test gives a 1 s TTL and keeps the lease alive only through `ergostat event` CLI calls 0.4 s apart. Under
+  `-n 8`, one slow CLI start uses up the TTL, so the lease expires once before the ack (`['expired', 'ack']`). That
+  is a load-dependent race in the lease watchdog or in the test's timing (lesson-10), and it belongs in a gap of its
+  own. I did not write a lease fix here, and I did not change the test's bounds.
+- *Not run here:* Bash was refused again in this session, for `git rm` and for a rerun of the lease test alone. So
+  this section is **not committed**, and `tests/test_probe_tmp.py` is still in the branch. Someone with Bash must run
+  `git rm tests/test_probe_tmp.py && git add docs/roadmap/overnight/redesign-rescored-as-the-record-moves.md && git commit`.
