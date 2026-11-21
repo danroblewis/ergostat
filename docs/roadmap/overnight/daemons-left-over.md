@@ -269,3 +269,30 @@ run was tracked and computed its wait under two separate holds of the lock. A ru
 (`tests/test_run_costs.py::test_fifty_short_runs_...` asserts that it ends). The check and the wait are now one hold,
 and `finish` sets `wake` when the last run leaves, so the thread ends at once. If the suite's failure was another
 test, it is still unknown here.
+
+**After the factory's unit suite failed again (output stopped at about 962 of 2,013 tests).** The tail shows no F and
+no summary: neither pytest's nor `suite_watch.py`'s closing JSON line. `fac.suite` has no timeout, so the container's
+command ended by itself with a non-zero code before the watchdog could print. That points to the container (its
+12 GB or 4,096-process limit, or a kill from outside) rather than a failing assertion. The cause could not be
+reproduced here. The whole suite was run in three slices, each under `-n 8 --dist worksteal`:
+- `tests/test_[a-f]*.py`: 656 passed, 4 skipped, in 210 s.
+- `tests/test_[g-o]*.py`: 531 passed and 3 skipped. One failed: `test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`.
+- `tests/test_[p-z]*.py`: 762 passed, 62 skipped, in 138 s.
+
+None hung. The two daemon-related files lists, run alone, all pass.
+
+The two failures seen under load are both in `tests/test_leases.py`:
+- `test_the_watchdog_renews_from_what_the_holder_does_elsewhere`, as above.
+- `test_leases_survive_a_restart_the_fold_is_the_truth`, in one of two runs of the daemon-related files under `-n 8`.
+
+Each passes alone, and the second passed on a rerun. Both run a process per item with a TTL of 1 to 1.5 s, renewed by
+`ergostat event` calls that load can slow past the TTL. They don't go through the daemons, `lines.py`, `observe.py` or
+the daemons' sampler, so they are reported here and not fixed (lesson-13). Read again for a hang, the new code shows:
+- no lock order that can deadlock. The supervisor's lock is never taken while a process's lock is held, and
+  `Observed.lock` and the sampler's lock call nothing outside themselves.
+- no wait without a deadline in the new tests.
+- no read loop that can spin.
+
+No code was changed for this round, because nothing found could be shown to be the cause. A fix made without one
+would be a guess. If the factory's next run stops again, its full log (beyond the 3,000-character tail) and the
+container's exit reason (OOM or not) are what is needed.
