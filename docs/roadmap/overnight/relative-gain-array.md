@@ -181,3 +181,19 @@ Each guard and left-out reason was broken in turn, and its own test failed: fewe
 during the test), u in the signature (rewire), blocks left out (7), every enclosing system stamped (3), a failing stamp
 (4), a missing reading (13), SETTLE (12), the cap (25 and the per-system cap test), guard 4 (18), guard 5 (19 and 5),
 collinear (14), COND (15), singular G (16), and the three notes (22, 23, 24).
+
+The fast suites after round 1: `unit` was reported failed. Its tail ends at about 81% and names no test, so the run was
+cut short rather than failing an assertion. Nothing in this branch's code was changed for it:
+
+- Every file that touches what this branch changed passes alone: `test_rga` (35), `test_control`, `test_redesign`,
+  `test_redesign_memory`, `test_redesign_bench`, `test_spec_mcp_explain`, `test_architecture`, `test_inbox`, the
+  explain and modelling files, and the files that read the docs (`test_unmoved`, `test_spec_schema`, `test_parity`,
+  `test_factory*`, `test_backlog`, `test_churn*`, `test_code_health_coverage`).
+- The whole unit suite run serially (`pytest -q tests`, 36 min): 2336 passed, 6 failed. The six are
+  `test_index_files` (4), `test_modelling_ai_cap::test_two_runs_cannot_both_take_the_last_of_the_cap` and
+  `test_store_conformance::test_a_second_instance_threads_and_processes_lose_nothing[sqlite]`. Each fails in a spawned
+  child with `cannot import name 'Empty' from 'queue' (/work/dev/bin/queue.py)`. The cause is
+  `tests/test_backlog.py:23-24`, which puts `dev/bin` first on `sys.path` and leaves it there. A spawned child of the
+  same process then imports the factory's `queue.py` instead of the stdlib's. Run alone, those files pass (57 passed).
+  This is on main and outside this gap (lesson 13). It can hit any xdist worker that runs `test_backlog` before a
+  spawn test. The fix (restore `sys.path` after `test_backlog`'s import) belongs to its own gap.
