@@ -211,6 +211,13 @@ the files they changed, gaps active and ready with the files they touch, 40 line
 program (`plan.lint`, no AI: the sections, tests named `tests/...py::test_name`, a budget within
 `[gates] plan_budget_most`, lessons, `depends-on` names and files that exist or are marked new); one that fails goes
 straight back to the planner (the 6th failure parks), and a lint-clean one is the definition at once: the gap is ready.
+A split is checked further, and sent back the same way, naming the sub-gap or point: each sub-gap's budget must name
+at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a single plan keeps
+`plan_budget_most`), and the answer must hold exactly one `<coverage>` block restating what the parent must do, a
+`- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
+sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
+made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
+file).
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
