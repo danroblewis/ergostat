@@ -76,3 +76,13 @@ was changed: the definition allows 0 lines and says "nothing else changed", and 
 (lesson-13). This is the more reversible choice. Left: the factory should re-run `unit` and look at its full output,
 and any lease failure there goes in its own gap (see the two above). Not run by the implementor: shell commands were
 refused again this session, so pytest, ruff and the commit were not run; this section is left uncommitted.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:12).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 3: ack
+- attempt 4: nack exited 1
+- attempt 5: nack exited 1
+- attempt 6: nack exited 1
