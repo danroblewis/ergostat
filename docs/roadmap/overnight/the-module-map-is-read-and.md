@@ -15,3 +15,14 @@ depends-on: []
 
 ## Size budget
 30 net lines
+
+## Where it stopped
+
+The factory's unit run after b6381b41 showed one `F` at about 28%, but its tail was cut off before the summary, so the
+failing test is not named. The session was refused when it tried to run the whole unit suite (under suite_watch), to
+read logs outside /work and to commit through a heredoc. One file at a time, every file that covers the change passes:
+test_knowledge.py with test_factory_knowledge.py (78 passed), test_factory.py (116 passed, 2 skipped), test_backlog.py
+(19), test_factory_resources.py (10), test_factory_sessions.py (5) and test_code_health_coverage.py (11). The new
+`mtime` helper collides with no name in knowledge.py. No code changed in this round: without the test's name, no cause
+is known. The one F may be a load flake unrelated to this change (lesson-13). The next round needs the failing test's
+name from the queue's full log.
