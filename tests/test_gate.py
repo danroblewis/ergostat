@@ -384,7 +384,9 @@ def test_a_simpler_change_no_worse_passes(tmp_path):
     assert got["status"] == "proposed", got
     jd.run(p, "judge")
     x = pr.stored(p)[got["id"]]
-    assert x["state"] == "passed" and x["verdict"]["why"].startswith("simpler, and no worse"), x.get("verdict")
+    # tiny is 0: the replay is exactly the model's, so it is judged on structure (SPEC §12e), and passed
+    assert x["state"] == "passed" and x["verdict"]["on"] == "structure", x.get("verdict")
+    assert x["verdict"]["scorecard"]["verdict"] == "better" and x["verdict"]["scorecard"]["parts"]["removed"]
     assert x["status"] == "pending"                             # the structure is the owner's to write
 
 
