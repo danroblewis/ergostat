@@ -113,3 +113,28 @@ The factory's `unit` run failed three tests in `tests/test_leases.py`: `test_a_l
 
 Left: the factory's fast suites run again; the next step, if they fail again on these, is a gap of its own on
 `ergostat/leases` (the watchdog's expiry and the engine's give-back on stop under load).
+
+## Where it stopped (after the factory's fast suites, round 2)
+
+The factory's second `unit` run shows one `F` on the third line of progress (about 10%). The tail it gave ends at 50%
+with no summary, so it names no failed test. This session could not find which test it was, so **no code was
+changed**. Fixing something here without a failure to point at would be a guess.
+
+What was run here, one invocation at a time, all on the branch's code as of 8fcb4107:
+- `tests/test_factory.py`: 45 passed, 2 skipped (Docker).
+- `tests/test_factory_sessions.py`, `test_factory_resources.py`, `test_factory_manager.py`,
+  `test_factory_knowledge.py` and `test_local_settings.py` together: 56 passed.
+- `tests/test_leases.py`: 20 passed. This is where round 1's three failures were, all main's timing flakes.
+- `test_coherence.py`, `test_spec_structure.py`, `test_daemon_docs.py`, `test_guide.py` and `test_architecture.py`:
+  73 passed.
+- To look for order or sys.modules effects between files: test_factory_resources, sessions, factory and manager in
+  one process gave 76 passed, 2 skipped. `-n 4 --dist worksteal` over test_factory, resources, sessions and knowledge
+  gave 80 passed, 2 skipped.
+- The whole suite was not run here: this session refused it, serially and in parallel.
+
+These are the only tests that read this branch's files: `dev/`, the root `ergostat.yaml` and `run/drain.json`. Each
+one passes, alone and mixed. That makes the `F` most likely another of main's load flakes (lesson-10, lesson-13), as in
+round 1, but that is not proven.
+
+Left: the failing test's name, from the factory's full log or `suites_fast.tests` on the item. If it is in a file
+listed above, it is this branch's to fix. If it is not, it is main's and needs its own gap.
