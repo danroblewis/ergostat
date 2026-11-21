@@ -81,3 +81,46 @@ Plus the existing `tests/test_resilience.py` and `tests/test_cli_fallback.py` pa
 - test_resilience_docstring_cites_no_missing_file passes vacuously if the docstring cites no docs/ path at all. Also assert that it names docs/roadmap/overnight-2026-11-19.md, and add a deliberate break (restore docs/proposals/upkeep.md in the docstring) to the lesson-9 list.
 - In test_upkeep_entry_is_not_found_open_by_intake, assert that the subprocess returns rc 0 and that gaps_md returns a non-empty list (e.g. it still finds a known open entry). Otherwise an import failure or an empty parse reads as 'not found open'.
 - Have the entry give each of the five problems its own hash (item 2), and check that the 'Where it stopped' note exists only when a substitute merge commit was cited.
+
+## Where it stopped
+
+Round 1. The file edits are written, but **nothing is committed and nothing was run**. Bash was refused for every
+command in this session. The first two were
+`git log --oneline -3 && git show --stat HEAD | head -20 && ...` and `git merge-base --is-ancestor 3e106ee origin/main; echo $?`.
+So `git commit`, `git merge-base`, pytest and ruff all went unrun. These changes sit uncommitted in the worktree:
+
+- `docs/GAPS.md`: the open entry and its five sub-bullets are removed from *Runtime, scale and latency*. One entry,
+  `**From upkeep's fault injection** (done on main; ...`, is the first under *Done recently*. It cites
+  `docs/roadmap/overnight-2026-11-19.md` (01:30), `resilience-core.md` and `cli-fallback.md`, and says the upkeep
+  proposal was not merged. It gives 3e106ee for each of the first four problems, and 75e7687 (with 366241d and 6affe4f)
+  for the fifth. "Done on branch `cli-fallback`" is gone. I dropped the measured figures from the old wording
+  ("every 6.5 minutes", "130 s", "60 s to 30 m") (item 2, lesson-8). Nothing else in the file changed.
+- `tests/test_resilience.py`: only the docstring's first line, which now cites `docs/roadmap/overnight-2026-11-19.md`.
+- `tests/test_gaps_doc.py`: the four acceptance tests, with every plan-review note applied. Ancestry is checked
+  against origin/main, then main, then HEAD, and with no history the test fails. A hex word must contain a letter
+  a-f. Each of the five sub-bullets must carry a hash. The intake subprocess must return rc 0 and parse at least 10
+  entries. The "no `docs/proposals/upkeep.md`" check is scoped to this entry (no other GAPS entry cites it). The
+  docstring must name `docs/roadmap/overnight-2026-11-19.md`. A substitute hash for 3e106ee or 75e7687 must be
+  explained here.
+- No substitute merge commit was cited. **The hashes are not verified**: `git merge-base --is-ancestor` could not run.
+  `test_upkeep_entry_cites_only_commits_on_main` is the check, and if it fails, the hash it names must be replaced as
+  item 2 says.
+
+Choices made with nobody to ask (each the easiest to undo):
+- Item 5 (a copy of this definition at `docs/roadmap/overnight/from-upkeep-s-fault-injection.md`) is not done. The
+  house rules say a branch begun on or after 2026-11-21 keeps its definition in `dev/records/`, where this branch's
+  first commit already put it, and that `docs/` is for human readers. A second copy would be outside the files the rules
+  allow. If a review disagrees, the fix is to copy this file there.
+- The entry is inserted first under *Done recently*, above *A lease taken while the engine closes outlives the close*,
+  which is above *Warm processes for blocks*.
+
+Left, for whoever has Bash:
+1. `git add docs/GAPS.md tests/test_resilience.py tests/test_gaps_doc.py dev/records/from-upkeep-s-fault-injection.md`
+   and commit.
+2. `uv run python -m pytest -q tests/test_gaps_doc.py`, `tests/test_resilience.py` and `tests/test_cli_fallback.py`,
+   then `uv run ruff check ergostat tests scripts`.
+3. The lesson-9 breaks, each shown to fail and then reverted: the old entry put back in its section; the path
+   `docs/proposals/upkeep.md` added to the entry; a hash changed to `deadbee`; a hash changed to this branch's
+   first commit (a8246e91); the docstring given back `docs/proposals/upkeep.md`; the entry deleted.
+4. Merge origin/main (GAPS.md merges by union, so check that intake's `twice()` reports no duplicate entry), then
+   run the suites again.
