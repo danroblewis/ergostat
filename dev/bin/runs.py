@@ -101,8 +101,8 @@ def loaded(cfg: dict, work: Path, k: int, log: Path):
         yield
     finally:
         for sig in (signal.SIGTERM, signal.SIGKILL):        # (the watchdog stops what it watches on SIGTERM)
-            if p.poll() is not None:                        # its leader reaped: the group id may be another's now
-                break
+            if sig == signal.SIGKILL and p.returncode is not None:   # its leader reaped by the wait: the group id
+                break                                                 # may be another's now
             try:
                 os.killpg(p.pid, sig)
                 p.wait(timeout=15)
