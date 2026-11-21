@@ -310,3 +310,18 @@ The review's findings, every one of them (lesson-12):
   purpose and errs toward rescoring, and SPEC §12e says an unreadable mark stops writes of every class. Nothing in
   code changed this round, so no test, ruff or suite was run.
 - This section may itself be left uncommitted if `git commit` is refused too.
+
+### Round 10 (the unit suite cut off at 75%)
+
+- *The unit suite stopped at about 75%*, partway through a line of passing dots, with no failing test and no
+  summary. pytest prints a summary whenever it ends, even on failure, so something outside pytest killed the run.
+  This is the fourth such cut on unchanged code: 53%, 49%, 99% and now 75%. Round 5's run of the same code finished.
+  The docs-only branch `knowledge-seen-lesson-12-943ced70` was cut off the same way on this machine (its commit
+  7d16bcfe names the suite container's `--memory 12g` / `--pids-limit 4096` and suite_watch's watchdog as possible
+  killers). That branch changes no code, so the kill is in the suite's runner, not in this branch.
+- Following lesson-10 and lesson-13, I changed no code and no test bounds. Finding which limit kills `unit` belongs
+  in its own gap; the exit code and the watchdog's log will say which.
+- *Run here:* test_redesign_rescored, test_redesign, test_modelling_core, test_modelling_core2 and test_slowjudge,
+  with `-o faulthandler_timeout=120`: 75 passed in 25 s.
+- *`tests/test_probe_tmp.py`:* `git rm` was refused again in this session ("don't ask" mode). It is still in the
+  branch; the operator must run `git rm tests/test_probe_tmp.py && git commit`.
