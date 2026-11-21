@@ -6,6 +6,16 @@ sees only the plan text and the lessons, not the code, so it nitpicks test desig
 reviewer to spend its time reviewing things that a proper planning prompt can ensure ... Is it a simple check to make
 sure that several things exist? Because that can be a simple rule or linting check."
 
+**Changed 2026-11-20 (the owner: "getting everything right the first time is less important than improving the
+workflow itself... we are holding up production immensely with this high burden of plan reviews"):** the plan review
+is advisory, never a gate. A lint-clean plan is the definition at once (the gap ready); the plan review reads a sample
+(`[plan] review = "sample" | "all" | "off"`, 1 in `sample_every` = 3; `dev/bin/planreview.py`), its findings appended
+as notes and recorded by class on `review/<branch>-plan`; "should not be built" is the gated action `park-gap`, never
+automatic; no replan from review; `plan_kill_after` removed. The lint's sweep makes the plans left in planned, or sent
+back by the old review, the definition (the old findings appended as notes). Measures: `plan-review-agreement` (goal
+`plans-agreed` >= 0.5, read by factory-off, not a gate) and `plan-{flagged,clean}-{fix-rounds,parks}`. Points 1, 4, 5
+and 6 below are superseded where they say otherwise.
+
 ## Definition of done
 
 1. **A plan lint** (`plan.lint`, no AI), run by the program on each definition the planner writes, before it is

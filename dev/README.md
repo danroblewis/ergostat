@@ -159,16 +159,16 @@ A gap with no definition is **planned** (`dev/bin/plan.py`), once you open plann
 (`ergostat sensor planning-open.main --read 1`): the planner reads the code, docs and knowledge in a read-only clone of
 main and writes its definition of done to `run/plans/<branch>.md` (acceptance tests, a budget, the review lessons that
 apply as risks, the files to touch); a gap too large for one branch becomes sub-gaps with `depends-on` among them, the
-gap waiting in `split` until each is merged. Both the planner and the plan review are given the task graph (gaps
-merged in the last 3 days and the files they changed, gaps active and ready with the files they touch, 40 lines at
-most). Each plan is linted first, by the program (`plan.lint`, no AI: the sections, tests named
-`tests/...py::test_name`, a budget within `[gates] plan_budget_most`, lessons, `depends-on` names and files that exist
-or are marked new); a plan that fails goes straight back to the planner, never counted by the kill rule (the 6th lint
-failure parks). The plan review, in a read-only clone of main, judges whether an implementor alone can build it well
-and whether it is the right thing now (the code it relies on, the design, the fit with the graph, the tests); it
-approves it into `run/defs/` (the gap is ready; its non-blocking notes appended for the implementor to answer) or sends
-it back; the `[gates] plan_kill_after`-th send-back (4) parks it. `plan-first-pass` measures the share of plans
-approved on their first review (the goal: half). A definition you write yourself skips all of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
+gap waiting in `split` until each is merged. The planner is given the task graph (gaps merged in the last 3 days and
+the files they changed, gaps active and ready with the files they touch, 40 lines at most). Each plan is linted by the
+program (`plan.lint`, no AI: the sections, tests named `tests/...py::test_name`, a budget within
+`[gates] plan_budget_most`, lessons, `depends-on` names and files that exist or are marked new); one that fails goes
+straight back to the planner (the 6th failure parks), and a lint-clean one is the definition at once: the gap is ready.
+The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
+`dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
+findings are appended to the definition as notes the implementor answers, and recorded by class on
+`review/<branch>-plan` for the knowledge loop. "This should not be built" is only asked of you (`park-gap`, in the
+inbox). `plan-review-agreement` and `plan-{flagged,clean}-{fix-rounds,parks}` say what the stage is worth. A definition you write yourself skips all of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
 
 ```sh
 python3 dev/bin/status.py                                   # one screen: in flight, blocked, failed, queue, spend

@@ -15,8 +15,11 @@ kill_after = 6                       # failed gates (reviews, queue conflicts, r
 build_failures = 6                   # the implementor's failed fast suites that park a gap (main's own failures
                                      # are not counted: dev/bin/onmain.py)
 build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
-plan_kill_after = 4                  # plan reviews that send a plan back before it is parked (lint failures: never)
 plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
+
+[plan]                               # the advisory plan review (dev/bin/planreview.py): never a gate
+review = "sample"                    # sample (1 in sample_every plans), all, or off
+sample_every = 3
 
 [git]
 base = "main"                        # what a gap's branch starts from, and what the queue merges into

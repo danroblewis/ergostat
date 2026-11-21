@@ -1,21 +1,19 @@
-"""The planner and the plan review: a gap is planned before it is built.
+"""The planner and the plan lint: a gap is planned before it is built, and its plan is its definition at once.
 
-    plan.py           the planner: takes a gap at open (or replan). In a read-only clone of main, a session writes its
-                      definition of done (acceptance tests by name, a budget, the review lessons that apply as risks,
-                      the files to touch) to run/plans/<branch>.md: planned. Or it splits the gap into sub-gaps (each
-                      planned, `depends-on` among them, `parent:` the gap, which waits in split until every one is
-                      merged), or asks research questions and waits for their answers (a question dead, or unanswered after 12
-                      waits, is planned without, and the brief says so). A gap whose definition the
-                      coordinator wrote is made ready as the intake does.
+    plan.py           the planner: takes a gap at open (or replan). In a read-only clone of main, given the task graph
+                      (brief.graph), a session writes its definition of done (acceptance tests by name, a budget, the
+                      review lessons that apply as risks, the files to touch). Or it splits the gap into sub-gaps
+                      (`depends-on` among them, `parent:` the gap, which waits in split until every one is merged), or
+                      asks research questions and waits for their answers (a question dead, or unanswered after 12
+                      waits, is planned without, and the brief says so). Each definition is linted (lint: no AI): one
+                      that fails goes back with the findings (the 6th lint failure parks: a planner that cannot write
+                      the format); a lint-clean one becomes run/defs/<branch>.md and the gap is ready at once (the
+                      owner, 2026-11-20: the plan review is never a gate). Some are marked for the advisory plan review
+                      ([plan] review: sample, all or off; planreview.py). A gap whose definition the coordinator wrote
+                      is made ready as the intake does.
     plan.py splits    a split gap whose sub-gap parked (or died) parked too, saying which (a program, every 5m)
-                      Each definition is linted first (lint: no AI); one that fails goes back with the findings,
-                      uncounted by the plan kill rule (the 6th lint failure parks).
-    plan.py lint      the plan lint, every 5m, on each planned plan not yet linted as it is on disk
-    plan.py review    the plan review: takes a gap at planned; a session in a read-only clone of main, given the plan,
-                      the lessons and the task graph (brief.graph). Approved, the plan as it read it (its non-blocking
-                      notes appended) becomes run/defs/<branch>.md and the gap is ready; sent back, the planner takes it
-                      again with the findings; the [gates] plan_kill_after-th failure, or a park, parks it.
-    plan.py yield     plan first-pass yield: of gaps first plan-reviewed in 14 days, the share approved then"""
+    plan.py lint      the plan lint's sweep, every 5m: a plan left in planned, or sent back by the old plan review, made
+                      the definition once it is lint-clean (the old review's findings appended as notes)"""
 
 from __future__ import annotations
 
@@ -37,26 +35,43 @@ TAG = re.compile(r'<definition branch="([^"]*)"(?: title="([^"]*)")?>\n?(.*?)</d
 DEPS = re.compile(r"^depends-on:\s*\[([^\]]*)\]", re.M)
 
 
-def kill_after(cfg: dict) -> int:
-    """The plan reviews that park a gap (lint failures never count): [gates] plan_kill_after."""
-    return int(cfg.get("gates", {}).get("plan_kill_after", 4))
-
-
-def send_back(cfg: dict, gap: dict, why: list[str], park: bool = False, by: str = "review", **record) -> int:
-    """A failed plan back to the planner with why: by its review (counted: parked at the plan kill rule, or on a park
-    verdict), or by the lint (a plan's format, or a planner's answer that cannot be taken: never counted by the kill
-    rule; the MOST_LINT-th parks, a planner that cannot write the format)."""
-    f, review_ = gap["fields"], by == "review"
-    n = int(f.get("plan_failures" if review_ else "plan_lint_failures") or 0) + 1
-    if park or n >= (kill_after(cfg) if review_ else MOST_LINT):
+def send_back(cfg: dict, gap: dict, why: list[str], **record) -> int:
+    """A plan that failed the lint (its format, or a planner's answer that cannot be taken) back to the planner with
+    why; the MOST_LINT-th parks it (a planner that cannot write the format)."""
+    n = int(gap["fields"].get("plan_lint_failures") or 0) + 1
+    if n >= MOST_LINT:
         import review
         fac.say("gap.measured", gap["id"], plan_findings=why, **record)
-        review.park(cfg, gap, f"Its plan failed its {'review' if review_ else 'lint'} {n} times, or was parked:\n"
-                    + "\n".join(f"- {w}" for w in why), f"plan-{by}", where="plan")
+        review.park(cfg, gap, f"Its plan failed the lint {n} times:\n" + "\n".join(f"- {w}" for w in why),
+                    "plan-lint", where="plan")
     else:
-        fac.say("gap.plan-sent-back", gap["id"], plan_findings=why, plan_sent_back_by=by,
-                **({"plan_failures": 1} if review_ else {"plan_lint_failures": n}), **record)
+        fac.say("gap.plan-sent-back", gap["id"], plan_findings=why, plan_sent_back_by="lint", plan_lint_failures=n,
+                **record)
     return 0
+
+
+def review_wanted(cfg: dict, gid: str) -> bool:
+    """Whether the advisory plan review reads this gap's plan: [plan] review = all, off, or sample (1 in
+    [plan] sample_every, 3, chosen by the gap's id)."""
+    p = cfg.get("plan") or {}
+    mode = p.get("review", "sample")
+    return mode == "all" or (mode == "sample" and int(sha(gid), 16) % int(p.get("sample_every", 3)) == 0)
+
+
+def define(cfg: dict, gid: str, branch: str, body: str, by: str, notes: list[str] = (), **data) -> None:
+    """A lint-clean plan made the gap's definition (run/defs/<branch>.md; never over one the coordinator wrote
+    meanwhile, which is kept) and the gap ready; ``notes``: appended for the implementor to answer."""
+    target = fac.run_dir(cfg, "defs") / f"{branch}.md"
+    text = body + ("\n## Notes from the plan review (answer each)\n\n" + "".join(f"- {n}\n" for n in notes)
+                   if notes else "")
+    try:
+        with target.open("x") as fh:
+            fh.write(text)
+    except FileExistsError:
+        by = "coordinator"
+    fac.say("gap.defined", gid, definition=fac.rel(target), ready_at=time.time(), branch=branch, defined_by=by,
+            plan_sha=sha(body), risks=sorted(set(re.findall(r"\blesson-\d+\b", body))),
+            plan_review="wanted" if by != "coordinator" and review_wanted(cfg, gid) else None, **data)
 
 
 def lint(cfg: dict, body: str, siblings: tuple[str, ...] = ()) -> list[str]:
@@ -155,7 +170,7 @@ def planner(cfg: dict, gap: dict) -> int:
     if questions := [" ".join(q.split()) for q in re.findall(r"<research>(.*?)</research>", said, re.S) if q.strip()]:
         if len(asked) + len(questions) > MOST_RESEARCH:
             return send_back(cfg, gap, [f"{len(asked) + len(questions)} research questions: at most {MOST_RESEARCH}"],
-                             by="lint", **record)
+                             **record)
         ids = [f"research/{fac.slug(q, 40)}-{uuid.uuid4().hex[:6]}" for q in questions]
         for rid, q in zip(ids, questions, strict=True):
             fac.say("research.asked", rid, question=q, gap=gap["id"], asked_by="planner", asked_at=now)
@@ -166,52 +181,16 @@ def planner(cfg: dict, gap: dict) -> int:
     gaps = fac.items("gap")                              # a sub-gap's name is never another gap's id or branch
     known = {g["id"] for g in gaps} | {f"gap/{g['fields'].get('branch')}" for g in gaps}
     if wrong := problems(defs, branch, known) or linted(cfg, defs):
-        return send_back(cfg, gap, wrong, by="lint", **record)
+        return send_back(cfg, gap, wrong, **record)
     for name, title, body in defs:
-        p = fac.run_dir(cfg, "plans") / f"{name}.md"
-        p.write_text(body)
         if name != branch:
             fac.say("gap.requested", f"gap/{name}", title=title or name, source="plan", branch=name,
                     parent=[gap["id"]], depends_on=deps_of(body), requested_at=now)
-        fac.say("gap.planned", gap["id"] if name == branch else f"gap/{name}", plan=fac.rel(p), planned_at=now, risks=sorted(set(re.findall(
-            r"\blesson-\d+\b", body))), replanned=name == branch and bool(f.get("plan_failures")), plan_linted=sha(body),
-            **(record if name == branch else {}))
+            define(cfg, f"gap/{name}", name, body, "plan-split", planned_at=now)
+        else:
+            define(cfg, gap["id"], name, body, "plan", planned_at=now, replanned=gap["state"] == "replan", **record)
     if defs[0][0] != branch:
         fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, **record)
-    return 0
-
-
-def review_plan(cfg: dict, gap: dict) -> int:
-    f, branch = gap["fields"], fac.branch_of(gap)
-    p = fac.run_dir(cfg, "plans") / f"{branch}.md"
-    if not p.is_file():
-        return send_back(cfg, gap, [f"its plan {fac.rel(p)} is missing"], by="lint")
-    plan = p.read_text()                                 # what is reviewed is what becomes the definition
-    if f.get("plan_linted") != sha(plan) and (found := lint(cfg, plan)):
-        return send_back(cfg, gap, found, by="lint")     # no session for a plan that fails the lint
-    _, work = agents.clone(cfg, branch, "plan_reviewer", at=f"origin/{cfg['git']['base']}")
-    text, context = brief.assemble(cfg, "plan_reviewer", gap, work, definition=plan, branch=branch,
-                                   graph=brief.graph(cfg, gap))
-    context["brief"] = brief.save(cfg, "plan_reviewer", gap, text)
-    got = fac.attempt(cfg, "plan_reviewer", text, work)
-    if got is None:
-        return 0
-    import review
-    v = review.verdict(str(got.get("result", "")))
-    record = dict(contexts=[context], ai_cost_usd=round(float(got.get("total_cost_usd") or 0), 4), sessions=1,
-                  plan_reviews=[{"verdict": v["verdict"], "blocking": v["blocking"], "at": time.time()}])
-    if v["verdict"] != "merge":
-        return send_back(cfg, gap, v["blocking"] or [v["where_it_stopped"] or "parked"], v["verdict"] == "park",
-                         **record)
-    target, by = fac.run_dir(cfg, "defs") / f"{branch}.md", "plan"
-    notes = "".join(f"- {n}\n" for n in v["non_blocking"])
-    try:
-        with target.open("x") as fh:                     # never over a definition the coordinator wrote meanwhile
-            fh.write(plan + (f"\n## Notes from the plan review (answer each)\n\n{notes}" if notes else ""))
-    except FileExistsError:
-        by = "coordinator"
-    fac.say("gap.defined", definition=fac.rel(target), ready_at=time.time(), branch=branch, defined_by=by,
-            plan_sha=sha(plan), plan_failures=-int(f.get("plan_failures") or 0), **record)
     return 0
 
 
@@ -230,35 +209,25 @@ def splits(cfg: dict) -> int:
 
 
 def sweep(cfg: dict) -> int:
-    """The plan lint as its own step: each planned gap, not held by a run, whose plan on disk is not the one linted
-    (planned before the lint, or changed since): linted, and sent back or marked linted."""
-    for g in fac.items("gap", "planned"):
-        p = fac.run_dir(cfg, "plans") / f"{fac.branch_of(g)}.md"
-        if (g["fields"].get("lease") or {}).get("holder") or not p.is_file() or g["fields"].get(
-                "plan_linted") == sha(p.read_text()):
+    """The plan lint's sweep: each gap not held by a run whose plan (run/plans/) waits in planned, or was sent back to
+    replan by the old plan review (never by the lint: the planner writes those again): lint-clean, made the definition
+    (the review's findings appended as notes); a planned one that fails the lint goes back to the planner."""
+    for g in fac.items("gap"):
+        f, p = g["fields"], fac.run_dir(cfg, "plans") / f"{fac.branch_of(g)}.md"
+        old = g["state"] == "replan" and f.get("plan_sent_back_by") != "lint"
+        if (f.get("lease") or {}).get("holder") or not p.is_file() or not (g["state"] == "planned" or old):
             continue
-        if found := lint(cfg, p.read_text()):
-            send_back(cfg, g, found, by="lint")
-        else:
-            fac.say("gap.measured", g["id"], plan_linted=sha(p.read_text()))
+        body = p.read_text()
+        if not (found := lint(cfg, body)):
+            define(cfg, g["id"], fac.branch_of(g), body, "plan-lint", notes=list(f.get("plan_findings") or []) if old
+                   else [], released_from=g["state"])
+        elif g["state"] == "planned":
+            send_back(cfg, g, found)
     return 0
-
-
-def first_pass(now: float | None = None) -> float:
-    """Of gaps whose first plan review was in the last 14 days, the share it approved (none: no value, exit 1)."""
-    since = (now or time.time()) - 14 * 86400
-    first = [r[0] for r in (g["fields"].get("plan_reviews") or [] for g in fac.items("gap")) if r]
-    first = [r for r in first if float(r.get("at") or 0) >= since]
-    if not first:
-        raise SystemExit("plan-first-pass: no value yet (no first plan review in the window)")
-    return round(sum(r.get("verdict") == "merge" for r in first) / len(first), 3)
 
 
 if __name__ == "__main__":
     fac.stop_on_term()
-    if sys.argv[1:] == ["yield"]:
-        print(first_pass())
-        sys.exit(0)
     if sys.argv[1:] in (["splits"], ["lint"]):
         sys.exit((splits if sys.argv[1] == "splits" else sweep)(fac.config()))
-    sys.exit((review_plan if sys.argv[1:] == ["review"] else planner)(fac.config(), fac.read_input()["item"]))
+    sys.exit(planner(fac.config(), fac.read_input()["item"]))
