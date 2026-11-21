@@ -51,3 +51,23 @@ Built, round 1. I made these decisions alone (nobody to ask), each time taking t
   The test does not run the loop thread itself, because that would start every timed sensor and block of the factory.
 - Not done here: origin/main could not be merged (this clone has no `origin/main`); the merge queue merges it and runs
   the suites. Net code outside tests, docs and dev: +10 lines (`craft.py`), within the budget.
+
+### The unit suite stopped after round 1 (the suite-fix session)
+
+The factory's unit run stopped at 9% (316 tests passed) with no failure, no pytest summary and no `suite_watch` JSON
+line. `suite_watch` prints that line even when it kills the run for threads or memory, and when it is interrupted, so
+the run was stopped from outside it: by the slot's time limit or the container. This session had no shell (every
+Bash call was refused), so I could not run the suite or a single test, reproduce the stop, or commit anything. This
+note is left in the worktree, uncommitted. Read-only findings:
+- Only `test_an_approved_switch_drains_and_switches_through_the_engine` (marked `slow`, so `conftest._slow_first`
+  starts it first on a worker) builds an engine on the factory's model and starts processes. Its waits all have
+  deadlines (2 × 120 s, then 90 s). Its detached `live.py switch` runs only fake versions in the test's own `live/`,
+  with the test's own `ERGOSTAT_HOME` and `FACTORY_CONFIG`. It holds no lock and leaves no thread that could stop the
+  other seven workers.
+- No other test runs an engine loop on the factory's model, so taking the switcher and `pipeline-watch` off `goal:`
+  starts no new runs anywhere else in the suite.
+- None of the `serial` tests (the only way one test holds back every worker) touches what this branch changed.
+I found nothing in the branch that explains a stop of the whole run, and changed no code on a guess. Left: run the
+unit suite again under `suite_watch.py`. If it stops at the same place, run
+`tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine` alone with `-x -s` to see
+whether it hangs.
