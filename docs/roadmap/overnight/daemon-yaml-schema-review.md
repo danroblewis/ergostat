@@ -160,3 +160,19 @@ Built, round 1. Nothing is left in the definition except the suites, which the f
   - The GAPS test: renaming the file was refused by the sandbox (`git mv`). Instead the GAPS entry's link was changed
     to `daemon-yamlx.md`, and the test failed. Without the file, every other test in the file fails as well, since
     they all read it.
+
+### The factory's fast suites (after round 1's build)
+
+- **`unit`: 1 failed, 1935 passed, 69 skipped.** The one failure is
+  `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (`['expired', 'ack'] != ['ack']`).
+  **Unrelated to this branch, and not fixed here** (lesson-13; point 7 forbids any line under `ergostat/`). The
+  branch changes only `docs/` and adds `tests/test_daemon_yaml_review.py`, which no lease test imports. The test gives
+  its run `ttl: 1s`. The run's first activity is an `$ERGOSTAT_CMD event --add` subprocess, a cold Python start that
+  imports ergostat. The watchdog expires the lease when it sees no activity within the TTL plus `grace(1s)` = 1 s
+  (`ergostat/leases/terms.py:38-41`, `ergostat/leases/dispatch.py:336-345`). Under `-n 8` (peak 293 threads, 122
+  processes) that start can take more than 2 s. It looks load-dependent (lesson-10): either the test's 1 s TTL is
+  tighter than a loaded CLI start, or the watchdog has a real first-spawn race. Which one it is belongs in a gap of its
+  own. I could not re-run the test alone to confirm, because this session refused to run commands. The factory's
+  rerun, or a run of that one file, will show whether it fails without load.
+- **Not committed by me.** This note was written to the working tree. The sandbox refused `git commit`, so it is
+  left uncommitted for the factory to commit.
