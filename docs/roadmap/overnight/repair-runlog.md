@@ -334,3 +334,29 @@ The other findings of review 3:
 Parked by the factory (review/repair-runlog-4, 2026-11-20 20:29).
 
 Done, by reading: the gap's own code (ergostat/runlog.py: per-run files opened by descriptor without following links, created with O_EXCL and fallback names, the shared run lock taken under the directory lock, the prune ordered by start seq with an allowlist that skips locked files, the trim and append done in one write under the block log's lockfile, keep() clamped including its fallback; engine.run_block refuses a run whose log can't be made and gives triage the run's own tail before finish; storage logs: runs: 1-1000) and the tests in tests/test_runlog.py, which the implementor reports passing (12) and seen failing with each guard broken. Left: the branch must be rebuilt on origin/main from the gap's own commits only (98d0af91 3b2a7396 e5d4b907 8becff97 f3498374 4c354b23 01a44bad; leave out e3bda351's test_relations_asof.py edit and carry its notes over by hand), as written at docs/roadmap/overnight/repair-runlog.md:300-316. Then run test_runlog.py, test_streamed_output.py, test_runner_and_state.py, test_resilience.py, test_daemons.py, test_repair2.py (on a host with the sandbox), test_relations_asof.py unchanged with 'ready', the unit suite and the four browser files, and compare test_leases.py with main. Why stop: two reviews in a row failed on the branch base, and the implementor's session cannot move branches, so a third fix round would end the same way. The rebuild needs a session allowed to make branches, or the coordinator.
+
+### Continued, round 1: main (0441187f) merged; the branch base is no longer wrong
+
+**The merge.** Committed as 7adda75b. It conflicted only in `dev/model/knowledge.yaml` (the planner's `takes:` and
+`pool:`) and `ergostat.yaml` (the gap kind's `gap.closed` comment and `show:`, and `messages: done:` for lessons). In
+each hunk main's side already held everything the branch's side had (main's `where: {continues: null}`, `pool: 12`,
+`parked_for, loop_rounds, loop_hours`, the lesson state `denied`), so main's side was kept whole.
+
+**The base finding (reviews 3 and 4), answered by the merge, not by a rebuild.** Main now has the backlog's commits
+(c66dc8a5, 67c673ec, 600535dc): `git log 0441187f..HEAD` lists none of them, only the gap's own commits, the two
+merges of main, and the old base's merge commit dc0d5ac6. `git diff --stat 0441187f HEAD` touches only the gap's
+files: `ergostat/{runlog,storage}.py`, `ergostat/spec/engine.py`, `ergostat/repair/capture.py`, `docs/{SPEC,GAPS}.md`,
+this file, `tests/test_runlog.py` and `tests/test_resilience.py`. `tests/test_relations_asof.py` is not in the diff:
+e3bda351's `'unblocked'` is what main itself says now, so that edit drops out with no undo. The rebuild by
+cherry-pick written in round 4 is therefore no longer needed. It was not done (this session cannot move branches
+either). Merging was the reversible choice, and it leaves the branch's history whole.
+
+**Size against main.** +249/-17 on the four ergostat files: 232 net lines (budget 240).
+
+**Run here after the merge, one file at a time, all passing:** `test_runlog.py` (12), `test_streamed_output.py` with
+`test_runner_and_state.py` (53), `test_resilience.py` (35), `test_daemons.py` (28), `test_relations_asof.py` with
+`test_relations.py` and `test_storage.py` (34), `test_leases.py` with `test_spec_engine.py`, `test_trial_stops.py` and
+`test_factory_knowledge.py` (102, the lease tests included, with no failure this time). ruff is clean.
+
+**Not run here:** `test_repair2.py` skips as a module (32 skipped: no OS sandbox in this container). The unit suite
+and the four browser files are left to the factory's watched run. Main's own `test_leases.py` was not run side by side.
