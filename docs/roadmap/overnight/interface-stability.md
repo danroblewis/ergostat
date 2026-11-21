@@ -160,3 +160,11 @@ Built in round 1; nothing left. These choices were made alone and are the most r
   so. It is not handled any other way.
 - **The explain test's crossing.** `wa` (in `a`) reads `stock.outside`, which is in no system. Only `a`'s ports
   change, so `b` reads "2 of 2".
+
+**After the factory's unit run failed.** Its tail stopped at 77% with no failure shown. Every test file was then run
+again on this branch, one batch at a time. The only failure was `tests/test_spec_engine.py::
+test_a_sensor_s_command_is_told_how_to_call_ergostat_back` (`KeyError: 'ERGOSTAT_PROJECT'`). It passes alone, twice.
+It is a race in the test, not in this branch (lesson-13): the sensor runs `env | grep ... > env.txt` every 0.5 s, and
+`run_for` reads `env.txt` right after `Engine.close()`. A run that began just before the close can have truncated the
+file. That code path never reaches `history`, `explain` or `interface_history`. No code was changed for it; it
+belongs in its own gap.
