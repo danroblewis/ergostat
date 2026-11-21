@@ -396,3 +396,16 @@ origin/main merge.
 - **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`, along with this note.
 - Same gate, the next round: `git rm -q scratch_probe.py` was refused a twelfth time ("don't ask" mode). Nothing
   deleted, committed or run; this line is not committed by this session.
+
+### Resumed, round 5 (2026-11-21)
+
+- The first Bash call (`git rm -q scratch_probe.py`) was refused by this session's permissions ("don't ask" mode):
+  the thirteenth refusal. No other route was tried (revert, `--cached`, emptying the file), since each would get
+  around the same refusal. Nothing was deleted, committed or run; this note is **not committed** by this session.
+- Searched again: nothing in `ergostat/`, `tests/` or `scripts/` names `scratch_probe.py`. No code changed, so the
+  size and the last results stand (17 and 93 passed, ruff clean, serial unit run 1948 passed). The non-blocking
+  `TrialError` finding (`judge.py:556-560`) stays as resumed round 3 describes. It was left alone because a change
+  that can't be tested or committed would land on the branch unverified.
+- **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`, along with the uncommitted doc
+  edits. Then the merge queue merges origin/main and runs the suites under `suite_watch.py`. This item should not
+  be sent to another automated round, because each one has been refused the same way.
