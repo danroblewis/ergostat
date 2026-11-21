@@ -193,3 +193,17 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
 - *A stray file:* `tests/test_zz_profile_tmp.py`, an untracked diagnostic, was emptied to a comment because this
   session's shell refused `rm`. It is not committed. Delete it.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 5 (2026-11-21): review/manager-sessions-3.**
+- *Merge of main ca35e0b* (c68975f7): conflicts in `dev/bin/measure.py` (the docstring: the branch's "the last four",
+  for its manager measures, and main's coverage measures both kept) and `dev/bin/watch.py` (`STUCK`: main's
+  `push-pending: 4` kept alongside the branch's `MOST_ACTIONS` and `minutes`). No conflict markers are left.
+- *The stray file (blocking):* round 4's note was wrong. `tests/test_zz_profile_tmp.py` had been committed by the
+  factory's auto-commit (f81ac9b8). It is now removed with `git rm` (32ec09f1), so it is not on the branch.
+- *The unit suite never finished (non-blocking):* still not run whole here. The factory runs the unit suite and the
+  four browser files under suite_watch, after merging origin/main.
+- *The reviewer could not run anything (non-blocking):* these ran here after the merge, one file at a time:
+  `tests/test_factory_manager.py` 28 passed; `tests/test_factory.py` 70 passed, 2 skipped;
+  `tests/test_factory_times.py` and `tests/test_factory_knowledge.py` 61 passed together. Ruff is clean. This round
+  changed no code, so no code was broken to watch a test fail.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
