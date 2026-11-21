@@ -1730,7 +1730,7 @@ def test_a_switch_waits_for_the_runs_under_way(tmp_path):
     r = subprocess.run([sys.executable, "-c", "import sys, json; sys.path[:0] = [sys.argv[1]]; import drain; "
                         "print(json.dumps(drain.AI))", str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
     spec, _ = read(ROOT / "ergostat.yaml")
-    own = {"improver", "modeller", "redesigner"}         # (ergostat's own modelling, the template's: not drained)
+    own = {"improver", "modeller", "redesigner", "model-reviewer"}   # (ergostat's own modelling, the template's: not drained)
     assert set(json.loads(r.stdout)) == {n for n, x in spec.blocks.items() if x.type == "ai"} - own   # every other
 
 

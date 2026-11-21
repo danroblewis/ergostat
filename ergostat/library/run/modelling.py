@@ -12,6 +12,9 @@
     modelling redesign [--when ask|off] [--model haiku] [--budget 0.5] [--rounds 3] [--daily 2]
         the redesigner: what the owner asked for, one change set for a whole system, made on a scratch copy over a few
         rounds and proposed as one change (redesign.py), within the day's cap; its cost printed as a result line
+    modelling review [--model haiku] [--most N] [--daily 2]
+        the reviewer: each change the judge passed of a reviewed kind, read as a senior modeller would; its verdict
+        (pass, revise, reject) recorded on the change (reviewer.py), within the same daily cap
 
 Each prints a line for the block's log on standard error, and nothing else on standard output but its readings (and
 the ai tier's and the redesigner's result lines, and the redesigner's report lines)."""
@@ -141,8 +144,12 @@ def redesign(argv: list[str]) -> int:
     if a.when == "off":
         note("redesigner: off")
         return 0
-    left = round(a.daily - rd.spent(p), 6)
-    if left <= 0:                                 # the daily cap, before anything is planned: nothing runs past it
+    from ...numbers import reviewer as rv
+    def room() -> float:                          # read again before each call: the reviewer may spend meanwhile
+        # the reviewer's share of the cap is kept for it
+        return round(min(a.daily - rd.spent(p), a.daily * (1 - rv.RESERVE) - rd.spent(p, reviewer=False)), 6)
+    left = room()
+    if left <= 0:                                # the daily cap, before anything is planned: nothing runs past it
         note(f"redesigner: the day's ${a.daily:.2f} is spent; nothing is reviewed until tomorrow's allowance")
         return 0
     plan = rd.plan(p, a.when)
@@ -159,7 +166,7 @@ def redesign(argv: list[str]) -> int:
         _said(got)
         rd.charge(p, plan["system"], got)
     out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=min(a.budget, left), rounds=a.rounds, by="redesigner",
-                  timeout=a.timeout, on_call=charged)
+                  timeout=a.timeout, on_call=charged, room=room)
     rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "total": out["cost"],
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"], "unit_sig": sig,
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
@@ -174,6 +181,29 @@ def redesign(argv: list[str]) -> int:
     note(f"redesigner ({a.model}): {plan['system']}: {out.get('result')}" + (f" ({out.get('why_not')})" if out.get("why_not") else "")
          + (f", {out['scorecard']['verdict']}" if out.get("scorecard") else "")
          + f"; {len(out['rounds'])} round(s), ${c['usd']:.4f}, {c['calls']} call(s)")
+    return 0
+
+
+def review(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="modelling review")
+    ap.add_argument("--model", default="haiku")
+    ap.add_argument("--most", type=int, default=3, help="changes read in one run")
+    ap.add_argument("--daily", type=float, default=2.0, help="the template's daily cap, shared with the redesigner")
+    ap.add_argument("--timeout", type=float, default=None)
+    a = ap.parse_args(argv)
+    sys.stdin.read()
+    from ...numbers import modeller as md
+    from ...numbers import redesign as rd
+    from ...numbers import reviewer as rv
+    p = project()
+    left = round(a.daily - rd.spent(p), 6)
+    if left <= 0:                                 # the cap, before any call: what waits for review stays unwritten
+        note(f"reviewer: the day's ${a.daily:.2f} is spent; nothing is reviewed until tomorrow's allowance")
+        return 0
+    out = rv.run(p, a.model, a.most, left, md.per_call(a.timeout, a.most), on_call=_said,
+                 room=lambda: round(a.daily - rd.spent(p), 6))     # read again before each call: the redesigner may spend
+    said = ", ".join(f"{v['id']} {v['verdict'] or 'no verdict: ' + v['why']}" for v in out["verdicts"]) or "nothing waits"
+    note(f"reviewer ({a.model}): {said}; ${out['cost']['usd']:.4f}, {out['cost']['calls']} call(s)")
     return 0
 
 
@@ -196,7 +226,7 @@ def _near(p, reqs: list[dict]) -> list[dict]:
 
 
 def main(argv: list[str]) -> int:
-    subs = {"requests": requests, "rules": rules, "ai": ai, "redesign": redesign}
+    subs = {"requests": requests, "rules": rules, "ai": ai, "redesign": redesign, "review": review}
     if not argv or argv[0] not in subs:
         print(f"usage: ... modelling {{{','.join(subs)}}} ...", file=sys.stderr)
         return 2
