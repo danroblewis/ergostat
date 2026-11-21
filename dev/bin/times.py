@@ -15,6 +15,7 @@ import json
 import math
 import re
 import statistics
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -33,6 +34,7 @@ GATES = ("implementor", "fast", "review", "unit", "browser", "demo", "push-wait"
 EXITS = ("approved", "parked", "dead", "closed")
 SNAPSHOT = "ergostat.item.snapshot"            # a gap's older events rolled up into one (ergostat/rollup.py)
 MOST = 50                                      # gaps timed in one run, at most (each is one read of its record)
+LONGEST = 100_000                              # a gap's events read whole, at most; a longer one is unreadable
 GOALS = fac.HERE / "model" / "times.yaml"
 GOAL = re.compile(r'auxiliary: ([a-z0-9-]+), hold: "<= ([0-9.]+)"')
 
@@ -104,8 +106,15 @@ def timing(d: dict) -> dict:
     rolled up) leaves them unknown: None, not counted in any gate's measure."""
     moves = d.get("moves") or []
     evs = d.get("record") or []
-    if int(d.get("record_total") or len(evs)) > len(evs):        # its record cut short: read the gap's events whole
-        evs = json.loads(fac.ergostat("events", "--item", d["id"], "--json", "-n", "100000").stdout)
+    total = int(d.get("record_total") or len(evs))
+    if total > len(evs):                    # its record cut short (the last 500): its events whole, `ergostat event`
+        if total > LONGEST:
+            raise ValueError(f"{d['id']}: {total} events, past the {LONGEST} read whole")
+        n = total + 1000                    # room for events said since; a page this full may be cut: unreadable
+        evs = json.loads(fac.ergostat("event", "--item", d["id"], "--type", f"gap.*,{SNAPSHOT}", "--json",
+                                      "-n", str(n)).stdout)
+        if len(evs) >= n:
+            raise ValueError(f"{d['id']}: its events grew past {n} while read")
     evs = [e for e in evs if e["type"].startswith("gap.") or e["type"] == SNAPSHOT]
     snap = max((i for i, e in enumerate(evs) if e["type"] == SNAPSHOT), default=None)
     base, merged = None, None
@@ -124,16 +133,23 @@ def write(gaps: list[dict], marks: Path) -> int:
     """`gap.timed` on each gap whose record grew since it was last read, when its timing changed; how many were read.
     The bookmark (each gap's count of events read) is kept in ``marks``, outside the record, and moved on every read,
     so an event that changes no timing is read once; the gaps never read come first. An unreadable bookmark counts as
-    none: every gap is read again, MOST a run, and only a changed timing is written."""
+    none: every gap is read again, MOST a run, and only a changed timing is written. A gap that cannot be read keeps
+    its bookmark (read again next run) and does not stop the others; the bookmark is saved, then the run fails
+    (SystemExit) naming each one."""
     try:
         seen = json.loads(marks.read_text())
         seen = seen if isinstance(seen, dict) else {}
     except (OSError, ValueError):
         seen = {}
     grown = sorted((g for g in gaps if g.get("events") != seen.get(g["id"])), key=lambda g: g["id"] in seen)
+    bad = []
     for g in grown[:MOST]:
-        d = json.loads(fac.ergostat("item", g["id"], "--json").stdout)
-        got = timing(d)
+        try:
+            d = json.loads(fac.ergostat("item", g["id"], "--json").stdout)
+            got = timing(d)
+        except (RuntimeError, ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as e:
+            bad.append(f"{g['id']}: {e}"[:300])
+            continue
         seen[g["id"]] = int(d.get("events") or 0)
         if any(got[k] != g["fields"].get(k) for k in got):
             fac.say("gap.timed", g["id"], **got)
@@ -142,6 +158,8 @@ def write(gaps: list[dict], marks: Path) -> int:
     tmp = marks.with_suffix(".tmp")
     tmp.write_text(json.dumps({k: v for k, v in seen.items() if k in ids}))
     tmp.replace(marks)
+    if bad:
+        raise SystemExit("times.py: unreadable, read again next run:\n" + "\n".join(bad))
     return len(grown[:MOST])
 
 
@@ -204,17 +222,23 @@ def table(gaps: list[dict], since: float, now: float) -> list[str]:
 
 
 def setpoints(now: float) -> int:
-    """Each goal's setpoint set to its measure's reading now (rounded up), where the window has one."""
+    """Each goal's setpoint set to its measure's reading now (rounded up), where the window has one; the file's
+    `# setpoints:` line records when, over how many gaps, and how many were set."""
     gaps = fac.items("gap")
     since = now - 14 * 86400
+    set_ = []
 
     def today(m: re.Match) -> str:
         base = m[1].removesuffix("-p90")
         if not values(base, gaps, since):
             return m[0]
         v = reading(m[1], gaps, since)
+        set_.append(m[1])
         return f'auxiliary: {m[1]}, hold: "<= {math.ceil(v * 100) / 100:g}"'
-    GOALS.write_text(GOAL.sub(today, GOALS.read_text()))
+    text = GOAL.sub(today, GOALS.read_text())
+    stamp = (f"# setpoints: derived from the record on {time.strftime('%Y-%m-%d', time.localtime(now))}, over "
+             f"{len(gaps)} gaps: {len(set_)} holds set, the rest kept (no gap in their window)")
+    GOALS.write_text(re.sub(r"(?m)^# setpoints: .*$", lambda _: stamp, text, count=1))
     return 0
 
 
