@@ -97,9 +97,15 @@ def applied(es: list[dict], lessons: list[dict]) -> list[dict]:
     gone = {i["fields"].get("lesson") for i in lessons if i["state"] == "retired" and i["id"].startswith(
         "lesson/retire-")}
     got = sorted((i for i in lessons if i["state"] == "applied"), key=lambda i: int(i["fields"].get("number") or 0))
+    seed = {e["id"] for e in es}
+    for n, i in enumerate(got):         # a number the seed took too (a gap of before the queue): kept apart, and said
+        if i["fields"].get("kind") == "entry" and i["fields"].get("lesson") in seed:
+            print(f"{i['id']}: {i['fields']['lesson']} is the seed's too; carried as {i['fields']['lesson']}-record",
+                  file=sys.stderr)
+            got[n] = {**i, "fields": {**i["fields"], "lesson": f"{i['fields']['lesson']}-record"}}
     out = [*(dict(e) for e in es), *({"id": i["fields"]["lesson"], "title": str(i["fields"]["entry"]).split("\n")[0],
                                       "kind": "lesson", "file": f"record: {i['id']}", "areas": [], "about": [],
-                                      "text": f"## {i['fields']['number']}. {i['fields']['entry']}", "items": [i["id"]]}
+                                      "text": f"## {i['fields']['lesson'][7:]}. {i['fields']['entry']}", "items": [i["id"]]}
                                      for i in got if i["fields"].get("kind") == "entry")]
     by = {e["id"]: e for e in out}
     for i in got:

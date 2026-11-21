@@ -229,17 +229,19 @@ python3 dev/bin/lesson.py add "Title" --check "the check"   # or: retire N "why"
 item (`entry`). The librarian proposes; approving `knowledge-change` in the inbox runs `lesson.py request`, which
 records the item approved; `lesson.py add` and `retire` are approved at once. The program block `lesson-apply`
 (`dev/model/knowledge.yaml`, pool 1, no AI) then applies it. A new lesson is numbered past the seed's and every applied
-one's, and a retire marks lesson N (and an applied entry carrying it) retired. There is no session, branch, review,
+one's, and past one kept for each new lesson still requested as an unmerged gap (it numbers itself next in the seed);
+a record lesson whose number the seed holds all the same is carried as `lesson-N-record`, said on stderr. A retire marks lesson N (and an applied entry carrying it) retired. There is no session, branch, review,
 merge or gap. `knowledge.block` carries the repository's `dev/knowledge/review-lessons.md` (the seed) merged with the
 applied items: a "seen as" line goes under its lesson, a new lesson is its own entry, and a retired one is left out
 with its lines. The lesson ids and the item ids are recorded as carried, and the existing size budget is unchanged.
 When the record cannot be read, the brief says so and carries the seed only. `knowledge.py sync` shows applied
 entries as `knowledge/*` items. The items live in the instance's record, so a version switch keeps them.
 `lesson-settle` also runs the migration, every run and idempotently. A lesson `requested` under the old path whose
-own `gap/knowledge-*` has not merged becomes applied, and that gap is closed (`end: superseded`, with the reason). A
-merged one is left alone, since its text is in the files already and is not carried twice. One in flight (building
-to queue-failed) waits for a later run, and a gap the record does not hold is left alone and reported. No other gap
-is touched. Measured: `lessons-to-apply` (approved, waiting) held at 0 by the goal `lessons-applied`, which
+own `gap/knowledge-*` has not merged is approved, for `lesson-apply` to apply and number, and that gap is closed
+(`end: superseded`, with the reason). Only a gap in a state no run is in (open, planned, replan, ready, fix, parked)
+that no lease holds is closed. A merged one is left alone, since its text is in the files already and is not carried
+twice. One in flight or leased waits for a later run, and so does one whose lease fence moved as it was closed (taken
+in between). A gap the record does not hold is left alone and reported. No other gap is touched. Measured: `lessons-to-apply` (approved, waiting) held at 0 by the goal `lessons-applied`, which
 `lesson-apply`'s loop reads, and `lesson-apply-hours` (proposed, or approved for the coordinator's own, to applied,
 over 14 days; `lesson.py hours`). A new lesson from the librarian has no check yet ("not yet written"): retire it and
 `add` it again with one.

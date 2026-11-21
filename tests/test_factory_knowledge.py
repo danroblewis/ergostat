@@ -1310,12 +1310,40 @@ def migrating(f: Instance) -> None:
         f.fold([{"event": "lesson.requested", "item": lid, "data": {"gap": gid}}], None)
 
 
+def settled(f: Instance) -> list[str]:
+    """A run of lesson-settle (the migration), then lesson-apply on each lesson it approved."""
+    f.tool("lesson.py", "settle")
+    said = f.drain()
+    for lid in sorted(i for i, it in f.db()["items"].items() if it["kind"] == "lesson" and it["state"] == "approved"):
+        said += f.run("lesson.py", lid, argv=("apply",))[0]
+    return sorted(said)
+
+
 def test_the_migration_is_idempotent_and_touches_only_linked_gaps(tmp_path):
     f = Instance(tmp_path)
     migrating(f)
+    f.fake.write_text(FAKE_MORE.replace('    rec.write_text(json.dumps(db))\nelif args[0] == "item"', '''\
+    if args[2] == "gap.closed" and db.get("take_on_close") == args[4]:      # a lease taken between read and close
+        db["items"][args[4]]["fields"]["lease"] = {"holder": "implementor", "fence": 1}
+    rec.write_text(json.dumps(db))\nelif args[0] == "item"''', 1))
+    for gid, lid in (("gap/knowledge-seen-lesson-6-fff", "lesson/seen-lesson-6-fff"),
+                     ("gap/knowledge-seen-lesson-7-ggg", "lesson/seen-lesson-7-ggg")):
+        f.fold([{"event": "gap.requested", "item": gid, "data": {"branch": gid[4:]}},
+                {"event": "gap.defined", "item": gid, "data": {}}], None)
+        proposed(f, lid, {**SEEN, "lesson": f"lesson-{lid[19]}"})
+        f.fold([{"event": "lesson.requested", "item": lid, "data": {"gap": gid}}], None)
+    db = f.db()
+    db["items"]["gap/knowledge-seen-lesson-6-fff"]["fields"]["lease"] = {"holder": "implementor", "fence": 1}
+    db["items"]["gap/knowledge-seen-lesson-3-ccc"]["state"] = "leased"            # a reviewer holds it, at built
+    f.record.write_text(json.dumps({**db, "take_on_close": "gap/knowledge-seen-lesson-7-ggg"}))
     before = {i: g["state"] for i, g in f.db()["items"].items() if g["kind"] == "gap"}
-    f.tool("lesson.py", "settle")
-    assert sorted(f.drain()) == ["gap.closed", "gap.closed", "lesson.applied", "lesson.applied"]
+    assert settled(f) == ["gap.closed"] * 3 + ["lesson.applied", "lesson.applied", "lesson.approved", "lesson.approved"]
+    assert f.item("lesson/seen-lesson-7-ggg")["state"] == "requested"            # taken as it closed: not applied
+    assert f.item("lesson/seen-lesson-6-fff")["state"] == "requested"            # held by a lease: left alone
+    assert f.item("gap/knowledge-seen-lesson-6-fff")["state"] == "ready"
+    db = f.db()
+    db["items"]["gap/knowledge-seen-lesson-7-ggg"]["state"] = "merged"          # the run it was taken by landed it
+    f.record.write_text(json.dumps(db))
     st = {i: g["state"] for i, g in f.db()["items"].items()}
     assert st["gap/knowledge-seen-lesson-1-aaa"] == st["gap/knowledge-new-stale-cache"] == "closed"
     assert st["lesson/seen-lesson-1-aaa"] == st["lesson/new-stale-cache"] == "applied"
@@ -1326,21 +1354,39 @@ def test_the_migration_is_idempotent_and_touches_only_linked_gaps(tmp_path):
         assert st[gid] == before[gid], gid                                    # merged, in flight, or not linked
     assert st["lesson/seen-lesson-2-bbb"] == st["lesson/seen-lesson-3-ccc"] == "requested"
     assert st["lesson/seen-lesson-4-ddd"] == st["lesson/seen-lesson-5-eee"] == "requested"   # gap unknown, not knowledge-
-    f.tool("lesson.py", "settle")
-    assert f.drain() == []                                                    # once
+    assert settled(f) == []                                                   # once
     f.fold([{"event": "gap.sent-back", "item": "gap/knowledge-seen-lesson-3-ccc", "data": {}}], None)
-    f.tool("lesson.py", "settle")                                             # out of flight: its turn now
-    assert sorted(f.drain()) == ["gap.closed", "lesson.applied"]
-    f.tool("lesson.py", "settle")
-    assert f.drain() == []
+    assert settled(f) == ["gap.closed", "lesson.applied", "lesson.approved"]  # out of flight: its turn now
+    assert settled(f) == []
     assert f.item("gap/knowledge-seen-lesson-2-bbb")["state"] == "merged"
+    assert f.item("lesson/seen-lesson-7-ggg")["state"] == "requested"         # merged by its run: the file carries it
+
+
+def test_a_new_lesson_never_takes_a_number_the_seed_will(tmp_path):
+    f = Instance(tmp_path)
+    f.fold([{"event": "gap.requested", "item": "gap/knowledge-old-new", "data": {"branch": "knowledge-old-new"}},
+            {"event": "gap.started", "item": "gap/knowledge-old-new", "data": {}}], None)
+    proposed(f, "lesson/old-new", {**NEW, "name": "Old new"})
+    f.fold([{"event": "lesson.requested", "item": "lesson/old-new", "data": {"gap": "gap/knowledge-old-new"}}], None)
+    proposed(f, "lesson/new-stale-cache", NEW)
+    applied(f, "lesson/new-stale-cache")
+    assert f.item("lesson/new-stale-cache")["fields"]["lesson"] == "lesson-15"   # 14 kept for the gap in flight
+    landed = REAL_LESSONS.read_text() + "\n## 14. Old new\nSeen as: x.\n**Check:** y.\n"   # as its gap merges it
+    dev = running(tmp_path, review_lessons=landed)
+    text = block_in(f, dev / "bin", "implementor", "lesson/new-stale-cache")["text"]
+    assert text.count("### lesson-14:") == text.count("### lesson-15:") == 1
+    db = f.db()                                                                  # a clash all the same: kept apart
+    db["items"]["lesson/new-stale-cache"]["fields"].update(lesson="lesson-14", number=14)
+    f.record.write_text(json.dumps(db))
+    got = block_in(f, dev / "bin", "implementor", "lesson/new-stale-cache")
+    assert got["text"].count("### lesson-14:") == got["text"].count("### lesson-14-record:") == 1
+    assert {"lesson-14", "lesson-14-record"} <= set(got["knowledge"])
 
 
 def test_a_merged_lesson_is_not_carried_twice(tmp_path):
     f = Instance(tmp_path)
     migrating(f)
-    f.tool("lesson.py", "settle")
-    f.drain()
+    settled(f)
     landed = REAL_LESSONS.read_text().replace("\n**Check:** order by", "\nSeen as: an approval written over a fresh "
                                               "denial.\n**Check:** order by", 1)      # lesson-2 as its gap merged it
     assert landed != REAL_LESSONS.read_text()

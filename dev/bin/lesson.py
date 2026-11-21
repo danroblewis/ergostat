@@ -22,7 +22,7 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import knowledge  # noqa: E402
 
-IN_FLIGHT = ("building", "built", "in-review", "approved", "queued", "push-pending", "queue-failed")
+QUIET = ("open", "planned", "replan", "ready", "fix", "parked", "closed")   # closable, when no lease holds it
 
 
 def exact(f: dict) -> str:
@@ -35,10 +35,13 @@ def exact(f: dict) -> str:
             f"(found in {', '.join(f.get('reviews') or [])}).")
 
 
-def number(lessons: list[dict]) -> int:
-    """The next lesson's number: past the seed's and every applied one's."""
+def number(lessons: list[dict], gaps: dict[str, dict]) -> int:
+    """The next lesson's number: past the seed's and every applied one's, and past one reserved for each new lesson
+    still requested as a gap not merged or closed (it numbers itself next in the seed when it merges)."""
     seed = [int(e["id"][7:]) for e in knowledge.entries() if e["id"].startswith("lesson-")]
-    return max([0, *seed, *(int(i["fields"].get("number") or 0) for i in lessons)]) + 1
+    held = sum(1 for i in lessons if i["state"] == "requested" and i["fields"].get("kind") == "entry" and (
+        gaps.get(str(i["fields"].get("gap"))) or {}).get("state") not in ("merged", "closed"))
+    return max([0, *seed, *(int(i["fields"].get("number") or 0) for i in lessons)]) + 1 + held
 
 
 def approve(iid: str, **data) -> None:
@@ -62,7 +65,7 @@ def apply(given: dict) -> int:
                 fac.say("lesson.retired", o["id"], retired_at=now, why=f.get("why") or "")
         fac.say("lesson.retired", iid, retired_at=now)
         return 0
-    n = number(lessons) if f.get("kind") == "entry" else None
+    n = number(lessons, {g["id"]: g for g in fac.items("gap")}) if f.get("kind") == "entry" else None
     fac.say("lesson.applied", iid, entry=exact(f), applied_at=now, **({"lesson": f"lesson-{n}", "number": n} if n else {}))
     return 0
 
@@ -83,25 +86,29 @@ def settle() -> None:
 
 def migrate() -> None:
     """Once, and idempotent: each lesson `requested` as a gap before this queue whose gap/knowledge-* has not merged is
-    applied, and that gap closed with the reason. A merged one is left alone (its lesson is in the files already); one
-    in flight waits for the next run; a gap not in the record is reported, never taken as unmerged (lesson-3). Only the
-    gap the lesson names is touched."""
-    gaps, lessons, now = {g["id"]: g for g in fac.items("gap")}, fac.items("lesson"), time.time()
-    n = number(lessons)
-    for it in (i for i in lessons if i["state"] == "requested"):
+    approved, for lesson-apply to apply and number (one actuator, one lease: lesson-1), and that gap closed with the
+    reason. Only a gap in a state no run is in (QUIET) that no lease holds is closed: a merged one is left alone (its
+    lesson is in the files already), one in flight or leased waits for a later run, and one not in the record is
+    reported, never taken as unmerged (lesson-3). A lease taken between the read and the close (its fence moved) leaves
+    the lesson requested, so a gap that then merges is not carried twice. Only the gap the lesson names is touched."""
+    gaps, now = {g["id"]: g for g in fac.items("gap")}, time.time()
+    lease = lambda g: g["fields"].get("lease") or {}  # noqa: E731
+    for it in (i for i in fac.items("lesson") if i["state"] == "requested"):
         gid, f = str(it["fields"].get("gap") or ""), it["fields"]
         g = gaps.get(gid)
-        if not gid.startswith("gap/knowledge-") or g is None or g["state"] in ("merged", *IN_FLIGHT):
+        if not gid.startswith("gap/knowledge-") or g is None or g["state"] not in QUIET or lease(g).get("holder"):
             print(f"{it['id']}: left requested ({gid or 'no gap'} {g['state'] if g else 'not in the record'})",
                   file=sys.stderr)
             continue
         if g["state"] != "closed":
             fac.add("gap.closed", gid, end="superseded", closed_by="lesson-migration", closed_at=now,
                     closed_reason=f"{it['id']} is applied by the knowledge queue (lesson-apply), not built as a gap")
-        num = {"lesson": f"lesson-{n}", "number": n} if f.get("kind") == "entry" else {}
-        n += bool(num)
-        fac.add("lesson.applied", it["id"], entry=exact(f), applied_at=now, migrated_from=gid, **num)
-        print(f"{it['id']} applied; {gid} closed")
+            if lease(json.loads(fac.ergostat("item", gid, "--json").stdout)).get("fence") != lease(g).get("fence"):
+                print(f"{it['id']}: left requested ({gid} was taken as it was closed)", file=sys.stderr)
+                continue
+        fac.add("lesson.approved", it["id"], entry=exact(f), approved_by="lesson-migration", approved_at=now,
+                migrated_from=gid)
+        print(f"{it['id']} approved; {gid} closed")
 
 
 def hours() -> float:
