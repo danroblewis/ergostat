@@ -216,8 +216,8 @@ goals in `dev/model/resources.yaml` (change them there). `session-headroom` is h
 measured use of a session and its suite. **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
 the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
 (`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
-new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous) older
-than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
+new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous, nor
+one whose switch waits) older than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
 which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
 
 ## Approve the push
@@ -305,9 +305,22 @@ one of its own open at a time, and never one whose branch exists.
 ## Upgrade and revert
 
 Each green merge opens an `upgrade` item; the upgrader installs it into `~/ergostat-live/<sha>` and checks the model
-with its own code, then asks for `switch-instance`. Approving it (the inbox, as above) stops the engine, points
-`current` at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record
-read, the merge queue in the model); unhealthy, it goes back to the previous version by itself. By hand:
+with its own code, then asks for `switch-instance`. Only the newest waits: the switcher (`dev/bin/drain.py`, every
+minute) withdraws a request for a version older than one waiting, or than the one running (its action denied by the
+switcher, saying which version supersedes it). Approving it (the inbox, as above; or standing, with `gate: auto` on the
+action in the instance's model) does not switch at once: the switch waits for a quiet moment (at most `[upgrade]
+quiet_runs` AI runs under way) or, at the latest, the daily window (`[upgrade] daily_at`, 04:00 local) passing; then it
+drains: `run/drain.json` is written and the AI blocks take no new item (each run gives its item back uncounted) while
+the runs under way finish, for at most `[upgrade] drain_minutes` (45); the runs still going then are given back
+uncounted (not a failure of their gaps) and stopped with the engine. The switch then stops the engine, points `current`
+at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record read, the
+merge queue in the model); unhealthy, it goes back to the previous version by itself. Either way it removes
+`run/drain.json`. A switch that ends with no outcome recorded (it failed before stopping the engine, as with a version
+no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
+never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
+runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
+`drain-minutes` stops counting once the switch begins. The groomer and the plan review start no session while
+`run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
 python3 dev/bin/live.py switch <sha>           # the same, in the foreground
