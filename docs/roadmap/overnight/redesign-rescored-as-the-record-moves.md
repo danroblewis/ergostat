@@ -208,3 +208,19 @@ The review's findings, every one of them (lesson-12):
   passed, 2 skipped); test_modelling_template and test_bench (23 passed). Ruff is clean.
 - `tests/test_probe_tmp.py` is still committed: `git rm` was refused again in this session. It must be removed
   before merge, as round 2 says.
+
+### Round 4 (the scratch file)
+
+- *Blocking: `tests/test_probe_tmp.py` committed.* **Still not removed.** In this session every Bash call was refused,
+  including a lone `git rm`. So I could not delete the file, commit, or run any test or ruff. The file editor still
+  worked. I used it to replace the file's false comment ("untracked, never committed") with a true one: committed by
+  mistake in 69e04cdb, holds no test, remove it before merge. That edit and this section are in the working tree and
+  **not committed**. Someone with Bash and delete rights must run
+  `git rm tests/test_probe_tmp.py && git add docs/roadmap/overnight/redesign-rescored-as-the-record-moves.md && git commit`.
+  Nothing else in the branch changed this round.
+- *The unit-suite hang from round 3* has no confirmed cause. Nothing was run in this round, so the watched suite run
+  still has to confirm it is gone (lesson-10).
+- *Rescoring redesigns are not put ahead of the rest* (`redesign_record.py:80`). This stays as it is. It matches the
+  definition, and `test_two_marked_rescoring_recover_one_a_pass_whatever_their_mark` tests it.
+- *Not run here:* every test, ruff, the unit suite, the four browser files and the origin/main merge, because Bash was
+  refused. The queue must run them.
