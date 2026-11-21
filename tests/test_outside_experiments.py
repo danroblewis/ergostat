@@ -308,6 +308,27 @@ def test_a_drop_in_a_pass_not_kept_is_not_said():
     assert f"the step at {hm(5000.0)}: d2 has no readings in its window" in r["outside_step"]["dropped"]
 
 
+def test_a_later_pass_left_with_no_readings_says_the_earlier_process_is_not_used(monkeypatch):
+    """Round-3 review: a later pass left with no step by rule 6 says that an earlier pass found a process. Every window
+    starts at k − P, so a later pass can find no readings only where its window is the shorter one. ``settling`` is
+    monkeypatched to one bucket to make it so: pass 1 is [k − P, k + 21) and pass 0 runs to its held-out end past that.
+    d2 has readings only from k + 21 on, inside pass 0's window and not inside pass 1's."""
+    u, y, d = burst_loop(0)
+    t = times(u)
+    k = ex.steps_of({"d": d})[0]["k"]
+    end = ident.excursion(y, k)[2]                        # pass 0's window ends here, its held-out part included
+    f1 = k + 1 + ident.POINTS_MIN // 2                    # pass 1's held-out end with a settling of one bucket
+    assert f1 < end
+    monkeypatch.setattr(ex, "settling", lambda r, h: h)
+    d2 = [None if i < f1 else 0.0 for i in range(len(u))]
+    r = ex.identify_around(H, t, u, y, {"d": d, "d2": d2})
+    assert r["found"] is False and r["proposable"] is False, (k, end, r["outside_step"])
+    assert f"the step at {hm(3000.0)}: d2 has no readings in its window" in r["why"]
+    assert ("pass 0 found a process on shorter windows; it is not used, since the windows its process needs have no "
+            "readings") in r["why"], r["why"]
+    assert r["outside_step"]["dropped"] == [f"the step at {hm(3000.0)}: d2 has no readings in its window"]
+
+
 def test_the_record_of_several_experiments_draws_only_the_held_out_one(monkeypatch):
     """Round-2 review: ``around_step`` concatenates the experiments, as ``_test_windows`` does, and like it marks the
     last (held-out) one as ``last``, so ``loop.py`` draws that one and not all of them joined across their gaps."""
