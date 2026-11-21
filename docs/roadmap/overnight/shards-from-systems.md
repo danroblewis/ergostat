@@ -114,3 +114,16 @@ This clone has no `origin`, and local `main` has nothing this branch lacks.
   I did not repeat these mutation runs this round for the tests that were already there.
 - Not run here: the full unit and browser suites, and the scale model at N=300 timed. A timing command was refused in
   this sandbox. Local `main` still has nothing this branch lacks.
+
+### After round 2: the factory's unit run
+
+The factory reported that the `unit` suite failed. The tail it gave shows only passes and skips (`.` and `s`), and it
+stops at 18% with no `F`, `E`, traceback or summary line. So it names no failing test. The run looks cut off, by a
+kill or a timeout, rather than failed. This sandbox refuses the whole suite under the watchdog, so I ran the files that
+could break from this branch's changes, one call at a time:
+`test_shards`, `test_spec_systems` and `test_spec_compile` (under `-n 4 --dist worksteal`), and also `test_spec_schema`,
+`test_factory`, `test_factory_knowledge`, `test_factory_manager`, `test_parity`, `test_guide`, `test_daemon_docs`,
+`test_coherence`, `test_style_tokens`, `test_architecture`, `test_mended` and `test_churn`. These are the tests that
+read SPEC, GAPS or the roadmap files. All passed: 242 tests, 2 skipped. Nothing on the running path imports
+`ergostat/spec/shards.py`, so the branch changes no other test's behaviour. No code changed this round. If the
+factory's next full run names a failing test, that test is the place to start.
