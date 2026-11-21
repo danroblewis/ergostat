@@ -18,3 +18,17 @@ agents.drop() (dev/bin/agents.py:223-236) fetches the checkout's origin/main int
 ## Size budget
 
 30 net lines outside tests and docs.
+
+## Where it stopped
+
+Built in full; nothing is left. Choices made with nobody to ask, each the more reversible one:
+
+- "At most 3" is read as three fetches in all (agents.DROP_TRIES = 3: the first try and two more), the stricter
+  reading of the ceiling. Between tries it waits 0.2s, then 0.4s.
+- The lock is `<live>/drop.git.lock`, next to the drop. It is released when its file closes, so it is let go on any
+  way out.
+- Item 3 needs no new code: drop() still raises, and implement.main hands that to fac.guarded as before.
+- With the retry in place, a race alone would not fail the concurrent test, so the test also counts how many of the
+  drop's git steps run at once and requires exactly one. With the lock removed it failed (7 at once). With the retry
+  made to catch every error, both raise tests failed.
+- Size: 16 net lines in dev/bin/agents.py, and one sentence in dev/README.md.
