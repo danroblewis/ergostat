@@ -343,3 +343,22 @@ Parked by the factory (review/redesign-rescored-as-the-record-moves-6, 2026-11-2
 
 Failed its gates 6 times (the kill rule). Blocking findings:
 - tests/test_probe_tmp.py:1: the stray scratch file is still committed (added in 69e04cdb; the latest commit 9dd52988 touches only the roadmap note). Its own comment says 'committed by mistake... Remove it before merge'. A stray file would reach main, which people install from. Fix: one commit, `git rm tests/test_probe_tmp.py`, by the operator or a session with delete rights. Nothing else in the branch needs changing.
+
+### Continued, round 1 (the merge of main, and the scratch file removed)
+
+- *Main (0216e0e5) merged in* at 5e70f469. Two conflicts, both resolved keeping each side:
+  - `ergostat/numbers/judge.py`: main's check that the model's files are as loaded (`pr.files_now`, else the pass
+    is deferred) now opens the locked hold, before the branch's `xs` list of pending changes. Main's `reviewer`
+    import is kept beside the write loop's `rd.running` check. A deferred pass returns before any rescore or write,
+    so it writes nothing, as an unreadable mark does.
+  - `docs/GAPS.md`: the branch's wording of the redesign entry's *Open* is kept, and main's new entry *A reviewer
+    in the modelling template* is kept after it.
+- *Blocking: `tests/test_probe_tmp.py` committed.* **Removed** with `git rm` in this round's commit. This was the
+  only finding of the parking review. Nothing else in the code changed.
+- *Run here,* after the merge, each command on its own with `-o faulthandler_timeout=120`. Ruff is clean.
+  - test_redesign_rescored, test_redesign, test_modelling_core, test_modelling_core2 and test_slowjudge: 75 passed.
+  - test_modelreview, test_review, test_sd_review, test_churn_carry, test_redesign_memory, test_improve, test_gate,
+    test_self_improve, test_intent, test_churn, test_exercised, test_extremes_closed and test_bench: 211 passed.
+- *Not run here:* the whole unit suite and the four browser files. The house rules leave those to the factory's
+  watchdogged slot. This clone has no origin remote, so the queue still merges origin/main and runs both suites
+  again (lesson-7).
