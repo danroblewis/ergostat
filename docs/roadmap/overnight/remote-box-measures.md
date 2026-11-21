@@ -133,3 +133,45 @@ All in `tests/test_remote_box_measures.py` unless named otherwise. Each uses a s
 - Define AGE as the snapshot's at minus the reading time, and use one formatter for the panel, the diagram and the '1h old' text in test 8.
 - Test 4: also assert the finding's subject `system.incidents` and its location (the show: key of the remotes: entry).
 - Test 5: assert that the finding's 7-hex version is version 2's and differs from version 1's.
+
+## Where it stopped
+
+Built, round 1. Net lines outside tests/docs: 144 (budget 190). What is done and what was not run:
+
+- **Not run here: the browser test** `test_diagram_rendering.py::test_a_remote_boxs_panel_dims_a_stale_measure_and_shows_its_age`.
+  This container has no Playwright, and `uv run --with playwright==1.63.0` was refused (it would fetch). The JS
+  (details.js `remoteMeasures`, charts.js, diagram.js, dynamics.js) was also not syntax-checked (`node` was refused);
+  it was read through by eye. The data that panel is drawn from is checked without a browser by
+  `test_remote_box_measures.py::test_the_remote_pairs_box_as_its_panel_reads_it` (the same remote-pair setup: the
+  fresh, the hour-old and the not-served measure in the dynamics view's `charted`). The factory's browser gate has to
+  run test 9.
+- **Not done: merging origin/main.** This clone has no `origin` remote (only `main`, this branch's base, 39d47bf7),
+  and fetching is reaching the network. The merge and the second run of the suites are left to the factory (lesson-7).
+- **The full unit and browser suites were not run here** (the factory runs them under the watchdog). Run one file at
+  a time: `test_remote_box_measures.py` (10 passed), `test_remote.py`, `test_spec_systems.py`, `test_rollup.py`
+  (77 passed together); ruff clean.
+- **Broken on purpose, each test seen failing (lesson-9):** no dedupe of served tops → test 1; nested systems taken
+  as tops → test 1; a down box not marking stale → tests 6 and 8; only `unreachable` counted as down (never answered
+  counted current) → test 6; `fold` ignoring `measures.refs` → 9 of 10; stand-in goals let into the goal default →
+  test 2 (`stock:incidents-gone` shown); that plus a never-read remote falling back to goals → test 7; `charted`
+  dropping `value` → test 6 and the remote-pair test. All restored (the diff against the commit was empty after).
+- **Choices made alone (the most reversible):**
+  - A remote never read that the local model names nothing of has no parts, so `fold` draws no box for it, as on
+    main; test 7's first half has a local block read `stock.incidents-open` (a stand-in), so the box is drawn.
+    Drawing an empty box for such a remote was not built.
+  - `read_times` looks up the sensors of every part `measures.refs` gives for every remote system (top and nested),
+    with goals taken without the loop filter `fold` uses: a superset of what `fold` shows, never fewer.
+  - A part with several sensors is fresh when any one of them read within its own bound; its age is the newest's.
+  - Box state is `remote.box()`'s, which reads `status.json` at each request with the wall clock; `read_ok: false`
+    stays in effect until a reading succeeds (`cache.note`), as on main. Test 8's recovery writes the status as a
+    refresh leaves it (`ok: true`, `failing_since: null`) and a new reading, and `open` is no longer stale.
+  - The missing measure's label is its would-be local name (`incidents-waiting`, `incidents-incidents-open`).
+- **The plan review's notes:** test 6 restated (a recorded reading shows `last V · AGE old`; `backlog` and the
+  unread `resolved` show `never read`; all stale, none the bare value or starting with it), and repeated for readings
+  failing and for never answered; test 8 uses the one local show `[stock.open, stock.depth, flow.resolved,
+  stock.backlog]`, `resolved` with a sensor and no reading; `every` missing or 0 → `STALE_LEAST`
+  (`test_a_sensor_with_no_every_is_bounded_by_the_least`, both sides of the bound and no reading times at all);
+  `moduleCharts` leaves out `unchecked` and `missing` (filter in charts.js; asserted in test 9); AGE is the snapshot's
+  `at` less the reading time, formatted once, server side, by `durations.human` (the panel and the diagram show the
+  same `value`); test 4 asserts the finding's `about` (`system.incidents`) and its line (the `show:` key); test 5
+  asserts version 2's 7 hex and that version 1's are absent.

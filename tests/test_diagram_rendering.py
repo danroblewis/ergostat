@@ -3207,5 +3207,7 @@ def test_a_remote_boxs_panel_dims_a_stale_measure_and_shows_its_age(browser, tmp
         assert old["stale"] and old["value"].startswith("last ") and old["value"].endswith(" · 1h old"), old
         assert gone["stale"] and gone["value"] == "not served", gone
         assert asked and not [u for u in asked if "incidents-waiting" in urllib.parse.unquote(u)], asked
+        assert pg.evaluate("""() => moduleCharts({ charted: [{ part: "stock:incidents-open", unchecked: true },
+                                                             { part: "stock:incidents-waiting", missing: true }] })""") is None
         assert not errors, errors
         pg.close()
