@@ -214,6 +214,7 @@ uses:
       ai: true                            # the AI tier (default off): what the rules cannot answer, on ai-model
       ai-model: haiku                     # (default haiku); ai-every 10m, ai-most 8 requests a call
       redesign: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2}   # with ai: true, the redesigner (auto|ask|off)
+      review: {when: auto, model: haiku, kinds: structure redesign, most: 3}  # with ai: true, the reviewer (auto|off)
       accept:
         parameter: auto                   # a value the judge passes is written at once (else the owner accepts each)
         description: auto                 # and so on for unit, equation, rename, structure (a rewired chain or a
@@ -233,6 +234,16 @@ uses:
   a scratch copy within `budget` dollars a run and `daily` dollars a day, judged as a whole by a scorecard. **It is
   never written without the owner's approval** (the review queue and the inbox) unless `accept: {redesign: auto}`, and
   even then not one that takes a part away, rewires a chain or changes control.
+- **Review:** with `ai: true`, the `model-reviewer` block reads each change of `review.kinds` (structure and redesign; add
+  `equation` if you like) after the judge passes it, as a deliberately disagreeable senior modeller, through the review
+  checklists of `docs/MODELLING-WELL.md` (the causal story, units and boundary, fitting noise, one coherent change, the
+  behaviour it predicts). It passes it, sends it back to its author with its findings (`revise`: the author's next
+  proposal on those parts is the second round, and a second revise is a reject), or rejects it (the change fails, and
+  the memory holds it back). Those kinds are written by the policy, and offered in the inbox, only after its pass; the
+  owner may still accept one from the review queue. Each author's prompt carries the reviewer's recent verdicts on its
+  own changes. Its calls count against `redesign.daily`, the template's one daily cap (a quarter kept for it); one it
+  cannot decide on in 3 tries goes to the owner. `ergostat measure` says its
+  passes, revises, rejects and misses (`ergostat.model.reviews-*`, `review-misses`).
 
 - **Control:** one balancing loop that closes the long way (SPEC §12e). The goal `model-fits` holds `model-error`
   (ergostat's measure `ergostat.model.fit`, the Fit page's total) at or under `fit`; while it is off the
