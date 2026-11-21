@@ -15,6 +15,11 @@ kill_after = 6                       # failed gates (reviews, queue conflicts, r
 build_failures = 6                   # the implementor's failed fast suites that park a gap (main's own failures
                                      # are not counted: dev/bin/onmain.py)
 build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
+plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
+
+[plan]                               # the advisory plan review (dev/bin/planreview.py): never a gate
+review = "sample"                    # sample (1 in sample_every plans), all, or off
+sample_every = 3
 
 [git]
 base = "main"                        # what a gap's branch starts from, and what the queue merges into
@@ -29,8 +34,8 @@ reviewer_session_usd = 5.0
 suite_fix_rounds = 2                 # sessions the implementor gets to make its failing fast suites pass
 planner_model = "opus"               # the planner: a gap's definition of done, or its split (dev/bin/plan.py)
 planner_session_usd = 5.0
-plan_reviewer_model = "opus"         # the plan review: the definition and the lessons only, so cheap
-plan_reviewer_session_usd = 1.0
+plan_reviewer_model = "opus"         # the plan review: the plan against main's code and the task graph
+plan_reviewer_session_usd = 3.0
 researcher_model = "opus"            # research questions (dev/bin/research.py)
 researcher_session_usd = 5.0
 librarian_model = "haiku"            # the librarian's one step: a review's findings against the lessons
