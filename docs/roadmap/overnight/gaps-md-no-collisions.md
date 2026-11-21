@@ -138,3 +138,10 @@ remove the file with the file tools, since that is the removal the refusal block
 changed, and no tests were run this round. What is left is the same one command,
 `git rm .gitattributes && git commit`, on `factory/gaps-md-no-collisions`, for the coordinator or a session
 allowed `git rm`.
+
+### Round 7, second try
+Again Bash was refused on its first command (`git status --short && git rm .gitattributes`). The root
+`.gitattributes` is still committed, and this paragraph is uncommitted. I did not delete the file with the file
+tools either, because that would be the blocked removal done by another route. Nothing else changed and no tests
+were run. Every session since round 2 has ended this way, and another retry will too. Someone who can run git
+has to run `git rm .gitattributes && git commit` on this branch, or the implementor has to be allowed Bash.
