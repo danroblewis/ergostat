@@ -361,7 +361,10 @@ keeps running it; this model reads it.
    ```
 
    `ergostat remote` says whether it answers and which version of its model was read; `ergostat explain
-   system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`.
+   system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
+   box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in
+   the **remote's** names (`stock.open`, never `stock.incidents-open`); `remote-show-unresolved` means it does
+   not serve one. A measure dimmed there is stale: it says how old its last reading is.
 3. **Link to its parts by those names**, only to read them: a cause (`driven-by: [+stock.incidents-open]`)
    for the load it puts on our stocks, a goal here on one of its measures, a block's input. Never point a
    block's `out:` at a remote part (`remote-output`): its actuators are its own. If it should act
