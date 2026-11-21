@@ -96,8 +96,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 - **System architecture review** (computed measures done on `architecture`; design in
   `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
-  `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a model-level `purpose:`. *Left*: the relative gain
-  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity and aggregation from loop dominance, interface
+  `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a
+  model-level `purpose:`; candidates to aggregate from loop dominance over the window, an `aggregate` row on a
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`). *Left*: the relative gain
+  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
+  proposal to aggregate, interface
   stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
   per-system redesign and daily larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:

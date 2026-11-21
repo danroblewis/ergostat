@@ -316,6 +316,10 @@ A system named by a part and not described here is a top-level system.
 `purpose:` (top level, the main file only) says in a sentence what the whole model is for: a goal in no system that
 says what it is for is traced to it (the `purpose` note, section 12). Each system's size (its parts at any depth, the
 feedback loops inside it and through it, and the levels of systems within it) is in `explain` and on its panel.
+Beside its size, the Dynamics panel names each chain of its own stocks that, over the window shown, no feedback loop
+beyond each stock's own drove: a candidate to aggregate into one delay, not a finding (section 12c, *Stocks to
+aggregate*). It is worked out from the loop dominance over that window; no row is shown when the dominance is not
+known.
 
 **Its interface is worked out, never written.** Whatever crosses a system's boundary is one of
 its ports:
@@ -3326,6 +3330,25 @@ and says how much of the window it dominated there; no loop is named where two a
 where a loop through it cannot be scored (the share of its loops that are scored is said instead). A
 loop through a link that cannot be scored (a decision with several inputs, an equation with a delay
 inside it, an unsigned link) says why, and is left out of the sums.
+
+**Stocks to aggregate** (`ergostat/numbers/aggregation.py`; a system's panel, the `aggregate` of
+`GET /api/dominance`), from that loop dominance over the same window, the one the page shows: a chain
+of stocks whose stages are each driven only by their own drain behaves as one delay (Simon and Ando
+1961; Iwasaki and Simon 1994), so it is a **candidate** to aggregate into one, never a finding: it
+holds for the window scored, and only among the loops of up to 30 parts that the loop search finds. A
+stock qualifies when it is in the system itself (its innermost system), has a balancing loop of its
+own through no other stock (its drain; a stock without one, an accumulator, is not a stage of a
+delay), every loop through it is scored, it is named and moved in the window, it was never tied while
+a loop through other stocks runs through it, and no loop through it and another stock dominated any
+stock in any bucket. Anything not known disqualifies: a loop not scored (through one stock or more),
+a stock not named or that never moved, the dominance missing or worked out for other loops than the
+model's now, the loop search at its cap. A group is two or more qualifying stocks of one system
+joined by flows into one linear chain, said in its material order: `over the window (SINCE to UNTIL)
+no feedback loop beyond each stock's own drove stock.a, stock.b: a candidate to aggregate into one
+delay`. A branch (a to b and a to c) or a cycle among them is no group, nor are two stocks with no
+flow between them, nor two in different systems. The system's panel shows an `aggregate` row for
+each of its groups, and none when there is none or the dominance could not be worked out; `check` is
+unchanged.
 
 ## 12d. Control: identification, analysis, monitoring and tuning
 
