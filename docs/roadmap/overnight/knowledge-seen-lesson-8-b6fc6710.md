@@ -33,3 +33,11 @@ test that reads dev/knowledge/ is tests/test_factory_knowledge.py. All 22 of its
 the report). The branch changes no code, so no code fix applies. I did not re-run the whole unit suite myself: the
 house rules leave that to the factory, under the watchdog. If the next run fails again, the test it names is what to
 look at.
+
+Second report: `unit` failed again, and its tail again stops partway (46% this time, 36% before) with no failing test,
+error or traceback. A cut-off at a different point each run points to the run being stopped (timeout, watchdog or
+machine load), not to a test in this branch. Checked again: the branch's whole diff is one lesson-8 "Seen as" line set
+in dev/knowledge/review-lessons.md plus this file. The only tests that read dev/knowledge/ are in
+tests/test_factory_knowledge.py (test_factory_manager.py imports its fixture). Both files pass run serially (40
+passed), and ruff is clean. With no code changed and no failing test named, I made no code fix. This is the reversible
+option: if a later run names a test, that test is the lead.
