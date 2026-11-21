@@ -250,3 +250,9 @@ failed run above.
   declares `about:`.
 - If the next run fails like this, the cause of the stop is needed (the implementor's log, or the container's exit),
   and so is the output past 46%.
+
+## Where it stopped
+
+Parked by the factory (review/kb-about-2, 2026-11-20 18:39).
+
+Done: the kb-about gap itself. The `about:` kind field (compile.py, ir.py, schema); @about links in the item index (VERSION 4, folded by replace, a remake clears them); spec/about.py with explain's line (5, 'and N more', 'unknown' on an unreadable index), check's ids and about-missing-part / about-unknown (run only in check_yaml and MCP check, after `late`), and status's off-loop ids (3, '+N'); knowledge.py *About:* lines synced and cleared; ergostat.yaml's knowledge kind declares it; SPEC §5a/§12, AGENT-GUIDE and knowledge README updated; acceptance tests and every plan-review note covered. Round 1's findings (lookup on every load, the assertion that couldn't fail, §12 wording) are fixed. Left: the branch is built on a base that contains the unmerged backlog merge 2b101c6, so landing it ships backlog too, and e7dad319 edits main's test_relations_asof.py for backlog's rename. The implementor can't rewrite history, so another fix round would not change this. To continue: either land backlog on main first (then e7dad319 becomes main's own and the diff shrinks to the gap's own lines), or rebuild factory/kb-about from origin/main and cherry-pick 183aaa15, 402a6936, b2f2a69f, 615f1a62, f2ed8964 and the Where-it-stopped commits. Leave out e7dad319, drop any backlog hunks that come with them (e.g. ergostat.yaml's gap kind, `paused` in compile.py/ir.py, order_unset in spec_cmds.py), then run the two acceptance files, the unit suite and the four browser files.
