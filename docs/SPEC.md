@@ -4105,9 +4105,17 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   few seconds move the mark nearly every pass, so in practice a waiting redesign is scored again about every 30 minutes,
   and most promoted ones are scored again when they are written. A mark that cannot be read fails closed: every passed
   redesign says `rescoring` with why (the review queue shows it), written once, not each pass; nothing is scored or
-  written that pass, of any class (words and parameter changes too, not only redesigns), and the next pass that can read it scores them again at once, one a pass. **A promoted redesign is
-  written only on a scorecard of the record as it is**: in one hold of the proposals' lock it is read again, its mark
-  held against the record's, scored again when they differ (or it says `rescoring`), and written only if still better.
+  written that pass, of any class (words and parameter changes too, not only redesigns), and the next pass that can
+  read it scores them again at once, one a pass. **A promoted redesign is written only on a scorecard of the record as
+  it is**: in one hold of the proposals' lock it is read again, its mark held against the record's, scored again when
+  they differ (or it says `rescoring`), and written only if still better. With `reviewed: [redesign]` that hold also
+  reads the reviewer's verdict again, and writes it only if the reviewer passed it as it stands then. A verdict that
+  lands after the write loop's copy was read counts too. A rescore makes a new verdict, so the reviewer's pass, stamped
+  with the verdict it read, would go stale and send the redesign back to the reviewer every 30 minutes. A rescore that
+  is still better **keeps the reviewer's reading** instead: the edits it read are the same, and the review is stamped
+  again to the new verdict (`kept`). A failed rescore keeps none. A first judging keeps none either, since one made
+  again or carried is read again. So a reviewed redesign is written on the scorecard of the record as it is and on a
+  review of the same edits, and the reviewer is not called again, against the daily cap, for every move of the record.
 - **Never written without the owner** unless the class is promoted by name: `accept: {redesign: auto}`; `accept: auto`
   for every kind leaves it the owner's (promoted and passed, it is written first, alone in its pass; one that cannot be
   written is superseded, and the pass goes on). Even promoted, a redesign that takes a part away, rewires a kind's chain
@@ -4204,7 +4212,10 @@ and the change is read again on the next run, at most 3 times on the change as i
 what it read, and calls on an earlier version do not count): then it is recorded `undecided` ("the reviewer could not
 decide") and goes to the inbox for the owner, and the reviewer moves on. A review holds for the change as the judge last
 passed it: each is stamped with what it read (`read`: the judge's verdict and the edit, fingerprinted), and one made
-again under the same id, revised or carried and judged again has another stamp and is read again. The verdict is
+again under the same id, revised or carried and judged again has another stamp and is read again. A waiting redesign
+the judge scores again as the record moves (section 12e, *Redesign*) is not read again: the rescore makes a new
+verdict, which would make the review stale, so a rescore that is still better stamps the review again to it (`kept`).
+A failed rescore leaves the review nothing to hold. The verdict is
 recorded under the changes' lock and only if the change is still the one it read; one that moved on during the call
 records nothing and is read again. **The authors remember:** the improver's input (`reviewer`), and the
 modeller's and the redesigner's prompts ("The reviewer on your recent proposals") carry its latest five verdicts on

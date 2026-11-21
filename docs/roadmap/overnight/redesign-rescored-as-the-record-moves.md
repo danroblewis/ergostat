@@ -417,3 +417,43 @@ Failed its gates 6 times (the kill rule). Blocking findings:
 - *Refused:* after the test runs, Bash refused a combined append-and-commit command (a heredoc `cat >>` and then
   `git commit`). I added this section with the file editor instead. If the commit after it is refused too, the
   factory must commit this file.
+
+### Continued, round 5 (a rescore and the reviewer)
+
+Every finding of review/redesign-rescored-as-the-record-moves-7, in turn (lesson-12):
+
+- *Blocking: a rescore makes the reviewer's pass stale, and the write path checked the reviewer only on the copy read
+  before the lock* (lesson-1, lesson-8). **Fixed**, choosing the review's first option: a rescore whose verdict is
+  unchanged keeps the review's stamp. The reason: the reviewer read the edits, and a rescore does not change them.
+  Waiting for a new pass would send a redesign back to the reviewer every 30 minutes, since sensors move the mark
+  nearly every pass, at a cost against the daily cap it shares with the redesigner. Waiting would also often leave a
+  promoted one never written.
+  - `judge.judge_redesign`: a rescore that is still `passed` keeps the review that was current before it,
+    re-stamped (`read: reviewer.seen` of the item with the new verdict, and `kept: now`). A first judging keeps none,
+    and neither does a failed rescore. A review already stale before the rescore stays stale.
+  - `judge.write_redesign`: under its one hold, on the item it re-read, it checks `rv.awaiting` and
+    `rv.read_for_owner` again. After a rescore it checks `awaiting` again. So a revise or undecided verdict that
+    lands between the write loop's copy and the lock stops the write.
+  - The tests, each broken on purpose and seen to fail:
+    - `test_a_reviewed_redesign_scored_again_and_still_better_keeps_its_review_and_is_written` covers the write
+      path with `reviewed: [redesign]`.
+    - `test_a_reviewed_redesign_waiting_for_the_owner_keeps_its_review_across_the_thirty_minute_rescore` covers the
+      30-minute rescore: after it, `rv.due` is empty. A failed rescore keeps no review.
+    - `test_a_reviewers_verdict_landing_before_the_write_hold_is_read_under_it` records `undecided` in
+      `rd.running`, between the copy and the hold.
+    - With the kept review dropped, the first two fail. With the under-lock reviewer check dropped, the third fails.
+  - The reversible choice, made alone: a rescore keeps any current review, whatever its verdict. That includes a
+    revise with no author, or undecided, which leaves the redesign with the owner. Calling the reviewer again on every
+    rescore instead is a one-line change in `judge_redesign`.
+- *SPEC §12e line past the wrap width:* reflowed.
+- *SPEC §12e and the reviewer section did not say what a rescore does to a review:* both now say it. §12e says that a
+  rescore still better keeps the review and a failed one keeps none, and that the write hold reads the reviewer's
+  verdict again. The reviewer section says a rescore does not send the redesign back to the reviewer.
+- *Run here,* each command on its own with `-o faulthandler_timeout=120`. Ruff is clean.
+  - test_redesign_rescored (15), test_redesign, test_modelling_core, test_modelling_core2, test_modelreview and
+    test_slowjudge: 99 passed.
+  - test_review, test_sd_review, test_churn_carry, test_redesign_memory, test_improve, test_gate, test_self_improve,
+    test_intent and test_inbox: 175 passed.
+  - 169 net lines of code against the budget of 200.
+- *Not run here:* the whole unit suite and the four browser files (they are left to the factory's watchdogged slot),
+  and the origin/main merge, because this clone has no origin remote (lesson-7).

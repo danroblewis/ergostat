@@ -335,3 +335,70 @@ def test_the_write_path_rescore_and_write_hold_the_lock(tmp_path, monkeypatch):
     assert jd.run(p, "judge", at=t0)["accepted"] == 1 and pr.stored(p)[got["id"]]["state"] == "accepted"
     assert len(held) == 2 and all(h for h, _ in held)        # the write-path rescore, then the write, both locked
     assert held[0][1] is not None and held[0][1] == held[1][1]   # and in the same hold, with no gap between
+
+
+def _reviewed(d, accept: str):
+    """BUSY with the judge's ``reviewed: [redesign]``: a redesign waits for the reviewer's pass."""
+    from .test_modelreview import IMPROVER
+    from .test_redesign import JUDGE
+    judge = JUDGE.replace("ACCEPT", accept) + "    reviewed: [redesign]\n" + IMPROVER
+    return project(d, BUSY.replace("AUXILIARIES", judge.lstrip("\n") + BUSY_AUX))
+
+
+def _review(p, rid: str, verdict: str) -> None:
+    from ergostat.numbers import reviewer as rv
+    got = {"verdict": verdict, "findings": [] if verdict != "revise" else [{"check": "causal", "says": "why?"}],
+           "summary": f"{verdict}: set by the test"}
+    assert rv.record(p, p.model.spec, pr.stored(p)[rid], got) == verdict
+
+
+def test_a_reviewed_redesign_scored_again_and_still_better_keeps_its_review_and_is_written(tmp_path, monkeypatch):
+    from ergostat.numbers import reviewer as rv
+    p = _reviewed(tmp_path / "m", "{redesign: auto}")
+    t0 = time.time()
+    rid = _passed(p, t0)
+    assert rv.awaiting(p.model.spec, pr.stored(p)[rid])     # not written before the reviewer's pass
+    _review(p, rid, "pass")
+    calls = _judged(monkeypatch)
+    moved = _moved_before_the_write(monkeypatch, p, t0)     # the record moves: scored again before the write
+    out = jd.run(p, "judge", at=t0 + MIN)
+    x = pr.stored(p)[rid]
+    assert calls == [rid] and out["accepted"] == 1 and x["state"] == "accepted"
+    assert x["scored"]["mark"] == moved["mark"] and x["review"]["verdict"] == "pass" and x["review"]["kept"] == t0 + MIN
+
+
+def test_a_reviewed_redesign_waiting_for_the_owner_keeps_its_review_across_the_thirty_minute_rescore(tmp_path, monkeypatch):
+    from ergostat.numbers import reviewer as rv
+    says = {}
+    _verdict(monkeypatch, says)
+    p = _reviewed(tmp_path / "m", "owner")
+    t0 = time.time()
+    rid = _passed(p, t0)
+    _review(p, rid, "pass")
+    _reading(p, t0 + MIN)
+    calls = _judged(monkeypatch)
+    jd.run(p, "judge", at=t0 + 31 * MIN)
+    x = pr.stored(p)[rid]
+    assert calls == [rid] and x["state"] == "passed" and x["scored"]["at"] == t0 + 31 * MIN
+    assert (rv.review_of(x) or {}).get("verdict") == "pass" and rv.due(p, p.model.spec) == []   # not read again
+    _reading(p, t0 + 32 * MIN)
+    says["verdict"] = "mixed"                               # a rescore that fails keeps no review: it is failed
+    jd.run(p, "judge", at=t0 + 62 * MIN)
+    x = pr.stored(p)[rid]
+    assert x["state"] == "failed" and rv.review_of(x) is None
+
+
+def test_a_reviewers_verdict_landing_before_the_write_hold_is_read_under_it(tmp_path, monkeypatch):
+    from ergostat.numbers import reviewer as rv
+    p = _reviewed(tmp_path / "m", "{redesign: auto}")
+    t0 = time.time()
+    rid = _passed(p, t0)
+    _review(p, rid, "pass")
+
+    def running(p_, now=None, within=None):              # after the write loop's copy of it (a pass) was read
+        _review(p, rid, rv.UNDECIDED)                     # the reviewer re-read it and leaves it to the owner
+        return False
+    monkeypatch.setattr(rd, "running", running)
+    out = jd.run(p, "judge", at=t0 + MIN)                 # the record has not moved: no rescore, only the check
+    x = pr.stored(p)[rid]
+    assert out["accepted"] == 0 and x["state"] == "passed" and rv.read_for_owner(p.model.spec, x)

@@ -653,9 +653,12 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
 def judge_redesign(p, x: dict, now: float, by: str, out: dict, first: bool = False) -> str | None:
     """A redesign judged by its scorecard on the record as it is (under the proposals' lock): its first judging
     (``first``) or a rescore. The verdict says what it read (``scored``) and clears ``rescoring`` and
-    ``rescore_error``, so one made again under the same id, or carried, keeps neither, nor an old ``scored``. The
-    verdict, or None when its edit no longer applies (superseded); ``Unreadable`` when the mark cannot be read."""
+    ``rescore_error``, so one made again under the same id, or carried, keeps neither, nor an old ``scored``. A rescore
+    still passed keeps the reviewer's reading of the change as it stood (its edits are the same), stamped to the new
+    verdict; a first judging or a failed rescore keeps none. The verdict, or None when its edit no longer applies
+    (superseded); ``Unreadable`` when the mark cannot be read."""
     from . import redesign as rd
+    from . import reviewer as rv
     try:
         verdict, why, card, scored = rd.judged(p, x, now)
     except tr.TrialError as e:
@@ -667,8 +670,11 @@ def judge_redesign(p, x: dict, now: float, by: str, out: dict, first: bool = Fal
         out["testing"] += 1
     elif verdict == "failed":
         why = f"no longer better on the record as it is now: {why}"
-    pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by}, "scored": scored,
-                                   "rescoring": False, "rescore_error": None, **({"scorecard": card} if card else {})})
+    v = {"verdict": verdict, "why": why, "at": now, "by": by}
+    r = rv.review_of(x) if not first and verdict == "passed" else None    # a rescore still passed keeps the review
+    kept = {"review": {**r, "read": rv.seen({**x, "verdict": v}), "kept": now}} if r else {}
+    pr.event(p, x["id"], verdict, {"verdict": v, "scored": scored, "rescoring": False, "rescore_error": None,
+                                   **({"scorecard": card} if card else {}), **kept})
     out[verdict] += 1
     out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why, **({} if first else {"rescored": True})})
     return verdict
@@ -687,18 +693,23 @@ def unreadable(p, xs: list[dict], e: Exception) -> str:
 def write_redesign(p, x: dict, snap: dict, by: str, now: float, out: dict) -> bool | None:
     """A promoted, passed redesign written only on a scorecard of the record as it is, all in one hold of the lock:
     re-read, its mark held against the record's, scored again when they differ (or it is ``rescoring``), and written
-    when still better. True when written; False when not (no longer passed, or no longer better); None when the mark
-    cannot be read. ``ProposalError`` from the write, as ``pr.accept``."""
+    when still better and, for a reviewed kind, passed by the reviewer as it stands then. True when written; False when
+    not (no longer passed, no longer better, or not passed by the reviewer); None when the mark cannot be read.
+    ``ProposalError`` from the write, as ``pr.accept``."""
     from . import redesign_record as rr
+    from . import reviewer as rv
     with pr.locked(p):
         y = pr.stored(p).get(x["id"])
-        if y is None or y["state"] != "passed" or owners(y):
+        spec = p.model.spec                      # the reviewer's verdict as it is now, not as read before the lock
+        if y is None or y["state"] != "passed" or owners(y) or rv.awaiting(spec, y) or rv.read_for_owner(spec, y):
             return False
         try:
-            if y.get("rescoring") or (y.get("scored") or {}).get("mark") != rr.read(p, p.model.spec):
+            if y.get("rescoring") or (y.get("scored") or {}).get("mark") != rr.read(p, spec):
                 if judge_redesign(p, y, now, by, out) != "passed":
                     return False
                 y = pr.stored(p)[x["id"]]
+                if rv.awaiting(spec, y):         # its review kept by the rescore (judge_redesign), or back to the reviewer
+                    return False
         except rr.Unreadable as e:
             unreadable(p, [y], e)
             return None
