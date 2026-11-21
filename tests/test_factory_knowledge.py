@@ -14,7 +14,11 @@ import pytest
 
 from tests.test_factory import BIN, FAKE, Factory, git
 
-FAKE_MORE = FAKE.replace('if args[0] == "item":', 'if args[0] == "item" and "--kind" in args:').replace(
+FAKE_MORE = FAKE.replace('args = sys.argv[1:]\n', '''args = sys.argv[1:]
+if "ergostat.decision" in args and db.get("decisions_fail") == "exit":
+    sys.exit("the record is busy")
+''').replace('"total": len(got)', '"total": len(got) + int("ergostat.decision" in args and db.get("decisions_fail") == '
+             '"partial")').replace(
     '''elif args[0] == "lease":''', '''elif args[0] == "event" and args[1] == "--add":
     db.setdefault("added", []).append({"event": args[2], "item": args[args.index("--item") + 1],
                                        "data": json.loads(args[args.index("--data") + 1])})
@@ -100,36 +104,70 @@ BLOCK = ("import fac, knowledge; cfg = fac.config(); cfg['knowledge'] = json.loa
          "text, got = knowledge.block(cfg, sys.argv[3], g, sys.argv[4]); print(json.dumps({**got, 'text': text}))")
 
 
-def test_knowledge_files_parse():
+def knowledge_module():
     sys.path[:0] = [str(BIN)]
     try:
         import knowledge
-        es = knowledge.entries()
+        return knowledge
     finally:
         sys.path.remove(str(BIN))
+
+
+def test_knowledge_files_parse():
+    from ergostat.decisions import acts
+    from ergostat.decisions.kinds import DECISION, STOP, item_id
+    knowledge = knowledge_module()
+    es = knowledge.entries()
     ids = [e["id"] for e in es]
     assert len(ids) == len(set(ids)) and all(e["text"] for e in es)
+    assert {e["kind"] for e in es} <= {"component", "rule", "lesson", "finding", "question", "source"}
     assert {"rules-process", "rules-machine", "rules-code", "rules-outside"} <= set(ids)
     assert [i for i in ids if i.startswith("lesson-")] == [f"lesson-{n}" for n in range(1, 14)]
-    decisions = [e for e in es if e["id"].startswith("decision-")]
-    assert len(decisions) == 9 and all(e["areas"] for e in decisions)       # each says the areas it is about
+    assert not [e for e in es if e["kind"] == "decision" or e["id"].startswith("decision-")]
+    ds = knowledge.decisions()
+    assert len(ds) == 9 and all(d["scope"] for d in ds.values())             # each says the areas it is about
+    assert knowledge.STOP == STOP                                             # the id is ergostat's own (lesson-5)
+    for iid, d in ds.items():
+        assert iid == item_id(DECISION, d["decision"]) and acts.check_proposal(DECISION, d, "knowledge-sync")
+    for odd in ("Don't add a page, ever!", "a the of", "Ünïcode and 42 numbers in it", "x" * 80):
+        assert knowledge.decision_id(odd) == item_id(DECISION, odd)
+
+
+def decide(f: Instance, text: str, scope: list[str], *then: str) -> str:
+    """A decision item in the fake record, proposed and then moved by the owner's acts (confirmed, ...)."""
+    from ergostat.decisions.kinds import DECISION, item_id
+    iid = item_id(DECISION, text)
+    f.fold([{"event": f"{DECISION}.proposed", "item": iid, "data": {"decision": text, "scope": scope, "words": [
+        {"text": f"{text} (the owner's words)"}]}}] + [{"event": f"{DECISION}.{s}", "item": iid, "data": {}} for s in then],
+           None)
+    return iid
 
 
 def test_brief_carries_knowledge_within_budget(tmp_path):
     f = Instance(tmp_path)
     f.define("# alpha thing\n\nThe Process diagram, in `dev/bin/brief.py`.\n\n## Definition of done\n\nIt works.\n")
+    model = decide(f, "One model, three drawings", ["diagram", "view"], "confirmed")
+    asked = decide(f, "Process maps keep their swimlanes", ["process"])
+    dropped = decide(f, "Diagrams get a chat dock", ["diagram"], "dismissed")
+    old = decide(f, "Diagrams are drawn by hand", ["diagram"], "confirmed", "superseded")
+    daemon = decide(f, "Daemons over a process per item", ["daemon"], "confirmed")
     said, _ = f.run("implement.py", "gap/alpha-thing")
     assert said == ["gap.started", "gap.built"]
     ctx = f.item("gap/alpha-thing")["fields"]["contexts"][0]
-    assert {"rules-process", "lesson-1", "lesson-11", "decision-one-model-three-drawings"} <= set(ctx["knowledge"])
-    assert "decision-daemons-over-a-process-per-item" not in ctx["knowledge"]      # its area is not named
+    assert {"rules-process", "lesson-1", "lesson-11", model, asked} <= set(ctx["knowledge"])
+    assert model.startswith("ergostat.decision/") and not {dropped, old, daemon} & set(ctx["knowledge"])
     assert any(k.startswith("modules@") for k in ctx["knowledge"]) and ctx["knowledge_chars"] <= 24000
     brief = (f.model / ctx["brief"][5:]).read_text()
     assert "### lesson-3: Failing open" in brief and "**Check:**" in brief and "## The house rules" in brief
+    assert "**Process**\n- The definition of done" in brief                       # the rules, carried as before
+    assert "- **One model, three drawings** One model, three drawings (the owner's words)" in brief
+    assert "- **Process maps keep their swimlanes** (proposed: not yet confirmed by the owner)" in brief
+    assert brief.index("**One model, three drawings**") < brief.index("**Process maps keep")    # confirmed first
+    assert "chat dock" not in brief and "by hand" not in brief and "Daemons over" not in brief
     must = f.py(BLOCK, json.dumps({"chars": 1}), "gap/alpha-thing", "implementor", "diagram")["knowledge_chars"]
     small = f.py(BLOCK, json.dumps({"chars": must + 400}), "gap/alpha-thing", "implementor", "a diagram")
     assert small["knowledge_chars"] <= must + 400                                # within the budget
-    assert "decision-one-model-three-drawings" in small["knowledge"]             # the higher priority fits
+    assert model in small["knowledge"]                                           # the higher priority fits
     assert [k for k in small["knowledge_dropped"] if k.startswith("modules@")]   # the lower is dropped, and said
     lean = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "plan_reviewer", "a diagram")
     assert lean["knowledge"] == [f"lesson-{n}" for n in range(1, 14)]            # the plan review: the lessons only
@@ -459,56 +497,64 @@ def test_the_librarian_ships_off(tmp_path):
     assert librarian(f, "review/a-1", ["x"], [{"finding": 1, "class": "lesson-1", "shape": "s", "new_shape": True}]) == []
 
 
-RULES = "---\nkind: rules\n---\n# House rules\n\n**Process**\n- Define it first.\n\n**Code**\n- Keep it small.\n"
-LESSONS = "---\nkind: lessons\n---\n# Lessons\n\n## 1. Failing open\nIt fails open.\n**Check:** fail closed.\n"
-DECISIONS = ("---\nkind: decisions\n---\n# Decisions\n\n- **One model, three drawings.** Each its own style. *Areas: "
-             "diagram, view.*\n")
+RULES = "---\nkind: rule\n---\n# House rules\n\n## Process\n- Define it first.\n\n## Code\n- Keep it small.\n"
+LESSONS = "---\nkind: lesson\n---\n# Lessons\n\n## 1. Failing open\nIt fails open.\n**Check:** fail closed.\n"
+DECISIONS = ("---\nkind: ergostat.decision\n---\n# Decisions\n\n## One model, three drawings\nEach its own style. *Areas: "
+             "diagram, view.*\n\n## The factory starts small\nOne implementor. *Areas: factory, pool.*\n")
+DECIDED = ["ergostat.decision/one-model-three-drawings-", "ergostat.decision/factory-starts-small-"]
 
 
-def sync(f: Instance, dev: Path) -> list[dict]:
-    """A run of the collector on the knowledge files of ``dev`` (a copy of dev/bin beside them): its event lines, folded."""
+def sync(f: Instance, dev: Path, ok: bool = True) -> list[dict]:
+    """A run of the collector on the knowledge files of ``dev`` (a copy of dev/bin beside them): its event lines, folded
+    (``ok``: it is expected to exit 0; else non-zero, and its lines are not folded)."""
     r = subprocess.run([sys.executable, str(dev / "bin" / "knowledge.py"), "sync"], cwd=f.model, env=f.env,
                        capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, r.stderr
+    assert (r.returncode == 0) == ok, r.stderr
+    f.stderr = r.stderr
     lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
-    f.fold(lines, None)
+    if ok:
+        f.fold(lines, None)
     return lines
+
+
+def running(tmp_path: Path, **files: str) -> Path:
+    """A running version's dev/: a copy of dev/bin, and knowledge files (by stem; house_rules for house-rules.md)."""
+    dev = tmp_path / "running" / "dev"
+    shutil.copytree(BIN, dev / "bin", ignore=shutil.ignore_patterns("__pycache__"))
+    (dev / "knowledge").mkdir()
+    for name, text in {"house_rules": RULES, "review_lessons": LESSONS, "decisions": DECISIONS, **files}.items():
+        (dev / "knowledge" / f"{name.replace('_', '-')}.md").write_text(text)
+    return dev
 
 
 def test_knowledge_sync_says_each_change_once(tmp_path):
     f = Instance(tmp_path)
-    dev = tmp_path / "running" / "dev"
-    shutil.copytree(BIN, dev / "bin", ignore=shutil.ignore_patterns("__pycache__"))
+    dev = running(tmp_path)
     k = dev / "knowledge"
-    k.mkdir()
-    for name, text in (("house-rules", RULES), ("review-lessons", LESSONS), ("decisions", DECISIONS)):
-        (k / f"{name}.md").write_text(text)
     f.fold([{"event": "gap.started", "item": "gap/a", "data": {"contexts": [
         {"role": "implementor", "knowledge": ["rules-process", "lesson-1"]}, {"role": "reviewer", "knowledge": [
             "lesson-1", "lesson-1"]}]}}], None)
     lines = sync(f, dev)
-    assert sorted(x["item"] for x in lines) == ["knowledge/decision-one-model-three-drawings", "knowledge/lesson-1",
-                                                "knowledge/rules-code", "knowledge/rules-process"]
-    assert {x["event"] for x in lines} == {"knowledge.found"}
+    assert sorted(x["item"] for x in lines if x["event"] == "knowledge.found") == [
+        "knowledge/lesson-1", "knowledge/rules-code", "knowledge/rules-process"]
+    assert {x["event"] for x in lines} == {"knowledge.found", "ergostat.decision.proposed"}
     lesson = f.item("knowledge/lesson-1")
     assert lesson["state"] == "active" and lesson["fields"]["kind"] == "lesson"
     assert lesson["fields"]["title"] == "Failing open" and lesson["fields"]["file"] == "dev/knowledge/review-lessons.md"
     assert lesson["fields"]["text"].startswith("## 1. Failing open It fails open.") and lesson["fields"]["carried"] == 2
-    decision = f.item("knowledge/decision-one-model-three-drawings")["fields"]
-    assert decision["kind"] == "decision" and decision["areas"] == ["diagram", "view"] and decision["carried"] == 0
     assert f.item("knowledge/rules-process")["fields"]["kind"] == "rule"
     assert sync(f, dev) == []                                                       # idempotent: nothing said twice
     (k / "review-lessons.md").write_text(LESSONS.replace("It fails open.", "It fails open, quietly."))
-    (k / "house-rules.md").write_text(RULES.split("**Code**")[0])
+    (k / "house-rules.md").write_text(RULES.split("## Code")[0])
     f.fold([{"event": "gap.built", "item": "gap/a", "data": {"contexts": [
-        {"role": "implementor", "knowledge": ["decision-one-model-three-drawings"]}]}}], None)
+        {"role": "implementor", "knowledge": ["rules-process"]}]}}], None)
     lines = sync(f, dev)
     assert sorted((x["event"], x["item"]) for x in lines) == [
-        ("knowledge.changed", "knowledge/decision-one-model-three-drawings"), ("knowledge.changed", "knowledge/lesson-1"),
+        ("knowledge.changed", "knowledge/lesson-1"), ("knowledge.changed", "knowledge/rules-process"),
         ("knowledge.retired", "knowledge/rules-code")]
     changed = {x["item"]: x["data"] for x in lines if x["event"] == "knowledge.changed"}
     assert set(changed["knowledge/lesson-1"]) == {"text", "changed_at"}             # only what changed
-    assert changed["knowledge/decision-one-model-three-drawings"]["carried"] == 1
+    assert changed["knowledge/rules-process"]["carried"] == 2
     assert "quietly" in f.item("knowledge/lesson-1")["fields"]["text"] and f.item("knowledge/rules-code")["state"] == "retired"
     assert sync(f, dev) == []
     (k / "house-rules.md").write_text(RULES)                                         # back in the files: found again
@@ -523,6 +569,153 @@ def test_knowledge_entries_counts_the_items():
     sensor = spec.stocks["knowledge-entries"].sensors["main"]
     assert sensor.run is None and (sensor.items["kind"], sensor.items["state"]) == ("knowledge", ["active"])
     assert spec.items["knowledge"].states == ["active", "retired"] and spec.blocks["knowledge-sync"].type == "program"
+
+
+def test_entry_kind_from_front_matter(tmp_path):
+    f = Instance(tmp_path)
+    dev = running(tmp_path, **{k: f"---\nkind: {k}\nabout: x\n---\n# {k}s\n\n## The {k.title()} Of It\nIts body.\n"
+                               f"*Areas: page.*\n" for k in ("component", "finding", "question", "source")})
+    (dev / "knowledge" / "notes.md").write_text("---\nkind: finding\n---\n## Named not by its file\nA body.\n")
+    sync(f, dev)
+    for k in ("component", "finding", "question", "source"):
+        it = f.item(f"knowledge/{k}-the-{k}-of-it")
+        assert it["state"] == "active" and it["fields"]["kind"] == k and it["fields"]["areas"] == ["page"]
+        assert it["fields"]["file"] == f"dev/knowledge/{k}.md" and it["fields"]["title"] == f"The {k.title()} Of It"
+    assert f.item("knowledge/finding-named-not-by-its-file")["fields"]["kind"] == "finding"   # the front matter's
+
+
+BROKEN = {
+    "misc": ("review_lessons", LESSONS.replace("kind: lesson", "kind: misc")),
+    "no-front-matter": ("review_lessons", LESSONS.split("---\n", 2)[2]),
+    "decision-elsewhere": ("house_rules", RULES.replace("kind: rule", "kind: ergostat.decision")),
+    "decisions-no-front-matter": ("decisions", DECISIONS.split("---\n", 2)[2]),
+    "decisions-wrong-kind": ("decisions", DECISIONS.replace("kind: ergostat.decision", "kind: rule")),
+    "duplicate-heading": ("house_rules", RULES + "\n## Code!\n- Twice.\n"),
+    "duplicate-decision": ("decisions", DECISIONS + "\n## One model; three drawings\nAgain.\n"),
+    "lesson-unnumbered": ("review_lessons", LESSONS + "\n## Not numbered\nx\n"),
+}
+
+
+def set_db(f: Instance, **kv) -> None:
+    """Change the fake record by hand: a key set (or, given None, removed)."""
+    db = f.db()
+    for k, v in kv.items():
+        db.pop(k, None) if v is None else db.__setitem__(k, v)
+    f.record.write_text(json.dumps(db))
+
+
+@pytest.mark.parametrize("case", sorted(BROKEN))
+def test_unknown_kind_refused_nothing_retired(case, tmp_path):
+    f = Instance(tmp_path)
+    dev = running(tmp_path)
+    assert sync(f, dev)                                                 # a first sync: every entry, every decision
+    db = f.db()
+    db["items"] = {i: x for i, x in db["items"].items() if not i.startswith("ergostat.decision/")}
+    f.record.write_text(json.dumps(db))                                 # so a sync now would propose them again
+    (dev / "knowledge" / "notes.md").write_text("---\nkind: finding\n---\n## A finding\nx\n")
+    name, text = BROKEN[case]
+    (dev / "knowledge" / f"{name.replace('_', '-')}.md").write_text(text)
+    assert sync(f, dev, ok=False) == []                                 # no retired, no proposed, no found: nothing
+    assert "refused, nothing recorded" in f.stderr
+    assert all(i["state"] == "active" for i in f.db()["items"].values() if i["kind"] == "knowledge")
+
+
+def test_sync_proposes_each_decision_once(tmp_path):
+    from ergostat.decisions import acts
+    from ergostat.decisions.kinds import DECISION
+    from tests.test_decisions import project
+    f = Instance(tmp_path)
+    f.fold([{"event": "knowledge.found", "item": "knowledge/decision-one-model-three-drawings", "data": {
+        "kind": "decision", "title": "One model, three drawings."}}], None)             # from before: an entry
+    dev = running(tmp_path)
+    lines = sync(f, dev)
+    assert ("knowledge.retired", "knowledge/decision-one-model-three-drawings") in [(x["event"], x["item"]) for x in lines]
+    assert f.item("knowledge/decision-one-model-three-drawings")["state"] == "retired"
+    assert not [i for i in f.db()["items"] if i.startswith("knowledge/decision-") and f.item(i)["state"] == "active"]
+    asked = [x for x in lines if x["event"] == "ergostat.decision.proposed"]
+    assert [x["item"][:-4] for x in asked] == DECIDED
+    assert [x["data"]["scope"] for x in asked] == [["diagram", "view"], ["factory", "pool"]]
+    assert asked[0]["data"]["decision"] == "One model, three drawings"
+    assert asked[0]["data"]["words"] == [{"text": "Each its own style.", "file": "dev/knowledge/decisions.md"}]
+    (tmp_path / "p").mkdir()
+    p = project(tmp_path / "p")
+    for x in asked:                                                     # as ergostat takes a block's line: checked
+        got = acts.take_line(p, x["event"], x["item"], x["data"], "knowledge-sync")
+        assert got["status"] == "proposed" and got["item"] == x["item"]
+        assert acts.one(p, x["item"]).fields["scope"] == x["data"]["scope"]
+    assert f.item(asked[0]["item"])["state"] == "proposed"
+    assert sync(f, dev) == []                                           # a second sync says nothing
+    f.fold([{"event": f"{DECISION}.dismissed", "item": asked[0]["item"], "data": {"dismissed_reason": "no"}}], None)
+    assert sync(f, dev) == [] and f.item(asked[0]["item"])["state"] == "dismissed"    # not proposed again
+    f.fold([{"event": f"{DECISION}.confirmed", "item": asked[1]["item"], "data": {}},
+            {"event": f"{DECISION}.superseded", "item": asked[1]["item"], "data": {}}], None)
+    assert sync(f, dev) == []                                           # nor a superseded one
+    k = dev / "knowledge" / "decisions.md"
+    k.write_text(DECISIONS.replace("Each its own style.", "Each in its own style."))
+    assert sync(f, dev) == []                                           # its body edited: nothing already proposed
+    k.write_text(DECISIONS.replace("## One model, three drawings", "## One model, four drawings"))
+    assert [x["data"]["decision"] for x in sync(f, dev)] == ["One model, four drawings"]    # a new heading: new
+
+
+@pytest.mark.parametrize("fail", ["exit", "partial"])
+def test_sync_refuses_when_decisions_unreadable(fail, tmp_path):
+    from ergostat.decisions.kinds import DECISION
+    f = Instance(tmp_path)
+    dev = running(tmp_path)
+    one = [x for x in sync(f, dev) if x["event"] == f"{DECISION}.proposed"][0]["item"]
+    f.fold([{"event": f"{DECISION}.dismissed", "item": one, "data": {"dismissed_reason": "no"}}], None)
+    (dev / "knowledge" / "notes.md").write_text("---\nkind: finding\n---\n## A finding\nx\n")
+    set_db(f, decisions_fail=fail)
+    assert sync(f, dev, ok=False) == []                                 # no proposal, and nothing else either
+    set_db(f, decisions_fail=None)
+    assert [x["item"] for x in sync(f, dev)] == ["knowledge/finding-a-finding"]
+
+
+def raw_sync(f: Instance, dev: Path) -> list[dict]:
+    r = subprocess.run([sys.executable, str(dev / "bin" / "knowledge.py"), "sync"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    return [json.loads(x) for x in r.stdout.splitlines() if '"ergostat.decision.proposed"' in x]
+
+
+def test_overlapping_syncs_record_one_decision(tmp_path, monkeypatch):
+    """lesson-1: two syncs that both read "no such decision" before either is recorded print the same proposals; the
+    record keeps one decision each, with its words once. The lock is ergostat's: the proposal's event id is derived
+    from its item's, and the record checks it inside its write lock (acts.propose, Events.add)."""
+    from ergostat.decisions import acts
+    from tests.test_decisions import project
+    f = Instance(tmp_path)
+    dev = running(tmp_path)
+    first, second = raw_sync(f, dev), raw_sync(f, dev)                  # neither folded: both read the same
+    assert first == second and len(first) == 2
+    (tmp_path / "p").mkdir()
+    p = project(tmp_path / "p")
+    real = acts.one
+    monkeypatch.setattr(acts, "one", lambda p, id: None)                # each reads "none" before the other writes
+    for x in first + second:
+        acts.take_line(p, x["event"], x["item"], x["data"], "knowledge-sync")
+    monkeypatch.setattr(acts, "one", real)
+    for x in first:
+        assert [e["type"] for e in p.events.query(n=None, item=x["item"])] == ["ergostat.decision.proposed"]
+        assert len(acts.one(p, x["item"]).fields["words"]) == 1
+    for x in second:                                                    # and one read after the other wrote: known
+        assert acts.take_line(p, x["event"], x["item"], x["data"], "knowledge-sync")["status"] == "known"
+        assert len(p.events.query(n=None, item=x["item"])) == 1
+
+
+@pytest.mark.parametrize("fail", ["exit", "partial"])
+def test_brief_fails_when_decisions_unreadable(fail, tmp_path):
+    f = Instance(tmp_path)
+    f.define("# alpha thing\n\nThe Process diagram.\n\n## Definition of done\n\nIt works.\n")
+    decide(f, "One model, three drawings", ["diagram"], "confirmed")
+    set_db(f, decisions_fail=fail)
+    r = subprocess.run([sys.executable, "-c", f"import sys, json; sys.path[:0] = [{str(BIN)!r}]\n{BLOCK}", "{}",
+                        "gap/alpha-thing", "implementor", "a diagram"], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=120)
+    assert r.returncode != 0 and not r.stdout.strip()                   # knowledge.block raises
+    said, _ = f.run("implement.py", "gap/alpha-thing", fails=True)
+    assert "gap.built" not in said and not f.item("gap/alpha-thing")["fields"].get("contexts")
+    assert not list((f.model / "run").glob("briefs/*.md"))              # no brief written
 
 
 LINT = "import fac, plan; print(json.dumps(plan.lint(fac.config(), sys.argv[1], tuple(sys.argv[2:]))))"
