@@ -392,9 +392,18 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     return p.returncode, time.time() - began
 
 
+GATES = {"kill_after": 6, "build_failures": 6, "build_hours": 12.0}   # the kill rule's defaults ([gates])
+
+
+def gate(cfg: dict, key: str) -> float:
+    """One of the kill rule's numbers: [gates] kill_after (failed gates: reviews, conflicts, real failures in the
+    queue), build_failures (the implementor's failed fast suites), build_hours (the implementor's hours, every round)."""
+    return float(cfg.get("gates", {}).get(key, GATES[key]))
+
+
 def kill_after(cfg: dict) -> int:
     """The failed gates that park a gap (the kill rule): [gates] kill_after."""
-    return int(cfg.get("gates", {}).get("kill_after", 3))
+    return int(gate(cfg, "kill_after"))
 
 
 def stop_on_term() -> None:
@@ -466,7 +475,8 @@ STANDIN = {
                '100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
-    "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```"}
+    "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
+    "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}
 
 
 def standin(role: str, brief: str, cwd: Path) -> dict:

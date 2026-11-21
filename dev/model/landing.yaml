@@ -80,7 +80,7 @@ flows:
     sensor: {items: gap, entering: fix, where: {sent_back_by: triage}, over: 1d}
   parked-in-triage:
     from: gaps-queue-failed
-    description: the branch's second failed gate (the kill rule) - parked with where it stopped
+    description: the branch's last failed gate ([gates] kill_after, the kill rule) - parked with where it stopped
     driven-by: [+stock.gaps-queue-failed]
     equation: triage-park-share * stock.gaps-queue-failed / triage-time
     sensor: {items: gap, entering: parked, where: {parked_in: triage}, over: 1d}
@@ -159,7 +159,7 @@ parameters:
     unit: "1"
     range: [0, 1]
     estimate: true
-    description: the share of queue failures that are a branch's second failed gate
+    description: the share of queue failures that are a branch's last failed gate ([gates] kill_after)
   upgrades-per-merge:
     value: 1
     unit: upgrades/gaps

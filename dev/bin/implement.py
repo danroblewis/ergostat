@@ -7,11 +7,15 @@
 2. a session in a container of its own (or the stand-in) on a brief assembled from dev/prompts/implementor.md;
 3. what it left uncommitted committed and bundled back to the drop (in a container with no network); the fast suites
    (ruff, then the unit suite under the watchdog) in a container with no network, in a machine-wide slot; a failure
-   is given back to a session to fix, `suite_fix_rounds` times;
+   that names tests is triaged first (onmain.py: run alone on the branch, a flake retried once; run on clean main, a
+   test failing there too is main's), and a failure of the gap's is given back to a session to fix, `suite_fix_rounds`
+   times;
 4. `gap.built`, with its head, net lines, budget, suites, cost and the context it was given.
 
-The kill rule: fast suites that fail on a second run of it, or building past four hours, park the gap with where it
-stopped. Within the day's dollar cap only (fails closed): over it, the gap is given back for an hour, uncounted."""
+The kill rule ([gates]): fast suites that fail on `build_failures` runs of it, or building past `build_hours`, park the
+gap with where it stopped. A failure whose every test fails on main too is not counted: the gap waits for main to move
+(`waits_on_main`). Within the day's dollar cap only (fails closed): over it, the gap is given back for an hour,
+uncounted."""
 
 from __future__ import annotations
 
@@ -23,10 +27,8 @@ sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
+import onmain  # noqa: E402
 import pools  # noqa: E402
-
-KILL_HOURS = 4.0             # the kill rule: a gap that has taken this long building stops
-FAILS = 2                    # the kill rule: a gap whose fast suites fail this many times stops
 
 
 def definition_first(cfg: dict, gap: dict, work: Path) -> tuple[str, str]:
@@ -103,9 +105,10 @@ def build(cfg: dict, given: dict, began: float) -> int:
     rework = (given.get("lease") or {}).get("back", gap["state"]) == "fix"
     rounds = int(f.get("rounds") or 0) + 1
     branch = fac.branch_of(gap)
-    if float(f.get("build_hours") or 0) >= KILL_HOURS:
+    hours = fac.gate(cfg, "build_hours")
+    if float(f.get("build_hours") or 0) >= hours:
         park(cfg, gap, f"Building took {float(f['build_hours']):.1f} hours over its rounds, past the kill rule's "
-                       f"{KILL_HOURS:g}: stopped. Its last findings: {f.get('findings') or 'none'}")
+                       f"{hours:g}: stopped. Its last findings: {f.get('findings') or 'none'}")
         return 0
     fac.say("gap.started", branch=branch, rework=rework, building_at=began)
     home, work = agents.clone(cfg, branch, "implementor")
@@ -117,9 +120,11 @@ def build(cfg: dict, given: dict, began: float) -> int:
     text += conflict_brief(base_sha, conflicts) if conflicts else ""
     context["brief"] = brief.save(cfg, "implementor", gap, text)
     context["round"], context["merge_conflicts"] = rounds, conflicts
-    cost, sessions = 0.0, 0
+    cost, sessions, used = 0.0, 0, []
     logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
+    seen: dict[str, bool] = {}                                  # tests run on main in this run: failed there?
+    retried, deadline = False, began + (hours - float(f.get("build_hours") or 0)) * 3600
     for i in range(1 + int(cfg["ai"]["suite_fix_rounds"])):
         prompt = text if i == 0 else (
             f"{text}\n\n# The fast suites failed after your work\n\n`{suites['failed']}` failed"
@@ -131,20 +136,35 @@ def build(cfg: dict, given: dict, began: float) -> int:
             fac.nack(f"budget: {e}", after="1h", count=False)
             return 0
         cost, sessions = cost + float(got.get("total_cost_usd") or 0), sessions + 1
+        used += [got["resources"]] if got.get("resources") else []
         head = was = agents.finish(cfg, home, branch, base_sha, held, base_sha, was=was)   # (main merged in, and
         fac.wait_quiet(cfg)                                     # the branch where it was given: refused when not)
-        suites = agents.suites(cfg, home, ("ruff", "unit"), logs, f"{fac.run_tag(branch, began)}-{i}")
-        if not suites.get("failed"):
+        suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
+                                       deadline, seen, retried)
+        used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
+        if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
             break
     net = fac.net_lines(agents.drop(cfg), cfg["git"]["base"], head)
     record = dict(rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
                   net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
-                  build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:])
+                  build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:],
+                  resources=used)
+    if suites.get("flakes"):
+        record["flakes"] = suites["flakes"]
+    broken = sorted(t for t, bad in seen.items() if bad)        # (found in any round of this run)
+    record["main_broken_tests"] = broken
+    if broken:
+        onmain.record(gap["id"], base_sha, broken)
+    if suites.get("failed") and suites.get("main_broken"):
+        fac.say("gap.measured", waits_on_main=base_sha, **record)
+        fac.nack(f"its fast suites failed only on tests that fail on main {base_sha[:12]} too "
+                 f"({', '.join(suites['on_main'][:5])}): not the gap's; it waits for main to move", count=False, after="5m")
+        return 0
     if suites.get("failed"):
         fails = int(f.get("build_failures") or 0) + 1
         fac.say("gap.measured", build_failures=1, **record)
         why = f"the fast suites failed ({suites['failed']}: {', '.join(suites['tests'][:5])})"
-        if fails >= FAILS:
+        if fails >= fac.gate(cfg, "build_failures"):
             park(cfg, gap, f"Its fast suites failed {fails} times (the kill rule); the last: {why}.\n\n"
                            f"```\n{suites['tail'][-1500:]}\n```")
         else:
