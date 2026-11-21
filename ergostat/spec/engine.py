@@ -41,7 +41,7 @@ from ..costs.sampler import SAMPLER, Measured
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
 from . import blocks as bl
-from . import stream, triggers
+from . import runrecord, stream, triggers
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 from .observer import KEEP, RUN, Observer, estimated, opted, stale_age
@@ -94,6 +94,7 @@ def every_pass(b: Block) -> bool:
 
 class Engine:
     incremental = True                                 # a pass works out only what changed (False: everything, each pass)
+    lock_wait = 5.0                                    # seconds ``close`` waits for a lock it stops under, at most
 
     def __init__(self, project, say=print):
         self.p, self.say = project, say
@@ -798,6 +799,10 @@ class Engine:
                "outputs": {p: [str(r) for r in rs] for p, rs in b.outputs.items()}}
         if stale := self.stale_in(b):
             out["stale"] = {k: round(v, 1) for k, v in stale.items()}
+        if self.spec.improve.reviewed and b.type in ("ai", "person"):   # an author: the reviewer's verdicts on its changes
+            from ..numbers import reviewer as rv
+            if said := rv.memory(self.p, b.name):
+                out["reviewer"] = said
         law = {k: b.params[k] for k in ("gain", "integral-time", "deadband", "resolution", "limits") if b.params.get(k) is not None}
         if law:
             out["params"] = law                                   # its control law's constants, as the model writes them
@@ -916,11 +921,17 @@ class Engine:
             from ..actions import sandbox
             cmd += " " + sandbox.command_line(ready.cfg)
         cwd = ready.workdir if ready.workdir and "run" not in b.params else spec.root
-        log = old.log_path(self.p, b.name)
         note, code, resources = "", None, None
         said = Said(self, b, begun["id"], spec, version, item=item, fence=fence)
 
         usage = costs_ai.Usage(b.params.get("model") or (spec.agents[b.agent].model if b.agent in spec.agents else None))
+        from .. import runlog
+        try:                                                     # its own log, or it does not start (SPEC §4b)
+            seq = begun.get("seq")
+            seq = seq if seq is not None else (ev.get(begun["id"]) or {}).get("seq")
+            rl = runlog.open_run(self.p, b.name, seq, begun["id"])
+        except Exception as e:
+            rl, note = None, f"could not start: its run log: {e}"
 
         def take(got: list[str]) -> None:                       # its lines, as they arrive (SPEC §9.1)
             got = costs_ai.expand(usage, got)                   # (what its AI sessions cost, taken as they say it)
@@ -929,36 +940,45 @@ class Engine:
                     lf.write(raw if raw.endswith("\n") else raw + "\n")
             lf.flush()
             said.lines(got)
-        from ..storage import trim
-        trim(log, self.p.storage.logs["block"])                 # (storage: logs: block:)
-        with open(log, "a", encoding="utf-8") as lf:
-            lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
-            lf.flush()
-            back, pos = None, lf.tell()                          # (where its standard error begins)
-            if b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
+        lf, back, tail = rl.file if rl else None, None, ""
+        try:
+            if rl is None:                                       # (no log of its own: not started)
+                pass
+            elif b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
                 code, note, back, resources = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item,
                                                                      fence)
                 with self.lock:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
             else:
+                files, proc = runrecord.files(self.p.dir, begun["id"]), None   # its input, output, exit, record
                 try:
                     if refused:
                         raise OSError(refused)
-                    proc = Measured(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
+                    files["in"].write_text(stdin or "", encoding="utf-8")
+                    with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
+                        proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
+                                        stderr=lf, start_new_session=True)
+                    runrecord.write(files, proc.pid, begun["id"], b.name, item, fence)
                 except OSError as e:
                     note = refused or f"could not start: {e}"
+                    if proc is not None:                         # started, but its record not written: stopped
+                        old._kill(proc)
+                        proc.wait()
+                    runrecord.remove(files)
                 else:
                     old.LIVE.add(proc)
+                    if self.stop.is_set():                       # this engine stopping (set before its kill_all): it may
+                        old._kill(proc)                          # have missed this run (not STOPPING: process-wide)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                     try:
-                        if stream.pump(proc, stdin, b.timeout, take):
+                        if stream.follow(proc, files["out"], b.timeout, take):
                             note = f"stopped after its timeout of {b.timeout:g}s"
                     finally:
+                        runrecord.remove(files)                      # read to its end: nothing left to take again
                         resources = SAMPLER.finish(tracked)
                         old.LIVE.discard(proc)
                         with self.lock:
@@ -973,13 +993,31 @@ class Engine:
                         note = f"killed: {killed}"
                     elif code and not note:
                         note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
-        if code == 0 and not note:                               # a bare number only from a run that finished well
+        finally:                                                 # its entry in the block's log, whole, as it ends
+            if rl is not None:
+                from ..repair.capture import TAIL
+                try:                                             # (read first, whatever the block log's fate)
+                    tail = rl.tail(TAIL) if note else ""
+                except Exception as e:
+                    tail = f"(its run log {rl.rel} could not be read: {type(e).__name__}: {e})\n"
+                try:
+                    runlog.finish(rl, begun["time"], why, self.p.storage.logs["block"])
+                except Exception as e:
+                    self.say(f"{b.name}: its log: {type(e).__name__}: {e}")
+                finally:
+                    rl.close()
+                try:
+                    runlog.prune(self.p, b.name, self.p.storage.logs.get("runs"))
+                except Exception as e:
+                    self.say(f"{b.name}: its run logs: {type(e).__name__}: {e}")
+        if code == 0 and not note:                              # a bare number only from a run that finished well
             said.finish()
         if said.proposals:
             said.counts["proposed"] = sum(1 for x in said.proposals if x["status"] != "not-proposed")
             said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"daemon": b.params["daemon"]} if b.params.get("daemon") else {}),
+                **({"log": rl.rel} if rl else {}),
                 **({"item": item} if item else {}),
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {}), "model": version,
@@ -1009,9 +1047,7 @@ class Engine:
             if spec.items.get("ergostat.failure"):               # triaged, one failure a signature (SPEC §12r)
                 try:
                     from ..repair import capture
-                    with open(log, encoding="utf-8", errors="replace") as lf:
-                        lf.seek(pos)
-                        capture.failed(self.p, spec, b, begun, data, stdin, lf.read())
+                    capture.failed(self.p, spec, b, begun, data, stdin, tail)   # (its own file's, only)
                 except Exception as e:
                     self.say(f"{b.name}: its failure: {type(e).__name__}: {e}")
         if said.refused:
@@ -1733,8 +1769,19 @@ class Engine:
         return {**said, "version": self.version, "seconds": {"swap": round(worked, 3),
                                                              "record": round(time.monotonic() - took, 3)}}
 
+    def shut(self, wait: float) -> None:
+        """Dispatch closed: the stop set under the lock a take checks it under, so a lease taken past this waits in
+        ``running``. Never waited on for good (at most ``wait``: a lock held by something wedged, as the watchdog
+        allows); a take past its check without it sees the stop again after its write, and gives the item back."""
+        got = self.lock.acquire(timeout=wait)
+        try:
+            self.stop.set()
+        finally:
+            if got:
+                self.lock.release()
+
     def close(self) -> None:
-        self.stop.set()
+        self.shut(self.lock_wait)
         self.wake.set()
         if self.calls is not None:
             self.calls.close()
@@ -1746,6 +1793,10 @@ class Engine:
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
             time.sleep(0.05)
+        # A run still going: its lease given back, not counted (SPEC §9.5). Its process outlived kill_all (or a daemon
+        # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
+        # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
+        self.dispatch.give_back()
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 

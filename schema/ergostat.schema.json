@@ -1994,6 +1994,10 @@
         "lease": {
           "$ref": "#/$defs/lease_terms"
         },
+        "about": {
+          "type": "string",
+          "description": "The field that names the parts of the model each item is about (goal.x, stock.y, flow.z, auxiliary.w, block.v), folded by replace (SPEC section 5a, About). explain, check and status point at the open items about a part"
+        },
         "relations": {
           "type": "object",
           "description": "Its typed relations to other items (SPEC section 5a, Relations): each a field holding the ids it names, folded as a set. A kind, a list of kinds, or {kind, precedence, inverse, group}. blocked_by, after and depends_on are precedence (the item is ready once each item it names is finished); parent is a group. Never enforced",

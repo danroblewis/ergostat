@@ -100,7 +100,7 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
     changes = changes if changes is not None else _changes(p)
     mine = sorted((x for x in changes.values() if x.get("kind") != rd.KIND and x.get("made_by") in REFINERS
                    and any(_in(spec, unit, t) for t in (x.get("parts") or x.get("touched") or []))
-                   and x["state"] not in pr.OPEN), key=lambda x: x.get("made") or x.get("created") or 0)[-STALL:]
+                   and x["state"] not in pr.OPEN and not _sent_back(x)), key=lambda x: x.get("made") or x.get("created") or 0)[-STALL:]
     if len(mine) >= STALL and all(x["state"] in TURNED for x in mine):
         why.append(f"refinement stalled: its last {STALL} changes were all turned away")
     ran = ran if ran is not None else _ran(p, now)
@@ -151,7 +151,7 @@ def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, chang
         if d.get("result") not in ("proposed", "started") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
             return f"resting: its last redesign was {d.get('result')}, and its parts have not changed since"
     for x in (changes if changes is not None else _changes(p)).values():
-        if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ENDED \
+        if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ENDED and not _sent_back(x) \
                 and now - float(x.get("decided") or x.get("made") or 0) <= COOL and x.get("unit_sig") == sig:
             return f"resting: its last redesign was {x['state']}"
     return None
@@ -169,10 +169,13 @@ def unfinished(p, ran: list, now: float) -> None:
             last[d.get("system") or "model"] = e
     for u, e in last.items():
         if (e.get("data") or {}).get("result") == "started" and now - e["time"] > rd.RUNNING_FOR:
-            k = rq.rid("redesign", "redesign-due", u)
-            x = rq.stored(p).get(k)
-            if x is not None and x["state"] in ("open", "proposed"):
-                rq.event(p, k, "answered", {"why": "its run never ended (it crashed, or its block timed out)"})
+            rq.move(p, rq.rid("redesign", "redesign-due", u), "answered",
+                    {"why": "its run never ended (it crashed, or its block timed out)"}, ("open", "proposed"))
+
+
+def _sent_back(x: dict) -> bool:
+    """Sent back to its author by the reviewer: not turned away, and no rest (its author is asked again)."""
+    return x["state"] == "superseded" and (x.get("review") or {}).get("verdict") == "revise"
 
 
 def _changes(p) -> dict:
@@ -224,18 +227,25 @@ def next_due(p, now: float | None = None) -> dict:
 
 def hold(p, unit: str, code: str, says: str, owner: bool = False, state: str = "held") -> str:
     """A redesign's trigger or result, held as a modelling request about the unit (visible on the Items tab, in the
-    inbox when held, and in ``ergostat status``)."""
+    inbox when held, and in ``ergostat status``). Read and written under the requests' lock: one the owner dismissed
+    stays dismissed while its unit is as it was (``version.part``), and is raised again, a new finding, once it is not."""
     from . import requests as rq
+    from . import version as ver
     k = rq.rid("redesign", code, unit)
-    x = rq.stored(p).get(k)
-    data = {"source": "redesign", "code": code, "about": f"system.{unit}" if unit != "model" else "model", "says": says,
+    about = f"system.{unit}" if unit != "model" else "model"
+    data = {"source": "redesign", "code": code, "about": about, "says": says,
             "tier": "redesigner", "level": "finding", "why": says, **({"owner": True} if owner else {})}
-    if x is None:
-        rq.event(p, k, "raised", {**data, "raised": time.time(), "since": time.time()})
-    elif state == "open" and x.get("state") != "open":
-        rq.event(p, k, "reopened", {**data, "since": time.time(), "change": None})
-    if state != "open" and (x is None or x.get("state") != state or x.get("why") != says):
-        rq.event(p, k, state, data)
+    with rq.locked(p):
+        x = rq.stored(p).get(k)
+        gone = x is not None and x["state"] == "dismissed"
+        if gone and x.get("part") == ver.part(p.model.spec, about):
+            return k
+        if x is None:
+            rq.event(p, k, "raised", {**data, "raised": time.time(), "since": time.time()})
+        elif gone or (state == "open" and x.get("state") != "open"):
+            rq.event(p, k, "reopened", {**data, "since": time.time(), "change": None, **(rq.fresh() if gone else {})})
+        if state != "open" and (x is None or x.get("state") != state or x.get("why") != says):
+            rq.event(p, k, state, data)
     return k
 
 

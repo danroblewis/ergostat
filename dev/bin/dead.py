@@ -19,7 +19,7 @@ def main() -> int:
         hist = (gap["fields"].get("lease") or {}).get("history") or []
         whys = [f"- attempt {h.get('fence')}: {h.get('how')} {h.get('why') or ''}".rstrip() for h in hist[-4:]]
         review.park(cfg, gap, "Its runs failed past their attempts (a dead letter):\n" + "\n".join(whys) +
-                    on_main(gap["fields"]), "dead-letters", where="dead-letter")
+                    on_main(gap["fields"]), "dead-letters", where="dead-letter", kind="kill-rule")
     return 0
 
 

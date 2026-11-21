@@ -8,7 +8,9 @@ model is). Over the last ``WEEK`` of record:
 - ``ergostat.model.fit-gained``: what the changes written lowered the scaled error by, together (each one's fit
   before minus after, as Accept measured it): the fit over time, as the loop moved it;
 - ``ergostat.model.cost-per-accepted``: what the blocks that make changes spent (the ``cost_usd`` their runs
-  record), over the changes written (none while nothing is written).
+  record), over the changes written (none while nothing is written);
+- ``ergostat.model.reviews-passed``, ``-revised``, ``-rejected``: the reviewer's verdicts (``reviewer.py``), and
+  ``ergostat.model.review-misses``: changes it passed that the prediction check later flagged for revert.
 
 Each is read by a sensor like the model's own (``builtin: ergostat.model.accepted-per-day``); ``ergostat measure``
 and ``ergostat bench meta`` print them."""
@@ -23,7 +25,8 @@ from ..spec.ir import MODEL_MEASURES
 WEEK = 7 * 86400.0
 MEASURES = {n: d for n, d in MODEL_MEASURES.items() if n in (
     "ergostat.model.accepted-per-day", "ergostat.model.regressed", "ergostat.model.verified-share",
-    "ergostat.model.fit-gained", "ergostat.model.cost-per-accepted")}
+    "ergostat.model.fit-gained", "ergostat.model.cost-per-accepted", "ergostat.model.reviews-passed",
+    "ergostat.model.reviews-revised", "ergostat.model.reviews-rejected", "ergostat.model.review-misses")}
 
 
 def _since(p, now: float) -> float:
@@ -86,9 +89,19 @@ def cost_per_accepted(p, now: float | None = None) -> float | None:
     return spent / n
 
 
+def _reviews(which: str):
+    def read(p, now: float | None = None) -> float:     # the reviewer's verdicts over the week, and its misses
+        from . import reviewer as rv
+        now = now or time.time()
+        return float(rv.counts(p, now - WEEK, now)[which])
+    return read
+
+
 READERS = {"ergostat.model.accepted-per-day": accepted_per_day, "ergostat.model.regressed": regressed,
            "ergostat.model.verified-share": verified_share, "ergostat.model.fit-gained": fit_gained,
-           "ergostat.model.cost-per-accepted": cost_per_accepted}
+           "ergostat.model.cost-per-accepted": cost_per_accepted, "ergostat.model.reviews-passed": _reviews("pass"),
+           "ergostat.model.reviews-revised": _reviews("revise"), "ergostat.model.reviews-rejected": _reviews("reject"),
+           "ergostat.model.review-misses": _reviews("missed")}
 
 
 def all_of(p, now: float | None = None) -> dict[str, float | None]:

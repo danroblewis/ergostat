@@ -76,6 +76,20 @@ Work through these steps in order. Ask the person only what you cannot infer.
    estimates: see "When will it be done", below); `examples/roadmap/` is a small model built this way. A parent that moves on
    when its children do (an epic shipped once every ticket is done) is a rule on its kind, never a block:
    `join: {children: parent, all: done, to: shipped}` (`any:` for the first child to start).
+   **To prioritise any queue**, give the items a field that says their order (a `rank`, a `priority`), set by the
+   events that groom them (`{"data": {"priority": 2}}`), and order the block that takes them by it: `takes: {kind:
+   ticket, at: todo, unblocked: true, order: [-priority, rank]}` (lowest first; `-FIELD` highest first; the items
+   without it after those with it; the critical first among equals). The completion estimates and the Timeline
+   project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
+   notes an order field no item holds yet (`takes-order-unset`).
+   **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
+   of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
+   {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the
+   list, so the collector says the whole list each time (an empty list when the item names none any more). Then
+   `ergostat explain goal.x` ends with the open items about it (at most 5, then "and N more"; finished ones are not
+   listed), a `check` finding about a part carries their ids, and an off loop in `ergostat status` names them (at
+   most 3, then "+N"; none under `--at`). A name that is not a part of the model is the finding `about-missing-part`: fix the name.
+   "unknown" in any of these means the item index could not be read, not that there is no knowledge.
 5. **One block per step that does the work**, taking items in its state:
    `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
@@ -120,7 +134,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    so each can be reviewed whole. It learns from what happened: its past change sets for the system with what
    became of each, and the interventions about it (approvals, denials, a person's requests, alarms, with their
    notes) as evidence of missing loops. So when you dismiss a redesign or deny an approval, give the reason
-   (`--note`): it is what the next one reads. Do not hand-write these parts.
+   (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
+   redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
+   change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
+   they say rather than proposing the same idea again. Do not hand-write these parts.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
@@ -344,7 +361,10 @@ keeps running it; this model reads it.
    ```
 
    `ergostat remote` says whether it answers and which version of its model was read; `ergostat explain
-   system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`.
+   system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
+   box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in
+   the **remote's** names (`stock.open`, never `stock.incidents-open`); `remote-show-unresolved` means it does
+   not serve one. A measure dimmed there is stale: it says how old its last reading is.
 3. **Link to its parts by those names**, only to read them: a cause (`driven-by: [+stock.incidents-open]`)
    for the load it puts on our stocks, a goal here on one of its measures, a block's input. Never point a
    block's `out:` at a remote part (`remote-output`): its actuators are its own. If it should act
@@ -428,10 +448,16 @@ readings again.
 
 Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `person` block, a change waiting for the
 owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
-is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p):
+is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p). `mode: advise` asks before a command or
+an event, never before each item, so `check` refuses it on a block with `takes:` (`advise-with-takes`); to have a
+person hold such a block's items, gate it with `in: block.X` from an `expr` block reading a `sensor: {manual: true}`
+stock: `ergostat sensor STOCK --read 1` opens it for all the items at once (not one by one), `--read 0` shuts it, and
+the items wait while it is off. A `person` block is no gate (its `--done` never sets a command; `check` refuses it as
+one, `person-gate`) (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
-  (`ergostat inbox ID --approve | --deny | --done N`), from the page's *Needs attention* (Approve / Deny inline) or by
+  (`ergostat inbox ID --approve | --deny | --done N`; a held modelling request is denied with `--deny --note WHY`,
+  dismissed until its part changes, and approved back to the AI tier), from the page's *Needs attention* (Approve / Deny inline) or by
   the MCP `answer` tool when they tell you to (recorded as `owner via mcp`: never evidence for graduating). Set up
   `notify:` with the channels they use: `macos` on their own machine; `email` with `to:`; `slack` or `discord` with the
   webhook's URL in an environment variable (`url-env:`) or a file (`url-file:`), never in the YAML. Each channel is a
@@ -529,9 +555,10 @@ blocks:
   of the record held out, or its errors are not white, or not independent of u): no `process:` is proposed, and you must
   not write one by hand from those numbers. Do what the finding says would identify it: approve the **step test** it
   offers (from the loop's panel, or the inbox; ergostat must be running), or wait for a large outside change in its
-  input (a burst of arrivals identifies it best: ergostat looks around one by itself and says "identified around an
-  outside step at T"), or for more record. A loop that never sees either stays unidentified, and that is the honest
-  answer.
+  input (bursts of arrivals identify it best: ergostat finds them by itself, fits them together and says "identified
+  around outside steps at T1, T2"), or for more record. If it says "the record after it covers X of the Y its process
+  needs to settle", the burst was too recent: wait until the record covers Y after it, and do not write a process from
+  the earlier, shorter window. A loop that never sees either stays unidentified, and that is the honest answer.
 - **Projections far off after a burst** (the strip says "Low confidence: ..." in front, the band wide): the model fit the
   quiet record, and the burst found what it lacks. Before tuning a value, suspect missing structure: a **capacity**
   (reviewers or workers at their most: a `MIN(stock / time, capacity)` outflow, or a block's `pool:`), a queue that
@@ -539,7 +566,10 @@ blocks:
   `redesign`, or a proposal of the structure with the record of the burst as its evidence); value proposals on a
   model missing structure only chase the burst.
 - The proposals ergostat makes are the same items as the record grows: one revised in place (`revisions`) is not
-  churn. One superseded says why (what it was about was edited or removed, or it is no longer found).
+  churn. An edit elsewhere carries a waiting change, yours too (one passed goes back to testing); one superseded says
+  why: what it was about was edited or removed, its edit no longer applies (propose it again on the files as they are),
+  its finder no longer finds it, it was recorded without what it is about, it is no longer of its kind, or it would
+  change who decides.
 
 ## 3h. When will it be done: the items' completion estimates
 
@@ -556,13 +586,15 @@ together, run 200 times from the record of the last two weeks:
 - a step no block takes (a person's review, CI that pushes its answer) is the time items stayed there, given how
   long this item has been there already (Kaplan–Meier: the ones still waiting count, as censored);
 - where an item goes next is where the record's items went (the rework loops too); what it waits on (`blocked_by`)
-  holds it in its first state.
+  holds it in its first state; a block's queue is in its `takes:` order (`order:` first), as the block takes them;
+- an item waiting for a block that is switched off now (a goal or a switch commanding it at 0) is projected not to
+  move, and says so, rather than drawn at the record's pace.
 
 The item page says why ("6 of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); the what-if beside a
 block's identified model (its pool, its share of failed runs) moves the estimates. **What makes them wrong**, and
 so what to model: a capacity no block declares (one reviewer for two kinds, an API's rate limit: give the step a
-`pool` or the agent an `at-once` that says it), a goal that switches a block off
-(the estimate assumes it takes whenever it has room), a process that changed in the last two weeks (the old runs
+`pool` or the agent an `at-once` that says it), a block switched on and off often (the estimate takes the gate as it
+is now, for the whole horizon), a process that changed in the last two weeks (the old runs
 still count), a step whose runs give the item back while they wait for something undeclared (the simulation
 takes each give-back as rework, so the estimates come out late), and a step nothing has
 left yet (its items are assumed to go to the next state in order). Under twenty runs no p90 is said. A block with
@@ -639,6 +671,11 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 ## 5. Tools
 
 - **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `remote`, `help TOPIC`.
+- **Items**: `ergostat item [--kind K] [--state S] [-n N]` lists them (newest first; `-n` at most 500),
+  `ergostat item ID [--history [FIELD]]` shows one, and `ergostat item --search "WORDS" [--kind K] [--state S]` lists
+  those whose fields' string values contain every word (1 to 8 words; a plain substring, case ignored, no ranking and
+  no fuzzy match; only the first 65,536 characters of an item's text are read; as of now, never with `--at`).
+  `--json` on each; `/api/items?search=WORDS` is the same list.
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.

@@ -2,7 +2,8 @@
 this model. The remote serves its model, events, items and measurements read-only (``serve.py``, behind
 ``tokens.py``; the web side is ``web/remote_api.py``); this side declares it under ``remotes:``, keeps its model
 in the state folder (``cache.py``, over ``client.py``), puts its parts in as an external subsystem
-(``compose.py``) and reads its measurements in place (``readings.py``). Nothing here runs anything there."""
+(``compose.py``) and reads its measurements in place (``readings.py``); its box shows its measures, marked stale
+when not current (``measures.py``). Nothing here runs anything there."""
 
 
 def remote_of(spec, ref: str) -> str | None:

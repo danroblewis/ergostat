@@ -722,10 +722,11 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         if r["significant"]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
+    from .inbox import entries as en
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"],     # waiting on a person
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
-             + f". ergostat inbox {e['id']} " + " | ".join("--done N" if v == "done" else f"--{v}" for v in e["verbs"])}
+             + (f". {en.command(e)}" if e["verbs"] else "")}
             for e in snap.get("inbox", [])]
     out = sorted(out, key=lambda a: LEVELS.get(a["level"], 1))           # problems first, then what waits on a person
     return [a for a in out if a["level"] == "bad"] + asks + [a for a in out if a["level"] != "bad"]

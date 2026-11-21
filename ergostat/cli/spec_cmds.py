@@ -47,15 +47,38 @@ def coherence_of(args, spec, findings) -> dict | None:
     return co.of_spec(spec, findings, window)
 
 
+def order_unset(path: Path, spec) -> list:
+    """A note for each ``takes: {order: FIELD}`` whose field no item of its kind holds in the record (SPEC §9.5): until
+    an event sets it, every item is taken as one without it. Loose: a record not read says nothing."""
+    from ..spec import items as its
+    from ..spec.load import Problem
+    from ..store import Project, state_dir
+    asked = [(b, f.lstrip("-")) for b in spec.blocks.values() if b.takes for f in b.takes.order]
+    if not asked:
+        return []
+    try:
+        m = mdl.load(path.parent)
+        p = Project(m) if state_dir(m.name, path.parent, make=False).is_dir() else None
+        held = {k: {f for i in its.project(p.events, spec, k, transcript=False) for f in i.fields} if p else set()
+                for k in {b.takes.kind for b, _ in asked}}
+    except Exception:  # noqa: BLE001
+        return []
+    return [Problem("note", f"block {b.name}: takes.order {f}: no {b.takes.kind} in the record holds {f!r} yet, so each "
+                    f"is taken as one without it (an event sets it: data {{\"{f}\": ...}})", b.where, "takes-order-unset",
+                    f"block.{b.name}") for b, f in asked if f not in held[b.takes.kind]]
+
+
 def check_yaml(args, path: Path) -> int:
     from ..remote.compose import fresh
     from ..spec import read
+    from ..spec.about import findings as about
     from ..spec.findings import late
     with fresh():                                 # references into remotes checked against what each serves now
         spec, problems = read(path, extremes=False)
     errors = [p for p in problems if p.level == "error"]
     if not errors:                                # calibration on the record; the extremes kept, a few seconds for the rest
-        problems += calibration(path) + late(spec, wait=CHECK_WAIT)
+        problems += calibration(path) + order_unset(path, spec) + late(spec, wait=CHECK_WAIT)
+        about(spec, problems)                     # last: every finding above carries the items about its part
     findings = [p for p in problems if p.level != "error"]
     if args.json:
         coh = coherence_of(args, spec, findings) if not errors else None
@@ -63,6 +86,7 @@ def check_yaml(args, path: Path) -> int:
                          "notes": sum(1 for p in findings if p.level == "note"),
                          "found": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
+                                    **({"items": p.items} if p.items else {}),
                                     "file": str(p.where.file) if p.where else None,
                                     "line": p.where.line if p.where else None} for p in problems],
                          "local": {k: str(w) for k, w in (getattr(spec, "local", None) or {}).items()},
