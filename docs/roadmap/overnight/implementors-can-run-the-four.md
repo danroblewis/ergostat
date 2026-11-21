@@ -84,3 +84,30 @@ Round 3, fixed; main (278666f7) merged in first.
   round 2. Run here: tests/test_agents.py (4 passed), tests/test_factory_manager.py (19 passed),
   tests/test_factory.py with tests/test_factory_times.py (73 passed, 2 skipped: Docker-only, as on main). Ruff is
   clean on ergostat, tests, scripts and dev/bin.
+
+Round 4, fixed; main (a1d1b941) merged in first.
+
+- **Merge of main:** dev/factory.toml conflicted on `[suites] rerun`. It keeps the branch's `-rs` and main's
+  `queue_coverage` and `[code_health]`.
+- **The four browser files, run here for the first time** (this session was allowed the browser command), with
+  `[suites] browser` as written, under suite_watch: rc 1, 223 passed, **1 failed, 0 skipped**, 737 s, peak 561
+  threads and 4.2 GB, nothing killed. The failure was a PermissionError on `/split-shots`.
+  tests/test_diagram_rendering.py writes its pictures to `$SPLIT_SHOTS`, or else beside the checkout. The clone is
+  at `/work`, so "beside" is `/`, which the `dev` user cannot write. compose.yaml sets `SPLIT_SHOTS=/tmp/split-shots`
+  for the dev container, but nothing set it for the agent containers. So this one test would fail in every round's
+  browser suite, which is inside this gap.
+- **Fixed (decided alone, reversible):** agents.py adds `-e SPLIT_SHOTS=/tmp/split-shots` (`SHOTS`) to the
+  session's `docker run` and to the suite containers' (`contained`). /tmp is already a tmpfs there. I did this
+  instead of an `ENV` in dev/agent/Dockerfile, because an `ENV` would take effect only after an image rebuild. Undo:
+  remove `SHOTS`. Test: test_implementor_environment_has_a_browser asserts that both commands carry it. Broken on
+  purpose: with `*SHOTS` taken out of `contained`, it fails.
+- **Not rerun after the fix:** the failing test itself. A command with an environment prefix
+  (`SPLIT_SHOTS=... uv run ...`) was refused here, and inside this session the variable comes only from the next
+  container. The factory's browser suite this round is the first run with it set. The whole unit suite under
+  suite_watch was not run by me (the brief says never in parallel yourself); the factory's fast suites run it.
+- **Review 3, non-blocking:** dev/README.md now says that test_implementor_environment_has_a_browser really launches
+  Chromium. So every unit run needs Playwright 1.63.0 cached and its Chromium installed, or it fails, on purpose. The
+  long unwrapped line at dev/README.md:129 is now wrapped. Review 3's "not run by the reviewer" stays with the queue.
+- **Run here:** tests/test_agents.py (4 passed), tests/test_factory.py, tests/test_factory_manager.py and
+  tests/test_factory_times.py (96 passed, 2 skipped: Docker-only, as on main). Ruff is clean on ergostat, tests,
+  scripts and dev/bin. Net lines outside tests, docs and dev: still 0.
