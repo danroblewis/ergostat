@@ -330,6 +330,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   swap clears what moved out. `ergostat run` still runs one engine for the whole model. Left: the owner's asks
   followed only by the shard that owns them, and the lead's one-time duties (`engine-runs-its-shard-2`); the wires
   carried between shards (`shard-wires`); a process per shard; and the measurements.
+  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Also done
+  (`route-one-large-system-in-parts`): a line group of more than 100, one system's view included, routed in parts of
+  at most 100 (`static/routeparts.js`; `docs/layout-rules.md`), the shared group past 100 lines routed free. Left: an
+  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements; for the
+  lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's one-system view measured again.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
