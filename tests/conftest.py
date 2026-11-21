@@ -53,6 +53,9 @@ every = "1s"
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: takes 10 s or more; started first in a parallel run, so it is not the last to finish")
     config.addinivalue_line("markers", "serial: holds a time bound only on a quiet machine: run alone in a parallel run")
+    if os.environ.get("ERGOSTAT_COVERAGE"):            # the line tracer, only when asked for (dev/README.md, Coverage)
+        from tests import coverage_lines
+        coverage_lines.register(config)
 
 
 def pytest_collection_modifyitems(config, items):

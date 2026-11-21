@@ -61,7 +61,11 @@ Each definition is exactly these, in this order:
   it. Only ids that exist in the lessons above.
 - `## Acceptance tests`: one bullet per test, each naming it as `tests/test_x.py::test_name`, with what it shows; for
   each risk, the test that fails if the change falls into it (a test that cannot fail is lesson-9).
-- `## Size budget`: `N net lines` of code outside `tests/` and `docs/`, at most 600.
+- `## Size budget`: `N net lines` of code outside `tests/` and `docs/`, at most 600, and the line
+  `size: S|M|L|XL (confidence: low|medium|high)`: the class of the net lines outside `tests/` and `docs/`
+  (everything else counts: `dev/`, `scripts/`, `examples/`, root files), that will merge: S is 50 or fewer (a net
+  removal is S), M 51 to 150, L 151 to 400, XL over 400. Say `low` when you are unsure. A definition without this line, or with another class or confidence, is sent back; the merge
+  queue counts the lines that merged and the factory measures how often the class held.
 
 # Keep it small (operator, 2026-11-20)
 

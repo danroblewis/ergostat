@@ -71,12 +71,14 @@ def order_unset(path: Path, spec) -> list:
 def check_yaml(args, path: Path) -> int:
     from ..remote.compose import fresh
     from ..spec import read
+    from ..spec.about import findings as about
     from ..spec.findings import late
     with fresh():                                 # references into remotes checked against what each serves now
         spec, problems = read(path, extremes=False)
     errors = [p for p in problems if p.level == "error"]
     if not errors:                                # calibration on the record; the extremes kept, a few seconds for the rest
         problems += calibration(path) + order_unset(path, spec) + late(spec, wait=CHECK_WAIT)
+        about(spec, problems)                     # last: every finding above carries the items about its part
     findings = [p for p in problems if p.level != "error"]
     if args.json:
         coh = coherence_of(args, spec, findings) if not errors else None
@@ -84,6 +86,7 @@ def check_yaml(args, path: Path) -> int:
                          "notes": sum(1 for p in findings if p.level == "note"),
                          "found": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
+                                    **({"items": p.items} if p.items else {}),
                                     "file": str(p.where.file) if p.where else None,
                                     "line": p.where.line if p.where else None} for p in problems],
                          "local": {k: str(w) for k, w in (getattr(spec, "local", None) or {}).items()},

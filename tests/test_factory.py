@@ -37,6 +37,14 @@ if args[0] == "item" and "--kind" in args:
     print(json.dumps({"items": got, "total": len(got)}))
 elif args[0] == "act":
     db.setdefault("acts", []).append(args)
+    import fcntl, os                                               # (whether the queue's lock is held while it asks)
+    if os.environ.get("FAKE_PROBE_LOCK"):
+        with open(os.environ["FAKE_PROBE_LOCK"], "a") as lk:
+            try:
+                fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                db["lock_held_at_act"] = False
+            except BlockingIOError:
+                db["lock_held_at_act"] = True
     reply = db.get("act_reply") or {"rc": 3, "id": True}          # (as gated.py answers: held, with its id)
     aid = "ergostat.action/" + format(len(db["acts"]), "010x")
     db.setdefault("actions", {})[aid] = {3: "held", 4: "denied", 1: "failed", 0: "ran"}.get(reply["rc"], "refused")
@@ -870,6 +878,88 @@ def test_a_denied_push_undoes_its_merge(tmp_path):
     assert git(f.checkout, "log", "-1", "--format=%s", "main") == "start"     # the merge undone
 
 
+def add_lines(f: Factory, files: dict[str, int], name: str = "alpha-thing") -> None:
+    """Lines added on the gap's branch in the drop, the stand-in's note taken out (so only these lines count), and
+    recorded as its built head (what the review judges)."""
+    wt = f.tmp / f"edit-{len(list(f.tmp.glob('edit-*')))}"
+    subprocess.run(["git", "clone", "-q", "-b", f"factory/{name}", str(f.tmp / "live" / "drop.git"), str(wt)],
+                   check=True, capture_output=True)
+    for rel, n in files.items():
+        p = wt / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text((p.read_text() if p.exists() else "") + "x = 1\n" * n)
+    git(wt, "rm", "-rq", "standin")
+    git(wt, "add", "-A")
+    git(wt, "commit", "-qm", "lines")
+    git(wt, "push", "-q", "origin", f"factory/{name}")
+    f.fold([{"event": "gap.measured", "item": f"gap/{name}", "data": {"head": git(wt, "rev-parse", "HEAD")}}], None)
+
+
+def queue_with(f: Factory, gid: str, patch: str = "") -> list[str]:
+    """queue.py run in one process with ``patch`` applied first (e.g. a line count that raises)."""
+    it = f.item(gid)
+    given = {"trigger": "item", "item": it, "lease": {"fence": 1, "back": it["state"]}}
+    code = f"import sys; sys.path[:0] = [{str(BIN)!r}]; import fac, queue\n{patch}\nsys.exit(queue.main())"
+    r = subprocess.run([sys.executable, "-c", code], input=json.dumps(given), cwd=f.model, capture_output=True,
+                       text=True, timeout=120, env={**f.env, "ERGOSTAT_ITEM": gid, "ERGOSTAT_LEASE": "1"})
+    assert r.returncode == 0, r.stderr
+    return f.fold([json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")], gid)
+
+
+BOOM = "def boom(*a, **k):\n    raise RuntimeError('git diff failed')\nfac.net_lines = boom"
+
+
+def merge_again(f: Factory, gid: str, files: dict[str, int], patch: str = "") -> list[str]:
+    """The pending push denied (the merge undone, the gap sent back), then built, reviewed and merged again."""
+    set_action(f, "denied")
+    assert settle(f)[0] == ["gap.sent-back"]
+    f.run("implement.py", gid)
+    add_lines(f, files)
+    f.run("review.py", gid)
+    return queue_with(f, gid, patch)
+
+
+def test_merge_records_merged_lines(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    add_lines(f, {"dev/bin/extra.py": 30, "ergostat/extra.py": 20, "tests/test_extra.py": 100})
+    f.run("review.py", gid)
+    assert f.run("queue.py", gid)[0] == ["gap.queued", "gap.merged", "gap.push-asked"]
+    assert f.item(gid)["fields"]["merged_lines"] == 50 and f.item(gid)["fields"]["merged_lines_error"] is None
+    assert merge_again(f, gid, {"dev/bin/extra.py": 10})[:2] == ["gap.queued", "gap.merged"]
+    assert f.item(gid)["fields"]["merged_lines"] == 60             # the newer merge's count (from main before it)
+
+
+def test_merge_stands_when_lines_unreadable(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    f.run("review.py", gid)
+    assert queue_with(f, gid, BOOM) == ["gap.queued", "gap.merged", "gap.push-asked"]
+    gap = f.item(gid)
+    assert gap["state"] == "merged" and gap["fields"]["merged_lines"] is None
+    assert "git diff failed" in gap["fields"]["merged_lines_error"]
+    assert git(f.checkout, "rev-parse", "main") == gap["fields"]["main_sha"]   # the merge stands
+
+
+def test_a_merge_again_whose_count_fails_keeps_no_old_count(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    add_lines(f, {"dev/bin/extra.py": 40})
+    f.run("review.py", gid)
+    f.run("queue.py", gid)
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"planned_size": "S", "size_confidence": "high"}}], None)
+    assert f.item(gid)["fields"]["merged_lines"] == 40
+    assert merge_again(f, gid, {"dev/bin/extra.py": 5}, BOOM)[:2] == ["gap.queued", "gap.merged"]
+    gap = f.item(gid)["fields"]
+    assert gap["merged_lines"] is None and "git diff failed" in gap["merged_lines_error"]
+    r = subprocess.run([sys.executable, str(BIN / "measure.py"), "size-accuracy"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 1 and "no value yet" in r.stderr and gid in r.stderr    # left out, named, not a hit
+
+
 def test_a_failed_push_blocks_the_queue_until_the_coordinator_looks(tmp_path):
     f = Factory(tmp_path)
     merged(f)
@@ -1459,6 +1549,7 @@ def test_a_green_batch_lands_every_gap(tmp_path):
         it = f.item(f"gap/{g}")
         assert it["state"] == "merged" and it["fields"]["main_sha"] == head and it["fields"]["batch_size"] == 3
         assert it["fields"]["queue_attempts"] == 1 and len(it["fields"]["queue_runs"]) == 1
+        assert it["fields"]["merged_lines"] == 1                       # its own merge's line, not the batch's 3
     assert f.item("gap/d")["state"] == "approved" and f.item("gap/e")["state"] == "approved"
     acts = f.db()["acts"]
     assert len(acts) == 1 and acts[0][:2] == ["act", "push-main"] and f"sha={head}" in acts[0]   # one approval
@@ -1483,6 +1574,8 @@ def test_a_red_batch_is_bisected_to_the_failing_merge(tmp_path):
     assert git(f.checkout, "log", "--first-parent", "--format=%s", "-1", onto) == "Merge branch 'factory/q'"
     assert git(f.checkout, "rev-parse", "main~1") == onto                      # and the rest landed on it
     assert all(f.item(f"gap/{g}")["state"] == "merged" for g in "pqs")
+    assert [f.item(f"gap/{g}")["fields"]["merged_lines"] for g in "pqs"] == [1, 1, 1]   # s: its merge onto p, q
+    assert "merged_lines" not in f.item("gap/r")["fields"]                     # not merged: no count
     assert len(f.db()["acts"]) == 1
     run = {g: f.item(f"gap/{g}")["fields"]["queue_runs"] for g in "pqrs"}
     assert all(v == run["p"] for v in run.values()) and len(run["p"]) == 1     # the one run, on all four
@@ -1534,26 +1627,167 @@ def waiting(f: Factory) -> str:
 
 
 def test_a_held_push_survives_later_runs(tmp_path):
-    # the run's own gap (a) fails and b lands: the push is asked under a's lease, so a must not be taken again (by
-    # flake triage, the implementor) before the approval runs the push, or the push is fenced out
+    # the run's own gap (a) fails and b lands: the push is asked under a's lease; a waits at push-pending (not taken
+    # by flake triage, the implementor) until the push settles
     f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
     approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
     said, _ = f.run("queue.py", "gap/a")
-    assert said == ["gap.queued", "gap.merged", "gap.measured", "gap.push-asked"]   # a's queue-failed kept back
-    assert f.item("gap/a")["state"] == "queued" and f.item("gap/b")["state"] == "merged"
+    assert said == ["gap.queued", "gap.merged", "gap.measured", "gap.push-asked", "gap.push-pending"]  # a's kept back
+    assert f.item("gap/a")["state"] == "push-pending" and f.item("gap/b")["state"] == "merged"
     assert [e["event"] for e in json.loads((f.model / "run" / "queue.json").read_text())["pending"]["then"]] == [
         "gap.queue-failed"]
     assert waiting(f) == "1"                                                   # the queue's gate: it takes no gap
     approved_gaps(f, {"c": 3})
     said, lines = f.run("queue.py", "gap/c")                                  # a run attempted all the same
-    assert said == ["gap.queued"] and "is held" in next(x["nack"]["why"] for x in lines if "nack" in x)
-    assert f.item("gap/a")["state"] == "queued"                                # still nothing takes a
+    assert said == [] and "is held" in next(x["nack"]["why"] for x in lines if "nack" in x)
+    assert f.item("gap/a")["state"] == "push-pending"                          # still nothing takes a
     set_action(f, "ran")                                                       # the approval runs the push
     assert waiting(f) == "0"
     said, _ = settle(f)
     assert said == ["gap.pushed", "gap.queue-failed"] and f.item("gap/a")["state"] == "queue-failed"
     assert f.item("gap/a")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
     assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())
+
+
+PUSH_MODEL = """
+name: t
+items:
+  gap:
+    id: gap/*
+    states: [approved, queued]
+    on: {gap.approved: approved, gap.queued: queued}
+stocks:
+  approved:
+    sensor: {items: gap, state: approved, every: 5s}
+actions:
+  push-main:
+    run: "echo pushed >> pushed.txt"
+    in: .
+    fenced: false
+  note:
+    run: "echo noted >> noted.txt"
+    in: .
+blocks:
+  merge-queue:
+    type: program
+    run: "true"
+    actions: [push-main, note]
+    every: 1h
+"""
+
+
+def test_an_approved_push_runs_after_its_run_lease_moved(tmp_path):
+    from ergostat import model as mdl
+    from ergostat.actions import gate, program
+    from ergostat.leases import TAKEN
+    from ergostat.store import Project
+    spec, _ = read(ROOT / "ergostat.yaml")                                   # the factory's own model
+    assert spec.actions["push-main"].fenced is False
+    assert [n for n, a in spec.actions.items() if not a.fenced] == ["push-main"]   # every other action stays fenced
+    (tmp_path / "ergostat.yaml").write_text(PUSH_MODEL)
+    m = mdl.load(tmp_path)
+    assert not [x for x in m.problems if x.level == "error"], [x.message for x in m.problems]
+    p = Project(m)
+    p.events.add("gap.approved", item="gap/a", source="t", data={})
+
+    def lease(fence: int, run: str) -> None:                               # a queue run's lease, nacked at its end
+        p.events.add(TAKEN, item="gap/a", source="ergostat", data={"item": "gap/a", "run": run, "block": "merge-queue",
+                     "fence": fence, "ttl": 300, "max": 3, "back": "approved", "tier": "program", "attempt": 1})
+        p.events.add("ergostat.lease.ended", item="gap/a", source="ergostat", causedby=run,
+                     data={"run": run, "fence": fence, "how": "nack", "why": "the run ended", "count": False})
+    lease(1, "r1")
+    given = {"block": "merge-queue", "run": "r1", "item": "gap/a", "lease": 1, "workdir": str(tmp_path),
+             "branch": "", "actions": ["push-main", "note"], "runner": "here"}
+    push = program.ask(p, m.spec, given, "push-main", {})
+    note = program.ask(p, m.spec, given, "note", {})
+    assert push["state"] == note["state"] == "requested"
+    lease(2, "r2")                                                           # the next run leased the gap again
+    assert gate.approve(p, m.spec, push["id"])["state"] == "ran"            # runs all the same
+    assert (tmp_path / "pushed.txt").read_text() == "pushed\n"
+    late = gate.approve(p, m.spec, note["id"])
+    assert late["state"] == "failed" and "the lease now is 2: not run" in late["output"]   # fencing still holds
+    assert not (tmp_path / "noted.txt").exists()
+    y = tmp_path / "ergostat.yaml"
+    y.write_text(PUSH_MODEL.replace("fenced: false", "fenced: no-thanks"))
+    with pytest.raises(mdl.ModelError, match="push-main.fenced: true"):    # (a value it cannot take is an error)
+        mdl.load(tmp_path)
+
+
+def test_no_gap_is_leased_while_a_push_is_pending(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    lock = str(tmp_path / "queue.lock")
+    said, _ = f.run("queue.py", "gap/a", FAKE_PROBE_LOCK=lock)
+    assert said[-2:] == ["gap.push-asked"] * 2 and f.db()["lock_held_at_act"] is True   # asked and written in one hold
+    head, runs = git(f.checkout, "rev-parse", "main"), suite_runs(f)
+    approved_gaps(f, {"c": 3, "d": 4}, batch=2)
+    said, lines = f.run("queue.py", "gap/c")                                 # the push waits: no gap is taken
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert said == [] and nack["count"] is False and "is held" in nack["why"]
+    assert f.item("gap/c")["state"] == f.item("gap/d")["state"] == "approved"
+    assert git(f.checkout, "rev-parse", "main") == head and suite_runs(f) == runs and len(f.db()["acts"]) == 1
+    q = f.model / "run" / "queue.json"
+    q.write_text("{not json")                                                # cannot be read: the same
+    said, lines = f.run("queue.py", "gap/c")
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert said == [] and nack["count"] is False and "cannot be read" in nack["why"]
+    assert git(f.checkout, "rev-parse", "main") == head and waiting(f) == "1"
+    q.write_text("[]")
+    assert f.run("queue.py", "gap/c")[0] == [] and waiting(f) == "1"
+
+
+def test_a_gap_that_did_not_land_waits_for_the_push(tmp_path):
+    from types import SimpleNamespace
+
+    from ergostat.leases.dispatch import moved_on
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    said, lines = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.merged", "gap.measured", "gap.push-asked", "gap.push-pending"]
+    assert not any("nack" in x for x in lines)
+    a = f.item("gap/a")
+    assert a["state"] == "push-pending" and "failed_tests" not in a["fields"]   # its outcome kept back
+    block = read(ROOT / "ergostat.yaml")[0].blocks["merge-queue"]
+    assert moved_on(block, SimpleNamespace(state="push-pending"))           # its lease ends there (ack), not approved
+    assert not moved_on(block, SimpleNamespace(state="queued"))             # (a run killed part way: given back)
+    assert settle(f) == ([], f"the push of {git(f.checkout, 'rev-parse', 'main')[:12]} (gap/b) is held")
+    assert f.item("gap/a")["state"] == "push-pending"
+    set_action(f, "denied")                                                  # settled: the outcome said, then
+    said, why = settle(f)
+    assert why is None and said == ["gap.sent-back", "gap.queue-failed"]
+    assert f.item("gap/a")["state"] == "queue-failed" and f.item("gap/b")["state"] == "fix"
+    assert f.item("gap/a")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+
+
+def test_a_stale_push_is_refused_as_not_a_fast_forward(tmp_path):
+    f = Factory(tmp_path)
+    start = git(f.origin, "rev-parse", "main")
+
+    def push(sha: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(BIN / "queue.py"), "push", sha], cwd=f.model, env=f.env,
+                              capture_output=True, text=True)
+    (f.checkout / "merged.txt").write_text("the approved merge\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "the merge")
+    approved = git(f.checkout, "rev-parse", "HEAD")
+    other = tmp_path / "elsewhere"                                           # main pushed by hand meanwhile
+    subprocess.run(["git", "clone", "-q", str(f.origin), str(other)], check=True, capture_output=True, env=f.env)
+    (other / "hand.txt").write_text("by hand\n")
+    git(other, "add", "-A")
+    git(other, "commit", "-q", "-m", "by hand")
+    git(other, "push", "-q", "origin", "main")
+    moved = git(f.origin, "rev-parse", "main")
+    assert moved != start
+    r = push(approved)                                                       # the approval came late: refused
+    assert r.returncode != 0 and git(f.origin, "rev-parse", "main") == moved
+    assert push("main").returncode != 0                                      # only an exact commit id
+    git(f.checkout, "fetch", "-q", "origin")
+    git(f.checkout, "reset", "-q", "--hard", "origin/main")                 # (a fast-forward of it is pushed)
+    (f.checkout / "next.txt").write_text("next\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "next")
+    nxt = git(f.checkout, "rev-parse", "HEAD")
+    assert push(nxt).returncode == 0 and git(f.origin, "rev-parse", "main") == nxt
 
 
 def test_a_killed_batch_strands_nothing(tmp_path):
@@ -1583,10 +1817,10 @@ def test_a_run_killed_while_landing_blocks_the_queue(tmp_path):
     (f.model / "run" / "queue.json").write_text(json.dumps({"running": {
         "pre": git(f.checkout, "rev-parse", "main"), "gaps": ["gap/a"], "landing": ["gap/a"]}}))
     said, lines = f.run("queue.py", "gap/a")
-    assert said == ["gap.queued", "intervention.recorded"] and f.item("gap/a")["state"] == "queued"
+    assert said == ["intervention.recorded"] and f.item("gap/a")["state"] == "approved"   # (not taken)
     assert "saying gap/a merged" in next(x["nack"]["why"] for x in lines if "nack" in x)
     said, lines = f.run("queue.py", "gap/a")                                   # blocked once, not again each run
-    assert said == ["gap.queued"] and "blocked until intervention/queue-" in next(x["nack"]["why"] for x in lines if "nack" in x)
+    assert said == [] and "blocked until intervention/queue-" in next(x["nack"]["why"] for x in lines if "nack" in x)
 
 
 def test_the_queue_runs_unit_and_browser_at_once_and_reports_the_first_failure(tmp_path):
@@ -1673,7 +1907,7 @@ def test_the_queue_merges_onto_main_as_pushed_and_waits_on_unpushed_commits(tmp_
     approved_gaps(f, {"b": 1})
     said, lines = f.run("queue.py", "gap/b")
     nack = next(x["nack"] for x in lines if "nack" in x)
-    assert said == ["gap.queued"] and nack["count"] is False and "cannot fast-forward" in nack["why"]
+    assert said == [] and nack["count"] is False and "cannot fast-forward" in nack["why"]   # (not taken)
     assert git(f.checkout, "rev-parse", "main") == head                         # nothing merged
 
 
