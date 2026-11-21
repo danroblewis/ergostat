@@ -571,6 +571,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
         if "search" in q:                         # the items whose fields hold every word, as now (SPEC §5a, Search)
             if one("at"):
                 raise BadSet("search: answers as of now; leave out at")
+            if item_sets.asked(q) or one("alone"):           # never a filter silently dropped
+                raise BadSet("search: narrows by kind and one state only; leave out where, moved, through, followed, "
+                             "caused, alone and a list of states")
             got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), n=n, offset=offset,
                               search=one("search"))
             return _as_listed(got, None, 0, bool(one("shown")))

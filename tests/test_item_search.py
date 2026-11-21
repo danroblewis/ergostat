@@ -104,18 +104,27 @@ def test_forgotten_item_leaves_search(tmp_path):
         assert c.execute("select count(*) from items where instr(text, 'findme')").fetchone()[0] == 1
 
 
-def test_old_index_rebuilt_and_searchable(tmp_path):
+def test_old_index_rebuilt_and_searchable(tmp_path, monkeypatch):
     p = _project(tmp_path)
     p.events.add("ticket.opened", item="ticket/1", data={"title": "before upgrade"}, at=T0)
-    path = _file(p)
+    monkeypatch.setattr(itemindex, "VERSION", itemindex.VERSION - 1)
+    old = _file(p)                                                           # folded by the release before this one
     _cold()
-    with sqlite3.connect(path) as c:                                         # as the layout before this change left it
+    with sqlite3.connect(old) as c:                                          # and in its layout: no text at all
+        c.execute("drop index items_textless")
         c.execute("alter table items drop column text")
-        c.execute("update meta set value = ? where key = 'version'", (itemindex.VERSION - 1,))
-    assert its.listing(p.events, p.model.spec)["total"] == 1                # any read: rebuilt, not only a search
-    with sqlite3.connect(path) as c:
+    monkeypatch.undo()
+    new = _file(p)                                                           # the upgrade: its own file, from the record
+    assert new != old
+    assert its.listing(p.events, p.model.spec)["total"] == 1
+    assert _found(p, "upgrade") == ["ticket/1"]
+    with sqlite3.connect(new) as c:
         assert c.execute("select value from meta where key = 'version'").fetchone()[0] == itemindex.VERSION
         assert c.execute("select count(*) from items where text is null").fetchone()[0] == 0
+    _cold()                                                                  # an old stamp at the new path: rebuilt too
+    with sqlite3.connect(new) as c:
+        c.execute("update meta set value = ? where key = 'version'", (itemindex.VERSION - 1,))
+        c.execute("update items set text = ''")
     assert _found(p, "upgrade") == ["ticket/1"]
 
 
@@ -127,6 +136,9 @@ def test_a_row_without_its_text_is_rebuilt_not_read_as_no_match(tmp_path):
     with sqlite3.connect(path) as c:
         c.execute("update items set text = null")
     assert _found(p, "kept") == ["ticket/1"]
+    with sqlite3.connect(path) as c:                                         # the check before each search: one lookup
+        plan = " ".join(r[-1] for r in c.execute("explain query plan select 1 from items where text is null limit 1"))
+    assert "items_textless" in plan, plan
 
 
 def _model_repo(tmp_path):
@@ -167,7 +179,9 @@ def test_search_cli_and_api_agree(tmp_path, capsys):
         code, got = get("?search=alpha%20beta")
         assert code == 200 and [i["id"] for i in got["items"]] == [i["id"] for i in cli["items"]]
         assert [i["id"] for i in get("?search=alpha&kind=ticket&n=1")[1]["items"]] == ["ticket/2"]
-        for q in ("?search=", "?search=%20", "?search=alpha&at=1700000000"):
+        for q in ("?search=", "?search=%20", "?search=alpha&at=1700000000", "?search=alpha&kind=ticket&where=title:x",
+                  "?search=alpha&where=title:x", "?search=alpha&kind=ticket&state=open,done",
+                  "?search=alpha&kind=ticket&state=open&alone=1"):
             assert get(q)[0] == 400, q                                       # never "everything"
     finally:
         srv.shutdown()
