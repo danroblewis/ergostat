@@ -283,3 +283,27 @@ and `ruff`. So no code changed, nothing was run, and this note is not committed 
 (`wait_for`, 15 s). What is needed next: the watchdog's JSON line for this run (which limit it hit, and the peak
 threads and memory), or the suite's per-test durations, to find the test it stopped on. The `.tail` file and the
 branch base are still the coordinator's to fix (see above).
+
+Round 5. The factory merged main (2388572a) in, and it conflicted in two files. Neither is this gap's, and in both
+the branch side was the older text carried from the backlog base. Main's side holds everything the branch side said,
+so main's side was taken in both: `dev/model/knowledge.yaml` (the planner's `pool: 12`, the operator's setting) and
+`ergostat.yaml` (main's rewording of the `gap.closed` comment). Commit 0bccaffb.
+
+The two findings:
+
+1. **The stray `operating-states.md.tail`** (blocking). Still in the branch. `git rm` was refused again this round,
+   and I did not try other ways around the refusal. The coordinator has to run
+   `git rm docs/roadmap/overnight/operating-states.md.tail`. It is one line ('x'), and nothing reads it.
+2. **The branch base** (blocking). Resolved in content by this merge. Main now holds the backlog's content, so
+   `git diff 2388572a...HEAD --stat` is only this gap's 22 files (+1485/−16): `ergostat/operating/`, the
+   `cli/operating.py` topic, `dispatch.py`, the spec hooks, `rollup.py`/`segments.py`/`store.py` (round 3's
+   keeping), the schema, SPEC, the agent guide, GAPS, this file, `tests/test_operating.py` and the `.tail` file.
+   No `dev/model/`, backlog, `ready.py`, eta or UI file is in the diff any more. The history still contains
+   dc0d5ac6 (`git merge-base --is-ancestor dc0d5ac6 main` still fails), but merging lands nothing outside this
+   gap except the `.tail` file.
+
+No code changed this round. Tests run after the merge, one file group at a time: `tests/test_operating.py` and
+`tests/test_cli_fallback.py` (49 passed); `tests/test_factory_knowledge.py`, `tests/test_factory.py` and
+`tests/test_daemon_yaml_review.py` (the files the merge touched: 119 passed, 2 skipped); ruff clean. Not run by the
+implementor: the full unit suite and the four browser files (the factory runs them under the watchdog). No demo is
+touched, so `demo_check` is not needed.
