@@ -100,13 +100,15 @@ items:
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-      gap.closed: closed             # the pipeline manager's close, once the coordinator approved it (done elsewhere, a duplicate)
-    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+      gap.closed: closed             # groomed out of the backlog (backlog.py), or the pipeline manager's close once the
+                                     # coordinator approved it: done on main already, or a duplicate
+    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
                                      # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
+      duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
     fold:
       rounds: sum
       reviews_n: sum
@@ -131,6 +133,7 @@ items:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}
     # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
+    # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
 
   review:
     id: review/*
@@ -256,8 +259,10 @@ items:
     show: [kind, title, file, areas, carried, text]
 
 messages:
-  done: {gap: [merged, parked, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
+  paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
+                                   # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 
 agents:
   opus:

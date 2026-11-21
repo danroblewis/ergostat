@@ -168,7 +168,7 @@ class Factory:
             iid = line.get("item") or about
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
             assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
-                                                                                ".dependencies", ".push-settled")), line
+                                                                                ".dependencies", ".push-settled", ".groomed")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
                 rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
@@ -966,7 +966,8 @@ def test_a_gap_is_taken_only_once_its_dependencies_merged_the_critical_first(tmp
     got = [i.id for i in pr.order_ready(ev, spec, "gap", takeable, t + 13)]
     assert "gap/top" not in got and "gap/other" in got                         # a parked dependency still holds it
     from ergostat.spec.itemindex import index_for
-    assert "parked" in pr.Kinds(spec, index_for(ev, spec, False))["gap"]["finished"]   # never open in the estimates
+    info = pr.Kinds(spec, index_for(ev, spec, False))["gap"]
+    assert info["paused"] == ["parked"] and "parked" not in info["finished"]   # paused, not done: never projected on
 
 
 def test_a_push_without_an_action_id_never_stalls_silently(tmp_path):

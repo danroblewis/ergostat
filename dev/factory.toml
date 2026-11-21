@@ -37,6 +37,11 @@ librarian_model = "haiku"            # the librarian's one step: a review's find
 librarian_session_usd = 0.25
 pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one situation at a time
 pipeline_manager_session_usd = 3.0
+groomer_model = "opus"               # the groomer: the backlog's links, value, size, risk, closes and splits (backlog.py)
+groomer_session_usd = 3.0
+
+[backlog]
+every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before
 
 [knowledge]                          # what a brief may carry beyond the house rules and the review lessons (always)
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
