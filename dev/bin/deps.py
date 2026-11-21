@@ -9,7 +9,7 @@ estimates wait on it.
 Read, conservatively, from:
 - docs/GAPS.md: within an entry, `after `NAME``, `parked until `NAME``, `needs `NAME` first`, `depends on `NAME``, and a
   table whose header has a "Depends on" column beside a gap or branch column;
-- a definition file: a line `depends-on: [name, ...]` (docs/roadmap/overnight/TEMPLATE.md);
+- a definition file: a line `depends-on: [name, ...]` (dev/records/<branch>.md; its shape: dev/prompts/definition.md);
 - `gap.requested`: its `depends_on` (gap ids), already on the item.
 
 A NAME is a gap's branch, its id's name, or a branch its GAPS entry names in backticks. Each link keeps where it came

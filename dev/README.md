@@ -91,7 +91,8 @@ A GAPS.md entry is taken in by itself (`gap.found`, open). It is **ready** once 
 mkdir -p run/defs && $EDITOR run/defs/<branch>.md        # the gap's `branch` field (ergostat item gap/NAME)
 ```
 
-(or `docs/roadmap/overnight/<branch>.md` on main or on its branch). A gap that is not in GAPS.md is asked for as an
+(or `dev/records/<branch>.md` on main or on its branch: the gaps' working records, out of `docs/`; the old
+`docs/roadmap/overnight/<branch>.md` is still read for a branch begun before the move, the new path first). A gap that is not in GAPS.md is asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
@@ -100,7 +101,7 @@ ergostat event --add gap.requested --item gap/my-change \
 ```
 
 **Continuing a parked branch.** Ask for a new gap that `continues` it (`NAME` or `factory/NAME`, a branch of the
-checkout or already in the drop; it is then the gap's branch, and its own `docs/roadmap/overnight/NAME.md` is the
+checkout or already in the drop; it is then the gap's branch, and its own `dev/records/NAME.md` (or old `docs/roadmap/overnight/NAME.md`) is the
 definition, so add a "Where it stopped" section there rather than writing a new one):
 
 ```sh
@@ -109,7 +110,7 @@ ergostat event --add gap.requested --item gap/warm2-again \
 ```
 
 A branch carried on under a new name (its first commit is another name's definition, e.g. `warm.md` on `warm2`) names
-that file as its definition, `"definition": "factory/warm2:docs/roadmap/overnight/warm.md"`: the implementor commits no
+that file as its definition, `"definition": "factory/warm2:docs/roadmap/overnight/warm.md"` (or `dev/records/`): the implementor commits no
 copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is on the branch and unchanged since its first commit.
 
 The intake fetches it into the drop as `factory/NAME` (never over a `factory/NAME` already there, and refusing a name
