@@ -119,8 +119,11 @@ the intake says so on stderr and takes it once the other stops (of two requests 
 read is taken, the other waits). Each run fetches its session's work to a side ref of its own
 (`refs/incoming/<run>/factory/NAME`). Before each implementor run on a branch behind main, implement.py merges main in
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
-(it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
-the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
+(it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
+`uv run python scripts/suite_watch.py`; its refused calls are kept as `tool_denials`, and a session with no result or
+a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
+`tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
+merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
 after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
@@ -223,7 +226,14 @@ at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a si
 `- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
 sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
 made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
-file).
+file). Once every sub-gap is merged the join moves the parent to `joined`, never to `merged`, and the **join judge**
+(`plan.py join`, the plan reviewer's model and session cap, `[ai] join_judge_*`) reads, in a read-only clone of main,
+the parent's entry, its coverage, and each sub-gap's definition and last review (anything unreadable shown as
+`(missing: why)`). `covered` merges the parent, its verdict, reasons and `judged_at` recorded. `short` requests a new
+sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points not built), adds those points to the
+coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
+most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
+cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -505,7 +515,8 @@ on a read-only clone of main, its conversation kept as a session item related to
 
 **What it is given.** Every standing trigger no earlier session answered (by fingerprint): the queue blocked; a gap dead
 past half an hour, or parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or
-none said), unless another gap carries its branch on or the park is `deferred` or `cancelled`; a `waits_on` or `needs`
+none said), unless another gap carries its branch on or the park is `deferred` or `cancelled` (its kind, or the
+coordinator's `deferred: true` or `cancelled: true`); a `waits_on` or `needs`
 park not cleared in `park_wait_hours` (24, at least 1); a `split` park never (each stopped sub-gap raises its own
 trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
 else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past

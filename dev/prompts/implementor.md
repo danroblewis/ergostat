@@ -44,7 +44,9 @@ answer questions: take the most reversible option and say so in the definition f
 5. Commit your work with `git add` and `git commit` as you go, each message ending with the line
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 6. Never push, never `git stash`, never change git's config or remotes, never reach the network. No employer's
-   names, no private material, no session transcript in any file.
+   names, no private material, no session transcript in any file. Keep scratch files out of the repository: write
+   them under `/tmp`. If a command is refused, say which one (as you gave it) in your result instead of working
+   around it.
 7. If you cannot finish, add a "Where it stopped" section to the definition file (what is done, what is left, why),
    commit it, and say so.
 

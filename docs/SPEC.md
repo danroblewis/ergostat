@@ -2598,7 +2598,8 @@ it never writes its own environment, and it reaps what it starts before `done`.
 
 A model can be divided into **shards**, each to be run by an engine of its own. The division is worked out from the
 model's graph, never written in it (invariant 8): `ergostat/spec/shards.py`'s `plan(spec, most=16)` reads the compiled
-model and changes nothing. Nothing on the running path uses it yet.
+model and changes nothing. `ergostat run` does not use it yet: it runs one engine for the whole model, and no shard
+runs as a process of its own.
 
 - **Seeds.** Each top-level system (the outermost system a part is within) starts a shard, named after the system,
   lowercased. A name that is not `^[a-z0-9][a-z0-9-]{0,63}$` becomes `s-` and the first 12 hex digits of the system
@@ -2609,11 +2610,14 @@ model and changes nothing. Nothing on the running path uses it yet.
   sensor is in its part's shard, an agent in the shard of the blocks that run on it, a kind in the shard of the
   blocks that take it, else in its system's, else in the lead. `Plan.of(ref)` names a part's shard and raises
   `KeyError` for one not in the model; it has no default. A stock's estimate or uncertainty is in the stock's shard.
+  A daemon (`daemon.NAME`) is in the shard of the blocks and sensors it serves, else in the lead; it is in
+  `Plan.where`, not in a shard's `parts`.
 - **Merges.** Two shards are merged when blocks in each run on the same agent (its `at-once` is counted in one
-  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon. Kinds
-  tied by a join (a parent kind and the kinds whose relation names it) count as one kind here. Nothing else merges
-  shards; in particular, reading a signal across them does not. Each merge is recorded in `Plan.why`: the shard that
-  joined, the rule (`agent`, `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
+  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon (a
+  block's `daemon:` or a sensor's: it is one process, started by one engine). Kinds tied by a join (a parent kind
+  and the kinds whose relation names it) count as one kind here. Nothing else merges shards; in particular, reading a
+  signal across them does not. Each merge is recorded in `Plan.why`: the shard that joined, the rule (`agent`,
+  `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
 - **Wires.** `Plan.wires` lists, sorted, each value a part in one shard reads from a part in another that exists only
   in memory, with the shard it comes from and the one that reads it: a goal's setpoint, error or off (`goal`), a
   block's output read by another block (`cascade`), a block's output to a goal's setpoint (`setpoint`) or to a block,
@@ -2626,6 +2630,23 @@ model and changes nothing. Nothing on the running path uses it yet.
 - **Ceiling.** `most` is clipped to 1 to 16. While there are more shards than that, the two smallest (counted in
   parts, ties broken by name) are merged (`ceiling`). With `most` 1 there is one shard, the lead, with every part.
 - **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
+- **An engine of one shard.** `Engine(project, shard=NAME)` works only on what `Plan.of` puts in that shard; with
+  `shard=None` (what `ergostat run` uses) it works on everything, as before. A name the plan does not have is a
+  `ValueError` when the engine is made. Its own are: the built-ins, the machine blocks and the goals a pass works out;
+  the clock's timed sensors, sensor crons, timed and cron blocks and judges, and the item-count sensors read when the
+  record moves; the blocks the dispatcher takes items for and the kinds whose leases it watches; the blocks an event
+  starts and the kinds whose joins move a parent; the daemons `Supervisor.sync` starts, with the sensors they serve;
+  and the stocks the observer estimates. A pass reads the newest measurements of its own stocks, flows and auxiliaries
+  and of those in other shards its parts read (a goal's part, a block's inputs, an equation's references, an estimated
+  stock's flows), and no others; an estimate read from another shard is a wire and is not carried yet. The shards of
+  one plan divide each of these between them: none twice, none left out. The plan is worked out once per model, so
+  whatever reads a model reads that model's plan. `swap` works out the new model's plan under the engine's lock; a
+  plan without the engine's shard is refused, and the last model keeps running. A part that moved to another shard
+  leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
+  readings, estimate and observer track, and its daemon (drained). Not yet by shard: the owner's asks (approvals,
+  stops, restarts, step tests, actions) are followed by every engine as before; a run a block's moving a flow asks
+  for reads that flow's stocks' sensors wherever they are; the lead's one-time duties (the start event, the
+  messages' sweep) are done by each; and an agent's `at-once` is counted in each engine.
 
 ## 10. Agents
 
@@ -4786,6 +4807,7 @@ actions:
     wait: 15m                      # how long the session waits for the owner before going on (default 5m)
     timeout: 2m                    # how long it may run (default 2m)
     # fenced: false                # run once approved even after a later lease took the item (default true)
+    risk: {severity: 3, threshold: 8}   # one step stricter when this act is riskier than its class (below)
 blocks:
   developer:
     type: ai
@@ -4817,11 +4839,50 @@ where, and the block, run, session and work item), and then by its gate:
   input, with the actions still held. Each result given is `.delivered` (how: `session` or `context`). An action runs
   once: the first to take its lock runs it.
 
+**Act-risk.** An action may declare `risk: {severity: S, threshold: T}` (`ergostat/actions/risk.py`, plain
+arithmetic). Each request for it is then scored, and its gate moves one step stricter when the score reaches T:
+
+    act_risk = S × (1 + 4c) × (1 + n)        step  ⇔  act_risk ≥ T
+
+A step goes from `auto` to `approve` (held for the owner) or from `approve` to `deny`, never the other way; `deny`
+stays `deny`. An action without `risk:` is gated by its `gate:` alone. `S` is a whole number from 1 to 5 (not `true`);
+`T` a number above 1 and at most 50 (not NaN or infinite), default 8. Anything else is `bad-value`, said where it was
+written. Scores run from 1 to 50, and T is absolute, not a multiple of S, so severity alone can change the outcome.
+
+- `c` is the asking block's contradicted share of its checked claims over the last week (as
+  `ergostat.trust.contradicted` counts them). Each case where it cannot be read counts as the worst, c = 1, its reason
+  recorded: `claims record unreadable`, `no asking block`, `no claims on record`, `claims made, none checked`. A share
+  that is not a finite number counts as 1; any other is held to [0, 1]. A request that names no block (one the owner
+  makes) always has c = 1, so an owner's own `auto` request with S ≥ 2 is held for that owner: intended, since no
+  record vouches for it.
+- `n` is novelty: 0 only when the record holds another action of the same name that reached `ran` (exit 0) within the
+  last 90 days, else 1. One that only `failed` does not count; neither does an unreadable record (`action record
+  unreadable`, n = 1). It is keyed by the action's name: an action whose command was changed under the same name
+  counts as known, so "novel" never means "this command never ran".
+- The staleness of the state the act was planned on is **not** part of the score.
+
+The score is worked out before `requested` is written and recorded on it, `risk: {score, severity, threshold, c,
+c_why, n, n_why, gate}`, `gate` being the stepped gate, which then decides as `gate:` does. A stepped gate says so in
+its denied or held note ("act-risk 12 ≥ 8: its gate auto stepped to approve"), and the session is told it.
+
+**At the act**, for every action, inside its run lock, after the fence check and before the command starts, the
+model is read again (an in-memory model with no file: the one given). Unreadable, the action is **held again**: a
+`requested` event with `held_by: act-risk`, its note, and `approved_by` cleared, written before the lock this run
+took (`<short id>.run`) is removed by its name, so a sweep finds it held and the owner's later approval runs it.
+Gone from the model, it is `denied` by `gate`. Otherwise its gate and `risk:` as they are now are scored on the
+record as it is now, and the **effective gate** is the stricter of that and the request's stepped gate (the first
+`requested`'s `risk.gate`, which a re-hold never replaces; its `gate` without `risk:`): `deny` is denied, even when
+the owner approved it; `approve` runs if a person approved it and is held again if only `gate` did; `auto` runs. The
+act's reading is recorded on the event that ends it (`ran`, `failed`, `denied` or the re-held `requested`) as
+`risk_at_act`. So a gate is never looser than its `gate:`, at the request and at the act. A claim verdict, or the
+owner's edit, recorded between the request and the act is seen at the act; one recorded after the act's re-check, in
+the moment before the command starts, is not.
+
 Actions are counted by class: `ergostat actions` lists them and, per class, how many were held, approved by the
 owner, let through by the gate (auto), denied, ran and failed this week; a class the owner has approved five times or
 more and never denied is said to be ready for `gate: auto`. **Promoting** a class is the owner's edit to the model
-(`gate: auto`), never ergostat's, and takes effect at the next request: the refactor path (invariant 5) from a person
-approving to a rule.
+(`gate: auto`), never ergostat's, and takes effect at the next request; a gate made stricter takes effect at the act
+too, for what was approved before it (above): the refactor path (invariant 5) from a person approving to a rule.
 
 | Measure | What it is |
 |---|---|
