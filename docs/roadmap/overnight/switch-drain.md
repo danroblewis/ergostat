@@ -155,3 +155,61 @@ Checked again, on b8d25fb:
   rules leave the full suite to the factory), and the merge of origin/main (this clone has no remote).
 
 Left: the same as above. The factory has to run the fast suites again and give the failing test's name.
+
+## Where it stopped (round 3: main merged, review 1's findings answered)
+
+**The merge of main (d7ae7a01).** It conflicted in two files:
+- `dev/bin/plan.py`: main moved the plan review out to `planreview.py` and added `plan.py lint`. Main's dispatch is
+  kept, and the branch's `drain_holds` stays first for the planner.
+- `dev/bin/status.py`: the docstring now names both main's backlog and the branch's switch line.
+
+Main also brought a new `type: ai` block, `groomer`, and made `plan-review` a program. So `drain.AI` now names
+`groomer` and no longer names `plan-review`. Neither of those two holds a lease, so a drain would not wait for them and
+the switch's stop would kill their session. Each now starts no session while `run/drain.json` exists (`fac.draining`).
+
+**Review 1's findings, each one** (lesson-12):
+1. *Blocking: a detached switch that records no outcome starts again every minute.* Now, when the flag is gone and an
+   upgrade is still `draining` with `drained_at` set (its switch was started), the switcher records `upgrade.failed`
+   and an intervention of class `switch`, and never begins it again. The 30-minute stale give-up removes the flag and
+   then falls into the same path. `upgrade.draining` clears `drained_at` (lesson-5). `cleanup.py` no longer removes
+   the install of an upgrade that is installed, approved or draining. If the record cannot be read, it removes no
+   install (fail closed); the measure `installs-disk` is unchanged.
+   Tests:
+   - `test_a_drain_past_its_bound_gives_the_runs_back_uncounted`: a real `live.py switch` that fails "not installed"
+     is recorded failed, and the next step starts nothing.
+   - `test_a_switch_waits_for_the_runs_under_way`: the stale case.
+   - `test_cleanup_deletes_only_the_factorys_folders`: the waiting install is kept, and nothing is removed when the
+     record cannot be read.
+2. *The goal `drains-within-bound` broke on every drain that reached its bound, and copied 45 by hand.*
+   `drain.py minutes` (the `drain-minutes` sensor) is now 0 once the switch begins. The goal is now on a new
+   auxiliary, `drain-overrun`. It is measured by `drain.py overrun`, the minutes past the configured
+   `[upgrade] drain_minutes`, and held to `<= 2` (the switcher's minute and its step). No default is copied.
+3. *lesson-1: a drain with no runs under way switched in the step that began it.* The step that writes the flag now
+   always returns. A run whose lease was taken after `under_way()` read is seen by the next step.
+   Test: `test_an_older_switch_request_is_withdrawn` (the draining step and the switch are now separate steps).
+4. *A version installed during a switch withdrew the upgrade being switched.* The check for a switch in progress now
+   comes before the withdrawal pass. Test: the same test installs a newer version during the switch, and nothing is
+   withdrawn.
+
+**Lesson-9.** Each fix was broken, its tests run, then reverted:
+- no failure recorded: the runs-under-way test and the bound test failed (the step drained again);
+- switching in the step that began the drain: the withdrawal test failed;
+- the check for a switch in progress skipped: the withdrawal test failed;
+- cleanup ignoring the waiting upgrades: the cleanup test failed.
+
+**Size.** This round adds about 42 net Python lines in `dev/bin/` (`drain.py` +24, `cleanup.py` +9, `fac.py` +6,
+`backlog.py` +3) and 5 lines of model YAML. The overrun stated in round 1 grows by that much. The factory's own count,
+which excludes `dev/`, is still 0, and no core code changed.
+
+**Run here.**
+- `tests/test_factory.py`: 53 passed, 2 skipped (Docker).
+- `test_factory_resources.py`, `test_factory_knowledge.py`, `test_factory_sessions.py`, `test_factory_manager.py`,
+  `test_backlog.py` and `test_local_settings.py`: 81 passed.
+- `test_daemon_docs.py` and `test_coherence.py`: 47 passed.
+- Ruff: clean.
+
+**Not run.**
+- The whole unit suite and the browser files (left to the factory).
+- `ergostat check` on the root model: this session's shell refused it again. The model loads
+  (`test_the_factory_model_loads`), but its warnings were not read.
+- origin/main: this clone has no remote. The factory's merge of main is in.

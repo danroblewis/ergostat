@@ -73,10 +73,16 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def draining(cfg: dict) -> bool:
+    """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
+    review) waits for its next turn instead of starting."""
+    return (run_dir(cfg) / "drain.json").exists()
+
+
 def drain_holds(cfg: dict) -> bool:
     """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), an AI run takes no new
     item: it gives it back uncounted, to be taken again after the switch."""
-    if not (run_dir(cfg) / "drain.json").exists():
+    if not draining(cfg):
         return False
     nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
     return True

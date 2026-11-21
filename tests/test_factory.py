@@ -1582,6 +1582,10 @@ def test_a_switch_waits_for_the_runs_under_way(tmp_path):
     assert said == ["upgrade.drained"] and started == [b] and f.db().get("nacks") is None
     assert f.item(uid)["fields"]["given_back"] == [] and f.item(uid)["state"] == "draining"
     assert switcher(f, NOON + 240)[1:] == (f"switching to {b[:12]}", [])        # started once
+    said, why, started = switcher(f, NOON + 180 + 30 * 60)                       # its process never cleared the flag
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == []
+    assert f.item(uid)["state"] == "failed" and not flag.exists() and "no outcome recorded" in f.item(uid)["fields"]["why"]
+    assert switcher(f, NOON + 181 + 30 * 60)[::2] == ([], [])                    # never begun again
     r = subprocess.run([sys.executable, "-c", "import sys, json; sys.path[:0] = [sys.argv[1]]; import drain; "
                         "print(json.dumps(drain.AI))", str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
     spec, _ = read(ROOT / "ergostat.yaml")
@@ -1607,12 +1611,19 @@ def test_a_drain_past_its_bound_gives_the_runs_back_uncounted(tmp_path):
     r = subprocess.run([sys.executable, str(BIN / "live.py"), "switch", b], cwd=f.model, env=f.env,
                        capture_output=True, text=True)
     assert r.returncode != 0 and "not installed" in r.stderr and not flag.exists()   # a switch ends the drain,
-    # whatever becomes of it
+    # whatever becomes of it; one that recorded no outcome is failed, asked of the coordinator, and not begun again
+    said, why, started = switcher(f, NOON + 46 * 60)
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == [] and f.item(uid)["state"] == "failed"
+    assert switcher(f, NOON + 47 * 60)[::2] == ([], []) and not flag.exists() and len(f.db()["nacks"]) == 1
+    sensor = [sys.executable, "-c", "import sys; sys.path[:0] = [sys.argv[1]]; import drain; print(drain.gone("
+              "{'since': 0, 'switch_started': 60}, 3600), drain.gone({'since': 0}, 3600), drain.gone(None, 3600))", str(BIN)]
+    assert subprocess.run(sensor, cwd=f.model, env=f.env, capture_output=True, text=True).stdout.split() == [
+        "0.0", "60.0", "0.0"]                                                    # the switch's own time is not the drain's
 
 
 def test_an_older_switch_request_is_withdrawn(tmp_path):
     f = Factory(tmp_path)
-    old, running, mid, new = versions(f, 4)
+    old, running, mid, new, newer = versions(f, 5)
     (f.tmp / "live" / "current").unlink()
     (f.tmp / "live" / "current").symlink_to(running)
     u_old, u_mid, u_new = asked(f, old, "held"), asked(f, mid, "ran"), asked(f, new, "held")
@@ -1631,7 +1642,13 @@ def test_an_older_switch_request_is_withdrawn(tmp_path):
     db["actions"][aid_new] = "ran"
     f.record.write_text(json.dumps(db))
     said, _, started = switcher(f, NOON + 120)
-    assert said == ["upgrade.switch-approved", "upgrade.draining", "upgrade.drained"] and started == [new]
+    assert said == ["upgrade.switch-approved", "upgrade.draining"] and started == []   # never in the same step
+    said, _, started = switcher(f, NOON + 180)
+    assert said == ["upgrade.drained"] and started == [new]
+    u_newer = asked(f, newer, "held")                                            # installed while the switch runs
+    said, why, started = switcher(f, NOON + 240)
+    assert said == [] and why == f"switching to {new[:12]}" and started == []   # nothing withdrawn meanwhile
+    assert f.item(u_new)["state"] == "draining" and f.item(u_newer)["state"] == "installed"
 
 
 def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeypatch):

@@ -11,12 +11,17 @@ run/switch.lock:
   run/drain.json is written, and each AI run takes no new item while it is there (fac.drain_holds);
 - once no AI run is under way, or `[upgrade] drain_minutes` after the drain began, each run still going is given back
   uncounted (its lease nacked with no count: not a failure of its gap), and the switch runs as before (live.py switch,
-  in a process of its own: health check, revert), which removes run/drain.json whatever becomes of it.
+  in a process of its own: health check, revert), which removes run/drain.json whatever becomes of it. A drain never
+  switches in the step that began it.
+- a switch it started that recorded no outcome (live.py failed before it stopped the engine: its flag gone and the
+  upgrade still draining, or the flag still there 30 minutes on) is recorded `failed`, with an intervention, and never
+  begun again.
 
     drain.py              the step (the block)
     drain.py approve SHA  the action's command: the approval is the record's, read by the next step
     drain.py status       one line: what the newest switch waits for
-    drain.py minutes      how long the drain under way has gone (a sensor; 0 when none)"""
+    drain.py minutes      how long the drain under way has gone (a sensor; 0 when none, or once its switch began)
+    drain.py overrun      the minutes it has gone past [upgrade] drain_minutes (a sensor; 0 within it)"""
 
 from __future__ import annotations
 
@@ -34,7 +39,7 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import live  # noqa: E402
 
-AI = ("implementor", "reviewer", "planner", "plan-review", "researcher", "pipeline-manager")   # the type: ai blocks
+AI = ("implementor", "reviewer", "planner", "researcher", "pipeline-manager", "groomer")   # the type: ai blocks
 KINDS = ("gap", "research", "situation")                                                          # what they take
 WAITING = ("installed", "approved", "draining")
 STALE = 30 * 60                       # a switch begun this long ago whose process never cleared the flag: given up
@@ -113,6 +118,13 @@ def withdraw(u: dict, by: str, now: float) -> None:
     fac.say("upgrade.withdrawn", u["id"], superseded_by=by, withdrawn_at=now)
 
 
+def failed(u: dict, why: str, now: float) -> None:
+    """A switch the switcher started that recorded no outcome: failed, and asked of the coordinator."""
+    fac.say("upgrade.failed", u["id"], why=why, failed_at=now)
+    fac.say("intervention.recorded", f"intervention/switch-{u['id'].rsplit('/', 1)[-1]}-{int(now)}", reason=why,
+            recorded_at=now, **{"class": "switch"})
+
+
 def give_back(runs: list[dict], sha: str) -> list[str]:
     """Each run still going, given back uncounted: its lease nacked with no count, as that run would."""
     out = []
@@ -134,8 +146,18 @@ def step(cfg: dict, now: float | None = None) -> str:
     repo = fac.path(cfg, "checkout")
     older = lambda a, b: a != b and fac.git_ok(repo, "merge-base", "--is-ancestor", a, b)  # noqa: E731
     with locked(cfg):
+        st = flag(cfg)
+        if st and st.get("switch_started"):         # (first: nothing is withdrawn while a switch runs)
+            if now - float(st["switch_started"]) < STALE:
+                return f"switching to {st['sha'][:12]}"
+            flag_path(cfg).unlink(missing_ok=True)
+            st = None                               # (its upgrade, still draining, is recorded failed below)
         running = live.target(live.live(cfg) / "current") or ""
         waiting = [u for u in fac.items("upgrade") if u["state"] in WAITING]
+        for u in [u for u in waiting if st is None and u["state"] == "draining" and u["fields"].get("drained_at")]:
+            failed(u, f"the switch to {u['fields']['sha'][:12]} begun at {u['fields']['drained_at']} ended with no "
+                      "outcome recorded (live.py switch failed before it stopped the engine?): never begun again", now)
+            waiting.remove(u)
         for u in [u for u in waiting if running and older(u["fields"]["sha"], running)]:
             withdraw(u, f"the running {running[:12]}", now)
             waiting.remove(u)
@@ -145,12 +167,7 @@ def step(cfg: dict, now: float | None = None) -> str:
         for u in waiting:
             if tops and u is not tops[0]:
                 withdraw(u, tops[0]["id"], now)
-        st, top = flag(cfg), (tops[0] if tops else None)
-        if st and st.get("switch_started"):
-            if now - float(st["switch_started"]) < STALE:
-                return f"switching to {st['sha'][:12]}"
-            flag_path(cfg).unlink(missing_ok=True)
-            return f"the switch to {st['sha'][:12]} begun at {st['switch_started']} never finished: the drain ended"
+        top = tops[0] if tops else None
         if top is not None and top["state"] == "installed" and action_state(top) in ("approved", "ran"):
             fac.say("upgrade.switch-approved", top["id"], approved_at=now)
             top = {**top, "state": "approved", "fields": {**top["fields"], "approved_at": now}}
@@ -161,13 +178,15 @@ def step(cfg: dict, now: float | None = None) -> str:
         if st is None:
             if len(runs) > quiet and not window_passed(at, float(top["fields"].get("approved_at") or now), now):
                 return f"{top['id']} waits for at most {quiet} run(s) under way ({len(runs)} now) or {at[0]:02d}:{at[1]:02d}"
-            st = {"sha": sha, "since": now}
-            save(cfg, st)
-            fac.say("upgrade.draining", top["id"], drain_began_at=now, runs_at_drain=len(runs))
-        elif st.get("sha") != sha:          # a newer version approved while an older one drained: the drain is its
+            save(cfg, {"sha": sha, "since": now})
+            fac.say("upgrade.draining", top["id"], drain_began_at=now, runs_at_drain=len(runs), drained_at=None)
+            return f"{top['id']} drains: {len(runs)} run(s) under way"   # (never switched in the same step: a run
+            # whose lease was taken after under_way() read, and that read no flag, is seen by the next step)
+        if st.get("sha") != sha:            # a newer version approved while an older one drained: the drain is its
             st = {**st, "sha": sha}
             save(cfg, st)
-            fac.say("upgrade.draining", top["id"], drain_began_at=float(st["since"]), runs_at_drain=len(runs))
+            fac.say("upgrade.draining", top["id"], drain_began_at=float(st["since"]), runs_at_drain=len(runs),
+                    drained_at=None)
         took = (now - float(st["since"])) / 60
         if runs and took < minutes:
             return f"{top['id']} drains: {len(runs)} run(s) under way, {took:.0f} of {minutes:g} minutes"
@@ -178,6 +197,12 @@ def step(cfg: dict, now: float | None = None) -> str:
         return f"switching to {sha[:12]}" + (f"; given back uncounted: {', '.join(given)}" if given else "")
 
 
+def gone(st: dict | None, now: float) -> float:
+    """How long the drain under way has gone: 0 when none, or once its switch began (the switch's own time is not
+    the drain's)."""
+    return 0.0 if not st or st.get("switch_started") else (now - float(st["since"])) / 60
+
+
 def describe(cfg: dict) -> str:
     """For status.py: the newest switch, and what it waits for."""
     ups = [u for u in fac.items("upgrade") if u["state"] in WAITING]
@@ -185,7 +210,7 @@ def describe(cfg: dict) -> str:
     if st:
         return f"Switch to {st['sha'][:12]}: " + (f"switching since {time.ctime(float(st['switch_started']))}"
                                                    if st.get("switch_started") else
-                                                   f"draining for {(time.time() - float(st['since'])) / 60:.0f} of "
+                                                   f"draining for {gone(st, time.time()):.0f} of "
                                                    f"{settings(cfg)[2]:g} minutes, {len(under_way())} run(s) under way")
     return "Switch: " + (", ".join(f"{u['id']} {u['state']}" for u in ups) or "none waiting")
 
@@ -198,9 +223,8 @@ def main(argv: list[str]) -> int:
         print(f"the switch to {argv[1][:12]} is approved: it drains the runs under way at a quiet moment "
               f"or the daily window, then switches")
         return 0
-    if argv[:1] == ["minutes"]:
-        st = flag(cfg)
-        print(round((time.time() - float(st["since"])) / 60, 1) if st else 0)
+    if argv[:1] in (["minutes"], ["overrun"]):
+        print(round(max(0.0, gone(flag(cfg), time.time()) - (settings(cfg)[2] if argv[0] == "overrun" else 0)), 1))
         return 0
     if argv[:1] == ["status"]:
         fac.cli(cfg)
