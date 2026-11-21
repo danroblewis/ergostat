@@ -179,3 +179,25 @@ Round 7, merged; main (20339898) merged in first.
   factory's fast suites and the queue.
 - **Run here:** tests/test_agents.py (4 passed, before and after the assert was removed), tests/test_factory_manager.py (33 passed). Ruff is clean on ergostat, tests and scripts. The four browser
   files and the whole unit suite were not run by me this round; the factory's fast suites run them.
+
+Round 8, the round's unit suite failed again; no code changed (lesson 13).
+
+- **Merge of main:** main (20339898) was already merged and committed in round 7 (4de10272), dev/README.md included.
+  No conflict was left to resolve.
+- **What the failure showed:** the same tail as round 6. The log stops after 12 dots, with no `F`, no pytest summary
+  and no suite_watch JSON line. suite_watch prints that line on every exit it handles (its own kills too), so the
+  container or process group was stopped from outside. No test is named.
+- **Not this branch's:** round 7 already had `UV_NO_SYNC=1` on the only unit test that runs `uv` (round 6's
+  likeliest cause), and the run stopped all the same. The same tail is written up in other gaps' definitions:
+  aggregation-from-dominance, ai-call-failures-are-failures, code-health-coverage, continue-branch (1 to 3),
+  daemons-left-over, flake-quarantine-min, gap-size, inbox-dismiss and kb-about. It stops at different points (12
+  dots to 80%), and none of those branches found a cause in its own code. That points to the factory's suite
+  containers or host (memory, the 4,096-pid limit, a kill from outside), which this gap does not cover. It belongs in
+  its own gap, and that gap needs the full log and the container's exit state (`docker inspect`: OOMKilled, the exit
+  code), which this session cannot read. So round 6's resync theory is dropped as the cause. `UV_NO_SYNC` stays: it
+  does no harm and keeps the .venv as it is while the other workers run.
+- **Refused:** `head -3 /proc/meminfo; nproc; cat /sys/fs/cgroup/memory.max ...memory.events` (to see the VM's
+  memory and OOM events), and the same files through Read (confined to /work). An append to this file through
+  `cat >> ... && git add && git commit` was also refused; this section was written with Edit instead.
+- **Run here:** tests/test_agents.py (4 passed, 102 s; the first test really launched Chromium). Ruff is clean on
+  ergostat, tests and scripts. The whole unit suite was not run by me (the brief says never in parallel yourself).
