@@ -237,3 +237,47 @@ pool reads the stock's level, as `read_at` and the engine pick it.
   The factory's merge step (`implement.merge_main`) must merge origin/main, and the suites must run again before this
   is called built (lesson-7).
 - No example was touched, so `demo_check` was not needed.
+
+### Round 2
+
+**The merge of main (2b101c6).** It conflicted in eight files. Each keeps main's change and the branch's:
+- `agents.py`, `fac.py`, `factory.toml`: main's groomer next to the pipeline manager.
+- `building.yaml`: main's `order: rank` on the implementor's `takes:`, with the branch's `pool: {now: …, most: 4}`.
+- `ergostat.yaml`: main's `rank`, `value` and `size` columns; `parked` moved from done to paused, as main has it,
+  with the branch's `situation` kind; the closed comment names both who closes.
+- `leases/compile.py`: main's `order` key and `re`, the branch's `POOL_KEYS` and `Ref`.
+- `numbers/etamodel.py`: `BlockIn` gets main's `order` and `off` and the branch's pool now and `pool_said`.
+- SPEC: the estimates paragraph has main's `order:` and switched-off text, then "its pool now"; the key table has
+  main's `order` on `takes` and the branch's `pool` row.
+
+**Round 1's findings, each answered (lesson-12):**
+- *The schema (blocking).* `schema/ergostat.schema.json`'s `pool` is now `oneOf` two forms: an integer of 1 or more,
+  or `{now: "^stock\.NAME$", most: integer ≥ 1}` with both keys required and no others.
+  `docs/spec-examples/relations.yaml` gains a `reviewer` block using the mapping form (and a `reviewers` stock with a
+  manual sensor). So both `test_each_example_in_the_spec_is_valid` and `test_spec_compile`'s example compile cover
+  it. The new `tests/test_spec_schema.py::test_a_block_s_pool_is_a_number_or_a_stock_with_its_most` checks that the
+  schema takes both forms and refuses these: `0`, no `most`, no `now`, `most: 0`, `most: true`, `flow.x`,
+  `stock.S.port`, an extra key.
+- *The lock test's claim.* The competing lease stays on `ticket/0`. The assertion's message now says what holds it:
+  the fold refuses a second lease on one item. The acceptance line's "the take counts the competing lease" cannot
+  hold for another engine's lease taken after this engine's count, because that engine holds its own lock. SPEC §9.5
+  now says exactly this: such a lease is counted at the next look. On the same item the fold refuses the second
+  lease. On another item both stand, as for a `pool:` number. Closing that race needs a lock across engines (the
+  record's), for both forms, and is outside this gap.
+- *The start-up "no reading".* The dispatcher's first tick can come before the engine's first pass has loaded the
+  readings. `Engine.measured` (set by a full `measure`) now gates the message. Before it, the pool is still 0 and
+  nothing new is taken (closed), but nothing is said. `test_no_reading_is_not_said_before_the_first_pass` checks
+  this: a recorded reading, no pass yet, so 0 and silence; then 2 after `measure`; and an unread stock is still said
+  once after `measure`. With the gate removed, the test failed (lesson-9). This adds 3 lines to `engine.py`, which
+  is not in the files list; that is the smallest place to know "the readings are loaded".
+- *on-stale and the pool's stock.* SPEC §9.5 now says that the pool's stock is not one of the block's reads, so its
+  `on-stale` does not watch it. Nothing in the code changed for this.
+
+**Run in round 2, one file at a time:** `tests/test_pool_now.py` (25 passed), `tests/test_leases.py` (20),
+`tests/test_eta.py` (13), `tests/test_take_order.py` (4), `tests/test_closedloop.py` (15),
+`tests/test_blockdiagram.py` (67), `tests/test_spec_compile.py` (26), `tests/test_spec_schema.py` (27),
+`tests/test_factory.py` (42 passed, 2 skipped, as before), `tests/test_backlog.py` with
+`tests/test_factory_knowledge.py` (35). Ruff is clean.
+
+**Not run here:** the whole unit suite under `-n 8` and the four browser files. This session may not run them;
+the factory runs them after it. No example under `examples/` was touched.

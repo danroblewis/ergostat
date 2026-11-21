@@ -164,6 +164,7 @@ class Engine:
         self.passing = threading.Lock()                # one pass at a time, whichever thread asks
         self.full = True                               # the next pass works out everything (the first, after a swap)
         self.mark = None                               # the measurements' changes, as of the last pass
+        self.measured = False                          # every part's newest reading loaded once (a pool's "no reading")
         self.dirty_keys: set[str] = set()              # signals changed since the last pass (a machine's output, ...)
         self.dirty_goals: set[str] = set()             # goals whose setpoint a run set since
         self.dirty_blocks: set[str] = set()            # machine blocks whose run ended since
@@ -241,6 +242,7 @@ class Engine:
             if v is not MISSING and sig.get(f"{kind}.{name}", MISSING) != v:
                 sig[f"{kind}.{name}"] = v
                 changed.add(f"{kind}.{name}")
+        self.measured = self.measured or only is None
         return changed
 
     def _event(self, out: list | None, type: str, **kw) -> dict:
