@@ -89,3 +89,50 @@ All of these are in `tests/test_library_trust.py`.
 - test_untrusted_never_shadows_builtin_or_owner should also cover a trusted template that uses a name an untrusted folder also defines. The trusted one must resolve, and the chain must not be held.
 - For each break-once in lesson-9 (allowlist accepts everything, no-shadow removed, put moved before the check), the report names which tests failed.
 - SECURITY's list of what an untrusted folder may make must be generated from, or checked against, trust.py's tables, e.g. by a test comparing the doc list with the allowed sections. Otherwise the doc can drift wider than the code (lesson-8).
+
+## Where it stopped
+
+Built, round 1: points 1–6, and point 7 in part (below). 266 net lines outside tests and docs (budget 330):
+trust.py 194, uses.py 47, templates.py 16, load.py 8, author.py 1.
+
+**Not run here, left to the factory:** the whole unit suite and the four browser files (the brief says the factory
+runs them under the watchdog). The merge of origin/main was not done: this clone has no `origin` remote and no
+network, and local `main` has nothing past the branch's base. Run here: `tests/test_library_trust.py` (40 passed),
+`tests/test_templates.py` and `tests/test_modelling_template.py` unchanged (40 passed), ruff clean.
+
+**Point 1's fallback not taken:** main has no other untrusted marker (library-untrusted-text is not merged), so the
+map form stands and `test_library_map_entry_bad_key_or_trust_is_an_error` is as written (six bad entries).
+
+**Decisions taken alone (the most reversible; each narrows what an untrusted folder may make):**
+- Sensor `builtin`, `manual` and `averages` are refused too, not only the eight listed. `builtin` starts ergostat's
+  own measure as a process on a timer, `manual` asks a person, and `averages` only means something on those. Allowing
+  any of them later is one line in `trust.SENSOR`.
+- A folder listed both as a path and as an untrusted `{folder:}` counts as untrusted (fail closed). So does an
+  `$ERGOSTAT_LIBRARY` folder that is also listed untrusted.
+- When a chain is refused, its own nested errors and findings are dropped with it. The one `library-untrusted` error
+  is all that is reported.
+
+**The plan review's notes, answered:**
+- Sensors live inside parts, not as a section: `stocks|flows|auxiliaries.X.sensor` and `.sensors.NAME`. trust.py's
+  `SENSOR` lists every key allowed there (items, state, entering, leaving, where, over, measure, sum, changes, unit,
+  description), and the refused ones by name.
+- Block keys are allowlisted per type (`trust.BLOCK_TYPES`, joined only with the common `BLOCK`). The alarm, schedule
+  and timer keys each carry a reason saying they output a number and start or send nothing. What a raised alarm does
+  (shown on the page, counted as an intervention) is listed under SECURITY's "does not stop".
+- Trust unknown: `Template.trust` defaults to `untrusted`, and `templates.trusted` accepts only `ergostat` and
+  `owner`. Tested by `test_a_template_whose_trust_is_unknown_is_held`. Shape: the `map-under-a-value` and
+  `list-under-a-value` cases.
+- After substitution: said in trust.py's docstring, and tested by the `after-substitution` case (a `type: map`
+  parameter's default `{run: ...}` put whole under `sensor:`).
+- Shadowing by a trusted chain: in `test_untrusted_never_shadows_builtin_or_owner`, the owner's `wraps` uses
+  `collect` while the untrusted folder has a `collect` of its own. Ergostat's resolves, and nothing is held.
+- SECURITY's lists are checked against trust.py by `test_security_lists_what_trust_allows` (sections, block types,
+  sensor keys).
+- Break-once (lesson-9). Each break was seen to fail, then restored:
+  - allowlist accepts everything (`refused` returns None): 27 failed. These were every
+    `test_untrusted_refused_at_use_line` case (21), `test_untrusted_unknown_key_refused`,
+    `test_untrusted_wrapping_builtin_with_run_refused`, `test_nested_chain_refused_whole`,
+    `test_a_template_whose_trust_is_unknown_is_held`, `test_refusal_text_suggests_no_copy` and
+    `test_trust_follows_a_reload`;
+  - no-shadow removed: both `test_untrusted_never_shadows_builtin_or_owner` cases failed;
+  - the put moved back before the check: the same 27 failed as for the first break.
