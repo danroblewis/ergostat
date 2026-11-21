@@ -105,8 +105,9 @@ Running another implementor session with the same permissions will be refused th
 
 Round 5 (the factory's "round 3"), after main (31cffd8f870e) was merged into the branch: the same refusal, the fifth
 session in a row. `git rm -r .bench` was denied ("don't ask" permission mode), and as before nothing else was tried to
-delete it. `.bench/test_bench_detach.py` is still tracked; it is the only thing left. No code changed. The suites were
-not run again after the merge of main, so lesson-7's re-run after merging is still owed, along with the removal:
+delete it. `.bench/test_bench_detach.py` is still tracked; it is the only thing left. No code changed. After the merge of main,
+test_resilience (31), test_streamed_output and test_spec_engine (20) pass, one file at a time, and ruff is clean.
+The full unit suite and the browser files were not run here; those and the removal are what is owed:
 `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. A sixth
 implementor session with these permissions will not get further. This needs a person, or a session allowed to delete
 files.
