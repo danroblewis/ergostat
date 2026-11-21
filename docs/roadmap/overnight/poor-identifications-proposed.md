@@ -294,3 +294,19 @@ Left: the full `unit` output (a failing test's name, or the watchdog's line), an
 
 Not run in round 3: the whole unit suite, the four browser files and `demo_check` (the factory runs them). origin/main
 was not merged again: this clone has no remote.
+
+**Round 4, answering the round-3 review.** In this session every shell command was refused, `git status` included. So
+nothing was run, removed or committed here. The edits below are in the working tree for the factory to commit.
+- *`tests/test_zz_scratch.py` still committed* (blocking). **Still not done.** `git rm` was refused again. The factory
+  or coordinator must `git rm tests/test_zz_scratch.py` before merging. The branch must not reach main before that.
+- *A later pass left with no step, with a "no readings" drop, returns `_nothing` without saying an earlier pass found a
+  process* (`experiments.py`, non-blocking). Answered. Rule 6 still applies and the result still fails closed. Its `why`
+  now adds "pass j found a process on shorter windows; it is not used, since the windows its process needs have no
+  readings". `dropped` is unchanged. The existing tests check `why` and `dropped` by containment, so they should be
+  unaffected. **This edit has not been run or tested**, and no test asserts the new line yet.
+- *Not run by the reviewer* (the tests and ruff). They were not run in round 4 either, because the shell was refused.
+  The factory's suites, run after merging main (lesson-7), are still owed.
+
+Left for the factory: `git rm tests/test_zz_scratch.py`; commit this round's two edits; run
+`tests/test_outside_experiments.py`, `tests/test_churn.py`, ruff, the unit suite, the four browser files and
+`demo_check`.
