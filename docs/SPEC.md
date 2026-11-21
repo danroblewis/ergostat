@@ -3598,7 +3598,9 @@ replays follow the same stocks, and every reading of each is equal as a float ov
 tolerance, and a NaN is never equal) is judged by structure, once it has the record it needs (to within the same
 second of grace the looks give, so a look due at the record it needs is not put off) and that record
 exercised what it touches: a stock of its neighbourhood the record reads at least 12 times and does not find quiet
-(`exercised.py`). A stock with no readings, or a change touching no stock, is never taken as exercised; such a change
+(`exercised.py`). A stock with no readings, or a change touching no stock, is never taken as exercised (a deliberate
+narrowing of the design's "any stock both replay" for a change whose neighbourhood holds no stock: a busy stock
+elsewhere says nothing of it, so it fails closed); such a change
 waits, as one any record replays the same, for record in which what it touches moves, and is inconclusive at the
 horizon. A change that moves any stock by any amount is judged by the record, through the bound, as above.
 Judged by structure, the model it leaves is compiled with what `check` finds; any error fails it ("the model it

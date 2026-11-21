@@ -177,7 +177,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `the-judge-almost-never-decides`, docs/roadmap/overnight/the-judge-almost-never-decides.md): a change whose replay
   is exactly the model's, on a record that exercised a stock it touches, is judged by structural measures (the
   redesign scorecard: findings, chains, coherence, craft notes, the fit only against it; `numbers/unmoved.py`),
-  a pass on structure written only by the owner. Measured on the slow queue (5 records each, a week, the judge every 6 hours), before
+  a pass on structure written only by the owner. A change whose neighbourhood holds no stock is never taken as
+  exercised (narrower, on purpose, than "any stock both replay"), and the scorecard of one under test is worked out
+  again at each look, not cached. Measured on the slow queue (5 records each, a week, the judge every 6 hours), before
   and after: a change answering a finding passed 5 of 5 at 24 hours both ways (before by "answers a finding" on the
   record, now on structure, and no longer written by `auto`), one making a finding failed 5 of 5 at 24 hours both
   ways, one moving no measure undecided after a week both ways (that model has no items, so coherence cannot be

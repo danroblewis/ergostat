@@ -334,3 +334,32 @@ The implementation is done and, read without running it, meets the definition of
 - `git rm -q scratch_probe.py` was refused again (the seventh refusal), and no other route was tried.
 - **Left:** the factory runs `unit` again under `suite_watch.py` and reads the watchdog's last JSON line (whether it
   killed the run, and its peaks). A person runs `git rm scratch_probe.py` and commits.
+
+### Resumed, round 3 (2026-11-21)
+
+This session was refused every Bash call, starting with the first one (`git rm -q scratch_probe.py`). So it could not
+delete the file, commit, run a test or run ruff. It did not try another route around that. Only file edits were
+possible, and these edits are **not committed** by this session.
+
+Review/the-judge-almost-never-decides-5 and -6, every finding (lesson-12):
+1. **Blocking: `scratch_probe.py` is committed.** Still there, eighth refusal. Only a person can clear it:
+   `git rm scratch_probe.py && git commit`. Nothing imports it.
+2. **The reviewers did not run the suites.** Not run here either (no Bash). The last runs are the ones above (17 and
+   93 passed, ruff clean, the serial unit run 1948 passed). The merge queue runs them under `suite_watch.py` after
+   merging origin/main.
+3. **`judge.py:556-560`, a `TrialError` from `un.judged` goes to waiting with no event.** I did not change it. A
+   code change that nobody can test or commit this round would reach the branch unverified, and the review called it
+   non-blocking. The most reversible fix, for the next session that can run tests: in the `except`, set
+   `v = x.get("version")`. The change then takes the `verdict is None` branch and records a `testing` event whose
+   `undecided` names the error. It is still bounded by `MOST`, and a hand edit is still caught on the next pass by
+   `supersede`. It needs a test that monkeypatches `tr.compiled` to raise `TrialError` and checks the testing event.
+4. **Docs should say the scorecard under test is recomputed, not cached.** SPEC §12e already said "worked out again
+   at each look". GAPS now says it too.
+5. **The narrowing of point 2's fallback should be named as a deliberate departure.** SPEC §12e and GAPS now name it:
+   a change whose neighbourhood holds no stock is never taken as exercised, which is narrower on purpose than "any
+   stock both replay".
+6. **`held + 1.0 >= needs`.** The review called it harmless, and SPEC already says it. Unchanged.
+
+No code changed, so the size stays as it was. **Left:** the person deletes `scratch_probe.py` and commits these doc
+edits with it; finding 3 above, if the review wants it before the merge; the suites under `suite_watch.py` after the
+origin/main merge.
