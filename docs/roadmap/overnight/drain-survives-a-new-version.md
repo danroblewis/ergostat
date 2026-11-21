@@ -34,3 +34,14 @@ short (killed or timed out), not as a test that failed. Run again here, one file
 had 9 passed. Nothing else in tests/ imports drain.py or reads the dev/README.md text this branch changed. The whole
 unit suite could not be run here (the command was refused), so the cause of the cut-short run is not known. Left
 open: run `unit` again under the watchdog and, if a test fails, name it. No code was changed in this round.
+
+Second report of `unit` failing: this tail has one `F` at about 60%, but no test name, no traceback and no summary
+line (the output ends at 80%). The paragraph above, which said the tail held no failing test, described the first
+tail only; for this run, a test did fail. Which one is still not known. Checked here: the only test files that use
+drain.py or run/drain.json are tests/test_factory.py and tests/test_factory_resources.py (`cleanup.WAITING ==
+drain.WAITING`). tests/test_factory.py had 119 passed, 2 skipped, alone and again under the watchdog with `-n 8 --dist
+worksteal` (rc 0). tests/test_factory_resources.py had 10 passed and tests/test_code_health_coverage.py 11 passed.
+ruff is clean. The whole unit suite, run alone or under suite_watch, was refused as a command here, so the failing
+test could not be named. With no failing test to point at, nothing in drain.py was changed: a guessed fix would be
+outside the gap (lesson-13). Left open: the factory's unit run with `-rfE` (or its full output), to name the test,
+and then either fix it here if this branch caused it or report it as unrelated.
