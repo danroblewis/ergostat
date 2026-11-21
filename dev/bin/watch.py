@@ -106,6 +106,8 @@ def explained(g: dict, gaps: dict, cfg: dict) -> bool:
     waits for the coordinator)."""
     st, n, p = g["state"], lambda *s: sum(x["state"] in s for x in gaps.values()), pools.state(cfg)  # noqa: E731
     waits = [d for d in fac.ids(g["fields"].get("depends_on")) if gaps.get(d, {}).get("state") != "merged"]
+    if "landed, not closed" in str(g["fields"].get("blocked_reason") or ""):   # (deps.py: closing it is the wait)
+        return False
     if g["fields"].get("waits_on_main"):                 # (main-broken: it waits for main to move, by design)
         return True
     return (st in ("ready", "fix") and bool(waits or n("building") >= p["implementor"])) or (
@@ -137,7 +139,8 @@ def stuck(cfg: dict, gaps: dict, now: float) -> list[dict]:
         start = visit_start(detail(g["id"]).get("moves") or [], g["state"]) or float(g.get("entered") or now)
         h = hours_in(g, start, now)
         if h >= float(limit):
-            out.append({**sit("stuck", g["id"], f"{g['id']} has been {g['state']} for {h:.1f}h (its threshold {limit}h)",
+            out.append({**sit("stuck", g["id"], f"{g['id']} has been {g['state']} for {h:.1f}h (its threshold {limit}h)"
+                              + (f": {g['fields']['blocked_reason']}" if g["fields"].get("blocked_reason") else ""),
                               g["state"], start), "hours": round(h, 2)})
     return sorted(out, key=lambda x: -x["hours"])
 
