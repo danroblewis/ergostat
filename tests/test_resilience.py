@@ -403,7 +403,8 @@ def test_block_logs_threads_and_run_log_are_capped(tmp_path):
     from ergostat.storage import MB, parse, rotate, trim
     problems = []
     cfg = parse({"logs": {"block": "1MB", "run": "2MB", "threads": "500KB", "transcripts": "7d"}}, problems)
-    assert not problems and cfg.logs == {"block": MB, "run": 2 * MB, "threads": 500 * 1024, "transcripts": 7 * 86400}
+    assert not problems and cfg.logs == {"block": MB, "runs": 50, "run": 2 * MB, "threads": 500 * 1024,
+                                         "transcripts": 7 * 86400}
     assert parse({"logs": {"block": "lots"}}, problems) and problems
     log = tmp_path / "b.log"
     log.write_bytes(b"x" * 99 + b"\n" + b"line\n" * 400_000)

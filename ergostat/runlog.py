@@ -12,6 +12,7 @@ then kept); ``logs/runs/<block>/.lock`` is held over a file's create-and-lock an
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import os
 import re
 import time
@@ -113,11 +114,9 @@ def open_run(p, block: str, seq, run_id: str) -> Run:
     """The run's own file, created under the block directory's lock and locked shared before that lock is let go."""
     if not isinstance(seq, int):
         raise RunLogError("no start seq")
-    if not re.fullmatch(r"[0-9a-f]{12,64}", str(run_id)):
-        raise RunLogError("its run id is not hex")
-    lfd, bfd = _dirs(p, block)
-    names = [f"{seq}-{run_id[:12]}.log", *(f"{seq}-{run_id[:12]}-{i}.log" for i in range(2, 10)),
-             f"run-{seq}-{run_id}.log"]
+    hx = run_id if re.fullmatch(r"[0-9a-f]{12,64}", str(run_id)) else hashlib.sha1(str(run_id).encode()).hexdigest()
+    lfd, bfd = _dirs(p, block)                 # (an id not ergostat's hex, given by hand: named by its hash)
+    names = [f"{seq}-{hx[:12]}.log", *(f"{seq}-{hx[:12]}-{i}.log" for i in range(2, 10)), f"run-{seq}-{hx}.log"]
     dl = -1
     try:
         dl = os.open(".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=bfd)

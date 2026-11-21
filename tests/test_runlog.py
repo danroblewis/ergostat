@@ -389,6 +389,10 @@ def test_an_existing_name_or_link_at_the_run_file_falls_back_and_writes_nothing_
     with pytest.raises(runlog.RunLogError):
         runlog.open_run(p, "b", 9, rid)
     assert outside.read_text() == "untouched\n"
+    import hashlib
+    r = runlog.open_run(p, "b", 3, "../r2")                 # an id given by hand, not hex: named by its hash
+    assert r.name == f"3-{hashlib.sha1(b'../r2').hexdigest()[:12]}.log" and runlog.OURS.match(r.name)
+    r.close()
 
 
 def test_an_unsafe_run_log_path_refuses_the_run_and_writes_nothing_outside(tmp_path):

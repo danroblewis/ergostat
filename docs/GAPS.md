@@ -78,10 +78,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
-  program). *Left*: verifying a fix by the runs after it and offering its revert; per-run logs and log events; the
+  program). *Left*: verifying a fix by the runs after it and offering its revert; log events; the
   swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
-  failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text; two
-  runs of one block at once share the block's log, so a failure's stderr may hold the other's lines.
+  failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text.
 - **AI approver for repairs: needs a positive allowlist of the AST changes a fix may make** (SPEC §12r). One was built
   on `repair2` (the AI shown only the diff and pass or fail, behind a guard that escalated new imports, processes,
   network, environment, writes and URL or path literals) and cut before merging: a guard that denies by list was
