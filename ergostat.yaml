@@ -269,7 +269,7 @@ agents:
   opus:
     kind: ai
     model: claude-opus-5-5
-    at-once: 3
+    at-once: 24                         # operator, 2026-11-20: was 3, shared by every AI block, so planning got no slot while 3 implementors ran
     description: headless Claude Code sessions (claude -p) on Opus for the implementor and the reviewer; dev/factory.toml
   coordinator:
     kind: person
