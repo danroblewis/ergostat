@@ -153,6 +153,8 @@ class Shadow:
     decided = en.Engine.decided
     command_of = en.Engine.command_of
     stale_mode = en.Engine.stale_mode
+    own = en.Engine.own
+    shard = None                                            # the whole model (SPEC §9.8)
 
     def __init__(self, spec: Spec, signals: dict, start: Start | None = None, setpoints: dict | None = None):
         from collections import deque

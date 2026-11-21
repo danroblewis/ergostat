@@ -8,13 +8,18 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from tests.test_factory import BIN, FAKE, Factory, git
 
-FAKE_MORE = FAKE.replace('if args[0] == "item":', 'if args[0] == "item" and "--kind" in args:').replace(
+FAKE_MORE = FAKE.replace('args = sys.argv[1:]\n', '''args = sys.argv[1:]
+if "ergostat.decision" in args and db.get("decisions_fail") == "exit":
+    sys.exit("the record is busy")
+''').replace('"total": len(got)', '"total": len(got) + int("ergostat.decision" in args and db.get("decisions_fail") == '
+             '"partial")').replace(
     '''elif args[0] == "lease":''', '''elif args[0] == "event" and args[1] == "--add":
     db.setdefault("added", []).append({"event": args[2], "item": args[args.index("--item") + 1],
                                        "data": json.loads(args[args.index("--data") + 1])})
@@ -37,6 +42,7 @@ It works.
 ## Files to touch
 
 - `app.py`, and `fresh.py` (new)
+- `standin/work.txt` (new): the stand-in implementor's note
 
 ## Risks
 
@@ -48,8 +54,20 @@ It works.
 
 ## Size budget
 
+size: M (confidence: medium)
+
 100 net lines.
 </definition>"""
+
+
+def sized(b: str, line: str) -> str:
+    return PLAN.format(b=b).replace("size: M (confidence: medium)", line)
+
+
+def covered(*names: str, points: tuple[str, ...] = ()) -> str:
+    """A split's coverage block: one point per sub-gap, or the points given."""
+    return "<coverage>\n" + "".join(f"- {p}\n" for p in points or [f"{n} is built (by: {n})" for n in names]) + \
+        "</coverage>\n"
 
 
 class Instance(Factory):
@@ -100,36 +118,70 @@ BLOCK = ("import fac, knowledge; cfg = fac.config(); cfg['knowledge'] = json.loa
          "text, got = knowledge.block(cfg, sys.argv[3], g, sys.argv[4]); print(json.dumps({**got, 'text': text}))")
 
 
-def test_knowledge_files_parse():
+def knowledge_module():
     sys.path[:0] = [str(BIN)]
     try:
         import knowledge
-        es = knowledge.entries()
+        return knowledge
     finally:
         sys.path.remove(str(BIN))
+
+
+def test_knowledge_files_parse():
+    from ergostat.decisions import acts
+    from ergostat.decisions.kinds import DECISION, STOP, item_id
+    knowledge = knowledge_module()
+    es = knowledge.entries()
     ids = [e["id"] for e in es]
     assert len(ids) == len(set(ids)) and all(e["text"] for e in es)
+    assert {e["kind"] for e in es} <= {"component", "rule", "lesson", "finding", "question", "source"}
     assert {"rules-process", "rules-machine", "rules-code", "rules-outside"} <= set(ids)
     assert [i for i in ids if i.startswith("lesson-")] == [f"lesson-{n}" for n in range(1, 14)]
-    decisions = [e for e in es if e["id"].startswith("decision-")]
-    assert len(decisions) == 9 and all(e["areas"] for e in decisions)       # each says the areas it is about
+    assert not [e for e in es if e["kind"] == "decision" or e["id"].startswith("decision-")]
+    ds = knowledge.decisions()
+    assert len(ds) == 11 and all(d["scope"] for d in ds.values())             # each says the areas it is about
+    assert knowledge.STOP == STOP                                             # the id is ergostat's own (lesson-5)
+    for iid, d in ds.items():
+        assert iid == item_id(DECISION, d["decision"]) and acts.check_proposal(DECISION, d, "knowledge-sync")
+    for odd in ("Don't add a page, ever!", "a the of", "Ünïcode and 42 numbers in it", "x" * 80):
+        assert knowledge.decision_id(odd) == item_id(DECISION, odd)
+
+
+def decide(f: Instance, text: str, scope: list[str], *then: str) -> str:
+    """A decision item in the fake record, proposed and then moved by the owner's acts (confirmed, ...)."""
+    from ergostat.decisions.kinds import DECISION, item_id
+    iid = item_id(DECISION, text)
+    f.fold([{"event": f"{DECISION}.proposed", "item": iid, "data": {"decision": text, "scope": scope, "words": [
+        {"text": f"{text} (the owner's words)"}]}}] + [{"event": f"{DECISION}.{s}", "item": iid, "data": {}} for s in then],
+           None)
+    return iid
 
 
 def test_brief_carries_knowledge_within_budget(tmp_path):
     f = Instance(tmp_path)
     f.define("# alpha thing\n\nThe Process diagram, in `dev/bin/brief.py`.\n\n## Definition of done\n\nIt works.\n")
+    model = decide(f, "One model, three drawings", ["diagram", "view"], "confirmed")
+    asked = decide(f, "Process maps keep their swimlanes", ["process"])
+    dropped = decide(f, "Diagrams get a chat dock", ["diagram"], "dismissed")
+    old = decide(f, "Diagrams are drawn by hand", ["diagram"], "confirmed", "superseded")
+    daemon = decide(f, "Daemons over a process per item", ["daemon"], "confirmed")
     said, _ = f.run("implement.py", "gap/alpha-thing")
     assert said == ["gap.started", "gap.built"]
     ctx = f.item("gap/alpha-thing")["fields"]["contexts"][0]
-    assert {"rules-process", "lesson-1", "lesson-11", "decision-one-model-three-drawings"} <= set(ctx["knowledge"])
-    assert "decision-daemons-over-a-process-per-item" not in ctx["knowledge"]      # its area is not named
+    assert {"rules-process", "lesson-1", "lesson-11", model, asked} <= set(ctx["knowledge"])
+    assert model.startswith("ergostat.decision/") and not {dropped, old, daemon} & set(ctx["knowledge"])
     assert any(k.startswith("modules@") for k in ctx["knowledge"]) and ctx["knowledge_chars"] <= 24000
     brief = (f.model / ctx["brief"][5:]).read_text()
     assert "### lesson-3: Failing open" in brief and "**Check:**" in brief and "## The house rules" in brief
+    assert "**Process**\n- The definition of done" in brief                       # the rules, carried as before
+    assert "- **One model, three drawings** One model, three drawings (the owner's words)" in brief
+    assert "- **Process maps keep their swimlanes** (proposed: not yet confirmed by the owner)" in brief
+    assert brief.index("**One model, three drawings**") < brief.index("**Process maps keep")    # confirmed first
+    assert "chat dock" not in brief and "by hand" not in brief and "Daemons over" not in brief
     must = f.py(BLOCK, json.dumps({"chars": 1}), "gap/alpha-thing", "implementor", "diagram")["knowledge_chars"]
     small = f.py(BLOCK, json.dumps({"chars": must + 400}), "gap/alpha-thing", "implementor", "a diagram")
     assert small["knowledge_chars"] <= must + 400                                # within the budget
-    assert "decision-one-model-three-drawings" in small["knowledge"]             # the higher priority fits
+    assert model in small["knowledge"]                                           # the higher priority fits
     assert [k for k in small["knowledge_dropped"] if k.startswith("modules@")]   # the lower is dropped, and said
     lean = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "plan_reviewer", "a diagram")
     assert lean["knowledge"] == [f"lesson-{n}" for n in range(1, 14)]            # the plan review: the lessons only
@@ -253,7 +305,8 @@ def test_planner_splits_into_sub_gaps(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
     split = (PLAN.format(b="alpha-one").replace('branch="alpha-one"', 'branch="alpha-one" title="One"')
-             + PLAN.format(b="alpha-two").replace("depends-on: []", "depends-on: [alpha-one]"))
+             + PLAN.format(b="alpha-two").replace("depends-on: []", "depends-on: [alpha-one]")
+             + covered("alpha-one", "alpha-two"))
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=split)
     assert said == ["gap.requested", "gap.defined", "gap.requested", "gap.defined", "gap.split"]
     assert f.item(gid)["state"] == "split" and f.item(gid)["fields"]["children"] == ["gap/alpha-one", "gap/alpha-two"]
@@ -278,6 +331,106 @@ def test_planner_splits_into_sub_gaps(tmp_path):
     assert "a split into 10 sub-gaps: at most 6" in plan
     assert any("'Bad_Name'" in p for p in plan) and any("'late' depends on gap/later" in p for p in plan)
     assert not any("'later' depends" in p for p in plan)       # an earlier sub-gap, or a gap: fine
+
+
+def budgeted(b: str, budget: str) -> str:
+    return PLAN.format(b=b).replace("100 net lines.", budget)
+
+
+def sent_back(f: Instance, gid: str, answer: str) -> list[str]:
+    """The planner answers; the split must be sent back with no sub-gap made and no coverage saved: its findings."""
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=answer)
+    assert said == ["gap.plan-sent-back"] and f.item(gid)["state"] == "replan"
+    assert not any(i.startswith("gap/alpha-") and i != gid for i in f.db()["items"])
+    assert not (f.model / "run" / "plans" / "alpha-thing.md").exists()
+    return f.item(gid)["fields"]["plan_findings"]
+
+
+def test_a_split_sub_gap_over_250_lines_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    for budget, why in [("251 net lines.", "251 net lines, at most 250"), ("About a hundred.", "names no number")]:
+        found = sent_back(f, gid, PLAN.format(b="alpha-one") + budgeted("alpha-two", budget)
+                          + covered("alpha-one", "alpha-two"))
+        assert any("'alpha-two'" in x and why in x for x in found), found
+        assert not any("'alpha-one'" in x for x in found)
+    assert f.item(gid)["fields"]["plan_lint_failures"] == 2               # toward the lint-failure park
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one")
+                    + budgeted("alpha-two", "250 net lines.") + covered("alpha-one", "alpha-two"))
+    assert said[-1] == "gap.split" and f.item(gid)["state"] == "split"
+
+
+def test_a_single_plan_over_250_lines_is_still_accepted(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=budgeted("alpha-thing", "400 net lines."))
+    assert said == ["gap.defined"] and f.item(gid)["state"] == "ready"
+    assert "400 net lines" in (f.model / "run" / "defs" / "alpha-thing.md").read_text()
+
+
+def test_a_split_without_one_coverage_block_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    split = PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+    assert sent_back(f, gid, split) == ["a split needs exactly one <coverage>...</coverage> block, not 0"]
+    two = sent_back(f, gid, split + covered("alpha-one", "alpha-two") + covered("alpha-one", "alpha-two"))
+    assert two == ["a split needs exactly one <coverage>...</coverage> block, not 2"]
+
+
+def test_a_coverage_point_naming_no_or_an_unknown_sub_gap_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    split = PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+    for point, why in [("it locks", "'it locks' names no sub-gap"), ("it locks (by: )", "'it locks (by: )' names no"),
+                       ("it locks (by: alpha-on)", "names 'alpha-on', not a sub-gap of this split")]:
+        found = sent_back(f, gid, split + covered(points=(point, "both work (by: alpha-one, alpha-two)")))
+        assert any(why in x for x in found), found
+        assert not any("both work" in x for x in found)                   # the good point is not blamed
+
+
+def test_a_sub_gap_no_coverage_point_names_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    split = PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two") + PLAN.format(b="alpha-three")
+    found = sent_back(f, gid, split + covered(points=("it locks (by: alpha-one, alpha-two)",)))
+    assert found == ["sub-gap 'alpha-three': no coverage point names it"]
+
+
+def test_accepted_coverage_is_the_parents_plan_and_a_resplit_replaces_it(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    saved = f.model / "run" / "plans" / "alpha-thing.md"
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+          + covered(points=("the old lock (by: alpha-one)", "the old ledger (by: alpha-two)")))
+    assert f.item(gid)["state"] == "split"
+    assert "- the old lock (by: alpha-one)\n- the old ledger (by: alpha-two)" in saved.read_text()
+    f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["replan it"]}}], None)
+    assert f.item(gid)["state"] == "replan"
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="beta-one") + PLAN.format(b="beta-two")
+                    + covered(points=("the new lock (by: beta-one, beta-two)",)))
+    assert said[-1] == "gap.split" and f.item(gid)["state"] == "split"
+    text = saved.read_text()
+    assert "the new lock (by: beta-one, beta-two)" in text and "old" not in text and "alpha-" not in text
+    assert f.run("plan.py", argv=("lint",))[0] == [] and f.item(gid)["state"] == "split"
+    f.fold([{"event": "gap.planned", "item": gid, "data": {}}], None)        # even in planned: never a definition
+    assert f.run("plan.py", argv=("lint",))[0] == [] and not (f.model / "run" / "defs" / "alpha-thing.md").exists()
+
+
+def test_a_sub_gaps_plan_review_is_given_the_parents_coverage(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="delta"))          # no parent
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+          + covered(points=("the lock holds (by: alpha-one)", "the ledger is read (by: alpha-two)")))
+    for _ in range(3):
+        f.run("planreview.py")
+    brief_of = lambda g: (f.model / f.item(g)["fields"]["contexts"][-1]["brief"][5:]).read_text()  # noqa: E731
+    one = brief_of("gap/alpha-one")
+    assert "Its parent's coverage" in one and "this review covers sub-gap `alpha-one`" in one
+    assert "- the lock holds (by: alpha-one)\n- the ledger is read (by: alpha-two)" in one and "{coverage}" not in one
+    alone = brief_of("gap/delta")
+    assert "Its parent's coverage" in alone and "(none)" in alone and "the lock holds" not in alone
+    assert f.item("gap/delta")["fields"]["plan_review"] == "done"
 
 
 def test_researcher_answers(tmp_path):
@@ -335,6 +488,183 @@ def test_librarian_proposes_from_a_finding(tmp_path):
     assert f.item("lesson/new-stale-cache")["fields"]["times"] == 2
 
 
+def test_planned_gap_records_size_and_confidence(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.fold([{"event": "gap.groomed", "item": gid, "data": {"size": 6}}], None)    # the groomer's estimate, in hours
+    assert f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: M (confidence: low)"))[0] == [
+        "gap.defined"]
+    assert {k: f.item(gid)["fields"][k] for k in ("size", "planned_size", "size_confidence")} == {
+        "size": 6, "planned_size": "M", "size_confidence": "low"}       # `size` stays the groomer's (the solver's)
+    split = (sized("beta-one", "size: XL (confidence: high)") + sized("beta-two", "`size: S (confidence: medium)`")
+             + covered("beta-one", "beta-two"))
+    # an earlier whole plan's class on the parent, which the split must clear
+    f.fold([{"event": "gap.measured", "item": "gap/delta", "data": {"planned_size": "L", "size_confidence": "high"}}],
+           None)
+    assert f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=split)[0][-1] == "gap.split"
+    one, two = f.item("gap/beta-one")["fields"], f.item("gap/beta-two")["fields"]
+    assert (one["planned_size"], one["size_confidence"], two["planned_size"], two["size_confidence"]) == (
+        "XL", "high", "S", "medium")
+    assert "size" not in one and "size" not in two
+    parent = f.item("gap/delta")["fields"]                                # the split parent merges nothing: no size
+    assert parent.get("planned_size") is None and parent.get("size_confidence") is None
+    # a definition the coordinator wrote meanwhile is kept, and the planner's size is not recorded against it
+    f.define()
+    said = f.py("import contextlib, io, fac, plan\nout = io.StringIO()\nwith contextlib.redirect_stdout(out):\n"
+                "    plan.define(fac.config(), 'gap/alpha-thing', 'alpha-thing', 'x', 'plan', planned_size='S', "
+                "size_confidence='high')\nprint(json.dumps(out.getvalue().splitlines()))")
+    f.fold([json.loads(x) for x in said if x.startswith("{")], gid)
+    g = f.item(gid)["fields"]
+    assert g["defined_by"] == "coordinator" and (g["planned_size"], g["size_confidence"]) == (None, None)
+
+
+@pytest.mark.parametrize("line", ["", "size: XXL (confidence: high)", "size: M (confidence: sure)"])
+def test_plan_without_valid_size_is_sent_back(line, tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", line))
+    gap = f.item(gid)
+    assert said == ["gap.plan-sent-back"] and gap["state"] == "replan" and "planned_size" not in gap["fields"]
+    assert any("size" in p and "'alpha-thing'" in p for p in gap["fields"]["plan_findings"])
+    assert not any((f.model / "run" / d / "alpha-thing.md").exists() for d in ("plans", "defs"))   # nothing planned
+    # in a split, one sub-gap's bad line sends the whole plan back, and no sub-gap is made
+    said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="d-one") + sized("d-two", line))
+    assert said == ["gap.plan-sent-back"] and "gap/d-one" not in f.db()["items"]
+    assert any("'d-two'" in p and "size" in p for p in f.item("gap/delta")["fields"]["plan_findings"])
+    # the size line must sit in the Size budget section
+    moved = PLAN.format(b="x").replace("size: M (confidence: medium)\n", "").replace("It works.", "size: M (confidence: low)")
+    assert f.py("import plan; print(json.dumps(plan.size_of(sys.argv[1])))", moved).startswith("no size line")
+
+
+def test_replan_replaces_size(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: S (confidence: high)"))
+    assert f.item(gid)["fields"]["planned_size"] == "S"
+    (f.model / "run" / "defs" / "alpha-thing.md").unlink()       # its definition gone: the planner plans it again
+    f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["again"]}},   # sent back to replan
+            {"event": "gap.measured", "item": gid, "data": {"merged_lines": 40}}], None)   # an earlier merge's count
+    assert f.item(gid)["state"] == "replan"
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: L (confidence: low)"))
+    g = f.item(gid)["fields"]
+    assert said == ["gap.defined"] and (g["planned_size"], g["size_confidence"]) == ("L", "low")
+    assert g["replanned"] is True
+    assert g["merged_lines"] is None                                      # never scored on the old branch's lines
+
+
+DAY = 86400
+
+
+def merged_gap(f: Instance, gid: str, at: float, **fields) -> None:
+    f.fold([{"event": "gap.merged", "item": gid, "data": {"merged_at": at, **fields}}], None)
+
+
+def size_measure(f: Instance, name: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(BIN / "measure.py"), name], cwd=f.model, env=f.env,
+                          capture_output=True, text=True, timeout=60)
+
+
+def test_size_accuracy_counts_hits_over_measured(tmp_path):
+    f = Instance(tmp_path)
+    now = time.time()
+    merged_gap(f, "gap/s", now - DAY, planned_size="S", size_confidence="high", merged_lines=40)       # a hit
+    merged_gap(f, "gap/m", now - DAY, planned_size="M", size_confidence="low", merged_lines=300)       # a miss
+    merged_gap(f, "gap/xl", now - DAY, planned_size="XL", size_confidence="medium", merged_lines=900)  # a hit
+    merged_gap(f, "gap/l", now - DAY, planned_size="L", size_confidence="high")                        # no count: left out
+    merged_gap(f, "gap/old", now - 20 * DAY, planned_size="S", size_confidence="high", merged_lines=999)  # outside the window
+    merged_gap(f, "gap/groomed", now - DAY, size="S", size_confidence="high", merged_lines=40)  # no planned_size
+    # the groomer regrades `size` on its own scale: the planner's planned_size is still what is scored
+    f.fold([{"event": "gap.groomed", "item": "gap/s", "data": {"size": "L"}}], None)
+    r = size_measure(f, "size-accuracy")
+    assert r.returncode == 0 and r.stdout.strip() == "0.667"
+    assert "gap/l" in r.stderr and "gap/s" not in r.stderr
+    # merged first outside the window, again inside it: its latest merge counts
+    merged_gap(f, "gap/old", now - DAY, merged_lines=1000, merged_lines_error=None)
+    assert size_measure(f, "size-accuracy").stdout.strip() == "0.5"
+    edges = {50: "S", 51: "M", 150: "M", 151: "L", 400: "L", 401: "XL", -30: "S", 0: "S"}
+    got = f.py("import measure; print(json.dumps([measure.size_class(n) for n in json.loads(sys.argv[1])]))",
+               json.dumps(list(edges)))
+    assert got == list(edges.values())
+
+
+def test_size_accuracy_high_only_and_no_value(tmp_path):
+    f = Instance(tmp_path)
+    now = time.time()
+    for name in ("size-accuracy", "size-accuracy-high"):            # nothing measurable at all
+        r = size_measure(f, name)
+        assert r.returncode == 1 and "no value yet" in r.stderr
+    merged_gap(f, "gap/low", now - DAY, planned_size="S", size_confidence="low", merged_lines=10)
+    merged_gap(f, "gap/high-unmeasured", now - DAY, planned_size="M", size_confidence="high", merged_lines=None,
+               merged_lines_error="git diff failed")
+    assert size_measure(f, "size-accuracy").stdout.strip() == "1.0"
+    r = size_measure(f, "size-accuracy-high")                        # low ones measurable, no high one: no value
+    assert r.returncode == 1 and "no value yet" in r.stderr and "gap/high-unmeasured" in r.stderr
+    merged_gap(f, "gap/high", now - DAY, planned_size="S", size_confidence="high", merged_lines=200)
+    merged_gap(f, "gap/medium", now - DAY, planned_size="L", size_confidence="medium", merged_lines=200)
+    assert size_measure(f, "size-accuracy-high").stdout.strip() == "0.0"    # only the high one, a miss
+    assert size_measure(f, "size-accuracy").stdout.strip() == "0.667"
+
+
+def deny(f: Instance, aid: str, lid: str, by: str = "coordinator", note: str = "too narrow") -> None:
+    """The coordinator's answer to a lesson's knowledge-change, as the record keeps it."""
+    f.fold([{"event": "ergostat.action.requested", "item": aid, "data": {"action": "knowledge-change",
+                                                                          "args": {"lesson": lid}, "gate": "approve"}},
+            {"event": "ergostat.action.denied", "item": aid, "data": {"denied_by": by, "note": note}}], None)
+
+
+def test_a_denied_lesson_is_settled_and_stops_counting(tmp_path):
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    f = Instance(tmp_path)
+    for lid in ("lesson/seen-lesson-1-aaa", "lesson/seen-lesson-2-bbb", "lesson/seen-lesson-3-ccc"):
+        f.fold([{"event": "lesson.proposed", "item": lid, "data": {"kind": "seen", "text": "x"}}], None)
+    deny(f, "ergostat.action/a1", "lesson/seen-lesson-1-aaa")                  # denied before this existed
+    deny(f, "ergostat.action/a2", "lesson/seen-lesson-2-bbb", by="gate", note="fenced: its lease is over")
+    deny(f, "ergostat.action/a3", "lesson/elsewhere")                         # no proposal of that id
+    f.fake.write_text(FAKE_MORE.replace('args = sys.argv[1:]\n', 'args = sys.argv[1:]\nif "ergostat.action" in args '
+                                        'and db.get("actions_fail"):\n    sys.exit("the record is busy")\n', 1))
+    db = f.db()
+    f.record.write_text(json.dumps({**db, "actions_fail": True}))
+    f.tool("lesson.py", "settle", ok=False)                                   # unreadable: stops, nothing settled
+    assert f.drain() == [] and f.item("lesson/seen-lesson-1-aaa")["state"] == "proposed"
+    f.record.write_text(json.dumps(db))
+    f.tool("lesson.py", "settle")
+    assert f.drain() == ["lesson.denied"]
+    it = f.item("lesson/seen-lesson-1-aaa")
+    assert it["state"] == "denied" and it["fields"]["denied_by"] == "coordinator"
+    assert it["fields"]["why"] == "too narrow" and it["fields"]["action"] == "ergostat.action/a1"
+    assert f.item("lesson/seen-lesson-2-bbb")["state"] == "proposed"         # the gate's fencing decided nothing
+    assert "lesson/elsewhere" not in f.db()["items"]
+    f.tool("lesson.py", "settle")
+    assert f.drain() == []                                                    # settled once
+    f.tool("lesson.py", "request", "lesson/seen-lesson-1-aaa", ok=False)      # never made a gap
+    spec, _ = read(ROOT / "ergostat.yaml")
+    assert spec.goals["lessons-decided"].of.name == "lessons-proposed"
+    counted = [s.items for s in spec.stocks["lessons-proposed"].sensors.values()][0]
+    assert counted["state"] == ["proposed"] and "denied" in spec.items["lesson"].states
+    assert sorted(i["id"] for i in f.db()["items"].values() if i["kind"] == counted["kind"] and
+                  i["state"] in counted["state"]) == ["lesson/seen-lesson-2-bbb", "lesson/seen-lesson-3-ccc"]
+
+
+def test_a_denied_shape_is_not_proposed_again(tmp_path):
+    f = Instance(tmp_path)
+    shape = {"finding": 1, "class": "lesson-1", "shape": "a pool slot taken after its check", "new_shape": True}
+    new = {"finding": 1, "class": "new", "name": "Stale cache", "shape": "a cache read after the merge"}
+    assert librarian(f, "review/a-1", ["checks then takes"], [shape]) == ["lesson.proposed", "review.measured"]
+    librarian(f, "review/b-1", ["cached"], [new])
+    assert "lesson.proposed" in librarian(f, "review/c-1", ["cached"], [new])
+    seen = next(i for i in f.db()["items"] if i.startswith("lesson/seen-lesson-1-"))
+    deny(f, "ergostat.action/d1", seen)
+    deny(f, "ergostat.action/d2", "lesson/new-stale-cache", note="not a class")
+    f.tool("lesson.py", "settle")
+    assert f.drain() == ["lesson.denied", "lesson.denied"]
+    asked = len(f.db()["acts"])
+    assert librarian(f, "review/a-2", ["checks then takes"], [shape]) == ["review.measured"]
+    assert "lesson.proposed" not in librarian(f, "review/d-1", ["cached"], [new])
+    assert len(f.db()["acts"]) == asked
+    assert f.item(seen)["state"] == f.item("lesson/new-stale-cache")["state"] == "denied"
+
+
 def test_cli_tools_on_a_fixture_instance(tmp_path):
     f = Instance(tmp_path)
     f.opened()
@@ -348,21 +678,21 @@ def test_cli_tools_on_a_fixture_instance(tmp_path):
     mine = f.item("gap/my-change")["fields"]
     assert mine["depends_on"] == ["gap/alpha-thing"] and mine["definition"] == "run/defs/my-change.md"
     f.tool("lesson.py", "add", "Stale cache", "--check", "clear it on merge", "--seen", "a map read after a merge")
-    assert f.drain() == ["gap.requested"]
-    text = (f.model / "run" / "defs" / "knowledge-stale-cache.md").read_text()
-    assert "## 14. Stale cache\nSeen as: a map read after a merge.\n**Check:** clear it on merge" in text
-    assert "## Size budget" in text and "## Acceptance tests" in text
+    assert f.drain() == ["lesson.approved"]
+    assert f.item("lesson/add-stale-cache")["fields"]["entry"] == (
+        "Stale cache\nSeen as: a map read after a merge.\n**Check:** clear it on merge")
     f.tool("lesson.py", "add", "Stale cache", "--check", "again", ok=False)        # asked for already
     f.fold([{"event": "lesson.proposed", "item": "lesson/seen-lesson-1-abc", "data": {
         "kind": "seen", "lesson": "lesson-1", "text": "a slot taken after its check", "findings": ["x.py:1: it"]}}], None)
     f.tool("lesson.py", "request", "lesson/seen-lesson-1-abc")
-    assert f.drain() == ["gap.requested", "lesson.requested"]
-    assert f.item("lesson/seen-lesson-1-abc")["state"] == "requested"
+    assert f.drain() == ["lesson.approved"]
+    assert f.item("lesson/seen-lesson-1-abc")["state"] == "approved"
     f.fold([{"event": "lesson.seen", "item": "lesson/new-once", "data": {"kind": "entry", "name": "Once"}}], None)
-    f.tool("lesson.py", "request", "lesson/new-once", ok=False)                    # only a proposal is requested
-    assert not (f.model / "run" / "defs" / "knowledge-new-once.md").exists()
+    f.tool("lesson.py", "request", "lesson/new-once", ok=False)                    # only a proposal is approved
     f.tool("lesson.py", "retire", "9", "carried for a month to no effect")
-    assert f.drain() == ["gap.requested", "lesson.retired"]
+    assert f.drain() == ["lesson.approved"]
+    f.tool("lesson.py", "retire", "99", "no such lesson", ok=False)
+    assert not (f.model / "run" / "defs").is_dir() or not list((f.model / "run" / "defs").glob("knowledge-*"))
     f.fold([{"event": "gap.parked", "item": "gap/delta", "data": {"where_it_stopped": "Stopped: the lock order."}},
             {"event": "gap.started", "item": "gap/alpha-thing", "data": {"lease": {"taken": 1.0}}}], None)
     out = f.tool("status.py").stdout
@@ -400,6 +730,32 @@ def test_the_knowledge_model_loads():
     assert {"knowledge-entries", "gaps-planned", "lessons-proposed"} <= set(spec.stocks)
 
 
+def test_the_planner_never_takes_a_continued_gap(tmp_path):
+    from ergostat.spec import items as its
+    from ergostat.spec import read
+    from tests.test_factory import ROOT, behind_main, continues
+    where = read(ROOT / "ergostat.yaml")[0].blocks["planner"].takes.where
+    assert where == {"continues": None}
+    f = Factory(tmp_path)
+    f.fold([{"event": "gap.requested", "item": "gap/plain", "data": {"title": "Plain", "source": "request"}}], None)
+    gid = continues(f, name="no-such")                                  # a branch the checkout does not have
+    assert "continues 'no-such', which the checkout does not have: not taken" in f.stderr
+    [plain, cont] = [f.item(g) for g in ("gap/plain", gid)]
+    assert plain["state"] == cont["state"] == "open"
+    take = lambda g: its.matches(its.Item(g, "gap", "open", dict(f.item(g)["fields"])), where)  # noqa: E731
+    assert take("gap/plain") and not take(gid)                              # it waits for the intake, said, not planned
+    git(f.checkout, "checkout", "-q", "-b", "bare", "main")             # fetched, but no definition on it: said
+    git(f.checkout, "checkout", "-q", "main")
+    continues(f, name="bare", gid="gap/bare-again")
+    assert "gap/bare-again continues a branch with no definition of done on it: not taken" in f.stderr
+    behind_main(f)                                                      # a fetch that fails (factory/warm/x holds
+    drop = tmp_path / "live" / "drop.git"                               # the name): said, never silent
+    git(drop, "update-ref", "refs/heads/factory/warm/x", git(drop, "rev-parse", "main"))
+    continues(f, gid="gap/warm-again")
+    assert "gap/warm-again continues 'warm', which could not be fetched into the drop: not taken" in f.stderr
+    assert f.item("gap/warm-again")["state"] == "open"
+
+
 LONG = "A gap whose title runs on well past thirty-two characters"
 
 
@@ -425,7 +781,9 @@ def test_a_gap_whose_id_is_not_its_branch_is_one_item(tmp_path):
 def test_a_split_whose_sub_gap_parks_is_parked(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
-    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two"))
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two")
+          + covered("alpha-one", "alpha-two"))
+    assert f.item(gid)["state"] == "split"
     assert f.run("plan.py", argv=("splits",))[0] == []                # nothing stopped: it waits on
     f.fold([{"event": "gap.parked", "item": "gap/alpha-two", "data": {"where_it_stopped": "The lock order."}}], None)
     said, _ = f.run("plan.py", argv=("splits",))
@@ -459,61 +817,128 @@ def test_the_librarian_ships_off(tmp_path):
     assert librarian(f, "review/a-1", ["x"], [{"finding": 1, "class": "lesson-1", "shape": "s", "new_shape": True}]) == []
 
 
-RULES = "---\nkind: rules\n---\n# House rules\n\n**Process**\n- Define it first.\n\n**Code**\n- Keep it small.\n"
-LESSONS = "---\nkind: lessons\n---\n# Lessons\n\n## 1. Failing open\nIt fails open.\n**Check:** fail closed.\n"
-DECISIONS = ("---\nkind: decisions\n---\n# Decisions\n\n- **One model, three drawings.** Each its own style. *Areas: "
-             "diagram, view.*\n")
+RULES = "---\nkind: rule\n---\n# House rules\n\n## Process\n- Define it first.\n\n## Code\n- Keep it small.\n"
+LESSONS = "---\nkind: lesson\n---\n# Lessons\n\n## 1. Failing open\nIt fails open.\n**Check:** fail closed.\n"
+DECISIONS = ("---\nkind: ergostat.decision\n---\n# Decisions\n\n## One model, three drawings\nEach its own style. *Areas: "
+             "diagram, view.*\n\n## The factory starts small\nOne implementor. *Areas: factory, pool.*\n")
+DECIDED = ["ergostat.decision/one-model-three-drawings-", "ergostat.decision/factory-starts-small-"]
 
 
-def sync(f: Instance, dev: Path) -> list[dict]:
-    """A run of the collector on the knowledge files of ``dev`` (a copy of dev/bin beside them): its event lines, folded."""
+def sync(f: Instance, dev: Path, ok: bool = True) -> list[dict]:
+    """A run of the collector on the knowledge files of ``dev`` (a copy of dev/bin beside them): its event lines, folded
+    (``ok``: it is expected to exit 0; else non-zero, and its lines are not folded)."""
     r = subprocess.run([sys.executable, str(dev / "bin" / "knowledge.py"), "sync"], cwd=f.model, env=f.env,
                        capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0, r.stderr
+    assert (r.returncode == 0) == ok, r.stderr
+    f.stderr = r.stderr
     lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
-    f.fold(lines, None)
+    if ok:
+        f.fold(lines, None)
     return lines
+
+
+def running(tmp_path: Path, **files: str) -> Path:
+    """A running version's dev/: a copy of dev/bin, and knowledge files (by stem; house_rules for house-rules.md)."""
+    dev = tmp_path / "running" / "dev"
+    shutil.copytree(BIN, dev / "bin", ignore=shutil.ignore_patterns("__pycache__"))
+    (dev / "knowledge").mkdir()
+    for name, text in {"house_rules": RULES, "review_lessons": LESSONS, "decisions": DECISIONS, **files}.items():
+        (dev / "knowledge" / f"{name.replace('_', '-')}.md").write_text(text)
+    return dev
 
 
 def test_knowledge_sync_says_each_change_once(tmp_path):
     f = Instance(tmp_path)
-    dev = tmp_path / "running" / "dev"
-    shutil.copytree(BIN, dev / "bin", ignore=shutil.ignore_patterns("__pycache__"))
+    dev = running(tmp_path)
     k = dev / "knowledge"
-    k.mkdir()
-    for name, text in (("house-rules", RULES), ("review-lessons", LESSONS), ("decisions", DECISIONS)):
-        (k / f"{name}.md").write_text(text)
     f.fold([{"event": "gap.started", "item": "gap/a", "data": {"contexts": [
         {"role": "implementor", "knowledge": ["rules-process", "lesson-1"]}, {"role": "reviewer", "knowledge": [
             "lesson-1", "lesson-1"]}]}}], None)
     lines = sync(f, dev)
-    assert sorted(x["item"] for x in lines) == ["knowledge/decision-one-model-three-drawings", "knowledge/lesson-1",
-                                                "knowledge/rules-code", "knowledge/rules-process"]
-    assert {x["event"] for x in lines} == {"knowledge.found"}
+    assert sorted(x["item"] for x in lines if x["event"] == "knowledge.found") == [
+        "knowledge/lesson-1", "knowledge/rules-code", "knowledge/rules-process"]
+    assert {x["event"] for x in lines} == {"knowledge.found", "ergostat.decision.proposed"}
     lesson = f.item("knowledge/lesson-1")
     assert lesson["state"] == "active" and lesson["fields"]["kind"] == "lesson"
     assert lesson["fields"]["title"] == "Failing open" and lesson["fields"]["file"] == "dev/knowledge/review-lessons.md"
     assert lesson["fields"]["text"].startswith("## 1. Failing open It fails open.") and lesson["fields"]["carried"] == 2
-    decision = f.item("knowledge/decision-one-model-three-drawings")["fields"]
-    assert decision["kind"] == "decision" and decision["areas"] == ["diagram", "view"] and decision["carried"] == 0
     assert f.item("knowledge/rules-process")["fields"]["kind"] == "rule"
     assert sync(f, dev) == []                                                       # idempotent: nothing said twice
     (k / "review-lessons.md").write_text(LESSONS.replace("It fails open.", "It fails open, quietly."))
-    (k / "house-rules.md").write_text(RULES.split("**Code**")[0])
+    (k / "house-rules.md").write_text(RULES.split("## Code")[0])
     f.fold([{"event": "gap.built", "item": "gap/a", "data": {"contexts": [
-        {"role": "implementor", "knowledge": ["decision-one-model-three-drawings"]}]}}], None)
+        {"role": "implementor", "knowledge": ["rules-process"]}]}}], None)
     lines = sync(f, dev)
     assert sorted((x["event"], x["item"]) for x in lines) == [
-        ("knowledge.changed", "knowledge/decision-one-model-three-drawings"), ("knowledge.changed", "knowledge/lesson-1"),
+        ("knowledge.changed", "knowledge/lesson-1"), ("knowledge.changed", "knowledge/rules-process"),
         ("knowledge.retired", "knowledge/rules-code")]
     changed = {x["item"]: x["data"] for x in lines if x["event"] == "knowledge.changed"}
     assert set(changed["knowledge/lesson-1"]) == {"text", "changed_at"}             # only what changed
-    assert changed["knowledge/decision-one-model-three-drawings"]["carried"] == 1
+    assert changed["knowledge/rules-process"]["carried"] == 2
     assert "quietly" in f.item("knowledge/lesson-1")["fields"]["text"] and f.item("knowledge/rules-code")["state"] == "retired"
     assert sync(f, dev) == []
     (k / "house-rules.md").write_text(RULES)                                         # back in the files: found again
     assert [(x["event"], x["item"]) for x in sync(f, dev)] == [("knowledge.found", "knowledge/rules-code")]
     assert f.item("knowledge/rules-code")["state"] == "active"
+
+
+def test_sync_carries_about(tmp_path, monkeypatch):
+    f = Instance(tmp_path)
+    dev = tmp_path / "running" / "dev"
+    shutil.copytree(BIN, dev / "bin", ignore=shutil.ignore_patterns("__pycache__"))
+    k = dev / "knowledge"
+    k.mkdir()
+    about = LESSONS.replace("**Check:** fail closed.\n", "**Check:** fail closed.\n*About:* goal.ready-gaps-taken, "
+                            "stock.gaps-open, goal.gone.\n")
+    for name, text in (("house-rules", RULES), ("review-lessons", about), ("decisions", DECISIONS)):
+        (k / f"{name}.md").write_text(text)
+    sync(f, dev)
+    lesson = f.item("knowledge/lesson-1")["fields"]
+    assert lesson["about"] == ["goal.ready-gaps-taken", "stock.gaps-open", "goal.gone"]
+    assert "about" not in f.item("knowledge/rules-process")["fields"]
+    # the name of no part of the root model, held by the item, is a finding there (never dropped)
+    from ergostat import model as mdl
+    from ergostat.spec import read
+    from ergostat.store import Project
+    from tests.test_factory import ROOT
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    root = tmp_path / "root"
+    (root / "dev").mkdir(parents=True)
+    shutil.copy(ROOT / "ergostat.yaml", root / "ergostat.yaml")
+    for d in ("model", "prompts"):
+        shutil.copytree(ROOT / "dev" / d, root / "dev" / d)
+    Project(mdl.load(root)).events.add("knowledge.found", item="knowledge/lesson-1", data=lesson)
+    spec, problems = read(root / "ergostat.yaml", extremes=False)
+    assert not [p for p in problems if p.code.startswith("about-")]          # a load looks nothing up: check's alone
+    from ergostat.spec.about import findings
+    findings(spec, problems)                                                  # as check does, last
+    assert [(p.code, p.about, p.items) for p in problems if p.code.startswith("about-")] == [
+        ("about-missing-part", "goal.gone", ["knowledge/lesson-1"])]
+    (k / "review-lessons.md").write_text(LESSONS)                                    # the line taken out: cleared
+    lines = sync(f, dev)
+    assert [(x["event"], x["data"].get("about")) for x in lines] == [("knowledge.changed", [])]
+    assert f.item("knowledge/lesson-1")["fields"]["about"] == []
+    (k / "review-lessons.md").write_text(about)
+    sync(f, dev)
+    (k / "review-lessons.md").write_text("---\nkind: lesson\n---\n# Lessons\n")     # retired, then back without it
+    assert [x["event"] for x in sync(f, dev)] == ["knowledge.retired"]
+    (k / "review-lessons.md").write_text(LESSONS)
+    lines = sync(f, dev)
+    assert [(x["event"], x["data"].get("about")) for x in lines] == [("knowledge.found", [])]
+    assert f.item("knowledge/lesson-1")["fields"]["about"] == []                      # not the old parts (lesson-5)
+
+
+def test_every_about_line_names_a_part_of_the_root_model(tmp_path):
+    from ergostat.spec import read
+    from ergostat.spec.about import is_part
+    from tests.test_factory import ROOT
+    f = Instance(tmp_path)
+    got = f.py("import knowledge; print(json.dumps({e['id']: e['about'] for e in knowledge.entries()}))")
+    spec, _ = read(ROOT / "ergostat.yaml", extremes=False)
+    assert spec.items["knowledge"].about == "about"
+    named = {i: a for i, a in got.items() if a}
+    assert {f"lesson-{n}" for n in (4, 6, 7, 10, 12)} <= set(named)                  # the lessons about the pipeline
+    assert [(i, x) for i, a in named.items() for x in a if not is_part(spec, x)] == []
 
 
 def test_knowledge_entries_counts_the_items():
@@ -523,6 +948,153 @@ def test_knowledge_entries_counts_the_items():
     sensor = spec.stocks["knowledge-entries"].sensors["main"]
     assert sensor.run is None and (sensor.items["kind"], sensor.items["state"]) == ("knowledge", ["active"])
     assert spec.items["knowledge"].states == ["active", "retired"] and spec.blocks["knowledge-sync"].type == "program"
+
+
+def test_entry_kind_from_front_matter(tmp_path):
+    f = Instance(tmp_path)
+    dev = running(tmp_path, **{k: f"---\nkind: {k}\nabout: x\n---\n# {k}s\n\n## The {k.title()} Of It\nIts body.\n"
+                               f"*Areas: page.*\n" for k in ("component", "finding", "question", "source")})
+    (dev / "knowledge" / "notes.md").write_text("---\nkind: finding\n---\n## Named not by its file\nA body.\n")
+    sync(f, dev)
+    for k in ("component", "finding", "question", "source"):
+        it = f.item(f"knowledge/{k}-the-{k}-of-it")
+        assert it["state"] == "active" and it["fields"]["kind"] == k and it["fields"]["areas"] == ["page"]
+        assert it["fields"]["file"] == f"dev/knowledge/{k}.md" and it["fields"]["title"] == f"The {k.title()} Of It"
+    assert f.item("knowledge/finding-named-not-by-its-file")["fields"]["kind"] == "finding"   # the front matter's
+
+
+BROKEN = {
+    "misc": ("review_lessons", LESSONS.replace("kind: lesson", "kind: misc")),
+    "no-front-matter": ("review_lessons", LESSONS.split("---\n", 2)[2]),
+    "decision-elsewhere": ("house_rules", RULES.replace("kind: rule", "kind: ergostat.decision")),
+    "decisions-no-front-matter": ("decisions", DECISIONS.split("---\n", 2)[2]),
+    "decisions-wrong-kind": ("decisions", DECISIONS.replace("kind: ergostat.decision", "kind: rule")),
+    "duplicate-heading": ("house_rules", RULES + "\n## Code!\n- Twice.\n"),
+    "duplicate-decision": ("decisions", DECISIONS + "\n## One model; three drawings\nAgain.\n"),
+    "lesson-unnumbered": ("review_lessons", LESSONS + "\n## Not numbered\nx\n"),
+}
+
+
+def set_db(f: Instance, **kv) -> None:
+    """Change the fake record by hand: a key set (or, given None, removed)."""
+    db = f.db()
+    for k, v in kv.items():
+        db.pop(k, None) if v is None else db.__setitem__(k, v)
+    f.record.write_text(json.dumps(db))
+
+
+@pytest.mark.parametrize("case", sorted(BROKEN))
+def test_unknown_kind_refused_nothing_retired(case, tmp_path):
+    f = Instance(tmp_path)
+    dev = running(tmp_path)
+    assert sync(f, dev)                                                 # a first sync: every entry, every decision
+    db = f.db()
+    db["items"] = {i: x for i, x in db["items"].items() if not i.startswith("ergostat.decision/")}
+    f.record.write_text(json.dumps(db))                                 # so a sync now would propose them again
+    (dev / "knowledge" / "notes.md").write_text("---\nkind: finding\n---\n## A finding\nx\n")
+    name, text = BROKEN[case]
+    (dev / "knowledge" / f"{name.replace('_', '-')}.md").write_text(text)
+    assert sync(f, dev, ok=False) == []                                 # no retired, no proposed, no found: nothing
+    assert "refused, nothing recorded" in f.stderr
+    assert all(i["state"] == "active" for i in f.db()["items"].values() if i["kind"] == "knowledge")
+
+
+def test_sync_proposes_each_decision_once(tmp_path):
+    from ergostat.decisions import acts
+    from ergostat.decisions.kinds import DECISION
+    from tests.test_decisions import project
+    f = Instance(tmp_path)
+    f.fold([{"event": "knowledge.found", "item": "knowledge/decision-one-model-three-drawings", "data": {
+        "kind": "decision", "title": "One model, three drawings."}}], None)             # from before: an entry
+    dev = running(tmp_path)
+    lines = sync(f, dev)
+    assert ("knowledge.retired", "knowledge/decision-one-model-three-drawings") in [(x["event"], x["item"]) for x in lines]
+    assert f.item("knowledge/decision-one-model-three-drawings")["state"] == "retired"
+    assert not [i for i in f.db()["items"] if i.startswith("knowledge/decision-") and f.item(i)["state"] == "active"]
+    asked = [x for x in lines if x["event"] == "ergostat.decision.proposed"]
+    assert [x["item"][:-4] for x in asked] == DECIDED
+    assert [x["data"]["scope"] for x in asked] == [["diagram", "view"], ["factory", "pool"]]
+    assert asked[0]["data"]["decision"] == "One model, three drawings"
+    assert asked[0]["data"]["words"] == [{"text": "Each its own style.", "file": "dev/knowledge/decisions.md"}]
+    (tmp_path / "p").mkdir()
+    p = project(tmp_path / "p")
+    for x in asked:                                                     # as ergostat takes a block's line: checked
+        got = acts.take_line(p, x["event"], x["item"], x["data"], "knowledge-sync")
+        assert got["status"] == "proposed" and got["item"] == x["item"]
+        assert acts.one(p, x["item"]).fields["scope"] == x["data"]["scope"]
+    assert f.item(asked[0]["item"])["state"] == "proposed"
+    assert sync(f, dev) == []                                           # a second sync says nothing
+    f.fold([{"event": f"{DECISION}.dismissed", "item": asked[0]["item"], "data": {"dismissed_reason": "no"}}], None)
+    assert sync(f, dev) == [] and f.item(asked[0]["item"])["state"] == "dismissed"    # not proposed again
+    f.fold([{"event": f"{DECISION}.confirmed", "item": asked[1]["item"], "data": {}},
+            {"event": f"{DECISION}.superseded", "item": asked[1]["item"], "data": {}}], None)
+    assert sync(f, dev) == []                                           # nor a superseded one
+    k = dev / "knowledge" / "decisions.md"
+    k.write_text(DECISIONS.replace("Each its own style.", "Each in its own style."))
+    assert sync(f, dev) == []                                           # its body edited: nothing already proposed
+    k.write_text(DECISIONS.replace("## One model, three drawings", "## One model, four drawings"))
+    assert [x["data"]["decision"] for x in sync(f, dev)] == ["One model, four drawings"]    # a new heading: new
+
+
+@pytest.mark.parametrize("fail", ["exit", "partial"])
+def test_sync_refuses_when_decisions_unreadable(fail, tmp_path):
+    from ergostat.decisions.kinds import DECISION
+    f = Instance(tmp_path)
+    dev = running(tmp_path)
+    one = [x for x in sync(f, dev) if x["event"] == f"{DECISION}.proposed"][0]["item"]
+    f.fold([{"event": f"{DECISION}.dismissed", "item": one, "data": {"dismissed_reason": "no"}}], None)
+    (dev / "knowledge" / "notes.md").write_text("---\nkind: finding\n---\n## A finding\nx\n")
+    set_db(f, decisions_fail=fail)
+    assert sync(f, dev, ok=False) == []                                 # no proposal, and nothing else either
+    set_db(f, decisions_fail=None)
+    assert [x["item"] for x in sync(f, dev)] == ["knowledge/finding-a-finding"]
+
+
+def raw_sync(f: Instance, dev: Path) -> list[dict]:
+    r = subprocess.run([sys.executable, str(dev / "bin" / "knowledge.py"), "sync"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    return [json.loads(x) for x in r.stdout.splitlines() if '"ergostat.decision.proposed"' in x]
+
+
+def test_overlapping_syncs_record_one_decision(tmp_path, monkeypatch):
+    """lesson-1: two syncs that both read "no such decision" before either is recorded print the same proposals; the
+    record keeps one decision each, with its words once. The lock is ergostat's: the proposal's event id is derived
+    from its item's, and the record checks it inside its write lock (acts.propose, Events.add)."""
+    from ergostat.decisions import acts
+    from tests.test_decisions import project
+    f = Instance(tmp_path)
+    dev = running(tmp_path)
+    first, second = raw_sync(f, dev), raw_sync(f, dev)                  # neither folded: both read the same
+    assert first == second and len(first) == 2
+    (tmp_path / "p").mkdir()
+    p = project(tmp_path / "p")
+    real = acts.one
+    monkeypatch.setattr(acts, "one", lambda p, id: None)                # each reads "none" before the other writes
+    for x in first + second:
+        acts.take_line(p, x["event"], x["item"], x["data"], "knowledge-sync")
+    monkeypatch.setattr(acts, "one", real)
+    for x in first:
+        assert [e["type"] for e in p.events.query(n=None, item=x["item"])] == ["ergostat.decision.proposed"]
+        assert len(acts.one(p, x["item"]).fields["words"]) == 1
+    for x in second:                                                    # and one read after the other wrote: known
+        assert acts.take_line(p, x["event"], x["item"], x["data"], "knowledge-sync")["status"] == "known"
+        assert len(p.events.query(n=None, item=x["item"])) == 1
+
+
+@pytest.mark.parametrize("fail", ["exit", "partial"])
+def test_brief_fails_when_decisions_unreadable(fail, tmp_path):
+    f = Instance(tmp_path)
+    f.define("# alpha thing\n\nThe Process diagram.\n\n## Definition of done\n\nIt works.\n")
+    decide(f, "One model, three drawings", ["diagram"], "confirmed")
+    set_db(f, decisions_fail=fail)
+    r = subprocess.run([sys.executable, "-c", f"import sys, json; sys.path[:0] = [{str(BIN)!r}]\n{BLOCK}", "{}",
+                        "gap/alpha-thing", "implementor", "a diagram"], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=120)
+    assert r.returncode != 0 and not r.stdout.strip()                   # knowledge.block raises
+    said, _ = f.run("implement.py", "gap/alpha-thing", fails=True)
+    assert "gap.built" not in said and not f.item("gap/alpha-thing")["fields"].get("contexts")
+    assert not list((f.model / "run").glob("briefs/*.md"))              # no brief written
 
 
 LINT = "import fac, plan; print(json.dumps(plan.lint(fac.config(), sys.argv[1], tuple(sys.argv[2:]))))"
@@ -545,7 +1117,8 @@ def test_the_lint_catches_each_missing_piece(tmp_path):
              "100 net lines": ("900 net lines", "900 net lines: at most 600"),
              "lesson-3:": ("lesson-999:", "lesson-999 under Risks is no review lesson"),
              "`fresh.py` (new)": ("`fresh.py`", "`fresh.py` under Files to touch is not on main"),
-             "- `app.py`, and `fresh.py` (new)": ("- the app", "no file named under Files to touch")}
+             "- `app.py`, and `fresh.py` (new)\n- `standin/work.txt` (new): the stand-in implementor's note":
+                 ("- the app", "no file named under Files to touch")}
     for old, (new, found) in cases.items():
         got = f.py(LINT, GOOD.replace(old, new))
         assert len(got) == 1 and found in got[0], (old, got)   # each piece missing: exactly its finding
@@ -602,7 +1175,8 @@ def graph_fixture(f: Instance, n_ready: int = 1) -> None:
                                                                     "merged_at": now - 3600, "main_sha": sha}},
              {"event": "gap.merged", "item": "gap/old", "data": {"title": "Old", "branch": "old", "merged_at": now - 9e5}}]
     for name, event in [("busy", "gap.started")] + [(f"next-{i}", "gap.defined") for i in range(n_ready)]:
-        (defs / f"{name}.md").write_text(GOOD.replace("`app.py`, and `fresh.py` (new)", f"`{name}_mod.py` (new)"))
+        (defs / f"{name}.md").write_text(GOOD.replace("`app.py`, and `fresh.py` (new)", f"`{name}_mod.py` (new)")
+                                         .replace("- `standin/work.txt` (new): the stand-in implementor's note\n", ""))
         lines.append({"event": event, "item": f"gap/{name}", "data": {
             "title": name.title(), "branch": name, "definition": f"run/defs/{name}.md", "depends_on": ["gap/landed"]}})
     f.fold(lines, None)
@@ -674,3 +1248,262 @@ def test_plan_review_measures(tmp_path):
     assert read("agreement") == 0.5                            # a, d of a, b, c, d (e's review is past 14 days)
     assert read("value", "fix-rounds", "flagged") == 1.5 and read("value", "fix-rounds", "clean") == 0.5
     assert read("value", "parks", "flagged") == 0.5 and read("value", "parks", "clean") == 0.0
+
+
+# ---- the knowledge queue (docs/roadmap/overnight/knowledge-queue.md): lesson items applied by a program, never gaps
+
+SEEN = {"kind": "seen", "lesson": "lesson-1", "text": "an approval written over a fresh denial", "findings": ["x.py:1"]}
+NEW = {"kind": "entry", "name": "Stale cache", "text": "a cache read after the merge", "reviews": ["review/b-1",
+                                                                                                    "review/c-1"]}
+REAL_LESSONS = BIN.parent / "knowledge" / "review-lessons.md"
+LESSONS_FAIL = FAKE_MORE.replace('args = sys.argv[1:]\n', 'args = sys.argv[1:]\nif "--kind" in args and "lesson" in '
+                                 'args and db.get("lessons_fail"):\n    sys.exit("the record is busy")\n', 1)
+
+
+def proposed(f: Instance, lid: str, data: dict) -> None:
+    f.fold([{"event": "lesson.proposed", "item": lid, "data": {"proposed_at": time.time() - 3600, **data}}], None)
+
+
+def applied(f: Instance, lid: str) -> list[str]:
+    """The action knowledge-change as the gate runs it once approved, then a run of the block lesson-apply."""
+    f.tool("lesson.py", "request", lid)
+    assert f.drain() == ["lesson.approved"]
+    return f.run("lesson.py", lid, argv=("apply",))[0]
+
+
+def block_in(f: Instance, bin_: Path, role: str, gid: str, text: str = "") -> dict:
+    """knowledge.block from the version whose dev/bin is ``bin_`` (the real brief's knowledge, as a switch gives it)."""
+    r = subprocess.run([sys.executable, "-c", f"import sys, json; sys.path[:0] = [{str(bin_)!r}]\n{BLOCK}", "{}", gid,
+                        role, text], cwd=f.model, env=f.env, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def section(text: str, lid: str) -> str:
+    return text.split(f"### {lid}:", 1)[1].split("\n### ", 1)[0]
+
+
+def test_an_approved_lesson_is_applied_with_no_gap(tmp_path):
+    f = Instance(tmp_path)
+    proposed(f, "lesson/seen-lesson-1-aaa", SEEN)
+    proposed(f, "lesson/new-stale-cache", NEW)
+    assert applied(f, "lesson/seen-lesson-1-aaa") == ["lesson.applied"]
+    assert applied(f, "lesson/new-stale-cache") == ["lesson.applied"]
+    seen, new = f.item("lesson/seen-lesson-1-aaa"), f.item("lesson/new-stale-cache")
+    assert seen["state"] == new["state"] == "applied"
+    assert seen["fields"]["entry"] == "an approval written over a fresh denial" and "number" not in seen["fields"]
+    assert new["fields"]["entry"].startswith("Stale cache\nSeen as: a cache read after the merge.\n**Check:**")
+    assert new["fields"]["lesson"] == "lesson-14" and new["fields"]["number"] == 14     # numbered past the seed's 13
+    db = f.db()
+    assert not [i for i in db["items"].values() if i["kind"] in ("gap", "session")] and not db.get("acts")
+    assert not (f.model / "run" / "defs").is_dir() or not list((f.model / "run" / "defs").iterdir())
+    assert f.run("lesson.py", "lesson/new-stale-cache", argv=("apply",))[0] == []         # applied once (lesson-1)
+    f.tool("lesson.py", "request", "lesson/new-stale-cache", ok=False)                     # not proposed any more
+    f.tool("lesson.py", "add", "Shared stash", "--check", "never git stash")               # the coordinator's: same path
+    assert f.drain() == ["lesson.approved"]
+    f.fake.write_text(LESSONS_FAIL)
+    set_db(f, lessons_fail=True)
+    f.run("lesson.py", "lesson/add-shared-stash", argv=("apply",), fails=True)             # unreadable: not applied
+    assert f.item("lesson/add-shared-stash")["state"] == "approved"
+    got = block_in(f, BIN, "pipeline_manager", "lesson/add-shared-stash")                  # the brief says so (lesson-3)
+    assert "could not be read from the record" in got["text"] and got["knowledge_unread"] == ["lessons"]
+    assert "lesson-14" not in got["knowledge"] and "lesson-13" in got["knowledge"]
+    set_db(f, lessons_fail=False)
+    assert f.run("lesson.py", "lesson/add-shared-stash", argv=("apply",))[0] == ["lesson.applied"]
+    assert f.item("lesson/add-shared-stash")["fields"]["lesson"] == "lesson-15"
+    assert f.tool("lesson.py", "hours").stdout.strip() == "0.667"   # proposed to applied: an hour, an hour, ~0 (add)
+    assert "knowledge_unread" not in block_in(f, BIN, "pipeline_manager", "lesson/add-shared-stash")
+    proposed(f, "lesson/seen-lesson-2-held", {**SEEN, "lesson": "lesson-2"})               # as the lease holds it:
+    f.tool("lesson.py", "request", "lesson/seen-lesson-2-held")                             # leased, back approved
+    assert f.drain() == ["lesson.approved"]
+    db = f.db()
+    db["items"]["lesson/seen-lesson-2-held"]["state"] = "leased"
+    f.record.write_text(json.dumps(db))
+    held = f.run("lesson.py", "lesson/seen-lesson-2-held", argv=("apply",), lease={"back": "approved"})[0]
+    assert held == ["lesson.applied"]
+    db = f.db()
+    db["items"]["lesson/seen-lesson-2-held"]["state"] = "leased"                          # leased from another state
+    f.record.write_text(json.dumps(db))
+    assert f.run("lesson.py", "lesson/seen-lesson-2-held", argv=("apply",), lease={"back": "applied"})[0] == []
+
+
+def test_the_next_brief_carries_an_applied_lesson(tmp_path):
+    f = Instance(tmp_path)
+    f.define("# alpha thing\n\nIt touches `dev/bin/brief.py`.\n\n## Definition of done\n\nIt works.\n")
+    proposed(f, "lesson/seen-lesson-1-aaa", SEEN)
+    proposed(f, "lesson/new-stale-cache", NEW)
+    applied(f, "lesson/seen-lesson-1-aaa")
+    applied(f, "lesson/new-stale-cache")
+    said, _ = f.run("implement.py", "gap/alpha-thing")                                     # the real brief
+    assert said == ["gap.started", "gap.built"]
+    ctx = f.item("gap/alpha-thing")["fields"]["contexts"][0]
+    assert {"lesson-1", "lesson-14", "lesson/seen-lesson-1-aaa", "lesson/new-stale-cache"} <= set(ctx["knowledge"])
+    assert ctx["knowledge_chars"] <= 24000
+    brief = (f.model / ctx["brief"][5:]).read_text()
+    assert "Seen as: an approval written over a fresh denial.\n**Check:**" in section(brief, "lesson-1")
+    assert brief.count("an approval written over a fresh denial") == 1                     # under its lesson, once
+    assert "### lesson-14: Stale cache\nSeen as: a cache read after the merge." in brief   # its own entry
+    for role in ("reviewer", "pipeline_manager"):
+        assert "lesson-14" in block_in(f, BIN, role, "gap/alpha-thing")["knowledge"]
+    must = block_in(f, BIN, "implementor", "gap/alpha-thing")
+    small = f.py(BLOCK, json.dumps({"chars": must["knowledge_chars"] - 2000}), "gap/alpha-thing", "implementor", "x")
+    assert "lesson-14" in small["knowledge"] and small["knowledge_dropped"]                # lessons first, the rest cut
+    dev = running(tmp_path, review_lessons=REAL_LESSONS.read_text())
+    lines = sync(f, dev)                                                                   # shown as knowledge/* items
+    found = {x["item"]: x["data"] for x in lines if x["event"] == "knowledge.found"}
+    assert found["knowledge/lesson-14"]["title"] == "Stale cache" and found["knowledge/lesson-14"]["kind"] == "lesson"
+    assert found["knowledge/lesson-14"]["text"].startswith("## 14. Stale cache Seen as: a cache read after the merge.")
+    assert sync(f, dev) == []
+
+
+def test_a_retired_lesson_stops_being_carried(tmp_path):
+    f = Instance(tmp_path)
+    proposed(f, "lesson/new-stale-cache", NEW)
+    proposed(f, "lesson/seen-lesson-14-aaa", {**SEEN, "lesson": "lesson-14", "text": "a map kept across a merge"})
+    applied(f, "lesson/new-stale-cache")
+    applied(f, "lesson/seen-lesson-14-aaa")
+    got = block_in(f, BIN, "pipeline_manager", "lesson/new-stale-cache")
+    assert "a map kept across a merge" in section(got["text"], "lesson-14")
+    dev = running(tmp_path, review_lessons=REAL_LESSONS.read_text())
+    sync(f, dev)
+    assert f.item("knowledge/lesson-14")["state"] == "active"
+    f.tool("lesson.py", "retire", "14", "carried for a month to no effect")
+    f.tool("lesson.py", "retire", "9", "the same")                                         # a seed lesson too
+    assert f.drain() == ["lesson.approved", "lesson.approved"]
+    assert f.run("lesson.py", "lesson/retire-lesson-14", argv=("apply",))[0] == ["lesson.retired", "lesson.retired"]
+    assert f.run("lesson.py", "lesson/retire-lesson-9", argv=("apply",))[0] == ["lesson.retired"]
+    assert f.item("lesson/new-stale-cache")["state"] == "retired"
+    got = block_in(f, BIN, "pipeline_manager", "lesson/new-stale-cache")
+    assert not {"lesson-14", "lesson-9", "lesson/seen-lesson-14-aaa"} & set(got["knowledge"])
+    assert "Stale cache" not in got["text"] and "map kept across" not in got["text"]
+    assert "### lesson-9:" not in got["text"] and "### lesson-10:" in got["text"]
+    f.tool("lesson.py", "retire", "9", "again", ok=False)                                  # retired already
+    retired = {x["item"] for x in sync(f, dev) if x["event"] == "knowledge.retired"}
+    assert retired == {"knowledge/lesson-9", "knowledge/lesson-14"}
+
+
+def test_applied_lessons_survive_a_version_switch(tmp_path):
+    f = Instance(tmp_path)
+    proposed(f, "lesson/seen-lesson-1-aaa", SEEN)
+    proposed(f, "lesson/new-stale-cache", NEW)
+    applied(f, "lesson/seen-lesson-1-aaa")
+    applied(f, "lesson/new-stale-cache")
+    record = f.record.read_text()
+    dev = running(tmp_path, review_lessons=REAL_LESSONS.read_text())     # the switched-to version: the seed, unchanged
+    assert "fresh denial" not in (dev / "knowledge" / "review-lessons.md").read_text()
+    got = block_in(f, dev / "bin", "implementor", "lesson/new-stale-cache")
+    assert {"lesson-14", "lesson/seen-lesson-1-aaa"} <= set(got["knowledge"])
+    assert "Seen as: an approval written over a fresh denial." in section(got["text"], "lesson-1")
+    assert "### lesson-14: Stale cache" in got["text"]
+    assert f.record.read_text() == record                                # the briefs only read the record
+    (dev / "knowledge" / "review-lessons.md").write_text(LESSONS)        # a seed with fewer: still carried, numbered
+    got = block_in(f, dev / "bin", "implementor", "lesson/new-stale-cache")
+    assert [k for k in got["knowledge"] if k.startswith("lesson-")] == ["lesson-1", "lesson-14"]
+
+
+def migrating(f: Instance) -> None:
+    """Lessons requested as gaps before the queue, and gaps that are not theirs."""
+    gap = lambda gid, *evs: [{"event": e, "item": gid, "data": {"branch": gid[4:]}} for e in evs]  # noqa: E731
+    f.fold(gap("gap/knowledge-seen-lesson-1-aaa", "gap.requested", "gap.defined")
+           + gap("gap/knowledge-new-stale-cache", "gap.requested", "gap.sent-back")
+           + gap("gap/knowledge-seen-lesson-2-bbb", "gap.requested", "gap.merged")
+           + gap("gap/knowledge-seen-lesson-3-ccc", "gap.requested", "gap.started")
+           + gap("gap/knowledge-by-hand", "gap.requested") + gap("gap/kb-thing", "gap.requested")
+           + gap("gap/other-x", "gap.requested"), None)
+    for lid, data, gid in (("lesson/seen-lesson-1-aaa", SEEN, "gap/knowledge-seen-lesson-1-aaa"),
+                           ("lesson/new-stale-cache", NEW, "gap/knowledge-new-stale-cache"),
+                           ("lesson/seen-lesson-2-bbb", {**SEEN, "lesson": "lesson-2"}, "gap/knowledge-seen-lesson-2-bbb"),
+                           ("lesson/seen-lesson-3-ccc", {**SEEN, "lesson": "lesson-3"}, "gap/knowledge-seen-lesson-3-ccc"),
+                           ("lesson/seen-lesson-4-ddd", {**SEEN, "lesson": "lesson-4"}, "gap/knowledge-not-recorded"),
+                           ("lesson/seen-lesson-5-eee", {**SEEN, "lesson": "lesson-5"}, "gap/other-x")):
+        proposed(f, lid, data)
+        f.fold([{"event": "lesson.requested", "item": lid, "data": {"gap": gid}}], None)
+
+
+def settled(f: Instance) -> list[str]:
+    """A run of lesson-settle (the migration), then lesson-apply on each lesson it approved."""
+    f.tool("lesson.py", "settle")
+    said = f.drain()
+    for lid in sorted(i for i, it in f.db()["items"].items() if it["kind"] == "lesson" and it["state"] == "approved"):
+        said += f.run("lesson.py", lid, argv=("apply",))[0]
+    return sorted(said)
+
+
+def test_the_migration_is_idempotent_and_touches_only_linked_gaps(tmp_path):
+    f = Instance(tmp_path)
+    migrating(f)
+    f.fake.write_text(FAKE_MORE.replace('    rec.write_text(json.dumps(db))\nelif args[0] == "item"', '''\
+    if args[2] == "gap.closed" and db.get("take_on_close") == args[4]:      # a lease taken between read and close
+        db["items"][args[4]]["fields"]["lease"] = {"holder": "implementor", "fence": 1}
+    rec.write_text(json.dumps(db))\nelif args[0] == "item"''', 1))
+    for gid, lid in (("gap/knowledge-seen-lesson-6-fff", "lesson/seen-lesson-6-fff"),
+                     ("gap/knowledge-seen-lesson-7-ggg", "lesson/seen-lesson-7-ggg")):
+        f.fold([{"event": "gap.requested", "item": gid, "data": {"branch": gid[4:]}},
+                {"event": "gap.defined", "item": gid, "data": {}}], None)
+        proposed(f, lid, {**SEEN, "lesson": f"lesson-{lid[19]}"})
+        f.fold([{"event": "lesson.requested", "item": lid, "data": {"gap": gid}}], None)
+    db = f.db()
+    db["items"]["gap/knowledge-seen-lesson-6-fff"]["fields"]["lease"] = {"holder": "implementor", "fence": 1}
+    db["items"]["gap/knowledge-seen-lesson-3-ccc"]["state"] = "leased"            # a reviewer holds it, at built
+    f.record.write_text(json.dumps({**db, "take_on_close": "gap/knowledge-seen-lesson-7-ggg"}))
+    before = {i: g["state"] for i, g in f.db()["items"].items() if g["kind"] == "gap"}
+    assert settled(f) == ["gap.closed"] * 3 + ["lesson.applied", "lesson.applied", "lesson.approved", "lesson.approved"]
+    assert f.item("lesson/seen-lesson-7-ggg")["state"] == "requested"            # taken as it closed: not applied
+    assert f.item("lesson/seen-lesson-6-fff")["state"] == "requested"            # held by a lease: left alone
+    assert f.item("gap/knowledge-seen-lesson-6-fff")["state"] == "ready"
+    db = f.db()
+    db["items"]["gap/knowledge-seen-lesson-7-ggg"]["state"] = "merged"          # the run it was taken by landed it
+    f.record.write_text(json.dumps(db))
+    st = {i: g["state"] for i, g in f.db()["items"].items()}
+    assert st["gap/knowledge-seen-lesson-1-aaa"] == st["gap/knowledge-new-stale-cache"] == "closed"
+    assert st["lesson/seen-lesson-1-aaa"] == st["lesson/new-stale-cache"] == "applied"
+    assert "applied by the knowledge queue" in f.item("gap/knowledge-new-stale-cache")["fields"]["closed_reason"]
+    assert f.item("lesson/new-stale-cache")["fields"]["lesson"] == "lesson-14"
+    for gid in ("gap/knowledge-seen-lesson-2-bbb", "gap/knowledge-seen-lesson-3-ccc", "gap/knowledge-by-hand",
+                "gap/kb-thing", "gap/other-x"):
+        assert st[gid] == before[gid], gid                                    # merged, in flight, or not linked
+    assert st["lesson/seen-lesson-2-bbb"] == st["lesson/seen-lesson-3-ccc"] == "requested"
+    assert st["lesson/seen-lesson-4-ddd"] == st["lesson/seen-lesson-5-eee"] == "requested"   # gap unknown, not knowledge-
+    assert settled(f) == []                                                   # once
+    f.fold([{"event": "gap.sent-back", "item": "gap/knowledge-seen-lesson-3-ccc", "data": {}}], None)
+    assert settled(f) == ["gap.closed", "lesson.applied", "lesson.approved"]  # out of flight: its turn now
+    assert settled(f) == []
+    assert f.item("gap/knowledge-seen-lesson-2-bbb")["state"] == "merged"
+    assert f.item("lesson/seen-lesson-7-ggg")["state"] == "requested"         # merged by its run: the file carries it
+
+
+def test_a_new_lesson_never_takes_a_number_the_seed_will(tmp_path):
+    f = Instance(tmp_path)
+    f.fold([{"event": "gap.requested", "item": "gap/knowledge-old-new", "data": {"branch": "knowledge-old-new"}},
+            {"event": "gap.started", "item": "gap/knowledge-old-new", "data": {}}], None)
+    proposed(f, "lesson/old-new", {**NEW, "name": "Old new"})
+    f.fold([{"event": "lesson.requested", "item": "lesson/old-new", "data": {"gap": "gap/knowledge-old-new"}}], None)
+    proposed(f, "lesson/new-stale-cache", NEW)
+    applied(f, "lesson/new-stale-cache")
+    assert f.item("lesson/new-stale-cache")["fields"]["lesson"] == "lesson-15"   # 14 kept for the gap in flight
+    landed = REAL_LESSONS.read_text() + "\n## 14. Old new\nSeen as: x.\n**Check:** y.\n"   # as its gap merges it
+    dev = running(tmp_path, review_lessons=landed)
+    text = block_in(f, dev / "bin", "implementor", "lesson/new-stale-cache")["text"]
+    assert text.count("### lesson-14:") == text.count("### lesson-15:") == 1
+    db = f.db()                                                                  # a clash all the same: kept apart
+    db["items"]["lesson/new-stale-cache"]["fields"].update(lesson="lesson-14", number=14)
+    f.record.write_text(json.dumps(db))
+    got = block_in(f, dev / "bin", "implementor", "lesson/new-stale-cache")
+    assert got["text"].count("### lesson-14:") == got["text"].count("### lesson-14-record:") == 1
+    assert {"lesson-14", "lesson-14-record"} <= set(got["knowledge"])
+
+
+def test_a_merged_lesson_is_not_carried_twice(tmp_path):
+    f = Instance(tmp_path)
+    migrating(f)
+    settled(f)
+    landed = REAL_LESSONS.read_text().replace("\n**Check:** order by", "\nSeen as: an approval written over a fresh "
+                                              "denial.\n**Check:** order by", 1)      # lesson-2 as its gap merged it
+    assert landed != REAL_LESSONS.read_text()
+    dev = running(tmp_path, review_lessons=landed)
+    got = block_in(f, dev / "bin", "implementor", "gap/knowledge-by-hand")
+    assert section(got["text"], "lesson-2").count("an approval written over a fresh denial") == 1
+    assert "lesson/seen-lesson-2-bbb" not in got["knowledge"]                 # carried by the file, not the record
+    assert "lesson/seen-lesson-1-aaa" in got["knowledge"]                     # its gap closed: carried from the record
+    assert section(got["text"], "lesson-1").count("an approval written over a fresh denial") == 1
+    assert got["text"].count("an approval written over a fresh denial") == 2   # lesson-1 and lesson-2, each once
