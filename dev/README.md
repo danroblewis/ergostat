@@ -445,7 +445,7 @@ on a read-only clone of main like the other sessions, its conversation kept as a
 **The triggers** (`dev/bin/watch.py`, the block `pipeline-watch`, every 5 minutes; `[manager]` in the settings), in
 order: the queue blocked (`run/queue.json`, or an open intervention of class `queue`); a gap dead past half an hour, or
 parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or none said) unless
-another gap carries its branch on; a `waits_on` or `needs` park not cleared in `park_wait_hours` (24); a gap in one state past
+another gap carries its branch on or the coordinator marked it `deferred: true` or `cancelled: true`; a `waits_on` or `needs` park not cleared in `park_wait_hours` (24); a gap in one state past
 `[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
 lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
 queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes

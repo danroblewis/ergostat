@@ -73,3 +73,25 @@ The changes below, made to the instance's copy of the model while it ran 24756e5
 ## Size budget
 
 0 net lines of core code (the model and dev/ only).
+
+## Where it stopped
+
+Built. Main already had four of the five hunks, in later forms, so they were not applied again:
+
+- `dev/bin/resources.py` `per_session`: a session is charged no suite cost when `[suites] slot` is set (main's `suite()`).
+- `dev/model/knowledge.yaml` block `plan`: `where: {continues: null}` is in its `takes`.
+- `dev/model/manager.yaml` `pipeline-watch`: no `goal:`; it reads `no-stuck-gaps` through `in:` (so it keeps its schedule).
+- `dev/knowledge/decisions.md`: both decisions are there, as sections in main's later format ("A branch carrying another
+  gap's merge is continued once that merge lands", "Deferred areas stay deferred").
+
+`dev/bin/watch.py`: main skips parks whose `parked_for` is `deferred` or `cancelled`. The instance's change also skips a
+park the coordinator marked with a `deferred: true` or `cancelled: true` field, which main still raised. That check is
+now in the condition, reflowed onto the same two lines (0 net lines). The test
+`test_dead_and_parked_gaps_are_raised_but_not_old_or_carried_on_ones` has two more parked gaps with those fields. It
+fails with the check removed and passes with it. The dev/README sentence on the trigger says so too. Keeping main's
+forms and adding only the missing field check was the most reversible choice.
+
+Run: tests/test_factory_manager.py (18 passed), tests/test_factory.py (97 passed, 2 skipped), ruff clean. Not run:
+`ergostat check` (the shell refused it). The model is read with no errors in
+`test_the_model_has_the_block_its_kind_triggers_and_gated_actions`. The rest of the unit suite and the browser files,
+and a merge with origin/main, are left to the queue.
