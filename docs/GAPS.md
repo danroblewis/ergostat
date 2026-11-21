@@ -229,7 +229,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   closed-loop run; a model for a machine block that commands another (held); stochastic arrivals within a run
   (the risk varies their mean over the horizon, not their timing).
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
-  `docs/proposals/coordinator/08-modes-and-protection.md`).
+  `docs/proposals/coordinator/08-modes-and-protection.md`). *Done*: act-risk gating, on `act-risk-gating` (SPEC §12k):
+  an action's `risk:` steps its gate one step stricter when the act scores at or above its threshold, at the request
+  and again at the act. *Left*: operating modes, thresholds scheduled by regime, reshaping an act, and the staleness of
+  the state an act was planned on.
 - **Observer staleness and estimated stocks** (done, `observer`; SPEC §9.6, `coordinator/06-observer.md`): a reading's
   age, `stale` goals, `on-stale: act | hold | off` per goal or block; a scalar Kalman estimate per stock with an adaptive
   gain (`stock.X.estimate`, `.uncertainty`), its innovations as `observer/X/innovation`, and `model-disagrees`. All
@@ -324,8 +327,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
   only, so its every `check` runs them again.
 - **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`). Done of it: the plan
   (`shards-from-systems`, SPEC §9.8): every part assigned to one shard by top-level system, merged by a shared agent,
-  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Left: an
-  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements.
+  taken kind or daemon (a block's or a sensor's), with the in-memory values read across shards listed as wires; and
+  an engine of one shard (`engine-runs-its-shard-1`, SPEC §9.8): `Engine(project, shard=NAME)` works only on its
+  shard's built-ins, machine blocks, goals, clock, item work, triggers, joins, daemons, observer and readings, and a
+  swap clears what moved out. `ergostat run` still runs one engine for the whole model. Left: the owner's asks
+  followed only by the shard that owns them, and the lead's one-time duties (`engine-runs-its-shard-2`); the wires
+  carried between shards (`shard-wires`); a process per shard; and the measurements.
+  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Also done
+  (`route-one-large-system-in-parts`): a line group of more than 100, one system's view included, routed in parts of
+  at most 100 (`static/routeparts.js`; `docs/layout-rules.md`), the shared group past 100 lines routed free. Left: an
+  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements; for the
+  lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's one-system view measured again.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
@@ -386,11 +398,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   proxy would have to run inside Docker: a second service on an `internal: true` network, the only one with a route
   out, allowing `api.anthropic.com:443` (CONNECT, its TLS server name checked). Left: that service, the token's
   handling, Claude Code in the image, and a measured run of one session inside.
-- **A block's pool set by the model's state** (open; found by `factory`): `pool:` is a number written in the YAML, so
-  the factory's pools, ramped up on good results, are stocks (`implementor-pool`) its gates and runs enforce below the
-  block's `pool:` (the most). The completion estimates and the Blocks view read the most, not the pool now. Either
-  `pool: stock.NAME` (read at each dispatch, drained when lowered, as a lowered `pool:` is), or a block's pool as a
-  setting a controller steps.
+- **A block's pool set by the model's state** (done, on `a-block-s-pool-set-by-the-model`; SPEC §9.5): `pool: {now:
+  stock.NAME, most: N}` reads the block's pool from a measured stock at each dispatch, under the dispatcher's lock,
+  rounded down and held within 0 and its most; no reading takes nothing new; a lowered stock drains. The completion
+  estimates and the Blocks view read the pool now (1, said, when it is 0 or unread). The factory's implementor and
+  reviewer take theirs from `implementor-pool` and `reviewer-pool`. Not done: an age limit on the stock's reading (the
+  newest is used whatever its age), and a global ceiling on `pool:` numbers.
 - **`mode: advise` on a block that takes items did nothing** (done on `mode-advise-on-a-block-that`; found by
   `factory`): the dispatcher (`ergostat/leases/dispatch.py`) leases items to a block whatever its `mode`; only
   commanded and event-started blocks ask. Of the two ways out, the refusal was chosen: `check` now refuses

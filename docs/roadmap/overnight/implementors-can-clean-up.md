@@ -1,0 +1,143 @@
+# implementors-can-clean-up: an implementor may run what its definition and its reviewer require
+
+depends-on: []
+
+Found 2026-11-21: at least 9 gaps parked with their work done or nearly done because the implementor's tool allowlist (`TOOLS` in `dev/bin/agents.py`) refused the command needed. It can `Write` a scratch file but has no `rm` or `git rm`, so a reviewer's "remove this file" can never be answered (external-event-logs, operating-states, redesign-rescored, light-theme, the-judge). It cannot run the watched suite the house rules require (`uv run python scripts/suite_watch.py ...`), which stalled lease-shutdown-race for 8 rounds and gap-size. Sessions run in a disposable container on their own clone, so these commands risk nothing outside it.
+
+## Definition of done
+- The implementor may run `git rm`, `git mv`, `git restore`, `rm` and `uv run python scripts/suite_watch.py`. The deny list (push, remote, config, stash, network) is unchanged.
+- The implementor's prompt says: keep scratch files out of the repository (under `/tmp`), and if a command is refused, say which one in the result instead of working around it.
+- Each session's refused tool calls are recorded on its session item and gap (`tool_denials`, from the Claude Code result's permission denials), with a measure and a goal of 0, so a missing permission shows up the first time.
+
+## Files to touch
+`dev/bin/agents.py`, `dev/bin/sessions.py`, `dev/prompts/implementor.md`, `dev/model/measures.yaml`, `tests/test_factory.py`.
+
+## Risks
+- lesson-3: a result with no denial field is unknown, never zero.
+
+## Acceptance tests
+- `tests/test_factory.py::test_the_implementor_may_remove_files_and_run_the_watched_suite`
+- `tests/test_factory.py::test_the_deny_list_still_holds`
+- `tests/test_factory.py::test_refused_tool_calls_are_recorded_on_the_session`
+
+## Size budget
+50 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 2's fast suites: `unit` came back failed, but the last 3000 characters of its log end mid-run at 60% with no
+pytest summary, no failing test and no watchdog message. The run was cut off from outside (the suite container's 12 GB
+limit, or a cancel); no test failed it. In this round's container, the test files near this branch's change pass one
+file group at a time: tests/test_factory.py (62 passed, 2 skipped); test_factory_knowledge, _manager, _resources and
+test_architecture (87 passed); test_factory_sessions, _times, test_claims, test_coherence and test_correspond (56
+passed); test_backlog, test_agents_page and test_watchdog (16 passed, 1 skipped). The diff's tests start no process,
+thread or container. I could not run the whole unit suite under the watchdog: this session runs main's allowlist, which
+refuses `uv run python scripts/suite_watch.py ...`, the very permission this gap adds. Following this gap's own rule, I
+did not work around the refusal. No code was changed in answer (the most reversible option). What is left: run `unit`
+again under suite_watch, and if it fails with a test named, fix that.
+
+Round 3: main (9acc11c2) merged in; its one conflict, tests/test_factory.py, was two independent additions at the
+file's end (this branch's three acceptance tests, main's park-owns-resume tests), and both are kept. After the merge:
+tests/test_factory.py 69 passed, 2 skipped; ruff clean; and `unit` under suite_watch.py, which this round's allowlist
+allowed, rc 0 (2131 passed, 69 skipped, peak 294 threads, 1.6 GB). No code was changed this round. The four browser
+files under suite_watch: rc 1, 2 failed, 222 passed. Run again alone (`--lf`), one passed and one failed again:
+tests/test_diagram_rendering.py::test_a_loop_clicked_chooses_its_members_in_both_panes_and_the_split_is_pictured,
+with `PermissionError: '/split-shots'`. Its screenshot folder is `ROOT.parent / "split-shots"` (test line 2485,
+unless SPLIT_SHOTS is set), and in this container that is `/`, which cannot be written. This branch changes nothing
+under ergostat/ or in that test, so it is unrelated (lesson-13) and was left alone. The other failure was a 30 s
+Playwright wait for a "page" event during the parallel run, and it passed when run again alone. Refused this round: a
+`timeout ... sh -c 'while ...; sleep'` wait for that run's output, which was not worked around.
+
+Round 4: main (12d7deb2) merged in. Its one conflict, dev/model/measures.yaml, was two independent additions to the
+auxiliaries: this branch's `tool-denials`, and main's `size-accuracy`, `size-accuracy-high` and `coverage-below-floor`.
+All four are kept. Answers to round 3's review: (1) not run by the reviewer: they are run here and by the factory's
+queue. (2) suite_watch.py runs any command given after `--`: this stays as built. Inside the disposable container,
+pytest and `rm` already run arbitrary code, and the egress proxy still blocks the network. The deny list is a list of
+tool names, and the definition keeps it as it was. No guard is claimed. (3) Reviewer sessions count toward
+`tool-denials`: kept as designed. A reviewer refused a tool is a missing permission, and the measure is meant to show
+it. (4) dev/README.md now names the implementor's new commands and `tool_denials`. After the merge:
+tests/test_factory.py 76 passed, 2 skipped, and ruff is clean. Refused this round: `uv run python
+scripts/suite_watch.py -- uv run python -m pytest ... > /tmp/unit.log 2>&1; echo rc=$?; tail` (the unit suite under
+the watchdog, a compound command). It was not worked around, so the factory's fast suites after this session are the
+unit and browser runs for this round.
+
+Round 5: main (7c0e4a60) merged in. Its one conflict, tests/test_factory.py, was again two independent additions in
+the same place: this branch's three acceptance tests, and main's `.gitattributes` merge tests
+(test_two_gaps_editing_gaps_md_merge_cleanly, test_two_lessons_editing_review_lessons_merge_cleanly). Both are kept,
+unchanged. After the merge: tests/test_factory.py 94 passed, 2 skipped, and ruff is clean. No code was changed this
+round. Round 4's review had no blocking finding; its notes (reviewer sessions counted, `rm` reaching the session's own
+clone, the files outside "Files to touch") were answered in round 4 and stay as built. Refused this round: a compound
+`python3 - <<EOF ... ; git add ... && git commit` that resolved the conflict markers. It was not worked around in
+the shell; the markers were removed with the editor and the commit made as separate commands. The unit suite and the
+four browser files were not run here; they are the factory's fast suites after this session.
+
+Round 6: the merge of main (7c0e4a60) was already committed (a92ff3e4), with no conflict markers left. The `unit`
+failure handed to this round has a tail that ends just after uv rebuilt the package, before pytest printed anything.
+No test is named, so the run was cut off from outside. Here, `unit` under suite_watch.py ran to the end with rc 1:
+2235 passed, 69 skipped, 1 failed (peak 309 threads, 1.9 GB, nothing killed). The failure was
+tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped, a 5 s wait for a warm worker to be
+replaced, under -n 8. Run again alone, tests/test_warm.py passed (21 passed). This branch changes nothing under
+ergostat/ and nothing that test reads: it builds its own project in tmp_path and never reads the repository's
+ergostat.yaml. So it is unrelated (lesson-13), a load flake for its own gap, and was left alone. tests/test_factory.py:
+94 passed, 2 skipped. No code was changed this round. The four browser files were not run here.
+
+Round 7: the merge of main (7c0e4a60) was already committed (a92ff3e4); `git status` was clean and HEAD holds main.
+The `unit` tail handed to this round again ends at 17 dots with no failing test and no summary, so the run was cut
+off from outside. Here, `unit` under suite_watch.py ran to the end with rc 1: 2235 passed, 69 skipped, 1 failed (peak
+311 threads, 1.5 GB, nothing killed). The failure was
+tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere, a 15 s wait on a `ttl: 1s` lease
+under -n 8. Run again alone, tests/test_leases.py passed (29 passed). That test writes its own ergostat.yaml in
+tmp_path, and this branch changes nothing under ergostat/. So it is unrelated (lesson-13), a load flake that belongs
+in its own gap, and was left alone. Round 6's unit failure was a different timing wait (test_warm).
+tests/test_factory.py: 94 passed, 2 skipped; ruff clean. No code was changed this round (the most reversible option).
+The four browser files were not run here. Refused this round: a compound `cat >> ... <<EOF; git add && git commit`
+that appended this note. It was not worked around in the shell; the note was added with the editor and committed with
+separate commands.
+
+Round 8: main (e8d3e331) merged in (fdcbd0ac). Its one conflict, tests/test_factory.py, was again two independent
+additions in the same place: this branch's three acceptance tests, and main's switcher-actually-runs tests
+(instance_engine, on_the_clock and the four tests after them). Both are kept, unchanged. After the merge:
+tests/test_factory.py 100 passed, 2 skipped; ruff clean. `unit` under suite_watch.py ran to the end with rc 1: 2309
+passed, 69 skipped, 1 xfailed, 1 failed (peak 325 threads, 1.6 GB, nothing killed). The failure was
+tests/test_lease_kill.py::test_the_killed_runs_item_returns_and_its_cost_is_recorded (`KeyError: 'how'` on a lease
+history read after a 15 s wait, under -n 8). Run again alone, tests/test_lease_kill.py passed (10 passed). This branch
+changes nothing under ergostat/ or in that test (`git diff main...HEAD -- ergostat` is empty), so it is unrelated
+(lesson-13), a load-timing failure for its own gap, and was left alone. No code was changed this round. Refused this
+round: `SPLIT_SHOTS=/tmp/split-shots uv run python scripts/suite_watch.py ...` (an environment variable before the
+allowed command) and a `ps ... | grep` check for running pytest. Neither was worked around; the browser files were run
+in the factory's own form instead. The four browser files under suite_watch.py: rc 1, 2 failed, 228 passed (peak 564
+threads, 4.1 GB, nothing killed). Run again with `--lf`, one passed: the tests/test_page_polling.py frame-time check
+(p95 679 ms against a 559 ms bound under -n 4), a load timing. The other failed again:
+tests/test_diagram_rendering.py::test_a_loop_clicked_chooses_its_members_in_both_panes_and_the_split_is_pictured, the
+same `PermissionError: '/split-shots'` as in round 3 (its screenshot folder is `ROOT.parent`, which is `/` in this
+container). This branch changes neither test nor anything under ergostat/, so both are unrelated (lesson-13) and were
+left alone.
+
+Round 9: the merge of main (e8d3e331) was already committed (fdcbd0ac); `git status` was clean and HEAD holds main.
+The `unit` tail handed to this round ends just after uv rebuilt the package, before pytest printed anything. No test
+is named, so the run was cut off from outside. Here, `unit` in the factory's own form under suite_watch.py ran to the
+end with rc 0: 2310 passed, 69 skipped, 1 xfailed (peak 326 threads, 1.7 GB, nothing killed). Ruff is clean. No code
+was changed this round, since no failure was found to fix (the most reversible option). The four browser files were
+not run here.
+
+Round 10 (gap round 7), answering review/implementors-can-clean-up-5 and -6. Every finding:
+(1) Blocking, sessions.py:75-76 with measure.py tool-denials (lesson-3, lesson-12): fixed in dev/bin/measure.py. A
+session whose refusals are unknown (no result: a timeout or a crash, out=None; or a result with no
+`permission_denials`) is still recorded as `tool_denials_unknown: 1` on its session and gap. sessions.py is
+unchanged. But `tool-denials` now leaves such a session out instead of counting it as one refused call, and says how
+many it left out on stderr. With no session in the window that said what it was refused, it has no value (exit 1),
+never 0. A new reading, `tool-denials-unknown` (dev/model/measures.yaml, no goal), counts the unknowns. So a timeout no
+longer turns goal.no-tool-denials off, and an unknown is still never zero. I chose a separate reading with no goal as
+the more reversible option: a goal on it can be added later. The acceptance test now drives the out=None path (the
+fake session raises as agents.py:201 does) and checks the session.errored record. It also checks the measure has no
+value with only unknowns, reads 2.0 with them left out, and that `tool-denials-unknown` reads 2.0. With the old
+counting put back, the test failed (the measure returned 0 with stdout 2.0), so it can fail (lesson-9).
+(2) dev/README.md:122-123 wrap width: rewrapped, and the README now says what the measure leaves out.
+(3) Files outside "Files to touch": unchanged from round 4 (needed to deliver the measure; this round adds to
+dev/README.md, dev/bin/measure.py and dev/model/measures.yaml).
+(4) "Not run by this reviewer": run here as listed below.
+Run here: tests/test_factory.py, test_code_health_coverage, test_factory_knowledge, test_factory_times and
+test_ticket_factory_daemons: 204 passed, 2 skipped. Ruff is clean. `unit` in the factory's form under suite_watch.py:
+rc 0, 2358 passed, 69 skipped, 1 xfailed (peak 392 threads, 1.6 GB, nothing killed). The four browser files were not
+run here. Refused this round: a compound `awk ...; uv run ruff check` (a line-width check). It was not worked around:
+ruff was run alone and the widths were checked with the search tool.

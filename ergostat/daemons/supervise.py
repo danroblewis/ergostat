@@ -120,9 +120,11 @@ class Supervisor(Hands):
 
     def sync(self, spec) -> None:
         """The daemons this model uses: a new one started, one changed or no longer used drained, one given up and
-        written the same revived."""
+        written the same revived. Of the engine's shard only (SPEC §9.8), by the plan of ``spec`` itself: never read
+        again from the engine, which a later swap may have moved on."""
+        mine = lambda n: self.e.own(f"daemon.{n}", spec)          # noqa: E731
         used = {b.params["daemon"] for b in spec.blocks.values() if b.params.get("daemon")}
-        used |= {s.daemon for s in spec.sensors() if s.daemon}
+        used = {n for n in used | {s.daemon for s in spec.sensors() if s.daemon} if mine(n)}
         want = {}                                    # a warm one: a process of its own per run held at once, NAME#i
         for n in used:
             d = spec.daemons[n]
@@ -142,8 +144,8 @@ class Supervisor(Hands):
                     continue                         # (the loop starts it once a warm process ends: WARM_ALL at most)
                 slot.spawning = True                 # claimed before the loop runs: spawned here, never by its tick
                 start.append(slot)
-            self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon and s.push}
-            self.observers = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon}
+            self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon in used and s.push}
+            self.observers = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon in used}
             if self.slots and (self.thread is None or not self.thread.is_alive()):
                 self.thread = threading.Thread(target=self._loop, name="ergostat-daemons", daemon=True)
                 self.thread.start()
