@@ -6,7 +6,8 @@ library only, so a step's own Python can use it as it is:
 
 ``Unavailable`` when no engine listens (the caller does what it did before). A run's call (``ERGOSTAT_SOCKET`` set)
 first tries again with backoff for ``ERGOSTAT_CALL_RETRY`` seconds (default 2 minutes), so an engine restarting does
-not fail it (never where the socket's folder is gone: a socket of another machine, or of a project removed); each
+not fail it (never where the run's state folder is gone: a socket of another machine, or of a project removed; and
+for ``GONE`` seconds only once its socket is removed, a clean stop, where a killed engine leaves it behind); each
 call's key makes what it records happen once however often it is asked (``ops.py``)."""
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ class Elsewhere(Unavailable):
 
 RETRY = 120.0                    # seconds a run's call tries again while no engine answers (ERGOSTAT_CALL_RETRY)
 MOST_RETRY = 3600.0
+GONE = 10.0                      # seconds a call waits for a socket removed (a clean stop) to be made again (a restart)
 
 
 class Refused(Exception):
@@ -114,18 +116,27 @@ def call(op: str, path: str | None = None, timeout: float = 60.0, retry: float |
         raise Unavailable("no engine socket")
     args.setdefault("call", uuid.uuid4().hex)
     end = time.monotonic() + (bound() if retry is None else min(max(retry, 0.0), MOST_RETRY))
-    pause = 0.05
+    pause, gone = 0.05, None
     while True:
         try:
             return once(op, path, timeout, args)
         except Elsewhere:
             raise
         except Unavailable:
-            left = end - time.monotonic()
-            if left <= 0 or not Path(path).parent.is_dir():      # (no folder: no engine comes back there)
+            now = time.monotonic()
+            gone = None if os.path.exists(path) else gone or now      # (a killed engine leaves its socket behind)
+            if now >= end or gone is not None and now - gone >= GONE or not owner(path).is_dir():
                 raise
-            time.sleep(min(pause, left))
+            time.sleep(min(pause, end - now))
             pause = min(pause * 2, 2.0)
+
+
+def owner(path: str) -> Path:
+    """The folder whose engine answers at ``path``: the run's state directory when the socket is its own, else the
+    socket's folder. Gone: no engine comes back there (an inherited socket of another machine or container)."""
+    from .server import path_for
+    here = os.environ.get("ERGOSTAT_STATE_DIR")
+    return Path(here) if here and str(path_for(Path(here))) == path else Path(path).parent
 
 
 def once(op: str, path: str, timeout: float, args: dict) -> dict:

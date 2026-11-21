@@ -43,3 +43,15 @@ inherited from an engine whose socket this machine can't reach (another machine'
 call waited the whole bound where it used to fall back at once. A call no longer tries again when the socket's folder
 does not exist: an engine restarting keeps its state folder (or the short-path folder in the temporary directory),
 so only a socket that can come back is waited for (`test_a_call_past_the_bound_fails`, checked to fail without it).
+
+After the factory's second unit run stalled (its output stopped at 3%, no failure printed; not reproduced here, and the
+whole suite was not run here): with every retry traced, the files run alone showed one call waiting on an engine
+that had stopped for good (a daemon's `act` in `test_ticket_factory_daemons`, which was killed after 2 s). The earlier
+guard, "the socket's folder exists", also falls short: every engine whose state path is long puts its socket in the
+one shared `/tmp/ergostat-UID/`. So a run's socket inherited from an engine elsewhere (the factory's, which runs these
+suites as a block) still waited the whole 2 minutes on each call. Now a call tries again only while the run's own state
+folder (`ERGOSTAT_STATE_DIR` when the socket is its own, else the socket's folder) is here. Once the socket has been
+removed (a clean stop) it waits `GONE` = 10 s at most for the socket to come back. A killed engine leaves its socket
+behind, so its run gets the whole bound. This is my own call and the most reversible one: a restart (close, then exec)
+that takes more than 10 s to listen again falls back as with no engine, as it does today. `test_a_call_past_the_bound_fails`
+covers both rules and fails with either one removed (checked). Net lines outside tests and docs: about 74 of 100.

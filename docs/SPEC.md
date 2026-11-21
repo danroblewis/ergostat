@@ -1249,7 +1249,10 @@ waits for an approval holds no thread: it is answered when the owner answers.
 
 A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no engine answers (no socket, a refused
 connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
-120, at most 3600), then does what it does with no engine. A command from a shell does not wait. Each call carries a
+120, at most 3600), then does what it does with no engine. A command from a shell does not wait. It does not wait
+where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
+the socket is removed (an engine that stopped cleanly; a killed one leaves it) it waits 10 s at most for it to be
+made again (a restart that is slower to listen falls back as with no engine). Each call carries a
 key, `"call"`, the same on every try: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
 renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again; an `act` with
 no `--key` from a run with no item is keyed by it, so one held for the owner is asked once (a run with an item already

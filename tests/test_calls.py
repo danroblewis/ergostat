@@ -6,6 +6,7 @@ and answered as soon as the owner answers; a command for another project is neve
 import json
 import os
 import shlex
+import socket
 import subprocess
 import sys
 import textwrap
@@ -332,6 +333,27 @@ def test_a_call_past_the_bound_fails(tmp_path, monkeypatch):
     with pytest.raises(client.Unavailable):                       # inherited by a container): no engine comes back
         client.call("ping", path=str(tmp_path / "gone" / "e.sock"), retry=30)
     assert time.monotonic() - began < 1
+    gone = tmp_path / "other-machine" / ("x" * LIMIT)            # an inherited run's: its socket in the shared short
+    path_for(gone).parent.mkdir(parents=True, exist_ok=True)     # folder (which exists), its state folder not here
+    monkeypatch.setenv("ERGOSTAT_STATE_DIR", str(gone))
+    began = time.monotonic()
+    with pytest.raises(client.Unavailable):
+        client.call("ping", path=str(path_for(gone)), retry=30)
+    assert time.monotonic() - began < 1
+    monkeypatch.delenv("ERGOSTAT_STATE_DIR")
+    monkeypatch.setattr(client, "GONE", 0.5)
+    began = time.monotonic()                                      # removed (a clean stop) and not made again: GONE
+    with pytest.raises(client.Unavailable):
+        client.call("ping", path=nobody, retry=30)
+    assert 0.5 <= time.monotonic() - began < 3
+    stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)     # left behind (a killed engine): the whole bound
+    stale.bind(nobody)
+    stale.close()
+    began = time.monotonic()
+    with pytest.raises(client.Unavailable):
+        client.call("ping", path=nobody, retry=1.5)
+    assert time.monotonic() - began >= 1.5
+    os.unlink(nobody)
     monkeypatch.delenv("ERGOSTAT_SOCKET", raising=False)
     assert client.bound() == 0                                    # a command from a shell: no waiting
     monkeypatch.setenv("ERGOSTAT_SOCKET", nobody)                 # a run's: the setting, default 2 minutes, at most an hour
