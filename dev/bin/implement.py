@@ -1,8 +1,9 @@
 """implementor: takes a gap at ready (or at fix, sent back with its findings), under a lease, and builds it:
 
 1. a clone of the factory's drop repository (agents.py: never the owner's), on the branch factory/<branch> from main;
-   Playwright's Chromium launched once in the image, in a suite container and the slot (agents.browser_ready): no
-   browser stops the round before it starts (given back uncounted, its reason said), never a browser file skipped;
+   with [suites] build_browser = true only, Playwright's Chromium launched once in the image, in a suite container
+   and the slot (agents.browser_ready): no browser stops the round before it starts (given back uncounted, its
+   reason said), never a browser file skipped;
    the definition of done committed first (`dev/records/<branch>.md`) when the branch lacks it, by this
    program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
    left for the session, its files in the brief); then published to the drop;
@@ -184,7 +185,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
     fac.say("gap.started", branch=branch, rework=rework, building_at=began)
     home, work = agents.clone(cfg, branch, "implementor")
     logs = fac.run_dir(cfg, "logs")
-    agents.browser_ready(cfg, home, logs, f"{fac.run_tag(branch, began)}-ready")   # (no browser: stopped, uncounted)
+    if "browser" in onmain.fast(cfg):                  # (only with [suites] build_browser; no browser: stopped, uncounted)
+        agents.browser_ready(cfg, home, logs, f"{fac.run_tag(branch, began)}-ready")
     base_sha = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")
     definition, held = definition_first(cfg, gap, work)
     conflicts = merge_main(work, base_sha)
@@ -225,7 +227,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
             continue
         suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
                                        deadline, seen, retried)
-        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in onmain.FAST)
+        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in onmain.fast(cfg))
         used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
         if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
             break

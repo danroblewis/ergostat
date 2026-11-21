@@ -1,8 +1,9 @@
 """main-broken: the implementor's own triage of its fast suites (implement.py), before a failure counts against the gap.
 
-The fast suites are ruff, the unit suite and the four browser files (a browser test skipped fails them, as in the
-queue). The tests that failed (unit or browser) are run again alone on the branch (`alone`; `rerun`, with Playwright,
-for the browser's): passing, they are flakes (`flake.seen`), and the fast suites
+The fast suites are ruff and [suites] build (the unit suite where no build is set), and the four browser files only
+with [suites] build_browser = true (a browser test skipped fails them, as in the queue); the merge queue runs unit,
+browser and demo in full either way (queue.py). The tests that failed (build, unit or browser) are run again alone
+on the branch (`alone`; `rerun`, with Playwright, for the browser's): passing, they are flakes (`flake.seen`), and the fast suites
 are run once more, uncounted, once per run. Those still failing are run once on clean main (the commit the branch
 merged), in a clone of the drop at it. Each run is in the same kind of suite container as the fast suites, in the
 suite slot. A test that fails on main too is main's, not the gap's (lesson 13: reported, not fixed): an item
@@ -22,13 +23,19 @@ import agents
 import fac
 
 LEAST = 60.0          # seconds a rerun is assumed to take at the least (a container started, the tests collected)
-FAST = ("ruff", "unit", "browser")                     # the round's fast suites: the unit suite and the browser files
-AGAIN = {"unit": "alone", "browser": "rerun"}          # each one's tests run again alone ("rerun": with Playwright)
+AGAIN = {"build": "alone", "unit": "alone", "browser": "rerun"}   # each one's tests again alone ("rerun": Playwright)
+
+
+def fast(cfg: dict) -> tuple[str, ...]:
+    """The round's fast suites: ruff and build (unit where no build is set), then the browser files if turned on."""
+    s = cfg["suites"]
+    return ("ruff", "build" if str(s.get("build") or "").strip() else "unit") + (
+        ("browser",) if s.get("build_browser") is True else ())
 
 
 def room(suites: dict, deadline: float) -> bool:
     """Whether a rerun fits before the kill rule's building hours run out (the failed suite's time)."""
-    took = suites.get(str(suites.get("failed"))) or suites.get("unit") or {}
+    took = suites.get(str(suites.get("failed"))) or suites.get("build") or suites.get("unit") or {}
     return time.time() + max(LEAST, float(took.get("seconds") or 0)) < deadline
 
 
@@ -48,7 +55,7 @@ def check(cfg: dict, gap: str, home: Path, branch: str, main: str, logs: Path, t
     failure that names tests, what they said gains `flakes` (passed alone), `on_main` (failing on main too, at
     `main_checked`), `main_broken` (every test still failing is main's), or `not_checked` (why no rerun). ``seen``: each
     test run on main in this run, and whether it failed there."""
-    out = agents.suites(cfg, home, FAST, logs, tag)
+    out = agents.suites(cfg, home, fast(cfg), logs, tag)
     tests = list(out.get("tests") or [])
     if out.get("failed") not in AGAIN or not tests:
         return out, retried                                  # (ruff, a skip, or a watchdog kill: nothing to run alone)
@@ -61,7 +68,7 @@ def check(cfg: dict, gap: str, home: Path, branch: str, main: str, logs: Path, t
             return {**out, "flakes": tests, "not_checked": "passed alone, and the run's one flake retry is spent"}, True
         for t in tests:
             fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=[gap], times=1, seen_at=time.time())
-        again = agents.suites(cfg, home, FAST, logs, f"{tag}-retry")
+        again = agents.suites(cfg, home, fast(cfg), logs, f"{tag}-retry")
         return {**again, "flakes": tests}, True
     still = list(alone.get("tests") or tests)
     ask = [t for t in still if t not in seen]

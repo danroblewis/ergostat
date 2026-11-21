@@ -33,15 +33,18 @@ import fac
 
 NET, PROXY, PORT = "ergostat-agents", "ergostat-egress", 3128
 DENY = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)", "Bash(curl:*)",
-        "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
+        "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch",
+        "Bash(uv run python scripts/suite_watch.py * -n*)",              # (no parallel run of the browser files: the
+        "Bash(uv run python scripts/suite_watch.py * --numprocesses*)"]  # merge queue runs the suites)
+BROWSER_FILE = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs tests/test_"
 TOOLS = {
     "implementor": ["Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)",
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
                     "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
                     "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
-                    "Bash(uv run python scripts/suite_watch.py:*)"],   # (its own clone, in a container of its own;
-                                                    # the suites under the watchdog, the browser files with Playwright)
+                    f"Bash({BROWSER_FILE}*)"],   # (named browser files only, under the watchdog with Playwright:
+                                                 # never a whole suite, which the merge queue runs)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
@@ -65,7 +68,18 @@ def settings(cfg: dict) -> dict:
     a = cfg.get("agents") or {}
     return {"image": a.get("image", "ergostat-agent:latest"), "hosts": list(a.get("hosts") or ["api.anthropic.com"]),
             "token_file": Path(os.path.expanduser(a.get("token_file", "~/.config/ergostat/claude-token"))),
-            "proxy_image": a.get("proxy_image", "ergostat-dev:latest")}
+            "proxy_image": a.get("proxy_image", "ergostat-dev:latest"), "session_cpus": session_cpus(a)}
+
+
+def session_cpus(a: dict) -> str:
+    """[agents] session_cpus: a session container's --cpus (empty or absent: the suites' 4); outside (0, 4] refused."""
+    got = str(a.get("session_cpus", "")).strip()
+    try:
+        if got and not 0 < float(got) <= 4:
+            raise ValueError(got)
+    except ValueError:
+        raise Refused(f"[agents] session_cpus = {got!r}: a number of CPUs above 0 and at most 4") from None
+    return got or LIMITS[LIMITS.index("--cpus") + 1]
 
 
 def token(cfg: dict) -> str:
@@ -132,8 +146,9 @@ def claude_args(cfg: dict, role: str, sid: str | None = None) -> list[str]:
 def run_args(cfg: dict, role: str, work: Path, name: str, keep=None) -> list[str]:
     """`docker run` for a session: the token by name only (its value is in the docker client's environment alone).
     ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id."""
-    proxy = f"http://{PROXY}:{PORT}"
-    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS, *SHOTS,
+    proxy, cpus = f"http://{PROXY}:{PORT}", LIMITS.index("--cpus") + 1
+    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS[:cpus], settings(cfg)["session_cpus"],
+            *LIMITS[cpus + 1:], *SHOTS,
             "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work",
             *(["-v", f"{keep.raw}:{keep.HOME}"] if keep else []),
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
