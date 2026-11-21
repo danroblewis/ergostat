@@ -290,3 +290,12 @@ not run (no copy of main could be made in this session). Net lines for the gap o
 Run after the merge: `tests/test_upkeep_template.py`, `tests/test_index_files.py`, `tests/test_templates.py`,
 `tests/test_reload_in_place.py`, `tests/test_relations_asof.py`, `tests/test_item_index.py`,
 `tests/test_spec_schema.py`, `tests/test_parity.py`: 163 passed, the 2 above failed. Ruff clean. No code changed.
+
+### The unit suite after round 6
+
+The unit suite failed on those two `test_relations_asof` cases. The merged branch holds both main's test and the
+backlog's rename (`ready` to `unblocked`, 600535d, which changed the scheduling status on purpose, apart from a
+state named ready). So the merge is finished by updating the test's two status assertions to `unblocked`. That
+is the only change, made in its own commit ("merge fix"). If the branch is rebuilt on main without the backlog
+merge, that commit is left out with it. No code changed. Run: `tests/test_relations_asof.py`,
+`tests/test_relations.py`, `tests/test_upkeep_template.py`, `tests/test_index_files.py` (48 passed). Ruff clean.
