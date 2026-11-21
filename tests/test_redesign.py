@@ -312,7 +312,7 @@ def test_the_redesigner_works_its_scratch_copy_over_rounds_then_proposes_the_bes
 def test_the_redesigner_stops_at_its_budget(tmp_path):
     p = project(tmp_path / "m")
     call = _answers({"edits": CHAIN[:1]}, {"edits": CHAIN[1:]})
-    out = rdr.run(p, "model", [], budget=0.005, rounds=3, call=call)
+    out = rdr.run(p, "model", [], budget=0.02, rounds=3, call=call)     # room for one call at its dearest, not two
     assert out["cost"]["calls"] == 1 and any("budget" in json.dumps(r) for r in out["rounds"])
 
 
