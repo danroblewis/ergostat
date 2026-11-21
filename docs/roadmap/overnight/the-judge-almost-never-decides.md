@@ -299,3 +299,14 @@ run `git rm scratch_probe.py` and commit it. The merge queue also needs to run t
 Parked by the factory (review/the-judge-almost-never-decides-4, 2026-11-20 19:15).
 
 The implementation is done and, read without running it, meets the definition of done: exact `same` in compare; the structural path in unmoved.py under pr.locked with a version stamp read from disk; fit_counts and coherence `measurable` in scorecard.py; owners() checks verdict.on; every acceptance test present by name, including the plan review's one-sided coherence and fit tests; about 134 of 200 lines. Left: (1) `git rm scratch_probe.py` and commit, which the factory session cannot do (four rounds refused); (2) the merge queue runs tests/test_unmoved.py, the regression files, the unit suite, the four browser files and ruff after merging origin/main. It stops because another automated fix round will hit the same permission refusal: a person must delete the file. After that the branch can go straight to review for merge.
+
+### Resumed, round 1 (2026-11-21, after main merged in at fdf27b73)
+
+- `git rm -q scratch_probe.py` was tried first and refused by this session's permissions (the fifth refusal). It was
+  not worked around by another route. **Still left, and it blocks the merge:** a person or a session allowed to delete
+  files runs `git rm scratch_probe.py` and commits. Nothing imports it.
+- Run here on the branch with main merged in, one file set at a time: `tests/test_unmoved.py` (17 passed);
+  `test_slowjudge.py`, `test_redesign.py`, `test_improve.py`, `test_gate.py`, `test_bench.py` (93 passed, 0 failed);
+  `uv run ruff check ergostat tests scripts` clean. No code changed in this round.
+- Not run here: the whole unit suite and the four browser files under `suite_watch.py` (left to the factory). This
+  clone has no `origin`, so the real origin/main merge is also left to the merge queue.
