@@ -255,6 +255,9 @@ def test_a_later_review_answers_what_it_no_longer_says_and_a_remade_request_star
 
 def test_a_review_recorded_while_this_one_ran_wins(proj, monkeypatch):
     spec = proj.model.spec
+    _answer(proj)                                             # an earlier applied review, stamped now
+    first = vr.review(proj, spec, "ops")
+    assert first["applied"] is True and first["raised"] == 0
     real = vr._call
     won = {}
 
@@ -269,7 +272,7 @@ def test_a_review_recorded_while_this_one_ran_wins(proj, monkeypatch):
     assert r["applied"] is False and r["raised"] == 0
     assert _events(proj)[-1]["data"]["applied"] is False
     assert _req(proj, "vsm-s4") is None                       # the competitor raised nothing: nor does this one
-    assert vr.latest(proj, "ops")["seq"] == won["seq"]
+    assert vr.latest(proj, "ops")["seq"] == won["seq"] > first["seq"]   # though its at=1.0 is the earliest
 
 
 def test_sync_never_answers_an_architecture_request(proj):

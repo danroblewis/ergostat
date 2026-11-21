@@ -165,3 +165,12 @@ three of the positive-evidence rules (purpose `complete`, goal `serves`, unsuppo
 Not done here: there is no `origin` remote in this clone (its `main` is the definition commit's parent, so it is
 already merged). The whole unit suite and the four browser files were not run by the implementor, as the task said;
 the factory runs them.
+
+Round 2. The review's one finding: `test_a_review_recorded_while_this_one_ran_wins` could not fail if reviews were
+ordered by `at`, because no review existed before the race. Fixed: the test first records an applied review of `ops`
+(stamped now, raising nothing), then the competitor is stamped `at=1.0` inside the call step. The test asserts this
+review is `applied: false`, raises no `vsm-s4`, and that `latest()` is the competitor, whose seq is later than the
+first review's. Lesson-9, broken by hand and seen to fail: `_latest` keyed on `at` instead of `seq`
+(`assert (True is False)` on `applied`), and the re-read inside the lock replaced by the seq read before the call
+(same failure). Both breaks were reverted. The factory has since merged main (`d33212e6`), and the clone has no
+`origin` branch other than its local `main`. Only the test changed in this round, so the net lines are still 509.
