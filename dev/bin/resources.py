@@ -248,16 +248,20 @@ def sampled(cfg: dict, name: str, role: str, every: float = 30.0):
 
 def per_session(cfg: dict, rows: list[dict] | None = None) -> tuple[float, float]:
     """(CPUs, GB) one session takes: the median peak of the last 20 sessions plus that of the last 20 suites, each
-    once three are measured, else [resources] session_* and suite_*."""
-    r = cfg.get("resources", {})
+    once three are measured, else [resources] session_* and suite_*. With machine-wide suite slots ([suites] slot) a
+    session is charged its own cost alone: the slots cap the suites, and the load reading includes those running."""
+    r, slots = cfg.get("resources", {}), bool(cfg.get("suites", {}).get("slot"))
     if rows is None:
         rows = [json.loads(x) for x in read(str(ledger(cfg))).splitlines() if x.strip()]
 
     def median(suite: bool, key: str, default: float) -> float:
         xs = [x[f"{key}_max"] for x in rows if (x.get("role") == "suite") == suite and f"{key}_max" in x][-20:]
         return statistics.median(xs) if len(xs) >= 3 else float(default)
-    return (median(False, "cpu", r.get("session_cpus", 0.5)) + median(True, "cpu", r.get("suite_cpus", 4)),
-            median(False, "memory", r.get("session_memory_gb", 1)) + median(True, "memory", r.get("suite_memory_gb", 4)))
+
+    def suite(key: str, default: float) -> float:
+        return 0.0 if slots else median(True, key, default)
+    return (median(False, "cpu", r.get("session_cpus", 0.5)) + suite("cpu", r.get("suite_cpus", 4)),
+            median(False, "memory", r.get("session_memory_gb", 1)) + suite("memory", r.get("suite_memory_gb", 4)))
 
 
 def setpoints() -> dict:
