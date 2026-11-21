@@ -15,6 +15,10 @@ must answer, and recorded by class so the factory can learn which mistakes plans
 
 {definition}
 
+## Its parent's coverage: what the split parent must do, and which sub-gaps build each point (this review covers sub-gap `{branch}`)
+
+{coverage}
+
 # The task graph (what landed, what is active, what is next)
 
 {graph}
