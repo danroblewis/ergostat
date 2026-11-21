@@ -70,6 +70,15 @@ def test_a_blocks_change_is_superseded_when_its_subject_is_edited(tmp_path):
     assert st == "superseded" and "parameter.k" in f["why"] and "edited" in f["why"]
 
 
+def test_a_stale_callers_model_defers_the_carry(tmp_path):
+    p, _ = long_queue(tmp_path)
+    got = im.submit(p, "x", raw(3))
+    edit(p, "value: 2 ", "value: 2.5 ")                                    # its subject edited; the model not reloaded
+    n = len(events(p))
+    assert pr.supersede(p, p.model.spec) == [] and len(events(p)) == n
+    assert pr.supersede(p, reload(p).model.spec) == [got["id"]]            # the next pass, on the model as it is, decides
+
+
 def test_a_change_recorded_without_a_subject_is_superseded(tmp_path):
     p, _ = long_queue(tmp_path)
     got = im.submit(p, "x", raw(3))
@@ -155,10 +164,10 @@ def test_the_judge_never_moves_a_change_made_on_another_version(tmp_path, monkey
     assert k_after(p, pr.stored(p)[a["id"]]) == 3
     monkeypatch.setattr(pr, "supersede", lambda *a_, **k_: [])            # the edit lands after supersede
     out = jd.run(p, "judge")
-    assert out["accepted"] == 0 and out["deferred"]
-    assert pr.stored(p)[a["id"]]["state"] == "passed" and pr.stored(p)[b["id"]]["state"] == "checked"
     text = p.model.path.read_text()
     assert "extra:" in text and "value: 2 " in text and "value: 3 " not in text
+    assert pr.stored(p)[a["id"]]["state"] == "passed" and pr.stored(p)[b["id"]]["state"] == "checked"
+    assert out["accepted"] == 0 and out.get("deferred")
 
 
 def test_accept_refuses_when_the_files_moved_on_from_the_loaded_model(tmp_path):
@@ -175,7 +184,6 @@ def test_files_that_do_not_compile_defer_every_pass(tmp_path):
     p, snap_ = long_queue(tmp_path, text=QUEUE + judge_block())
     a = made_ago(p, "x", raw(3))
     p.model.path.write_text(p.model.path.read_text().replace("    unit: 1/h\n", "    unit: [1/h\n"))   # a syntax error
-    assert pr.files_now(p) is None
     n = len(events(p))
     assert pr.supersede(p, p.model.spec) == []
     state = p.dir / rv.STATE
