@@ -459,6 +459,165 @@ def test_compact_projects_lists_and_deletes_only_folders_whose_repo_is_gone(tmp_
     assert len(before - left) == 1 and "no-note" in left and len([n for n in left if n.startswith("rz-")]) == 2
 
 
+# ---- 6. the engine's own hard restart (cli.running._restart_hard): one run of an item at a time, no attempt spent
+
+TAKES = """
+name: rz
+items:
+  job:
+    id: job/*
+    states: [new, done]
+    on:
+      job.end: done
+  ticket:
+    id: ticket/*
+    states: [ready, done]
+blocks:
+  doer:
+    type: program
+    takes: {kind: job, at: new}
+    pool: 2
+    run: 'echo "$ERGOSTAT_ITEM $$" >> runs.log; exec sleep 600'
+    lease: {ttl: 1m, attempts: 1}
+"""
+DEAF_BLOCK = """
+  deaf:
+    type: program
+    takes: {kind: ticket, at: ready}
+    pool: 1
+    lease: {ttl: 1m}
+    daemon: {run: python3 deaf.py a}
+"""
+
+
+class _Exec(Exception):
+    """The patched ``os.execv``: ergostat would have started its process again here."""
+
+
+@pytest.fixture
+def hard(monkeypatch):
+    """``_restart_hard`` on a real engine, its exec patched to record the runs alive at that moment; whatever the test
+    started, and the process-wide flags the restart sets, put back."""
+    from types import SimpleNamespace
+
+    from ergostat import runner
+    from ergostat.cli import running
+    from ergostat.daemons import proc
+
+    from .test_daemons_restart import dead
+    from .test_leases import wait_for
+    monkeypatch.setattr(runner, "keep_lock_across_exec", lambda: {})
+    seen: dict = {"pids": []}
+
+    def runs(d):
+        f = d / "runs.log"
+        return [(x.split()[0], int(x.split()[1])) for x in f.read_text().splitlines()] if f.exists() else []
+
+    def execv(path, argv):                        # (a KILL just sent lands within a moment: polled for at most 1 s)
+        seen["alive"] = [(i, pid) for i, pid in runs(seen["d"]) if not wait_for(lambda pid=pid: dead(pid), 1.0)]
+        raise _Exec()
+    monkeypatch.setattr(running.os, "execv", execv)
+
+    def restart(p, e):
+        seen["d"] = p.repo
+        with pytest.raises(_Exec):
+            running._restart_hard(p, SimpleNamespace(no_web=True, port=None), "test", e)
+        return seen
+    yield SimpleNamespace(restart=restart, runs=runs, seen=seen)
+    import os
+    import signal
+    for _, pid in runs(seen["d"]) if "d" in seen else []:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    with proc.GROUPS_LOCK:
+        proc.CLOSING = False
+
+
+def test_a_hard_restart_never_leaves_two_runs_of_one_item(tmp_path, hard, monkeypatch):
+    """A job made while the restart waits on a daemon deaf to SIGTERM (end_all's whole 3 s): fails when the hard path
+    leaves dispatch open (a run of it is alive at the exec, outliving the process; the next engine, finding its lease
+    expired, would start a second); the run going before the restart must be dead at the exec too."""
+    import time
+
+    from ergostat.daemons import supervise
+    from ergostat.leases import TAKEN
+
+    from .test_daemons_restart import DEAF, dead, pids
+    from .test_leases import item, start, wait_for
+    d = _repo(tmp_path, TAKES + DEAF_BLOCK)
+    (d / "deaf.py").write_text(DEAF)
+    p = Project(mdl.load(d))
+    e = start(p)
+    try:
+        deaf = pids(d, "a")                                                # (its group: ended by end_all, KILL at 3 s)
+        p.events.add("job.made", item="job/1", source="t")
+        assert wait_for(lambda: hard.runs(d), 10), "the run before the restart never started"
+        end_all, window = supervise.end_all, {}
+
+        def made_in_the_window(wait):
+            p.events.add("job.made", item="job/2", source="t")
+            t0 = time.monotonic()
+            got = end_all(wait)
+            window["seconds"] = time.monotonic() - t0
+            return got
+        monkeypatch.setattr(supervise, "end_all", made_in_the_window)
+        seen = hard.restart(p, e)
+        assert window["seconds"] > 2, "the deaf daemon did not hold end_all open: no window was tested"
+        assert seen["alive"] == [], f"runs alive at the exec (they outlive it): {seen['alive']}"
+        assert not p.events.query(n=None, type=TAKEN, item="job/2"), "a lease was taken once stopping had begun"
+        assert item(p, "job/2").state == "new"
+        assert all(wait_for(lambda x=x: dead(x), 2) for x in deaf), "the deaf daemon outlived the restart"
+    finally:
+        e.close()
+
+
+def test_a_hard_restart_spends_no_attempt(tmp_path, hard):
+    """A job held by a run when the engine restarts hard (wedged: its run's end never recorded), with one attempt
+    allowed: the next engine expires the lease uncounted and it waits to be taken again. Fails, a dead letter, when
+    an expiry of a previous engine's run is counted; the next engine's own run's expiry still counts."""
+    from ergostat.leases import EXPIRED
+    from ergostat.leases.terms import grace
+    from ergostat.spec.engine import Engine
+
+    from .test_leases import item, start, wait_for
+    d = _repo(tmp_path, TAKES)
+    p = Project(mdl.load(d))
+    e = start(p)
+    try:
+        p.events.add("job.made", item="job/1", source="t")
+        assert wait_for(lambda: hard.runs(d) and item(p, "job/1").state == "leased", 10)
+        e.dispatch.finish = lambda *a, **k: None                           # wedged: nothing it does is recorded
+        e.dispatch.give_back = lambda *a, **k: None
+        assert hard.restart(p, e)["alive"] == []
+    finally:
+        e.close()
+    lease = item(p, "job/1").fields["lease"]
+    assert lease["holder"] and lease["max"] == 1, "the lease is left held, as by an engine that was exec'd"
+    after = Engine(Project(mdl.load(d)), say=lambda s: None)                 # the next process's engine
+    try:
+        late = float(lease["expires"]) + float(lease["ttl"]) + 10          # (no fixed sleep: two looks, a grace apart)
+        after.dispatch.watch(now=late, mono=100.0)
+        after.dispatch.watch(now=late, mono=101.0 + grace(float(lease["ttl"])))
+        it = item(p, "job/1")
+        (ev,) = p.events.query(n=None, type=EXPIRED, item="job/1")
+        assert it.state == "new", f"an attempt spent by the restart: {it.state}"
+        assert it.fields["lease"]["attempts"] == 0 and it.fields["lease"]["history"][-1]["counted"] is False
+        assert ev["data"].get("count") is False and ev["data"]["state"] == "new"
+        assert [i.id for i in after.dispatch.ready(after.spec.blocks["doer"], [it], late)] == ["job/1"], "taken again"
+        # its own run's lease, silent past its TTL: counted (a dead letter, with one attempt)
+        after.dispatch.ours.add("mine")
+        p.events.add("ergostat.lease.taken", item="job/1", source="ergostat",
+                     data={"run": "mine", "block": "doer", "fence": lease["fence"] + 1, "ttl": 1.0, "max": 1, "back": "new"})
+        late = float(item(p, "job/1").fields["lease"]["expires"]) + 10
+        after.dispatch.watch(now=late, mono=200.0)
+        after.dispatch.watch(now=late, mono=202.0)
+        assert item(p, "job/1").state == "dead"
+    finally:
+        after.close()
+
+
 def test_compact_projects_skips_a_folder_an_engine_runs_in(tmp_path, home, monkeypatch):
     import shutil
 
