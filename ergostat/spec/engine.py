@@ -954,6 +954,8 @@ class Engine:
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
+                    if self.stop.is_set():                           # closed while it was starting: kill_all missed it
+                        old._kill(proc)
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                     try:
                         if stream.pump(proc, stdin, b.timeout, take):

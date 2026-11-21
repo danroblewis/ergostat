@@ -251,3 +251,17 @@ other thread gets the real function. The test was watched failing again with the
 then restored. No code under test changed. Whether this explains the two `F`s is not known. If they show again,
 `-rf` names them; then run each alone on this branch and on main (lesson-10, lesson-13). The size and the
 backlog-merge base stand as round 4 left them: main still lacks 2b101c6.
+
+### The unit suite after round 5
+
+The factory's `-n 8` run named the failure:
+`tests/test_reload_in_place.py::test_a_removed_blocks_run_still_takes_messages_while_it_goes`. Run alone here, it
+failed every time (5.3 s, `close` waiting out its 5 s for the run). Run with its file, it passed. The cause is a race
+in the engine. `agent.started` is written before the child is spawned and added to `runner.LIVE`. A `close()` whose
+`kill_all()` falls in that gap finds nothing to kill, so the child starts anyway and outlives the engine. The gap is
+wide on a cold first run (imports) and under load. The fix is one check in `Engine.run_block` (`spec/engine.py`, 2
+lines): once the process is in `LIVE`, a run whose engine is already stopping is killed at once. `close` sets `stop`
+before `kill_all` walks `LIVE`, so one of the two always kills it. With the test unchanged, it now passes alone
+(0.26 s) and with its file (11 passed); ruff is clean. `engine.py` is not on the gap's list of files. The factory asked
+for the code to be fixed here, so it is fixed here and said (lesson-13). Whether main fails the same way alone was
+not run (no copy of main could be made in this session). Net lines for the gap outside tests and docs: 235.
