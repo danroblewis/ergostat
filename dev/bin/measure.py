@@ -21,7 +21,10 @@ own measures do).
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
   manager-triggers-per-session, manager-actions-per-session   the mean a pipeline manager session was given, and did
-The last three, like first-pass-yield, have no value with nothing to measure."""
+  in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes (each also with -p90)
+                      time in each state, the build-review loop and the gates, per gap, over every gap that left the
+                      state, ended the loop or passed the gate in the window, whatever its end (times.py)
+The last four, like first-pass-yield, have no value with nothing to measure."""
 
 from __future__ import annotations
 
@@ -31,6 +34,7 @@ import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import times  # noqa: E402
 
 WINDOW = 14 * 86400
 
@@ -62,6 +66,8 @@ def reading(name: str, now: float | None = None) -> float:
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
     gaps = fac.items("gap")
+    if name.removesuffix("-p90") in times.measures():
+        return times.reading(name, gaps, since)
     merged = [g["fields"] for g in recent(gaps, "merged_at", since) if g["state"] == "merged"]
     f = lambda k: [float(g.get(k) or 0) for g in merged]  # noqa: E731
     if name == "cycle-hours":

@@ -140,7 +140,10 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
     if not fac.git_ok(repo, "rev-parse", "--verify", "-q", f"refs/heads/{name}"):
         print(f"intake: {gap['id']} continues {name!r}, which the checkout does not have: not taken", file=sys.stderr)
         return False
-    return fac.git_ok(d, "fetch", "-q", str(repo), f"refs/heads/{name}:refs/heads/{ref}")
+    if fac.git_ok(d, "fetch", "-q", str(repo), f"refs/heads/{name}:refs/heads/{ref}"):
+        return True
+    print(f"intake: {gap['id']} continues {name!r}, which could not be fetched into the drop: not taken", file=sys.stderr)
+    return False
 
 
 def dependencies(cfg: dict, known: dict[str, dict], text: str) -> int:
@@ -200,6 +203,8 @@ def main() -> int:
                     defined_by="coordinator")
             g["fields"]["definition"], g["state"] = where, "ready"
             defined += 1
+        elif g["fields"].get("continues"):                     # the planner never takes it: said, never waiting silently
+            print(f"intake: {g['id']} continues a branch with no definition of done on it: not taken", file=sys.stderr)
     linked = dependencies(cfg, known, text)
     released = main_moved(cfg, known)
     print(f"intake: {found} found, {closed} closed (GAPS.md marks them done), {defined} defined, {linked} with their "
