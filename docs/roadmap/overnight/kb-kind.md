@@ -55,3 +55,65 @@ For each new test, the implementor breaks the code it guards and reports that it
 - The allowlist contradicts itself: decisions.md declares kind ergostat.decision, which is not in the six. State that the accepted front-matter kinds are exactly the six plus ergostat.decision, and that ergostat.decision is accepted only in decisions.md. Test that ergostat.decision in any other file is refused, and that a decisions.md with missing or wrong front matter is refused with nothing retired.
 - All or nothing: when any file is refused, sync must also print no ergostat.decision.proposed lines and record no other change. Extend test_unknown_kind_refused_nothing_retired to assert that no proposal is printed.
 - Duplicate ids (lesson-5): two headings in one kind that slug to the same id must be refused, not let one overwrite the other. Add a case to the refusal test.
+
+## Where it stopped
+
+Built, round 1. What follows answers the plan-review notes and records the choices made alone. This is the only
+section the definition allows to be added, so the answers go here.
+
+**The notes, answered**
+- *Fail-open sync:* `held()` reads every `ergostat.decision` item. If the lookup fails (ergostat exits non-zero), it
+  raises. If the listing gives fewer items than its `total`, it is refused. Either way sync exits non-zero before
+  printing anything. `test_sync_refuses_when_decisions_unreadable[exit|partial]` dismisses a decision, then makes the
+  lookup fail. It asserts a non-zero exit with no line at all, and then a clean sync that does not re-propose.
+- *Concurrency (lesson-1, which belongs in Risks):* the lock is ergostat's own. The `.proposed` event's id comes from
+  the item (`acts._eid(id, "proposed")`). The record checks for it inside its write lock (`Events.add`: `insert or
+  ignore`, or `known()` under `_writing()` in segments). `.seen` adds words only when they differ, and ours never
+  differ. `test_overlapping_syncs_record_one_decision` runs two syncs that both read "none". It feeds both sets of
+  lines to a real record with `acts.one` patched to "none", putting the competing write in the gap. The result is one
+  `.proposed` event per decision and one set of words.
+- *Allowlist:* the accepted front-matter kinds are exactly the six plus `ergostat.decision`, and `ergostat.decision`
+  is accepted only in `decisions.md`, which must declare it. The refusal test covers each case: `decision-elsewhere`,
+  `decisions-no-front-matter`, `decisions-wrong-kind`.
+- *All or nothing:* sync reads everything (entries, decisions, decision items) before it prints anything. Every
+  refusal case asserts that stdout has no event line: no retired, no proposed, no found.
+- *Duplicate ids:* refused, both for entries (`duplicate-heading`) and for decisions (`duplicate-decision`). A lesson
+  not headed `## N. Title` is refused too (`lesson-unnumbered`).
+
+**Choices made alone (the most reversible)**
+- A decision's sentence is its heading. Its body is the owner's words (`{text, file}`) and its *Areas* is the scope.
+  Editing the body proposes nothing new. Editing the heading makes a new decision, and the old one stays for the
+  owner to dismiss or supersede. Both behaviours are tested.
+- The headings that ended in a comma or dragged the body in ("Redesign runs on its own,", "Daemons over a process
+  per item", "Security effort ...") were cut at the heading. The rest of each sentence moved into the body.
+- House-rule ids stay `rules-<first word of the heading>`, so `## Outside the machine` is still `rules-outside`.
+  Their titles are now the whole heading, which makes one `knowledge.changed` on the first sync.
+- `knowledge.py` keeps its own copy of ergostat's id derivation and STOP list, because dev/bin does not import
+  ergostat. `test_knowledge_files_parse` holds the copy equal to `ergostat.decisions.kinds.item_id` and `STOP`
+  (lesson-5).
+- A missing `decisions.md` is refused (fails closed).
+- Known limit: `ergostat item --json` lists at most 500 items. With more than 500 decisions, sync and briefs are
+  refused (the total check) rather than reading a partial list. Paging is left for later.
+
+**Lesson-9: each guard broken, and the test that then failed**
+- Allowlist widened to all files: `[decision-elsewhere]` and `[decisions-wrong-kind]` failed.
+- Refused file skipped instead of stopping: `[misc]`, `[no-front-matter]` and `[decision-elsewhere]` failed.
+- Duplicate-id check removed: `[duplicate-heading]` failed. Decision duplicate check removed: `[duplicate-decision]`
+  failed.
+- Kind taken from the file name: `test_entry_kind_from_front_matter` failed.
+- Proposal not filtered by existing ids: `test_sync_proposes_each_decision_once` failed.
+- Lookup failure caught and read as "none": `test_sync_refuses_when_decisions_unreadable[exit]` and
+  `test_brief_fails_when_decisions_unreadable[exit]` failed. Total check removed: both `[partial]` cases failed.
+- Dismissed decisions carried: `test_brief_carries_knowledge_within_budget` failed.
+- Id hash length changed: `test_knowledge_files_parse` failed.
+- Proposal event id made random in ergostat: `test_overlapping_syncs_record_one_decision` failed.
+
+**What was run, and what was not**
+- Run: `tests/test_factory_knowledge.py`, 37 passed. The four factory test files, 72 passed and 2 skipped. ruff
+  clean.
+- Not run, because this session's permissions refused those commands: `ergostat check` on the root model, and the
+  unit and browser suites under `scripts/suite_watch.py`. The brief leaves the suites to the factory.
+  `test_the_factory_model_loads` and `test_the_knowledge_model_loads` read the root model with no errors.
+- No `origin` remote exists in this clone, and local `main` has not moved past the branch's base, so there was
+  nothing to merge.
+- Size: `dev/bin/knowledge.py` is +126/−42, so 84 net lines, within the 150.
