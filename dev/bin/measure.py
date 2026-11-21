@@ -1,5 +1,5 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
-when nothing in the window to measure, but for first-pass-yield and the last five below, which have no value then
+when nothing in the window to measure, but for the six named at the end, which have no value then
 (they exit 1, as ergostat's own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
@@ -20,12 +20,16 @@ when nothing in the window to measure, but for first-pass-yield and the last fiv
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
+  in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes (each also with -p90)
+                      time in each state, the build-review loop and the gates, per gap, over every gap that left the
+                      state, ended the loop or passed the gate in the window, whatever its end (times.py)
   size-accuracy       of merged gaps the planner sized (planned_size and its confidence), the share whose merged_lines fall
                       inside their class: S <= 50 (a net removal too), M 51-150, L 151-400, XL > 400. The window is
                       on the latest merge (merged_at). A gap whose latest merge has no merged_lines is left out of
                       the share, never a hit, and named on stderr.
   size-accuracy-high  the same, of the gaps sized with high confidence only
-The last five, like first-pass-yield, have no value with nothing to measure."""
+First-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean and the two size measures have no value with
+nothing to measure."""
 
 from __future__ import annotations
 
@@ -35,6 +39,7 @@ import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import times  # noqa: E402
 
 WINDOW = 14 * 86400
 
@@ -64,6 +69,8 @@ def reading(name: str, now: float | None = None) -> float:
     if name in ("size-accuracy", "size-accuracy-high"):
         return size_accuracy(name, since)
     gaps = fac.items("gap")
+    if name.removesuffix("-p90") in times.measures():
+        return times.reading(name, gaps, since)
     merged = [g["fields"] for g in recent(gaps, "merged_at", since) if g["state"] == "merged"]
     f = lambda k: [float(g.get(k) or 0) for g in merged]  # noqa: E731
     if name == "cycle-hours":

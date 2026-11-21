@@ -42,6 +42,7 @@ It works.
 ## Files to touch
 
 - `app.py`, and `fresh.py` (new)
+- `standin/work.txt` (new): the stand-in implementor's note
 
 ## Risks
 
@@ -493,6 +494,66 @@ def test_size_accuracy_high_only_and_no_value(tmp_path):
     assert size_measure(f, "size-accuracy").stdout.strip() == "0.667"
 
 
+def deny(f: Instance, aid: str, lid: str, by: str = "coordinator", note: str = "too narrow") -> None:
+    """The coordinator's answer to a lesson's knowledge-change, as the record keeps it."""
+    f.fold([{"event": "ergostat.action.requested", "item": aid, "data": {"action": "knowledge-change",
+                                                                          "args": {"lesson": lid}, "gate": "approve"}},
+            {"event": "ergostat.action.denied", "item": aid, "data": {"denied_by": by, "note": note}}], None)
+
+
+def test_a_denied_lesson_is_settled_and_stops_counting(tmp_path):
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    f = Instance(tmp_path)
+    for lid in ("lesson/seen-lesson-1-aaa", "lesson/seen-lesson-2-bbb", "lesson/seen-lesson-3-ccc"):
+        f.fold([{"event": "lesson.proposed", "item": lid, "data": {"kind": "seen", "text": "x"}}], None)
+    deny(f, "ergostat.action/a1", "lesson/seen-lesson-1-aaa")                  # denied before this existed
+    deny(f, "ergostat.action/a2", "lesson/seen-lesson-2-bbb", by="gate", note="fenced: its lease is over")
+    deny(f, "ergostat.action/a3", "lesson/elsewhere")                         # no proposal of that id
+    f.fake.write_text(FAKE_MORE.replace('args = sys.argv[1:]\n', 'args = sys.argv[1:]\nif "ergostat.action" in args '
+                                        'and db.get("actions_fail"):\n    sys.exit("the record is busy")\n', 1))
+    db = f.db()
+    f.record.write_text(json.dumps({**db, "actions_fail": True}))
+    f.tool("lesson.py", "settle", ok=False)                                   # unreadable: stops, nothing settled
+    assert f.drain() == [] and f.item("lesson/seen-lesson-1-aaa")["state"] == "proposed"
+    f.record.write_text(json.dumps(db))
+    f.tool("lesson.py", "settle")
+    assert f.drain() == ["lesson.denied"]
+    it = f.item("lesson/seen-lesson-1-aaa")
+    assert it["state"] == "denied" and it["fields"]["denied_by"] == "coordinator"
+    assert it["fields"]["why"] == "too narrow" and it["fields"]["action"] == "ergostat.action/a1"
+    assert f.item("lesson/seen-lesson-2-bbb")["state"] == "proposed"         # the gate's fencing decided nothing
+    assert "lesson/elsewhere" not in f.db()["items"]
+    f.tool("lesson.py", "settle")
+    assert f.drain() == []                                                    # settled once
+    f.tool("lesson.py", "request", "lesson/seen-lesson-1-aaa", ok=False)      # never made a gap
+    spec, _ = read(ROOT / "ergostat.yaml")
+    assert spec.goals["lessons-decided"].of.name == "lessons-proposed"
+    counted = [s.items for s in spec.stocks["lessons-proposed"].sensors.values()][0]
+    assert counted["state"] == ["proposed"] and "denied" in spec.items["lesson"].states
+    assert sorted(i["id"] for i in f.db()["items"].values() if i["kind"] == counted["kind"] and
+                  i["state"] in counted["state"]) == ["lesson/seen-lesson-2-bbb", "lesson/seen-lesson-3-ccc"]
+
+
+def test_a_denied_shape_is_not_proposed_again(tmp_path):
+    f = Instance(tmp_path)
+    shape = {"finding": 1, "class": "lesson-1", "shape": "a pool slot taken after its check", "new_shape": True}
+    new = {"finding": 1, "class": "new", "name": "Stale cache", "shape": "a cache read after the merge"}
+    assert librarian(f, "review/a-1", ["checks then takes"], [shape]) == ["lesson.proposed", "review.measured"]
+    librarian(f, "review/b-1", ["cached"], [new])
+    assert "lesson.proposed" in librarian(f, "review/c-1", ["cached"], [new])
+    seen = next(i for i in f.db()["items"] if i.startswith("lesson/seen-lesson-1-"))
+    deny(f, "ergostat.action/d1", seen)
+    deny(f, "ergostat.action/d2", "lesson/new-stale-cache", note="not a class")
+    f.tool("lesson.py", "settle")
+    assert f.drain() == ["lesson.denied", "lesson.denied"]
+    asked = len(f.db()["acts"])
+    assert librarian(f, "review/a-2", ["checks then takes"], [shape]) == ["review.measured"]
+    assert "lesson.proposed" not in librarian(f, "review/d-1", ["cached"], [new])
+    assert len(f.db()["acts"]) == asked
+    assert f.item(seen)["state"] == f.item("lesson/new-stale-cache")["state"] == "denied"
+
+
 def test_cli_tools_on_a_fixture_instance(tmp_path):
     f = Instance(tmp_path)
     f.opened()
@@ -556,6 +617,32 @@ def test_the_knowledge_model_loads():
     assert spec.blocks["planner"].takes.at == ["open", "replan"] and spec.blocks["plan-review"].takes is None
     assert "ready" in spec.blocks["planner"].takes.to and "planned" not in spec.blocks["planner"].takes.to
     assert {"knowledge-entries", "gaps-planned", "lessons-proposed"} <= set(spec.stocks)
+
+
+def test_the_planner_never_takes_a_continued_gap(tmp_path):
+    from ergostat.spec import items as its
+    from ergostat.spec import read
+    from tests.test_factory import ROOT, behind_main, continues
+    where = read(ROOT / "ergostat.yaml")[0].blocks["planner"].takes.where
+    assert where == {"continues": None}
+    f = Factory(tmp_path)
+    f.fold([{"event": "gap.requested", "item": "gap/plain", "data": {"title": "Plain", "source": "request"}}], None)
+    gid = continues(f, name="no-such")                                  # a branch the checkout does not have
+    assert "continues 'no-such', which the checkout does not have: not taken" in f.stderr
+    [plain, cont] = [f.item(g) for g in ("gap/plain", gid)]
+    assert plain["state"] == cont["state"] == "open"
+    take = lambda g: its.matches(its.Item(g, "gap", "open", dict(f.item(g)["fields"])), where)  # noqa: E731
+    assert take("gap/plain") and not take(gid)                              # it waits for the intake, said, not planned
+    git(f.checkout, "checkout", "-q", "-b", "bare", "main")             # fetched, but no definition on it: said
+    git(f.checkout, "checkout", "-q", "main")
+    continues(f, name="bare", gid="gap/bare-again")
+    assert "gap/bare-again continues a branch with no definition of done on it: not taken" in f.stderr
+    behind_main(f)                                                      # a fetch that fails (factory/warm/x holds
+    drop = tmp_path / "live" / "drop.git"                               # the name): said, never silent
+    git(drop, "update-ref", "refs/heads/factory/warm/x", git(drop, "rev-parse", "main"))
+    continues(f, gid="gap/warm-again")
+    assert "gap/warm-again continues 'warm', which could not be fetched into the drop: not taken" in f.stderr
+    assert f.item("gap/warm-again")["state"] == "open"
 
 
 LONG = "A gap whose title runs on well past thirty-two characters"
@@ -858,7 +945,8 @@ def test_the_lint_catches_each_missing_piece(tmp_path):
              "100 net lines": ("900 net lines", "900 net lines: at most 600"),
              "lesson-3:": ("lesson-999:", "lesson-999 under Risks is no review lesson"),
              "`fresh.py` (new)": ("`fresh.py`", "`fresh.py` under Files to touch is not on main"),
-             "- `app.py`, and `fresh.py` (new)": ("- the app", "no file named under Files to touch")}
+             "- `app.py`, and `fresh.py` (new)\n- `standin/work.txt` (new): the stand-in implementor's note":
+                 ("- the app", "no file named under Files to touch")}
     for old, (new, found) in cases.items():
         got = f.py(LINT, GOOD.replace(old, new))
         assert len(got) == 1 and found in got[0], (old, got)   # each piece missing: exactly its finding
@@ -915,7 +1003,8 @@ def graph_fixture(f: Instance, n_ready: int = 1) -> None:
                                                                     "merged_at": now - 3600, "main_sha": sha}},
              {"event": "gap.merged", "item": "gap/old", "data": {"title": "Old", "branch": "old", "merged_at": now - 9e5}}]
     for name, event in [("busy", "gap.started")] + [(f"next-{i}", "gap.defined") for i in range(n_ready)]:
-        (defs / f"{name}.md").write_text(GOOD.replace("`app.py`, and `fresh.py` (new)", f"`{name}_mod.py` (new)"))
+        (defs / f"{name}.md").write_text(GOOD.replace("`app.py`, and `fresh.py` (new)", f"`{name}_mod.py` (new)")
+                                         .replace("- `standin/work.txt` (new): the stand-in implementor's note\n", ""))
         lines.append({"event": event, "item": f"gap/{name}", "data": {
             "title": name.title(), "branch": name, "definition": f"run/defs/{name}.md", "depends_on": ["gap/landed"]}})
     f.fold(lines, None)
