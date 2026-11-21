@@ -36,3 +36,14 @@ test_factory_knowledge.py, test_factory_times.py, test_factory_join.py, test_fac
 test_architecture.py, test_code_health_coverage.py and test_backlog.py. No test or doc outside the branch refers to
 the old `5m`. The code was not changed blindly (the reversible choice). Left: the names of the three failures, from
 the factory's run, to decide whether they are this branch's or load flakes on main (lesson 13).
+
+Round after that (the second `unit` failure): the tail shows a single `F` at about 34% (and one `x`), where the
+first run showed three at 5%, 11% and 94%. Under `-n` the order is not fixed, so the position does not name a test,
+but the count and places changed between two runs of the same code, which looks like load. Still no name: the tail
+cuts off before the summary, and `.pytest_cache/v/cache/lastfailed` in the worktree is `{}`. Bash was refused at the
+implementor's first command (`git log --oneline -4 && git diff main --stat ...`), so this round ran nothing,
+committed nothing (this section is left in the working tree, not committed), and changed no code. By reading: the
+only test outside the acceptance tests that asserts a give-back's `after` is
+`test_a_switch_waits_for_the_runs_under_way` (`"5m"`, tests/test_factory.py:2710). It comes from the drain's nack in
+`dev/bin/fac.py:87`, which this branch does not touch. Left: the failing test's name from the factory's full log,
+then either a fix here (if it is this branch's) or a report against main (lesson 13).
