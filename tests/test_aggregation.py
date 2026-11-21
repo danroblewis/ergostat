@@ -184,6 +184,15 @@ def test_each_thing_the_dominance_does_not_know_disqualifies_on_its_own(tmp_path
     assert groups(q, plain) == [ABC]
 
 
+def test_a_loop_search_at_its_cap_says_nothing(tmp_path, monkeypatch):
+    """At the cap, loops may be missing (one of them the one that drove a stock): no group, even when the dominance
+    was worked out on the same loops."""
+    p, _, dom = chain(tmp_path)
+    assert len(dom["polarity"]) == 3 and groups(p, dom) == [ABC]
+    monkeypatch.setattr(ag, "MOST", 3)
+    assert groups(p, dom) == []
+
+
 ACCUMULATOR = """\
   d:
     unit: x
