@@ -126,7 +126,13 @@ and the suite slot; a browser test skipped fails them, as in the queue. **No bro
 session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
 missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
 starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with
-`uv run --with playwright==1.63.0` (inside its own container's limits: the host's slot is not reachable from there). The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
+`uv run --with playwright==1.63.0` (inside its own container's limits: the host's slot is not reachable from there).
+The unit suite's tests/test_agents.py::test_implementor_environment_has_a_browser really launches Chromium that way, so
+every unit run (the queue's on the host, a developer's, an implementor's offline container) needs Playwright 1.63.0
+cached for `uv run --with` and its Chromium installed, or it fails: on purpose, a missing browser is a failure, not a
+skip.
+
+The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
 between build and review is not a failed gate: the merge queue merges the branch into the main of its moment and runs

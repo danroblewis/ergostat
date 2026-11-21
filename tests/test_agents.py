@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -35,6 +36,12 @@ def test_implementor_environment_has_a_browser():
     allowed = [t[len("Bash("):-len(":*)")] for t in module("agents").TOOLS["implementor"] if t.startswith("Bash(")]
     assert any(cfg["browser"].startswith(a + " ") for a in allowed) and cfg["browser"].startswith(
         "uv run python scripts/suite_watch.py -- ")
+    # the clone is at /work there, so the browser files' pictures (beside the checkout by default) need a writable
+    # folder: the round's suite containers and the session's own both name one under /tmp
+    agents, factory = module("agents"), tomllib.loads((ROOT / "dev" / "factory.toml").read_text())
+    shots = shlex.split(agents.contained(factory, "true", Path("/w"))[1]) + agents.run_args(
+        factory, "implementor", Path("/w"), "n")
+    assert shots.count("SPLIT_SHOTS=/tmp/split-shots") == 2 and shots.count("--tmpfs") == 2
     # and here, in the environment this suite runs in (the implementor's image, in the factory's suite containers),
     # the check the round makes launches Chromium: no Playwright or no browser fails this test, never skips it
     r = subprocess.run(["sh", "-c", cfg["browser_ready"]], cwd=ROOT, capture_output=True, text=True, timeout=300)

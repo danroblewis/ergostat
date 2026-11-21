@@ -50,6 +50,7 @@ TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600,
             "pipeline_manager": 2400}   # seconds, each below its block's
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
+SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
 TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
              pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
              researcher=TOOLS["reviewer"] + ["WebSearch"])      # all read-only: only the implementor writes; WebSearch is
@@ -132,7 +133,7 @@ def run_args(cfg: dict, role: str, work: Path, name: str, keep=None) -> list[str
     """`docker run` for a session: the token by name only (its value is in the docker client's environment alone).
     ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id."""
     proxy = f"http://{PROXY}:{PORT}"
-    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS,
+    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS, *SHOTS,
             "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work",
             *(["-v", f"{keep.raw}:{keep.HOME}"] if keep else []),
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
@@ -363,8 +364,8 @@ def browser_ready(cfg: dict, home: Path, logs: Path, tag: str) -> None:
 def contained(cfg: dict, cmd: str, work: Path) -> tuple[str, str]:
     """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network)."""
     name = container("suite")
-    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS, "-v", f"{work}:/work",
-                           "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
+    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS, *SHOTS,
+                           "-v", f"{work}:/work", "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
 
 
 def suite_containers() -> int:
