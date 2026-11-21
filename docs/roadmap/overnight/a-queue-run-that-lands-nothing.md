@@ -45,3 +45,12 @@ Built, round 1. Nobody could be asked, so these choices were taken alone, the mo
   tests/test_queue.py).
 - The tests take 45 to 60 s each in this container. test_factory.py's queue tests, unmarked, take the same here
   (test_batch_of_one_is_todays_queue: 61 s), so the new ones follow them and are not marked `slow`.
+  Profiled (cProfile around queue.main()), the queue run itself takes 0.04 s. The 60 s is the first test of a
+  session setting up its Factory, and it is the same for test_factory.py's tests.
+- **The fast suites' `unit` failure after round 1 (2 F, by position at 11% and 22% of a randomly ordered `-n 8` run):
+  not found, and no code was changed for it.** The tail given has no test names. Every file this branch touches or
+  that runs queue.py passes alone in the container: tests/test_queue.py (3), tests/test_factory.py (116 passed,
+  2 skipped), test_factory_{times,knowledge,join,manager,resources}.py (116), test_factory_sessions.py,
+  test_daemon_docs.py and test_code_health_coverage.py (45), and test_architecture.py (9). No test outside these runs
+  queue.py. Running the whole unit suite here was refused (rightly: suites are the factory's to run), so the two names
+  are still needed from the suite's log. If they are tests this branch does not touch, they are unrelated (lesson-13).
