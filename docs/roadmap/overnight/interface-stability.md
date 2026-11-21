@@ -168,3 +168,10 @@ It is a race in the test, not in this branch (lesson-13): the sensor runs `env |
 `run_for` reads `env.txt` right after `Engine.close()`. A run that began just before the close can have truncated the
 file. That code path never reaches `history`, `explain` or `interface_history`. No code was changed for it; it
 belongs in its own gap.
+
+**Round 2.** No review findings were given. Main (a7cad540) is merged in (f242720c), and no code changed after
+that. On the merged head these were run one at a time, each rc 0: `tests/test_interface_stability.py` (15),
+`tests/test_reload_in_place.py`, `tests/test_reload_soak.py` and `tests/test_runner_and_state.py` (55),
+`tests/test_architecture.py`, `tests/test_graph_cli_web.py`, `tests/test_spec_systems.py` and
+`tests/test_spec_engine.py` (57). Ruff is clean. The full unit suite and the four browser files are left to the
+factory's watched run. Net code is 77 lines, inside the budget of 130.
