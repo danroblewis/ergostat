@@ -472,3 +472,6 @@ origin/main merge.
 - Round 8, the scratch-file gate: the merge of main was already committed (96f24c13; main is an ancestor of HEAD, no
   conflict markers in `judge.py`). `git rm -q scratch_probe.py` was refused the twenty-third time ("don't ask"
   mode). No other route was tried. Only a person can clear it: `git rm scratch_probe.py && git commit`.
+- Round 8, the gate again: the tree was clean and the merge already committed. `git rm -q scratch_probe.py` was
+  refused the twenty-fourth time ("don't ask" mode); no other route was tried. Nothing in `ergostat/`, `tests/` or
+  `scripts/` names it (searched). No code changed and no test was run.
