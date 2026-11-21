@@ -44,3 +44,25 @@ Choices made alone (the most reversible one each time):
   for it. SPEC §12e says all of this.
 - This clone has no `origin` remote, and its `main` is the branch's base, so there was nothing newer to merge. The
   merge and the full suites are left to the factory.
+
+### After the factory's unit run (round 1)
+
+The factory reported `unit` failed, but the tail it gave stops partway through, at 81%. It shows no failed test, no
+pytest summary, and no closing JSON line from `suite_watch`, so the run was cut off rather than ending on a failure,
+and the tail names no test. Nothing in the code was changed for it. Without a failing test named, any change would
+be a guess.
+
+Run here, one file at a time, all passing: `test_modeller` (13), `test_modelling_ai_cap`, `test_redesign`,
+`test_redesign_memory` (59 with `test_modeller`), `test_modelreview` (21), `test_modelling_core`,
+`test_modelling_core2`, `test_sd_review`, `test_inbox`, `test_improve`, `test_self_improve`, `test_redesign_bench`
+(114), `test_modelling_template`, `test_mended`, `test_templates`, `test_unmoved`, `test_daemons_restart` (70),
+`test_web_access`, `test_factory` (108, 2 skipped). The new tests take under 0.6 s each. Not run here: the whole
+unit suite (the session was not permitted to run it), so where it stopped is unknown.
+
+Checked and ruled out:
+- A loop that never stops. The modeller and the redesigner run on `every:` schedules, not on request events, so a
+  failed call that keeps its try cannot set off its next run at once.
+- A thread left behind. `tests/conftest.py` starts no threads or processes for the session.
+
+Left: the factory's full unit run, with its output past 81% (or `-o faulthandler_timeout=240` to name a test that
+hangs), and the fix if a test is named.
