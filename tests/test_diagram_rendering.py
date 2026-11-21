@@ -27,6 +27,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 import urllib.request
@@ -2616,7 +2617,9 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
 
 # ---- two views at once: one selection of model parts, lit in both (correspond.py, interact.js, split.js)
 
-SHOTS = Path(os.environ.get("SPLIT_SHOTS", str(ROOT.parent / "split-shots")))
+# (beside the checkout; where that cannot be written, as for a clone at /work in a container, the temporary folder)
+SHOTS = Path(os.environ.get("SPLIT_SHOTS") or (ROOT.parent if os.access(ROOT.parent, os.W_OK) else Path(
+    tempfile.gettempdir())) / "split-shots")
 LIT = "() => [...document.querySelectorAll('svg.canvas g.node.selected')].map((e) => e.dataset.id).sort()"
 PANE_READY = "() => typeof S !== 'undefined' && S.layout && S.graphSig && document.querySelectorAll('svg.canvas g.node').length > 0"
 

@@ -111,3 +111,15 @@ Round 4, fixed; main (a1d1b941) merged in first.
 - **Run here:** tests/test_agents.py (4 passed), tests/test_factory.py, tests/test_factory_manager.py and
   tests/test_factory_times.py (96 passed, 2 skipped: Docker-only, as on main). Ruff is clean on ergostat, tests,
   scripts and dev/bin. Net lines outside tests, docs and dev: still 0.
+
+Round 5, merged; main (b24eb901) merged in first.
+
+- **Merge of main:** four files conflicted. dev/bin/agents.py takes main's implementor permissions (`git rm`, `git mv`,
+  `git restore`, `rm` and `uv run python scripts/suite_watch.py:*`). That broader prefix covers both of the branch's
+  suite_watch lines, so those lines were dropped. test_implementor_environment_has_a_browser still checks that the
+  `[suites] browser` command is allowed. dev/factory.toml keeps the branch's `-rs` on `rerun` and main's new
+  `check`. dev/bin/implement.py keeps main's `new_findings` step and `mains, allowed`, plus the branch's browser
+  files in the fast suites and `fast_seconds` over all of them. dev/README.md keeps main's permissions and
+  `tool_denials` text, plus the branch's browser paragraph.
+- **Ruff:** clean on ergostat, tests and scripts. On dev/bin it finds one B023 in dev/bin/plan.py:315. That file is
+  the same as on main (the branch does not touch it), so it is main's and is left alone (lesson 13).
