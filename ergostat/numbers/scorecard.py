@@ -6,10 +6,12 @@ scratch copy each measured on the same record:
 - **chain pieces**: each kind's state stocks in groups no flow joins, beyond one a kind;
 - **coherence**: each kind's score on the record (its agreements over its comparisons, ``coherence.py``), and the
   mismatches, the three views held against each other over the record as it is (what Blocks ↔ Process says of the runs
-  of a block the change adds is left out: the record holds none of its runs, and cannot);
+  of a block the change adds is left out: the record holds none of its runs, and cannot); when it cannot be compared
+  on a side (an error, or no kind compared) it is ``measurable: false``, says why, and never counts for the change;
 - **craft**: the craft notes closed and opened;
 - **fit**: the replay's scaled error over the stocks both judge, not worse beyond ``TOLERANCE`` where it can be
-  worked out (a fit made measurable counts for the change, one made unmeasurable against it);
+  worked out (a fit made measurable counts for the change, one made unmeasurable against it; with ``fit_counts``
+  off, as the judge scores a change that cannot move the replay, it counts only against it);
 - **behaviour kept**: what the old model explained (a stock its replay follows, an equation that explains its flow)
   the new still explains: still there (or renamed), no worse beyond the tolerance.
 
@@ -180,8 +182,9 @@ def _nmse(s: dict | None) -> float | None:
 
 
 def score(p, before: Spec, problems_before, after: Spec, problems_after, window: float | None = None,
-          at: float | None = None, fit_before: dict | None = None) -> dict:
-    """The scorecard: each measure before and after, what moved, and the verdict with why."""
+          at: float | None = None, fit_before: dict | None = None, fit_counts: bool = True) -> dict:
+    """The scorecard: each measure before and after, what moved, and the verdict with why. With ``fit_counts`` off
+    the fit counts only against the change (``verdict``)."""
     from .. import coherence as co
     from . import gate as gt
     from .changeset import parts_changed
@@ -255,6 +258,11 @@ def score(p, before: Spec, problems_before, after: Spec, problems_after, window:
         kinds[k] = {"before": _share(x), "after": _share(y), "said_before": _ratio(x), "said_after": _ratio(y)}
     coh_up = sum(1 for v in kinds.values() if v["before"] is not None and v["after"] is not None and v["after"] > v["before"] + 1e-9)
     coh_down = [k for k, v in kinds.items() if v["before"] is not None and (v["after"] is None or v["after"] < v["before"] - 1e-9)]
+    # a record that cannot be compared on a side never counts for the change; what is worse still counts against it (a
+    # kind compared before and not after is down)
+    unmeasured = [(s, c.get("error") or "no kind is compared on the record") for s, c in (("before", cb), ("after", ca))
+                  if c.get("error") or not c["kinds"]]
+    coh_up = 0 if unmeasured else coh_up
     card = {
         "findings": {"before": len(fb), "after": len(fa), "resolved": sorted(fb_r - fa), "introduced": sorted(fa - fb_r)},
         "pieces": {"before": sum(max(0, n - 1) for n in pb.values()), "after": sum(max(0, n - 1) for n in pa.values()),
@@ -262,13 +270,14 @@ def score(p, before: Spec, problems_before, after: Spec, problems_after, window:
         "coherence": {"kinds": kinds, "mismatches_before": len(cb["mismatches"]), "mismatches_after": len(ca["mismatches"]),
                       "resolved": sorted(set(cb["mismatches"]) - set(ca["mismatches"])),
                       "introduced": sorted(set(ca["mismatches"]) - set(cb["mismatches"])), "since": since, "until": until,
-                      "unseen": ca.get("unseen") or []},
+                      "unseen": ca.get("unseen") or [], "measurable": not unmeasured,
+                      **({"says": "cannot be compared " + "; ".join(f"{s}: {w}" for s, w in unmeasured)} if unmeasured else {})},
         "craft": {"before": len(nb), "after": len(na), "closed": sorted(nb_r - na), "opened": sorted(na - nb_r)},
         "fit": fit_card,
         "lost": lost,
         "parts": parts,
     }
-    card["verdict"], card["why"], card["score"] = verdict(card, coh_up, coh_down)
+    card["verdict"], card["why"], card["score"] = verdict(card, coh_up, coh_down, fit_counts)
     return card
 
 
@@ -280,13 +289,18 @@ def _ratio(x: dict | None) -> str | None:
     return f"{x['agree']}/{x['compared']}" if x and x["compared"] else None
 
 
-def verdict(card: dict, coh_up: int = 0, coh_down: list | None = None) -> tuple[str, str, float]:
-    """Better, mixed or no better, with why, and a number to rank change sets by (higher is better)."""
+def verdict(card: dict, coh_up: int = 0, coh_down: list | None = None, fit_counts: bool = True) -> tuple[str, str, float]:
+    """Better, mixed or no better, with why, and a number to rank change sets by (higher is better). Coherence that
+    cannot be compared on a side (``measurable`` false) never counts for the change; with ``fit_counts`` off neither
+    does the fit (made measurable or better): it counts only against it (worse, or behaviour lost)."""
     coh_down = coh_down or []
     f, pc, co, cr, ft = card["findings"], card["pieces"], card["coherence"], card["craft"], card["fit"]
     net_f = len(f["resolved"]) - len(f["introduced"])
     net_p = pc["before"] - pc["after"]
     net_m = co["mismatches_before"] - co["mismatches_after"]
+    if not co.get("measurable", True):
+        net_m, coh_up = min(net_m, 0), 0
+    gain = bool(ft.get("made_measurable")) and fit_counts
     net_c = len(cr["closed"]) - len(cr["opened"])
     good, bad = [], []
     if net_f > 0:
@@ -312,7 +326,7 @@ def verdict(card: dict, coh_up: int = 0, coh_down: list | None = None) -> tuple[
         good.append(f"{net_c} craft note{'s' if net_c != 1 else ''} closed")
     elif net_c < 0:                                  # the craft is secondary: said, and against it only when nothing
         caveat.append(f"{-net_c} craft note{'s' if net_c != -1 else ''} more ({', '.join(cr['opened'][:3])})")   # else moves
-    if ft.get("made_measurable"):
+    if gain:
         good.append("the fit made measurable")
     if ft.get("worse"):
         bad.append(f"the fit worse: {ft['says']}")
@@ -320,7 +334,7 @@ def verdict(card: dict, coh_up: int = 0, coh_down: list | None = None) -> tuple[
         bad.append(f"behaviour lost: {'; '.join(card['lost'][:2])}")
     w = WEIGHTS
     num = (w["findings"] * net_f + w["pieces"] * net_p + w["mismatches"] * net_m + w["coherence"] * (coh_up - len(coh_down))
-           + w["craft"] * net_c + w["fit"] * (1 if ft.get("made_measurable") else -1 if ft.get("worse") else 0)
+           + w["craft"] * net_c + w["fit"] * (1 if gain else -1 if ft.get("worse") else 0)
            - w["lost"] * len(card["lost"]))
     tail = f" (though {'; '.join(caveat)})" if caveat else ""
     if good and not bad:
@@ -329,7 +343,10 @@ def verdict(card: dict, coh_up: int = 0, coh_down: list | None = None) -> tuple[
         return "mixed", "mixed: " + "; ".join(good) + "; but " + "; ".join(bad) + tail, num
     if bad or caveat:
         return "no better", "no better: " + "; ".join(bad + caveat), num
-    return "no better", "no better: no structural measure moves", num
+    return "no better", STILL, num
+
+
+STILL = "no better: no structural measure moves"
 
 
 def lines(card: dict) -> list[str]:
