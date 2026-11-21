@@ -164,3 +164,47 @@ All tests are in `tests/test_remote_chain.py`.
 ## Notes from the plan review (answer each; not blocking)
 
 - readings.json's `instance` has no defined source: /remote/v1/readings does not carry `instance`, so the implementor can only copy it from M's cached model, which makes the lesson-5 remake check vacuous. The planned test plants a mismatched file and passes either way (lesson-9). Require A's /readings answer to carry `instance`, have M write that value, and add a test that remakes A's state (new id) while M's cache holds the old model, asserting M serves value/time null. The test must fail if the instance is taken from the cache.
+
+## Where it stopped
+
+Built, round 1. Every acceptance test exists in `tests/test_remote_chain.py` and passes, the slow three-instance
+test included (24 s alone). `tests/test_remote.py`, `tests/test_remote_pair.py` and `tests/test_remote_box_measures.py`
+pass unchanged. Ruff is clean. Size: 297 net lines outside `tests/` and `docs/`, within the 380 budget.
+
+**The plan review's note, answered.** `/remote/v1/readings` now carries the answerer's `instance`. M writes into
+`readings.json` the `instance` from A's answer, never the one in its cache. The test remakes A (its answer carries a
+new id while M's cache holds the old model) and asserts M serves `value: null, time: null`, naming the new id. With
+the instance taken from the cache instead, that test fails (`assert (5 is None)`), which was checked.
+
+**Choices made with no one to ask** (each the more reversible or the more closed one):
+- The box system M makes for remote A (system `a`) is served with `via: []`, since M declared it. It is never
+  cut as a cycle; the parts in it are.
+- `/remote/v1/readings` also answers 503 when the instance id is refused, as `/model` and `/status` do, since its
+  answer now carries `instance`.
+- The served model is also cached in the page by its instance id, so a remade state folder is served at once.
+- A remote ergostat from before this change serves no `instance` or `via`, so it is refused as `remote-malformed`.
+  Both ends must run this version.
+- `test_a_composed_name_that_is_not_a_name_is_refused` names its remote `mm`, so a 62-character name composes to 65
+  characters, over 64.
+- The three-instance test reads "L never records a newer time after A stopped" as follows. Once L's sensor has
+  failed (stale or unreachable) after A stopped, L records nothing newer, checked across a second failure of that
+  sensor. Between A stopping and M's next read of A, M still holds A's last answer, not yet marked unreachable, and
+  L may take it while its age is within the limit. The test does not claim that no reading is recorded in that
+  window.
+
+**Breaking the code to see the tests fail (lesson-9), checked by hand and then reverted:**
+- An exclusive create followed by a write in `instance.own` fails the racer test ("instance is empty").
+- Serving `got` instead of `got - age` fails both middle tests.
+- Taking `readings.json`'s instance from the cache fails the upstream-down test, as above.
+- Dropping the `doc.defined` check in `finish` fails the local-wins test (`defined-twice`).
+- Dropping the chain-contains-L check fails the cycle test.
+
+Not checked by hand: the reading-age tests. The definition says they fail on main's code, which took `time: None`
+and fell back to the local clock. The other refusal tests assert on their own finding code.
+
+**Not run here:**
+- the whole unit suite and the four browser files (the factory runs them under the watchdog). Playwright is not
+  installed in this container, so `test_diagram_rendering.py -k remote` skipped.
+- `demo_check`: no example was touched.
+- origin/main: this clone has no `origin`, and `main` holds nothing the branch lacks, so there was nothing to merge.
+  The merge queue has to do it (lesson-7).

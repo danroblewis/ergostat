@@ -24,12 +24,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `examples/remote-pair/` and its two-instance test. A remote's measures on its closed box (done on
     `remote-box-measures`): its top systems' served `show:`, or a `show:` on its `remotes:` entry in its own
     names (`remote-show-unresolved` for one it does not serve), each marked stale with its age when the remote
-    or the reading is not current.
+    or the reading is not current. A remote composed of remotes (done on `remote-of-remotes`): instance ids,
+    each served part's `via` chain, cycles cut, depth (3), parts (2,000), via length (8) and answer size
+    (16 MB) capped, local names winning, and readings served on with their age at the origin.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
     it); lines in the process map between our items and theirs (needs an id both logs carry); proposals
     written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
-    `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
-    not served); mutual TLS.
+    `ergostat-model/1` once it exists; mutual TLS.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an

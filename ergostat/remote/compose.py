@@ -6,7 +6,13 @@ Every part it serves becomes ``REMOTE-PART`` (as a template's instance names its
 series (``readings.py``), its agents ``external: true`` (each keeps its rung); its item kinds stay there (the
 local fold never folds remote items). A local reference to a remote part that the remote no longer serves gets a
 stand-in and a ``remote-reference-unresolved`` finding, so the model still loads; a local block that outputs to a
-remote part is an error (``remote-output``)."""
+remote part is an error (``remote-output``).
+
+A remote may serve parts it imported itself, each with its ``via`` (SPEC §4c, *A remote composed of remotes*);
+``checked`` refuses a served model that is malformed, too big or this ergostat itself, and cuts the parts whose
+chain comes back here, is deeper than ``DEPTH_MOST`` or whose names are not names here. A remote's parts wait in
+``info["pending"]`` and ``finish`` puts them after every file is read: a local part of the same name wins
+(``remote-name-taken``), and between remotes the first declared."""
 
 from __future__ import annotations
 

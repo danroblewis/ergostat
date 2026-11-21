@@ -378,6 +378,10 @@ keeps running it; this model reads it.
    incidents, ref: stock.open}`.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
+A remote's own remotes come through too, up to three ergostats away (`stock.m-a-open`: remote `m`'s part
+from its remote `a`); `remote-cycle`, `remote-too-deep`, `remote-malformed`, `remote-too-big`,
+`remote-bad-name`, `remote-name-taken` and `remote-instance` say what was refused or cut and why, and a
+local part named like an imported one always wins.
 
 ## 3b. A budget on what the agents cost
 

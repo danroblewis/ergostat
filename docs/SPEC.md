@@ -531,8 +531,9 @@ version is written to the cache, which is one of the model's files, so the model
 A remote that fails is asked less often (twice the period after each failure, up to ten). When it does
 not answer, the model is drawn from the cache, every reading from it fails and keeps its last value with
 its age (`sensor.failed`), its box says *not answering for 2m · readings 3m old*, and the status and
-`check` carry **remote-unreachable**. A reading older than three of its sensor's periods (two minutes at
-least) is stale and is not taken.
+`check` carry **remote-unreachable**. A reading's age is the answer's `now` less the reading's `time`, both
+in the remote's clock; one older than three of its sensor's periods (two minutes at least), more than 5 s in
+the remote's future, with no `time`, in an answer with no `now`, or marked `unreachable` is not taken.
 
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
@@ -565,13 +566,50 @@ what admits.
 
 | Address | Answers |
 |---|---|
-| `/remote/v1/status` | name, model version, now, the newest event's `seq`, whether it runs |
-| `/remote/v1/model` | its model, `format: ergostat-model/1`: the merged document after includes and templates, redacted (no commands, prompts, queries, sources, workspaces or actions), with `version` (16 hex of the SHA-256 of its canonical JSON); `ETag` is the version |
+| `/remote/v1/status` | name, its `instance` id, model version, now, the newest event's `seq`, whether it runs |
+| `/remote/v1/model` | its model, `format: ergostat-model/1`: the merged document after includes and templates, redacted (no commands, prompts, queries, sources, workspaces or actions), with its `instance` id, `via` on every part (below), and `version` (16 hex of the SHA-256 of the canonical JSON of its format, instance and sections); `ETag` is the version |
 | `/remote/v1/events?after=SEQ` | events after the cursor in `seq` order, `n` ≤ 1,000, filtered by `type`, `item`, `kind`, `since`, `until`; `next` (the cursor) and `more` |
 | `/remote/v1/items`, `/remote/v1/items/ID`, `/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by kind and state |
-| `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time; at most 200 a call |
+| `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time, its `now` and its `instance`; at most 200 a call |
 | `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
 | `/remote/v1/process` | its process map (§5b) |
+
+**A remote composed of remotes.** An ergostat M that composes a remote A serves A's parts on to its own
+consumer L, which composes them like any of M's (`stock.m-a-open`, in the system `m-a` within `m`).
+- *Instance id.* Each state folder holds `<state>/instance`: 16 lowercase hex and a newline, made once and
+  kept. Only a missing file is made: the id is written and synced to a temp file of its own, published with
+  `os.link` (a racer that loses keeps the winner's), and read again, so no reader sees it empty. A file that
+  is empty, is not 16 hex, or cannot be read (a directory, say) is refused, never rewritten: `/remote/v1/model`
+  and `/status` then answer 503 (`this ergostat's instance id: WHY`), and a consumer whose own id is refused
+  composes no remote (**remote-instance**; its box and source are still put, as for a remote never read).
+- *`via`.* Every served part carries `via`: the ids of the ergostats it passed through before reaching the
+  server, origin first, never the server itself: `[]` for its own parts, A's `via` for the part plus A's
+  `instance` for one imported from A. Stand-ins for missing references are not served. At L, a part's
+  **chain** is its `via` plus M's `instance`; its depth is the chain's length (1 for M's own, 2 for A's).
+- *Checked before anything is composed*, in this order: a remote whose `instance` is missing or not 16 hex,
+  any part with no `via`, a `via` that is not a list, holds an id that is not 16 hex or more than `VIA_MOST` =
+  8 ids, or a chain that repeats an id, is refused whole (**remote-malformed**); one serving more than
+  `PARTS_MOST` = 2,000 parts in all is refused whole (**remote-too-big**); one whose `instance` is L's own is
+  refused whole (**remote-cycle**). Then a part whose chain holds L's id is cut (**remote-cycle**), one whose
+  chain is longer than `DEPTH_MOST` = 3 is cut (**remote-too-deep**), and one whose served name, composed name
+  or a sensor's name is not `^[a-z0-9][a-z0-9-]{0,63}$` (and a local name) is cut (**remote-bad-name**, naming
+  the first); one finding per remote and cause, with the count. A cut part is left out as `systems:` leaves
+  one out (a flow's end becomes a cloud, a cause or an equation naming it is dropped). These four limits are
+  fixed: no key sets them.
+- *Names taken.* A remote's parts are put after every file and include is read. A local part always wins: a
+  remote part whose name is defined here is not put (**remote-name-taken**, naming both; never
+  `defined-twice`); between two remotes whose parts get the same name (remote `m`'s `a-open`, remote `m-a`'s
+  `open`) the first declared wins. A local reference belongs to the remote with the longest matching prefix.
+- *Readings through a middle.* When M reads A, it keeps A's whole answer in
+  `<state>/remotes/a/readings.json`, replaced each time, never merged: A's `instance` (from A's `/readings`),
+  when M got it, and each reading's value and age at A (A's `now` less its `time`). When A does not answer the
+  file is kept with `unreachable: WHY` added. M answers a reading of an imported part from it, with `time` =
+  got − age (A's age carried into M's clock, never the time M recorded it) and `unreachable` when A is down, so
+  its age keeps growing; a missing file or entry, or an `instance` other than the one in M's cached model of
+  A (A's state remade), answers `value: null, time: null` with why, and so does a goal of A's. L refuses all of
+  these as for any reading. What the tests show: a hop adds no freshness (A's clock 1,000 s ahead, M serving
+  the origin's age; A down, M serving the old time marked unreachable).
+- *Size.* An answer longer than `BODY_MOST` = 16 MB fails the call (*answer too large*).
 
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
