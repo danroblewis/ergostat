@@ -133,3 +133,80 @@ An overrun needs a written reason.
 - Point 1's 'exactly as on main' contradicts the added `remotes` field on /api/items. Reword it.
 - State that failed asks count against ASKS and that the counter goes up before client.get is called.
 - Say whether force=True in the CLI counts against or resets the events period for page polls.
+
+## Where it stopped
+
+**Built**, in 315 net lines outside `tests/` and `docs/` (budget 420): `remote/items.py` (154), `events.py` (+44),
+`server.py` (+34), `pages.js` (+81), `details.js` (+2), CLI (0: one line changed). All of points 1 to 12 are built
+as written. Point 13 is not fully met (see *Not run*).
+
+**Not run, so not done by the house rules:**
+- **The four browser files.** Playwright is not in this container's environment. Installing it (`uv run --with
+  playwright==1.63.0`) needs the network, which this run may not reach, and the command was refused. The new
+  `test_a_remotes_items_and_events_are_shown_marked_remote` and the page code (`pages.js`, `details.js`,
+  `util.js`) have therefore **never been executed**. I checked them only by reading; `node --check` was refused
+  too. This is the first thing the factory's browser run must look at.
+- **The merge of origin/main.** There is no `origin/main` ref in this clone, and fetching one needs the network.
+  Local `main` is the branch's base (05c6dc9). The merge (lesson-7) and the suites after it are left to the
+  factory.
+- **The whole unit suite.** Per the instructions it was not run here. Run one file at a time, all passing:
+  `tests/test_remote_items.py` (21), `tests/test_remote.py` with `tests/test_remote_pair.py` (13),
+  `tests/test_graph_cli_web.py` (28), `tests/test_web_access.py` (26), `tests/test_spec_items.py` (6).
+  `ruff check ergostat tests scripts` is clean. `examples/remote-pair` is not touched, so `demo_check` was not run.
+
+**A finding against point 2 (left as defined, the reversible choice).** Every item kind's `id:` must hold a `/`
+(`item kind thing.id: … a pattern with a / in it`), so every real remote item id (`incident/3`) falls outside
+the allowlist, which refuses `/`. As built, such items are listed in the remote's section and linked to the
+remote's own page, but none can be opened here. Only ids without a `/` can be opened, as in the tests. SPEC §4c says
+so. Widening the pattern, for example to `/`-separated segments each matching it (the remote API already joins
+the path's segments with `/`), is a change to the definition and belongs in its own gap or a revised definition.
+
+**The plan review's notes, answered:**
+- *Remake rule.* The test asserts `max(0, last_seq - 1000)` in both cases. With `last_seq` 2 and the cursor 3,
+  the next ask is `after=0`. With the cursor 5000 and `last_seq` 1500, the next ask is `after=500`, and 501..1500
+  are kept.
+- *A remake past the old cursor.* `/remote/v1/status` carries no identity of the record (name, version, now,
+  running, last_seq only), so this case is not detected. SPEC §4c states the limit: old events stay until the day's
+  window drops them, and new events up to the old cursor are not read.
+- *Concurrency tests that pass without the lock.* In both tests the first fake call is held until a second call
+  arrives, or for 1 s at most (a bounded `Event.wait`). Both fail with the lock removed (below).
+- *The browser test's period.* It runs the page and a stdlib fake remote in-process and monkeypatches the clamp,
+  `items.MOST = 1.0`, so the period is one second. It waits on page content only (`wait_for_function`), never a sleep.
+- *401, 403, 500.* `test_a_remote_that_does_not_answer_is_asked_once_a_period` is parametrized over status 0,
+  401, 403 and 500. Each is a 502 with the reason, one request a period, then the kept answer with `ok: false`.
+- *Waiting on a hung remote's lock.* Locks are taken with a timeout. An items lock is held for at most two asks
+  of 3 s, and a caller waits `WAIT` = 7 s, then gets 503. The events lock's holder makes at most 6 asks, and a
+  caller waits 19 s, then gets 502 *busy*. A remote that failed is not asked again that period, so after one
+  timeout its later callers are answered from the cache at once. SPEC §4c states both bounds.
+- *Point 1's "exactly as on main".* Without `remote=`, the three routes answer as on main, except that
+  `/api/items` gains `remotes: [{name, url}]`, and only when the model declares remotes. A model without remotes
+  gets byte-for-byte main's answer. SPEC says this. (The definition itself may only be appended to, so it is
+  answered here.)
+- *Failed asks and the counter.* The counter goes up before `client.get` is called, and a failed ask counts
+  against `ASKS`. This is stated in `items.py`'s docstring and in SPEC §4c.
+- *`force=True`.* The CLI's read takes the lock and sets the period's `asked`, so it counts as the period's read
+  for page polls. It does not reset the period, and polls after it wait for the period to pass.
+
+**Each guard broken, and the test that then failed (lesson-9).** Each guard was restored afterwards, and the
+Python files were checked identical to the commit.
+- ID allowlist skipped (`if False and not openable`): `test_a_traversal_id_is_refused_before_any_request` fails
+  (`../events` answered 200).
+- Budget check skipped: `test_paging_past_the_cache_is_bounded_per_period` fails (51 requests, not 8).
+- `items.held` made a no-op (no lock): `test_concurrent_item_listings_ask_once` fails (the other threads asked,
+  spent the budget and got 503).
+- `events.follow` given a fresh lock per call (no per-remote lock):
+  `test_concurrent_record_polls_read_events_once_a_period` fails (seven of eight threads returned before the
+  read). The test's second half (a poll started inside the first one's events call) was not separately shown
+  failing, because the first half fails before it.
+- The once-per-period failure check skipped: `test_a_remote_that_does_not_answer_is_asked_once_a_period` fails
+  for all four statuses (503 once the budget is spent, not 502 after one ask).
+- The shape checks skipped (items and events): `test_an_unexpected_answer_is_a_failure` fails for all three bodies.
+- The name allowlist skipped: `test_an_unconfigured_remote_is_refused_never_answered_locally` fails (500).
+- Dedupe by `seq` skipped: `test_events_are_merged_by_seq_and_a_remade_remote_restarts` fails (`[1, 2, 3, 1, 2, 3]`).
+  The remake reset skipped: the same test fails (old events mixed in).
+- One lock for all remotes: `test_a_hung_remote_blocks_only_its_own_callers` fails (503 for remote s).
+
+**Notes.** SPEC has no Record page section of its own, so the Record page's `remote=` scope is described in §4c
+(*Its items and events in the pages*). The Items section's filter table gains a `remote=NAME` row. The API tests
+run the page in-process over HTTP. Only `items.time` and `events.time` are replaced by a fake clock, never the
+process's `time.time`.
