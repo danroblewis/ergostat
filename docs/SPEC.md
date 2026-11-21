@@ -674,6 +674,7 @@ items:
 | `fold` | map of field → rule | `replace` | How the plain `data` of its events folds into each field (the rules below) |
 | `relations` | map of name → kind(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
 | `join` | a rule, or a list | none | When its children move it on (*Join*, below) |
+| `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `system`, `description` | | | |
 
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
@@ -788,6 +789,40 @@ for:
   completion estimates are worked out, from a levelled run of their simulation instead (below).
 - **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
   (`ergostat`, the page's side panel), and is left out of the projection.
+
+**About.** An item may say which parts of the model it bears on: a lesson about a goal, a note about a stock. A kind
+opts in by naming the field that holds them, `about: FIELD`; the field holds one name or a list, each in the text
+form a claim's `about` uses: `goal.x`, `stock.x`, `flow.x`, `auxiliary.x`, `block.x`. ergostat declares no such
+kind of its own, and a model none of whose kinds declares `about:` looks nothing up.
+
+```yaml
+items:
+  note:
+    id: note/*
+    states: [open, retired]
+    about: about                            # "data": {"about": ["goal.inbox-short", "stock.inbox"]}
+messages:
+  done: {note: [retired]}
+```
+
+The field folds by `replace` (any other `fold:` for it, or a relation's name, is an error, `bad-about`): an event
+that sets it replaces the whole list, so a part dropped from an item, or an item made again under the same id with
+a new list, no longer points at the old part. The item index keeps each item→part link beside its relations' links,
+as they stand now, so the items about a part are one indexed lookup, never a read of every item (an index built
+before these links is built again). They are read in three places, each listing only the **open** items about the
+part (not in a state its kind counts as finished, `messages: done:`, else as the item index says; a kind without
+states, always open), the latest first:
+
+- `ergostat explain PART` (and MCP's `explain`), with a project, ends with a line `Open items about goal.x: ID
+  (title), ...`: each item's id, then its `title`, else its first field with a value; **at most 5**, then `and N
+  more`. `none.` when there are none; `unknown` (with why) when the item index cannot be read, never `none`.
+- `ergostat check`: a finding whose part has open items about it carries their ids (`items` in `--json`, and said
+  in its message, at most 5 named); an open item naming something that is not a part of the model (`goal.gone`,
+  `foo.x`, `goal.`, `stock.x.main`) is a finding, `about-missing-part` (section 12). Finished items are not checked.
+- `ergostat` (the status): a loop that is off names the open items about its goal or the value it measures
+  (`goal.x`, or its `stock.y` / `flow.y` / `auxiliary.y`), on its attention line (`· items about it: a, b, c +2`)
+  and in its row of the loops table, **at most 3**, then `+N`; `unknown` when the index cannot be read. A loop that
+  is not off names none.
 
 **Join.** A parent moved on by its children (fork-join) is a rule on the parent's kind, over the relation its children
 name it by, not a block that lists and matches items:
@@ -2533,7 +2568,15 @@ where the error is 0.
 - **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
   (section 12e);
 - **template-library**: a template in a `library:` folder that does not read, or one used in place of
-  ergostat's own.
+  ergostat's own;
+- **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
+  is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
+  (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
+  message, all in `items`). Finished items are not checked. When the item index cannot be read, **about-unknown**
+  says so instead, and nothing is said to be missing or not.
+
+Any finding about a part (`about`: `goal.x`) that has open items about it carries their ids: `items` in `check
+--json` and MCP's `check`, and `(open items about it: a, b)` at the end of its message, at most 5 named there.
 
 **Structure** (findings, the tests system dynamics makes of a model's structure before its
 behaviour: Sterman, *Business Dynamics*, ch. 21, structure assessment, dimensional consistency and
