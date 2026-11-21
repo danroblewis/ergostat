@@ -350,7 +350,8 @@ waits at `push-pending` (its lease ends there, not back at `approved`) and its o
 If you deny the push, the queue undoes that merge (`git reset --keep`) and sends the gap back.
 
 **The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
-its pages drew nothing); the first failure in that order is the one reported.
+its pages drew nothing). The first of them to fail is the one reported, and it stops the rest: a unit failure kills
+the browser run still going (and the other way round), which is recorded `stopped_by` it, its own result not judged.
 
 **The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
 triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
@@ -371,7 +372,17 @@ a change to main's list (which a reviewer reads in the diff); nothing in this co
 The batch is 1 to start (`[pools] batch = 1`: one gap a run, the queue as it always was). A green batch asks for one
 push, of its last merge, so one approval lands the batch, and a denial sends every gap of it back. A red batch is
 bisected (the suites again on the first half of the merges, and so on) to the first merge that fails; that gap goes to
-flake triage with its failures, the merges before it land, and those after it are merged again and run once more. A
+flake triage with its failures, the merges before it land, and those after it are merged again and run once more.
+When the red run named its failing tests (`FAILED`/`ERROR` lines), those are first run alone, serially
+(`[suites] rerun`, `-rA`), on the whole red tree. Only if one fails there too does each bisecting step run only those:
+red when one of them fails, green only when the run passes and each says PASSED; a step that cannot tell (a test not
+found on that prefix, a run that never started) runs every suite instead. A failure that shows only in the full run
+(order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a
+killed run) are bisected with every suite, as before. A green on the named tests alone never lands anything: the
+merges before the failing one are merged again with those after it, and the lot lands only on a full green run of
+that very tree; the failing gap's `pre` is then main's head before them, so its triage runs it on main alone. Each
+failing merge costs at most `2 + 2 ceil(log2 m)` runs (the red run, the rerun on its tree, and each step, two when a
+named run cannot tell), most of them its failing tests rather than the suites. A
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
 

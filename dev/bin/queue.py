@@ -12,17 +12,18 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    the next run puts main back where it began and takes them again;
 4. merge each into a clean main of the checkout in turn (`--no-ff`), the tree dry-merged; a conflict (a re-merge
    after bisecting) is undone and sent back;
-5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py, then
-   demo_check, once for the batch; a browser test skipped counts as a failure. The tests in tests/quarantine.txt are
-   deselected from unit and browser and run after them (`alone`), their results recorded and never blocking
-   (fac.beside());
+5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py (the first
+   to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
+   tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
+   recorded and never blocking (fac.beside());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
-   bisected to the first failing merge (land()), which goes on to flake triage with what failed (`queue-failed`) and
-   the rest lands. On any error or stop, main is undone with `git reset --keep`. The push is asked under the run's
-   own gap's lease, and is not fenced by it (`fenced: false`: it pushes only that commit, only as a fast-forward), so
-   it runs once approved whatever became of that lease. When that gap does not land, it waits at `push-pending` and
-   its outcome is said once the push settles (tell()), never back at `approved` meanwhile.
+   bisected to the first failing merge (land(), on the failing tests alone when the run named any), which goes on to
+   flake triage with what failed (`queue-failed`) and the rest lands, each merge only on a full green run. On any
+   error or stop, main is undone with `git reset --keep`. The push is asked under the run's own gap's lease, and is
+   not fenced by it (`fenced: false`: it pushes only that commit, only as a fast-forward), so it runs once approved
+   whatever became of that lease. When that gap does not land, it waits at `push-pending` and its outcome is said
+   once the push settles (tell()), never back at `approved` meanwhile.
 
 While a push waits (run/queue.json, read under the queue's lock before a gap is taken; unreadable, the same), a run
 takes no gap: it gives its lease back, uncounted, and says nothing of it.
@@ -74,7 +75,8 @@ def up_to_date(cfg: dict, repo) -> str | None:
 
 def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD") -> dict:
     """ruff; then unit and browser at once; then demo (under the other two's load its pages drew nothing). The first
-    failure in that order is the one reported; a failure stops the later steps. With `[suites] queue_coverage`, the
+    to fail is the one reported; it stops its sibling (killed, `stopped_by` it, its own failure unsaid) and the later
+    steps. With `[suites] queue_coverage`, the
     unit run is traced into run/coverage/<tag> and scored with ``pre``'s script (coverage_kept). The quarantine is
     main's (``pre``), never the batch's: a branch's own line in tests/quarantine.txt holds nothing back in its run."""
     held = fac.quarantine(repo, pre)
@@ -96,18 +98,27 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD") -> dict:
         return got
 
     def together(names: tuple) -> dict:
-        got, ts = {}, []
+        got, ts, first, said = {}, [], [], threading.Lock()
         for n in names:
             def body(n=n):
                 try:
-                    got[n] = one(n)
+                    r = one(n)
                 except BaseException as e:             # (raised again below, in the queue's own thread)
-                    got[n] = e
+                    r = e
+                with said:                             # (which failed first, decided and kept in one hold)
+                    if isinstance(r, dict) and r.get("failure") and first:
+                        r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]}
+                    elif isinstance(r, dict) and r.get("failure"):
+                        first.append(n)
+                    got[n] = r
             ts.append(threading.Thread(target=body, daemon=True))
             ts[-1].start()
         try:
-            for t in ts:
-                t.join()
+            while any(t.is_alive() for t in ts):
+                for t in ts:
+                    t.join(0.5)
+                if first:                              # again each pass: a sibling's suite started after the failure
+                    fac.stop_suites()
         except BaseException:                          # stopped: the suites' process groups go with the queue
             fac.stop_suites()
             raise
@@ -132,6 +143,22 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD") -> dict:
         if "failed" in out:
             break
     return out
+
+
+def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
+    """Only the tests a red run named, on the checkout as it is (`[suites] rerun`, serial, `-rA`), for bisecting. Red
+    when one of them fails (said as the suite that named them); green only when the run passed and said PASSED for
+    every one; else (a test not on this prefix, a run that could not start) None, and that step runs every suite. It
+    never counts as the green run anything lands on (land())."""
+    tests = failed["tests"]
+    log = logs / f"{tag}-named.txt"
+    rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, tests=[*tests, "-rA"])
+    text = log.read_text()
+    said = fac.outcomes(text, tests)
+    got = {"named": {"suite": failed["failed"], "tests": len(tests), "rc": rc, "seconds": round(secs)}}
+    if bad := sorted(t for t, r in said.items() if r == "fail"):
+        return got | {"failed": failed["failed"], "tests": bad, "tail": text[-2000:], "log": str(log)}
+    return got if rc == 0 and set(said.values()) == {"pass"} else None
 
 
 COVERAGE_KEEP = 5                                       # coverage reports kept under run/coverage/, by their seq
@@ -433,19 +460,29 @@ def lines(repo, before: str, after: str) -> dict:
 
 def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float, waited: float,
          dried: str = "") -> tuple[list, str]:
-    """Merge the batch onto main in turn and run the suites once. Green: every merge lands. Red: bisected (the suites
-    run again on the first half of the merges, then on half of what is left, ...) to the first merge whose prefix
-    fails; that gap goes to flake triage with its failures and the commit it was merged onto (its `pre`), the merges
-    before it land, and those after it are merged again onto them and tried as a batch of their own. Each failing merge
-    found costs at most 1 + ceil(log2 m) runs (m: the merges left), so n <= pools.BATCH_MOST. Returns (each gap landing with its
+    """Merge the batch onto main in turn and run the suites once. Green: every merge lands. Red: bisected (run again on
+    the first half of the merges, then on half of what is left, ...) to the first merge whose prefix fails; that gap
+    goes to flake triage with its failures and the commit it was merged onto (its `pre`). A red run that named failing
+    tests is bisected on those tests alone (named()) only when they fail alone on the whole red tree too; else (they
+    pass there, or it cannot tell), and when it named none, with every suite. A prefix green on every suite
+    lands, and the merges after the failing one are merged again onto it and tried as a batch of their own; a prefix
+    green on the named tests only lands nothing yet: it is merged again with those after the failing merge, and they
+    all land only on a full green run of that tree (the failing gap's `pre` then main's head, `base`, as no commit of
+    that prefix lands). Each failing merge found costs at most 2 + 2 ceil(log2 m) runs (m: the merges left; the red
+    run, the named tests on its tree, and each step, two when a named run cannot tell). Returns (each gap landing with its
     timing, main's head), the checkout's main left at that head. Gaps sent on are said so here; those landing, by the
     caller, once main is settled."""
     base, todo, landed, runs, tag = pre, batch, [], [0], fac.run_tag(fac.branch_of(batch[0][0]), began)
     logs = fac.run_dir(cfg, "queue")
 
-    def run() -> dict:
+    def run(failed: dict | None = None, every: bool = True) -> dict | None:
         runs[0] += 1
-        return suites(cfg, repo, tag + (f"-{runs[0]}" if runs[0] > 1 else ""), logs, pre)
+        t = tag + (f"-{runs[0]}" if runs[0] > 1 else "")
+        got = named(cfg, repo, t, logs, failed) if failed and failed.get("tests") else None
+        if got is not None or not every:
+            return got
+        runs[0] += bool(failed and failed.get("tests"))   # (a named run that could not tell, then every suite: two)
+        return suites(cfg, repo, t, logs, pre)
 
     def timing(g: dict, got: dict) -> dict:
         return dict(queue_wait_hours=waited_hours(g, began), queue_minutes=round((time.time() - began) / 60, 1),
@@ -472,18 +509,25 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             landed += [(g, timing(g, red) | counted[g["id"]]) for g, _ in todo]
             base = heads[-1]
             break
+        alone = run(red, every=False) if len(todo) > 1 and red.get("tests") else None   # on the whole red tree
+        full = alone if alone and alone.get("failed") else None  # they fail there alone: bisect on them; else in full
         lo, hi, green = 0, len(todo), {}         # the first lo merges ran green (or none); the first hi red
         while hi - lo > 1:
             mid = (lo + hi) // 2
             fac.git(repo, "reset", "-q", "--keep", heads[mid - 1])
-            got = run()
+            got = run(full)
             lo, hi, red, green = (lo, mid, got, green) if got.get("failed") else (mid, hi, red, got)
         g, onto = todo[hi - 1][0], heads[hi - 2] if hi > 1 else base
+        if "named" in green:                     # (that commit is merged again, never landed: main's own is told)
+            onto = base
         tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=onto,
                 findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
                 + ([f"the first failing merge of a batch of {len(todo)}, found by bisecting"] if len(todo) > 1 else []),
                 **timing(g, red))
         # (hi - 1 == lo: that prefix's run was green)
+        if "named" in green:                     # green on the named tests only: merged again with the rest, so it
+            todo = todo[:hi - 1] + todo[hi:]     # lands only on a full green run of the tree it lands as
+            continue
         landed += [(x, timing(x, green) | counted[x["id"]]) for x, _ in todo[:hi - 1]]
         base, todo = onto, todo[hi:]
     fac.git(repo, "reset", "-q", "--keep", base)
