@@ -12,7 +12,9 @@ at least every ``TICK``), when the loop last went round, and the readings handed
 - **Still no pass** ``STALL`` seconds after that, or a third pool in ``WINDOW``: only a new process recovers it. The
   run loop (``cli/running.py``) restarts it in place, as a change of the model's name does; if that has not happened
   within ``HARD`` seconds, the watchdog restarts the process itself (``engine.restart_hard``). Runs under way are
-  stopped by a restart and recorded as stopped with ergostat; leased items are taken again when their leases end.
+  stopped by a restart and recorded as stopped with ergostat. The daemons are stopped by it too, their process groups
+  sent TERM, then KILL within 3 s (``daemons.supervise.end_all``; on the watchdog's own restart they are never sent
+  ``stop`` and their runs are not recorded). Leased items are taken again when their leases end.
 
 Each time it writes every thread's stack to ``<state>/stalls/``, with what holds the item index's lock (the thread in
 this process, its stack first, and any other process with the index open), and records ``ergostat.engine.stalled``
