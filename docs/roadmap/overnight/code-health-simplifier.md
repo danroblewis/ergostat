@@ -247,3 +247,20 @@ now says that the removals read only the gap's own merge.
 
 Run: this file (11 passed), `tests/test_factory.py` (126 passed, 2 skipped), and ruff clean. Not run: the full unit
 suite and the four browser files.
+
+### After `ergostat check`'s findings
+
+`ergostat check` found two things on the branch that main does not have. Both are fixed in `dev/model/code-health.yaml`
+(commit f53498e8), each the more reversible reading:
+
+- `purpose system.code-health`: the system's blocks acted for no goal inside it. It now has the goal
+  `simplified-every-few-days` (`auxiliary.days-since-simplify <= 4`: the 3 days, plus the 6h pacing and a day of spent
+  money). The simplifier is its actuator through `flow.simplifications-requested`. No block reads the goal, so it
+  changes no behaviour.
+- `acting-on-its-own block.simplify-removals`: an event-started program that nothing read as commanding it. It now
+  has `in: flow.gaps-merged`, the merges it runs on. That input is read, not commanded. The engine's `command_of`
+  counts only commanding blocks, and `due` skips blocks started by `on:`, so it still runs once per `gap.merged`.
+
+No `allows-findings` line was used or edited. Not run: `ergostat check` and the tests (the shell refused
+`timeout 300 uv run ergostat check ergostat.yaml`). Both fixes were judged by reading `ergostat/spec/findings.py`,
+`architecture.py`, `engine.py` and `triggers.py`.
