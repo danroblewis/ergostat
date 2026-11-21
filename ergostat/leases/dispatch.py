@@ -4,8 +4,8 @@
   its kind in one of its ``at`` states, not held, not put off (``not_before``), and matching its ``where``, is leased
   to a run of its own, oldest first, while the block's runs in flight (its leases held, from the fold, and the runs
   going here) are fewer than its pool now (``poolnow.py``: its ``pool:``, or its stock's level as the engine last read
-  it, at most its ``most``, read in the same hold of the lock as the count and the take). An item put off (``not_before``) is looked at again when it falls due. It
-  looks whenever the record has something new (an item reaching its
+  it, at most its ``most``, read in the same hold of the lock as the count and the take). An item put off
+  (``not_before``) is looked at again when it falls due. It looks whenever the record has something new (an item reaching its
   state starts a run at once; the lease is caused by that event), woken by the write itself (``notify.py``; another
   process's write by the kernel's file notification, else at its next check, every quarter second), and every second
   besides.

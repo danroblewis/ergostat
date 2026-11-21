@@ -1467,7 +1467,7 @@ class Compiler:
             self.err(f"{what}: a {t} block needs in: (the signal it works on)", m.where, "missing-key")
         from ..leases import compile as leases
         from . import triggers
-        lease_keys = {"takes": leases.takes(self, m, what), **dict(zip(("pool", "pool_now"), leases.pool(self, m, what))),
+        lease_keys = {"takes": leases.takes(self, m, what), **dict(zip(("pool", "pool_now"), leases.pool(self, m, what), strict=True)),
                       "lease": leases.terms(self, m, "lease", what), "on": triggers.compile_on(self, m, what)} \
             if t in MACHINE else {}
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
