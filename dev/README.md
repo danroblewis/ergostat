@@ -91,7 +91,8 @@ A GAPS.md entry is taken in by itself (`gap.found`, open). It is **ready** once 
 mkdir -p run/defs && $EDITOR run/defs/<branch>.md        # the gap's `branch` field (ergostat item gap/NAME)
 ```
 
-(or `docs/roadmap/overnight/<branch>.md` on main or on its branch). A gap that is not in GAPS.md is asked for as an
+(or `dev/records/<branch>.md` on main or on its branch: the gaps' working records, out of `docs/`; the old
+`docs/roadmap/overnight/<branch>.md` is still read for a branch begun before the move, the new path first). A gap that is not in GAPS.md is asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
@@ -100,7 +101,7 @@ ergostat event --add gap.requested --item gap/my-change \
 ```
 
 **Continuing a parked branch.** Ask for a new gap that `continues` it (`NAME` or `factory/NAME`, a branch of the
-checkout or already in the drop; it is then the gap's branch, and its own `docs/roadmap/overnight/NAME.md` is the
+checkout or already in the drop; it is then the gap's branch, and its own `dev/records/NAME.md` (or old `docs/roadmap/overnight/NAME.md`) is the
 definition, so add a "Where it stopped" section there rather than writing a new one):
 
 ```sh
@@ -109,7 +110,7 @@ ergostat event --add gap.requested --item gap/warm2-again \
 ```
 
 A branch carried on under a new name (its first commit is another name's definition, e.g. `warm.md` on `warm2`) names
-that file as its definition, `"definition": "factory/warm2:docs/roadmap/overnight/warm.md"`: the implementor commits no
+that file as its definition, `"definition": "factory/warm2:docs/roadmap/overnight/warm.md"` (or `dev/records/`): the implementor commits no
 copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is on the branch and unchanged since its first commit.
 
 The intake fetches it into the drop as `factory/NAME` (never over a `factory/NAME` already there, and refusing a name
@@ -124,7 +125,18 @@ itself: a clean merge is committed by the factory; a conflicted one is handed to
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
 `tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
+after: ruff, the unit suite and the four browser files, each under the watchdog in a suite container of the agent image
+and the suite slot; a browser test skipped fails them, as in the queue. **No browser stops the round:** before the
+session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
+missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
+starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with
+`uv run --with playwright==1.63.0` (inside its own container's limits: the host's slot is not reachable from there).
+The unit suite's tests/test_agents.py::test_implementor_environment_has_a_browser really launches Chromium that way, so
+every unit run (the queue's on the host, a developer's, an implementor's offline container) needs Playwright 1.63.0
+cached for `uv run --with` and its Chromium installed, or it fails: on purpose, a missing browser is a failure, not a
+skip.
+
+The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
 between build and review is not a failed gate: the merge queue merges the branch into the main of its moment and runs
@@ -135,7 +147,10 @@ the suites again. Its reviews are numbered past the branch's earlier ones (`revi
 `dev/prompts/definition.md`), `"depends_on": ["gap/..."]` in its request, or `after `name``, `needs `name` first` and a
 "Depends on" table column in GAPS.md. It is built only once each is merged (a parked one holds it, with `blocked_reason`); the implementor takes the unblocked first,
 the critical first. A name that is no gap, or a link that would close a cycle, is refused and said (the goal
-`dependencies-sound`); a gap waiting on a parked one says so (`blocked_reason`). The Items page's Graph and Timeline
+`dependencies-sound`); a gap waiting on any unfinished one names it and its state (`blocked_reason`), and one whose
+branch is already merged into main and whose own definition file is in main's tree (so a branch made from main with no
+commits of its own is not) as 'landed, not closed': that wait is not explained away, so after its stuck
+threshold the pipeline manager is raised with the reason, for the coordinator to close the dependency. The Items page's Graph and Timeline
 draw the tree; `python3 dev/bin/deps.py` prints it as mermaid.
 
 Then: the implementor commits the definition first and builds; the reviewer approves, sends it back (`fix`, with its
@@ -172,7 +187,7 @@ nothing). The allowances used are recorded on `gap.built` as `allowed_findings`,
 allowance of the definition among the gates, to judge its reason.
 
 **A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
-runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
+runs those tests again alone on the branch (the `[suites] alone` command, `rerun` for browser tests, in the same kind of suite container, in the
 suite slot). Passing alone, they are flakes (`flake.seen`) and the fast suites run once more, uncounted. Still failing,
 they run once on clean main (the commit the branch merged, `built_main`). A test that fails there too becomes
 `flake/<test>` in the state `main-broken` and the intervention `intervention/main-broken-<sha12>` (class `main-broken`,
@@ -461,7 +476,7 @@ or unreadable bookmark makes it read every gap again (and write only a changed t
   it ends at the approval after it, or at a park or close straight from fix. While it still goes round, `loop_ended` is
   empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
-  `build_hours`), `fast` (its ruff and unit suites, every try in a round, `fast_seconds`; a build recorded before it
+  `build_hours`), `fast` (its fast suites: ruff, unit and browser, every try in a round, `fast_seconds`; a build recorded before it
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
@@ -536,8 +551,9 @@ still `raised` is closed `superseded`, never run, and its trigger, if it still s
 situation's id ends in a random suffix, so two raised in one second are two items.
 
 **The tools** (`dev/bin/manage.py`, at most `most_actions` (8, held to 1..12) calls a session, each through its own checks). Directly:
-`continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, and must fail there too),
-`flake TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
+`continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, the checkout for the
+queue's or a container for the fast suites', browser tests with Playwright (`rerun`, a skip not a pass), and must fail
+there too), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
 in the inbox: `close GAP`, `park GAP`, `pool ROLE N`, `change --what` (dev/model, the settings, anything touching
 origin). Every call is an `intervention.recorded` with a class and `by: pipeline-manager`. By hand, as the coordinator:
 `python3 dev/bin/manage.py continue gap/NAME --why ...`. Pause it with `[manager] open = 0` in `factory.local.toml`.
@@ -569,7 +585,9 @@ continue by hand records one too, so a park is resumed once). `defect` and `kill
 Each green merge opens an `upgrade` item; the upgrader installs it into `~/ergostat-live/<sha>` and checks the model
 with its own code, then asks for `switch-instance`. Only the newest waits: the switcher (`dev/bin/drain.py`, every
 minute) withdraws a request for a version older than one waiting, or than the one running (its action denied by the
-switcher, saying which version supersedes it). Approving it (the inbox, as above; or standing, with `gate: auto` on the
+switcher, saying which version supersedes it), except that a drain under way is not withdrawn for a newer version
+only installed: the drain goes on to its switch and the newer one waits, its request open; a newer one approved takes
+the drain over, keeping its start. Approving it (the inbox, as above; or standing, with `gate: auto` on the
 action in the instance's model) does not switch at once: the switch waits for a quiet moment (at most `[upgrade]
 quiet_runs` AI runs under way) or, at the latest, the daily window (`[upgrade] daily_at`, 04:00 local) passing; then it
 drains: `run/drain.json` is written and the AI blocks take no new item (each run gives its item back uncounted) while

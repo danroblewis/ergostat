@@ -1,0 +1,114 @@
+"""knowledge.module_map's sha-keyed cache (dev/bin/knowledge.py) with other sessions reading, writing and pruning
+it at once: a file gone between the look and the read, a half-written file, and a prune racing another's."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+BIN = Path(__file__).resolve().parent.parent / "dev" / "bin"
+
+
+def module(name: str):
+    spec = importlib.util.spec_from_file_location(name, BIN / f"{name}.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+@pytest.fixture
+def knowledge(monkeypatch):
+    """knowledge.py and the fac it imports, loaded for this test only: nothing is left in sys.modules for the other
+    tests of this worker (test_factory.py's sys.modules.setdefault("fac", ...) would pick up a leftover)."""
+    monkeypatch.setitem(sys.modules, "fac", module("fac"))
+    return module("knowledge")
+
+
+def setup(tmp_path: Path) -> tuple[dict, str, Path]:
+    repo = tmp_path / "repo"
+    (repo / "ergostat").mkdir(parents=True)
+    (repo / "ergostat" / "thing.py").write_text('"""The thing."""\n')
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one"]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "main"], check=True, capture_output=True,
+                         text=True).stdout.strip()
+    cfg = {"paths": {"checkout": str(repo), "run": str(tmp_path / "run")}, "git": {"base": "main"}}
+    return cfg, sha, tmp_path / "run" / "modules"
+
+
+MAP = {"ergostat": [["thing.py", "The thing."]]}
+
+
+def test_module_map_survives_its_cache_file_removed_between_check_and_read(knowledge, tmp_path, monkeypatch):
+    cfg, sha, d = setup(tmp_path)
+    d.mkdir(parents=True)
+    cache = d / f"{sha}.json"
+    cache.write_text(json.dumps({"stale": []}))
+    read = Path.read_text
+
+    def gone_first(self, *a, **kw):                  # another session prunes it right after it was seen
+        if self == cache and cache.exists():
+            cache.unlink()
+        return read(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", gone_first)
+    assert knowledge.module_map(cfg) == (sha, MAP)
+    assert json.loads(read(cache)) == MAP            # made again, and cached
+
+
+def test_module_map_rebuilds_on_a_partial_cache_file(knowledge, tmp_path, monkeypatch):
+    cfg, sha, d = setup(tmp_path)
+    d.mkdir(parents=True)
+    cache, partial = d / f"{sha}.json", '{"ergostat": [["thi'
+    cache.write_text(partial)
+    replace, seen = os.replace, []
+
+    def renamed(a, b):                               # until the rename, a reader still sees the old file whole
+        seen.append((Path(a).parent, cache.read_text(), json.loads(Path(a).read_text())))
+        replace(a, b)
+
+    monkeypatch.setattr(os, "replace", renamed)
+    assert knowledge.module_map(cfg) == (sha, MAP)
+    assert seen == [(d, partial, MAP)]               # written beside it, then renamed into place
+    assert json.loads(cache.read_text()) == MAP and cache.stat().st_mode & 0o777 == 0o644
+    assert not list(d.glob("*.tmp"))
+
+
+def test_module_map_removes_a_stale_temp_file_and_keeps_a_fresh_one(knowledge, tmp_path):
+    cfg, sha, d = setup(tmp_path)
+    d.mkdir(parents=True)
+    stale, fresh, other = d / f".{'a' * 40}.x1.tmp", d / f".{'b' * 40}.x2.tmp", d / ".notes.tmp"
+    for p in (stale, fresh, other):
+        p.write_text("{")
+    os.utime(stale, (1, 1))
+    os.utime(other, (1, 1))
+    assert knowledge.module_map(cfg) == (sha, MAP)
+    assert not stale.exists() and fresh.exists() and other.exists()   # a live write kept; only its own names removed
+
+
+def test_module_map_prune_skips_a_file_already_gone_and_keeps_its_own(knowledge, tmp_path, monkeypatch):
+    cfg, sha, d = setup(tmp_path)
+    d.mkdir(parents=True)
+    old = [d / f"{c * 40}.json" for c in "abc"]
+    for n, p in enumerate(old, 1):
+        p.write_text("{}")
+        os.utime(p, (n * 100, n * 100))
+    ghost = d / f"{'e' * 40}.json"                   # listed, then pruned by another session before its stat
+    glob, replace = Path.glob, os.replace
+    monkeypatch.setattr(Path, "glob", lambda self, pat: [ghost, *glob(self, pat)])
+
+    def written_oldest(a, b):                        # its own file is the oldest when the prune runs
+        replace(a, b)
+        os.utime(b, (1, 1))
+
+    monkeypatch.setattr(os, "replace", written_oldest)
+    assert knowledge.module_map(cfg) == (sha, MAP)
+    assert (d / f"{sha}.json").exists() and old[1].exists() and old[2].exists()
+    assert not old[0].exists() and not ghost.exists()
