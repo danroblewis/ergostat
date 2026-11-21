@@ -52,7 +52,8 @@ every_hours = 12                     # the groomer grooms again this long after 
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
 plan_reviewer_chars = 12000          # (the lessons alone)
 pipeline_manager_chars = 12000
-librarian = false                    # ships off: true runs the librarian after each review (an AI step on haiku)
+librarian = true                     # true runs the librarian after each review (an AI step on haiku); the owner wants
+                                     # review findings learned (operator, 2026-11-20)
 
 [agents]                             # the sessions' containers (dev/bin/agents.py, dev/agent/)
 image = "ergostat-agent:latest"      # docker build -t ergostat-agent:latest dev/agent (after the dev image)
@@ -61,8 +62,8 @@ hosts = ["api.anthropic.com"]        # the only hosts a session can reach, on 44
 token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude setup-token`; mode 600, or no session
 
 [pools]                              # the AI pools start at 1 and ramp up on good results (dev/bin/pools.py)
-implementor_max = 4                  # the most each may reach (the blocks' pool: in the model is this cap)
-reviewer_max = 2
+implementor_max = 9                  # the most each may reach (the blocks' pool: in the model is this cap)
+reviewer_max = 6                     # operator: reviewers spend AI budget, not machine; suites are capped by the suite slots
 streak = 3                           # good gaps in a row before an increase is asked for
 batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
 batch_max = 4                        # the most the tuner may ask for while the queue wait is off (never past 4)
