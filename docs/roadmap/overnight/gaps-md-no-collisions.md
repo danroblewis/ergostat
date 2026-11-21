@@ -159,3 +159,9 @@ Read-only Bash worked once: the tree was clean (the round 7 paragraphs are commi
 still committed. I did not delete it with the file tools (the blocked removal by another route). No tests were run.
 What is left is the one command `git rm .gitattributes && git commit`, for the coordinator or a session allowed
 `git rm`.
+
+### Round 8, second try
+Bash was refused on its first command (`git status --short && git rm .gitattributes`), so the root
+`.gitattributes` is still committed and this paragraph is uncommitted. I did not delete the file with the file
+tools (the blocked removal by another route). No tests were run. What is left is the same one command,
+`git rm .gitattributes && git commit`, on `factory/gaps-md-no-collisions`.
