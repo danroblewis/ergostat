@@ -916,11 +916,17 @@ class Engine:
             from ..actions import sandbox
             cmd += " " + sandbox.command_line(ready.cfg)
         cwd = ready.workdir if ready.workdir and "run" not in b.params else spec.root
-        log = old.log_path(self.p, b.name)
         note, code, resources = "", None, None
         said = Said(self, b, begun["id"], spec, version, item=item, fence=fence)
 
         usage = costs_ai.Usage(b.params.get("model") or (spec.agents[b.agent].model if b.agent in spec.agents else None))
+        from .. import runlog
+        try:                                                     # its own log, or it does not start (SPEC §4b)
+            seq = begun.get("seq")
+            seq = seq if seq is not None else (ev.get(begun["id"]) or {}).get("seq")
+            rl = runlog.open_run(self.p, b.name, seq, begun["id"])
+        except Exception as e:
+            rl, note = None, f"could not start: its run log: {e}"
 
         def take(got: list[str]) -> None:                       # its lines, as they arrive (SPEC §9.1)
             got = costs_ai.expand(usage, got)                   # (what its AI sessions cost, taken as they say it)
@@ -929,13 +935,11 @@ class Engine:
                     lf.write(raw if raw.endswith("\n") else raw + "\n")
             lf.flush()
             said.lines(got)
-        from ..storage import trim
-        trim(log, self.p.storage.logs["block"])                 # (storage: logs: block:)
-        with open(log, "a", encoding="utf-8") as lf:
-            lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
-            lf.flush()
-            back, pos = None, lf.tell()                          # (where its standard error begins)
-            if b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
+        lf, back, tail = rl.file if rl else None, None, ""
+        try:
+            if rl is None:                                       # (no log of its own: not started)
+                pass
+            elif b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
                 code, note, back, resources = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item,
                                                                      fence)
                 with self.lock:
@@ -973,13 +977,28 @@ class Engine:
                         note = f"killed: {killed}"
                     elif code and not note:
                         note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
-        if code == 0 and not note:                               # a bare number only from a run that finished well
+        finally:                                                 # its entry in the block's log, whole, as it ends
+            if rl is not None:
+                from ..repair.capture import TAIL
+                try:
+                    runlog.finish(rl, begun["time"], why, self.p.storage.logs["block"])
+                    tail = rl.tail(TAIL) if note else ""
+                except Exception as e:
+                    self.say(f"{b.name}: its log: {type(e).__name__}: {e}")
+                finally:
+                    rl.close()
+                try:
+                    runlog.prune(self.p, b.name, self.p.storage.logs.get("runs"))
+                except Exception as e:
+                    self.say(f"{b.name}: its run logs: {type(e).__name__}: {e}")
+        if code == 0 and not note:                              # a bare number only from a run that finished well
             said.finish()
         if said.proposals:
             said.counts["proposed"] = sum(1 for x in said.proposals if x["status"] != "not-proposed")
             said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"daemon": b.params["daemon"]} if b.params.get("daemon") else {}),
+                **({"log": rl.rel} if rl else {}),
                 **({"item": item} if item else {}),
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {}), "model": version,
@@ -1009,9 +1028,7 @@ class Engine:
             if spec.items.get("ergostat.failure"):               # triaged, one failure a signature (SPEC §12r)
                 try:
                     from ..repair import capture
-                    with open(log, encoding="utf-8", errors="replace") as lf:
-                        lf.seek(pos)
-                        capture.failed(self.p, spec, b, begun, data, stdin, lf.read())
+                    capture.failed(self.p, spec, b, begun, data, stdin, tail)   # (its own file's, only)
                 except Exception as e:
                     self.say(f"{b.name}: its failure: {type(e).__name__}: {e}")
         if said.refused:
