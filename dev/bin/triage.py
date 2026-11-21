@@ -29,6 +29,11 @@ def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) 
         if not fac.git_ok(wt, "merge", "-q", "--no-ff", "--no-commit", sha):
             return 1, {"why": "the merge no longer applies"}
         log = fac.run_dir(cfg, "queue") / f"{branch}-{n}-triage.txt"
+        q = fac.run_dir(cfg, "queue") / f"{branch}-{n}-triage-quarantined.txt"
+        fac.beside(wt, q, lambda ts: fac.suite(cfg, "rerun", wt, q, tests=ts))
+        tests = [t for t in tests if t not in fac.quarantine(wt)]       # (deselected: they never block)
+        if not tests:
+            return 0, {"why": "only quarantined tests failed"}
         rc, secs = fac.suite(cfg, "rerun", wt, log, tests=tests)
         return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text())}
     finally:
