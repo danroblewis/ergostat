@@ -172,3 +172,22 @@ has a `library:` or `uses:` line. Run alone here, `tests/test_warm.py` passes, 2
 the whole suite running (287 threads), so it looks like a load-dependent timing in how the warm daemon replaces a
 cancelled run's process (lesson-10). That belongs in its own gap: either replacing the process really is slow under
 load, or the test's wait is fixed. The suite should be run again. If it fails on main too, it is not this branch's.
+
+### The factory's second unit run after round 2
+
+The tail it gave stops at 77% with no `F`, no error and no summary line. The run was cut off (killed, or timed out
+before pytest printed anything), and the tail names no failing test. With no failure to fix, no code was changed.
+The whole suite could not be run from this worktree (not permitted here). Instead, every test file that touches
+templates, `uses:`, `library:` or the authoring tools was run alone, and each passed:
+- `test_library_trust` (46);
+- `test_templates` and `test_modelling_template` (40);
+- `test_modelling_core` (24) and `test_cli_fallback` (17);
+- `test_interventions` (10), `test_redesign` (19), `test_redesign_bench` (6) and `test_self_improve` (10);
+- `test_repair2` (32 skipped: they need the sandbox);
+- `test_warm` (21; this was the first run's one failure).
+
+Ruff is clean. No code outside this branch calls `find_all` or `read` with the old arguments. `templates.read` is the
+only place a `Template` is made, so no caller gets the `untrusted` default by accident.
+
+**Left:** run the unit suite and the four browser files again under the watchdog, keeping the full output, so that
+any failure can be named.
