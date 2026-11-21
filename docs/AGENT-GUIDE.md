@@ -72,7 +72,11 @@ Work through these steps in order. Ask the person only what you cannot infer.
    too, or it shows as "not recorded" and counts as unfinished. Then the step that starts the work can take only
    what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
-   to check the links came through (the Timeline's projection and the list's **done by** are the completion
+   to check the links came through, or ask from the command line: `ergostat item ID --near [N]` (the items within N
+   hops, 1 to 4), `ergostat item A --path B` (a shortest chain of relations, a backward step named by its inverse),
+   `ergostat item ID --about` (what links to it, `declared`, and what names its id in a field, `inferred`); each
+   with `--json`, the same as `/api/items-query`, visiting at most 2,000 items and saying `capped` past that
+   (the Timeline's projection and the list's **done by** are the completion
    estimates: see "When will it be done", below); `examples/roadmap/` is a small model built this way. A parent that moves on
    when its children do (an epic shipped once every ticket is done) is a rule on its kind, never a block:
    `join: {children: parent, all: done, to: shipped}` (`any:` for the first child to start).
@@ -91,7 +95,8 @@ Work through these steps in order. Ask the person only what you cannot infer.
    most 3, then "+N"; none under `--at`). A name that is not a part of the model is the finding `about-missing-part`: fix the name.
    "unknown" in any of these means the item index could not be read, not that there is no knowledge.
 5. **One block per step that does the work**, taking items in its state:
-   `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
+   `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once: a number, or
+   `{now: stock.NAME, most: N}` when a controller steps a measured stock to set it) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
    ergostat retries a run that fails or goes silent, and parks an item that keeps failing as a dead
    letter. A program may **print events as it goes**: each line is taken when it is printed, not
@@ -137,7 +142,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
    redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
    change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
-   they say rather than proposing the same idea again. Do not hand-write these parts.
+   they say rather than proposing the same idea again. Do not hand-write these parts. The other built-in templates
+   used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
+   so far its item-index files held at `index-files` (6) by a rule-tier tidier that takes over from the engine's own
+   (SPEC §2a, *Upkeep*). Add it when the files a model's changing kinds leave behind should show on the diagram.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three

@@ -4,7 +4,8 @@
     backlog.py pin GAP N | pin GAP --off       hold a gap at rank N (the solver and the groomer keep it)
     backlog.py dep add GAP ON | dep rm GAP ON  GAP waits on ON, or no longer (kept: the intake does not add it again)
     backlog.py close GAP (--done | --duplicate-of OTHER) --why TEXT
-    backlog.py propose                         the solver's order and its reasons, against the ranks now; writes nothing
+    backlog.py refuse-link GAP ON --why TEXT   a link GAP -> ON refused: never proposed again (dep add clears it)
+    backlog.py propose [FILE]                  the solver's order and its reasons, or a proposal as checked; writes nothing
     backlog.py apply FILE                      a proposal (the gated action groom-backlog, once approved)
     backlog.py groom                           the groomer block: an AI session's proposal, solved, asked as groom-backlog
 
@@ -55,10 +56,23 @@ def rerank(gaps: dict[str, dict], by: str, over: dict | None = None, extra: dict
     return out + [f"  note: {x}" for x in got["findings"]]
 
 
-def check(gaps: dict[str, dict], p: dict) -> tuple[dict, list[str]]:
-    """A proposal as it can be applied, and what was refused: names that are no gap, links that close a cycle, fields
-    of a pinned gap's rank, closes of gaps started, splits of a gap with built work."""
-    refused, out = [], {"links_add": [], "links_rm": [], "grooming": {}, "closes": [], "splits": []}
+def refusals(cfg: dict) -> tuple[dict, list[str]]:
+    """The links the coordinator refused (run/backlog/refused-links.jsonl, in file order: a later line wins, a `cleared`
+    one ends it), and a note when it cannot be read: then it refuses nothing and says so (lesson-3)."""
+    f, got = fac.run_dir(cfg, "backlog") / "refused-links.jsonl", {}
+    try:
+        for line in f.read_text().splitlines() if f.is_file() else []:
+            r = json.loads(line)
+            got[(r["gap"], r["depends_on"])] = None if r.get("cleared") else str(r.get("why") or "")
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return {}, [f"{f.name} could not be read, so it refuses no link ({str(e)[:200]})"]
+    return {k: v for k, v in got.items() if v is not None}, []
+
+
+def check(gaps: dict[str, dict], p: dict, known: tuple[dict, list[str]] = ({}, [])) -> tuple[dict, list[str]]:
+    """A proposal as it can be applied, and what was refused: names that are no gap, links that close a cycle or are
+    ``known`` (refusals()), fields of a pinned gap's rank, closes of gaps started, splits of a gap with built work."""
+    refused, out = list(known[1]), {"links_add": [], "links_rm": [], "grooming": {}, "closes": [], "splits": []}
     graph = {gid: set(g["fields"].get("depends_on") or []) for gid, g in gaps.items()}
     for a, b, *why in p.get("links_rm") or []:
         if b in graph.get(a, ()):
@@ -66,7 +80,9 @@ def check(gaps: dict[str, dict], p: dict) -> tuple[dict, list[str]]:
             out["links_rm"].append([a, b, *why])
     for a, b, *why in p.get("links_add") or []:
         loop = deps.reaches(graph, b, a) if a in gaps and b in gaps and a != b else None
-        if a not in gaps or b not in gaps or a == b or loop:
+        if (a, b) in known[0]:
+            refused.append(f"link {a} -> {b}: refused before by the coordinator ({known[0][(a, b)]})")
+        elif a not in gaps or b not in gaps or a == b or loop:
             refused.append(f"link {a} -> {b}: " + (f"closes a cycle ({' -> '.join([a, *loop])})" if loop else "no gap"))
         elif b not in graph[a]:
             graph[a].add(b)
@@ -132,7 +148,7 @@ def close(gaps: dict, gid: str, end: str, why: str, of: str | None, by: str) -> 
 def apply(gaps: dict[str, dict], p: dict, by: str) -> tuple[list[str], list[str]]:
     """A checked proposal written, all or nothing: checked and solved whole first, then its links, closes, splits, and
     the grooming with the ranks; (lines, refused)."""
-    p, refused = check(gaps, p)
+    p, refused = check(gaps, p, ({}, []) if by == "backlog.py" else refusals(fac.config()))
     if refused and by == "backlog.py":                # one change by hand: refused whole, nothing written
         raise SystemExit("\n".join(f"refused: {x}" for x in refused))
     order = solved(trial(gaps, p), p["grooming"])
@@ -254,7 +270,7 @@ def groom(cfg: dict, gaps: dict[str, dict]) -> int:
     if not found:
         raise RuntimeError("the groomer gave no fenced JSON proposal")
     raw = json.loads(found[-1])
-    p, refused = check(gaps, raw)
+    p, refused = check(gaps, raw, refusals(cfg))
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     text = diff(gaps, p, refused)
     (d / f"{stamp}.md").write_text(f"# The backlog groomed, {stamp}\n\n```\n{text}\n```\n")
@@ -299,7 +315,11 @@ def main(argv: list[str]) -> int:
     cl.add_argument("--done", action="store_true")
     cl.add_argument("--duplicate-of")
     cl.add_argument("--why", required=True)
-    sub.add_parser("propose")
+    ref = sub.add_parser("refuse-link")
+    ref.add_argument("gap")
+    ref.add_argument("on")
+    ref.add_argument("--why", required=True)
+    sub.add_parser("propose").add_argument("file", nargs="?")
     sub.add_parser("apply").add_argument("file")
     sub.add_parser("groom")
     a = ap.parse_args(argv)
@@ -318,6 +338,17 @@ def main(argv: list[str]) -> int:
         return 0
     if a.cmd == "groom":
         return groom(cfg, gaps)
+    def remember(**f) -> None:                      # appended, one line each: a later line wins (refusals())
+        with (fac.run_dir(cfg, "backlog") / "refused-links.jsonl").open("a") as w:
+            w.write(json.dumps({"gap": a.gap, "depends_on": a.on, "at": time.time(), **f}) + "\n")
+    if a.cmd == "refuse-link":
+        remember(why=a.why)
+        print(f"refused: {a.gap} -> {a.on} is not proposed again (backlog.py dep add clears it)")
+        return 0
+    if a.cmd == "propose" and a.file:
+        p, refused = check(gaps, json.loads((fac.MODEL / a.file).read_text()), refusals(cfg))   # (an absolute path wins)
+        print(diff(gaps, p, refused))
+        return 0
     if a.cmd == "propose":
         got = solved(gaps)
         print("\n".join(f"{r['rank']:>3} (now {gaps[r['id']]['fields'].get('rank') or '-'}) {r['id']}: {r['why']}"
@@ -332,6 +363,8 @@ def main(argv: list[str]) -> int:
         lines = rerank(gaps, by)
     elif a.cmd == "dep":
         lines, refused = apply(gaps, {f"links_{a.how}": [[a.gap, a.on, "by hand"]]}, by)
+        if a.how == "add" and (a.gap, a.on) in refusals(cfg)[0]:     # an explicit decision overrides the refusal
+            remember(cleared=True, why="dep add by hand")
     elif a.cmd == "close":
         if bool(a.done) == bool(a.duplicate_of):
             raise SystemExit("close GAP --done, or --duplicate-of OTHER")

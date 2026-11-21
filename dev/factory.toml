@@ -39,13 +39,15 @@ planner_model = "opus"               # the planner: a gap's definition of done, 
 planner_session_usd = 5.0
 plan_reviewer_model = "opus"         # the plan review: the plan against main's code and the task graph
 plan_reviewer_session_usd = 3.0
+join_judge_model = "opus"            # the join judge (plan.py join): the plan reviewer's model and session cap
+join_judge_session_usd = 3.0
 researcher_model = "opus"            # research questions (dev/bin/research.py)
 researcher_session_usd = 5.0
 librarian_model = "haiku"            # the librarian's one step: a review's findings against the lessons
 librarian_session_usd = 0.25
 groomer_model = "opus"               # the groomer: the backlog's links, value, size, risk, closes and splits (backlog.py)
 groomer_session_usd = 3.0
-pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one situation at a time
+pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one session sees the whole pipeline
 pipeline_manager_session_usd = 3.0
 
 [backlog]
@@ -75,14 +77,15 @@ hold = true                          # operator (2026-11-20): the role pools sta
 batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
 batch_max = 4                        # the most the tuner may ask for while the queue wait is off (never past 4)
 
-[manager]                            # the pipeline manager's triggers (dev/bin/watch.py)
+[manager]                            # the pipeline manager's sessions (dev/bin/watch.py, manager.py)
 open = 1                             # the switch managing-open: 0 pauses it
-parked_within_hours = 48             # a park this recent is looked at (older ones were the coordinator's)
-park_wait_hours = 24                 # a waits_on / needs park not cleared this long is looked at (dev/bin/parks.py)
+every = "2h"                         # a scheduled session (the routine review), when something changed since the last
+broken_minutes = 30                  # a session at once when the merge pipeline has been broken this long
+most_actions = 8                     # manage.py calls a session may make (held to 1..12)
+parked_within_hours = 48             # a park this recent is a trigger (older ones were the coordinator's)
+park_wait_hours = 24                 # a waits_on / needs park not cleared this long is a trigger (dev/bin/parks.py)
 intervention_hours = 12              # an open defect (not a decision: operator-decision, factory-tuning, factory: false)
-                                     # unremedied this long is looked at
-interventions_per_hour = 3           # at most this many such looks an hour (the first run's backlog)
-heartbeat_minutes = 30               # a look at the whole pipeline, when it changed since the last
+                                     # unremedied this long is a trigger
 
 [manager.stuck_hours]                # a gap this long in one state is stuck (states not named are never stuck)
 ready = 6

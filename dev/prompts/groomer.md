@@ -8,7 +8,9 @@ For each gap, read its GAPS.md entry and its definition when it has one, and loo
 `git log`, `docs/`) for what is true now. Then say:
 
 - **depends_on**: a gap that cannot sensibly be built before another is merged (it changes what the other adds, or
-  needs it). Only real precedence, never "related". Never a link that would make a cycle.
+  needs it). Only real precedence, never "related". Never a link that would make a cycle. A new link's why must quote
+  the line of the waiting gap's definition (or GAPS.md entry) that needs the other gap; with no such line, no link. A
+  link the coordinator refused before is dropped by the program, with its reason.
 - **value** (1-5: what it is worth to the owner), **size** (S, M or L: under a day's session, one, several; or the
   hours), **risk** (low, medium or high: how likely it fails review or breaks something), **groomed_why** (one sentence).
 - **close**: a gap already done on main (say the commit or the file that shows it: `end: done`), or a duplicate of
