@@ -183,3 +183,14 @@ factory runs it (`pytest -q -n 8 --dist worksteal`, with `faulthandler_timeout=2
 it. `scripts/suite_watch.py` could not be run in this session, so its peaks (threads, RSS) were not seen. If the
 factory's run fails the same way again, those peaks are the next thing to read. One cost is new on this branch:
 `files_now` compiles the model from its files on every supersede, judge pass and Accept.
+
+**After the factory's second unit run failed.** One test failed:
+`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (`['expired', 'ack'] == ['ack']`).
+Run here as the factory runs it (`pytest -q -n 8 --dist worksteal`), it failed the same way: 1 failed, 1947 passed, 69
+skipped. Run alone, it passes. It is not this branch's. Its model has no `use: modelling`, so no judge, review or
+proposals pass runs in it. `ergostat/leases` imports none of the modules changed here, and this branch touches no lease,
+engine or store file. The lease has `ttl: 1s` and is renewed only by a child `$ERGOSTAT_CMD event` started every 0.4 s.
+Under eight workers, starting that child can take longer than the ttl, so the watchdog expires the lease first. That is
+a load-dependent timing test in the leases (lesson-10). Its fix belongs in a gap of its own (lesson-13), so no code was
+changed for it here. The two failed factory runs stopped in different places (cut short at 32%, then this test), and
+neither failure is in a test this branch touches.
