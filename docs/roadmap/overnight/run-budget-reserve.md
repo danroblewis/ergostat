@@ -117,3 +117,58 @@ All in `tests/test_run_budget.py`.
 - lesson-7: add a test (or name an existing one) showing budget.refused and budget.closed do not trip the coherence or graph code.
 - lesson-8: SPEC and AGENT-GUIDE must not call max-cost a per-run spending cap; it is only the amount reserved before a run starts.
 - Say how a run whose start is older than 7 days but whose end is within 24 h is charged: a priced run should be charged its real cost, not 0.
+
+## Where it stopped
+
+Round 1: built, awaiting review. All the acceptance tests exist in `tests/test_run_budget.py` and pass, with four
+more the plan review asked for (`test_permit_lists_the_run_under_the_lock`, `test_leased_run_block_reserves_once`,
+`test_budget_events_trip_no_coherence_or_graph`, and the 3-days/2-days case inside
+`test_unended_reserve_does_not_age_out`). Net lines outside `tests/` and `docs/`: 337 of the 380.
+
+Choices made alone (each the more reversible one):
+
+- The lease event's real type is `ergostat.lease.taken`; "lease.taken" in this file means that event.
+- A free run still writes `reserve: 0` and its `pid` on its `agent.started`, so the fold can tell it from a run with no
+  reserving event. It asks no decision, but an out-of-bounds budget refuses free runs too (failing closed).
+- An end whose run has no reserving event in the 7 days (a free run, a start over 7 days old, `Engine.judge`,
+  `runner.run_agent`) counts its known cost, `max-cost` when it used AI at no known price, and otherwise 0.
+- An end counts only while it is within the last 24 h. When a run has several ends, the largest charge among those
+  in the window counts.
+- A take that wins its lease but whose run never starts (it raced ergostat's stop) is not closed at 0. It is dropped
+  from the open runs, so recovery closes it at its reserve (point 4: a released lease changes nothing).
+- Recovery also runs on the dispatcher's one-second clock (limited to once a minute), even when no block takes items,
+  so a CLI's orphan is closed without waiting for the next engine start.
+- `graph.py` was not changed. It shows `budget.*` on the `ergostat` agent's node the same way it shows the lease
+  events. The test holds that the wiring, coherence and every part's node stay unchanged.
+
+Answers to the plan review:
+
+- Ends over 7 days, matched by run id, their charge counted only within 24 h: `fold` and `read` in
+  `ergostat/costs/budget.py`. A run started 3 days ago and ended 2 days ago is charged 0, and recovery writes nothing
+  for it (`test_unended_reserve_does_not_age_out`).
+- A run is added to `OPEN` inside `permit`, under the flock, before its write
+  (`test_permit_lists_the_run_under_the_lock`).
+- `recover` reads `OPEN.copy()` and takes no lock but the flock and the store's own. It completes while another
+  thread holds the dispatcher's and engine's locks (`test_orphan_closed_by_recovery`).
+- A leased `run_block`'s `agent.started` has the lease's run id and no `reserve`. It is counted once
+  (`test_leased_run_block_reserves_once`).
+- The refused unleased run leaves the block off `running` and `last_run` (`test_refused_engine_loop`).
+- lesson-7: `test_budget_events_trip_no_coherence_or_graph`.
+- lesson-8: SPEC §9.9 and the agent guide §3b say `max-cost` is only what a run reserves, not a cap on its spending.
+- A start older than 7 days with an end within 24 h: charged its real cost when priced, `max-cost` for AI at no known
+  price, and otherwise 0, a limit stated in SPEC §9.9 (`test_unended_reserve_does_not_age_out`, the `ancient` run).
+
+Each test was seen to fail with the code it guards broken by hand, then restored. Lock checks: no flock; a
+threading-only lock, which fails only the cross-process test; the flock released before the write. Start paths: both
+start paths skipping the permit; `once` and the CLI ignoring the refusal. Bounds: checked at compile time only.
+Allowlist: turned into a denylist. Fold: ends read over 1 day; a lease's end treated as the run's end; unknown cost
+as 0; the leased run reserving again. Recovery: sparing every run of this pid; closing open runs; `OPEN` not filled in
+the permit. Closes: the crash close and the lost-take close removed. Fail-open: `left` and the permit on an
+unreadable record. Rate: the once-a-minute limit removed.
+
+Not done here: merging origin/main. This clone has no `origin/main` ref and no network, and local `main`
+(1e9ecb16) is this branch's base, so there was nothing to merge. The full unit suite and the four browser files
+were not run here either; the factory runs them, under the watchdog. Run here, one batch at a time: the new file and
+17 existing test files that touch these modules (leases, schema, structure, costs, CLI fallback, run logs,
+architecture, coherence, runner, streamed output, messages, control, resilience, claims, workspaces, auxiliaries,
+gated actions).

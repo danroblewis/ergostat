@@ -2611,6 +2611,60 @@ model and changes nothing. Nothing on the running path uses it yet.
   parts, ties broken by name) are merged (`ceiling`). With `most` 1 there is one shard, the lead, with every part.
 - **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
 
+### 9.9 The day's AI budget: runs reserve before they start
+
+```yaml
+budget: {daily: 20, max-cost: 2}     # dollars over the trailing 24 hours; dollars a charged run reserves
+```
+
+`budget:` (main file only; `ergostat.local.yaml` may not set it) takes both keys, each required: `daily`, US dollars
+over the trailing 24 hours (the window of `ergostat.cost.usd`), with 0 < daily ≤ 10000; `max-cost`, with
+0 < max-cost ≤ daily. An unknown key, a missing key, a value that is not a number, and one out of bounds are each an
+error with its own message. Without `budget:` nothing here applies and no run or lease event carries a `reserve`.
+
+`max-cost` is only what a run **reserves** before it starts. It is not a cap on what the run spends: a run that
+spends more is charged what it spent, and nothing stops it as it runs (that is T1, `docs/GAPS.md`).
+
+- **Charged and free runs.** A run is free (it reserves 0) only when its block is not `ai` and its agent is declared
+  with kind `person`, `decision`, `program` or `rule`. Every other run is charged and reserves `max-cost`, including
+  a block with no agent, or an agent with no kind.
+- **The permit.** Before a charged run starts, ergostat opens `<state dir>/budget.lock` (a new open each time) and
+  holds `flock(LOCK_EX)` while it reads the record, decides and writes the run's reserving event. Threads of one
+  process and separate processes (the engine and `ergostat block NAME --now`) exclude each other. It refuses when
+  `spent + reserved + max-cost > daily`, when the record cannot be read, or when the budget's values are out of
+  bounds when the run asks (checked again, as at compile time). A leased run's reserving event is its
+  `ergostat.lease.taken` (written by the dispatcher's take: the dispatch loop, and `block --now` on a block that
+  takes items); an unleased run's is its `agent.started` (the engine's loop, event triggers, `block --now`, the
+  message classifier, step tests, library trials). Each carries `reserve` and `pid`. The `agent.started` of a leased
+  run has the lease's run id and carries no `reserve`: it is not counted again.
+- **A refusal** writes no `ergostat.lease.taken` or `agent.started`; no lease is held and the block is not left
+  running. It records `budget.refused` (item: the block; data: `reserve`, `spent`, `reserved`, `daily`, `why`) at
+  most once a minute per block per process. `ergostat block NAME --now` prints `refused: budget: …` and exits 1.
+- **What is spent and reserved** is a fold by run id (`data.run` of a lease's take, the id of an `agent.started`),
+  never by lease state. It reads reserving events and ends (`agent.ran`, `agent.failed`, and `budget.closed`, data
+  `run`, `cost_usd` or null, `why`) over the last 7 days, and matches each end to its run by `causedby` or `run`,
+  never by time. A run with no end is *reserved* at its reserve, however old within the 7 days: a lease that expires,
+  is released or nacked changes nothing. An end counts in *spent* only while it is within the last 24 hours: its
+  known `cost_usd`; else its reserve, or `max-cost` when it used AI at no known price; a run with several ends, the
+  largest. An end whose run has no reserving event in the 7 days (a free run, a run started more than 7 days ago,
+  and the starts outside the permit below) counts its known cost, `max-cost` when it used AI at no known price, and
+  otherwise 0.
+- **Closing what has no end.** `budget.closed` with cost null (charged its reserve for 24 hours from the close) is
+  written by recovery, under the same lock, for each reserving run with no end whose recorded `pid` is not alive, or
+  is this process's but no longer among the runs it has open. Recovery runs when the engine starts and on the
+  dispatcher's clock, at most once a minute, and reads the open runs without taking the engine's or dispatcher's
+  locks. A run is listed as open under the lock, before its event is written. A run that `run_block` raises out of
+  after its `agent.started` is closed there, cost null. A take the item fold refused (another holder won) is closed
+  with `cost_usd: 0`: nothing ran.
+- **`ergostat.budget.left`** is daily − spent − reserved. With no `budget:`, or a record that cannot be read, it is
+  an error (`MeasureError`), never `daily` or 0: the measures list shows none and the error.
+- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take`, and only
+  those. It does not cover ergostat's own judge passes (`Engine.judge`), the AI calls inside ergostat that keep their
+  own per-call caps (decisions extract, intent verdicts, the redesigner), or models in `ergostat.toml`
+  (`runner.run_agent`), which have no `budget:`; their ends count in spent as ends with no reserving run. A pid
+  reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
+  drops out of reserved. Each permit reads 7 days of starts and ends.
+
 ## 10. Agents
 
 A machine shared by several blocks. Declare one only to say something true across them; whatever

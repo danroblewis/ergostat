@@ -125,8 +125,8 @@ def permit(p, spec, block, write, run: str):
                 except BaseException:
                     OPEN.discard(run)
                     raise
-    except OSError as e:
-        why = f"the budget's lock could not be held: {e}"
+    except OSError as e:                          # (its lock, or the write: not started, either way)
+        why = f"the budget's lock or record: {e}"
     refused(p, block.name, {"reserve": r, "spent": spent, "reserved": reserved,
                             "daily": getattr(spec.budget, "daily", None), "why": why})
     return None, why

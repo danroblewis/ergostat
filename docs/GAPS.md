@@ -243,6 +243,18 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
+- **The day's AI budget, P3: runs reserve before they start** (in progress, `factory/run-budget-reserve`; SPEC §9.9,
+  `docs/roadmap/overnight/run-budget-reserve.md`): `budget: {daily, max-cost}`; every run started through
+  `Engine.run_block` or `Dispatcher.take` asks a permit under a file lock, and a charged run is refused unless what
+  is left of the day covers `max-cost`; spend is folded by run id, an unknown cost charged as the reserve;
+  `ergostat.budget.left`. It covers those start paths only.
+- **ergostat's own AI calls under the budget** (open; from `run-budget-reserve`): the judge's passes
+  (`Engine.judge`), the decisions extract, the intent verdicts and the redesigner keep their own per-call caps and
+  ask no permit, and models in `ergostat.toml` (`runner.run_agent`) have no `budget:`. Their ends count in spent
+  when priced, but nothing refuses them when the day's budget is gone.
+- **T1: a run stopped at its spend cap** (open; `run-budget-trip`, depends on `run-budget-reserve`): `max-cost` is
+  only what a run reserves; a run that spends more is charged more and is not stopped. T1 gives each run its reserve
+  as its cap (`ERGOSTAT_MAX_COST`, `--max-budget-usd`) and its sessions take from it under a lock.
 - **Linux: two bugs the dev container found** (done; `linuxfix`, 2026-11-19). (1) The segmented event log
   (`ergostat/segments.py`, `_sync`) noticed new sealed segments by the directory's mtime alone, and Linux timestamps
   are coarse (one jiffy: 50 file creates on tmpfs gave one mtime), so a seal within the same tick was missed and its
