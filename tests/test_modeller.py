@@ -246,5 +246,39 @@ def test_a_fresh_request_is_called_without_one_that_failed_before(tmp_path, monk
     assert rq.stored(p)[bad["id"]]["failed"] == {"ai": 1}
 
 
+def test_a_request_held_after_its_failed_calls_and_approved_is_called_again(tmp_path, monkeypatch):
+    """Held for the owner after ``FAILS`` failed calls, then approved: the next run calls it (its failed count and
+    error cleared); a call that answers starts its failed calls in a row again; raised again, it has none."""
+    from ergostat.library.run import modelling as ml
+    p = _project(tmp_path, monkeypatch)
+    bad = ml._near(p, _waiting(p))[0]
+    for _ in range(md.FAILS):                                    # held as the tier holds it after FAILS failed calls
+        bad = rq.stored(p)[bad["id"]]
+        n = int((bad.get("failed") or {}).get("ai") or 0) + 1
+        assert rq.mark(p, bad, "held" if n >= md.FAILS else bad["state"], "failed", error="Prompt is too long",
+                       failed={"ai": n})
+    assert rq.stored(p)[bad["id"]]["state"] == "held" and not _waiting_ai(p, bad["id"])
+    assert rq.answer(p, p.model.spec, bad["id"], True) == "approved: open again, for the ai tier"
+    x = rq.stored(p)[bad["id"]]
+    assert x["state"] == "open" and x["failed"] == {"ai": 0} and x["error"] is None and _waiting_ai(p, bad["id"])
+    for r in _waiting(p):                                        # the others out of the way: its call is its own
+        if r["id"] != bad["id"]:
+            assert rq.mark(p, r, "held", "out of the way", tried={"ai": 9})
+    calls = []
+
+    def call(text, model, timeout=600.0):
+        calls.append(f'"id": "{bad["id"]}"' in text)
+        return {"result": "", "usd": 0.01, "tokens_in": 1, "tokens_out": 1}
+    monkeypatch.setattr(md, "call", call)
+    assert _run("--daily", "20") == 0 and calls and calls[0]     # called again
+    assert (rq.stored(p)[bad["id"]].get("tried") or {}).get("ai") == 1
+    x = rq.stored(p)[bad["id"]]                                  # a call that answered: no failed calls in a row
+    assert rq.mark(p, x, x["state"], failed={"ai": 2}, error="old")
+    x = rq.stored(p)[bad["id"]]
+    assert rq.mark(p, x, "reopened", tried={})
+    assert _run("--daily", "20") == 0 and rq.stored(p)[bad["id"]]["failed"] == {"ai": 0}
+    assert {"failed": {}, "error": None}.items() <= rq.fresh().items()   # raised again: a new finding
+
+
 def _waiting_ai(p, rid):
     return any(r["id"] == rid and int((r.get("failed") or {}).get("ai") or 0) < md.FAILS for r in _waiting(p))

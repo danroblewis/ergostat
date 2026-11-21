@@ -154,3 +154,29 @@ Size: 46 net lines outside `tests/` and `docs/` against `main` (68 added, 22 rem
 Run here in one batch with `-p no:randomly -o faulthandler_timeout=240`: `test_modeller`, `test_modelling_ai_cap`,
 `test_modelreview`, `test_redesign`, `test_redesign_memory`, `test_modelling_core`, `test_modelling_core2`,
 `test_inbox`. 148 passed. Ruff is clean. Not run: the whole unit suite and the browser files (left to the factory).
+
+### Round 4: the failed-call count cleared when the request is given back
+
+Answering review/ai-call-failures-are-failures-3, every finding:
+
+- lesson-5/lesson-8 (blocking): `failed.ai` was never cleared, so a request held after `FAILS` failed calls and then
+  approved went back to `open` and was never called again, and it was gone from the inbox too. Now
+  `requests._answer`'s approval sets `failed.ai` back to 0 and clears `error`, the same way it gives back
+  `tried.ai`. `requests.fresh()` (a dismissed request raised again) clears `failed` and `error` as well.
+- Non-blocking: a request whose call later succeeded kept its old count. Now, when the tier's first call answers,
+  every request in the group has `failed.ai` set back to 0, so the count is failed calls in a row, as SPEC §12e now
+  says. Choice made alone: a failed go-back call after an answered first call still sets the count back to 0, because
+  the first call answered.
+- Non-blocking: the review could not run `tests/test_modeller.py`. Run here: 17 of 17 pass.
+
+New test: `test_a_request_held_after_its_failed_calls_and_approved_is_called_again`. A request is held after `FAILS`
+failed calls and the owner approves it. The test checks that it is `open` with `failed == {ai: 0}` and no error, and
+that the next run calls it and it uses its try. Then a call that answers sets `failed.ai` from 2 back to 0, and
+`fresh()` clears both fields. I broke each of the three guards once (the approval's reset, the reset on an answered
+call, and `fresh()`) and saw the test fail each time.
+
+Size: 49 net lines outside `tests/` and `docs/` against `main` (75 added, 26 removed), within the 50 budget.
+Run here in one batch with `-p no:randomly -o faulthandler_timeout=240`: `test_modeller`, `test_modelling_ai_cap`,
+`test_modelreview`, `test_redesign`, `test_redesign_memory`, `test_modelling_core`, `test_modelling_core2`,
+`test_inbox`. 149 passed. Ruff is clean. Not run: the whole unit suite and the browser files, and the merge of
+origin/main (this clone has no `origin`). Those are left to the factory.

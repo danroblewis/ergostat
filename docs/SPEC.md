@@ -3889,7 +3889,9 @@ block of the template, answer them, the cheapest first:
   second call failed. Failed calls are counted apart from tries (`failed`) and bounded, since some fail the same way
   every time (a prompt too long): a request that failed before is never in a call with others. While any request with
   no failed call waits, the call takes only those; after that, the one that failed least goes alone in its call. After
-  `modeller.FAILS` (3) failed calls a request is held for the owner, saying the error. The reviewer counts no failed
+  `modeller.FAILS` (3) failed calls a request is held for the owner, saying the error. They are failed calls in a
+  row: a first call that answers sets the count back to 0, and so does the owner's approval (with its `error`
+  cleared), so an approved request is called again; raised again after a dismissal, it starts with none. The reviewer counts no failed
   call toward its tries and stops its pass there; the changes that failed least are read first, and one with
   `FAILS` failed calls is `undecided`, the owner's. A redesigner run whose calls failed ends `error` (with the
   error), not `nothing proposed`; its request stays open saying so, and the unit takes no rest for it until `FAILS`

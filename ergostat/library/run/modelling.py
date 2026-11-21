@@ -132,14 +132,15 @@ def ai(argv: list[str]) -> int:
                     cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
         note(f"modeller ({a.model}): {c['error']}; ${c['usd']:.4f} charged, no try used for {len(group)} requests{said}")
         return 0
-    for r in group:
+    for r in group:                              # its first call answered: its failed calls in a row start again
         tried = {**(r.get("tried") or {}), "ai": int((r.get("tried") or {}).get("ai") or 0) + 1}
+        ok = {"failed": {**(r.get("failed") or {}), "ai": 0}} if fails(r) else {}
         if rq.evidence_of(r) in answered:
-            rq.mark(p, r, r["state"], tried=tried, error=None, cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
+            rq.mark(p, r, r["state"], tried=tried, error=None, **ok, cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
             continue                                     # (each mark refused if the owner answered it meanwhile)
         why = cannot.get(r["id"]) or (f"its second call failed: {c['error']}"[:500] if c.get("error")
                                       else "the ai tier proposed nothing that would be proposed")
-        rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried, error=c.get("error"),
+        rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried, error=c.get("error"), **ok,
                 cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
     n = submitted(p, got["proposals"], "modeller")
     note(f"modeller ({a.model}): {n} proposed for {len(group)} requests, {len(cannot)} it cannot; "
