@@ -35,3 +35,13 @@ Its spawned children `import queue` (multiprocessing) and get `dev/bin/queue.py`
 fails when run after `tests/test_backlog.py` alone (`pytest -p no:randomly tests/test_backlog.py` then the test),
 with no file of this gap involved. Under lesson-13 it is reported, not fixed here; the fix (take `BIN` off `sys.path`
 after the import, as `tests/test_factory_knowledge.py` does) belongs in its own gap.
+
+Round 2: main (b24eb901) merged in. The conflict in `dev/bin/queue.py` kept both sides: main's `settleable()`,
+`settle_alone()`, and its failed-push path (`then` released after `block()`), plus this gap's `Waits` and the
+`Waits(...)` return for a held, requested or approved push. After the merge the three acceptance tests,
+`tests/test_factory.py` (119 passed, 2 skipped) and ruff pass. Checked that the tests can fail: with `"1m"` changed to
+`"10m"`, the waiting-push and next-batch tests fail; with `"10m"` changed to `"1m"`, the blocked-queue test fails.
+Round 1's non-blocking findings: the `Waits(str)` subclass stays, because the change is meant to stay a few lines in a
+file that often conflicts, and `test_a_waiting_push_puts_gaps_off_for_a_minute` fails if anything wraps it. The
+next-batch test still does the dispatcher's timing by hand and does not drive `ergostat/leases/dispatch.py` end to end.
+That is a narrower claim, written down here rather than widened.
