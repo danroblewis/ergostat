@@ -293,3 +293,9 @@ was refused by this session's permissions for the fourth time, and it was not wo
 not go to a fifth implementor round on this finding alone. A session or person who is allowed to delete files must
 run `git rm scratch_probe.py` and commit it. The merge queue also needs to run the unit suite under
 `suite_watch.py`, the four browser files and the real origin/main merge.
+
+## Where it stopped
+
+Parked by the factory (review/the-judge-almost-never-decides-4, 2026-11-20 19:15).
+
+The implementation is done and, read without running it, meets the definition of done: exact `same` in compare; the structural path in unmoved.py under pr.locked with a version stamp read from disk; fit_counts and coherence `measurable` in scorecard.py; owners() checks verdict.on; every acceptance test present by name, including the plan review's one-sided coherence and fit tests; about 134 of 200 lines. Left: (1) `git rm scratch_probe.py` and commit, which the factory session cannot do (four rounds refused); (2) the merge queue runs tests/test_unmoved.py, the regression files, the unit suite, the four browser files and ruff after merging origin/main. It stops because another automated fix round will hit the same permission refusal: a person must delete the file. After that the branch can go straight to review for merge.
