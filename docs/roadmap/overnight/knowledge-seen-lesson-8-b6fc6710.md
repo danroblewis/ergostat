@@ -46,3 +46,10 @@ Round 2: there were no review findings to answer (none were handed over). Checke
 unchanged (the lesson-8 "Seen as" lines and this file), main is still its base (8eb0fc0), and this clone has no
 origin remote, so there was nothing to merge in. tests/test_factory_knowledge.py: 22 passed, run alone. ruff is clean.
 The unit suite and the browser files are left to the factory's watchdogged run.
+
+Third report: `unit` failed again, and again its tail stops partway (97% this time, after 46% and 36%). It has no
+failing test, no error or traceback and no pytest summary line. Three cut-offs at three different points mean
+something outside the tests is stopping the run (a timeout, the watchdog or load), not a test failing. The branch
+still changes only the lesson-8 "Seen as" lines in dev/knowledge/review-lessons.md and this file.
+tests/test_factory_knowledge.py passes run serially (22 passed), and ruff is clean. No code fix applies, so I made
+none. What is left: a unit run that finishes, or one whose tail names the failing test. That test is where to look.
