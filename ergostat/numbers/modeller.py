@@ -11,6 +11,7 @@ it was given."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -143,6 +144,8 @@ def call(text: str, model: str, timeout: float = 600.0) -> dict:
     another command that answers the same way, as the tests' stand-in does)."""
     cmd = [os.environ.get("ERGOSTAT_AI") or "claude", "-p", "--model", model, "--output-format", "json",
            "--disallowedTools", TOOLS_OFF]
+    if Path(cmd[0]).name == "claude":              # its reservation as claude's budget (checked after a turn: no ceiling)
+        cmd += ["--max-budget-usd", f"{unsaid(text, model)['usd']:.6f}"]
     t0 = time.perf_counter()
     try:
         got = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=timeout)
@@ -175,16 +178,29 @@ def per_call(timeout: float | None, calls: int) -> float:
     return max(30.0, min(600.0, (float(timeout) * 0.8) / max(1, calls)))
 
 
-def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True, timeout: float = 600.0, on_call=None) -> dict:
+def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True, timeout: float = 600.0, on_call=None,
+           within=None) -> dict:
     """The AI tier on these requests: ``{"proposals": [propose], "cannot": [{id, why}], "cost": {...}, "tried": [...]}``,
-    each proposal one ``try_change`` would propose (the rest given back once, with why)."""
+    each proposal one ``try_change`` would propose (the rest given back once, with why). ``within(prompt)``: the
+    context each call is made in (``modeller_spend.held``), given a list for its cost; one that raises ``Capped``
+    stops the run there (``cost["capped"]``). A call that reports more than its reservation is in ``cost["over"]``."""
+    from .modeller_spend import Capped
     spec: Spec = p.model.spec
     cost = {"usd": 0.0, "tokens_in": 0, "tokens_out": 0, "calls": 0, "seconds": 0.0, "model": model}
     good, cannot, tried = [], [], []
     feedback: list[str] | None = None
     for attempt in range(2 if retry else 1):
-        got = call(prompt(p, spec, reqs, feedback), model, timeout)
+        text = prompt(p, spec, reqs, feedback)
+        try:
+            with (within(text) if within else contextlib.nullcontext([])) as box:
+                got = call(text, model, timeout)
+                box.append(got)
+        except Capped as e:
+            cost["capped"] = str(e)
+            break
         cost["calls"] += 1
+        if (r := unsaid(text, model)["usd"]) < float(got.get("usd") or 0):
+            cost.setdefault("over", []).append((round(float(got["usd"]) - r, 6), r))
         for k in ("usd", "tokens_in", "tokens_out", "seconds"):
             cost[k] = round(cost[k] + got.get(k, 0), 6)
         if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it

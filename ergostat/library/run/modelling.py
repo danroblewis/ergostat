@@ -6,7 +6,7 @@
     modelling rules [--most N]
         the rule tier: a mechanical change for each open request it can answer, recorded as made and checked here
         (``submitted``), as the engine does a propose line; the rest handed to the ai tier
-    modelling ai [--model haiku] [--most N] [--tries N]
+    modelling ai --daily D [--model haiku] [--most N] [--tries N]
         the ai tier: the requests the rule tier could not answer, given to claude -p with the modelling guides; what it
         proposes, tried first, recorded as made and checked here; its cost recorded on the requests it was given
     modelling redesign [--when ask|off] [--model haiku] [--budget 0.5] [--rounds 3] [--daily 2]
@@ -87,13 +87,17 @@ def rules(argv: list[str]) -> int:
 def ai(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="modelling ai")
     ap.add_argument("--model", default="haiku")
-    ap.add_argument("--most", type=int, default=8)
-    ap.add_argument("--tries", type=int, default=2, help="calls on one request before it waits for the owner")
+    ap.add_argument("--most", type=_between(int, 1, 16), default=8, help="requests given to one call (1 to 16)")
+    ap.add_argument("--tries", type=_between(int, 1, 3), default=2,
+                    help="calls on one request before it waits for the owner (1 to 3)")
+    ap.add_argument("--daily", type=_between(float, 0, 20), required=True,
+                    help="dollars a day (0 to 20): a call starts only if the day's spend plus its reservation stays within")
     ap.add_argument("--timeout", type=float, default=None, help="the block's timeout, in seconds: its calls fit in it")
     a = ap.parse_args(argv)
     sys.stdin.read()
 
     from ...numbers import modeller as md
+    from ...numbers import modeller_spend as sp
     from ...numbers import requests as rq
     p = project()
     mine = [r for r in rq.waiting(p, ("open", "held")) if r.get("tier") == "ai" and not r.get("owner")
@@ -102,8 +106,14 @@ def ai(argv: list[str]) -> int:
         note("modeller: no request waiting for the ai tier")
         return 0
     group = _near(p, mine)[:a.most]
-    got = md.answer(p, group, a.model, timeout=md.per_call(a.timeout, 2), on_call=_said)
+    got = md.answer(p, group, a.model, timeout=md.per_call(a.timeout, 2), on_call=_said,
+                    within=lambda text: sp.held(p, md.unsaid(text, a.model)["usd"], a.daily))
     c = got["cost"]
+    said = "".join(f"; a call cost ${o:.4f} over its ${r:.4f} reservation" for o, r in c.get("over") or [])
+    said += f"; {c['capped']}" if c.get("capped") else ""
+    if not c.get("calls"):                       # no call made: the requests are left as they were (no try counted)
+        note(f"modeller ({a.model}): no call for {len(group)} requests{said}")
+        return 0
     answered = {e for raw in got["proposals"] for r in raw.get("reasons") or []
                 for e in ([r.get("evidence")] if not isinstance(r.get("evidence"), list) else r.get("evidence"))}
     cannot = {x.get("cannot"): x.get("why") for x in got["cannot"]}
@@ -119,8 +129,21 @@ def ai(argv: list[str]) -> int:
     n = submitted(p, got["proposals"], "modeller")
     note(f"modeller ({a.model}): {n} proposed for {len(group)} requests, {len(cannot)} it cannot; "
          f"${c['usd']:.4f}, {c['tokens_in']} tokens in, {c['tokens_out']} out, {c['calls']} call(s)"
-         + (f"; {c['error']}" if c.get("error") else ""))
+         + (f"; {c['error']}" if c.get("error") else "") + said)
     return 0
+
+
+def _between(kind, lo, hi):
+    """An argparse type: a ``kind`` from ``lo`` to ``hi`` (a count or an amount that multiplies calls or money)."""
+    def one(s: str):
+        try:
+            x = kind(s)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"not a {kind.__name__}: {s!r}") from None
+        if not lo <= x <= hi:                      # (NaN fails this too)
+            raise argparse.ArgumentTypeError(f"{s} is outside {lo} to {hi}")
+        return x
+    return one
 
 
 def redesign(argv: list[str]) -> int:
