@@ -395,3 +395,18 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
 Parked by the factory (review/lease-shutdown-race-3, 2026-11-20 16:35).
 
 Done: the shutdown race is closed. take() checks the stop and registers the run in running under the engine's lock before writing the lease, and gives back uncounted a take that raced the stop. _work does not start a run taken after the stop. run_block kills a process started once this engine is stopping (its own stop, not the process-wide STOPPING). close sets the stop under the lock with a bounded wait and gives back every lease still going before ergostat.stopped. The restart test no longer uses a fixed sleep and is judged by seq order. Seven tests cover the parts, each reported seen to fail with its part disabled. 53 of 120 lines. Left: the DoD's measurement, 30 runs of `scripts/suite_watch.py -- pytest -n 8 tests/test_leases.py` with the CPU loaded, with pass/fail counts recorded. Why stop: every implementor and reviewer session has been refused that run (rounds 1-8), and rounds 3-7 changed no code, so more rounds only repeat the refusal. The factory should run the 30 loaded runs from its own watched slot. If they pass, record the counts and send the branch back to review unchanged. If they fail, the failing run's traceback is the next round's input. Alternatively the owner can amend the DoD.
+
+### Resumed (gap/lease-race-resumed, round 1): code checked after main's merge, loaded runs left to the factory
+
+- **No code changed.** This round's title says the suites and the 30 loaded runs are the factory's to run. So this
+  session did not try `suite_watch.py -- pytest -n 8`, which eight earlier rounds were refused.
+- **The merge of main (6702105) does touch the lease code.** It adds `takes: {order:}` (`ready.ordered`, which `tick`
+  and `once` use to sort what they take). That only orders the list handed to `take`. It does not touch `take`'s
+  stop checks, `running`, `_work`, `give_back` or `close`, so the race fix is the same as before. Main's three new
+  tests are now in `tests/test_leases.py` as well.
+- **Ran serially:** `tests/test_leases.py` (29 passed, including the three acceptance tests), and `test_lease_kill`,
+  `test_leased_workspaces`, `test_daemons` and `test_take_order` (43 passed). Ruff is clean. There is no remote, and
+  local `main` is already merged.
+- **Still open, and both are the factory's:** the DoD's last line (30 runs of
+  `scripts/suite_watch.py -- pytest -n 8 tests/test_leases.py` with the CPU loaded, with the pass/fail counts written
+  here) and a green unit run.
