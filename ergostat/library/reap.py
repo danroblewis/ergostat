@@ -72,17 +72,18 @@ class Watch:
     """Every descendant of ``pid`` seen, looked for every ``every`` seconds while it runs: what a run started and then
     left (its parent killed, or gone) is still known when the time comes to stop it. Each is kept with its start time
     as first seen (``pid`` too), so ``still`` names only those that are still the process seen, never a pid used again.
-    One that started and was left within a single look (``every``) is not seen."""
+    One that started and was left within a single look (``EVERY``) is not seen. Every watch open shares one thread and
+    one ``ps`` a look (a run costs no thread of its own)."""
 
-    def __init__(self, pid: int, every: float = 0.5):
-        self.pid, self.every, self.seen, self.started = pid, every, set(), {}
-        self._lock, self._stop = threading.Lock(), threading.Event()
-        self._t = threading.Thread(target=self._loop, daemon=True, name="reap-watch")
-        self._t.start()
+    def __init__(self, pid: int):
+        self.pid, self.seen, self.started, self._lock = pid, set(), {}, threading.Lock()
+        _looker(self)
 
-    def look(self) -> None:
-        now: dict[int, str] = {}
-        got = descendants(self.pid, tree(now))
+    def look(self, procs: dict | None = None, now: dict | None = None) -> None:
+        if procs is None:
+            now = {}
+            procs = tree(now)
+        got = descendants(self.pid, procs)
         with self._lock:
             for p in (got | {self.pid}) & now.keys():
                 self.started.setdefault(p, now[p])
@@ -95,14 +96,40 @@ class Watch:
         with self._lock:
             return {p for p, s in self.started.items() if s and now.get(p) == s}
 
-    def _loop(self) -> None:
-        while not self._stop.wait(self.every):
+    def close(self, look: bool = True) -> set[int]:
+        with _OPEN_LOCK:
+            _OPEN.discard(self)
+        if look:
             self.look()
-
-    def close(self) -> set[int]:
-        self._stop.set()
-        self.look()
         return self.seen
+
+
+EVERY = 0.5                     # seconds between the shared looks
+_OPEN: set[Watch] = set()
+_OPEN_LOCK = threading.Lock()
+_LOOKER: list[threading.Thread] = []
+
+
+def _looker(w: Watch) -> None:
+    with _OPEN_LOCK:
+        _OPEN.add(w)
+        if not (_LOOKER and _LOOKER[0].is_alive()):
+            _LOOKER[:] = [threading.Thread(target=_look_all, daemon=True, name="reap-watch")]
+            _LOOKER[0].start()
+
+
+def _look_all() -> None:
+    while True:
+        time.sleep(EVERY)
+        with _OPEN_LOCK:
+            open_ = list(_OPEN)
+            if not open_:
+                _LOOKER.clear()                         # (the next watch starts it again, under the same lock)
+                return
+        now: dict[int, str] = {}
+        procs = tree(now)
+        for w in open_:
+            w.look(procs, now)
 
 
 def stop(pid: int, grace: float = 3.0, also_group: bool = False, also: set[int] | None = None) -> set[int]:

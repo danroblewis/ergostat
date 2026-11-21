@@ -969,7 +969,7 @@ class Engine:
                             note = f"stopped after its timeout of {b.timeout:g}s"
                     finally:
                         resources = SAMPLER.finish(tracked)
-                        proc.watch.close()
+                        proc.watch.close(look=False)             # (its run is over: no last ps)
                         old.LIVE.discard(proc)
                         with self.lock:
                             if self.procs.get(b.name) is proc:

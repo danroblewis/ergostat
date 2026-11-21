@@ -44,3 +44,17 @@ Round 1: built, within budget (+51 −17 = 34 net lines in `ergostat/`, docstrin
   `test_trial_stops.py` (2), `test_streamed_output.py` (10). Ruff is clean. Not run: the full unit suite and the
   browser files (the factory runs them under the watchdog). This clone has no `origin/main` ref; local `main` has
   nothing this branch lacks (`git rev-list --count HEAD..main` is 0), so nothing was merged.
+
+After the fast suites, round 1: `unit` failed on `test_notify.py::test_a_run_costs_one_thread` (61 threads for 30
+runs, against 34) and `test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (it passes alone).
+Both came from this branch: each `Watch` had a thread of its own and ran its own `ps` every 0.5 s, so every run cost
+a second thread, and 30 runs forked about 60 `ps` a second, which slowed the lease watchdog under load. Fixed in
+`library/reap.py`: every open `Watch` shares one looker thread (started with the first, ended when none is open) and
+one `ps` a look. The engine's `close(look=False)` drops the last `ps` at each run's end (`trial.py` keeps its last
+look). Both tests now pass, along with `test_leases.py`, `test_resilience.py`, `test_trial_stops.py` and
+`test_run_costs.py` (one file at a time); ruff is clean.
+
+**Size overrun, the reason:** `ergostat/` now counts +89 −28 = 61 net lines against 40 (docstrings and comments
+counted). The 21 over are the shared looker. A run with its own thread breaks the house rule that a run costs one
+thread (test_notify's bound), and this machine has panicked from thread exhaustion, so a thread per run is not a
+safe way to stay within budget. The rest is as counted in round 1.
