@@ -274,8 +274,7 @@ def _restart(p, args) -> None:
         print(f"ended {n} daemon process group{'s' if n != 1 else ''} before starting again", flush=True)
     try:
         os.execv(sys.executable, [sys.executable, "-m", "ergostat", "-C", str(p.repo), "run", "--foreground",
-                                  *(["--no-web"] if args.no_web else []),
-                                  *(["--port", str(args.port)] if args.port else [])])
+                                  *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
     except OSError:                                     # (not started again: daemons may be spawned once more)
         with proc.GROUPS_LOCK:
             proc.CLOSING = False

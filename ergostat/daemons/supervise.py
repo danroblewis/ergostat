@@ -65,8 +65,7 @@ def killpg(pgid: int, wait: float) -> None:
 def _signal(pgid: int, sig: int) -> bool:
     """False when the group cannot be signalled: none left, or (EPERM) it cannot be ours any more."""
     try:
-        os.killpg(pgid, sig)
-        return True
+        return os.killpg(pgid, sig) is None
     except OSError:
         return False
 

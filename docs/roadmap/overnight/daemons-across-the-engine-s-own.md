@@ -84,8 +84,10 @@ All in `tests/test_daemons_restart.py`. `os.execv` is monkeypatched in `ergostat
 
 ## Where it stopped
 
-Built as defined, in 70 net lines outside `tests/` and `docs/` (`git diff --stat main -- ergostat`: +86 −16,
-docstrings included), so no overrun. All six acceptance tests are in `tests/test_daemons_restart.py` and pass.
+Built as defined. All six acceptance tests are in `tests/test_daemons_restart.py` and pass. The size is
+70 net lines outside `tests/` and `docs/` (`git diff --numstat main -- ergostat` after round 2: +87 −17, docstrings
+included), so no overrun. Round 1's first count (+86 −16) was taken before the merge of main and the later commits, and
+round 1's last commit, with the lease fix, was at 88 net lines. See *Round 2* at the end.
 
 **Each test broken (lesson-9).** Each break was made by hand, run, seen to fail, and undone:
 - `_restart` not calling `end_all`: the hard and soft tests fail (daemon and child alive at the exec).
@@ -161,9 +163,10 @@ docstrings included), so no overrun. All six acceptance tests are in `tests/test
 
 **The factory's second unit run.** 1 failed, 1908 passed, 69 skipped, rc 1:
 `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`. A lease was still held after
-`second.close()`. The factory asked for the code to be fixed (not the test's bounds), so it is fixed here. The fix is
-outside this gap's files (`ergostat/leases/dispatch.py`, `ergostat/spec/engine.py`). The test has no daemons, and the
-race is on main as well. That is the reason for going past the budget: about 15 net lines more.
+`second.close()`. In round 1 a fix was written into this branch, outside this gap's files
+(`ergostat/leases/dispatch.py`, `ergostat/spec/engine.py`). The test has no daemons, and the race is on main as well.
+**That fix has been taken out again in round 2** (see *Round 2*). What follows is kept as the record of what round 1
+did and why the review refused it.
 - *The race.* The test closes the engine as soon as it sees a new lease. That run could be between
   `Dispatch.take` writing `lease.taken` and spawning its process. (1) `take` added the run to `Engine.running` only
   after the event was written and folded, so `close()` could find `running` empty and return at once. (2)
@@ -175,6 +178,30 @@ race is on main as well. That is the reason for going past the budget: about 15 
   `runner.STOPPING` after `LIVE.add(proc)` and kills the new group if it is set. The add comes before the check, and
   `kill_all` sets the flag before it reads `LIVE`, so either `kill_all` sees the process or the process sees the flag.
   The run then ends as "stopped with ergostat", and `finish` gives the lease back uncounted.
-- *Not run.* This session was denied the shell. The fix has not been run (not the failing test, not ruff, not the
-  suites) and has not been committed. Both are still owed: `uv run python -m pytest -q tests/test_leases.py`, the
-  daemon and engine files, ruff, then a commit.
+- *Not run.* Round 1's session was denied the shell, so the fix was never run (not the failing test, not ruff, not
+  the suites). The earlier sentence here said it "has not been committed". That was wrong: the factory committed it,
+  untested, as 95af273 ("work the session left uncommitted").
+
+**Round 2 (answers to the review, every finding).**
+- *Lease fix outside the gap (lesson-13; blocking).* Removed. `ergostat/leases/dispatch.py` and
+  `ergostat/spec/engine.py` are back to main's text (`git diff main -- ergostat/leases/dispatch.py
+  ergostat/spec/engine.py` is empty). The race is now its own entry in `docs/GAPS.md` (*Runtime, scale and latency*:
+  "A lease taken while the engine closes outlives the close"). That entry names
+  `test_leases_survive_a_restart_the_fold_is_the_truth` as the reason, and it gives both halves of the race and the
+  constraint below. The review (code-health-1) pointed to a parked `lease-shutdown-race` gap, but this clone has no
+  file or GAPS entry for one (only a mention in `docs/roadmap/overnight/main-broken.md`), so the entry is new. If the
+  factory already tracks that gap elsewhere, the two should be merged.
+- *Notes that did not match the branch (lesson-8; blocking).* Corrected above. The lease fix was committed untested in
+  95af273, not left uncommitted. The size line now gives the measured count. Removing the lease fix brought the diff to
+  +89 −17 (72 net). Two lines were then saved without changing behaviour: the `os.execv` call in `_restart` is back on
+  main's two lines, and `supervise._signal` is one line shorter. That gives 70 net lines, inside the budget.
+- *Process-wide `runner.STOPPING` in `run_block` (lesson-9, lesson-6).* That check went out with the lease fix. The
+  GAPS entry records the constraint: a fix there must not key on the process-wide flag, and needs its own test.
+- *Run in round 2, one file at a time (`uv run python -m pytest -q <file>`):* `tests/test_daemons_restart.py` 6
+  passed, `tests/test_daemons.py` 26 passed, `tests/test_leases.py` 20 passed (on main's lease code; the race is a
+  flake there, not seen in this run), `tests/test_watchdog.py` 3 passed, `tests/test_resilience.py` 24 passed,
+  `tests/test_runner_and_state.py` 43 passed. `uv run ruff check ergostat tests scripts` is clean.
+- *Not run in round 2:* the full unit suite and the four browser files (left to the factory's watched run). The
+  break-each-test checks (lesson-9) were not run again: the code they guard is the same as in round 1, apart from
+  the two lines reflowed above. There was no merge of origin/main: this clone has no `origin` ref, and
+  local `main` (8eb0fc0) is already merged in (9974606).
