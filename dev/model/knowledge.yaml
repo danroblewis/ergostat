@@ -1,7 +1,8 @@
 # Knowledge and planning (docs/roadmap/overnight/knowledge.md; the owner, 2026-11-20: "think of this ergostat instance
 # as a resource for you"). Briefs carry the factory's knowledge (dev/knowledge/, dev/bin/knowledge.py); a planner
-# writes each open gap's definition of done, or splits it, and a cheap plan review checks it before anything is built;
-# a researcher answers questions; the librarian turns review findings into proposed lessons, approved by the
+# writes each open gap's definition of done, or splits it; a program lints it and a lint-clean plan is the definition
+# at once; an advisory plan review reads a sample against the code and the task graph, its findings appended as notes
+# and recorded by class for the knowledge loop (never a gate); a researcher answers questions; the librarian turns review findings into proposed lessons, approved by the
 # coordinator and landed as gaps like any other.
 defaults:
   system: planning
@@ -9,11 +10,11 @@ defaults:
 stocks:
   gaps-planned:
     unit: gaps
-    description: gaps with a plan written (run/plans/), waiting for or in the plan review
+    description: plans left in planned from when the plan review was a gate - the plan lint's sweep makes each the definition
     sensor: {items: gap, state: planned, every: 1m}
   gaps-replan:
     unit: gaps
-    description: plans the plan review sent back (or the planner's answer refused), waiting for the planner again
+    description: plans the lint sent back (or the old plan review, whose plans the lint's sweep defines), waiting for the planner again
     sensor: {items: gap, state: replan, every: 1m}
   gaps-split:
     system: intake
@@ -28,8 +29,14 @@ stocks:
   knowledge-entries:
     system: knowledge
     unit: entries
-    description: the entries of dev/knowledge/ (house rules, review lessons, decisions) the briefs carry, in the running version
+    description: the entries of dev/knowledge/ in the running version, each of a declared kind (component, rule, lesson, finding, question, source); the owner's decisions are ergostat.decision items, not entries
     sensor: {items: knowledge, state: active, every: 1m}
+  plan-reviews:
+    system: knowledge
+    unit: reviews
+    description: advisory plan reviews written (review/<branch>-plan), their findings by class - what the librarian and the coordinator learn from
+    cumulative: true
+    sensor: {items: review, state: written, where: {stage: plan}, every: 1m}
   lessons-proposed:
     system: knowledge
     unit: proposals
@@ -57,8 +64,38 @@ auxiliaries:
   plan-risks-held:
     unit: share
     description: of planned gaps reviewed, the share whose first review found none of the lesson classes their plan named as risks (the plan's tests held them)
-    driven-by: [+flow.plans-approved]
+    driven-by: [+flow.plans-written]
     sensor: {run: python3 dev/bin/measure.py plan-risks-held, every: 10m, timeout: 1m, description: the factory's measures}
+  plan-reviews-waiting:
+    unit: gaps
+    description: ready gaps marked for the advisory plan review ([plan] review), not yet read
+    driven-by: [+flow.plans-written, -flow.plan-reviews-written]
+    sensor: {run: python3 dev/bin/planreview.py waiting, every: 5m, timeout: 1m, description: the factory's measures}
+  plan-review-agreement:
+    unit: share
+    description: of plan reviews in 14 days, the share that found nothing that would make the build go wrong (agreement with the planner, not a gate)
+    driven-by: [+flow.plan-reviews-written]
+    sensor: {run: python3 dev/bin/planreview.py agreement, every: 10m, timeout: 1m, description: the factory's measures}
+  plan-flagged-fix-rounds:
+    unit: rounds
+    description: of gaps finished in 14 days whose plan review flagged it (blocking findings), their mean code-review fix rounds - against plan-clean-fix-rounds, what the plan review is worth
+    driven-by: [+flow.plan-reviews-written]
+    sensor: {run: python3 dev/bin/planreview.py value fix-rounds flagged, every: 10m, timeout: 1m, description: the factory's measures}
+  plan-clean-fix-rounds:
+    unit: rounds
+    description: of gaps finished in 14 days whose plan review found nothing blocking, their mean code-review fix rounds - against plan-flagged-fix-rounds, what the plan review is worth
+    driven-by: [+flow.plan-reviews-written]
+    sensor: {run: python3 dev/bin/planreview.py value fix-rounds clean, every: 10m, timeout: 1m, description: the factory's measures}
+  plan-flagged-parks:
+    unit: share
+    description: of gaps finished in 14 days whose plan review flagged it (blocking findings), the share parked - against plan-clean-parks, what the plan review is worth
+    driven-by: [+flow.plan-reviews-written]
+    sensor: {run: python3 dev/bin/planreview.py value parks flagged, every: 10m, timeout: 1m, description: the factory's measures}
+  plan-clean-parks:
+    unit: share
+    description: of gaps finished in 14 days whose plan review found nothing blocking, the share parked - against plan-flagged-parks, what the plan review is worth
+    driven-by: [+flow.plan-reviews-written]
+    sensor: {run: python3 dev/bin/planreview.py value parks clean, every: 10m, timeout: 1m, description: the factory's measures}
   splits-clean:
     system: intake
     unit: share
@@ -69,22 +106,22 @@ auxiliaries:
 flows:
   plans-written:
     from: gaps-open
-    to: gaps-planned
-    description: a first plan written for an open gap (its definition of done, in run/plans/)
+    to: gaps-ready
+    description: a first plan written for an open gap, lint-clean - its definition of done (run/defs/), the gap ready
     driven-by: [+stock.gaps-open]
     equation: stock.gaps-open / plan-time
-    sensor: {items: gap, entering: planned, where: {replanned: false, source: [gaps, request]}, over: 1d}
+    sensor: {items: gap, entering: ready, where: {defined_by: plan, replanned: false}, over: 1d}
   replans-written:
     from: gaps-replan
-    to: gaps-planned
-    description: a plan written again with the plan review's findings
+    to: gaps-ready
+    description: a plan written again with the lint's findings, lint-clean - the gap ready
     driven-by: [+stock.gaps-replan]
     equation: stock.gaps-replan / plan-time
-    sensor: {items: gap, entering: planned, where: {replanned: true}, over: 1d}
+    sensor: {items: gap, entering: ready, where: {defined_by: plan, replanned: true}, over: 1d}
   sub-gaps-planned:
-    to: gaps-planned
-    description: sub-gaps of a split, each requested and planned by the planner
-    sensor: {items: gap, entering: planned, where: {source: plan}, over: 1d}
+    to: gaps-ready
+    description: sub-gaps of a split, each requested and defined by the planner (lint-clean)
+    sensor: {items: gap, entering: ready, where: {defined_by: plan-split}, over: 1d}
   gaps-split-off:
     system: intake
     from: gaps-open
@@ -114,24 +151,42 @@ flows:
     driven-by: [+stock.gaps-split]
     equation: stuck-share * stock.gaps-split / split-time
     sensor: {items: gap, entering: parked, where: {parked_in: split}, over: 1d}
-  plans-approved:
+  plans-left-planned:
+    from: gaps-replan
+    to: gaps-planned
+    description: none since the lint made a plan the definition - gaps entered planned only while the plan review was a gate
+    equation: "0"
+    sensor: {items: gap, entering: planned, over: 1d}
+  planned-plans-defined:
     from: gaps-planned
     to: gaps-ready
-    description: a plan the plan review approved, copied as reviewed into run/defs/ - the gap ready to build
+    description: a plan left in planned, made the definition by the lint's sweep once lint-clean
     driven-by: [+stock.gaps-planned]
-    equation: (1 - plan-fix-share) * stock.gaps-planned / plan-review-time
-    sensor: {items: gap, entering: ready, where: {defined_by: plan}, over: 1d}
-  plans-sent-back:
-    from: gaps-planned
+    equation: stock.gaps-planned / sweep-time
+    sensor: {items: gap, entering: ready, where: {defined_by: plan-lint, released_from: planned}, over: 1d}
+  replans-defined:
+    from: gaps-replan
+    to: gaps-ready
+    description: a plan the old plan review sent back, made the definition by the lint's sweep once lint-clean (its findings appended as notes)
+    driven-by: [+stock.gaps-replan]
+    equation: stock.gaps-replan / sweep-time
+    sensor: {items: gap, entering: ready, where: {defined_by: plan-lint, released_from: replan}, over: 1d}
+  plans-failing-lint:
+    from: gaps-open
     to: gaps-replan
-    description: a plan the plan review sent back, with its findings
-    driven-by: [+stock.gaps-planned]
-    equation: plan-fix-share * stock.gaps-planned / plan-review-time
-    sensor: {items: gap, entering: replan, over: 1d}
+    description: a plan the plan lint sent back to the planner (a section, a test name, the budget, a lesson, a dependency or a file missing)
+    driven-by: [+stock.gaps-open]
+    equation: lint-fail-share * stock.gaps-open / plan-time
+    sensor: {items: gap, entering: replan, where: {plan_sent_back_by: lint}, over: 1d}
   parked-in-plan:
     from: gaps-replan
-    description: a plan that failed its review twice, or was parked
+    description: a plan that failed the lint six times, or a gap the coordinator agreed should not be built (park-gap)
     sensor: {items: gap, entering: parked, where: {parked_in: plan}, over: 1d}
+  plan-reviews-written:
+    system: knowledge
+    to: plan-reviews
+    description: an advisory plan review - its findings appended to the definition and recorded by class (review/<branch>-plan) for the knowledge loop
+    sensor: {items: review, entering: written, where: {stage: plan}, over: 1d}
   research-questions:
     system: research
     to: research-asked
@@ -156,6 +211,11 @@ flows:
     driven-by: [+stock.lessons-proposed]
     equation: stock.lessons-proposed / lesson-approve-time
     sensor: {items: lesson, entering: requested, over: 1d}
+  lessons-denied:
+    system: knowledge
+    from: lessons-proposed
+    description: a proposal the coordinator denied - settled denied, with who and why, and never proposed again
+    sensor: {items: lesson, entering: denied, over: 1d}
   lessons-added:
     system: knowledge
     to: knowledge-entries
@@ -171,16 +231,15 @@ parameters:
     value: 30m
     estimate: true
     description: how long the planner takes on a gap
-  plan-review-time:
-    value: 10m
-    estimate: true
-    description: how long a plan review takes
-  plan-fix-share:
-    value: 0.3
+  lint-fail-share:
+    value: 0.2
     unit: "1"
     range: [0, 1]
     estimate: true
-    description: the share of plan reviews that send the plan back
+    description: the share of plans the lint sends back to the planner
+  sweep-time:
+    value: 5m
+    description: how often the plan lint's sweep runs
   split-share:
     value: 0.1
     unit: "1"
@@ -216,11 +275,21 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: every open gap planned (while planning is open and money is left)
+  plans-agreed:
+    auxiliary: plan-review-agreement
+    hold: ">= 0.5"
+    tolerance: 0.1
+    description: most plans the plan review reads have nothing that would make the build go wrong (a measure of the planner, never a gate)
   plans-reviewed:
     stock: gaps-planned
     hold: "<= 0"
     tolerance: 0
-    description: every plan reviewed before it is built
+    description: no plan left in planned (the lint's sweep defines each)
+  plan-reviews-done:
+    auxiliary: plan-reviews-waiting
+    hold: "<= 0"
+    tolerance: 0
+    description: every plan marked for the advisory plan review read
   replans-taken:
     stock: gaps-replan
     hold: "<= 0"
@@ -240,6 +309,14 @@ goals:
     description: every proposed lesson approved or denied by the coordinator
 
 actions:
+  park-gap:
+    run: python3 dev/bin/planreview.py park {gap} {why}
+    in: .
+    gate: approve
+    class: park
+    args: {gap: the gap (gap/...), why: why the plan review says it should not be built}
+    timeout: 5m
+    description: The plan review says a gap should not be built (done already, a duplicate, wrong for the system) - the coordinator approves, or it is built
   knowledge-change:
     run: python3 dev/bin/lesson.py request {lesson}
     in: .
@@ -266,33 +343,42 @@ blocks:
     description: a session per gap in a read-only clone of main - its definition of done (acceptance tests, budget, risks from the lessons, files), a split into sub-gaps, or research questions first
     run: python3 dev/bin/plan.py
     prompt: dev/prompts/planner.md
-    takes: {kind: gap, at: [open, replan], to: [planned, split, ready, replan, parked]}
-    pool: 1
+    takes: {kind: gap, at: [open, replan], to: [split, ready, replan, parked], unblocked: true, order: rank,
+            where: {continues: null}}  # a gap continuing a branch waits for the intake (its definition is on it)
+    pool: 12                           # operator: planners spend AI budget, not machine
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h
     in: block.plan-when
-    out: [flow.plans-written, flow.replans-written, flow.gaps-split-off, flow.replans-split-off, flow.sub-gaps-planned]
+    out: [flow.plans-written, flow.replans-written, flow.gaps-split-off, flow.replans-split-off, flow.sub-gaps-planned,
+          flow.plans-failing-lint, flow.parked-in-plan]
+
+  plan-lint:
+    type: program
+    description: the plan lint's sweep, no AI - a plan left in planned, or sent back by the old plan review, made the definition once lint-clean (the planner lints each plan it writes itself)
+    run: python3 dev/bin/plan.py lint
+    goal: plans-reviewed
+    every: 5m
+    timeout: 5m
+    out: [flow.planned-plans-defined, flow.replans-defined]
 
   plan-review-when:
     type: expr
-    description: review plans while they wait and the day's AI money is not spent
+    description: review a sample of plans while some wait and the day's AI money is not spent - advice, never a gate
     in:
-      waiting: goal.plans-reviewed.off
+      waiting: goal.plan-reviews-done.off
       over: goal.ai-budget.off
     expr: waiting * (1 - over)
     out: block.plan-review
   plan-review:
-    type: ai
-    agent: opus
-    description: the reviewer in plan mode, cheap - the plan and the lessons only; do its acceptance tests fail on the known traps?
-    run: python3 dev/bin/plan.py review
-    prompt: dev/prompts/plan_reviewer.md
-    takes: {kind: gap, at: planned, to: [ready, replan, parked]}
-    pool: 1
-    lease: {ttl: 30m, attempts: 2}
+    type: program
+    system: knowledge
+    description: the advisory plan review, a side loop - a session in a read-only clone of main with the task graph; its findings appended to the ready gap's definition and recorded by class; "should not be built" only asked of the coordinator (park-gap)
+    run: python3 dev/bin/planreview.py
+    every: 10m
     timeout: 45m
+    actions: [park-gap]
     in: block.plan-review-when
-    out: [flow.plans-approved, flow.plans-sent-back, flow.parked-in-plan]
+    out: flow.plan-reviews-written
 
   split-watch:
     type: program
@@ -339,11 +425,19 @@ blocks:
   knowledge-sync:
     type: program
     system: knowledge
-    description: the collector - each entry of the running version's dev/knowledge/ an item (knowledge.found, .changed, .retired), with how many briefs carried it
+    description: the collector - each entry of the running version's dev/knowledge/ an item (knowledge.found, .changed, .retired), with how many briefs carried it; each decision of decisions.md whose ergostat.decision is in no state proposed; a file it cannot read stops it with nothing recorded
     run: python3 dev/bin/knowledge.py sync
     every: 10m
     timeout: 2m
     out: flow.lessons-added
+  lesson-settle:
+    type: program
+    system: knowledge
+    description: each proposed lesson whose knowledge-change the coordinator denied, settled denied with who and why (lesson.py settle); a denial by the gate is no decision, and a record it cannot read stops it with nothing written
+    run: python3 dev/bin/lesson.py settle
+    every: 10m
+    timeout: 2m
+    out: flow.lessons-denied
   approve-lesson:
     type: external
     system: knowledge

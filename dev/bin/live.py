@@ -13,8 +13,9 @@ into and resets: each version is its own worktree, detached at its commit, with 
     live.py init [SHA]        make the instance's folder, on SHA (after the first install)
     live.py start | stop      start or stop the engine of the current version, on [instance] port
     live.py switch SHA        stop, point current at SHA, start, check its health; back to the previous on failure
-    live.py switch SHA --detach   the same in a process of its own (the gated action switch-instance: the engine
-                              that runs the action is the one it stops)
+    live.py switch SHA --detach   the same in a process of its own (the switcher's, dev/bin/drain.py, once the runs
+                              under way drained: the engine that runs it is the one it stops); a switch ends the
+                              drain (run/drain.json) whatever becomes of it
     live.py revert            switch to the previous version
     live.py health            the running engine's health: a pass, the sensors reading, the record read, the queue
     live.py status            which version runs, which is previous, and the versions installed
@@ -310,6 +311,14 @@ def switch(cfg: dict, sha: str) -> dict:
     return h
 
 
+def detach(cfg: dict, sha: str) -> Path:
+    """The switch in a process of its own (it stops the engine that started it); its log."""
+    log = fac.run_dir(cfg, "logs") / f"switch-{sha[:12]}.log"
+    subprocess.Popen([sys.executable, __file__, "switch", sha], stdout=log.open("a"), stderr=subprocess.STDOUT,
+                     stdin=subprocess.DEVNULL, start_new_session=True, cwd=instance(cfg))
+    return log
+
+
 def main(argv: list[str]) -> int:
     cfg = fac.config()
     what = argv[0] if argv else "status"
@@ -322,12 +331,12 @@ def main(argv: list[str]) -> int:
     elif what == "stop":
         stop(cfg)
     elif what == "switch" and "--detach" in argv:
-        log = fac.run_dir(cfg, "logs") / f"switch-{argv[1][:12]}.log"
-        subprocess.Popen([sys.executable, __file__, "switch", argv[1]], stdout=log.open("a"), stderr=subprocess.STDOUT,
-                         stdin=subprocess.DEVNULL, start_new_session=True, cwd=instance(cfg))
-        print(f"switching to {argv[1][:12]} in the background; its log: {log}")
+        print(f"switching to {argv[1][:12]} in the background; its log: {detach(cfg, argv[1])}")
     elif what == "switch":
-        h = switch(cfg, argv[1])
+        try:
+            h = switch(cfg, argv[1])
+        finally:                                        # the drain that waited for it ends, whatever became of it
+            (fac.run_dir(cfg) / "drain.json").unlink(missing_ok=True)
         print(json.dumps(h))
         return 0 if h.get("healthy") else 1
     elif what == "revert":
