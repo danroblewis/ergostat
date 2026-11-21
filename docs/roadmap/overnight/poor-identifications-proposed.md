@@ -223,3 +223,22 @@ Run here, and green: `tests/test_outside_experiments.py` (9 passed, 1 xfailed), 
 `tests/test_control.py`, `tests/test_graph_cli_web.py`, `tests/test_sd_tools.py`. `ruff check` is clean.
 
 `tests/test_zz_scratch.py` is an untracked, empty scratch file that this session could not delete. Delete it.
+
+**After the factory's `unit` run failed.** The tail the factory passed on stops at 39%, with no failing test, error or
+summary line in it. So it does not name the test that failed, and it may be a run that was cut off or killed rather
+than an assertion. That could not be reproduced here:
+- The whole suite could not be run in this session (the permission was refused), so it was searched file by file.
+- Every test file that reaches the changed code, mentions `control` or the docs this branch edits, or loops over the
+  examples passed, alone and under `-n 4`: 1,000+ tests and no failures. They are `test_outside_experiments` (9
+  passed, 1 xfailed, stable under xdist), `test_churn`, `test_control`, `test_inbox`, `test_review`, `test_numbers`,
+  `test_redesign_memory`, `test_series`, `test_architecture`, `test_guide`, the `test_spec_*` files, `test_parity`,
+  `test_gate`, `test_mended`, `test_extremes_closed`, `test_slowjudge`, the `test_factory*` files,
+  `test_modelling_core*`, `test_dynamics_view`, `test_sandbox_attacks`, `test_changesets`, `test_cloud_arrivals`,
+  `test_rollup`, `test_chains`, `test_spec_structure`, `test_closedloop`, `test_identify` and 30 more.
+- The new tests take 7 s together, and no new test leaks state: every constant and `ident.identify` is changed through
+  `monkeypatch`.
+
+No code was changed in this round, because no fault was found to fix. The next step is the full `unit` output (the
+failing test's name and traceback, or the watchdog's JSON line if the run was killed). `tests/test_zz_scratch.py` was
+committed by the factory as "work the session left uncommitted". It holds only a docstring and runs no test. This
+session could not delete it either. It should be removed before merging.
