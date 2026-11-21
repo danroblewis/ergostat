@@ -544,7 +544,7 @@ svg.tracing .loop-markers { opacity: .3; }
 body.no-loops .loop-markers { display: none; }
 /* flows only (the Dynamics view's ⋯ menu): the pipes and what they join, by an allowlist; the rest keeps its place, unseen */
 body.flows-only svg.sd .edge:not(.pipe), body.flows-only svg.sd .loop-markers,
-body.flows-only svg.sd .node:not(.k-stock):not(.k-valve):not(.k-disturbance):not(.k-cloud):not(.k-system) { display: none; }
+body.flows-only svg.sd :is(.node, .pins .pin):not(.k-stock):not(.k-valve):not(.k-disturbance):not(.k-cloud):not(.k-system) { display: none; }
 .design .loop-marker .marker-hit { fill: none; }
 .loop-tag { display: inline-block; min-width: 2.4em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .loop-tag.pol-unknown { color: var(--muted); }

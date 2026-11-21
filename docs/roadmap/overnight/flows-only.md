@@ -43,3 +43,17 @@ Round 1, built: 5 net lines of code (3 in `diagram.js`: the menu item and the re
   there's no network, so `test_diagram_rendering.py` skips. They rest on the factory's browser gate. I never broke the
   rule and watched them fail, but each assertion names what would break: `info`/`aux`/`markers` counts go to 0
   only when the rule applies, and the export's check uses an auxiliary's label text, because the export strips classes.
+
+Round 2, the review's findings answered: 5 net lines of code in all (no new lines: three changed).
+
+- Blocking, the pins: a pin mark now carries its part's kind class (`pin k-${n.kind}`, `diagram.js` `pinMark`, whose
+  new last argument defaults to `system`), and the allowlist covers `.pins .pin` as well as `.node`. So a pinned
+  auxiliary, goal or terminal hides its pin with it and can't be unpinned unseen. Open systems' hull pins keep the
+  `k-system` default and stay shown, as their outlines do. The Blocks and Process views' pins get `k-system` too, which
+  no rule outside `svg.sd` reads. `test_flows_only_hides_links_and_non_flow_parts` now pins an auxiliary first (saved
+  in this browser, then the page loaded again). It asserts that pin is the one pin shown before, and that none is shown
+  with flows only. Without the kind class the pin would be `k-system`, stay shown, and fail that check.
+- Non-blocking, `goals`: dropped from `FLOWS_SEEN`, since the `aux` count covers goals and a fixture without a goal
+  made it hold trivially.
+- Non-blocking, not run: still true. Playwright isn't installed here, so the two tests skip (`1 skipped` for
+  `-k flows_only`). They rest on the factory's browser gate running `test_diagram_rendering.py`, not skipping it.
