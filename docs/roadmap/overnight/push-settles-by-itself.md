@@ -19,3 +19,18 @@ A push that ran, failed or was denied is settled within minutes with no approved
 
 ## Size budget
 40 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+Round 2: built; nothing in the definition is left. Decisions taken with nobody to ask, each the reversible one:
+- push-settler is commanded by a new sensor, `push-settleable` (`queue.py settleable`): 1 while run/queue.json holds a
+  pending push or a block and `waits()` says nothing waits (the push ran, was denied, failed or cannot be read, or the
+  block was remedied); 1 when run/queue.json is unreadable, so its runs fail where they can be seen (lesson-3).
+- An action whose state cannot be read is read again on the next two settles (`unread` in the pending record) before it
+  counts as failed and blocks the queue, rather than blocking at the first failed read.
+- settle() and block() now save run/queue.json before they say their events, and `queue.py settle` stops on SIGTERM: a
+  settler killed part way says an outcome at most once; killed between the save and the events, its gap stays at
+  push-pending with no push carrying it, which the watch raises as stuck at once (the other half of this gap).
+- Size: 74 net lines in dev/bin and dev/model (+87/-13), counting docstrings, comments and the YAML, over the 40. The
+  overrun comes from the review's findings (the sensor and its auxiliary, the unread retries, saving before saying), each
+  of them required to meet the definition or answer a finding. None of it goes outside the files to touch, except the
+  README paragraph that describes the change.

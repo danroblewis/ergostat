@@ -2111,20 +2111,31 @@ def settler(f: Factory) -> list[str]:
     return f.run("queue.py", argv=["settle"])[0]
 
 
+def settleable(f: Factory) -> str:
+    """The sensor push-settleable (`queue.py settleable`), which commands push-settler."""
+    r = subprocess.run([sys.executable, str(BIN / "queue.py"), "settleable"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
 def test_a_push_settles_with_no_gap_approved(tmp_path):
     import fcntl
     f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
     approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    assert settleable(f) == "0"                                                # nothing pending: not commanded
     assert f.run("queue.py", "gap/a")[0][-1] == "gap.push-pending"               # a failed, b landed, the push held
     assert f.item("gap/a")["state"] == "push-pending" and f.item("gap/b")["state"] == "merged"
-    assert settler(f) == [] and f.item("gap/a")["state"] == "push-pending"   # held: nothing to settle yet
+    assert settleable(f) == "0" and waiting(f) == "1"                          # held: nothing to settle yet
+    assert settler(f) == [] and f.item("gap/a")["state"] == "push-pending"
     set_action(f, "ran")                                                       # approved and run: no gap is approved
+    assert settleable(f) == "1" and waiting(f) == "0"                          # commanded exactly when it has work
     with open(tmp_path / "queue.lock", "a") as lock:                          # a run starting holds the queue's lock
         fcntl.flock(lock, fcntl.LOCK_EX)
         assert settler(f) == [] and "a run holds the queue's lock" in f.stderr  # it settles the push itself
         assert f.item("gap/a")["state"] == "push-pending"
     assert settler(f) == ["gap.pushed", "gap.queue-failed"]                    # the held outcome, applied
-    assert f.item("gap/a")["state"] == "queue-failed"
+    assert f.item("gap/a")["state"] == "queue-failed" and settleable(f) == "0"
     assert f.item("gap/a")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
     assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())
     assert settler(f) == [] and settle(f) == ([], None)                        # once: neither applies it again
@@ -2134,16 +2145,63 @@ def test_a_push_settles_with_no_gap_approved(tmp_path):
     approved_gaps(d, {"a": 1, "b": 2}, bad="a", batch=2)
     d.run("queue.py", "gap/a")
     set_action(d, "denied")
+    assert settleable(d) == "1"
     assert settler(d) == ["gap.sent-back", "gap.queue-failed"] and d.item("gap/b")["state"] == "fix"
+    assert settleable(d) == "0"
     x = Factory(tmp_path / "x", unit=RED.format(runs=tmp_path / "x-runs"))    # failed: blocked, a's outcome said
     approved_gaps(x, {"a": 1, "b": 2}, bad="a", batch=2)
     x.run("queue.py", "gap/a")
     set_action(x, "failed")
-    assert settler(x) == ["gap.queue-failed", "intervention.recorded"] and x.item("gap/a")["state"] == "queue-failed"
-    assert json.loads((x.model / "run" / "queue.json").read_text())["pending"]["then"] == []
+    assert settleable(x) == "1"
+    assert settler(x) == ["intervention.recorded", "gap.queue-failed"] and x.item("gap/a")["state"] == "queue-failed"
+    assert "then" not in json.loads((x.model / "run" / "queue.json").read_text())["pending"]
+    assert settleable(x) == "0"                                                # blocked, not remedied: nothing to do
     iid = next(i for i in x.db()["items"] if i.startswith("intervention/"))
     x.fold([{"event": "intervention.remedied", "item": iid, "data": {"remedy": "pushed by hand"}}], None)
+    assert settleable(x) == "1"
     assert settler(x) == ["gap.push-settled"]                                  # (the outcome not said a second time)
+    assert settleable(x) == "0"
+
+
+def test_push_settler_is_commanded_by_push_settleable():
+    spec, _ = read(ROOT / "ergostat.yaml")                                    # the factory's own model
+    block = spec.blocks["push-settler"]
+    assert [(r.kind, r.name) for r in block.inputs.values()] == [("auxiliary", "push-settleable")]
+    assert block.params["run"] == "python3 dev/bin/queue.py settle"
+    assert [s.run for s in spec.auxiliaries["push-settleable"].sensors.values()] == [
+        "python3 dev/bin/queue.py settleable"]                                 # (its readings: the test above)
+
+
+def test_an_unreadable_push_is_read_again_before_it_blocks(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    f.run("queue.py", "gap/a")
+    set_action(f, "")                                                          # its action's state cannot be read
+    assert settleable(f) == "1"
+    assert settler(f) == [] and settler(f) == []                               # read again, twice, nothing said
+    assert f.item("gap/a")["state"] == "push-pending"
+    set_action(f, "ran")                                                       # the read works again: settled
+    assert settler(f) == ["gap.pushed", "gap.queue-failed"]
+    x = Factory(tmp_path / "x", unit=RED.format(runs=tmp_path / "x-runs"))
+    approved_gaps(x, {"a": 1, "b": 2}, bad="a", batch=2)
+    x.run("queue.py", "gap/a")
+    set_action(x, "")
+    assert settler(x) == [] and settler(x) == []
+    assert settler(x) == ["intervention.recorded", "gap.queue-failed"]         # the third: worst case, blocked
+
+
+def test_a_settler_killed_while_saying_says_nothing_twice(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    f.run("queue.py", "gap/a")
+    set_action(f, "ran")
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, queue\n"
+            "def killed(*a, **k): raise SystemExit(143)\n"              # SIGTERM (stop_on_term) at its first event
+            "fac.say = killed; queue.settle_alone(fac.config())")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 143, r.stderr
+    assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())   # saved before it said
+    assert settler(f) == [] and settle(f) == ([], None)                        # at most once: nothing said again
 
 
 def test_a_gap_pending_with_no_push_is_stuck(tmp_path):
