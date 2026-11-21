@@ -15,7 +15,9 @@ For each gap, read its GAPS.md entry and its definition when it has one, and loo
   another gap (`end: duplicate`, `of`: the other, e.g. one superseded by its `*-continued` gap). Only gaps whose
   state is open, replan, planned or ready.
 - **split**: a gap too large for one branch (L and more than one thing): its parts, each a short title and why, in the
-  order they should be built.
+  order they should be built. Never a gap with built work: one that `continues` a branch, or whose branch has
+  commits main lacks. Its parts would start from main and abandon that work, so the program refuses the split (and
+  applies the rest of your proposal).
 
 Pinned gaps keep their rank: say their fields, never move them.
 
