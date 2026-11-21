@@ -109,22 +109,32 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `relations-as-of`): `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py`
   asks Jira for summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and
   folded as relations first.
-- **A kind chosen in a snapshot** (open; found on `relations-as-of`): a snapshot holds the Items page's list with no
-  kind chosen only (`items`, not `items?kind=K`), so choosing a kind in it says "not in this snapshot", and the
-  Graph of one kind it holds (`items-graph?kinds=K`) is not reached from the page.
+- **A kind chosen in a snapshot** (done, on `a-kind-chosen-in-a-snapshot`; SPEC §5a): a snapshot holds each kind
+  chosen alone (`items?kind=K`), its list in each of its states (`items?kind=K&state=S`, the states from the kind's
+  own answer), and its Graph and Timeline (`items-graph?kinds=K`, related or not); an answer that cannot be got is
+  left out, so the page says "not in this snapshot". Left: see *A set chosen in a snapshot*.
+- **A set chosen in a snapshot** (open; found on `a-kind-chosen-in-a-snapshot`): a set (`where`, `moved`, a process
+  map's `through`/`followed`/`caused`) chosen in a snapshot says "items: not in this snapshot". Which sets to hold
+  is open: their parameters are free (any field, any span), so they cannot all be taken ahead. Also: a kind with
+  more than 500 items is held as its first 500, and the page's "All N" link then shows the same 300. And an item's
+  own page (`items/<id>`) is held only for the first 40 of the no-kind list, so most rows of a kind chosen open to
+  "not in this snapshot".
 - **Resource levelling and completion estimates** (done, on `eta`; SPEC §5a, *Completion estimates*): the
   projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
   block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
   record's paths, dependencies and arrivals); the Timeline's lanes, the list's *done by*, the item's why. Left: a
   goal's gate on a block is not simulated, and a capacity no block declares is not modelled (a block's `workspace:`
   pool is: held from the item's first take until it finishes).
-- **Modelling improves the model** (landing, `modelling-core`; `docs/proposals/self-improvement.md`): what `check`
-  finds is held as requests (`ergostat.modelling-request`); the rule tier (units, a queue's goal, a process nobody
-  identified) and the AI tier (off unless `ai: true`), each a block of `use: modelling`, answer them with ordinary
-  changes, checked in the tier's own process; the judge decides by class (description, unit, rename judged by check;
-  values, equations and structure by the record). Every example uses it. Parked on `selfimprove` (its definition file
-  says why): the rule tier's first-order equations, event-type renames that edit programs, the rule tier's copies of
-  the chain fixes.
+- **Modelling improves the model** (done, `modelling-core`, `modelling-core2` and `modelling-improves-the-model`;
+  `docs/proposals/self-improvement.md`): what `check` finds is held as requests (`ergostat.modelling-request`); the
+  rule tier (units, a queue's goal, a process nobody identified) and the AI tier (off unless `ai: true`), each a block
+  of `use: modelling`, answer them with ordinary changes, checked in the tier's own process; the judge decides by class
+  (description, unit, rename judged by check; values, equations and structure by the record). Every example uses it.
+  The AI tier runs within `ai-daily`: a call starts only when the day's spend plus its reservation stays within it, one
+  call at a time, and a call that reports more than its reservation can take the day above it by that one overrun. Its
+  counts have ceilings (`ai-most` 1 to 16, `--tries` 1 to 3, `ai-daily` 0 to 20; template parameters take
+  `min:`/`max:`). Parked on `selfimprove` (its definition file says why): the rule tier's first-order equations,
+  event-type renames that edit programs, the rule tier's copies of the chain fixes.
 - **Redesign beside refinement** (landing, `modelling-core`; `docs/proposals/redesign.md`): one change set of many
   coordinated edits for a whole system, made over a few rounds on a scratch copy by the redesigner (an `ai` block,
   haiku by default, within a budget a run and a cap a day), judged as a whole by a scorecard, one
@@ -132,11 +142,20 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `accept: {redesign: auto}` (and never one that removes, rewires or changes control). Runs on its own a system at a
   time when it is due (the owner's decision, 2026-11-19: `when: auto` by default), or when the owner asks. Open: removed parts are named, not drawn as ghosts; splitting a model into systems is
   in the guide but not scored; the judge scores a redesign on the record it has when it takes it up.
+- **A reviewer in the modelling template** (landing, `modelreview`, continued as `gap/modelreview-continued`;
+  `docs/roadmap/overnight/modelreview.md`; owner: "I don't see a reviewer"): an `ai` block that reads each structural
+  change and redesign the judge passed, and passes it, sends it back to its author, or rejects it, with the authors'
+  prompts carrying its verdicts. The continued gap stamps each review with the verdict and edit it read (held by
+  equality, recorded under the changes' lock only if the change is still that one), and keeps the shared daily cap
+  closed: each call's estimated most is checked against what is left, read again before each call, and held against
+  the cap while it runs, so the reviewer and the redesigner running at once do not both start calls on one remainder.
+  Open: the estimate is not a bound (`claude -p` is given no output limit), so a call that writes more than 16,000
+  tokens can take the day a little past the cap.
 - **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
   between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
   counted as findings).
-- **Proposals superseded by any edit** (partly done, `churn`; owner, 2026-11-19): a model change made against a version
+- **Proposals superseded by any edit** (done, `churn` and `proposals-superseded-by-any-edit`; owner, 2026-11-19): a model change made against a version
   since changed, even only in its numbers, was superseded and never written (SPEC section 12e); and every pass of a
   finder made a new change for the same thing, letting the last go ("let go: found again otherwise, or no longer
   found"), the estimator letting go of loops' processes too. **Done:** ergostat's own changes are what they are about,
@@ -144,9 +163,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   value's or an equation's edit made again on the files as they are); superseded only when their subject was edited or
   removed, their edit cannot be made again, or their finder no longer finds them, saying which. `modelling-core` makes it one
   mechanism: `rebase` moves the waiting edits' lines, and `supersede` carries ergostat's own (subject unchanged) and a
-  description, unit or redesign whoever made it (its edit still applies). **Left:** a block's other proposals (values,
-  equations, structure) are still superseded by any change of version; a structural change whose lines moved is superseded and made again on the same item
-  by the next structural pass rather than carried.
+  description, unit or redesign whoever made it (its edit still applies). `proposals-superseded-by-any-edit` carries the
+  rest: a block's values, equations and structure (it records a `subject`), and changes under test or passed (back to
+  testing, their verdict cleared, judged again); a structural change whose lines moved takes the edit its finder finds
+  again, on the same item. Every carry, the finders' writes, Dismiss and the judge are decided under the proposals' lock
+  on the model as its files are now, and defer while the files do not compile or differ from the model read; a change
+  made again on a superseded id keeps nothing of the old one. Still superseded: a block's equation or structural edit
+  whose lines a hand edit moved (the block's to make again).
 - **Poor identifications proposed, projections drawn as sure** (done, `churn`; owner, 2026-11-19: a loop's process that
   followed 2% held out was proposed, and the projections after a burst of 130 tickets were far off): a process is
   proposed only past a quality floor (what it follows held out, white errors in closed loop, independent of u), else
@@ -166,10 +189,20 @@ review into *Done recently*). Newest decisions from the owner first within each 
   about how much more record it needs and stays under test up to seven times the record it needs (a day at least); a
   change whose replay is the same as the model's waits for record in which it moves, rather than three hold-outs.
   Measured after (20 records each, a week of record): no worse change passed (0 of 60), 3 better changes failed in
-  80, a drain twice off decided within a week, most changes a fifth off still undecided after one. *Left*: on a
+  80, a drain twice off decided within a week, most changes a fifth off still undecided after one. *Done* too (on
+  `the-judge-almost-never-decides`, docs/roadmap/overnight/the-judge-almost-never-decides.md): a change whose replay
+  is exactly the model's, on a record that exercised a stock it touches, is judged by structural measures (the
+  redesign scorecard: findings, chains, coherence, craft notes, the fit only against it; `numbers/unmoved.py`),
+  a pass on structure written only by the owner. A change whose neighbourhood holds no stock is never taken as
+  exercised (narrower, on purpose, than "any stock both replay"), and the scorecard of one under test is worked out
+  again at each look, not cached. Measured on the slow queue (5 records each, a week, the judge every 6 hours), before
+  and after: a change answering a finding passed 5 of 5 at 24 hours both ways (before by "answers a finding" on the
+  record, now on structure, and no longer written by `auto`), one making a finding failed 5 of 5 at 24 hours both
+  ways, one moving no measure undecided after a week both ways (that model has no items, so coherence cannot be
+  measured, and it stays under test to the horizon); the share decided did not change there (10 of 20 each way),
+  what it is decided on did. The no-difference case (k 0.05 → 0.0501) is still 0/0/20 inconclusive. *Left*: on a
   record as slow as the information allows (a fifth off a day-long drain) most changes still need more
-  than a week; a change that cannot move the replay (structure, wiring, descriptions) should be judged by structural
-  measures (as redesign's scorecard does); and a change should carry over edits elsewhere (above).
+  than a week; and a change should carry over edits elsewhere (above).
 - **A cause for a scheduled run's events** (done, e4800ea, on `causes-join`; SPEC §5b): the run is the cause its
   events cite (no `ergostat.schedule.fired` event per firing); the Process view draws each scheduled block in a
   **schedules** frame with its fan-out. *Left*: an event line still cannot name a cause of its own (`causedby`).
@@ -223,27 +256,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `done` for another item) by tagging, B1 (env leaking between items) by env in the line, B3 (a child's CPU never
   charged) by charging no item CPU at all (the daemon's own CPU and memory are sampled and shown); a `warm: true`
   daemon now charges it per item (*Done recently*).
-- **A renewing run killed because the engine was busy recording its renewal** (parked on `leaserenew`,
-  `docs/roadmap/overnight/leaserenew.md`, *Where it stopped*). A renewal through the engine's socket is recorded only
-  when the engine gets the GIL; the watchdog could expire the lease first and kill a run that asked in time (16 of 32
-  killed with a GIL-holding thread in the engine, 0 of 48 on the branch). The branch adds a grace and a second look,
-  a re-read before the write, and a fold refusal that the raw readers honour; parked because its
-  `refused_expiries` folds each expired item uncached, transcripts included, on every measure sample and estimate
-  read. Still needed: read `refused` from the item index, and a performance test with many expired items and long
-  transcripts.
-- **Daemons, left over:** a daemon's lines are taken one at a time (a run's process batches the lines that arrive
-  together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
-  not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
-  ends.
-- **Daemons across the engine's own restarts** (follow-up, found in `tf-daemons`' review): the paths that start the
-  engine's process again in place (`_restart` and `_restart_hard` in `ergostat/cli/running.py`: an exec for a new
-  model's name or store, and the watchdog's last resort after `runner.kill_all()`) do not stop the daemons first. A
-  daemon reading its standard input sees it end when the old process goes and exits, but nothing waits for that,
-  drains its runs or ends its process group, so a daemon that ignores the end of its input, or a child it started,
-  can outlive the engine.
 - **Daemon YAML schema review** (open; owner, 2026-11-19): the functionality landed (`daemons`, `daemons2`; how to
   use and write daemons: `docs/DAEMONS.md`, the skill's `daemons.md`), but the owner is not sure the YAML is the
-  best yet, and it may change. Alternatives worth considering:
+  best yet, and it may change. The options, what each would cost and a recommendation for each are in
+  [docs/proposals/daemon-yaml.md](proposals/daemon-yaml.md) (`docs/proposals/daemon-yaml.md`); the gap waits for the
+  owner's choice. Alternatives worth considering:
   - *a modifier instead of a kind*: `run: python3 probe.py` plus `keep: true` (or `mode: daemon`), so moving a
     sensor over is one word and the command stays where it was, rather than `daemon: {run: ...}` as a seventh
     sensor kind;
@@ -263,7 +280,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   - *the word*: "daemon" is Unix jargon; `runner`, `server` or `keep-alive` may read better to the owner's users.
   Whatever changes, the protocol (SPEC §9.7) need not: these are only how the YAML says which process and how it
   is supervised. The docs' examples are run by `tests/test_daemon_docs.py`, so a schema change shows every place
-  to rewrite.
+  to rewrite. Found by the review: a non-warm daemon's `concurrency` has a floor of 1 and no maximum
+  (`ergostat/daemons/config.py:52`), and it multiplies engine threads, one per run the daemon holds
+  (`ergostat/leases/dispatch.py:223`), bounded only by its blocks' `pool`, which has no maximum either
+  (`ergostat/leases/compile.py:85-90`); only warm daemons are capped (32 each, 64 in all). Lesson-4: recorded, not
+  yet fixed.
 - **ergostat's upkeep as a modelled system** (idea; owner, 2026-11-19): a built-in `use: upkeep` template, like
   `use: modelling`, drawing ergostat's own housekeeping as control loops: item-index files (created on each change to
   the kinds, tidied, healed), event-log compaction, measurement retention, the worktree pool, expired leases, the
@@ -297,9 +318,25 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
+- **A lease taken while the engine closes outlives the close** (open; found by
+  `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, which fails now and then on main).
+  `Dispatcher.take` (`ergostat/leases/dispatch.py`) writes `lease.taken` and folds it before adding the run to
+  `Engine.running`, so `Engine.close()` can find `running` empty and return while a lease is being taken. And
+  `runner.kill_all()` kills only what is already in `runner.LIVE`: a run spawned just after it is not killed, so its
+  process outlives `close()` and its lease stays held. A fix must not key on the process-wide `runner.STOPPING`
+  (one engine closing would kill another engine's new run in the same process), and needs its own test of the
+  `run_block` half.
 
 ## Interface
 
+- **Searching items and querying their graph** (`gap/item-search`, split in two): full-text search and graph queries
+  over items, from the CLI and API.
+  - *Search*: **done** on `factory/item-text-search` (SPEC §5a, *Search*): `ergostat item --search WORDS` and
+    `/api/items?search=WORDS` list the items whose fields' text contains every word (a casefolded substring, no
+    ranking, no fuzzy match; the first 65,536 characters of each item's text), kept in the item index. Not the Items
+    page's own box, not MCP, not `--at`.
+  - *near, path and about*: **open** (`gap/item-graph-queries`): the items near one, the path between two, and what is
+    about one, from the index's links and text.
 - **Light theme: the repeats toward the paper are low in contrast** (open; for a design pass, no colour work until
   then; found fixing the dark theme's): the third round of correspondence colours (`--g-fade`, 55% of the hue) stands
   1.6:1 to 2.5:1 on white, and `--g9` (gold) 2.4:1 as it is; WCAG asks 3:1 for graphics. Tried on `smallgaps`
@@ -344,11 +381,16 @@ review into *Done recently*). Newest decisions from the owner first within each 
   estimates and the Blocks view read the pool now (1, said, when it is 0 or unread). The factory's implementor and
   reviewer take theirs from `implementor-pool` and `reviewer-pool`. Not done: an age limit on the stock's reading (the
   newest is used whatever its age), and a global ceiling on `pool:` numbers.
-- **`mode: advise` on a block that takes items does nothing** (open; found by `factory`): the dispatcher
-  (`ergostat/leases/dispatch.py`) leases items to a block whatever its `mode`, and `check` does not say so; only
-  commanded and event-started blocks ask. The factory pauses its implementor with a gate instead (the auxiliary
-  `intake-open`, read by hand, in an `expr` that commands it). Either ask once per item before it is leased
-  (`block.advised` naming the item), or refuse `mode: advise` with `takes:` in `check`.
+- **`mode: advise` on a block that takes items did nothing** (done on `mode-advise-on-a-block-that`; found by
+  `factory`): the dispatcher (`ergostat/leases/dispatch.py`) leases items to a block whatever its `mode`; only
+  commanded and event-started blocks ask. Of the two ways out, the refusal was chosen: `check` now refuses
+  `mode: advise` with `takes:` (`advise-with-takes`, `ergostat/leases/compile.py::check`), saying to gate the block
+  with `goal:` or `in: block.X` instead, as the factory pauses its implementor (the auxiliary `intake-open`, read by
+  hand, in an `expr` that commands it). Asking once per item before it is leased (`block.advised` naming the item) is
+  left unbuilt; the dispatcher and the inbox are unchanged, so an `advise:BLOCK` in the inbox never names a block
+  that takes items only because `check` refuses that model. Tests: `tests/test_leases.py`
+  (`test_mode_advise_on_a_block_that_takes_is_refused`, `..._without_takes_and_takes_without_advise_compile`,
+  `test_a_block_that_takes_waits_while_what_commands_it_is_off`).
 - **A gap continues an existing branch, with main merged in by the factory** (awaiting its gate; branch
   `factory/continue-branch3`, the salvage of `continue-branch`; its definition is
   `docs/roadmap/overnight/continue-branch.md`, and `continue-branch2.md` and `continue-branch3.md` hold where the later
@@ -360,6 +402,24 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Done recently
 
+- **Daemons, left over** (done on `factory/daemons-left-over`; SPEC §6 and §9.7,
+  `docs/roadmap/overnight/daemons-left-over.md`): a daemon's lines that arrive together are taken together, per run,
+  up to 500 at once, in the order printed (`ergostat/daemons/lines.py`), and a line over 1 MiB is dropped; a sensor
+  daemon's observations (`{"event": ..., "item": ..., "sensor": S}`, or a relayed `{"message": ...}`) are checked and
+  recorded as a `run:` sensor's are, from that sensor, at most 50 a second, the drops counted and said once
+  (`ergostat/daemons/observe.py`), and one for a sensor the daemon does not serve is dropped; a new daemon's CPU is
+  sampled about 1 s after it starts, then at doubling gaps up to every 30 s, never two samples within 1 s
+  (`ergostat/costs/sampler.py`).
+- **A renewing run killed because the engine was busy recording its renewal** (done on `leaserenew`, merged as
+  1f013ba, its last commit 372533d; SPEC §9.5, `docs/roadmap/overnight/leaserenew.md`): the watchdog expires a lease
+  only on a second look at the same expiry, `grace(ttl)` after the first (a tenth of the TTL, 1-30 s), and re-reads
+  the lease just before it writes, writing nothing when it was renewed or ended; the fold refuses an expiry judged
+  before a renewal, and the readers of raw expiries leave a refused one out (measures `counts`/`attention`, the
+  estimates, the block models, the workspace sweep), reading what each item refused from the item index, transcripts
+  never folded. Measured there on 2026-11-20: with a GIL-holding thread in the engine, 16 of 32 runs killed on main
+  before the fix, 0 of 48 after; at 1,000 items × 300 lines, counts / estimate / identify took 0.15 / 0.13 / 0.10 s
+  before refused expiries were left out and 0.17 / 0.14 / 0.12 s now. The cost test
+  (`tests/test_lease_refused_cost.py`) bounds each read at 2× + 50 ms of the cost without the refusal.
 - **Warm processes for blocks** (done on `factory/warm3`, finishing `warm2` and `warm3`, each parked after two failed
   gates; SPEC §9.7, `docs/roadmap/overnight/warm2.md`): `warm: true` on a daemon, a declared promise that the program
   keeps no state between runs: `concurrency` processes, one run each at a time, each run charged its process group's

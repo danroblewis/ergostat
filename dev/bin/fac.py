@@ -73,6 +73,21 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def draining(cfg: dict) -> bool:
+    """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
+    review) waits for its next turn instead of starting."""
+    return (run_dir(cfg) / "drain.json").exists()
+
+
+def drain_holds(cfg: dict) -> bool:
+    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), an AI run takes no new
+    item: it gives it back uncounted, to be taken again after the switch."""
+    if not draining(cfg):
+        return False
+    nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
+    return True
+
+
 def ergostat(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """$ERGOSTAT_CMD (this ergostat, on this model). Absent outside a run: a FileNotFoundError says so."""
     cmd = os.environ.get("ERGOSTAT_CMD")
@@ -361,6 +376,18 @@ def queue_lock(cfg: dict):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
+SUITES: set[int] = set()                                # the process groups of the suites running now (suite())
+
+
+def stop_suites() -> None:
+    """Every running suite's process group stopped: a run stopped while suites run in threads of its own (queue.py)."""
+    for pid in list(SUITES):
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
           **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
@@ -375,6 +402,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
+        SUITES.add(p.pid)
         try:
             while p.poll() is None:
                 renew()
@@ -389,6 +417,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     os.killpg(p.pid, signal.SIGKILL)
+            SUITES.discard(p.pid)
     return p.returncode, time.time() - began
 
 
@@ -471,7 +500,7 @@ def attempt(cfg: dict, role: str, brief: str, work: Path) -> dict | None:
 
 STANDIN = {
     "planner": '<definition branch="{b}">\n# {b}: planned by the stand-in\n\ndepends-on: []\n\n## Definition of done\n\n'
-               'It works.\n\n## Files to touch\n\n- `x.py` (new)\n\n## Risks\n\n- none.\n\n'
+               'It works.\n\n## Files to touch\n\n- `x.py` (new)\n- `standin/work.txt` (new)\n\n## Risks\n\n- none.\n\n'
                '## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
                '100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
@@ -483,7 +512,8 @@ STANDIN = {
 def standin(role: str, brief: str, cwd: Path) -> dict:
     """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor finishes a merge
     it was handed (main's side of each conflict; or aborts it, when FACTORY_STANDIN_MERGE=abort) and writes a note
-    into the work; the planner, researcher and
+    into the work, and each of FACTORY_STANDIN_WRITES (comma-separated paths; `git rm`ed once its brief says they
+    were refused); the planner, researcher and
     librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
     b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
     said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
@@ -501,6 +531,12 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
         with note.open("a") as f:
             f.write(f"worked by the stand-in ({len(brief)} characters of brief)\n")
         said = f"wrote {note.relative_to(cwd)}"
+        for p in filter(None, os.environ.get("FACTORY_STANDIN_WRITES", "").split(",")):   # (the tests' scratch files:
+            if "# Scratch files refused" in brief:                                       # removed once refused)
+                git(cwd, "rm", "-q", "--", p)
+            else:
+                (cwd / p).parent.mkdir(parents=True, exist_ok=True)
+                (cwd / p).write_text("a scratch file\n")
     else:
         v = os.environ.get("FACTORY_STANDIN_VERDICT", "merge")
         said = "The stand-in read the diff.\n```json\n" + json.dumps(

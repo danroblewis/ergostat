@@ -56,6 +56,10 @@ systems:
     within: oversight
     description: how well the factory works - cycle time, first-pass yield, fix rounds, the queue, flakes, cost
     show: [auxiliary.first-pass-yield, auxiliary.cycle-hours, auxiliary.cost-per-merged]
+  times:
+    within: oversight
+    description: how long each gap spends in each state, in the build-review loop and at each gate, held by goals
+    show: [auxiliary.loop-hours, auxiliary.in-ready-hours, auxiliary.gate-unit-minutes]
   interventions:
     within: oversight
     description: the coordinator's interventions, each evidence of a loop the factory lacks
@@ -81,8 +85,8 @@ items:
   gap:
     id: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
-    states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, queue-failed, merged,
-             parked, closed]
+    states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, push-pending,
+             queue-failed, merged, parked, closed]
     on:
       gap.found: open                # intake: an entry of docs/GAPS.md
       gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
@@ -96,13 +100,16 @@ items:
       gap.approved: approved
       gap.sent-back: fix             # reviewer (fix), queue (a conflict) or triage (a real failure): its findings
       gap.queued: queued             # merge queue
+      gap.push-pending: push-pending # merge queue: its run's gap did not land; its outcome waits for its batch's push
       gap.queue-failed: queue-failed
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-      gap.closed: closed             # groomed out of the backlog (backlog.py), or the pipeline manager's close once the
-                                     # coordinator approved it: done on main already, or a duplicate
-    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+      gap.closed: closed             # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
+                                     # manager's close, once the coordinator approved it)
+    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason,
+           parked_for, loop_rounds, loop_hours]
+    # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended and gates (dev/bin/times.py)
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
@@ -121,6 +128,7 @@ items:
       build_hours: sum
       review_hours: sum
       queue_wait_hours: sum
+      queue_runs: append             # each queue run it was in: its id, whole minutes, end (merges-per-hour)
       reviews: append
       contexts: append
       flakes: union
@@ -134,6 +142,8 @@ items:
     lease: {attempts: 2}
     # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
     # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
+    # gap.need-met (no state): the coordinator or owner records a needs park's action done (need_met: what was done)
+    # gap.resumed (no state): a park resumed (resumed_as, resumed_for, resumed_by, cleared: the condition; parks.py)
 
   review:
     id: review/*
@@ -216,13 +226,17 @@ items:
   upgrade:
     id: upgrade/*
     description: a version of main the instance may run - installed into its own folder, switched to, kept or reverted
-    states: [available, installed, switched, healthy, reverted, superseded, failed]
+    states: [available, installed, approved, draining, switched, healthy, reverted, superseded, withdrawn, failed]
     on:
       upgrade.opened: available        # merge queue: a new green main
       upgrade.installed: installed     # upgrader
       upgrade.superseded: superseded
       upgrade.failed: failed
-      upgrade.switched: switched       # the switch (live.py), once the coordinator approved it
+      upgrade.switch-approved: approved    # the switcher (drain.py): its switch-instance approved
+      upgrade.draining: draining       # a quiet moment or the daily window: the runs under way drain
+      upgrade.drained: draining        # drained (or the bound reached): the switch begins
+      upgrade.withdrawn: withdrawn     # a newer version waits, or runs: its switch request withdrawn
+      upgrade.switched: switched       # the switch (live.py), once drained
       upgrade.kept: healthy
       upgrade.reverted: reverted
     show: [sha, check, switch, previous]
@@ -238,29 +252,31 @@ items:
 
   lesson:
     id: lesson/*
-    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, or retired
-    states: [seen, proposed, requested, retired]
+    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, denied by the coordinator, or retired
+    states: [seen, proposed, requested, denied, retired]
     on:
       lesson.seen: seen              # librarian: a class not listed, found in one review
       lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
       lesson.requested: requested    # knowledge-change approved: a gap with the exact edit (lesson.py)
+      lesson.denied: denied          # knowledge-change denied: settled, never proposed again (lesson.py settle)
       lesson.retired: retired        # lesson.py retire
-    show: [kind, lesson, name, text, times, gap]
+    show: [kind, lesson, name, text, times, gap, denied_by, why]
     fold: {times: sum, reviews: union, findings: append}
 
   knowledge:
     id: knowledge/*
-    description: one entry of dev/knowledge/ in the running version (a house rule, a review lesson, a decision) - what the briefs carry, kept by the collector knowledge-sync
+    description: one entry of dev/knowledge/ in the running version, of its file's declared kind (component, rule, lesson, finding, question, source; briefs carry the rules and lessons), kept by the collector knowledge-sync - the owner's decisions are ergostat.decision items instead
     states: [active, retired]
     on:
       knowledge.found: active        # knowledge-sync: an entry in the files (or back in them)
       knowledge.changed: active      # knowledge-sync: its title, text, areas or how many briefs carried it changed
       knowledge.retired: retired     # knowledge-sync: no longer in the files
-    show: [kind, title, file, areas, carried, text]
+    about: about                     # its *About:* line: the parts of this model it bears on (explain, check, status)
+    show: [kind, title, file, areas, about, carried, text]
 
 messages:
   done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
+         lesson: [requested, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 
@@ -268,7 +284,7 @@ agents:
   opus:
     kind: ai
     model: claude-opus-5-5
-    at-once: 3
+    at-once: 24                         # operator, 2026-11-20: was 3, shared by every AI block, so planning got no slot while 3 implementors ran
     description: headless Claude Code sessions (claude -p) on Opus for the implementor and the reviewer; dev/factory.toml
   coordinator:
     kind: person

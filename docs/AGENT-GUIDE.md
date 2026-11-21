@@ -82,6 +82,14 @@ Work through these steps in order. Ask the person only what you cannot infer.
    without it after those with it; the critical first among equals). The completion estimates and the Timeline
    project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
    notes an order field no item holds yet (`takes-order-unset`).
+   **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
+   of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
+   {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the
+   list, so the collector says the whole list each time (an empty list when the item names none any more). Then
+   `ergostat explain goal.x` ends with the open items about it (at most 5, then "and N more"; finished ones are not
+   listed), a `check` finding about a part carries their ids, and an off loop in `ergostat status` names them (at
+   most 3, then "+N"; none under `--at`). A name that is not a part of the model is the finding `about-missing-part`: fix the name.
+   "unknown" in any of these means the item index could not be read, not that there is no knowledge.
 5. **One block per step that does the work**, taking items in its state:
    `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once: a number, or
    `{now: stock.NAME, most: N}` when a controller steps a measured stock to set it) and, for AI work, a
@@ -127,7 +135,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    so each can be reviewed whole. It learns from what happened: its past change sets for the system with what
    became of each, and the interventions about it (approvals, denials, a person's requests, alarms, with their
    notes) as evidence of missing loops. So when you dismiss a redesign or deny an approval, give the reason
-   (`--note`): it is what the next one reads. Do not hand-write these parts.
+   (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
+   redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
+   change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
+   they say rather than proposing the same idea again. Do not hand-write these parts.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
@@ -435,7 +446,10 @@ readings again.
 
 Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `person` block, a change waiting for the
 owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
-is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p):
+is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p). `mode: advise` asks before a command or
+an event, never before each item, so `check` refuses it on a block with `takes:` (`advise-with-takes`); to have a
+person hold such a block's items, gate it with `goal:` or `in: block.X` from a block they command, and its items wait
+while that is off (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`), from the page's *Needs attention* (Approve / Deny inline) or by
@@ -546,7 +560,10 @@ blocks:
   `redesign`, or a proposal of the structure with the record of the burst as its evidence); value proposals on a
   model missing structure only chase the burst.
 - The proposals ergostat makes are the same items as the record grows: one revised in place (`revisions`) is not
-  churn. One superseded says why (what it was about was edited or removed, or it is no longer found).
+  churn. An edit elsewhere carries a waiting change, yours too (one passed goes back to testing); one superseded says
+  why: what it was about was edited or removed, its edit no longer applies (propose it again on the files as they are),
+  its finder no longer finds it, it was recorded without what it is about, it is no longer of its kind, or it would
+  change who decides.
 
 ## 3h. When will it be done: the items' completion estimates
 
@@ -648,6 +665,11 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 ## 5. Tools
 
 - **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `remote`, `help TOPIC`.
+- **Items**: `ergostat item [--kind K] [--state S] [-n N]` lists them (newest first; `-n` at most 500),
+  `ergostat item ID [--history [FIELD]]` shows one, and `ergostat item --search "WORDS" [--kind K] [--state S]` lists
+  those whose fields' string values contain every word (1 to 8 words; a plain substring, case ignored, no ranking and
+  no fuzzy match; only the first 65,536 characters of an item's text are read; as of now, never with `--at`).
+  `--json` on each; `/api/items?search=WORDS` is the same list.
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.
