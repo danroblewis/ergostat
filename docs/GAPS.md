@@ -235,12 +235,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
   together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
   not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
   ends.
-- **Daemons across the engine's own restarts** (follow-up, found in `tf-daemons`' review): the paths that start the
-  engine's process again in place (`_restart` and `_restart_hard` in `ergostat/cli/running.py`: an exec for a new
-  model's name or store, and the watchdog's last resort after `runner.kill_all()`) do not stop the daemons first. A
-  daemon reading its standard input sees it end when the old process goes and exits, but nothing waits for that,
-  drains its runs or ends its process group, so a daemon that ignores the end of its input, or a child it started,
-  can outlive the engine.
 - **Daemon YAML schema review** (open; owner, 2026-11-19): the functionality landed (`daemons`, `daemons2`; how to
   use and write daemons: `docs/DAEMONS.md`, the skill's `daemons.md`), but the owner is not sure the YAML is the
   best yet, and it may change. The options, what each would cost and a recommendation for each are in
@@ -303,9 +297,25 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
+- **A lease taken while the engine closes outlives the close** (open; found by
+  `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, which fails now and then on main).
+  `Dispatcher.take` (`ergostat/leases/dispatch.py`) writes `lease.taken` and folds it before adding the run to
+  `Engine.running`, so `Engine.close()` can find `running` empty and return while a lease is being taken. And
+  `runner.kill_all()` kills only what is already in `runner.LIVE`: a run spawned just after it is not killed, so its
+  process outlives `close()` and its lease stays held. A fix must not key on the process-wide `runner.STOPPING`
+  (one engine closing would kill another engine's new run in the same process), and needs its own test of the
+  `run_block` half.
 
 ## Interface
 
+- **Searching items and querying their graph** (`gap/item-search`, split in two): full-text search and graph queries
+  over items, from the CLI and API.
+  - *Search*: **done** on `factory/item-text-search` (SPEC §5a, *Search*): `ergostat item --search WORDS` and
+    `/api/items?search=WORDS` list the items whose fields' text contains every word (a casefolded substring, no
+    ranking, no fuzzy match; the first 65,536 characters of each item's text), kept in the item index. Not the Items
+    page's own box, not MCP, not `--at`.
+  - *near, path and about*: **open** (`gap/item-graph-queries`): the items near one, the path between two, and what is
+    about one, from the index's links and text.
 - **Light theme: the repeats toward the paper are low in contrast** (open; for a design pass, no colour work until
   then; found fixing the dark theme's): the third round of correspondence colours (`--g-fade`, 55% of the hue) stands
   1.6:1 to 2.5:1 on white, and `--g9` (gold) 2.4:1 as it is; WCAG asks 3:1 for graphics. Tried on `smallgaps`
@@ -349,11 +359,16 @@ review into *Done recently*). Newest decisions from the owner first within each 
   block's `pool:` (the most). The completion estimates and the Blocks view read the most, not the pool now. Either
   `pool: stock.NAME` (read at each dispatch, drained when lowered, as a lowered `pool:` is), or a block's pool as a
   setting a controller steps.
-- **`mode: advise` on a block that takes items does nothing** (open; found by `factory`): the dispatcher
-  (`ergostat/leases/dispatch.py`) leases items to a block whatever its `mode`, and `check` does not say so; only
-  commanded and event-started blocks ask. The factory pauses its implementor with a gate instead (the auxiliary
-  `intake-open`, read by hand, in an `expr` that commands it). Either ask once per item before it is leased
-  (`block.advised` naming the item), or refuse `mode: advise` with `takes:` in `check`.
+- **`mode: advise` on a block that takes items did nothing** (done on `mode-advise-on-a-block-that`; found by
+  `factory`): the dispatcher (`ergostat/leases/dispatch.py`) leases items to a block whatever its `mode`; only
+  commanded and event-started blocks ask. Of the two ways out, the refusal was chosen: `check` now refuses
+  `mode: advise` with `takes:` (`advise-with-takes`, `ergostat/leases/compile.py::check`), saying to gate the block
+  with `goal:` or `in: block.X` instead, as the factory pauses its implementor (the auxiliary `intake-open`, read by
+  hand, in an `expr` that commands it). Asking once per item before it is leased (`block.advised` naming the item) is
+  left unbuilt; the dispatcher and the inbox are unchanged, so an `advise:BLOCK` in the inbox never names a block
+  that takes items only because `check` refuses that model. Tests: `tests/test_leases.py`
+  (`test_mode_advise_on_a_block_that_takes_is_refused`, `..._without_takes_and_takes_without_advise_compile`,
+  `test_a_block_that_takes_waits_while_what_commands_it_is_off`).
 - **A gap continues an existing branch, with main merged in by the factory** (awaiting its gate; branch
   `factory/continue-branch3`, the salvage of `continue-branch`; its definition is
   `docs/roadmap/overnight/continue-branch.md`, and `continue-branch2.md` and `continue-branch3.md` hold where the later
