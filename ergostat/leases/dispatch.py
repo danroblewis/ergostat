@@ -83,11 +83,14 @@ class Dispatcher:
 
     @property
     def blocks(self) -> list:
-        return [b for b in self.spec.blocks.values() if b.takes and b.machine]
+        spec = self.spec
+        return [b for b in spec.blocks.values() if b.takes and b.machine and self.e.own(f"block.{b.name}", spec)]
 
     def kinds(self) -> list[str]:
-        """The kinds whose leases are watched: every kind of the model's own (a lease outlives the block that took it)."""
-        return [k for k in self.spec.items if own_kind(k)]
+        """The kinds whose leases are watched: every kind of the model's own (a lease outlives the block that took it),
+        of the engine's shard (SPEC §9.8: a kind is in the shard of the blocks that take it, else of its system)."""
+        spec = self.spec
+        return [k for k in spec.items if own_kind(k) and self.e.own(f"kind.{k}", spec)]
 
     # ---- the clock
 
