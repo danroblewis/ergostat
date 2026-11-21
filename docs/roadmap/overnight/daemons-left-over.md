@@ -196,3 +196,67 @@ An overrun needs a written reason in "Where it stopped".
 - Hands._observed must read self.observers under the same lock sync uses to rebuild it. Apply the cap only after routing succeeds, so stray sensor names can never create windows (the dict stays bounded by the configured sensors).
 - Supervisor.close() must flush the observation windows before the engine or record is closed. Assert the order in the close test.
 - test_a_short_lived_daemon_is_sampled_before_it_ends: assert the process is still alive at the moment the sample count is read, not only that samples >= 1.
+
+## Where it stopped
+
+Round 1: built. Every point of the definition is in, every acceptance test exists and passes, and so do the existing
+`tests/test_daemons.py`, `tests/test_warm.py`, `tests/test_daemon_docs.py` and `tests/test_run_costs.py`. Size:
+218 net lines under `ergostat/` (budget 260).
+
+**What is not done here.** There is no `origin` remote in this container and no network, so origin/main could not be
+merged in (lesson-7). Local `main` has no commit the branch lacks. The in-review gap
+`daemons-across-the-engine-s-own-restarts` also touches `supervise.py`, so the coordinator should merge origin/main
+and run the suites again before calling the branch built. The full unit suite and the four browser files were not
+run here; the factory runs them under the watchdog. The test files touched were run one at a time.
+
+**Answers to the plan review.**
+1. *lesson-1 has no test that can fail.* Added `test_the_window_is_judged_and_written_under_its_lock`
+   (tests/test_daemon_observations.py). It wraps `Observed._decide`, the step between reading the window and writing
+   it, and runs two rivals in that gap: a competing line at the 50th line, and a competing `flush` at the line that
+   closes the window. It asserts exactly 50 recorded and exactly one `sensor.refused` with `dropped == 10`. The lock
+   was removed from `admit` and `flush`: 51 recorded. It was then removed from `flush` only: `[10, 10]`, a double
+   report. The supervisor's tick is disabled for that test, so its own flush can't hide the race.
+2. *The floor test can't fail.* Its deterministic part forces `gap = 0.1` and `due = 10.2` and asserts
+   `wait(10.1) == 0.9`. With the floor removed it gives 0.1 and fails (tried).
+3. *Which key wins in `plan`.* `run` wins, as in `Process.line` today: a request or a reading that carries a string
+   `run` is that run's line. The case is `test_a_run_line_is_what_line_takes_and_every_other_line_is_one`.
+4. *One bad line in a take drops the batch.* Kept as the definition says, and stated in SPEC §9.7 ("should taking a
+   batch fail as a whole, each of its lines is said dropped in the log"). This is the more reversible choice: retrying
+   line by line could record a line twice if a take failed after part of its batch was written. Also,
+   `Said.lines` already catches each line's own failure and refuses only that line, so a take that raises has failed
+   as a whole (for example, its run's log is closed).
+5. *Decoding.* Each whole line is decoded as UTF-8 with `errors="replace"`, as before. A non-UTF-8 line is tested in
+   `test_a_partial_line_waits_for_the_rest_and_eof_takes_the_last`: it is taken, with U+FFFD in place of the bad byte.
+6. *LINE_MAX in SPEC.* SPEC §9.7 says a line over 1 MiB is dropped, said once in the log, and never held.
+7. *`wait` with no runs.* It returns None, and the loop then waits on `wake` with no timeout. Tested in
+   `test_a_ramped_sampler_samples_early_then_at_its_interval`.
+8. *`_observed` and the lock; the cap after routing.* `self.observers` is read under `self.lock`, the lock `sync`
+   rebuilds it under. A window is made only after routing succeeds, so its keys are only configured sensors.
+9. *close before the record.* `Supervisor.close` flushes every window after its processes are stopped, so lines read
+   while they stop are counted too. That is before `Engine.close` records `ergostat.stopped`.
+   `test_a_burst_just_before_ergostat_stops_is_reported_at_close` asserts the report's `seq` is before that event's.
+10. *Alive when sampled.* The short-lived test reads `proc.poll() is None` in the same check that reads
+    `samples >= 1`.
+
+**Break checks (lesson-9): each break tried, the test run, and the test failed.**
+- `BATCH` removed: `test_one_reads_1200_...` fails. Per-line taking (a batch of 1): 5 line tests fail.
+- Grouping only consecutive lines of a run: `test_interleaved_...` fails. `done` not taking its run's pending lines
+  first: `test_a_runs_done_comes_after_...` fails.
+- No ceiling on the partial line: `test_an_overlong_line_...` fails. Last line not taken at EOF:
+  `test_a_partial_line_...` fails. A take's exception not caught: `test_a_take_that_raises_...` fails.
+- Routing falls back to a configured sensor: `test_an_observation_for_a_sensor_not_of_this_daemon_...` fails.
+- Cap removed: the cap, lock, burst and close tests fail. Drops said at the first drop: the cap test fails. Drop count
+  not popped (said twice): the cap test fails.
+- Lock removed: the lock test fails (see 1). No flush at tick: the burst test fails. No flush at close: the close
+  test fails.
+- Sampler floor removed: the floor test fails (0.1). Flat interval (no ramp): the ramp test, the floor test and
+  `test_a_short_lived_daemon_is_sampled_before_it_ends` fail. No cap on the ramp: the ramp test and the intervals test
+  fail. A wake that samples at once: the floor test's real-thread part fails.
+- `test_a_sensor_daemons_observations_are_recorded_...` fails on main by construction: the line is stray there, and
+  no `case.met` is recorded.
+- `test_a_daemon_runs_1200_lines_are_all_recorded_in_order` guards the integration: all 1,200 lines, in order, then
+  `agent.ran`. It would also pass with per-line taking. The batching itself is guarded by the `chunk`/`plan` tests.
+
+**Load (lesson-10).** `test_a_burst_with_nothing_after_it_is_reported_by_the_supervisor` assumes 60 lines of one
+write are judged within one second of the first. The lines are admitted in the reader thread before each is recorded,
+so this holds unless 50 record writes take longer than a second. If it ever fails under load, look there first.
