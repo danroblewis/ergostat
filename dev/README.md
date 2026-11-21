@@ -216,13 +216,13 @@ Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of eac
 last read (at most 50 a run, those never read first) and writes `gap.timed` on it when its timing changed, for any gap
 whatever its end (merged, parked, dead or still open). Its bookmark, each gap's count of events read, is kept in
 `run/times.json`, outside the record, and moves on every read, so an event that changes no timing is read once; a lost
-or unreadable bookmark only makes it read every gap again. Each is counted from the record alone:
+or unreadable bookmark makes it read every gap again (and write only a changed timing). Each is counted from the record alone:
 
 - `time_in`: per state, the hours of its visits summed and how many (`visits`), and when it last left (`left`). A
   visit runs from the move into the state to the next move, in the record's order (the fold's moves, the lease's own
   `leased` and `dead` among them); the visit a gap is in now counts once it ends (`status.py` shows it apart).
 - `loop_rounds`, `loop_hours`, `loop_ended`: the build-review loop as one span, from the first time the gap is taken to
-  build (leased from ready or fix) to the first approval, park or dead letter after its last build; its rounds are its
+  build (leased from ready or fix) to the first approval, park, close or dead letter after its last build; its rounds are its
   builds. A queue send-back (a conflict, a denied push, a real failure) is part of the loop: it ends at the last
   approval. While it still goes round, `loop_ended` is empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
@@ -230,6 +230,14 @@ or unreadable bookmark only makes it read every gap again. Each is counted from 
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
+
+A gap's record rolled up (after 7 days by default, `ergostat/rollup.py`) starts with a snapshot: its moves are kept
+there, so `time_in` and the loop are counted as before, but the events carrying the gate times are in the archive. The
+gates start from the snapshot's own (what the gap's last `gap.timed` before the roll-up said), and only the events
+after it are added, so a later event or a lost bookmark recounts them the same; a merge in the snapshot still waiting
+for its push is carried over from the snapshot's state. A gap rolled up before it was ever timed (the first run on an
+old record) has its gates unknown (`null`), counted in no gate's measure rather than as zero; gate events between its
+last `gap.timed` and the roll-up (only if the timer was stopped that long) are not counted.
 
 The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, `loop-hours`, `loop-rounds` and
 `gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the

@@ -89,3 +89,26 @@ first unit run's seconds and the runs alone and on main are not in `gate-fast`. 
 22, `tests/test_ticket_factory_daemons.py` 6, `tests/test_factory_resources.py` 8, `tests/test_factory_sessions.py` 5,
 each file run alone. The whole unit suite and the browser files were not run here; the factory's runs remain the
 check. The setpoints are still first guesses until `times.py setpoints` runs in the instance's folder.
+
+Round 4, merging main (8eb0fc0) and answering the review's one finding:
+
+- **The merge.** `ergostat.yaml` conflicted on the gap kind: main's `gap.closed: closed` (the pipeline manager's
+  close) and the branch's `loop_rounds`, `loop_hours` in `show:` are both kept. `closed` is also a loop end in
+  `times.py` (`EXITS`), beside approved, parked and dead, so a closed gap's loop ends like any other end.
+- **Gates lost on a rolled-up record (blocking, lesson-3, lesson-8).** `timing()` now reads the snapshot that starts a
+  rolled-up record: the gates start from its `set` (the gap's last `gap.timed` before the roll-up) and only the gap
+  events after it are added, so a later event or a lost `run/times.json` recounts them the same. A merge inside the
+  snapshot not yet pushed (its state `merged`, entered after its last push-wait) is carried over, so its push wait
+  is still counted. A long record read whole through `ergostat events` now keeps the snapshot (the `--type gap.*`
+  filter dropped it). A gap rolled up before it was ever timed has `gates: null`, unknown, and is in no gate measure
+  rather than counted as zero; the archive is not read (`dev/bin` reads the record only through the CLI, which has no
+  archive read). So the first backfill on an old record has gate times only for gaps whose gate events are within the
+  roll-up horizon (7 days by default), and `times.py setpoints` over 14 days reads the gate measures from those only;
+  run it once the timer has run for 14 days, or accept it. Gate events between a gap's last `gap.timed` and its
+  roll-up are lost only if the timer was stopped that long. dev/README.md (*Time in each state*) says all this; its
+  "only makes it read every gap again" now says it writes only a changed timing. Test:
+  `test_gates_survive_the_roll_up_of_a_gaps_record` (fails when the snapshot's gates are not used as the base).
+- After the merge, each file alone: `tests/test_factory_times.py` 7, `tests/test_factory.py` 41 passed with 2 skipped,
+  `tests/test_factory_knowledge.py` 22, `tests/test_ticket_factory_daemons.py` 6, `tests/test_factory_resources.py`
+  8, `tests/test_factory_sessions.py` 5, `tests/test_factory_manager.py` 18; ruff clean. The whole unit suite and the
+  browser files were not run here.
