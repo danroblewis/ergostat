@@ -157,8 +157,21 @@ def _process_lines(spec, a: dict, r: dict) -> list[str]:
 
 
 def _around(r: dict) -> str | None:
+    """Every outside step it was identified around, and how their windows were chosen (``experiments``)."""
     o = r.get("outside_step")
-    return o and f"identified around an outside step at {time.strftime('%H:%M', time.localtime(o['at']))} ({o['input']})"
+    if not o:
+        return None
+    steps = o.get("steps") or [{"at": o["at"], "inputs": [o["input"]]}]
+    at = ", ".join(time.strftime("%H:%M", time.localtime(s["at"])) for s in steps)
+    ins = ", ".join(dict.fromkeys(x for s in steps for x in s["inputs"]))
+    head, each = (f"identified around outside steps at {at} ({ins})", "each window") if len(steps) > 1 else \
+        (f"identified around an outside step at {at} ({ins})", "its window")
+    if o.get("window") == "process":
+        how = f"{each} from the process (θ + 4τ = {dur(r['theta'] + 4 * r['tau'])})"
+    else:
+        stop = next((x for x in (o.get("passes") or [])[1:] if x != "kept"), None)
+        how = f"{each} from y's excursion" + (f" ({stop})" if stop else "")
+    return "; ".join([f"{head}, {how}", *(o.get("dropped") or [])])
 
 
 def _pm(x) -> str:
