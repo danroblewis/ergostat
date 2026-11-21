@@ -80,3 +80,52 @@ Existing tests on main. All must pass on the branch after origin/main is merged:
 - lesson-8 guard: for each clause of the new entry, the report names the source it rests on (a file:function or test from the plan's list, or a quoted line of `leaserenew.md`). Any clause without a source is cut.
 - lesson-9 check: the report includes the failing assertion output from the stubbed scratch run, plus `git status`/`git diff` after reverting, to show the stub is gone.
 - lesson-7: if another gap's entry landed first under *Done recently*, put this entry directly below the entries that landed first and quote the first three bullets of the section after the merge in the report.
+
+## Where it stopped
+
+Built (2026-11-21): `docs/GAPS.md` only. The parked bullet is gone from *Runtime, scale and latency* (no other bullet
+there changed), and a `(done` entry is the first bullet of *Done recently*, above *Warm processes for blocks*.
+`git diff --stat main...HEAD` lists this file and `docs/GAPS.md`, so the size budget is 0 lines outside `docs/`.
+
+**Sources for each clause of the entry** (checked against the code and `leaserenew.md`):
+- second look a grace after the first, a tenth of the TTL, 1-30 s: `leases/terms.py::grace`
+  (`max(1.0, min(0.1 * ttl, 30.0))`), `dispatch.py::look`. leaserenew.md: "a tenth of the TTL, at least 1 s, at
+  most 30 s".
+- re-read before the write, nothing written when renewed or ended: `dispatch.py::expire` (`its.one` and then
+  `return`).
+- the fold refuses an expiry judged before a renewal: SPEC §9.5, row `ergostat.lease.expired`; `tests/test_lease_kill.py`.
+- the readers: `measures.py:47` (`counts`) and `:73` (`attention`), `etamodel.py:221`, `blockmodels.py:250`,
+  `workspaces/leases.py:91`.
+- read from the item index, transcripts never folded: `fold.py::refused_expiries` (caller's `items`, else
+  `its._index`; the fallback query skips `TRANSCRIPT_TYPES`, `transcript=False`).
+- "16 of 32 ... 0 of 48": leaserenew.md, *The bug*: "on main, **16 of 32** runs killed ...; on this branch, **0 of
+  48**".
+- "0.15 / 0.13 / 0.10 ... 0.17 / 0.14 / 0.12 s" at 1,000 × 300: leaserenew.md, *Done (2026-11-20)*: "At 1,000 items ×
+  300 lines: main 0.15 / 0.13 / 0.10 s, ... now 0.17 / 0.14 / 0.12 s (counts / estimate / identify)".
+- 2× + 50 ms: what `tests/test_lease_refused_cost.py` asserts.
+I did not measure again.
+
+**lesson-9.** In a scratch edit of `ergostat/leases/fold.py::refused_expiries`, I skipped the index read and made the
+per-item query unskipped. The cost test then failed:
+`tests/test_lease_refused_cost.py:68: AssertionError: no item's events read again, its transcript least of all` /
+`assert not ['job/0', 'job/1', 'job/10', ...]`. I reverted the edit by hand. `git status --short` afterwards
+showed only ` M docs/GAPS.md`, so the stub was never committed.
+
+**Docs check (point 5): checked by reading, not run.** The session's permissions denied `python -c` (and
+`python -I -c`). I read `dev/bin/intake.py::gaps_md` instead. It returns dicts with `id`, `title`, `section` and
+`gaps_says`, and it skips every line under a section starting "Done" and any entry whose parenthesis starts
+`(done`. The removed bullet was the only line changed outside *Done recently*. So the new file's list is main's
+list minus `gap/a-renewing-run-killed-because-...` (parked), with the other ids, titles and `gaps_says`
+unchanged. The factory or the reviewer should run the command above on both files to confirm.
+
+**lesson-7.** This clone has no `origin/main` ref. Local `main` (f7b93be) is the branch's parent, so nothing was
+there to merge. If `from-upkeep-s-fault-injection` lands first, this entry goes directly below its entry.
+
+**SPEC (point 6), not fixed here.** §9.5's `ergostat.lease.expired` row (line 2112) names the readers that leave
+a refused expiry out as "workspaces, measures, estimates". It omits the block models (`blockmodels.identify`).
+That is narrower than the code, not a contradiction.
+
+**Tests run:** `tests/test_lease_refused_cost.py` (1 passed), `tests/test_lease_kill.py` together with
+`tests/test_leased_workspaces.py` (13 passed), and `ruff check ergostat tests scripts` (clean). **Not run:** the
+unit suite and the four browser files under `scripts/suite_watch.py`. The brief leaves those to the factory's
+watched run after this session.
