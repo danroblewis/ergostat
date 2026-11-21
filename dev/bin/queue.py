@@ -324,7 +324,7 @@ def merge(cfg: dict, repo, g: dict, sha: str, began: float) -> bool:
     if int(g["fields"].get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):          # a conflict is a failed gate too
         fac.say("gap.measured", g["id"], failed_gates=1, findings=findings)
         review.park(cfg, g, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, a conflict in the "
-                            f"merge queue: {findings[0]}", "merge-queue", where="queue")
+                            f"merge queue: {findings[0]}", "merge-queue", where="queue", kind="kill-rule")
     else:
         tell("gap.sent-back", g["id"], sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,
                 queue_wait_hours=waited_hours(g, began))
