@@ -1,7 +1,9 @@
 """pipeline-watch: when the pipeline manager runs, and what its session is given (dev/README.md, *The pipeline
 manager*). Every few minutes, while managing is open and no session is raised or under way, it raises one
 `situation/...` carrying every standing trigger an earlier session has not handled (by fingerprint): the queue blocked,
-a gap dead or parked (not a deferred or cancelled park), a gap stuck in its state, an aging defect. It raises one:
+a gap dead or parked (for a kind no program resumes: a defect, the kill rule, or a kind not said; never a deferred or
+cancelled park), a waits_on / needs park not cleared in [manager] park_wait_hours (parks.py), a gap stuck in its
+state, an aging defect. It raises one:
 
   broken     at once, when the merge pipeline has been broken past [manager] broken_minutes (the queue blocked, a push
              pending, no merge while approved gaps wait, the same test failing on two main commits, the load
@@ -26,6 +28,7 @@ import time
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import load  # noqa: E402
+import parks  # noqa: E402
 import pools  # noqa: E402
 
 BY = "pipeline-manager"
@@ -43,6 +46,7 @@ def minutes(v, default: float) -> float:
 def settings(cfg: dict) -> dict:
     m = cfg.get("manager") or {}
     return {"open": int(m.get("open", 1)), "parked": float(m.get("parked_within_hours", 48)),
+            "park_wait": float(m.get("park_wait_hours", 24)),
             "intervention": float(m.get("intervention_hours", 12)), "every": minutes(m.get("every"), 120),
             "broken": minutes(m.get("broken_minutes"), 30), "most": int(m.get("most_actions", 8)),
             "stuck": {**STUCK, **(m.get("stuck_hours") or {})}}
@@ -129,10 +133,16 @@ def triggers(cfg: dict, gaps: dict, opened: list[dict], now: float) -> list[dict
     for g in gaps.values():
         f, at = g["fields"], float(g["fields"].get("parked_at") or g.get("entered") or 0)
         if g["state"] == "dead" and now - float(g.get("entered") or now) > 1800:     # (dead-letters parks it first)
-            out.append(sit("dead", g["id"], f"{g['id']} is a dead letter: {f.get('last_error')}", g.get("entered")))
-        elif g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders \
-                and not (f.get("deferred") or f.get("cancelled")):           # a coordinator's decision, not a stall
-            out.append(sit("parked", g["id"], f"{g['id']} was parked: {f.get('where_it_stopped')}", at))
+            out.append(sit("dead", g["id"], f"{g['id']} is a dead letter: {str(f.get('last_error'))[:300]}",
+                           g.get("entered")))
+        elif parks.waiting(g, now, s["park_wait"]) and branch(g) not in holders:
+            out.append(sit("waiting", g["id"], f"{g['id']} parked for {f['parked_for']} "
+                           f"{json.dumps(f.get('parked_until'))[:300]} {(now - at) / 3600:.0f}h, not cleared", at))
+        elif (g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders
+              and f.get("parked_for") not in (*parks.RESUMED, "deferred", "cancelled")
+              and not (f.get("deferred") or f.get("cancelled"))):           # a coordinator's decision, not a stall
+            out.append(sit("parked", g["id"], f"{g['id']} was parked ({f.get('parked_for') or 'its kind not said'}): "
+                           f"{str(f.get('where_it_stopped'))[:300]}", at))
     out += stuck(cfg, gaps, now)
     for i in sorted(opened, key=lambda i: float(i["fields"].get("recorded_at") or i.get("first") or 0)):
         f = i["fields"]

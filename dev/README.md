@@ -79,7 +79,9 @@ ergostat sensor intake-open.main --read 1      # the implementor may take ready 
 The reviewer, the queue and triage work on what is already in the pipe whatever the intake says. Each AI session is
 held to the daily cap (fails closed: a spend not read stops them), each costs at most its `*_session_usd`, and the
 merge queue and triage hold while the machine's suite slots are all taken; the implementor's and triage's suites each
-hold a slot (`[suites] slot`), the queue's lock being its own (the load interlock).
+hold a slot (`[suites] slot`), the queue's lock being its own (the load interlock). Triage never takes the queue's lock:
+it reruns the failed tests in its own worktree, on the main the run failed on (`pre`), so neither its rerun nor its
+wait for a quiet machine holds the queue.
 
 ## Submit a gap
 
@@ -330,19 +332,22 @@ on a read-only clone of main, its conversation kept as a session item related to
 **When it runs** (`dev/bin/watch.py`, the block `pipeline-watch`, a plain `every: 5m`; `[manager]` in the settings):
 
 - on a schedule, `every` (2h): the routine review;
-- at once when the merge pipeline has been broken past `broken_minutes` (30): the queue blocked, a pending push that
+- before the schedule is due when the merge pipeline has been broken past `broken_minutes` (30), but never sooner than
+  `broken_minutes` after the last session of any kind (scheduled, broken or failed), so a break found just after a
+  session waits up to that long again: the queue blocked, a pending push that
   old, no merge in that long while approved gaps have waited as long, the interlock holding the queue that long, or the
   same test failing on two main commits (at once; only while those `main-broken` interventions are unremedied). The
   sensor `pipeline-broken-minutes` reads the minutes past `broken_minutes`, so its goal holds at 0 and follows the
   setting; `minutes-since-manager` is a measure with no goal, as it rightly grows while nothing changes. When each
   began is kept in `run/manager.json`; a new push or block
-  has its own clock. A break already looked at does not start another session, and a session that failed is tried again
-  no sooner than `broken_minutes` later;
+  has its own clock. A break already looked at does not start another session;
 - never when nothing changed since the last session (no new trigger, no new break, the pipeline the same).
 
 **What it is given.** Every standing trigger no earlier session answered (by fingerprint): the queue blocked; a gap dead
-past half an hour, or parked within `parked_within_hours` (48), unless another gap carries its branch on or the park is
-`deferred` or `cancelled`; a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
+past half an hour, or parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or
+none said), unless another gap carries its branch on or the park is `deferred` or `cancelled`; a `waits_on` or `needs`
+park not cleared in `park_wait_hours` (24, at least 1); a `split` park never (each stopped sub-gap raises its own
+trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
 else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
@@ -352,7 +357,7 @@ Situations of the earlier one-trigger watch (a `print`, no `prints`) count as lo
 still `raised` is closed `superseded`, never run, and its trigger, if it still stands, goes to the next session. Each
 situation's id ends in a random suffix, so two raised in one second are two items.
 
-**The tools** (`dev/bin/manage.py`, at most `most_actions` (8) calls a session, each through its own checks). Directly:
+**The tools** (`dev/bin/manage.py`, at most `most_actions` (8, held to 1..12) calls a session, each through its own checks). Directly:
 `continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, and must fail there too),
 `flake TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
 in the inbox: `close GAP`, `park GAP`, `pool ROLE N`, `change --what` (dev/model, the settings, anything touching
@@ -364,6 +369,19 @@ batches, time in state, first-pass yield, merges per hour, each goal against its
 the answers to its earlier questions. A scheduled session either `propose`s a change (a gap with a definition, one
 open at a time) or `ask`s the researcher how to speed up the merge pipeline (one open at a time), or says why neither.
 The measures `manager-triggers-per-session` and `manager-actions-per-session` say how much each session takes on.
+
+**Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
+records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in
+`parked_until`), `needs` (an action named for someone), `kill-rule` (rounds, hours or attempts ran out: the implementor,
+the reviewer, the queue, triage, the plan lint, dead letters), `deferred` (the manager's park, once the coordinator
+approved it), `cancelled` (the plan review's), `split` (split-watch: the stopped sub-gaps). The reviewer's park verdict
+gives its kind and condition; one naming nothing checkable is a `defect`. The block `park-resume` (every 5 minutes, no
+AI) resumes `waits_on` once the gap merged or the commits are on main, `needs` once
+`ergostat event --add gap.need-met --item gap/NAME --data '{"need_met": "what was done"}'` is recorded, and `split`
+once each stopped sub-gap is resumed or closed (the split gap back to split, the continuations its children). A resume
+is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the parked gap saying what cleared (a
+continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Measures:
+`measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.
 
 ## Upgrade and revert
 
