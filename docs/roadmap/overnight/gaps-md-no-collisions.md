@@ -97,3 +97,9 @@ Read-only Bash and the tests worked this time, and `git rm .gitattributes` was r
 `.gitattributes` is still committed. The four acceptance tests pass (`tests/test_backlog.py -k "fixture or
 duplicated"`: 3 passed; `tests/test_factory.py -k merge_cleanly`: 2 passed), and ruff is clean. What is left is
 still one command: `git rm .gitattributes && git commit`, run by the coordinator or by a session allowed `git rm`.
+
+### Round 5, second try
+Bash was refused on its first command, and `git rm .gitattributes` on its own was refused too. So the root
+`.gitattributes` is still committed and this paragraph is uncommitted. I did not delete the file with the file
+tools, because that would do the removal the refusal blocked by another route. Nothing else changed. What is left
+is the same one command, `git rm .gitattributes && git commit`, on `factory/gaps-md-no-collisions`.
