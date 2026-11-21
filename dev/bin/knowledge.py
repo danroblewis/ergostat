@@ -195,6 +195,7 @@ def module_map(cfg: dict) -> tuple[str, dict[str, list[list[str]]]]:
     tmp = ""
     try:                    # written whole, then renamed into place: no reader sees part of it
         fd, tmp = tempfile.mkstemp(dir=d, prefix=f".{sha}.", suffix=".tmp")
+        os.fchmod(fd, 0o644)  # mkstemp makes 0600; readable by others as write_text left it
         with os.fdopen(fd, "w") as w:
             w.write(json.dumps(out))
         os.replace(tmp, d / f"{sha}.json")
@@ -204,6 +205,9 @@ def module_map(cfg: dict) -> tuple[str, dict[str, list[list[str]]]]:
     for p in sorted((p for p in d.glob("*.json") if re.fullmatch(r"[0-9a-f]{40}", p.stem) and p.stem != sha),
                     key=mtime)[:-2]:        # its own sha's file is never pruned; one already gone is skipped
         p.unlink(missing_ok=True)
+    for p in d.glob(".*.tmp"):              # left by a session killed mid-write; a live write is seconds old
+        if re.fullmatch(r"\.[0-9a-f]{40}\..+\.tmp", p.name) and time.time() - mtime(p) > 600:
+            p.unlink(missing_ok=True)
     return sha, out
 
 

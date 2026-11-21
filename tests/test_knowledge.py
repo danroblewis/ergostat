@@ -63,13 +63,34 @@ def test_module_map_survives_its_cache_file_removed_between_check_and_read(knowl
     assert json.loads(read(cache)) == MAP            # made again, and cached
 
 
-def test_module_map_rebuilds_on_a_partial_cache_file(knowledge, tmp_path):
+def test_module_map_rebuilds_on_a_partial_cache_file(knowledge, tmp_path, monkeypatch):
     cfg, sha, d = setup(tmp_path)
     d.mkdir(parents=True)
-    (d / f"{sha}.json").write_text('{"ergostat": [["thi')
+    cache, partial = d / f"{sha}.json", '{"ergostat": [["thi'
+    cache.write_text(partial)
+    replace, seen = os.replace, []
+
+    def renamed(a, b):                               # until the rename, a reader still sees the old file whole
+        seen.append((Path(a).parent, cache.read_text(), json.loads(Path(a).read_text())))
+        replace(a, b)
+
+    monkeypatch.setattr(os, "replace", renamed)
     assert knowledge.module_map(cfg) == (sha, MAP)
-    assert json.loads((d / f"{sha}.json").read_text()) == MAP
-    assert not list(d.glob("*.tmp"))                 # the temp file was renamed into place
+    assert seen == [(d, partial, MAP)]               # written beside it, then renamed into place
+    assert json.loads(cache.read_text()) == MAP and cache.stat().st_mode & 0o777 == 0o644
+    assert not list(d.glob("*.tmp"))
+
+
+def test_module_map_removes_a_stale_temp_file_and_keeps_a_fresh_one(knowledge, tmp_path):
+    cfg, sha, d = setup(tmp_path)
+    d.mkdir(parents=True)
+    stale, fresh, other = d / f".{'a' * 40}.x1.tmp", d / f".{'b' * 40}.x2.tmp", d / ".notes.tmp"
+    for p in (stale, fresh, other):
+        p.write_text("{")
+    os.utime(stale, (1, 1))
+    os.utime(other, (1, 1))
+    assert knowledge.module_map(cfg) == (sha, MAP)
+    assert not stale.exists() and fresh.exists() and other.exists()   # a live write kept; only its own names removed
 
 
 def test_module_map_prune_skips_a_file_already_gone_and_keeps_its_own(knowledge, tmp_path, monkeypatch):

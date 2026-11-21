@@ -34,3 +34,15 @@ and kept `fac` and `knowledge` in sys.modules. test_factory.py's `sys.modules.se
 both per test in a fixture under monkeypatch.setitem, so nothing is left behind. No code outside tests changed. This is
 inferred, not seen: the failing test is still not named. test_knowledge.py followed by test_factory.py in one process:
 119 passed, 2 skipped.
+
+Round 2 answers the three findings of review 1. (1) An in-place write passed every test: the partial-file test now
+patches os.replace and checks it is called once, from a temp file in the same directory, while the cache still holds
+the old partial text, and that the result is the map; writing in place fails it (seen). (2) A session killed between
+mkstemp and os.replace left `.<sha>.*.tmp` for ever: the prune now removes those (matched by that name only) once older
+than ten minutes, so a live write, seconds old, is never taken; a new test shows a stale one removed and a fresh one
+and an unrelated `.notes.tmp` kept; dropping the age check fails it (seen). (3) mkstemp's 0600: the temp file is set to
+0644 (fchmod) before writing, the most reversible choice (the umask cannot be read without setting it, which is racy
+across threads); the partial-file test checks the mode, and removing fchmod fails it (seen). The queue's "browser failed
+and named no test" and "first failing merge of a batch of 2" carry no test name and no log is reachable from /work;
+this branch touches no browser or ergostat code (only dev/bin/knowledge.py, its test and the agent guide), so nothing
+was changed for them (lesson-13). Size: dev/bin/knowledge.py is +31 -6 against main, 25 net, within the budget of 30.
