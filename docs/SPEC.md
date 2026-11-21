@@ -3540,7 +3540,8 @@ halving a wrong drain within five days of record.
 
 **A change the replay cannot tell** (`numbers/unmoved.py`). A change whose replay is exactly the model's (both
 replays follow the same stocks, and every reading of each is equal as a float over all the record held out: no
-tolerance, and a NaN is never equal) is judged by structure, once it has the record it needs and that record
+tolerance, and a NaN is never equal) is judged by structure, once it has the record it needs (to within the same
+second of grace the looks give, so a look due at the record it needs is not put off) and that record
 exercised what it touches: a stock of its neighbourhood the record reads at least 12 times and does not find quiet
 (`exercised.py`). A stock with no readings, or a change touching no stock, is never taken as exercised; such a change
 waits, as one any record replays the same, for record in which what it touches moves, and is inconclusive at the
@@ -3550,7 +3551,9 @@ leaves no longer compiles"), with no scorecard. Otherwise the redesign scorecard
 the model as read from disk and the model with the change, with the fit counting only against it: a fit made
 measurable or better never counts for it; worse, or behaviour lost, counts against it. Coherence that cannot be
 compared on a side (an error reading the record, or no kind compared) is marked unmeasurable, with why, and never
-counts for the change; a kind compared before and not after counts against it. **Better** (findings resolved, chains
+counts for the change (no coherence gain counts then); a kind compared before and not after counts against it.
+Unmeasurable on the before side only, it never makes the change better, but mismatches the after side shows still
+count against it. **Better** (findings resolved, chains
 joined, coherence mismatches fewer or coherence up, craft notes closed, and nothing worse) is passed; mixed, or no
 better with anything worse, is failed. Nothing moving, with every measure measured, is inconclusive at once ("no
 structural measure moves, and the record cannot tell it from the model as it is"); nothing moving with coherence or
@@ -3559,7 +3562,8 @@ horizon, then inconclusive, naming the same. The verdict carries `on: structure`
 of the model the scorecard read, all inside `verdict` (replaced whole by every verdict, so a change made again under
 its id keeps none of them). It is judged inside the proposals' lock, which Accept takes too, so nothing ergostat
 writes comes between the scorecard's read and the verdict; a hand edit takes no lock, so a version read that is not
-the change's own records no verdict (the next pass supersedes the change), and a hand edit after the read leaves a
+the change's own records no verdict (the next pass, on the model read again, supersedes the change; until then it
+takes one of the pass's looks, as any judged change does), and a hand edit after the read leaves a
 verdict stamped with the version read, which Accept then refuses ("the model has changed"). A pass on structure
 alone is the owner's to write, whatever `accept` says, and waits in the review queue with its scorecard beside it.
 Each verdict keeps its windows (each one's span, and the scaled error
