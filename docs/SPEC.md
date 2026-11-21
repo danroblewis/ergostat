@@ -1247,6 +1247,15 @@ answered, so a step's own code may speak it with no ergostat installed: `{"op": 
 `{"elsewhere": ...}`). An answer is the command's `--json` answer, or `{"error": WHY, "code": EXIT}`. An `act` that
 waits for an approval holds no thread: it is answered when the owner answers.
 
+A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no engine answers (no socket, a refused
+connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
+120, at most 3600), then does what it does with no engine. A command from a shell does not wait. Each call carries a
+key, `"call"`, the same on every try: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
+renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again; an `act` with
+no `--key` from a run with no item is keyed by it, so one held for the owner is asked once (a run with an item already
+finds its held action again, by its action and arguments). An `act` asked again after a restart waits for its `wait`
+again, from when it is asked.
+
 ## 6. Sensors
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It

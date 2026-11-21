@@ -152,7 +152,8 @@ sequenceDiagram
 The engine listens on a **Unix socket** in the state folder (`engine.sock`), named to every run as
 `ERGOSTAT_SOCKET`. A step's `ergostat event --add`, `lease --renew`, `act` or `item ID` is answered there in
 milliseconds, one JSON line asked and one answered, without loading the model; with no engine running, the same
-commands do the work themselves.
+commands do the work themselves. A run's call that finds no engine (one restarting) first tries again for up to
+`ERGOSTAT_CALL_RETRY` seconds (default 2 minutes), and what it records is recorded once however often it is asked.
 
 From outside the machine, events are **pushed** rather than polled: `POST /api/events` on the page takes events in
 the same envelope a run prints, and `POST /api/hooks/NAME` takes a sender's own payload (Jira, GitHub, PagerDuty)

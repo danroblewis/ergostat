@@ -21,6 +21,12 @@ class Refused(Exception):
         self.code = code
 
 
+def call_of(req: dict) -> str | None:
+    """The call's own key (``client.call``), the same on every try: what it records is named by it."""
+    k = req.get("call")
+    return f"call-{k}"[:72] if isinstance(k, str) and k else None
+
+
 def event(eng, req: dict) -> dict:
     from ..intake import envelope
     from ..spec import items as its
@@ -30,8 +36,10 @@ def event(eng, req: dict) -> dict:
     if why:                                              # a run started by events says only what it declares (SPEC §9.3)
         raise Refused(f"not recorded: {why}")
     try:
-        got = envelope.record(eng.p, envelope.parse(req.get("events")), source=str(req.get("source") or "user"),
-                              causedby=req.get("causedby") or None)
+        evs = envelope.parse(req.get("events"))
+        if call_of(req):                                 # asked again after a restart: recorded once (by its id)
+            evs = [{**e, "id": e.get("id") or f"{call_of(req)}.{i}"} for i, e in enumerate(evs)]
+        got = envelope.record(eng.p, evs, source=str(req.get("source") or "user"), causedby=req.get("causedby") or None)
     except envelope.Refused as e:
         raise Refused(f"not recorded: {e}") from None
     spec = eng.spec
@@ -68,10 +76,10 @@ def lease(eng, req: dict) -> dict:
     env = req.get("env") or {}
     try:
         if req.get("how") == "renew":
-            return {"event": acts.renew(eng.p, eng.spec, env=env)}
+            return {"event": acts.renew(eng.p, eng.spec, env=env, id=call_of(req))}
         if req.get("how") == "nack":
             return {"event": acts.nack(eng.p, eng.spec, str(req.get("why") or "given back"), after=req.get("after"),
-                                       count=req.get("count", True) is not False, env=env)}
+                                       count=req.get("count", True) is not False, env=env, id=call_of(req))}
     except acts.LeaseError as e:
         raise Refused(f"refused: {e}", 1) from None
     raise Refused(f"lease: how is renew or nack, not {req.get('how')!r}")
@@ -85,7 +93,10 @@ def act_start(eng, req: dict) -> tuple[dict, dict]:
         args = req.get("args") or {}
         if not isinstance(args, dict):
             raise program.AskError("args: a map of NAME to VALUE")
-        return program.start(eng.p, eng.spec, cfg, str(req.get("name") or ""), args, key=req.get("key")), cfg
+        key = req.get("key")                             # (an item's: the same act already, asked again)
+        if key is None and not cfg.get("item") and call_of(req):
+            key = call_of(req)                           # none: this call's, so asked again after a restart it is one
+        return program.start(eng.p, eng.spec, cfg, str(req.get("name") or ""), args, key=key), cfg
     except program.AskError as e:
         raise Refused(f"refused: {e}") from None
 

@@ -4,7 +4,9 @@ library only, so a step's own Python can use it as it is:
     from ergostat.calls.client import call
     call("event", events=[{"event": "ticket.noted", "item": "ticket/12", "data": {...}}])
 
-``Unavailable`` when no engine listens (the caller does what it did before)."""
+``Unavailable`` when no engine listens (the caller does what it did before). A run's call (``ERGOSTAT_SOCKET`` set)
+first tries again with backoff for ``ERGOSTAT_CALL_RETRY`` seconds (default 2 minutes), so an engine restarting does
+not fail it; each call's key makes what it records happen once however often it is asked (``ops.py``)."""
 
 from __future__ import annotations
 
@@ -12,6 +14,8 @@ import json
 import os
 import re
 import socket
+import time
+import uuid
 from pathlib import Path
 
 from . import POINTER, SOCKET
@@ -19,6 +23,14 @@ from . import POINTER, SOCKET
 
 class Unavailable(OSError):
     """No engine answers here."""
+
+
+class Elsewhere(Unavailable):
+    """The engine there runs another project (never asked again)."""
+
+
+RETRY = 120.0                    # seconds a run's call tries again while no engine answers (ERGOSTAT_CALL_RETRY)
+MOST_RETRY = 3600.0
 
 
 class Refused(Exception):
@@ -80,32 +92,66 @@ def state_of(start: Path) -> Path | None:
     return None
 
 
-def call(op: str, path: str | None = None, timeout: float = 60.0, **args) -> dict:
-    """Ask the engine; its answer. Unavailable when nothing listens; Refused when it says no."""
+def bound() -> float:
+    """How long a run's call tries again while no engine answers (an engine restarting): ``ERGOSTAT_CALL_RETRY``
+    seconds, default 2 minutes, at most an hour. 0 for a command not run by an engine (no ``ERGOSTAT_SOCKET``)."""
+    if not os.environ.get("ERGOSTAT_SOCKET"):
+        return 0.0
+    try:
+        got = float(os.environ.get("ERGOSTAT_CALL_RETRY") or RETRY)
+    except ValueError:
+        return RETRY
+    return min(max(got, 0.0), MOST_RETRY) if got == got else RETRY
+
+
+def call(op: str, path: str | None = None, timeout: float = 60.0, retry: float | None = None, **args) -> dict:
+    """Ask the engine; its answer. Unavailable when nothing listens, after trying again with backoff for ``retry``
+    seconds (``bound()`` unless given); Refused when it says no. Every try carries the same key (``call``), so the
+    engine records what one call asks once, however often it is asked (``ops.py``)."""
     path = path or find()
     if not path:
         raise Unavailable("no engine socket")
+    args.setdefault("call", uuid.uuid4().hex)
+    end = time.monotonic() + (bound() if retry is None else min(max(retry, 0.0), MOST_RETRY))
+    pause = 0.05
+    while True:
+        try:
+            return once(op, path, timeout, args)
+        except Elsewhere:
+            raise
+        except Unavailable:
+            left = end - time.monotonic()
+            if left <= 0:
+                raise
+            time.sleep(min(pause, left))
+            pause = min(pause * 2, 2.0)
+
+
+def once(op: str, path: str, timeout: float, args: dict) -> dict:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(timeout)
+    buf = b""
     try:
         try:
             s.connect(path)
         except OSError as e:
             raise Unavailable(str(e)) from None
-        s.sendall(json.dumps({"op": op, **args}, default=str).encode() + b"\n")
-        buf = b""
-        while not buf.endswith(b"\n"):
-            got = s.recv(65536)
-            if not got:
-                break
-            buf += got
+        try:
+            s.sendall(json.dumps({"op": op, **args}, default=str).encode() + b"\n")
+            while not buf.endswith(b"\n"):
+                got = s.recv(65536)
+                if not got:
+                    break
+                buf += got
+        except ConnectionError:                          # it stopped before it answered: asked again
+            buf = b""
     finally:
         s.close()
-    if not buf:
+    if not buf.endswith(b"\n"):
         raise Unavailable("the engine closed the connection")
     out = json.loads(buf)
     if "elsewhere" in out:
-        raise Unavailable(f"the engine there runs {out['elsewhere']}")
+        raise Elsewhere(f"the engine there runs {out['elsewhere']}")
     if "error" in out:
         raise Refused(out["error"], int(out.get("code") or 2))
     return out

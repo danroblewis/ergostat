@@ -207,3 +207,138 @@ def test_the_socket_pages_through_more_items_than_one_listing_holds(tmp_path):
         e.close()
     assert first["total"] == 600 and len(first["items"]) == its.LISTED == 500
     assert len({i["id"] for i in first["items"] + rest["items"]}) == 600, "every one, once, over two pages"
+
+
+def asking(fn) -> tuple[threading.Thread, dict]:
+    """``fn`` called in a thread: what it answered (``out``) or raised (``err``)."""
+    got = {}
+
+    def go():
+        try:
+            got["out"] = fn()
+        except Exception as e:
+            got["err"] = e
+    t = threading.Thread(target=go, daemon=True)
+    t.start()
+    return t, got
+
+
+def started(p) -> Engine:
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    return e
+
+
+NOTED = [{"event": "job.noted", "item": "job/1", "data": {"n": 1}}]
+
+
+def test_a_call_reconnects_across_a_restart(tmp_path):
+    p = project(tmp_path, f"{PY} -c pass")
+    e = started(p)
+    path = e.socket
+    e.close()                                                     # the engine stops: its socket is gone
+    assert not os.path.exists(path)
+    t, got = asking(lambda: client.call("event", path=path, retry=30, root=str(tmp_path), events=NOTED))
+    time.sleep(0.5)                                               # (it is trying again meanwhile)
+    assert t.is_alive() and not got
+    e = started(p)                                                # and starts again, at the same socket
+    try:
+        assert e.socket == path
+        t.join(15)
+        assert got.get("out", got)["recorded"] == 1
+    finally:
+        e.close()
+    assert len(p.events.query(n=None, type="job.noted")) == 1
+
+
+def test_a_call_in_flight_at_the_stop_is_recorded_once(tmp_path):
+    from ergostat.calls.server import Server
+    p = project(tmp_path, f"{PY} -c pass")
+    e = started(p)
+    dropped = threading.Event()
+
+    def stopped_before_answering(conn, out):                      # recorded, then the engine stopped before it answered
+        Server._close(conn)
+        dropped.set()
+    e.calls._answer = stopped_before_answering
+    t, got = asking(lambda: client.call("event", path=e.socket, retry=30, root=str(tmp_path), events=NOTED))
+    assert dropped.wait(10)
+    assert len(p.events.query(n=None, type="job.noted")) == 1     # (it was recorded, unanswered)
+    e.close()
+    e = started(p)
+    try:
+        t.join(15)
+        assert got.get("out", got)["recorded"] == 0, "asked again: already recorded"
+    finally:
+        e.close()
+    assert len(p.events.query(n=None, type="job.noted")) == 1
+
+
+def test_a_gated_action_in_flight_at_the_stop_is_asked_once(tmp_path):
+    p = project(tmp_path, f"{PY} -c pass")
+    cfg = tmp_path / "actions.json"                               # a run with no item: no request of its own is the same
+    cfg.write_text(json.dumps({"block": "probe", "run": "r1", "actions": ["noop", "ask"], "runner": "ergostat"}))
+    e = started(p)
+    t, got = asking(lambda: client.call("act", path=e.socket, retry=30, name="ask", args={}, wait=20.0,
+                                        env={"ERGOSTAT_ACTIONS": str(cfg)}))
+    assert wait_for(lambda: e.calls.parked)                       # held for the owner, the call parked
+    e.close()                                                     # the engine stops with it parked
+    e = started(p)
+    try:
+        assert wait_for(lambda: e.calls.parked), "asked again of the new engine, and parked there"
+        held = list(rec.stored(p).values())
+        assert len(held) == 1 and held[0]["state"] == "requested", "one action, asked once"
+        gate.approve(p, p.model.spec, held[0]["id"], by="owner")
+        t.join(15)
+        assert got.get("out", got)["full"]["state"] == "ran"
+    finally:
+        e.close()
+    assert len(rec.stored(p)) == 1
+
+
+TWICE = """
+import json, os
+from ergostat.calls.client import call
+env = {k: os.environ[k] for k in ("ERGOSTAT_ITEM", "ERGOSTAT_LEASE", "ERGOSTAT_RUN")}
+run = os.environ["ERGOSTAT_RUN"]
+out = [call("lease", how="renew", env=env, call=run + "r") for _ in range(2)]
+out += [call("lease", how="nack", why="later", after=3600, count=False, env=env, call=run + "n") for _ in range(2)]
+json.dump(out, open("twice.json", "w"))
+"""
+
+
+def test_a_lease_call_asked_again_is_recorded_once(tmp_path):
+    (tmp_path / "twice.py").write_text(TWICE)
+    p = project(tmp_path, f"{PY} twice.py")
+    e = started(p)
+    try:
+        p.events.add("job.arrived", item="job/1", source="test")
+        got = wait_for(lambda: written(tmp_path / "twice.json"))
+    finally:
+        e.close()
+    assert got and got[0]["event"]["id"] == got[1]["event"]["id"] and got[2]["event"]["id"] == got[3]["event"]["id"]
+    assert len([x for x in p.events.query(n=None, type="ergostat.lease.renewed") if x["data"].get("seen") == "asked"]) == 1
+    assert len([x for x in p.events.query(n=None, type="ergostat.lease.ended") if x["data"].get("how") == "nack"]) == 1
+
+
+def test_a_call_past_the_bound_fails(tmp_path, monkeypatch):
+    from ergostat.cli import main
+    nobody = str(tmp_path / "nobody.sock")
+    began = time.monotonic()
+    with pytest.raises(client.Unavailable):
+        client.call("ping", path=nobody, retry=0.5)
+    assert 0.5 <= time.monotonic() - began < 5
+    monkeypatch.delenv("ERGOSTAT_SOCKET", raising=False)
+    assert client.bound() == 0                                    # a command from a shell: no waiting
+    monkeypatch.setenv("ERGOSTAT_SOCKET", nobody)                 # a run's: the setting, default 2 minutes, at most an hour
+    monkeypatch.delenv("ERGOSTAT_CALL_RETRY", raising=False)
+    assert client.bound() == 120
+    for said, bound in (("x", 120), ("1e9", 3600), ("nan", 120), ("-5", 0), ("0.4", 0.4)):
+        monkeypatch.setenv("ERGOSTAT_CALL_RETRY", said)
+        assert client.bound() == bound
+    p = project(tmp_path, f"{PY} -c pass")
+    monkeypatch.chdir(tmp_path)
+    began = time.monotonic()
+    assert main(["event", "--add", "job.noted", "--item", "job/1"]) == 0     # then it does what it does today
+    assert time.monotonic() - began >= 0.4
+    assert len(p.events.query(n=None, type="job.noted")) == 1

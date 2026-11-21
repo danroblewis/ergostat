@@ -30,9 +30,11 @@ def mine(env: dict | None = None) -> tuple[str, int, str]:
     return item, int(fence), run
 
 
-def renew(p, spec, by: str = "ergostat", env: dict | None = None) -> dict:
+def renew(p, spec, by: str = "ergostat", env: dict | None = None, id: str | None = None) -> dict:
+    """``id``: a call's (``calls/``): one asked again is recorded once."""
     item, fence, run = mine(env)
-    ev = p.events.add(RENEWED, item=item, source=by, causedby=run, data={"run": run, "fence": fence, "seen": "asked"})
+    ev = p.events.add(RENEWED, item=item, source=by, causedby=run, data={"run": run, "fence": fence, "seen": "asked"},
+                      id=id)
     why = _refused(p, spec, item, ev)
     if why:
         raise LeaseError(why)
@@ -40,7 +42,7 @@ def renew(p, spec, by: str = "ergostat", env: dict | None = None) -> dict:
 
 
 def nack(p, spec, why: str, after: float | None = None, count: bool = True, by: str = "ergostat",
-         env: dict | None = None) -> dict:
+         env: dict | None = None, id: str | None = None) -> dict:
     item, fence, run = mine(env)
     it = its.one(p.events, spec, item)
     lease = held(it.fields) if it else None
@@ -52,7 +54,7 @@ def nack(p, spec, why: str, after: float | None = None, count: bool = True, by: 
         end = {"item": item, "state": state, "terminal": terminal(spec, it.kind, state)}
     ev = p.events.add(ENDED, item=item, source=by, causedby=run,
                       data={"run": run, "fence": fence, "how": "nack", "why": why, **({"after": after} if after else {}),
-                            **({} if count else {"count": False}), **end})
+                            **({} if count else {"count": False}), **end}, id=id)
     refused = _refused(p, spec, item, ev)
     if refused:
         raise LeaseError(refused)
