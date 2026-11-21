@@ -21,10 +21,12 @@ SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 # $1: the run's command, $2: where its exit code goes (a line; an empty file is not yet an exit). A signal to the group
 # (a timeout, a stop, a lease's SIGTERM) leaves the wrapper waiting for its command (a caught signal is the default
 # again in the command); a command ended by a signal ends the wrapper by the same one, so its exit reads as before.
-# (Never a stop signal: one would leave the wrapper stopped, its run never ending; those exit with the code instead.)
+# Only signals that end a process plainly are raised again (an allowlist): a stop signal would leave the wrapper
+# stopped, its run never ending, and one that dumps core (ABRT, SEGV...) would crash the wrapper's sh, leaving a core
+# file or a crash report; those exit with the code instead (so a run killed by SEGV reads 139, not -11).
 WRAP = ('trap : INT TERM; rc=0; /bin/sh -c "$1" || rc=$?; printf "%s\\n" "$rc" > "$2"; '
-        'if [ "$rc" -gt 128 ] && s=$(kill -l "$rc" 2>/dev/null); then case "$s" in *STOP|*TSTP|*TTIN|*TTOU) ;; '
-        '*) trap - INT TERM; kill -s "$s" $$ ;; esac; fi; exit "$rc"')
+        'if [ "$rc" -gt 128 ] && s=$(kill -l "$rc" 2>/dev/null); then case "$s" in '
+        '*HUP|*INT|*PIPE|*ALRM|*TERM|*USR1|*USR2|*KILL) trap - INT TERM; kill -s "$s" $$ ;; esac; fi; exit "$rc"')
 
 
 def files(state_dir: Path, run_id: str) -> dict[str, Path]:
