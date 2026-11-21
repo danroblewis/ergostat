@@ -190,3 +190,9 @@ markers left in `tests/test_backlog.py`, and the three `.gitattributes` files un
 paragraph is committed). I did not delete the file with the file tools (the blocked removal by another route). No tests were
 run. What is left is the one command `git rm .gitattributes && git commit`, for the coordinator or a session
 allowed `git rm`.
+
+### Round 9, third try
+Read-only Bash worked: the tree was clean, the merge of main already committed (d656f10c, parents ecc642b3 and
+9acc11c2), and the three `.gitattributes` files unchanged. `git rm .gitattributes` was refused again, so the root
+`.gitattributes` is still committed. I did not delete it with the file tools (the blocked removal by another
+route). No tests were run. What is left is the one command `git rm .gitattributes && git commit`.
