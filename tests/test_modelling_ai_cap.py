@@ -200,7 +200,7 @@ def test_the_reservation_is_claudes_budget(tmp_path, monkeypatch):
     json.dumps({"id": "a", "usd": "0.5"}) + "\n",                        # not a number
     '{"id": "a", "time": 1.0, "reserved": NaN}\n',
     '{"id": "a", "usd": Infinity}\n',
-    json.dumps({"id": "a", "time": time.time(), "reserved": -1.0}) + "\n",
+    json.dumps({"id": "a", "time": 4.0e9, "reserved": -1.0}) + "\n",     # in the window (future), still bad
     json.dumps({"id": "a", "usd": -0.5}) + "\n",
 ])
 def test_an_unreadable_ledger_means_no_call(tmp_path, monkeypatch, capsys, bad):
