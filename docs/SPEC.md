@@ -3903,7 +3903,22 @@ block of the template, answer them, the cheapest first:
   is its settled cost, or its whole reservation until settled (a run killed mid-call), dated by its reservation; a
   ledger that cannot be read means no call. A run the cap stops leaves its requests as they were (no try counted), and
   the status line says `the AI tier has spent $X of its $Y today` once a call was refused for the cap that day or the
-  spend is within the latest reservation of it. The lock covers the AI tier's own calls only, not the redesigner's or
+  spend is within the latest reservation of it. **A failed call** (`modeller.call`: it timed out, exited non-zero,
+  said `is_error`, or said no cost that is a finite number of dollars, 0 or more) is an `error` with what it said
+  (its result, or its standard error), charged its reservation, or what it said if more. The AI tier does not try again
+  in that run; when its first call fails, its requests keep their tries and state, are charged their share, and say the
+  error (`why`, `error`), so the next run gives them to it again, within the cap. When only its second (go-back) call
+  fails, its first answer was a real one, so the requests it did not answer use their try as before, held saying the
+  second call failed. Failed calls are counted apart from tries (`failed`) and bounded, since some fail the same way
+  every time (a prompt too long): a request that failed before is never in a call with others. While any request with
+  no failed call waits, the call takes only those; after that, the one that failed least goes alone in its call. After
+  `modeller.FAILS` (3) failed calls a request is held for the owner, saying the error. They are failed calls in a
+  row: a first call that answers sets the count back to 0, and so does the owner's approval (with its `error`
+  cleared), so an approved request is called again; raised again after a dismissal, it starts with none. The reviewer counts no failed
+  call toward its tries and stops its pass there; the changes that failed least are read first, and one with
+  `FAILS` failed calls is `undecided`, the owner's. A redesigner run whose calls failed ends `error` (with the
+  error), not `nothing proposed`; its request stays open saying so, and the unit takes no rest for it until `FAILS`
+  runs in a row have failed, when it rests as after a run that made nothing. The lock covers the AI tier's own calls only, not the redesigner's or
   repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
