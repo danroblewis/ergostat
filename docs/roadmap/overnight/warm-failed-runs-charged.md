@@ -74,3 +74,17 @@ Run here: `tests/test_daemons.py` (34 passed, with the change) and ruff (clean).
 `test_spec_auxiliaries.py`, `test_daemon_docs.py`. Refused here: running the unit suite in chunks under
 `scripts/suite_watch.py`, so the test that hung was not found. If the unit run is cut off again, its full log, not the
 tail, should name the test that was still running.
+
+Round 3, second suite failure. The factory's `unit` run was cut short again. This time its tail stops at 84%, again
+with no failing test named, no pytest summary, no `suite_watch` kill message and no JSON line. No code was changed for
+it, because nothing here points to a cause in this branch. Every file that exercises daemons passes alone on this
+branch: `test_daemons.py` (34), `test_warm.py` (21), `test_daemons_restart.py`, `test_daemon_lines.py`,
+`test_daemon_observations.py`, `test_sampler_ramp.py` and `test_ticket_factory_daemons.py` (32 together), and
+`test_daemon_docs.py`, `test_daemon_yaml_review.py`, `test_spec_systems.py` and `test_spec_auxiliaries.py` (77
+together). A guessed fix would be a change nobody can check (lesson-9). The most reversible step is to leave the code
+as it is and ask for the full log.
+
+Refused here: listing processes after the two acceptance tests (`ps -A -o pid,ppid,etime,command | grep burn.py`), to
+see whether the hung `burn.py hang` daemon outlives `e.close()`. Listing `/tmp` for the suite's log was refused too.
+The full log of the cut-off unit run, not its tail, should name the test still running at 84%. If that test is not in
+the files above, it should be run on clean main (lesson-13).
