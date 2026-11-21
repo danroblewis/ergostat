@@ -83,6 +83,6 @@ blocks:
     description: on each merged gap the simplifier asked for, each Removed trailer of its commits a removal item (a class off the allowlist recorded as unclassified)
     run: python3 dev/bin/simplify.py removals
     on: {event: gap.merged, emits: [removal.recorded]}
-    in: flow.gaps-merged               # read, not commanded: the merges it runs on (a run per gap.merged event)
+    in: +flow.gaps-merged              # read, not commanded: the merges it runs on (a run per gap.merged event)
     timeout: 5m
     out: flow.removals-merged
