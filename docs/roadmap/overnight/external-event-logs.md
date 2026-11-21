@@ -177,5 +177,18 @@ open in GAPS, with what would close it: the source's own epoch in the cite.
   I ran these files one at a time: test_mirror, test_templates, test_intake, test_rollup, test_store_conformance,
   test_spec_engine, test_calls, test_runner_and_state, test_spec_auxiliaries and test_messages, all passing. Ruff
   is clean.
-- An untracked `.mut/` folder (a mutation script the sandbox would not run or delete) is in the worktree and in no
-  commit. Delete it.
+- ~~An untracked `.mut/` folder ... is in no commit.~~ This was false: see round 2 below.
+
+## Where it stopped, round 2
+
+The review's one finding: `.mut/mut.py`, a scratch mutation script, was committed in 1e563e30 ("work the session
+left uncommitted"). The round 1 report said it was in no commit, and that was false. Its 55 lines are also the whole
+size overrun: 260 counted + 55 = 315 lines, against a budget of 300.
+
+- The report is corrected above. The round 1 line now says what was true.
+- **Not removed yet.** This session's sandbox refused `git rm .mut/mut.py` (twice, in don't-ask mode), and I did not
+  try to get around that with other commands. The one thing left before review is
+  `git rm .mut/mut.py && git commit`, run by the factory or the owner. With it removed, the branch's code outside
+  `tests/` and `docs/` is the 260 lines counted in round 1, within the 300 budget.
+- The script is not needed to check the guards. What each change broke is listed under "Breaking each guard" above.
+- Nothing else changed in this round: no code and no tests. The suites were not run again for this docs-only commit.
