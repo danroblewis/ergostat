@@ -77,3 +77,14 @@ test_parallel_runs, test_spec_blocks, test_runner_and_state, test_daemons, test_
 test_gated_actions, test_decisions, test_claims, test_improve. I did not run the full unit suite under `-n 8` or the
 browser suite (the factory runs them). This clone has no origin remote, so there was no origin/main to merge; the
 branch is up to date with local main.
+
+Round 2. There were no review findings to answer. One problem is still open, and it blocks: commit 1227723b ("work
+the session left uncommitted") added `.bench/test_bench_detach.py`, the throwaway benchmark from round 1. It is a
+scratch file, and the definition's files to touch don't name it. It has to come out (`git rm -r .bench` and a
+commit). In this session, removing files was refused (`git rm` was denied twice), so it is still on the branch. I did
+not try any other way to delete it. The code is unchanged since round 1, and the round 1 numbers still stand. Run
+again this round, one file or a few at a time, all passing: test_resilience (31), test_streamed_output (10),
+test_spec_engine (10), test_run_costs + test_leases + test_lease_kill (53), test_parallel_runs + test_spec_blocks +
+test_runner_and_state + test_daemons (88). `ruff check ergostat tests scripts` is clean. Checked again: a timeout or
+stop still sends SIGKILL to the run's group (`runner._kill`), so the wrapper's INT/TERM trap does not keep a killed
+run going (lesson-6).
