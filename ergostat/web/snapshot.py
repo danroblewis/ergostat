@@ -54,6 +54,18 @@ def _requests(project) -> list[tuple[str, dict]]:
     return reqs
 
 
+def _graphs(listed: dict) -> list[dict]:
+    """The Items page's Graph and Timeline requests (``pages.js``), from its ``items`` answer: per system, its kinds
+    with relations or named by one (no kind chosen), and each of those kinds alone (one chosen)."""
+    rel = {n for k in listed.get("kinds") or [] for ts in (k.get("relations") or {}).values() for n in (k["name"], *ts)}
+    out: dict[str, dict] = {}
+    for g in listed.get("systems") or [{"kinds": [k["name"] for k in listed.get("kinds") or []]}]:
+        want = [n for n in g.get("kinds") or [] if n in rel]
+        for kinds in ([",".join(want)] if want else []) + want:
+            out[kinds] = {"kinds": kinds}
+    return list(out.values())
+
+
 def _strip(x) -> None:
     """Every ``unread_lines`` (lines an agent printed that were not understood) taken out, wherever it is."""
     if isinstance(x, dict):
@@ -70,7 +82,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
     should not be sent on)."""
     live = Live(project)
     data: dict = {"projects": []}
-    for path, params in _requests(project):
+    def ask(path: str, params: dict) -> None:
         q = {"since": [since], **{k: [str(v)] for k, v in params.items()}}
         try:
             got = api(live, path, q)
@@ -81,6 +93,10 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
                 got["log"] = ["(left out of this snapshot: ergostat snapshot --with-logs puts it in)"]
                 got.pop("log_path", None)
             data[key(path, params)] = got
+    for path, params in _requests(project):
+        ask(path, params)
+    for params in _graphs(data.get("items") or {}):
+        ask("items-graph", params)
     for it in ((data.get("items") or {}).get("items") or [])[:40]:
         got = api(live, f"items/{_q(it['id'])}", {"since": [since]})
         if got is not None:
