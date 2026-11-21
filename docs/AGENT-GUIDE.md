@@ -86,6 +86,14 @@ Work through these steps in order. Ask the person only what you cannot infer.
    without it after those with it; the critical first among equals). The completion estimates and the Timeline
    project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
    notes an order field no item holds yet (`takes-order-unset`).
+   **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
+   of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
+   {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the
+   list, so the collector says the whole list each time (an empty list when the item names none any more). Then
+   `ergostat explain goal.x` ends with the open items about it (at most 5, then "and N more"; finished ones are not
+   listed), a `check` finding about a part carries their ids, and an off loop in `ergostat status` names them (at
+   most 3, then "+N"; none under `--at`). A name that is not a part of the model is the finding `about-missing-part`: fix the name.
+   "unknown" in any of these means the item index could not be read, not that there is no knowledge.
 5. **One block per step that does the work**, taking items in its state:
    `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
@@ -555,7 +563,10 @@ blocks:
   `redesign`, or a proposal of the structure with the record of the burst as its evidence); value proposals on a
   model missing structure only chase the burst.
 - The proposals ergostat makes are the same items as the record grows: one revised in place (`revisions`) is not
-  churn. One superseded says why (what it was about was edited or removed, or it is no longer found).
+  churn. An edit elsewhere carries a waiting change, yours too (one passed goes back to testing); one superseded says
+  why: what it was about was edited or removed, its edit no longer applies (propose it again on the files as they are),
+  its finder no longer finds it, it was recorded without what it is about, it is no longer of its kind, or it would
+  change who decides.
 
 ## 3h. When will it be done: the items' completion estimates
 
