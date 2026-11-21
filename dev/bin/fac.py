@@ -73,6 +73,21 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def draining(cfg: dict) -> bool:
+    """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
+    review) waits for its next turn instead of starting."""
+    return (run_dir(cfg) / "drain.json").exists()
+
+
+def drain_holds(cfg: dict) -> bool:
+    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), an AI run takes no new
+    item: it gives it back uncounted, to be taken again after the switch."""
+    if not draining(cfg):
+        return False
+    nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
+    return True
+
+
 def ergostat(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """$ERGOSTAT_CMD (this ergostat, on this model). Absent outside a run: a FileNotFoundError says so."""
     cmd = os.environ.get("ERGOSTAT_CMD")
@@ -361,6 +376,18 @@ def queue_lock(cfg: dict):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
+SUITES: set[int] = set()                                # the process groups of the suites running now (suite())
+
+
+def stop_suites() -> None:
+    """Every running suite's process group stopped: a run stopped while suites run in threads of its own (queue.py)."""
+    for pid in list(SUITES):
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
           **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
@@ -375,6 +402,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
+        SUITES.add(p.pid)
         try:
             while p.poll() is None:
                 renew()
@@ -389,12 +417,22 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     os.killpg(p.pid, signal.SIGKILL)
+            SUITES.discard(p.pid)
     return p.returncode, time.time() - began
+
+
+GATES = {"kill_after": 6, "build_failures": 6, "build_hours": 12.0}   # the kill rule's defaults ([gates])
+
+
+def gate(cfg: dict, key: str) -> float:
+    """One of the kill rule's numbers: [gates] kill_after (failed gates: reviews, conflicts, real failures in the
+    queue), build_failures (the implementor's failed fast suites), build_hours (the implementor's hours, every round)."""
+    return float(cfg.get("gates", {}).get(key, GATES[key]))
 
 
 def kill_after(cfg: dict) -> int:
     """The failed gates that park a gap (the kill rule): [gates] kill_after."""
-    return int(cfg.get("gates", {}).get("kill_after", 3))
+    return int(gate(cfg, "kill_after"))
 
 
 def stop_on_term() -> None:
@@ -412,21 +450,34 @@ def failed_tests(text: str) -> list[str]:
 
 # ---- an AI session
 
-def session(cfg: dict, role: str, brief: str, work: Path) -> dict:
+def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = None) -> dict:
     """One session on the brief, on a work folder: in its own container (agents.py), or the free stand-in. Its most
     (--max-budget-usd) is reserved first and what it did not spend given back once its cost is known; a session that
-    fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged."""
+    fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged.
+    Its conversation is kept as the item session/<item>-<role>-<n> (sessions.py; ``item``: the gap, research or
+    review it works for, else the run's own)."""
+    import sessions
     model, usd = cfg["ai"][f"{role}_model"], float(cfg["ai"][f"{role}_session_usd"])
     who = dict(role=role, model=model, item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
     if cfg["ai"]["mode"] != "standin":
         import agents
         agents.token(cfg)                                # no token, no session (and nothing charged)
     at = reserve(cfg, usd, **who)
-    if cfg["ai"]["mode"] == "standin":
-        out = standin(role, brief, work)
-    else:
-        with renewing():
-            out = agents.session(cfg, role, brief, work)
+    kept = sessions.Session(cfg, role, item)
+    kept.started(model)
+    out, error = None, None
+    try:
+        if cfg["ai"]["mode"] == "standin":
+            out = standin(role, brief, work)
+            sessions.standin(kept, brief, out)
+        else:
+            with renewing():
+                out = agents.session(cfg, role, brief, work, keep=kept)
+    except BaseException as e:
+        error = f"{type(e).__name__}: {e}"
+        raise
+    finally:
+        kept.ended(out, error)
     if out.get("total_cost_usd") is not None:
         settle(cfg, usd, float(out["total_cost_usd"]), at, **who)
     print(json.dumps({k: v for k, v in out.items() if k != "result"} | {"type": "result"}), flush=True)
@@ -449,11 +500,13 @@ def attempt(cfg: dict, role: str, brief: str, work: Path) -> dict | None:
 
 STANDIN = {
     "planner": '<definition branch="{b}">\n# {b}: planned by the stand-in\n\ndepends-on: []\n\n## Definition of done\n\n'
-               'It works.\n\n## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
+               'It works.\n\n## Files to touch\n\n- `x.py` (new)\n\n## Risks\n\n- none.\n\n'
+               '## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
                '100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
-    "librarian": "```json\n[]\n```"}
+    "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
+    "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}
 
 
 def standin(role: str, brief: str, cwd: Path) -> dict:
