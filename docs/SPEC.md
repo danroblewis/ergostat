@@ -363,11 +363,26 @@ storage:
   items:
     idle: 1d                       # an item with no event for this long is read from the item index, not kept in memory
   logs:                            # caps on what would otherwise grow without limit
-    block: 5MB                     # a block's log (logs/<block>.log) past this is cut to its last fifth, at its next run
+    block: 5MB                     # a block's log (logs/<block>.log) past this is cut to its last fifth, as a run ends
+    runs: 50                       # each block's run files (logs/runs/<block>/) kept, newest by start seq: 1 to 1000
     run: 5MB                       # run.log past this is copied to run.log.1 and emptied, at each start and each roll-up
     threads: 1MB                   # threads.txt (kill -USR1's stacks) past this is cut to its last fifth
     transcripts: 30d               # a transcript unchanged this long is forgotten by transcripts.json, not read again
 ```
+
+**Each run's own log.** Each run of a `program` or `ai` block (a daemon's run too) writes to a file of its own,
+`logs/runs/<block>/<seq>-<id>.log` (`<seq>` the seq of its `agent.started`, `<id>` the first 12 characters of the run's
+id): its standard error and the lines it printed that were not JSON, with no header, and nothing of any other run. Its
+`agent.ran` or `agent.failed` names it (`log`). It is opened relative to `logs/`, without following a link, and never
+over a file already there (the names tried next are `-2` to `-9`, then `run-<seq>-<fullid>.log`). A block name that is
+not a plain name, a link or something not a folder where `runs` or `runs/<block>` should be, or no start seq: the run
+does not start (`could not start: its run log: ...`). When the run ends (its process has exited, or its daemon has
+answered), its entry is added to the block's log, `logs/<block>.log`, in one write under `logs/<block>.log.lock`, with
+the trim: the header `--- <start time> run <id8> (<why>)`, then the last `block:` bytes of its file, after
+`(N bytes earlier: logs/runs/<block>/<file>)` when it is longer. So the block's log holds whole runs one after another
+and shows a run once it has ended; a run's output as it goes is in its own file. Then the block's files past `runs:` are
+removed, oldest by start seq first, but only names ergostat gives them and only a file no run still holds (a run holds a
+shared lock on its file for its whole life; so does a process its child left behind, which keeps the file).
 
 `ergostat compact --projects` lists the record folders under `~/.ergostat` whose `repo.json` names a repository
 that is gone (its parent folder is there and it is not: an unmounted drive is not gone) and where no engine runs,
@@ -926,7 +941,10 @@ stand now):
   more items wait on, which agree on a chain but may differ between items of unequal durations). An item waiting in a state
   whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
   the engine would from the newest readings) is projected not to move: no bar, its reason "waits for B, which is
-  switched off now (by C)", at most the block's capacity at once: its `pool`, its agent's
+  switched off now (by C)", at most the block's capacity at once: its pool now (its `pool:` number, or its stock's
+  newest reading at or before the moment estimated, at most its `most`; a pool read as 0 or not read at all is
+  estimated at 1, and each item waiting there says so: "its pool (stock.S) is 0 now: estimated at 1 run at once";
+  the what-if `block.NAME.pool` overrides it), its agent's
   `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
   them), and its `workspace:` pool (§12k): a workspace taken at the item's first run of such a block is held by the
   item across every state until it finishes, so a pool of three keeps at most three items between that take and their
@@ -2124,8 +2142,8 @@ moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved"
 `out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
 anything else that happened (an event about an item, section 5a: `data` holds its fields, folded by
 its kind's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`), each taken as it is printed
-(section 9.1). Lines that are not JSON go to its log (`logs/<block>.log` in the state
-directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
+(section 9.1). Lines that are not JSON go to the run's own log (`logs/runs/<block>/`, copied
+into `logs/<block>.log` when it ends: section 4b). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
 `ERGOSTAT_LEASE` (for a run holding a lease on an item: section 9.5), `ERGOSTAT_COMMAND` (the amount),
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
@@ -2185,12 +2203,17 @@ blocks:
     lease: {ttl: 45m, attempts: 2}     # optional: this block's terms
     goal: backlog-short                # optional: it takes items only while its command is on
     run: $ERGOSTAT_CMD session developer --model sonnet
+  reviewer:
+    type: ai
+    takes: {kind: ticket, at: review, to: [done, ready]}
+    pool: {now: stock.reviewers, most: 4}   # as many at once as the stock (measured) reads now, never more than 4
+    run: $ERGOSTAT_CMD session reviewer --model sonnet
 ```
 
 | Key | On | Meaning |
 |---|---|---|
 | `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
-| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped |
+| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
 
@@ -2203,8 +2226,16 @@ changed in the model reaches the next lease.
 **Dispatch.** While nothing commands the block, or what commands it is on (a `goal:` on it gates
 it, as on any machine block), every item of its kind in a state of `at`, not held, not put off, and
 matching `where`, is leased to a new run, oldest first (by when it entered its state), while the
-leases its runs hold are fewer than its `pool`. With `unblocked: true`, an item a precedence relation says waits on
-an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
+leases its runs hold are fewer than its pool now. A pool written `{now: stock.NAME, most: N}` is read at each look,
+with the dispatcher's lock held, in the same hold as the count of the leases and the take: the stock's level as the
+engine last read it (its newest reading, whatever its age; no sensor runs at dispatch), rounded down, at most `N`, and
+0 when it has no reading (also before the engine's first pass has loaded the readings, when it is not said). A raised
+stock starts more runs at the next look, with no reload; a lowered one drains (no new lease until fewer than the pool
+now are held; nothing running is stopped). The lock is this engine's: a lease another engine takes after the count is
+counted at the next look; on the same item the fold refuses the second lease, on another item both stand, as for a
+`pool:` number. The pool's stock is not one of the block's reads, so its `on-stale` (section 9.6) does not watch it.
+`ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says
+waits on an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
 slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
@@ -2216,10 +2247,14 @@ the order the block will take them; only the critical tiebreak among equals is m
 notes an order field no item in the record holds yet (`takes-order-unset`). ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. Nor has it `mode: advise` (`check`:
-`advise-with-takes`), which asks before a command or an event, never before each item: to have a person
-hold its items, gate it with `goal:` or `in: block.X` from a block a person commands, and its items wait
-while that is off. A kind taken by a block gains two states, when
-it does not list them: `leased`, after the first `at` state, and `dead`, last.
+`advise-with-takes`), which asks before a command or an event, never before each item. To have a person
+hold its items, gate it with `in: block.X` from an `expr` block that reads a stock with `sensor: {manual:
+true}` (`expr: o` over `in: {o: stock.open}`). `ergostat sensor open --read 1` opens the gate and
+`--read 0` shuts it. It opens for all of the block's items at once, not for one item; while it is off,
+or has no reading yet, the items wait. A `person` block is no gate: its `--done` records work and never
+sets a command, so `check` refuses one wired to command a block that takes (`person-gate`). A kind taken
+by a block gains two states, when it does not list them: `leased`, after the first `at` state, and
+`dead`, last.
 
 **A lease** is a run's hold on one item. Its events, about the item, are ergostat's own:
 
@@ -2264,7 +2299,13 @@ lease that expired is not ended again when its run ends.
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
 to run on, and the item was back in the queue meanwhile): when its lease expires, the engine that started it sends
-SIGTERM to its process group and every process it started (in whatever group or session), and SIGKILL after a grace
+SIGTERM to its process group and every process it started (in whatever group or session; one whose parent has
+exited too, as the run's watch saw it: the run's processes are looked at after each sample of the runs' resource
+sampler, about once a second, so one started and left between two looks is not seen; a pid the watch saw is
+signalled only while its start time is still the one it saw, so a pid used again by another process is left alone
+(start times are read to the second: a pid freed and taken again within the same second as its first start is not
+told apart); the run itself and its group are signalled while it is not yet waited on, even when the processes
+cannot be listed), and SIGKILL after a grace
 (`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records
 `ergostat.run.killed` (about its block; `run`, `item`, `fence`, `why`, `signal`: TERM or KILL, or `cancel` with no
 `pids` for a run a daemon holds, which is sent `cancel` instead: section 9.7, *Cancel*; `pids`, `grace`). The run
@@ -2410,6 +2451,7 @@ Either is a map, or the name of a top-level `daemons:` entry, so one process may
 daemons:
   probes:
     run: python3 probes.py             # started in the model's folder; its standard error goes to logs/daemon-probes.log
+                                       # (one stream for all its runs: never copied into a run's own log, section 12r)
     concurrency: 50                    # the most runs it holds at once (default 10; readings are not counted)
     heartbeat: 30s                     # restarted when it prints no line of any kind for this long (default: never)
     restart: {max: 5, within: 10m, backoff: [1s, 2m]}   # given up after more than 5 restarts within 10 minutes
@@ -2464,6 +2506,9 @@ UTF-8 replaced. A run's `done` is taken after its earlier lines; should taking a
 whole, each line of it is said dropped in the log. The `env` of an item travels in its line and never in the
 process's environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
 `ERGOSTAT_SOCKET`): a daemon passes an item's `env` to what it starts for that item, and never writes it into its own.
+Its standard error is one stream for all its runs: it stays in `logs/daemon-<name>.log` and is never split by run or
+copied into a run's own log (section 4b), which holds only what that run handed back that was not an event (usually
+nothing); so a daemon run's failure is triaged by how it ended (section 12r).
 
 **Each item is still a run**: `agent.started`, `agent.ran` or `agent.failed` (with `daemon`: its name), its lease
 and fencing, its lines taking effect in the order it printed them (a run's line may be taken after lines of the
@@ -2984,7 +3029,7 @@ slowest time constant the replay met, within a twentieth and a quarter of the wi
 
   | The block | Its identified model | Identified from |
   |---|---|---|
-  | takes items (`takes:`, §9.5) | *servers*, a multi-server queue: success × min(waiting, servers) / the time a server is held (a run's median time; its lease's TTL for an attempt that expired) | its runs' times, the share that ended well, the expiries; its pool and lease terms |
+  | takes items (`takes:`, §9.5) | *servers*, a multi-server queue: success × min(waiting, servers) / the time a server is held (a run's median time; its lease's TTL for an attempt that expired) | its runs' times, the share that ended well, the expiries; its pool now (at the end of the record: 1 when its stock reads 0 or nothing, said in its basis) and lease terms |
   | moves a flow with an equation | the equation, while commanded, at most its servers over their time | the model; its runs for the cap |
   | reads the goal on the stock it fills (a dispatcher reading its work-in-progress limit) | *fill*: at most the 95th percentile of its rate, never past that goal's setpoint, a run every `every` | the flow's record while commanded |
   | drains a stock | *drain*: min(the 95th percentile of its rate, waiting / residence time) while commanded | the residence time (time in system) by Little's law over the buckets it was commanded, mean level over mean outflow |
@@ -3902,7 +3947,22 @@ block of the template, answer them, the cheapest first:
   is its settled cost, or its whole reservation until settled (a run killed mid-call), dated by its reservation; a
   ledger that cannot be read means no call. A run the cap stops leaves its requests as they were (no try counted), and
   the status line says `the AI tier has spent $X of its $Y today` once a call was refused for the cap that day or the
-  spend is within the latest reservation of it. The lock covers the AI tier's own calls only, not the redesigner's or
+  spend is within the latest reservation of it. **A failed call** (`modeller.call`: it timed out, exited non-zero,
+  said `is_error`, or said no cost that is a finite number of dollars, 0 or more) is an `error` with what it said
+  (its result, or its standard error), charged its reservation, or what it said if more. The AI tier does not try again
+  in that run; when its first call fails, its requests keep their tries and state, are charged their share, and say the
+  error (`why`, `error`), so the next run gives them to it again, within the cap. When only its second (go-back) call
+  fails, its first answer was a real one, so the requests it did not answer use their try as before, held saying the
+  second call failed. Failed calls are counted apart from tries (`failed`) and bounded, since some fail the same way
+  every time (a prompt too long): a request that failed before is never in a call with others. While any request with
+  no failed call waits, the call takes only those; after that, the one that failed least goes alone in its call. After
+  `modeller.FAILS` (3) failed calls a request is held for the owner, saying the error. They are failed calls in a
+  row: a first call that answers sets the count back to 0, and so does the owner's approval (with its `error`
+  cleared), so an approved request is called again; raised again after a dismissal, it starts with none. The reviewer counts no failed
+  call toward its tries and stops its pass there; the changes that failed least are read first, and one with
+  `FAILS` failed calls is `undecided`, the owner's. A redesigner run whose calls failed ends `error` (with the
+  error), not `nothing proposed`; its request stays open saying so, and the unit takes no rest for it until `FAILS`
+  runs in a row have failed, when it rests as after a run that made nothing. The lock covers the AI tier's own calls only, not the redesigner's or
   repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
@@ -5363,7 +5423,13 @@ item a **signature**: the block, its program (the first word of its `run:` that 
 exception's type and its innermost frame in the project (from Python's traceback); without a traceback, the block, its
 program and how it ended. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
-of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. A failure starts
+of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. The standard
+error is read only from the run's own file (`log`, `logs/runs/<block>/<seq>-<id>.log`, section 4b), never from the
+block's log, so a run that overlapped it adds nothing. A daemon's run (section 9.7) is the exception in what it can say:
+the daemon's standard error is one stream for all its runs, kept in `logs/daemon-<name>.log` and never copied into a
+run's file, so a daemon run's file holds only the lines it handed back that were not JSON (usually none), its `stderr`
+is usually empty, and it is triaged by how it ended. A run whose own file could not be made safely does not start (its
+note `could not start: its run log: ...`), so its failure stays `noted`. A failure starts
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
 timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
 (SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that

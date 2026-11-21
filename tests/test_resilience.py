@@ -403,7 +403,8 @@ def test_block_logs_threads_and_run_log_are_capped(tmp_path):
     from ergostat.storage import MB, parse, rotate, trim
     problems = []
     cfg = parse({"logs": {"block": "1MB", "run": "2MB", "threads": "500KB", "transcripts": "7d"}}, problems)
-    assert not problems and cfg.logs == {"block": MB, "run": 2 * MB, "threads": 500 * 1024, "transcripts": 7 * 86400}
+    assert not problems and cfg.logs == {"block": MB, "runs": 50, "run": 2 * MB, "threads": 500 * 1024,
+                                         "transcripts": 7 * 86400}
     assert parse({"logs": {"block": "lots"}}, problems) and problems
     log = tmp_path / "b.log"
     log.write_bytes(b"x" * 99 + b"\n" + b"line\n" * 400_000)
@@ -627,6 +628,152 @@ def test_compact_projects_skips_a_folder_an_engine_runs_in(tmp_path, home, monke
     shutil.rmtree(gone)
     monkeypatch.setattr("ergostat.runner.running_pid", lambda project, wait=True: 123 if project.dir == p.dir else None)
     assert projects.orphans() == []
+
+
+def test_a_lease_kill_reaches_a_detached_child(tmp_path):
+    """A run starts a child in a session of its own through a parent that then exits (the child's parent is pid 1, or
+    a subreaper, by the time the lease expires): the run's ``Watch`` saw it, so the kill stops it too."""
+    from ergostat.leases.kill import KILLED
+
+    from .test_lease_kill import alive, one, pid_in
+    from .test_leases import start, wait_for
+    kid = ("sh -c 'python3 -c \"import os, time; os.setsid(); open(\\\"kid.pid\\\", \\\"w\\\").write(str(os.getpid())); "
+           "time.sleep(60)\" & until [ -s kid.pid ]; do sleep 0.1; done; sleep 2.5; touch gone'; sleep 60")
+    # (under its parent for two of the sampler's looks, about a second apart: one left sooner may not be seen)
+    p = one(tmp_path, kid, lease="{ttl: 5s, attempts: 3}")
+    e = start(p)
+    other = None
+    try:
+        other = pid_in(tmp_path / "kid.pid")
+        assert wait_for(lambda: (tmp_path / "gone").exists(), 5)
+        assert not p.events.query(n=None, type=KILLED), "its parent gone before the kill: the window the test is for"
+        got = wait_for(lambda: p.events.query(n=None, type=KILLED), 15)
+        assert got, "killed once its lease expired"
+        assert wait_for(lambda: not alive(other), 5), "the detached child too, though no longer under the run"
+        assert other in got[0]["data"]["pids"]
+    finally:
+        e.close()
+        if other and alive(other):
+            import os
+            import signal
+            os.kill(other, signal.SIGKILL)
+
+
+def test_a_lease_kill_leaves_a_reused_pid_alone(tmp_path, monkeypatch):
+    """A pid the run's ``Watch`` saw, now another process's (its start time not the one seen), is never signalled;
+    one still the process seen is (lesson-5)."""
+    import subprocess
+    import threading
+    import types
+
+    from ergostat.leases import kill
+    from ergostat.library import reap
+
+    from .test_lease_kill import alive
+    monkeypatch.setattr(kill, "GRACE", 1.0)
+    procs = [subprocess.Popen(["sleep", "30"], start_new_session=True) for _ in range(3)]
+    run, seen_child, reused = procs
+    said = []
+    eng = types.SimpleNamespace(lock=threading.Lock(), live={"r1": run}, say=lambda *a: None,
+                                p=types.SimpleNamespace(events=types.SimpleNamespace(add=lambda *a, **k: said.append(k))))
+    try:
+        run.watch = reap.Watch(run.pid)
+        run.watch.look()
+        now: dict[int, str] = {}
+        reap.tree(now)
+        run.watch.started[seen_child.pid] = now[seen_child.pid]           # seen under the run, detached since
+        run.watch.started[reused.pid] = "Thu Jan  1 00:00:00 1970"         # seen once; the pid is another's now
+        kill._stop(eng, run, "r1", "its lease expired", "ticket/1", 1, "worker")
+        run.wait(5)
+        seen_child.wait(5)
+        assert alive(reused.pid) and reused.poll() is None, "a pid used again is left alone"
+        pids = said[0]["data"]["pids"]
+        assert run.pid in pids and seen_child.pid in pids and reused.pid not in pids
+    finally:
+        run.watch.close()
+        for x in procs:
+            x.kill()
+            x.wait()
+
+
+def test_a_lease_kill_still_stops_the_run_when_ps_fails(tmp_path, monkeypatch):
+    """``ps`` failing (``tree`` empty, so the watch knows of nothing live) does not leave the run going (lesson-3): its
+    own pid, an unwaited child of this engine and so never another's, is signalled, and its group with it."""
+    import os
+    import signal
+    import subprocess
+    import threading
+    import types
+
+    from ergostat.leases import kill
+    from ergostat.library import reap
+
+    from .test_lease_kill import alive, pid_in
+    from .test_leases import wait_for
+    monkeypatch.setattr(kill, "GRACE", 1.0)
+    run = subprocess.Popen(["sh", "-c", "sleep 30 & echo $! > kid.pid; wait"], cwd=tmp_path, start_new_session=True)
+    kid = pid_in(tmp_path / "kid.pid")
+    said = []
+    eng = types.SimpleNamespace(lock=threading.Lock(), live={"r1": run}, say=lambda *a: None,
+                                p=types.SimpleNamespace(events=types.SimpleNamespace(add=lambda *a, **k: said.append(k))))
+    monkeypatch.setattr(reap, "tree", lambda started=None: {})
+    try:
+        run.watch = reap.Watch(run.pid)
+        kill._stop(eng, run, "r1", "its lease expired", "ticket/1", 1, "worker")
+        assert run.wait(5) is not None, "the run is stopped, though ps saw nothing"
+        gone = lambda: not alive(kid) or subprocess.run(["ps", "-o", "stat=", "-p", str(kid)], capture_output=True,  # noqa: E731
+                                                        text=True).stdout.strip().startswith("Z")    # (reaped, or a zombie)
+        assert wait_for(gone, 5), "and its group with it"
+        assert run.pid in said[0]["data"]["pids"]
+    finally:
+        run.watch.close(look=False)
+        if run.poll() is None:
+            run.kill()
+            run.wait()
+        if alive(kid):
+            os.kill(kid, signal.SIGKILL)
+
+
+def test_a_runs_watch_costs_no_thread_and_ends_with_its_run(tmp_path, monkeypatch):
+    """A run's ``Watch`` starts no thread (the runs' sampler looks at it: a run costs one thread) and is closed when
+    its run ends (lesson-6: nothing of it left looked at)."""
+    import threading
+
+    from ergostat.library import reap
+    from ergostat.spec.engine import Engine
+    made = []
+
+    class Seen(reap.Watch):
+        def __init__(self, pid):
+            n = threading.active_count()
+            super().__init__(pid)
+            made.append((self, threading.active_count() - n))
+    monkeypatch.setattr(reap, "Watch", Seen)
+    p = _blocked(tmp_path, "sleep 1.5; exit 4")
+    e = Engine(p, say=lambda s: None)
+    try:
+        e.run_block(p.model.spec.blocks["worker"], "schedule")
+    finally:
+        e.close()
+    ((w, threads),) = made
+    assert threads == 0 and w not in reap._OPEN
+    assert w.started.get(w.pid), "looked at by the sampler while it ran"
+
+
+def test_a_watch_knows_a_pid_its_run_took_again(monkeypatch):
+    """A pid the run had, dead and taken again by another child of the same run, is stamped anew while under it, so
+    once that child is detached it is still the run's (review lease-kill-detached-2); the run's own pid keeps its
+    first stamp, and once that pid is another process's nothing under it is taken as the run's."""
+    from ergostat.library import reap
+    w = reap.Watch(100)
+    w.close(look=False)                                                # (no sampler's looks: only those given here)
+    w.look({100: (1, 100), 101: (100, 100)}, {100: "T0", 101: "T1"})
+    w.look({100: (1, 100), 101: (100, 100)}, {100: "T0", 101: "T2"})   # 101 died; its pid another child's of the run
+    assert w.started == {100: "T0", 101: "T2"}
+    w.look({100: (1, 100), 101: (1, 101)}, {100: "T0", 101: "T2"})      # detached since: kept as last seen under it
+    assert w.started[101] == "T2"
+    w.look({100: (1, 100), 102: (100, 100)}, {100: "T9", 102: "T3"})   # pid 100 another's now: its child not the run's
+    assert w.started == {100: "T0", 101: "T2"} and 102 not in w.seen
 
 
 # ---- 6. a run no longer depends on the engine that started it (docs/roadmap/overnight/rs-detach.md)

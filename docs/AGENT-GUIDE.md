@@ -91,7 +91,8 @@ Work through these steps in order. Ask the person only what you cannot infer.
    most 3, then "+N"; none under `--at`). A name that is not a part of the model is the finding `about-missing-part`: fix the name.
    "unknown" in any of these means the item index could not be read, not that there is no knowledge.
 5. **One block per step that does the work**, taking items in its state:
-   `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
+   `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once: a number, or
+   `{now: stock.NAME, most: N}` when a controller steps a measured stock to set it) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
    ergostat retries a run that fails or goes silent, and parks an item that keeps failing as a dead
    letter. A program may **print events as it goes**: each line is taken when it is printed, not
@@ -453,8 +454,10 @@ Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `p
 owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
 is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p). `mode: advise` asks before a command or
 an event, never before each item, so `check` refuses it on a block with `takes:` (`advise-with-takes`); to have a
-person hold such a block's items, gate it with `goal:` or `in: block.X` from a block they command, and its items wait
-while that is off (SPEC §9.5, *Dispatch*):
+person hold such a block's items, gate it with `in: block.X` from an `expr` block reading a `sensor: {manual: true}`
+stock: `ergostat sensor STOCK --read 1` opens it for all the items at once (not one by one), `--read 0` shuts it, and
+the items wait while it is off. A `person` block is no gate (its `--done` never sets a command; `check` refuses it as
+one, `person-gate`) (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`; a held modelling request is denied with `--deny --note WHY`,

@@ -254,7 +254,7 @@ blocks:
         got = [x for x in problems if x.code == "advise-with-takes" and f"block {name}." in x.message]
         assert len(got) == 1, (name, [str(x) for x in problems])
         assert got[0].level == "error" and got[0].where == spec.blocks[name].where
-        assert "goal:" in got[0].message and "in: block." in got[0].message, "it says to gate it instead"
+        assert "in: block." in got[0].message and "manual: true" in got[0].message, "it says to gate it instead"
     assert len([x for x in problems if x.code == "advise-with-takes"]) == 3
     assert [x for x in problems if x.code == "unknown-ref" and "block typo." in x.message], "its own error as well"
 
@@ -316,6 +316,69 @@ stocks:
         assert wait_for(lambda: any(item(p, f"ticket/{i}").state == "done" for i in range(4)), 10), "on: it takes"
     finally:
         e.close()
+
+
+GATE = """
+  gate:
+    type: expr
+    in: {o: stock.open}
+    expr: o
+stocks:
+  open:
+    unit: switch
+    sensor: {manual: true}
+"""
+
+
+def gated(run: str, by: str, extra: str) -> str:
+    return model(run, extra=extra).replace("    lease: {ttl: 1m}\n", f"    lease: {{ttl: 1m}}\n    in: block.{by}\n")
+
+
+def test_the_documented_gate_opens_for_items(tmp_path):
+    """The form the advise-with-takes error and SPEC §9.5 name: an expr block reading a manual sensor, which a person
+    reads as 1 (`ergostat sensor open --read 1`) to let every item through at once, not one by one."""
+    from ergostat.cli.spec_cmds import read_manual
+    (tmp_path / "advised").mkdir()
+    _, problems = read_model(tmp_path / "advised", KIND + """
+blocks:
+  bot: {type: program, run: "true", takes: {kind: ticket, at: ready}, mode: advise}
+""")
+    said = next(x.message for x in problems if x.code == "advise-with-takes")
+    assert "expr block reading a sensor: {manual: true}" in said and "--read 1" in said and "not per item" in said
+    text = gated('echo "{\\"event\\": \\"ticket.done\\"}"', "gate", GATE)
+    _, problems = read_model(tmp_path, text)
+    assert not [str(x) for x in problems if x.level == "error"], "the documented form compiles"
+    p = project(tmp_path, text)
+    opened(p, 3)
+    e = start(p)
+    try:
+        time.sleep(2)
+        assert all(item(p, f"ticket/{i}").state == "ready" for i in range(3)), "no reading yet: its items wait"
+        assert read_manual(p, "open", 1) == 0
+        assert wait_for(lambda: all(item(p, f"ticket/{i}").state == "done" for i in range(3)), 10), "open: all of them"
+    finally:
+        e.close()
+
+
+PERSON = """
+  ok:
+    type: person
+    ask: let them through
+"""
+
+
+def test_check_refuses_a_person_block_as_a_gate(tmp_path):
+    """A person's --done records work and never sets a command: a person block gating a block that takes would leave
+    its items waiting forever, so check refuses it, whichever end the wire is written on."""
+    for i, text in enumerate((gated('"true"', "ok", PERSON), model('"true"', extra=PERSON + "    out: block.worker\n"))):
+        d = tmp_path / str(i)
+        d.mkdir()
+        _, problems = read_model(d, text)
+        got = [x for x in problems if x.code == "person-gate"]
+        assert len(got) == 1 and got[0].level == "error" and "block worker" in got[0].message, [str(x) for x in problems]
+        assert "manual: true" in got[0].message, "it names the form that works"
+    _, problems = read_model(tmp_path, gated('"true"', "gate", GATE))
+    assert not [str(x) for x in problems if x.level == "error"], "an expr gate is not refused"
 
 
 # ---- the engine: dispatch, the watchdog, fencing
