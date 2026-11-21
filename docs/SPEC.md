@@ -156,8 +156,9 @@ on them, and `check` lists the instances still on stand-ins (**template-stand-in
 
 **Writing one.** A template file is YAML: `template:` (its name), `description:`, `reading:` (what it is in
 control theory and in system dynamics), `params:` (each with `type`, `description`, and `default`,
-`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; type `any` takes a
-value as given, checked where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
+`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; `min:` and `max:` on a
+`number` or `integer`, a value outside them an error naming the bound; type `any` takes a value as given, checked
+where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
 (above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
 `goals`, `blocks`, `agents`, `uses`). In them:
 
@@ -3538,11 +3539,20 @@ numbers taken out). Found again with other numbers, the same item is **revised**
 reason and evidence, and `revisions` counted; found again saying the same, nothing is recorded); its history keeps every
 earlier statement, and the judge holds out the record after its last revision. One under test or passed is left to the
 judge, one decided is not made again, and one turned away is revised and checked again once `memory` lets it go. When
-the model's version changes, a change not yet under test whose subject is as it was is **carried** to the new version
-(`.revised` with `rebased`; a value's or an equation's edit made again on the files as they are now); only one whose
-subject was removed or edited, or whose edit cannot be made again, is superseded, saying which. Each finder lets go only
-of its own changes it no longer finds: the calibration of values and equations, the structural finder of structure; a
-loop's process or gain is its analysis's alone. A block's proposal is not carried yet (GAPS).
+the model's version changes, a waiting change whose subject is as it was is **carried** to the new version, whoever made
+it (a block records its `subject` too: the parts it touches, the stocks a flow it adds joins, the parts it removes):
+`.revised` with `rebased`, its edit as it stands, moved by `rebase`, or a value's or an equation's made again on the files
+as they are now (`tests/test_churn_carry.py`, *a block's value change is carried*). A carried change under test or
+passed was judged on another version: it goes back to testing with its verdict and last look cleared, in the same event,
+and is judged again (*a passed change carried goes back to testing*). A structural change of ergostat's own whose lines
+moved is carried with the edit its finder finds again on the same item, not made again (*a structural change whose lines
+moved is carried*). The rest are superseded, saying which: the subject removed or edited, the edit no longer applies (a
+block's to make again), no longer found by its finder, recorded without a subject, no longer of its kind, or it would change
+who decides. Every carry is decided under the proposals' lock on the model as its files are now (`files_now`): while they
+do not compile, or differ from the model the pass read, nothing is carried, superseded, judged or written, and the next
+pass decides (*an edit between the finder and the lock defers the carry*, *files that do not compile defer every pass*).
+Each finder lets go only of its own changes it no longer finds: the calibration of values and equations, the structural
+finder of structure; a loop's process or gain is its analysis's alone.
 
 Each pass (`ergostat/numbers/judge.py`; `ergostat judge` makes one by hand) supersedes every open change made
 against a version of the model since changed (but those it carries, above), starts **testing** each checked change it can replay (a value, an
@@ -3665,7 +3675,20 @@ block of the template, answer them, the cheapest first:
   author skill and the modelling guides made short (`library/templates/modelling/modeller.md`). It proposes
   descriptions, units, equations, structure, loops and collectors as ordinary changes; each is tried first as
   `try_change` tries it, and what would be turned away is given back once with why. Its cost is recorded on the
-  requests it was given (`cost_usd`), and a request it has tried twice waits for the owner.
+  requests it was given (`cost_usd`), and a request it has tried twice waits for the owner. Its parameters: `ai-model`
+  (haiku), `ai-every` (10m), `ai-most` (requests in one call, 8, from 1 to 16) and `ai-daily` (dollars a day, 1, from
+  0 to 20), passed as `modelling ai --most` (1 to 16), `--tries` (1 to 3) and `--daily` (0 to 20, required), each
+  refused outside its bounds at expansion and again by the run. **Its daily cap** (`ergostat/numbers/modeller_spend.py`,
+  `<p.dir>/modelling/ai-spend.jsonl` under an `fcntl` lock): each call, the go-back too, reserves the most its prompt
+  and longest answer could cost (`unsaid`), which also goes to claude as `--max-budget-usd`. A call starts only when the
+  day's spend plus its reservation stays within `ai-daily`; one call at a time (the lock is held from the check through
+  the call to its charge); a call that reports more than its reservation is charged what it reported, so the day can end
+  above `ai-daily` by that one call's overrun, and none starts after it until the day's spend is back under. A charge
+  is its settled cost, or its whole reservation until settled (a run killed mid-call), dated by its reservation; a
+  ledger that cannot be read means no call. A run the cap stops leaves its requests as they were (no try counted), and
+  the status line says `the AI tier has spent $X of its $Y today` once a call was refused for the cap that day or the
+  spend is within the latest reservation of it. The lock covers the AI tier's own calls only, not the redesigner's or
+  repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
 "parameters", "name": "t", "set": {...}}` besides `replace` and hunks.
@@ -3845,7 +3868,8 @@ asks for, in memory, so the models it damages stay as written.
 **1. The pipeline** (`tests/test_bench.py`). A proposal with no reason whose evidence ergostat can check is
 refused; so is one whose edit cannot be made or does not compile. Accept writes exactly the diff shown, and refuses
 when the file has changed since (the diff's hash). A change made against a model since changed, even only in its
-numbers, is superseded and never written, by the judge or by hand. Under the default policy (`accept: owner`) the
+numbers, is never written on a verdict reached on another version: carried back to testing, or superseded, by the
+judge or by hand. Under the default policy (`accept: owner`) the
 judge passes a change and nothing is written.
 
 **2. The judge** (`ergostat/bench/judging.py`, `ergostat bench judge`). On synthetic worlds whose truth is known

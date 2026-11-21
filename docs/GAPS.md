@@ -125,13 +125,16 @@ review into *Done recently*). Newest decisions from the owner first within each 
   record's paths, dependencies and arrivals); the Timeline's lanes, the list's *done by*, the item's why. Left: a
   goal's gate on a block is not simulated, and a capacity no block declares is not modelled (a block's `workspace:`
   pool is: held from the item's first take until it finishes).
-- **Modelling improves the model** (landing, `modelling-core`; `docs/proposals/self-improvement.md`): what `check`
-  finds is held as requests (`ergostat.modelling-request`); the rule tier (units, a queue's goal, a process nobody
-  identified) and the AI tier (off unless `ai: true`), each a block of `use: modelling`, answer them with ordinary
-  changes, checked in the tier's own process; the judge decides by class (description, unit, rename judged by check;
-  values, equations and structure by the record). Every example uses it. Parked on `selfimprove` (its definition file
-  says why): the rule tier's first-order equations, event-type renames that edit programs, the rule tier's copies of
-  the chain fixes.
+- **Modelling improves the model** (done, `modelling-core`, `modelling-core2` and `modelling-improves-the-model`;
+  `docs/proposals/self-improvement.md`): what `check` finds is held as requests (`ergostat.modelling-request`); the
+  rule tier (units, a queue's goal, a process nobody identified) and the AI tier (off unless `ai: true`), each a block
+  of `use: modelling`, answer them with ordinary changes, checked in the tier's own process; the judge decides by class
+  (description, unit, rename judged by check; values, equations and structure by the record). Every example uses it.
+  The AI tier runs within `ai-daily`: a call starts only when the day's spend plus its reservation stays within it, one
+  call at a time, and a call that reports more than its reservation can take the day above it by that one overrun. Its
+  counts have ceilings (`ai-most` 1 to 16, `--tries` 1 to 3, `ai-daily` 0 to 20; template parameters take
+  `min:`/`max:`). Parked on `selfimprove` (its definition file says why): the rule tier's first-order equations,
+  event-type renames that edit programs, the rule tier's copies of the chain fixes.
 - **Redesign beside refinement** (landing, `modelling-core`; `docs/proposals/redesign.md`): one change set of many
   coordinated edits for a whole system, made over a few rounds on a scratch copy by the redesigner (an `ai` block,
   haiku by default, within a budget a run and a cap a day), judged as a whole by a scorecard, one
@@ -152,7 +155,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
   between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
   counted as findings).
-- **Proposals superseded by any edit** (partly done, `churn`; owner, 2026-11-19): a model change made against a version
+- **Proposals superseded by any edit** (done, `churn` and `proposals-superseded-by-any-edit`; owner, 2026-11-19): a model change made against a version
   since changed, even only in its numbers, was superseded and never written (SPEC section 12e); and every pass of a
   finder made a new change for the same thing, letting the last go ("let go: found again otherwise, or no longer
   found"), the estimator letting go of loops' processes too. **Done:** ergostat's own changes are what they are about,
@@ -160,9 +163,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   value's or an equation's edit made again on the files as they are); superseded only when their subject was edited or
   removed, their edit cannot be made again, or their finder no longer finds them, saying which. `modelling-core` makes it one
   mechanism: `rebase` moves the waiting edits' lines, and `supersede` carries ergostat's own (subject unchanged) and a
-  description, unit or redesign whoever made it (its edit still applies). **Left:** a block's other proposals (values,
-  equations, structure) are still superseded by any change of version; a structural change whose lines moved is superseded and made again on the same item
-  by the next structural pass rather than carried.
+  description, unit or redesign whoever made it (its edit still applies). `proposals-superseded-by-any-edit` carries the
+  rest: a block's values, equations and structure (it records a `subject`), and changes under test or passed (back to
+  testing, their verdict cleared, judged again); a structural change whose lines moved takes the edit its finder finds
+  again, on the same item. Every carry, the finders' writes, Dismiss and the judge are decided under the proposals' lock
+  on the model as its files are now, and defer while the files do not compile or differ from the model read; a change
+  made again on a superseded id keeps nothing of the old one. Still superseded: a block's equation or structural edit
+  whose lines a hand edit moved (the block's to make again).
 - **Poor identifications proposed, projections drawn as sure** (done, `churn`; owner, 2026-11-19: a loop's process that
   followed 2% held out was proposed, and the projections after a burst of 130 tickets were far off): a process is
   proposed only past a quality floor (what it follows held out, white errors in closed loop, independent of u), else
