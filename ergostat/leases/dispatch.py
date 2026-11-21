@@ -173,11 +173,12 @@ class Dispatcher:
 
     def pool_now(self, b) -> int:
         """The block's pool now: its ``pool:``, or its stock's level as the engine last read it (a stored value: no
-        sensor runs here), at most its ``most``. Unread: 0, said once until it is read again."""
+        sensor runs here), at most its ``most``. Unread: 0, said once until it is read again (not said before the
+        engine's first pass has loaded the readings: still 0 then)."""
         if b.pool_now is None:
             return b.pool
         v = self.e.get(b.pool_now)
-        if poolnow.unread(v):
+        if poolnow.unread(v) and self.e.measured:
             if b.name not in self.unread:
                 self.unread.add(b.name)
                 self.e.say(f"{b.name}: its pool ({b.pool_now}) has no reading: it takes nothing new")

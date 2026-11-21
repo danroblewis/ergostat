@@ -280,6 +280,24 @@ def test_an_unread_pool_takes_nothing_new(tmp_path):
         release_all(tmp_path, p, e)
 
 
+def test_no_reading_is_not_said_before_the_first_pass(tmp_path):
+    # the dispatcher may tick before the engine's first pass loads the readings: 0 then, and nothing said
+    p = project(tmp_path, text(sensor="{manual: true}"))
+    p.measurements.add(series_of(p), 2.0, at=time.time() - 5)
+    said: list[str] = []
+    e = Engine(p, say=said.append)
+    b = p.model.spec.blocks["worker"]
+    assert e.dispatch.pool_now(b) == 0 and not said, "not loaded yet: closed, and quiet"
+    e.measure()
+    assert e.dispatch.pool_now(b) == 2 and not said
+    (tmp_path / "u").mkdir()
+    u = project(tmp_path / "u", text(sensor="{manual: true}"))
+    e = Engine(u, say=said.append)
+    e.measure()
+    assert e.dispatch.pool_now(u.model.spec.blocks["worker"]) == 0
+    assert said == ["worker: its pool (stock.p) has no reading: it takes nothing new"], "loaded, and still unread: said"
+
+
 def test_the_pool_is_read_under_the_dispatch_lock(tmp_path):
     level(tmp_path, 1)
     p = project(tmp_path, text(run=WAIT))
@@ -310,7 +328,8 @@ def test_the_pool_is_read_under_the_dispatch_lock(tmp_path):
         leases = [x for x in p.events.query(n=None, type=TAKEN)]
         mine = [x for x in leases if x["data"]["run"] != "other"]
         refused = its.one(p.events, p.model.spec, "ticket/0").refused
-        assert held(p) == 1, "the competing lease is counted: the pool of 1 is not passed"
+        # (held to the pool by the record: the fold refuses this engine's second lease on ticket/0; SPEC §9.5)
+        assert held(p) == 1, "the competing lease stands, and the pool of 1 is not passed"
         assert not mine or all(x["item"] == "ticket/0" for x in mine) and refused
     finally:
         (tmp_path / "release").write_text("")

@@ -2116,11 +2116,13 @@ matching `where`, is leased to a new run, oldest first (by when it entered its s
 leases its runs hold are fewer than its pool now. A pool written `{now: stock.NAME, most: N}` is read at each look,
 with the dispatcher's lock held, in the same hold as the count of the leases and the take: the stock's level as the
 engine last read it (its newest reading, whatever its age; no sensor runs at dispatch), rounded down, at most `N`, and
-0 when it has no reading. A raised stock starts more runs at the next look, with no reload; a lowered one drains (no
-new lease until fewer than the pool now are held; nothing running is stopped). The lock is this engine's: a lease
-another engine writes after the count is held to the pool only by the record (the fold refuses a second lease on one
-item), as for a `pool:` number. `ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says waits on
-an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
+0 when it has no reading (also before the engine's first pass has loaded the readings, when it is not said). A raised
+stock starts more runs at the next look, with no reload; a lowered one drains (no new lease until fewer than the pool
+now are held; nothing running is stopped). The lock is this engine's: a lease another engine takes after the count is
+counted at the next look; on the same item the fold refuses the second lease, on another item both stand, as for a
+`pool:` number. The pool's stock is not one of the block's reads, so its `on-stale` (section 9.6) does not watch it.
+`ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says
+waits on an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
 slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
