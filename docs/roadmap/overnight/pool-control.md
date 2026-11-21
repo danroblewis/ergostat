@@ -381,3 +381,29 @@ because nothing names a fault. Here: `tests/test_factory.py` 132 passed, 2 skipp
 load-dependent `test_leases`, `test_warm`, `test_index_files` and `test_queue` 69 passed (`-n 4`); `ruff check
 ergostat tests scripts` is clean. Left: a full `unit` run that reaches pytest's summary (the `-rf` lines name the
 `F`s), and the four browser files. A failure outside this branch's files belongs to its own gap (lesson-13).
+
+## Where it stopped
+
+Continued, round 4, answering review/pool-control-3, every finding (lesson-12):
+- Main broken after a merge (risk.py `evidence`; blocking): the round-1 note "the queue has no such check today" was
+  wrong. `onmain.py record()` writes `intervention.recorded` of class `main-broken` with the main commit (`main`). Such
+  an intervention now blames, as escapes, the merged gaps whose `gap.merged` `main_sha` is that commit (prefix match
+  either way, since the intervention's id carries 12 characters). Each is counted once, at the pool size of its merge,
+  and every gap of a batch that made the commit is blamed (the conservative choice). When no merged gap is found
+  (main moved on after the break, or the merge is not in the record), it still counts as one escape, at the pool
+  size at the intervention's time (or the pool now, if it has no time), rather than as zero (lesson-3). It is not
+  factory harm: `main-broken` stays out of `FACTORY`. The hand-set `broke_main` field still counts. Limits: a break
+  found only on a later main commit is blamed on the gaps merged at that later commit, not on the one that broke
+  it (finding that one would take a git bisect). README says this. Tested in
+  `test_risk_counts_factory_caused_interventions_and_escapes_not_review_findings`. The test was seen to fail with
+  the class check broken and with the no-merge fallback removed, then both were restored (lesson-9).
+- `docs/GAPS.md`: the stale `(open)` entry "A block's pool set by the model's state" (a merge leftover) is removed.
+  The done entry stays, once, as on main.
+- Not run by that reviewer: the round-4 tests were run here (below).
+- origin/main has moved: there is no remote in this clone. The merge queue's merge settles that (lesson-7).
+- Wrap width: dev/README.md's lines in this section are now within the file's width. GAPS.md:407 was the removed
+  entry.
+
+Size: about 346 net lines outside `tests/` and `docs/` (within 350). Here: `tests/test_factory.py` 132 passed,
+2 skipped; `tests/test_factory_knowledge.py` and `tests/test_factory_resources.py` 85 passed; `ruff check ergostat
+tests scripts` clean. Not run here: the whole unit suite and the four browser files (the factory runs them).

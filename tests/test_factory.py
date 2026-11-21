@@ -517,6 +517,16 @@ def test_risk_counts_factory_caused_interventions_and_escapes_not_review_finding
     own = [intervention(7, **{"class": "queue"}), intervention(8, **{"class": "switch"})]   # the factory's own records
     assert risk.evidence(gaps, [*ivs, *own], upgrades, [])[1][0] == 5
     assert risk.table(risk.evidence(gaps, [*ivs, *own], upgrades, []), 2, 6)[1]["bound"] > hurt["bound"]
+    # main failing its suites after a merge (onmain.py's main-broken intervention, `main` its commit): an escape of
+    # the gap(s) whose merge made that commit, counted once each, at the pool size of their merge, not as factory harm
+    merged = [gap(1, "merged", main_sha="aaaa1111bbbb2222"), gap(2, "merged", main_sha="cccc3333dddd4444"),
+              gap(3, "merged", at=1000, main_sha="cccc3333dddd4444")]          # g2 and g3 landed in one batch
+    broke = intervention(9, at=2000, main="cccc3333dddd", gaps=["gap/g8"], **{"class": "main-broken"})
+    assert risk.evidence(merged, [], [], [[500, 2]]) == {1: [0, 2, 0, 2], 2: [0, 1, 0, 1]}
+    assert risk.evidence(merged, [broke], [], [[500, 2]]) == {1: [0, 2, 1, 2], 2: [0, 1, 1, 1]}
+    assert risk.evidence(merged, [broke, {**broke, "id": "intervention/i10"}], [], [[500, 2]])[1][2] == 1
+    unknown = intervention(9, at=2000, main="eeee5555", **{"class": "main-broken"})   # no merge found: still counted
+    assert risk.evidence(merged, [unknown], [], [[500, 2]]) == {1: [0, 2, 0, 2], 2: [0, 1, 1, 1]}
 
 
 def test_an_untried_pool_size_has_a_wide_bound_and_is_not_jumped_to():

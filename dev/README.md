@@ -318,11 +318,12 @@ start). Raising it trades risk for velocity: edit the value, and the next tune's
 **For an intervention to count**, record it (below) with a `class` the factory caused: `environment-defect`,
 `self-reference`, `factory-missing-capability` or `queue-interleaving`, or `"factory": true`. The factory's own
 records count by themselves: the merge queue stopped (`queue`) and the upgrader unable to bring the instance back
-(`switch`). Review findings and a
-reviewer's park are not harm and do not count. Escapes count against the pools too: a merge reverted on main
-(`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`), main broken by it
-(`ergostat event --add gap.measured --item gap/NAME --data '{"broke_main": true}'`), or a later gap or intervention
-naming it as its cause (`"caused_by": "gap/NAME"` in its data). By hand:
+(`switch`). Review findings and a reviewer's park are not harm and do not count. Escapes count against the pools
+too: a merge reverted on main (`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`),
+main broken by it (`ergostat event --add gap.measured --item gap/NAME --data '{"broke_main": true}'`; the
+implementor's triage counts by itself: a `main-broken` intervention blames the gaps whose merge made that main
+commit, their `main_sha`, or, with none found, counts one escape at the pool size then), or a later gap or
+intervention naming it as its cause (`"caused_by": "gap/NAME"` in its data). By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
 
 ## The machine's resources: a cap on the pools

@@ -6,7 +6,9 @@ Two harms, each ending in someone stepping in:
                      included, or `factory: true`) per gap processed (a
                      verdict: approved or parked); review findings and a reviewer's park are not harm
   low quality        escapes per merged gap: reverted (gap.reverted, or its upgrade reverted), `broke_main` said of
-                     it, or named by a later gap or intervention as its `caused_by`
+                     it, its merge the main commit a `main-broken` intervention found failing (onmain.py; one tied
+                     to no merged gap is an escape at the pool size then), or named by a later gap or intervention
+                     as its `caused_by`
 
 Each is a Poisson rate with a Gamma posterior, per implementor pool size n (the size in run/pools.json's history when
 the evidence happened). Its prior is weak (shape 0.5) with the mean of the other sizes' evidence; a size above the
@@ -71,6 +73,19 @@ def evidence(gaps: list[dict], interventions: list[dict], upgrades: list[dict], 
 
     blamed = {u["fields"].get("gap") for u in upgrades if u["state"] == "reverted"}
     blamed |= {c for x in [*gaps, *interventions] for c in ids(x["fields"].get("caused_by"))}
+    merges: dict[str, list[str]] = {}                         # main commit: the gaps whose merge made it (a batch)
+    for g in gaps:
+        if g["state"] == "merged" and g["fields"].get("main_sha"):
+            merges.setdefault(str(g["fields"]["main_sha"]), []).append(g["id"])
+    for iv in interventions:
+        f = iv["fields"]
+        if str(f.get("class") or "") != "main-broken":
+            continue
+        sha = str(f.get("main") or "")
+        hit = [i for s, gs in merges.items() if sha and (s.startswith(sha) or sha.startswith(s)) for i in gs]
+        blamed |= set(hit)
+        if not hit:                                           # (no merge found: still an escape, at the pool then)
+            add(when(f.get("recorded_at") or iv.get("first")), 2)
     for g in gaps:
         f = g["fields"]
         if f.get("approved_at") or f.get("parked_at"):

@@ -403,11 +403,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
   proxy would have to run inside Docker: a second service on an `internal: true` network, the only one with a route
   out, allowing `api.anthropic.com:443` (CONNECT, its TLS server name checked). Left: that service, the token's
   handling, Claude Code in the image, and a measured run of one session inside.
-- **A block's pool set by the model's state** (open; found by `factory`): `pool:` is a number written in the YAML, so
-  the factory's pools, sized by measured risk against the owner's tolerance (pool-control), are stocks (`implementor-pool`) its gates and runs enforce below the
-  block's `pool:` (the most). The completion estimates and the Blocks view read the most, not the pool now. Either
-  `pool: stock.NAME` (read at each dispatch, drained when lowered, as a lowered `pool:` is), or a block's pool as a
-  setting a controller steps.
 - **A block's pool set by the model's state** (done, on `a-block-s-pool-set-by-the-model`; SPEC §9.5): `pool: {now:
   stock.NAME, most: N}` reads the block's pool from a measured stock at each dispatch, under the dispatcher's lock,
   rounded down and held within 0 and its most; no reading takes nothing new; a lowered stock drains. The completion
