@@ -241,3 +241,20 @@ not a lease change inside a library gap. This is the third unrelated timing resu
 
 **Left:** run the unit suite and the four browser files again. If this lease test also fails on main under the same
 load, it is not this branch's.
+
+### Round 4
+
+No code changed. The review's two findings were both answered in round 2: `out:` is limited to the chain's own parts
+(`trust._out`), and main is merged. Main is still an ancestor of HEAD: the factory's merge ec483c7a brings in main at
+2388572a, and `git log HEAD..main` is empty. That merge changes nothing in `ergostat/library/`, `ergostat/spec/load.py`,
+`ergostat/leases/` or `tests/test_leases.py`. `git diff main...HEAD` is still only this gap's 11 files. Nothing under
+`ergostat/library/` or `ergostat/spec/` marks a library untrusted except this branch's map form, so point 1 stands.
+
+Run here, after the merge: `tests/test_library_trust.py` (46 passed), `tests/test_templates.py` and
+`tests/test_modelling_template.py` (unchanged, passed), and `tests/test_leases.py` alone (20 passed). That includes the
+watchdog-renewal test that failed under load in the last full run (lesson-10 and lesson-13: it is outside this gap).
+Ruff is clean. **Not run here:** the whole unit suite and the four browser files. They are left to the factory, under
+the watchdog.
+
+**Left:** run the unit suite and the four browser files under the watchdog. If the lease test fails again under load,
+compare it with a run on clean main before holding this branch on it.
