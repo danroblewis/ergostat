@@ -317,3 +317,21 @@ The factory's unit run after 354a2857 failed one test, `tests/test_daemons.py::t
 
 Left: the factory should run the unit suite again. If this test fails again on this branch, run it on clean main under
 the same load; a failure there belongs to a gap on main for the daemons' sampler, not to this branch.
+
+## Where it stopped, round 6 (the unit run stopped at 76%)
+
+The factory's unit run after 7b577fe9 stopped at 76%. Its tail has no failing test, no error, no summary and no
+`suite_watch` line. That makes four such stops (89%, 89%, 11%, now 76%), each at a different point, and the two runs that
+did finish each failed one unrelated test (test_reload_safety, test_daemons). That points to the run being killed or
+starved from outside, not to a test of this branch hanging. **No code was changed**, because no failing test is named
+(lesson-10, lesson-13). Round 6 already settled the size: 167 net lines against 170 (`git diff --numstat main --
+ergostat`: itemgraph.py 123, cli/record.py 26, web/server.py 13, cli/__init__.py 4, goodmodel.py 1/1), so the queue's
+"198 net lines with no reason written" finding is out of date.
+
+**Run here, on 7b577fe9, with `-o faulthandler_timeout=120` (a hung test would have dumped its stack):**
+test_item_graph_queries, test_cli_fallback, test_item_search (38 passed in 14 s); test_relations, test_graph_cli_web,
+test_item_about, test_items_page, test_messages, test_inbox (115 passed, 1 skipped). Ruff is clean. **Refused:** a serial
+run of the whole unit suite (`timeout 3600 nice uv run python -m pytest -q -p no:xdist -o faulthandler_timeout=180 -rfE
+-x --ignore-glob='tests/*browser*'`, in the background) was denied, so it was not run. Left: the factory should run the
+unit suite again with `-o faulthandler_timeout=120 -rfE` and keep the whole output, including the watchdog's closing
+JSON line, so that it names the test that hangs or the reason the run was killed.
