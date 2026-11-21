@@ -200,3 +200,10 @@ and fixed: `jacobian()` padded J by scanning every (live, live) pair and copying
 that once per replay window. It now pads in place, and only the columns that no equation reads. The entries,
 `rates()`'s sums and their order are unchanged (test_modes, closedloop, extremes, numbers, scale_caches and rates
 pass).
+
+**After the second unit run failed.** One F, at about 8% of the `-n` run, and the tail names no test. Every file near
+that point in collection order (test_act_risk through test_cloud_arrivals, 12 + 6 files) and every file that calls
+`explain` was run serially: all pass, `closedloop.risk`'s 40 runs take 0.9 s against its 15 s wall budget. So the
+failure is still not identified and was not reproduced here. One more cost on the replay path was taken away: `rates()`
+now calls `jacobian(state, pad=False)`, so the zero columns are written only for modes (they add nothing to |row|
+sums). The spy in `tests/test_modes.py` forwards keywords; no assertion changed.

@@ -270,8 +270,8 @@ def _spy(monkeypatch) -> list:
     got = []
     real = sim._Stepper.jacobian
 
-    def jacobian(self, state):
-        out = real(self, state)
+    def jacobian(self, state, **kw):
+        out = real(self, state, **kw)
         got.append((self, out[0]))
         return out
     monkeypatch.setattr(sim._Stepper, "jacobian", jacobian)

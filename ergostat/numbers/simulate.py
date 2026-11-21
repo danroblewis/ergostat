@@ -203,11 +203,11 @@ class _Stepper:
             x -= V[f]
         return x
 
-    def jacobian(self, state: dict[str, float | None]) -> tuple[dict[tuple[str, str], float], list[str]]:
+    def jacobian(self, state: dict[str, float | None], pad: bool = True) -> tuple[dict[tuple[str, str], float], list[str]]:
         """∂(net inflow of stock i)/∂(level of stock j), per hour, over the live stocks, by forward differences
-        of the compiled equations at the moment's values (a column no equation reads is 0); and the equations
-        that faulted or failed while a stock was moved (each fault is taken as 0, so that entry is not to be
-        trusted). The faults counted before are kept as they were."""
+        of the compiled equations at the moment's values (a column no equation reads is 0, written only with
+        ``pad``); and the equations that faulted or failed while a stock was moved (each fault is taken as 0, so
+        that entry is not to be trusted). The faults counted before are kept as they were."""
         live = [s for s in self.stocks if state.get(s) is not None]
         felt = [s for s in self.felt if state.get(s) is not None]
         J: dict[tuple[str, str], float] = {}
@@ -231,11 +231,12 @@ class _Stepper:
             for r, c in self.pl.eqs.items():
                 c.faults.clear()
                 c.faults.update(saved[r])
-        moved = set(felt)
-        for j in live:                                   # in place, only the columns no equation reads: rates is hot
-            if j not in moved:
-                for i in live:
-                    J[(i, j)] = 0.0
+        if pad:                                          # rates sums |entries| and is hot: its zeros add nothing
+            moved = set(felt)
+            for j in live:
+                if j not in moved:
+                    for i in live:
+                        J[(i, j)] = 0.0
         return J, faulted
 
     def rates(self, state: dict[str, float | None]) -> float:
@@ -246,7 +247,7 @@ class _Stepper:
         rows = {s: 0.0 for s in live}
         off = {s: 0.0 for s in live}
         self.diag = {s: 0.0 for s in self.stocks}
-        for (i, j), d in self.jacobian(state)[0].items():
+        for (i, j), d in self.jacobian(state, pad=False)[0].items():
             rows[i] += abs(d)
             if i == j:
                 self.diag[i] = max(0.0, -d)
