@@ -55,6 +55,8 @@ Branches that pass their own suites conflict once merged: a new CLI flag not cla
 daemon fix racing another fix's start-up.
 Seen as: a gap's HEAD carrying another branch's merges (backlog) that origin/main lacks, so landing it ships the whole
 backlog feature.
+Seen as: the branch called built while the unit suite, the four browser files and test_repair2 were never run on the
+host, and the end-to-end tests that cover the changed stderr path were skipped.
 **Check:** before saying built, merge origin/main into the branch and run the suites again.
 *About:* goal.approved-gaps-landed, goal.queue-failures-triaged.
 
