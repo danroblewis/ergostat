@@ -878,8 +878,12 @@ item changed since folded again from the record up to then (`spec/asof.py`; when
 the whole record up to then is folded instead), and each kind's time per state counts only the moves by then. Three things
 stay of now: which states a kind counts as finished (as the item index says now, unless `messages: done:` says),
 the completion estimates (none at a moment travelled to), and the status's list of relation cycles. A snapshot
-(`ergostat snapshot`) holds the Graph and the Timeline the Items page asks for: each system's related kinds
-together, and each such kind alone. The Process view draws relations too (§5b).
+(`ergostat snapshot`) holds the Items page's list with no kind chosen; each kind chosen alone, its list (the
+first 500 of its items, as `items?kind=K` answers) and its list in each state it declares or counts; and the
+Graph and the Timeline of each system's related kinds together and of each kind alone, related or not. An
+answer that could not be got is left out, and the page says it is not in the snapshot. A set chosen (`where`,
+`moved`, a process map's `through`, `followed` or `caused`) is not held: in a snapshot it says so. The Process
+view draws relations too (§5b).
 
 **Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
 letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what
@@ -2212,7 +2216,12 @@ someone outside (a reviewer, CI) gives its ticket back this way, and is taken ag
 pushed; `after` is only the fallback re-check. An item put off is looked at again when it falls due, not at the
 dispatcher's next look. A run stopped with ergostat gives its item
 back uncounted, unless what it printed before had already moved the item on (its lines take effect as it prints
-them, section 9.1): that is an ack. A lease that expired is not ended again when its run ends.
+them, section 9.1): that is an ack. Once ergostat has begun stopping it takes no lease; a take that raced the stop is
+given back uncounted before its run starts, and a run still going when ergostat has waited its last for it has its
+lease given back uncounted as ergostat exits. A lease that could not be given back (the write failed, or ergostat was
+killed) is expired by the next engine's watchdog on its TTL, so after a restart no item stays leased by a run that
+never ran. A
+lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left

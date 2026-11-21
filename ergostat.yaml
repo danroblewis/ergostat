@@ -56,6 +56,10 @@ systems:
     within: oversight
     description: how well the factory works - cycle time, first-pass yield, fix rounds, the queue, flakes, cost
     show: [auxiliary.first-pass-yield, auxiliary.cycle-hours, auxiliary.cost-per-merged]
+  times:
+    within: oversight
+    description: how long each gap spends in each state, in the build-review loop and at each gate, held by goals
+    show: [auxiliary.loop-hours, auxiliary.in-ready-hours, auxiliary.gate-unit-minutes]
   interventions:
     within: oversight
     description: the coordinator's interventions, each evidence of a loop the factory lacks
@@ -102,7 +106,9 @@ items:
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
       gap.closed: closed             # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
                                      # manager's close, once the coordinator approved it)
-    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
+    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason,
+           loop_rounds, loop_hours]
+    # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended and gates (dev/bin/times.py)
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
@@ -243,19 +249,20 @@ items:
 
   lesson:
     id: lesson/*
-    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, or retired
-    states: [seen, proposed, requested, retired]
+    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, denied by the coordinator, or retired
+    states: [seen, proposed, requested, denied, retired]
     on:
       lesson.seen: seen              # librarian: a class not listed, found in one review
       lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
       lesson.requested: requested    # knowledge-change approved: a gap with the exact edit (lesson.py)
+      lesson.denied: denied          # knowledge-change denied: settled, never proposed again (lesson.py settle)
       lesson.retired: retired        # lesson.py retire
-    show: [kind, lesson, name, text, times, gap]
+    show: [kind, lesson, name, text, times, gap, denied_by, why]
     fold: {times: sum, reviews: union, findings: append}
 
   knowledge:
     id: knowledge/*
-    description: one entry of dev/knowledge/ in the running version (a house rule, a review lesson, a decision) - what the briefs carry, kept by the collector knowledge-sync
+    description: one entry of dev/knowledge/ in the running version, of its file's declared kind (component, rule, lesson, finding, question, source; briefs carry the rules and lessons), kept by the collector knowledge-sync - the owner's decisions are ergostat.decision items instead
     states: [active, retired]
     on:
       knowledge.found: active        # knowledge-sync: an entry in the files (or back in them)
@@ -266,7 +273,7 @@ items:
 
 messages:
   done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
+         lesson: [requested, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 
