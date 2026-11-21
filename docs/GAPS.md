@@ -96,8 +96,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 - **System architecture review** (computed measures done on `architecture`; design in
   `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
-  `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a model-level `purpose:`. *Left*: the relative gain
-  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity and aggregation from loop dominance, interface
+  `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a
+  model-level `purpose:`; candidates to aggregate from loop dominance over the window, an `aggregate` row on a
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`). *Left*: the relative gain
+  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
+  proposal to aggregate, interface
   stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
   per-system redesign and daily larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
@@ -115,12 +118,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   chosen alone (`items?kind=K`), its list in each of its states (`items?kind=K&state=S`, the states from the kind's
   own answer), and its Graph and Timeline (`items-graph?kinds=K`, related or not); an answer that cannot be got is
   left out, so the page says "not in this snapshot". Left: see *A set chosen in a snapshot*.
-- **A set chosen in a snapshot** (open; found on `a-kind-chosen-in-a-snapshot`): a set (`where`, `moved`, a process
-  map's `through`/`followed`/`caused`) chosen in a snapshot says "items: not in this snapshot". Which sets to hold
-  is open: their parameters are free (any field, any span), so they cannot all be taken ahead. Also: a kind with
-  more than 500 items is held as its first 500, and the page's "All N" link then shows the same 300. And an item's
-  own page (`items/<id>`) is held only for the first 40 of the no-kind list, so most rows of a kind chosen open to
-  "not in this snapshot".
+- **A set chosen in a snapshot** (partly done on `a-set-chosen-in-a-snapshot`; found on `a-kind-chosen-in-a-snapshot`):
+  a set's parameters are free (any field, any span), so they cannot all be taken ahead. A snapshot now holds the sets
+  its panels link to: each part's side-panel set and each process map node's and line's, as the panel lists it and
+  as the Items page shows it, up to 400 sets (SPEC §5a). *Left*: a set typed into the address by hand; the process
+  map's other `by` (states or events, whichever the map was not drawn by); the leased items a flow's panel links to;
+  item pages past the 40 held. And: a kind with more than 500 items is held as its first 500, and the page's "All N"
+  link then shows the same 300 (a kind's own list, held by *A kind chosen in a snapshot*).
 - **Resource levelling and completion estimates** (done, on `eta`; SPEC §5a, *Completion estimates*): the
   projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
   block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
@@ -302,6 +306,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   no controller reads what it manages. If the engine stops, its loops stop: so correctness never depends on them, each fails
   safe (tidying stopped means files pile up, nothing breaks), and they are watched in layers (the engine's own
   watchdog, then the runner or launchd for a dead process, with a heartbeat goal an outside watcher reads).
+  - **The item-index files** (done on `factory/upkeep-index-files`, `docs/roadmap/overnight/upkeep-index-files.md`):
+    `use: upkeep` with the loop `index-files` / `index-files-few` / `index-tidier` (`upkeep tidy --keep N`); the
+    engine stands down from tidying under it; the interlock (lock without waiting, age checked again under the lock,
+    an allowlist of index names under the resolved folder) stays in `spec/itemindex.py`. Under `use: upkeep` nothing
+    else limits the count if the tidier stops. Still to come: **upkeep-watched-loops** (the watchdog, the heartbeat
+    goal the outer watcher reads, leases and the worktree pool) and **upkeep-record-loops** (the event log's roll-up
+    and measurement retention).
 - **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):
   - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (done, 3e106ee:
     `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
@@ -325,19 +336,20 @@ review into *Done recently*). Newest decisions from the owner first within each 
   only, so its every `check` runs them again.
 - **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`). Done of it: the plan
   (`shards-from-systems`, SPEC §9.8): every part assigned to one shard by top-level system, merged by a shared agent,
-  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Left: an
-  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements.
+  taken kind or daemon (a block's or a sensor's), with the in-memory values read across shards listed as wires; and
+  an engine of one shard (`engine-runs-its-shard-1`, SPEC §9.8): `Engine(project, shard=NAME)` works only on its
+  shard's built-ins, machine blocks, goals, clock, item work, triggers, joins, daemons, observer and readings, and a
+  swap clears what moved out. `ergostat run` still runs one engine for the whole model. Left: the owner's asks
+  followed only by the shard that owns them, and the lead's one-time duties (`engine-runs-its-shard-2`); the wires
+  carried between shards (`shard-wires`); a process per shard; and the measurements.
+  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Also done
+  (`route-one-large-system-in-parts`): a line group of more than 100, one system's view included, routed in parts of
+  at most 100 (`static/routeparts.js`; `docs/layout-rules.md`), the shared group past 100 lines routed free. Left: an
+  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements; for the
+  lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's one-system view measured again.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
-- **A lease taken while the engine closes outlives the close** (open; found by
-  `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, which fails now and then on main).
-  `Dispatcher.take` (`ergostat/leases/dispatch.py`) writes `lease.taken` and folds it before adding the run to
-  `Engine.running`, so `Engine.close()` can find `running` empty and return while a lease is being taken. And
-  `runner.kill_all()` kills only what is already in `runner.LIVE`: a run spawned just after it is not killed, so its
-  process outlives `close()` and its lease stays held. A fix must not key on the process-wide `runner.STOPPING`
-  (one engine closing would kill another engine's new run in the same process), and needs its own test of the
-  `run_block` half.
 
 ## Interface
 
@@ -347,8 +359,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `/api/items?search=WORDS` list the items whose fields' text contains every word (a casefolded substring, no
     ranking, no fuzzy match; the first 65,536 characters of each item's text), kept in the item index. Not the Items
     page's own box, not MCP, not `--at`.
-  - *near, path and about*: **open** (`gap/item-graph-queries`): the items near one, the path between two, and what is
-    about one, from the index's links and text.
+  - *near, path and about*: **done** on `factory/item-graph-queries` (gap/item-graph-queries; the coordinator fills in
+    the merge commit; SPEC §5a *Graph queries*): `ergostat item ID --near [N]`, `item A --path B`, `item ID --about`
+    and `/api/items-query`: the items within N hops (1 to 4), a shortest chain of relations (a backward step named by
+    its inverse), and what links to an item (`declared`) or names its id as a whole token in a field (`inferred`);
+    each visits at most 2,000 items and says `capped` past that; an unknown id is an error. `--about`'s mentions are
+    the items the index's text holds the id in (its first 65,536 characters), checked as a whole token in each string
+    value of their fields.
 - **Light theme: the repeats toward the paper are low in contrast** (open; for a design pass, no colour work until
   then; found fixing the dark theme's): the third round of correspondence colours (`--g-fade`, 55% of the hue) stands
   1.6:1 to 2.5:1 on white, and `--g9` (gold) 2.4:1 as it is; WCAG asks 3:1 for graphics. Tried on `smallgaps`
@@ -414,6 +431,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Done recently
 
+- **A lease taken while the engine closes outlives the close** (done on `factory/a-lease-taken-while-the-engine`;
+  found by `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`; SPEC §9.5,
+  `docs/roadmap/overnight/a-lease-taken-while-the-engine.md`): `Dispatcher.take` checks the engine's own stop and
+  counts the take in `Engine.running` under the lock `close()` sets the stop under, and gives back uncounted a take
+  whose write raced the stop, starting no run; a process `run_block` starts once this engine is stopping is killed
+  (keyed on its own stop, not `runner.STOPPING`); `close()` gives back every lease it still holds before
+  `ergostat.stopped`, each ended once (`finish` reads and writes under `Dispatcher.lock`). Left as it was:
+  `runner.kill_all()` still kills every engine's runs already in `runner.LIVE`, and `STOPPING` stays set after one
+  engine closes. Six window tests in `tests/test_leases.py`, beside main's own for the same race.
 - **Daemons, left over** (done on `factory/daemons-left-over`; SPEC §6 and §9.7,
   `docs/roadmap/overnight/daemons-left-over.md`): a daemon's lines that arrive together are taken together, per run,
   up to 500 at once, in the order printed (`ergostat/daemons/lines.py`), and a line over 1 MiB is dropped; a sensor

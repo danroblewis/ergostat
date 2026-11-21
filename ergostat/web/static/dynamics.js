@@ -644,6 +644,17 @@ async function openNodeSD(n) {
   void byId;
 }
 
+/* a system's stocks that are candidates to aggregate into one delay, over the window (aggregation.py, from the loop
+   dominance the page asks for anyway): an `aggregate` row for each group, none when there is none or no answer */
+function sdAggregate(system) {
+  const box = h("div", { class: "aggregate" });
+  api("dominance", { points: CHART_POINTS }).then((d) => {
+    const mine = (d?.aggregate || []).filter((g) => g.system === system);
+    if (mine.length) box.replaceChildren(dl(mine.map((g) => ["aggregate", g.said])));
+  }).catch(() => {});
+  return box;
+}
+
 function sdOpenSystem(n) {
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, sdKindWord(p.kind)),
@@ -652,7 +663,7 @@ function sdOpenSystem(n) {
   showDetail(h("div", { class: "kind" }, n.remote ? "Module, remote" : "Module"), h("h2", {}, n.label),
     moduleCharts(n),
     n.description ? h("p", { class: "muted" }, n.description) : null,
-    remoteNote(n.remote), remoteMeasures(n), n.size ? dl([["size", n.size]]) : null,
+    remoteNote(n.remote), remoteMeasures(n), n.size ? dl([["size", n.size]]) : null, sdAggregate(n.label),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
     h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside depends on it here."),
     inside.length ? h("p", {}, `${inside.length} feedback loop${inside.length > 1 ? "s" : ""} inside it or through it, not drawn here: open it to see them`) : null,
