@@ -133,3 +133,10 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   0.5 reads off 1.2 and binds when the queue wait is on target; 1.0 reads 0.6 (the right side). With the old formula
   put back, the test failed (yield 0 read off 0.0); with the fix it passes.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+- *The fast suites after round 2:* the `unit` run stopped at 64% with no failing test, error or traceback in its tail,
+  as main's own run did for lesson-denied-settles (24b1c81e). That points to a killed or timed-out run, not a failing
+  test. No code was changed for it. Re-run here one file at a time, all pass: `tests/test_factory_manager.py` (26),
+  `tests/test_factory.py` (59, 2 skipped), `tests/test_factory_times.py` (7), `tests/test_factory_knowledge.py` (52),
+  and `tests/test_interventions.py`, `test_gated_actions.py`, `test_leases.py`, `test_backlog.py` (62 together, as they
+  read the kinds in `ergostat.yaml`). Ruff is clean. No conflict markers are left from the merge. The whole unit suite
+  was not run here (it is the factory's to run under the watchdog), so if it stops again the factory should rerun it.
