@@ -268,3 +268,29 @@ it. No code was changed, because nothing in the tail points to a fault.
   removed before merging.
 
 Left: the full `unit` output (a failing test's name, or the watchdog's line), and removing the scratch file.
+
+**Round 3, answering the round-2 review.** It had four findings. Each is answered here (lesson-12):
+- *`dropped` took lines from passes that were not kept* (`experiments.py`, blocking). Fixed. `dropped` now holds the
+  kept pass's drops, plus any later pass's "covers" line that rule 5 copied into the kept result's `why`. That second
+  part is a step the kept pass fitted and a later pass found short. Nothing else comes from a pass that was not kept.
+  This replaces the round-1 decision above ("the kept pass's line, else the first pass that dropped it").
+  - New test `test_a_drop_in_a_pass_not_kept_is_not_said`. On the three-burst fixture, d2 has no readings from k − P
+    to pass 0's half-way point of the second burst, and has readings after it. Pass 0 drops that step. Pass 1's longer
+    window fits all three steps and is kept, and the test asserts that no "has no readings" line is said. Then, with
+    pass 1 monkeypatched to "not found", pass 0 stays and its drop is said.
+  - With the old line put back, the test fails (`['the step at …: d2 has no readings in its window']`). With the fix
+    it passes.
+- *The concatenated record set no `last`* (`loop.py`, display only). Fixed. `around_step` sets `last` to the span of
+  the last (held-out) experiment in the concatenation, as `_test_windows` does. So `loop.py` draws only that
+  experiment, not all of them joined across their gaps.
+  - New test `test_the_record_of_several_experiments_draws_only_the_held_out_one`: `identify_around` is stubbed with
+    three experiments. Without the key, the test fails with `KeyError: 'last'`.
+- *`tests/test_zz_scratch.py` still committed* (blocking). **Still not done.** `git rm` was refused again in this
+  session. The factory or coordinator must `git rm tests/test_zz_scratch.py`. The branch must not reach main before
+  that.
+- *Not run by the reviewer* (the reviewer's shell was refused). Run here instead: `tests/test_outside_experiments.py`,
+  `tests/test_churn.py` and `tests/test_control.py` (70 passed, 1 xfailed), and `ruff check ergostat tests scripts`
+  (clean). SPEC's *Outside steps* paragraph now says both rules and names the two tests.
+
+Not run in round 3: the whole unit suite, the four browser files and `demo_check` (the factory runs them). origin/main
+was not merged again: this clone has no remote.

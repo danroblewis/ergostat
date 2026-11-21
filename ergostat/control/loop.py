@@ -228,7 +228,8 @@ def around_step(p, sig: record.Signals, d: dict, noise: float | None) -> dict | 
     def cut(xs):                                   # the experiments one after another, as _test_windows reads them
         return [x for a, b in ws for x in xs[a:b]]
     r["record"] = {**d, **{x: cut(d[x]) for x in ("t", "u", "y", "e")}, "others": {k: cut(xs) for k, xs in d["others"].items()},
-                   "since": o["since"], "until": o["until"]}
+                   "since": o["since"], "until": o["until"],     # drawn: the held-out experiment, as for step tests
+                   "last": (sum(b - a for a, b in ws[:-1]), sum(b - a for a, b in ws))}
     return r
 
 

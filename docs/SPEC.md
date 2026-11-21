@@ -3163,6 +3163,11 @@ last step's end. The windows are chosen in passes, three fits at most:
   pass fitted that step, its result is not proposable either, and when no step is left nothing is proposed. A step
   where u or an input fitted has no readings in its window is dropped ("d2 has no readings in its window"). It is not
   filled from another experiment. When none is left, there is no process.
+- The steps said as dropped (`outside_step.dropped`) are those the kept pass dropped, with the "covers" lines a later
+  pass found for steps the kept pass fitted. A pass that was not kept does not add its own drops
+  (`test_a_drop_in_a_pass_not_kept_is_not_said`).
+- When there are several experiments, the record drawn with the result is the held-out one, the last (`last`), as for
+  step tests (`test_the_record_of_several_experiments_draws_only_the_held_out_one`).
 
 What is measured, on a synthetic loop with a known process (`tests/test_outside_experiments.py`):
 - With one burst (τ = 60 s), K is within 0.1 and θ within 10 s on each of six seeds. The mean relative error of K and τ

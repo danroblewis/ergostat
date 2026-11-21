@@ -184,9 +184,9 @@ def around_steps(h: float, t: list, u: list, y: list, ins: dict[str, list], nois
         else:
             kept, kept_i, used = r, i, {s["k"] for e in exps for s in e["steps"]}
             passes.append("kept")
-    said: dict[int, str] = {}
-    for k, x in drops[kept_i] + [y_ for j, d in enumerate(drops) if j != kept_i for y_ in d]:
-        said.setdefault(k, x)                            # one line a step: the kept pass's, else the first that dropped it
+    said: dict[int, str] = {}       # the kept pass's drops, and a later pass's "covers" lines that rule 5 put in its why;
+    for k, x in drops[kept_i] + [(k, x) for d in drops[kept_i + 1:] for k, x in d if "covers" in x and x in kept["why"]]:
+        said.setdefault(k, x)       # never a line of a pass not kept (its window is not the one the result was fitted on)
     kept["outside_step"].update(window="process" if kept_i else "excursion", passes=passes, dropped=list(said.values()))
     return kept
 
