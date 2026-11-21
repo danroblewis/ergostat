@@ -264,16 +264,27 @@ def _service(p, args) -> int:
 
 def _restart(p, args) -> None:
     """This runner, started again in its own process (its lock kept across): a new model's name or store, or the
-    watchdog's last resort."""
+    watchdog's last resort. Every daemon's process group ended first (``supervise.end_all``: TERM, KILL within 3 s),
+    those a closed supervisor no longer saw too (a warm process dying, a group whose KILL a thread had yet to send)."""
     from .. import runner
+    from ..daemons import proc, supervise
+    from ..leases.kill import grace
     os.environ.update(runner.keep_lock_across_exec())
-    os.execv(sys.executable, [sys.executable, "-m", "ergostat", "-C", str(p.repo), "run", "--foreground",
-                              *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
+    if n := len(supervise.end_all(min(grace(), 3.0))):
+        print(f"ended {n} daemon process group{'s' if n != 1 else ''} before starting again", flush=True)
+    try:
+        os.execv(sys.executable, [sys.executable, "-m", "ergostat", "-C", str(p.repo), "run", "--foreground",
+                                  *(["--no-web"] if args.no_web else []), *(["--port", str(args.port)] if args.port else [])])
+    except OSError:                                     # (not started again: daemons may be spawned once more)
+        with proc.GROUPS_LOCK:
+            proc.CLOSING = False
+        raise
 
 
 def _restart_hard(p, args, why) -> None:
-    """The watchdog's restart when the run loop could not do it: its runs killed, nothing else waited on (what is
-    wedged may be what closing would wait for)."""
+    """The watchdog's restart when the run loop could not do it: its runs killed, its daemons' groups ended (by
+    ``_restart``: TERM, KILL within 3 s, never ``stop`` nor drained), nothing else waited on (what is wedged may be
+    what closing would wait for: no supervisor's lock, no event recorded)."""
     from .. import runner
     print(f"restarting the engine's process at once ({why})", flush=True)
     runner.kill_all()

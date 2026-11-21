@@ -650,6 +650,11 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 ## 5. Tools
 
 - **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `remote`, `help TOPIC`.
+- **Items**: `ergostat item [--kind K] [--state S] [-n N]` lists them (newest first; `-n` at most 500),
+  `ergostat item ID [--history [FIELD]]` shows one, and `ergostat item --search "WORDS" [--kind K] [--state S]` lists
+  those whose fields' string values contain every word (1 to 8 words; a plain substring, case ignored, no ranking and
+  no fuzzy match; only the first 65,536 characters of an item's text are read; as of now, never with `--at`).
+  `--json` on each; `/api/items?search=WORDS` is the same list.
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.
