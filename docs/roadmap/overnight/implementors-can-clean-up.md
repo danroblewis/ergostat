@@ -47,3 +47,16 @@ unless SPLIT_SHOTS is set), and in this container that is `/`, which cannot be w
 under ergostat/ or in that test, so it is unrelated (lesson-13) and was left alone. The other failure was a 30 s
 Playwright wait for a "page" event during the parallel run, and it passed when run again alone. Refused this round: a
 `timeout ... sh -c 'while ...; sleep'` wait for that run's output, which was not worked around.
+
+Round 4: main (12d7deb2) merged in. Its one conflict, dev/model/measures.yaml, was two independent additions to the
+auxiliaries: this branch's `tool-denials`, and main's `size-accuracy`, `size-accuracy-high` and `coverage-below-floor`.
+All four are kept. Answers to round 3's review: (1) not run by the reviewer: they are run here and by the factory's
+queue. (2) suite_watch.py runs any command given after `--`: this stays as built. Inside the disposable container,
+pytest and `rm` already run arbitrary code, and the egress proxy still blocks the network. The deny list is a list of
+tool names, and the definition keeps it as it was. No guard is claimed. (3) Reviewer sessions count toward
+`tool-denials`: kept as designed. A reviewer refused a tool is a missing permission, and the measure is meant to show
+it. (4) dev/README.md now names the implementor's new commands and `tool_denials`. After the merge:
+tests/test_factory.py 76 passed, 2 skipped, and ruff is clean. Refused this round: `uv run python
+scripts/suite_watch.py -- uv run python -m pytest ... > /tmp/unit.log 2>&1; echo rc=$?; tail` (the unit suite under
+the watchdog, a compound command). It was not worked around, so the factory's fast suites after this session are the
+unit and browser runs for this round.

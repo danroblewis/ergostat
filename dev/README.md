@@ -119,7 +119,8 @@ the intake says so on stderr and takes it once the other stops (of two requests 
 read is taken, the other waits). Each run fetches its session's work to a side ref of its own
 (`refs/incoming/<run>/factory/NAME`). Before each implementor run on a branch behind main, implement.py merges main in
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
-(it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
+(it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
+`uv run python scripts/suite_watch.py`; its refused calls are kept as `tool_denials`), and a branch that comes back without main in it (say,
 the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
 after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
