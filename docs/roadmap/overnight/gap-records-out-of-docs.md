@@ -25,3 +25,20 @@ The owner (2026-11-21) wants the per-gap working records out of `docs/`, which i
 
 ## Size budget
 40 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built in round 1; nothing in the definition is left. Choices made with nobody to ask (each the more reversible one):
+
+- `docs/roadmap/overnight/TEMPLATE.md` (point 3) does not exist on main. It was not created (that would add a file to
+  `docs/`, the opposite of this gap). The shape of a definition lives in `dev/prompts/definition.md`, which names no
+  path. `dev/bin/deps.py`'s docstring, which named TEMPLATE.md, now names that prompt instead. No other prompt names the
+  path: `implementor.md` gets it through `{definition_path}`, which is now resolved against the clone.
+- Outside "Files to touch": `dev/README.md` (the agent guide; the house rules ask that it stay current) and
+  `tests/test_factory_knowledge.py`, whose planner test asserted that the definition was committed at the old path.
+- `implement.py strays()` counts `dev/` (the records folder's top) as a known top-level folder, so the factory's own
+  definition commit is never refused as a stray file. `test_a_new_top_level_file_not_in_the_definition_is_refused`
+  failed without this, because the fixture's main has no `dev/`; the real main has it.
+- `fac.net_lines` leaves `dev/records/` out, as it already left out `docs/`, so a definition does not count in a
+  merge's size class.
+- Existing files are not moved (point 4). 13 net lines of code against the budget of 40.

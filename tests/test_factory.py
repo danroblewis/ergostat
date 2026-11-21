@@ -386,7 +386,7 @@ def test_fix_then_park(tmp_path):
     assert said[-1] == "gap.parked" and f.item(gid)["state"] == "parked"      # the kill rule: the last failed gate
     assert f.item(gid)["fields"]["parked_in"] == "review"
     definition = git(tmp_path / "live" / "drop.git", "show",
-                     "factory/alpha-thing:docs/roadmap/overnight/alpha-thing.md")
+                     "factory/alpha-thing:dev/records/alpha-thing.md")
     assert "## Where it stopped" in definition
 
 
@@ -1733,7 +1733,7 @@ def test_gate_one_takes_a_continued_gaps_named_definition_first_committed_under_
         return json.loads(r.stdout.strip().splitlines()[-1])
 
     assert gate("docs/roadmap/overnight/warm.md") == []
-    assert gate("") == ["gate 1: docs/roadmap/overnight/warm2.md is not on the branch"]   # (without it)
+    assert gate("") == ["gate 1: dev/records/warm2.md is not on the branch"]   # (without it)
     (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later\n")  # a definition the branch added
     git(wt, "add", "-A")                                                        # later: its place in history is
     git(wt, "commit", "-q", "-m", "a later file")                               # not checked
@@ -1743,6 +1743,122 @@ def test_gate_one_takes_a_continued_gaps_named_definition_first_committed_under_
     assert gate("docs/roadmap/overnight/later.md") == [
         "gate 1: docs/roadmap/overnight/later.md was changed after its first commit (other than a 'Where it "
         "stopped' section)"]
+
+
+# ---- gap-records-out-of-docs: a gap's definition under dev/records/, the old docs/roadmap/overnight/ still read
+
+OLD, NEW = "docs/roadmap/overnight", "dev/records"
+DONE = "## Definition of done\n\nIt works.\n\n## Size budget\n\n600 net lines.\n"
+
+
+def commit_files(f: Factory, files: dict[str, str], branch: str = "main") -> None:
+    """Files committed on main (pushed: the drop's main is main as pushed), or on a new branch of the checkout."""
+    if branch != "main":
+        git(f.checkout, "checkout", "-q", "-b", branch, "main")
+    for rel, text in files.items():
+        (f.checkout / rel).parent.mkdir(parents=True, exist_ok=True)
+        (f.checkout / rel).write_text(text)
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", f"{branch}: the definition of done")
+    if branch == "main":
+        git(f.checkout, "push", "-q", "origin", "main")
+    else:
+        git(f.checkout, "checkout", "-q", "main")
+
+
+def on_head(f: Factory, gid: str, rel: str) -> bool:
+    head = f.item(gid)["fields"]["head"]
+    return subprocess.run(["git", "-C", str(f.tmp / "live" / "drop.git"), "cat-file", "-e", f"{head}:{rel}"],
+                          capture_output=True).returncode == 0
+
+
+def built_and_approved(f: Factory, gid: str, review: str) -> None:
+    """Through the real readers: intake took it, implement.py built it, review.py's gate 1 found its definition."""
+    assert f.item(gid)["state"] == "ready"
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved" and not f.item(review)["fields"]["blocking"]
+
+
+def test_a_new_definition_is_written_under_dev_records(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)                                                              # (run/defs/: the implementor commits it)
+    built_and_approved(f, gid, "review/alpha-thing-1")
+    assert on_head(f, gid, f"{NEW}/alpha-thing.md") and not on_head(f, gid, f"{OLD}/alpha-thing.md")
+    drop = tmp_path / "live" / "drop.git"
+    assert git(drop, "log", "--reverse", "--format=%s", "main..factory/alpha-thing").splitlines()[0] == \
+        "alpha-thing: the definition of done"
+    brief = (tmp_path / "instance" / "run" / "briefs" / "alpha-thing-implementor-1.md").read_text()
+    assert f"committed first, at `{NEW}/alpha-thing.md`" in brief               # the implementor is told the new path
+    g = Factory(tmp_path / "on-main")                                           # one committed on main at the new path
+    commit_files(g, {f"{NEW}/alpha-thing.md": f"# alpha thing\n\n{DONE}"})
+    g.run("intake.py")
+    assert g.item("gap/alpha-thing")["fields"]["definition"] == f"main:{NEW}/alpha-thing.md"
+    built_and_approved(g, "gap/alpha-thing", "review/alpha-thing-1")
+
+
+def test_a_definition_at_the_old_path_still_resolves(tmp_path):
+    f = Factory(tmp_path)                                                       # on main
+    commit_files(f, {f"{OLD}/alpha-thing.md": f"# alpha thing\n\n{DONE}"})
+    f.run("intake.py")
+    assert f.item("gap/alpha-thing")["fields"]["definition"] == f"main:{OLD}/alpha-thing.md"
+    built_and_approved(f, "gap/alpha-thing", "review/alpha-thing-1")
+    assert not on_head(f, "gap/alpha-thing", f"{NEW}/alpha-thing.md")           # no copy at the new path
+    g = Factory(tmp_path / "branch")                                            # on a gap's branch in flight
+    behind_main(g)                                                              # (its definition at the old path)
+    gid = continues(g)
+    assert g.item(gid)["fields"]["definition"] == f"factory/warm:{OLD}/warm.md"
+    built_and_approved(g, gid, "review/warm-1")
+    assert not on_head(g, gid, f"{NEW}/warm.md")
+    said, _ = g.run("review.py", gid, FACTORY_STANDIN_VERDICT="park")           # its park note goes into that file
+    assert said[-1] == "gap.parked"
+    assert "## Where it stopped" in git(tmp_path / "branch" / "live" / "drop.git", "show", f"factory/warm:{OLD}/warm.md")
+
+
+def test_a_ref_to_the_old_path_still_resolves(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, {f"{OLD}/warm.md": f"# warm\n\n{DONE}"}, branch="warm2")    # carried on under a new name
+    gid = "gap/warm2-again"
+    f.fold([{"event": "gap.requested", "item": gid, "data": {
+        "title": "Warm 2", "source": "request", "continues": "warm2", "definition": f"factory/warm2:{OLD}/warm.md"}}],
+        None)
+    f.run("intake.py")
+    assert f.item(gid)["fields"]["definition"] == f"factory/warm2:{OLD}/warm.md"
+    built_and_approved(f, gid, "review/warm2-1")
+    assert not on_head(f, gid, f"{NEW}/warm2.md") and not on_head(f, gid, f"{OLD}/warm2.md")   # no copy made
+    g = Factory(tmp_path / "on-main")                                           # a REF on main, of a gap not continued
+    commit_files(g, {f"{OLD}/ask.md": f"# my ask\n\n{DONE}"})
+    g.fold([{"event": "gap.requested", "item": "gap/my-ask", "data": {
+        "title": "My ask", "source": "request", "definition": f"main:{OLD}/ask.md"}}], None)
+    g.run("intake.py")
+    assert g.item("gap/my-ask")["state"] == "ready"
+
+
+def test_the_new_path_wins_when_both_exist(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, {f"{OLD}/warm.md": "# warm, old\n\nThe old one.\n", f"{NEW}/warm.md": f"# warm, new\n\n{DONE}"},
+                 branch="warm")
+    gid = continues(f)
+    assert f.item(gid)["fields"]["definition"] == f"factory/warm:{NEW}/warm.md"
+    wt = tmp_path / "wt-both"
+    subprocess.run(["git", "clone", "-q", "-b", "warm", str(f.checkout), str(wt)], check=True, capture_output=True)
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, pathlib; "
+            "print(fac.definition_file({'id': 'gap/warm', 'fields': {'branch': 'warm'}}, pathlib.Path(sys.argv[2])))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(wt)], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=60)
+    assert r.stdout.strip() == f"{NEW}/warm.md", r.stderr[-800:]
+    (wt / OLD / "warm.md").unlink()                                             # only the old one: it is taken
+    (wt / NEW / "warm.md").unlink()
+    (wt / OLD / "warm.md").write_text("x\n")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(wt)], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=60)
+    assert r.stdout.strip() == f"{OLD}/warm.md", r.stderr[-800:]
+    built_and_approved(f, gid, "review/warm-1")                                 # gate 1 on the new one
+    g = Factory(tmp_path / "on-main")                                           # both on main: the new one
+    commit_files(g, {f"{OLD}/alpha-thing.md": "# old\n", f"{NEW}/alpha-thing.md": f"# alpha thing\n\n{DONE}"})
+    g.run("intake.py")
+    assert g.item("gap/alpha-thing")["fields"]["definition"] == f"main:{NEW}/alpha-thing.md"
 
 
 def test_a_branch_another_gap_still_holds_is_not_continued_until_it_stops(tmp_path):
