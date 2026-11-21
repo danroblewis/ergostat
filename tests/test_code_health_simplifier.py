@@ -103,6 +103,7 @@ def simp(monkeypatch, tmp_path, repo):
     fac = module("fac")
     monkeypatch.setitem(sys.modules, "fac", fac)
     monkeypatch.setattr(fac, "MODEL", tmp_path)
+    monkeypatch.delitem(sys.modules, "measure", raising=False)                    # imported again against this fac
     s = module("simplify")
     rec = Record()
     monkeypatch.setattr(fac, "items", rec.items)
@@ -110,7 +111,7 @@ def simp(monkeypatch, tmp_path, repo):
     s.rec = rec
     s.cfg = {"paths": {"checkout": str(repo), "run": str(tmp_path / "run"), "live": str(tmp_path / "live")},
              "git": {"base": "main"},
-             "code_health": {"coverage": str(coverage(tmp_path)), "floor": 0.6, "size": 1.0, "churn": 0.25,
+             "code_health": {"coverage": str(coverage(tmp_path)), "coverage_floor": 0.6, "size": 1.0, "churn": 0.25,
                              "duplicates": 1.0, "dead": 0.5}}
     return s
 
@@ -198,6 +199,35 @@ def test_no_pick_when_evidence_is_missing(simp, tmp_path, capsys):
 
     simp.rec.gaps.clear()                                                         # and with all of it, a request
     assert simp.request(cfg, NOW) == 0 and len(simp.rec.added) == 1
+
+
+def test_pick_reads_mains_latest_coverage_report(simp, repo, tmp_path, capsys):
+    """With no report file named, the pick reads main's latest coverage report under run/coverage/ by its seq, as the
+    coverage measure does; none there means no pick."""
+    cfg = simp.cfg
+    del cfg["code_health"]["coverage"]
+    assert simp.request(cfg, NOW) == 0
+    assert not simp.rec.added and "no pick" in capsys.readouterr().out             # no report yet
+    sha, top = git(repo, "rev-parse", "HEAD"), tmp_path / "run" / "coverage"
+    mods = json.loads(coverage(tmp_path).read_text())
+    for tag, seq, big in (("gap-a-20261120T000000Z", 2, 0.5), ("gap-b-20261101T000000Z", 1, 0.9)):
+        (top / tag).mkdir(parents=True)
+        report = {"main": sha, "seq": seq, "modules": {**mods, "ergostat/big.py": {**mods["ergostat/big.py"],
+                                                                                    "share": big}}}
+        (top / tag / "coverage.json").write_text(json.dumps(report))
+    row, _, passed = simp.choose(cfg, [], NOW)                                    # seq 2 wins, though named later
+    assert row["module"] != "ergostat/big.py" and "under the floor" in passed["ergostat/big.py"]
+    (top / "gap-a-20261120T000000Z" / "coverage.json").write_text("{not json")
+    assert simp.request(cfg, NOW) == 0
+    assert not simp.rec.added and "unreadable report" in capsys.readouterr().out
+
+
+def test_the_factory_settings_read_as_one_code_health_table():
+    """dev/factory.toml parses (a second [code_health] table, as a merge once left it, does not) and holds what the
+    pick reads; with no `coverage` file named, the pick reads main's latest report."""
+    import tomllib
+    hc = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["code_health"]
+    assert {"coverage_floor", "size", "churn", "duplicates", "dead"} <= set(hc) and "coverage" not in hc
 
 
 def test_pool_one_under_a_racing_request(simp, monkeypatch):

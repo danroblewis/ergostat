@@ -140,3 +140,26 @@ Run: this file's tests, `tests/test_factory.py`, `tests/test_factory_resources.p
 flock removed (the race test requested two gaps); the date left out of the id (the same-module test merged the old
 fields); the allowlist bypassed (the removals test); `tests/` and `ergostat.yaml` left out of the naming pass (the
 evidence test).
+
+### Round 2: after main (with code-health-coverage) was merged in
+
+The merge of main (71a54d51) brought `code-health-coverage`, merged, and left `dev/factory.toml` with two
+`[code_health]` tables. That is invalid TOML, so every factory program would have failed to read its settings. No
+test read the real file. Fixed, each the more reversible reading:
+
+- **One table.** `[code_health]` holds the coverage gap's `coverage_floor` and the simplifier's weights. The
+  simplifier's own `floor` is gone: the pick uses `coverage_floor`, so the two never disagree.
+- **The report as the coverage gap writes it.** The fixed `coverage = "run/coverage/coverage.json"` is gone. That gap
+  keeps reports under `run/coverage/<tag>/coverage.json`, so the fixed path would never have existed. With no
+  `coverage` set, `simplify.py` reads main's latest report through `measure.coverage_report`, the measure's own
+  choice: by `seq`, only a commit on main, refused past 20 merges, and any unreadable report refused. It writes the
+  shares to `run/simplify-coverage.json` for `code_evidence.py`. A refusal there is a no-pick (lesson-3). This
+  replaces round 1's "not checked: the report's sha or seq". `coverage = "FILE"` still names one report file (the
+  tests use it).
+- New tests: `test_pick_reads_mains_latest_coverage_report` (no report means no pick; seq 2 is chosen over seq 1; an
+  unreadable report means no pick) and `test_the_factory_settings_read_as_one_code_health_table` (the real
+  `dev/factory.toml` parses and holds the keys). Break check: the default pointed back at the fixed path fails the
+  first. By reading, the second fails on 71a54d51's file (tomllib refuses a table declared twice). That was not run.
+
+Run here, one file at a time: this file's tests (10 passed), `tests/test_code_health_coverage.py` (11 passed),
+`tests/test_factory.py` (102 passed, 2 skipped), and ruff clean. Not run: the full unit suite and the four browser files.

@@ -289,7 +289,9 @@ is not spent, the simplifier (`dev/bin/simplify.py`, a program) picks one module
 the last 60 days, duplicate function bodies and dead candidates, weighted in `[code_health]`. A "dead candidate" is
 only a top-level name that nothing else names as a word (strings, tests, YAML `run:` lines and `pyproject.toml`
 counted); a name built at run time is not seen, so it is a candidate, never a finding. A module under the coverage
-floor (or not in the coverage report), touched by a gap in flight, or picked in the last 30 days is passed over.
+floor (`coverage_floor`, or not in the report), touched by a gap in flight, or picked in the last 30 days is passed
+over. Coverage is main's latest report under `run/coverage/`, chosen as `measure.py coverage` chooses it (by seq, on
+main, at most 20 merges old); `[code_health] coverage = "FILE"` names one report instead.
 It asks for `gap/simplify-<module>-<yyyymmdd>` (`source: simplifier`) with a definition from
 `dev/prompts/simplify.md`: remove only, behaviour and tests unchanged, net lines below 0, and one trailer per removal,
 `Removed: <class> <path>[::<name>] <lines>`. The ordinary implementor and reviewer build it. Pool 1 is fixed in the

@@ -47,10 +47,25 @@ def in_flight(gaps: list[dict]) -> list[dict]:
     return [g for g in simplifier_gaps(gaps) if g["state"] not in DONE]
 
 
+def coverage_file(cfg: dict) -> Path:
+    """The coverage report to read: ``[code_health] coverage`` when a file is named, else main's latest report under
+    run/coverage/ as measure.py chooses it (by seq, on main, not stale), its shares written to run/simplify-coverage.json.
+    None, or one unreadable, is NoPick (lesson-3)."""
+    if cfg["code_health"].get("coverage"):
+        cov = Path(cfg["code_health"]["coverage"]).expanduser()
+        return cov if cov.is_absolute() else fac.MODEL / cov
+    import measure
+    try:
+        shares = measure.coverage_report(cfg)
+    except SystemExit as e:
+        raise NoPick(str(e)) from None
+    p = fac.run_dir(cfg) / "simplify-coverage.json"
+    p.write_text(json.dumps({m: {"share": s} for m, s in shares.items()}))
+    return p
+
+
 def evidence(cfg: dict) -> list[dict]:
-    hc, repo = cfg["code_health"], fac.path(cfg, "checkout")
-    cov = Path(hc["coverage"]).expanduser()
-    cov = cov if cov.is_absolute() else fac.MODEL / cov
+    repo, cov = fac.path(cfg, "checkout"), coverage_file(cfg)
     r = subprocess.run([sys.executable, str(EVIDENCE), "--root", str(repo), "--ref", cfg["git"]["base"],
                         "--coverage", str(cov)], capture_output=True, text=True, timeout=600)
     if r.returncode:
@@ -90,7 +105,7 @@ def score(cfg: dict, rows: list[dict]) -> list[tuple[float, dict]]:
 def choose(cfg: dict, gaps: list[dict], now: float) -> tuple[dict, float, dict]:
     """The best-scoring module not skipped: (its evidence, its score, why the others above it were passed over)."""
     rows = evidence(cfg)
-    floor, busy = float(cfg["code_health"]["floor"]), touched(cfg, gaps)
+    floor, busy = float(cfg["code_health"]["coverage_floor"]), touched(cfg, gaps)
     recent = {g["fields"].get("module") for g in simplifier_gaps(gaps)
               if now - float(g["fields"].get("requested_at") or now) < RECENT_DAYS * 86400}
     passed = {}
