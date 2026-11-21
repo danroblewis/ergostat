@@ -7,7 +7,6 @@ from __future__ import annotations
 import io
 import json
 import subprocess
-import sys
 import tarfile
 import time
 
@@ -51,11 +50,10 @@ def wait_for(cond, seconds=10.0):
 
 
 def check_found(folder) -> list[str]:
-    """`ergostat check`'s errors and findings (its notes, the structure's screens, are advice and left out)."""
-    r = subprocess.run([sys.executable, "-m", "ergostat", "check", "--json", "--no-coherence"], cwd=folder,
-                       capture_output=True, text=True, timeout=300)
-    return sorted(f"{x.get('level')} {x.get('code')} {x.get('message')}" for x in json.loads(r.stdout).get("found", [])
-                  if x.get("level") != "note")
+    """The model's errors and findings, as `ergostat check` reads them (in process, no store opened; its notes, the
+    structure's screens, are advice and left out)."""
+    _, problems = read(folder / "ergostat.yaml")
+    return sorted(f"{p.level} {p.code} {p.message}" for p in problems if p.level != "note")
 
 
 def test_a_split_whose_sub_gaps_all_merged_waits_in_joined(tmp_path):
@@ -72,7 +70,8 @@ def test_a_split_whose_sub_gaps_all_merged_waits_in_joined(tmp_path):
     tar = subprocess.run(["git", "archive", "main", "ergostat.yaml", "dev"], cwd=ROOT, capture_output=True,
                          check=True).stdout
     tarfile.open(fileobj=io.BytesIO(tar)).extractall(main, filter="data")
-    assert set(check_found(ROOT)) - set(check_found(main)) == set()
+    here = {f"{x.level} {x.code} {x.message}" for x in problems if x.level != "note"}
+    assert here - set(check_found(main)) == set()
     (tmp_path / "m").mkdir()
     p = gap_model(tmp_path / "m")
     p.events.add("gap.split", item=GID, source="t")
