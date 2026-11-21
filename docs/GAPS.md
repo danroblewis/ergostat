@@ -314,7 +314,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   windup is only tested where a block writes `gain:`; the CLI waits at most 5 s, so a large model's first `check` says
   the rest are still to run; a project never run (no state directory, which `check` never makes) keeps them in memory
   only, so its every `check` runs them again.
-- **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`).
+- **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`). Done of it: the plan
+  (`shards-from-systems`, SPEC §9.8): every part assigned to one shard by top-level system, merged by a shared agent,
+  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Left: an
+  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
