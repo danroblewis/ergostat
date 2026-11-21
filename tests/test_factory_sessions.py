@@ -111,7 +111,7 @@ def test_the_copy_is_capped_and_asserts_the_token_gone(tmp_path, mods):
 def model_with_sessions(tmp_path: Path) -> Project:
     """A project with the root model's session kind and the kinds it relates to."""
     root = yaml.safe_load((ROOT / "ergostat.yaml").read_text())
-    kinds = {k: root["items"][k] for k in ("session", "gap", "research", "review")}
+    kinds = {k: root["items"][k] for k in ("session", "gap", "research", "review", "situation")}
     for k in kinds.values():
         k.pop("join", None)
         k["on"] = k.pop(True)                                                   # (YAML 1.1 reads `on:` as true)
@@ -176,6 +176,7 @@ def test_the_container_mounts_only_the_sessions_own_folder(tmp_path, mods):
                            tmp_path / "work", "n", keep)
     mounts = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
     assert mounts == [f"{tmp_path / 'work'}:/work:ro", f"{keep.raw}:/home/dev/.claude/projects"]
-    assert not any(str(Path.home()) in m for m in mounts) and "run" not in keep.raw.parts
+    hosts = [m.split(":", 1)[0] for m in mounts]                                  # the host side of each mount
+    assert not any(h == str(Path.home()) or h.startswith(str(Path.home() / ".claude")) for h in hosts) and "run" not in keep.raw.parts
     assert args[args.index("--session-id") + 1] == keep.sid and args[args.index("--output-format") + 1] == "json"
     assert keep.copy.src == keep.raw / "-work" / f"{keep.sid}.jsonl"           # where Claude Code writes it for /work

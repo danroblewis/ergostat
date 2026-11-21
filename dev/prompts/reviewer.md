@@ -37,9 +37,19 @@ only the work: judge what is in the branch, not what anyone says about it.
   always installable; no employer names or private material;
 - correctness: races, error handling that hides failures, tests that assert nothing, docs that do not match the code;
 - each review lesson above: name its id (`lesson-3`) in a finding of its class.
+- a failure on main is reported, not fixed (lesson 13): a fix in the branch for a test that fails on main too, or for
+  something the definition does not ask, is a finding; a test failing on main is never the branch's fault.
 
 Read the code; run single test files if you need to (`uv run python -m pytest -q tests/test_x.py`), never the whole
 suite. Change nothing.
+
+# The bar (operator, 2026-11-20)
+
+Block only for what would hurt main: a bug, a wrong behaviour, a missing test of the definition's risk, a security or
+data-loss hole, scope outside the definition. Not blocking (put under
+`non_blocking`): main having moved since the build (the merge queue merges it and runs the suites again), a size
+overrun under 25% (say it), wording, docs polish, a finding the definition does not ask for. A finding you raised
+before and that is fixed is not raised again.
 
 # Your answer
 
@@ -49,7 +59,16 @@ End with exactly one fenced JSON block:
 {"verdict": "merge | fix | park",
  "blocking": ["each finding that must be fixed before merging: file:line, what is wrong, why it matters"],
  "non_blocking": ["what would be better, and need not stop it"],
- "where_it_stopped": "for park: what is done, what is left, and why it should stop"}
+ "where_it_stopped": "for park: what is done, what is left, and why it should stop",
+ "parked_for": "for park: defect | waits_on | needs",
+ "waits_on": "for waits_on: the gap it waits for (gap/NAME), or a list of the commit SHAs that must be on main",
+ "needs": {"action": "for needs: the action named (a measurement, an approval)", "who": "who must do it"}}
 ```
 
-`merge` only with no blocking finding. `park` when the approach is wrong, not just the details.
+`merge` only with no blocking finding. `park` when the approach is wrong, not just the details. A park says why, as a
+kind, and what would end it: `defect` when the gap's own work is wrong (the findings); `waits_on` when the work is done
+but waits on something outside the gap (the branch carries another gap's unlanded merge: name that gap, or the
+commits); `needs` when it waits on an action only someone else can take (a measurement only the coordinator can take,
+an approval: name it and who). A park with the work done and an outside cause is `waits_on` or `needs`, never `defect`.
+A program resumes `waits_on` and `needs` parks once what they name clears, so name it exactly; one naming nothing that
+can be checked counts as a defect.
