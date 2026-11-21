@@ -291,6 +291,40 @@ def test_status_off_loop_points_at_knowledge(home, capsys):
     assert loops["a"]["about"].endswith("+2") and "about" not in loops["calm"]
 
 
+def test_status_at_a_past_time_names_no_items(home, capsys):
+    """The items are open now: a past snapshot's off loop does not name them (SPEC §5a)."""
+    import time
+
+    from ergostat.cli import main
+    p = project(home)
+    found(p, "knowledge/g", ["goal.a"], at=time.time() - 7200)
+    p.measurements.add("sensor/a.main", 50, at=time.time() - 3600)
+    main(["-C", str(home), "status", "--json"])
+    assert json.loads(capsys.readouterr().out)["loops"]["a"].get("about") == "knowledge/g"   # live: named
+    main(["-C", str(home), "status", "--at", "30m"])
+    out = capsys.readouterr().out
+    assert "loop a:" in out and "knowledge/" not in out, out
+    main(["-C", str(home), "status", "--at", "30m", "--json"])
+    got = json.loads(capsys.readouterr().out)
+    assert "about" not in got["loops"]["a"] and "knowledge/" not in json.dumps(got["attention"])
+
+
+def test_the_index_file_changes_with_its_layout_and_the_about_field(home, monkeypatch):
+    """An index of another layout (main's VERSION 4 had text but no @about links) or of a kind without ``about:``
+    is never opened as current: VERSION and each kind's ``about`` are part of the file's name."""
+    p = project(home)
+    found(p, "knowledge/one", ["goal.a"], "One")
+    now = ii.index_for(p.events, p.model.spec, False).path
+    ii._OPEN.clear()
+    monkeypatch.setattr(ii, "VERSION", ii.VERSION - 1)
+    assert ii.index_for(p.events, p.model.spec, False).path != now
+    monkeypatch.undo()
+    ii._OPEN.clear()
+    assert ii.index_for(p.events, p.model.spec, False).path == now
+    bare = project(home, MODEL.replace("    about: about\n", ""))
+    assert ii.kinds_key(bare.model.spec) != ii.kinds_key(p.model.spec)
+
+
 def test_status_with_an_unreadable_index_says_unknown(home, capsys, monkeypatch):
     from ergostat.cli import main
     p = project(home)

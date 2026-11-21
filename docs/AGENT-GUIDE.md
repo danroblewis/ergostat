@@ -88,7 +88,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    list, so the collector says the whole list each time (an empty list when the item names none any more). Then
    `ergostat explain goal.x` ends with the open items about it (at most 5, then "and N more"; finished ones are not
    listed), a `check` finding about a part carries their ids, and an off loop in `ergostat status` names them (at
-   most 3, then "+N"). A name that is not a part of the model is the finding `about-missing-part`: fix the name.
+   most 3, then "+N"; none under `--at`). A name that is not a part of the model is the finding `about-missing-part`: fix the name.
    "unknown" in any of these means the item index could not be read, not that there is no knowledge.
 5. **One block per step that does the work**, taking items in its state:
    `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
