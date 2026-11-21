@@ -117,3 +117,10 @@ permission mode, and nothing else was tried to delete the file. Nothing changed:
 only thing left is `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, run by a person or by
 a session that is allowed to delete files, then the factory's suites. Sending this item back to an implementor with
 the same permissions will not move it.
+
+Round 7: the seventh refusal. `git rm -r .bench` was denied by the "don't ask" permission mode, and nothing else was
+tried to delete the file (no `rm`, revert or `git update-index`). No code changed and no suites were run. What is left
+is the same: a person, or a session allowed to delete files, runs
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending the
+item back to an implementor with these permissions will not end this loop; the factory has to allow the deletion or
+stop re-queuing it.
