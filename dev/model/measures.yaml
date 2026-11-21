@@ -30,6 +30,11 @@ auxiliaries:
     description: median minutes of a queue run (merge and suites)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/measure.py queue-minutes, every: 10m, timeout: 1m, description: the factory's measures}
+  merges-per-hour:
+    unit: gaps/hour
+    description: gaps merged over the hours of every queue run (each run's whole length once, landing anything or not) - what a bigger batch buys
+    driven-by: [+stock.queue-batch, -auxiliary.queue-minutes]
+    sensor: {run: python3 dev/bin/measure.py merges-per-hour, every: 10m, timeout: 1m, description: the factory's measures}
   suite-minutes:
     unit: minutes
     description: median minutes of the queue's suites (unit, browser, demo_check) on its green runs
@@ -55,6 +60,14 @@ auxiliaries:
     description: dollars of AI sessions per merged gap, every round of the implementor and the reviewer
     driven-by: [+auxiliary.ai-spend]
     sensor: {run: python3 dev/bin/measure.py cost-per-merged, every: 10m, timeout: 1m, description: the factory's measures}
+  coverage-below-floor:
+    unit: modules
+    description: >-
+      modules of ergostat/, dev/bin/ and scripts/ whose share of statements run in-process by main's unit suite is
+      under [code_health] coverage_floor (dev/README.md, Coverage; a subprocess-only module's share is a lower bound);
+      no value without a readable report at most 20 of main's merges old
+    driven-by: [-flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py coverage-below-floor, every: 30m, timeout: 1m, description: the factory's measures}
 
 goals:
   first-pass-good:

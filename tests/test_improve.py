@@ -371,16 +371,22 @@ def test_a_passed_parameter_change_is_written_when_the_judge_says_auto(tmp_path)
     assert pr.accepted(p)[-1]["proposal"] == got["id"]
 
 
-def test_accepting_one_change_supersedes_the_others_made_against_the_old_version(tmp_path):
+def test_accepting_one_change_carries_or_supersedes_the_others_by_their_subject(tmp_path):
     p, snap = long_queue(tmp_path, text=LEAKS)
     a = im.submit(p, "x", raw(3))
+    c = im.submit(p, "y", raw(4))                                          # about k too
     b = im.submit(p, "x", {"kind": "structure", "parts": ["flow.leaks"], "title": "leaks at once",
                            "edit": {"file": "ergostat.yaml", "replace": "    driven-by: +flow.arrivals",
                                     "with": "    driven-by:\n      - {cause: +flow.arrivals, instant: true}\n      - +stock.queue"},
                            "reasons": [{"says": "a rate on a rate", "evidence": "finding:rate-driven-by-rate@flow.leaks"}]})
-    pr.accept(p, a["id"], snap)
-    assert item(p, a["id"])["state"] == "accepted" and item(p, b["id"])["state"] == "superseded"
-    assert b["id"] not in {x["id"] for x in pr.pending(p)}
+    assert a["status"] == b["status"] == c["status"] == "proposed"
+    pr.accept(p, a["id"], snap)                                            # the carry happens in the same Accept
+    v = pr.ver.version(p.model.spec)
+    xb, xc = pr.changes(p)[b["id"]], pr.changes(p)[c["id"]]
+    assert item(p, a["id"])["state"] == "accepted"
+    assert xb[0] == "checked" and xb[1]["version"] == v and xb[1]["rebased"]["to"] == v      # its subject unchanged
+    assert b["id"] in {x["id"] for x in pr.pending(p)}
+    assert xc[0] == "superseded" and "parameter.k" in xc[1]["why"]                           # its subject edited
 
 
 def test_a_structural_change_waits_for_the_owner_even_passed(tmp_path):
@@ -392,7 +398,8 @@ def test_a_structural_change_waits_for_the_owner_even_passed(tmp_path):
     out = jd.run(p, "judge")
     x = pr.stored(p)[got["id"]]
     assert out["passed"] == 1 and out["accepted"] == 0 and x["state"] == "passed"
-    assert "answers 2 findings" in x["verdict"]["why"]                              # the fit cannot see it; check can
+    v = x["verdict"]                     # the fit cannot see it (its replay is the model's): the scorecard judges it
+    assert v["on"] == "structure" and v["scorecard"]["verdict"] == "better" and jd.owners(x), v["why"]
 
 
 def test_a_change_worse_on_the_record_held_out_fails_with_the_windows(tmp_path):

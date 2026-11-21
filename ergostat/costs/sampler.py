@@ -4,12 +4,17 @@ wait status.
 - **The wait status** (``Measured``, a ``Popen`` that reaps its process with ``wait4``): the exact user and system CPU
   of the run's process and of every descendant it waited for, and the largest resident memory of any one of them. A
   descendant left running, or never waited for, is not in it.
-- **Sampling** (``Sampler``): one thread for every run at once, never one per run, which every ``INTERVAL`` seconds
-  lists the processes once (``/proc`` on Linux; one ``ps`` elsewhere) and finds each run's tree: its process group
+- **Sampling** (``Sampler``): one thread for every run at once, never one per run, which lists the processes once
+  per sample (``/proc`` on Linux; one ``ps`` elsewhere) and finds each run's tree: its process group
   (each run is a session of its own) and its descendants by parent. Per run it keeps each process's last CPU time, the
   most memory the tree held at once (resident, summed over the tree), the most processes and, where it is cheap
   (``/proc``, or ``libproc`` on macOS for the user's own processes), the most open files. A process that lived less
   than an interval between two samples is not seen; memory between samples is not seen.
+- **When** (the ramp and the floor): a run is first due ``min(floor, interval)`` after it is tracked; each sample
+  doubles every run's gap, up to ``interval``. So with the daemons' sampler (interval 30 s, floor 1 s) a new daemon
+  is sampled at about 1, 3, 7, 15 and 31 s, then every 30 s; the runs' sampler (1 s, 1 s) about every second. A
+  sample is taken when the soonest run is due, and never sooner than ``floor`` after the last one, however many
+  processes start (a new one wakes the thread to look again, never to sample at once). Load can only make it later.
 
 When the run ends the two are put together: CPU is the larger of the wait status and the sum sampled (each misses what
 the other sees: the sampled sum misses the last part of the final interval and short-lived processes; the wait status
@@ -29,7 +34,8 @@ import sys
 import threading
 import time
 
-INTERVAL = 1.0                 # seconds between samples
+INTERVAL = 1.0                 # seconds between samples of a run, at most
+FLOOR = 1.0                    # seconds between any two samples, at least
 LINUX = sys.platform.startswith("linux")
 MACOS = sys.platform == "darwin"
 
@@ -160,7 +166,8 @@ class Tracker:
         self.processes = 0
         self.files: int | None = None
         self.samples = 0
-        self.overhead = 0.0                               # the sampler's CPU, this run's share
+        self.gap, self.due = 0.0, self.started            # (its sampler's: the gap to its next sample, when due)
+        self.overhead = 0.0                             # the sampler's CPU, this run's share
 
     def see(self, tree: list[tuple], files: int | None, share: float) -> None:
         self.samples += 1
@@ -188,30 +195,48 @@ class Tracker:
 
 
 class Sampler:
-    """One thread that samples every run's process tree; it runs only while some run is tracked."""
+    """One thread that samples every run's process tree; it runs only while some run is tracked. ``thread=False``: it
+    never starts one (its ``wait`` and ``sample`` are called by hand)."""
 
-    def __init__(self, interval: float = INTERVAL, name: str = "ergostat-sampler"):
-        self.interval, self.name = interval, name
+    def __init__(self, interval: float = INTERVAL, name: str = "ergostat-sampler", floor: float = FLOOR,
+                 thread: bool = True):
+        self.interval, self.name, self.floor, self.threaded = interval, name, floor, thread
         self.lock = threading.Lock()
         self.runs: dict[int, Tracker] = {}
         self.thread: threading.Thread | None = None
         self.wake = threading.Event()
+        self.last = float("-inf")      # when it last sampled
         self.cpu = 0.0                 # its own CPU so far: its thread's, and the ps it ran
         self.taken = 0                 # samples taken
         self.busy = 0.0                # wall seconds it spent sampling
 
-    def track(self, proc: subprocess.Popen) -> Tracker:
+    def track(self, proc: subprocess.Popen, now: float | None = None) -> Tracker:
         t = Tracker(proc)
+        t.gap = min(self.floor, self.interval)
+        t.due = (time.monotonic() if now is None else now) + t.gap
         with self.lock:
             self.runs[proc.pid] = t
-            if self.thread is None or not self.thread.is_alive():
+            if self.threaded and (self.thread is None or not self.thread.is_alive()):
                 self.thread = threading.Thread(target=self._loop, name=self.name, daemon=True)
                 self.thread.start()
+        self.wake.set()
         return t
+
+    def wait(self, now: float) -> float | None:
+        """Seconds until the next sample: the soonest run due, never sooner than ``floor`` after the last sample.
+        None while nothing is tracked (nothing to wait for but a wake)."""
+        with self.lock:
+            return self._wait(now)
+
+    def _wait(self, now: float) -> float | None:   # (its caller holds the lock)
+        due = min((t.due for t in self.runs.values()), default=None)
+        return None if due is None else max(0.0, max(self.last + self.floor, due) - now)
 
     def finish(self, t: Tracker) -> dict:
         with self.lock:                # (not while a sample is being taken: it has the lock)
             self.runs.pop(t.root, None)
+            if not self.runs:
+                self.wake.set()        # (the thread looks again, sees nothing tracked, and ends)
             return t.result()
 
     def stats(self) -> dict:
@@ -220,19 +245,28 @@ class Sampler:
 
     def _loop(self) -> None:
         while True:
-            with self.lock:
+            with self.lock:            # (one look: never a wait computed after the last run left, with no end)
                 if not self.runs:
                     self.thread = None
                     return
-            self.wake.wait(self.interval)
-            self.wake.clear()
+                wait = self._wait(time.monotonic())
+            if wait > 0:                           # (a wake looks again; it never samples by itself)
+                self.wake.wait(wait)
+                self.wake.clear()
+                continue
             try:
                 self.sample()
             except Exception:          # (a listing that failed: the next one may not)
                 pass
 
-    def sample(self) -> None:
+    def sample(self, now: float | None = None) -> None:
         t0, c0 = time.monotonic(), time.thread_time()
+        now = t0 if now is None else now
+        with self.lock:                # (first: a listing that fails is not tried again sooner than the floor)
+            self.last = now
+            for t in self.runs.values():
+                t.gap = min(2 * t.gap, self.interval)
+                t.due = now + t.gap
         rows, ps_cost = _ps()
         kids: dict[int, list[int]] = {}
         by_group: dict[int, list[tuple]] = {}

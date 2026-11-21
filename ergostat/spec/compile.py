@@ -15,6 +15,7 @@ from .equation import FUNCS as FUNCTIONS
 from .ir import (
     ACTION,
     BUILTIN,
+    CHANGE_CLASSES,
     CLAIM,
     CLAIM_CHECKS,
     CONTEXT,
@@ -66,7 +67,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "
                "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -90,7 +91,7 @@ TYPE_KEYS = {
                                        "workdir", "workspace", "read", "tools", "actions", "read-only", "network"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
     "external": {"agent", "identify"},
-    "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up",                # judge: model (SPEC §12e)
+    "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up", "reviewed",              # judge: model (SPEC §12e)
               "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
     "compare": {"above", "below", "back-above", "back-below"},
@@ -296,6 +297,13 @@ class Compiler:
                 self.err(f"{what}.warm-up: a duration, 0 or more", m.at("warm-up"), "bad-duration")
             else:
                 out.warm_up = wu
+        rv = m.get("reviewed")                   # the kinds written only after the reviewer's pass
+        if rv is not None:
+            ks = [str(k) for k in (rv if isinstance(rv, list) else str(rv).replace(",", " ").split())]
+            if any(k not in CHANGE_CLASSES for k in ks):
+                self.err(f"{what}.reviewed: kinds of change ({', '.join(CHANGE_CLASSES)})", m.at("reviewed"), "bad-accept")
+            else:
+                out.reviewed = ks
         w = m.get("windows")
         if w is not None:
             if not isinstance(w, list) or not w or not all(isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= 16
@@ -672,10 +680,17 @@ class Compiler:
         from . import joins
         from .relations import compile_relations
         relations = compile_relations(self, m, what, rules)
+        about = m.get("about")                       # the field naming the parts it is about (SPEC §5a, *About*)
+        if about is not None and (not isinstance(about, str) or not about or about in relations
+                                  or rules.get(about, "replace") != "replace"):
+            self.err(f"{what}.about: the name of a field (not a relation) holding the parts of the model it is about "
+                     f"(goal.x, stock.y), folded by replace: an event that sets it replaces the list", m.at("about"),
+                     "bad-about")
+            about = None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what))
+                        join=joins.compile_join(self, m, what), about=about)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""

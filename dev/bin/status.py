@@ -1,7 +1,8 @@
 """One screen of the factory for the coordinator, from its record; run in the instance's folder.
 
     status.py      in flight, blocked (on what), failed (why), the queue, the top of the backlog by rank, research,
-                   proposed lessons, spend today and first-pass yield
+                   proposed lessons, spend today and first-pass yield, the switch (waiting, draining or switching:
+                   drain.py), and the time in each state, the loop and the gates (median and p90, with goals)
     status.py session GAP [ROLE] [N]
                    a session's conversation (run/sessions/, sessions.py): each message, each tool call with its input
                    summarised, each result cut short. Without N, the role's latest; without ROLE, the gap's sessions
@@ -13,10 +14,12 @@ import sys
 import time
 
 sys.dont_write_bytecode = True
+import drain  # noqa: E402
 import fac  # noqa: E402
 import measure  # noqa: E402
 import resources  # noqa: E402
 import sessions  # noqa: E402
+import times  # noqa: E402
 
 FLIGHT = ("planned", "building", "in-review", "queued")
 WAITING = ("open", "replan", "ready", "fix", "built", "approved")
@@ -94,9 +97,15 @@ def main() -> int:
         spend = f"cannot be told ({type(e).__name__}: {e}): sessions refuse"
     out.append(f"Spend today {spend}; first-pass yield (14 days) {fpy}")
     try:
+        out.append(drain.describe(cfg))
+    except Exception as e:  # noqa: BLE001 - said, as the switcher would not switch
+        out.append(f"Switch cannot be told ({type(e).__name__}: {e})")
+    try:
         out.append(resources.line(cfg))
     except Exception as e:  # noqa: BLE001 - said, as the gates would hold
         out.append(f"Resources cannot be told ({type(e).__name__}: {e}): the gates hold new sessions")
+    out.append("Time in each state, the build-review loop and the gates (14 days; dev/bin/times.py)")
+    out.extend(times.table(gaps, time.time() - measure.WINDOW, time.time()))
     print("\n".join(out))
     return 0
 
