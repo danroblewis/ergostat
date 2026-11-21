@@ -3,7 +3,7 @@
 - each top-level entry of docs/GAPS.md on the checkout's main, outside *Done recently* and not itself done, that the
   record does not hold yet: `gap.found` (open); one GAPS.md marks done or superseded (`head`: the first clause of its
   opening parenthetical, or after its colon, begins with "done" or "superseded by") that the record holds not yet
-  started: `gap.closed` (end done or duplicate);
+  started: `gap.closed` (end done or duplicate); an entry listed twice (twice()) neither, but a dependency problem;
 - requests submitted as events (`ergostat event --add gap.requested --item gap/NAME --data '{"title": ...}'`) are in
   the record already, open;
 - each open gap with a definition of done: `gap.defined` (ready). A definition is the gap's `definition` field (a
@@ -78,6 +78,21 @@ def gaps_md(text: str) -> list[dict]:
     return out
 
 
+def twice(text: str) -> dict[str, str]:
+    """Each entry GAPS.md lists more than once, in any section (*Done recently* too), as a union merge
+    (.gitattributes) can leave one: {gap id: the problem, naming every line}. Never resolved by picking one: such an
+    entry is neither found nor closed, and is said (a dependency problem on its gap, or on stderr)."""
+    at: dict[str, list[str]] = {}
+    section = ""
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.startswith("## "):
+            section = line[3:].strip()
+        elif m := ENTRY.match(line):
+            at.setdefault(f"gap/{fac.slug(m.group(1).rstrip(':').strip(), 60)}", []).append(f"{n} ({section})")
+    return {gid: f"GAPS.md lists it {len(w)} times, lines {', '.join(w)}: a merge left it twice; keep one by hand"
+            for gid, w in at.items() if len(w) > 1}
+
+
 def closed_by_gaps(known: dict[str, dict], entries: list[dict]) -> int:
     """A gap the record holds not yet started whose entry GAPS.md now marks done (or superseded): closed, saying so."""
     n = 0
@@ -146,9 +161,9 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
     return False
 
 
-def dependencies(cfg: dict, known: dict[str, dict], text: str) -> int:
-    """Each gap's dependencies from GAPS.md, its definition's `depends-on:` line and what was asked: said as
-    gap.dependencies where they changed (deps.py)."""
+def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, str]) -> int:
+    """Each gap's dependencies from GAPS.md, its definition's `depends-on:` line and what was asked, and an entry
+    GAPS.md lists twice (``dups``, twice()) as a problem: said as gap.dependencies where they changed (deps.py)."""
     parsed, own = deps.from_gaps(text)
     for gid, g in known.items():
         where = str(g["fields"].get("definition") or "")
@@ -162,7 +177,13 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str) -> int:
     repo = fac.path(cfg, "checkout")
     merged = set(fac.git(repo, "branch", "--format=%(refname:short)", "--merged", cfg["git"]["base"],
                          check=False).split())
-    for gid, data in deps.changes(known, deps.plan(known, parsed, own, merged)):
+    want = deps.plan(known, parsed, own, merged)
+    for gid, why in dups.items():
+        if gid in want:
+            want[gid]["problems"].append(why)
+        else:
+            print(f"intake: {gid}: {why}", file=sys.stderr)
+    for gid, data in deps.changes(known, want):
         fac.say("gap.dependencies", gid, **data)
         n += 1
     return n
@@ -184,7 +205,8 @@ def main() -> int:
     now = time.time()
     found = 0
     text = fac.git(repo, "show", f"{cfg['git']['base']}:docs/GAPS.md")
-    entries = gaps_md(text)
+    dups = twice(text)
+    entries = [e for e in gaps_md(text) if e["id"] not in dups]
     closed = closed_by_gaps(known, entries)
     for e in entries:
         if e["id"] not in known and e["gaps_says"] not in ("done", "superseded"):
@@ -205,7 +227,7 @@ def main() -> int:
             defined += 1
         elif g["fields"].get("continues"):                     # the planner never takes it: said, never waiting silently
             print(f"intake: {g['id']} continues a branch with no definition of done on it: not taken", file=sys.stderr)
-    linked = dependencies(cfg, known, text)
+    linked = dependencies(cfg, known, text, dups)
     released = main_moved(cfg, known)
     print(f"intake: {found} found, {closed} closed (GAPS.md marks them done), {defined} defined, {linked} with their "
           f"dependencies changed, {released} released by main moving", file=sys.stderr)

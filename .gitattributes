@@ -1,0 +1,4 @@
+# Files many gaps edit at once, entry by entry: a merge keeps both sides' lines rather than conflicting. The intake
+# reports a GAPS.md entry a union merge left twice (dev/bin/intake.py, twice()).
+docs/GAPS.md merge=union
+dev/knowledge/review-lessons.md merge=union
