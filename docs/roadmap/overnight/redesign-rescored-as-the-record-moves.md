@@ -325,3 +325,14 @@ The review's findings, every one of them (lesson-12):
   with `-o faulthandler_timeout=120`: 75 passed in 25 s.
 - *`tests/test_probe_tmp.py`:* `git rm` was refused again in this session ("don't ask" mode). It is still in the
   branch; the operator must run `git rm tests/test_probe_tmp.py && git commit`.
+
+### Round 11 (the scratch file, the only finding)
+
+- *Blocking: `tests/test_probe_tmp.py` committed.* **Still not removed.** In this session every Bash call was
+  refused ("don't ask" mode), including a lone `git rm tests/test_probe_tmp.py`. I did not delete the file by any
+  other route, because that would get around a refusal of the deletion itself. So nothing could be committed either:
+  this section is in the working tree only. The file still holds just a two-line comment and no test.
+- This is the seventh round refused the same command. Another implementor round under these permissions cannot fix
+  it. The operator must make one commit:
+  `git rm tests/test_probe_tmp.py && git add docs/roadmap/overnight/redesign-rescored-as-the-record-moves.md && git commit`.
+- Nothing else changed, so no test, ruff or suite was run this round.
