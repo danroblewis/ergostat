@@ -81,3 +81,9 @@ reversible, each easy to undo):
 - **Size:** 3 net lines outside `tests/`, `docs/` and `dev/` (`ergostat.yaml`). Under `dev/` there are about 104 in
   Python (plan.py 101) and 51 in `dev/model/knowledge.yaml` (the new stock, flows, parameters and block).
 - **origin/main** cannot be merged in: this clone has no remote and no network. Its base is `main` at e8d3e331.
+- **After the fast suites failed:** the unit run's output stopped near 99% with no summary, so it was killed or timed
+  out; no test reported a failure. The likely cause was `test_a_split_whose_sub_gaps_all_merged_waits_in_joined`. It
+  ran `ergostat check` as a subprocess twice on the whole factory tree, the only test in the suite that does so. It now
+  compares `ergostat.spec.read`'s errors and findings, in process, for the branch's model and main's. That is the
+  same check without the store or the subprocess. The shell was refused in this session, so the change was not run,
+  ruff was not run, and it was not committed here.
