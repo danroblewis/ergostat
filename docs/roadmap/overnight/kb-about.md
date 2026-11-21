@@ -203,3 +203,33 @@ no code is changed (lesson-13). Changing code outside the gap is what failed con
 - Run here alone with `-p no:randomly`: that test passed, and all of `tests/test_warm.py` passed (21 in 24.8 s).
 - Left for a gap of its own: give the replacement a bound that covers a start-up under load, or wait on
   `ergostat.daemon.started` rather than on the process's first write.
+
+### Round 3: the size gate
+
+The queue's gate found "333 net lines against 220, with no reason written". The round-2 split was written, but
+not as a reason for going over, so the gate did not see it. No code changes in this round. The find() finding of
+review/kb-about-1 was already fixed in round 2 (`spec/findings.py:100` returns before any about lookup.
+`about.findings` is called only from `cli/spec_cmds.check_yaml` and MCP's `check`).
+
+**Size overrun, the reason:** the branch goes over the budget only because its base holds the backlog merge
+(2b101c6), which main does not. The gap's own code stays within 220. Measured now with `git diff --numstat
+main...HEAD` outside tests/, docs/, dev/ and ergostat.yaml, the total is +378/-45 = 333 net.
+- Files only backlog changes: 117 net. `leases/compile.py` 8, `leases/dispatch.py` 1, `leases/ready.py` 23,
+  `numbers/eta.py` 16, `numbers/etamodel.py` 45, `precedence.py` 4, `web/static/pages.js` 12, `relations.js` 4,
+  `style.css` 4.
+- Shared files, backlog's part: `order_unset` in `cli/spec_cmds.py` (21 of its 24) and `paused` in
+  `spec/compile.py`.
+- The gap's own lines: about 195-198 net. `spec/about.py` 125, `spec/itemindex.py` 19, `cli/status.py` 23,
+  `spec/compile.py` (its `about` key), `spec/explain.py` 5, `spec/ir.py` 4, `mcp.py` 4, `cli/spec_cmds.py` 3,
+  `schema/ergostat.schema.json` 4, `spec/load.py` 1, `spec/findings.py` 0.
+
+The base is still not fixed, and this session did not fix it on purpose:
+- A reset or rebase rewrites the branch's history. That is not reversible from where the factory sees the branch.
+- A `git revert -m 1` of the backlog merge would be worse. Once merged, it would make main treat backlog's commits
+  as already in, and backlog would be dropped without a word when it lands later.
+
+What reverses cleanly is one of these, and either is the coordinator's call:
+- land backlog on main first, so these 117+ lines leave the diff and the `test_relations_asof.py` word change
+  becomes main's own;
+- or rebuild this branch from main and cherry-pick the gap's commits (then the `unblocked` edit in
+  `tests/test_relations_asof.py`, e7dad319, is dropped, as review/gap-size-3 says it must be on a correct base).
