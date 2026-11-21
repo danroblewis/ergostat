@@ -123,15 +123,20 @@ def velocity(cfg: dict, now: float | None = None) -> dict:
     for g in gaps:
         waits.setdefault(g["state"], []).append((now - float(g.get("entered") or now)) / 3600)
     out["hours-in-state"] = {s: round(statistics.median(v), 2) for s, v in waits.items() if s in watch.STUCK}
-    goals = {}
+    goals, unknown = {}, []
     for m, gname in GOALS:
         held = re.search(watch.HOLD.format(name=re.escape(gname)), (fac.HERE / "model" / "measures.yaml").read_text(),
                          re.M | re.S)
-        if held and out.get(m) is not None:
+        if not held:                           # (renamed or reworded: said, and binding, never left out silently)
+            goals[gname] = {"measure": m, "reading": out.get(m), "hold": None, "off": None,
+                            "unknown": "no hold for this goal in dev/model/measures.yaml"}
+            unknown.append(gname)
+        elif out.get(m) is not None:
             goals[gname] = {"measure": m, "reading": out[m], "hold": f"{held[1]} {held[2]}",
                             "off": off(held[1], float(held[2]), float(out[m]))}
     out["goals"] = goals
-    out["binding"] = max(goals, key=lambda k: goals[k]["off"], default=None)
+    out["binding"] = unknown[0] if unknown else max((k for k in goals if goals[k]["off"] is not None),
+                                                    key=lambda k: goals[k]["off"], default=None)
     out["proposals"] = [f"{g['id']} ({g['state']})" for g in gaps if g["fields"].get("velocity")][-5:]
     out["research"] = [{"id": r["id"], "state": r["state"], "question": r["fields"].get("question"),
                         "summary": r["fields"].get("summary"), "report": r["fields"].get("report")}

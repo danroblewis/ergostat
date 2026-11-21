@@ -321,6 +321,33 @@ def test_most_actions_a_session_is_held(tmp_path):
     assert [a["ok"] for a in acts] == [True, False] and "at most 1" in acts[1]["said"]
 
 
+def test_most_actions_has_a_floor_and_a_ceiling(tmp_path):
+    """A negative most_actions would run all but the last calls ([:-5]); a huge one lets one session start many gaps."""
+    read = "import watch\nprint(json.dumps(watch.settings(watch.fac.config())['most']))"
+    for said, held in (("-5", 1), ("0", 1), ("500", 12), ("8", 8)):
+        assert Pipe(tmp_path / said, manager=f"most_actions = {said}\n").py(read) == held, said
+
+
+def test_a_goal_the_watch_or_the_review_cannot_find_never_passes_silently(tmp_path):
+    """The interlock's limits and the review's goals are read from the model by name: one renamed or reworded is a
+    broken condition (the interlock's) or the binding constraint (the review's), said, never left out."""
+    f = Pipe(tmp_path)
+    renamed = "{'suites': 'machine-quiet-renamed', 'threads': 'suite-threads-within', 'memory': 'suite-memory-within'}"
+    code = ("import time, watch\nwatch.load.reading = lambda w: 0\ncfg = watch.fac.config()\n"
+            "watch.INTERLOCK = {INTERLOCK}\nprint(json.dumps(watch.conditions(cfg, {}, [], time.time())))")
+    assert "interlock" not in f.py(code.replace("{INTERLOCK}", "watch.INTERLOCK"))    # every limit found, none over
+    got = f.py(code.replace("{INTERLOCK}", renamed))
+    assert "machine-quiet-renamed" in got["interlock"] and "no hold" in got["interlock"]
+    f.put("gap/m0", "merged", merged_at=f.now - H, approved_at=f.now - 8 * H, queued_at=f.now - 2 * H,
+          queue_wait_hours=5.0, batch_id="b1", batch_runs=1, queue_minutes=30.0)      # queue-wait-short off by 2.5
+    read = ("import manager\nmanager.GOALS = ({GOALS})\n"
+            "print(json.dumps(manager.velocity(manager.fac.config()), default=str))")
+    assert f.py(read.replace("{GOALS}", "manager.GOALS"))["binding"] == "queue-wait-short"
+    got = f.py(read.replace("{GOALS}", "('queue-wait-hours', 'queue-wait-short'), ('suite-minutes', 'suites-renamed')"))
+    assert got["binding"] == "suites-renamed" and got["goals"]["suites-renamed"]["off"] is None
+    assert "no hold" in got["goals"]["suites-renamed"]["unknown"]
+
+
 DEFINITION = "# {b}: a change\n\ndepends-on: []\n\n## Definition of done\n\nIt holds.\n\n## Size budget\n\n50 net lines.\n"
 
 

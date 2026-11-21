@@ -1959,11 +1959,8 @@ def test_a_defect_park_is_never_resumed_by_the_program(tmp_path):
     f.put("gap/flawed", "parked", branch="flawed", parked_for="defect", parked_until={"gap": "gap/carried"},
           parked_at=f.now - 3600, need_met="x")
     assert resumed(f) == []
-    raised = set()
-    for _ in range(3):
-        s = f.watch()
-        raised.add((s["trigger"], s["subject"]))
-        f.handled(s["id"])
+    s = f.watch()                                                             # one session carries them all
+    raised = {(t["trigger"], t["subject"]) for t in s["triggers"]}
     assert raised == {("parked", gid), ("parked", "gap/killed"), ("parked", "gap/flawed")}   # the manager's to look at
     k = Factory(tmp_path / "k")                                               # the kill rule's park says so
     kid = ready(k)
@@ -1980,15 +1977,24 @@ def test_a_waiting_park_past_its_hours_raises_a_situation(tmp_path):
           parked_at=f.now - 23 * 3600)
     f.put("gap/done", "parked", branch="done", parked_for="needs", parked_until={"action": "a", "who": "b"},
           parked_at=f.now - 30 * 3600, resumed_as="gap/done-continued")
+    def handled_long_ago(s: dict) -> None:                                    # (answered, and the schedule due again)
+        f.fold([{"event": "situation.handled", "item": s["id"], "data": {"prints": s["prints"]}}], None)
+        db = f.db()
+        db["items"][s["id"]]["fields"]["raised_at"] = f.now - 3 * 3600
+        f.record.write_text(json.dumps(db))
+
     s = f.watch()
-    assert s["trigger"] == "heartbeat"                                        # neither: within its hours, or resumed
-    f.handled(s["id"])
+    assert s["triggers"] == []                                                # neither: within its hours, or resumed
+    handled_long_ago(s)
     f.put("gap/fresh", "parked", branch="fresh", parked_for="waits_on", parked_until={"gap": "gap/carried"},
           parked_at=f.now - 25 * 3600)
     s = f.watch()
-    assert s["trigger"] == "waiting" and s["subject"] == "gap/fresh" and "not cleared" in s["why"]
-    f.handled(s["id"])
-    assert (f.watch() or {}).get("subject") != "gap/fresh"                    # raised once for the park
+    (t,) = s["triggers"]
+    assert t["trigger"] == "waiting" and t["subject"] == "gap/fresh" and "not cleared" in t["why"]
+    handled_long_ago(s)
+    f.put("gap/other", "ready", ago=60, branch="other")                      # (the pipeline changed)
+    s = f.watch()
+    assert s and "gap/fresh" not in [t["subject"] for t in s["triggers"]]     # raised once for the park
 
 
 def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):

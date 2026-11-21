@@ -140,3 +140,35 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   and `tests/test_interventions.py`, `test_gated_actions.py`, `test_leases.py`, `test_backlog.py` (62 together, as they
   read the kinds in `ergostat.yaml`). Ruff is clean. No conflict markers are left from the merge. The whole unit suite
   was not run here (it is the factory's to run under the watchdog), so if it stops again the factory should rerun it.
+
+**The implementor, round 3 (2026-11-21): every finding of review/manager-sessions-2.**
+- *Merge of main 278666f:* conflicts in `dev/bin/watch.py`, `dev/bin/measure.py`, `dev/factory.toml` and
+  `dev/README.md`. Main's park kinds (`parks.py`) are kept: a `waiting` trigger for a `waits_on` / `needs` park past
+  `park_wait_hours`, and a `parked` trigger only for a kind no program resumes. The branch's `deferred` / `cancelled`
+  fields stay excluded too. Main's `heartbeat_minutes` / `interventions_per_hour` and its velocity-watch paragraph are
+  dropped, because the branch replaced them with the schedule and the routine review. Main's two park tests in
+  `tests/test_factory.py` (`test_a_defect_park_is_never_resumed_by_the_program`,
+  `test_a_waiting_park_past_its_hours_raises_a_situation`) read the one-trigger shape (`s["trigger"]`). They now read
+  the session's `triggers`, and they check the same things: the three parks are carried in one session, and a waiting
+  park is raised once.
+- *`most_actions` (blocking, lesson-4):* held to 1..12 (`watch.MOST_ACTIONS`) at read time. Test:
+  `test_most_actions_has_a_floor_and_a_ceiling` (-5 and 0 give 1, 500 gives 12, 8 stays 8). With the clamp removed,
+  it failed (`-5 == 1`).
+- *A goal not found (blocking, lesson-3):* if an interlock goal (`watch.INTERLOCK`) has no hold in `interlock.yaml`,
+  that is itself the broken condition `interlock` ("... have no hold"). It is never read as within its limit, and it
+  holds whether or not gaps wait. If a review goal has no hold in `measures.yaml`, it is in the record with
+  `unknown` and `off: null`, and it is the binding constraint. Test:
+  `test_a_goal_the_watch_or_the_review_cannot_find_never_passes_silently`. With either guard removed, it failed (the
+  watch on its own, then the review on its own).
+- *"At once" wording (non-blocking):* the README and the watch's docstring now say that a broken-pipeline session
+  starts before the schedule, but never sooner than `broken_minutes` after the last session of any kind.
+- *From park-owns-resume-1, on this file:* `park_wait_hours` now has a floor of 1h. The README says that a `split` park
+  is never a trigger, because each stopped sub-gap raises its own.
+- *Not run (the review's fourth finding):* this round ran these, one file at a time: `tests/test_factory_manager.py`
+  (28 passed), `tests/test_factory.py` (66 passed, 2 skipped), `tests/test_factory_times.py` (7),
+  `tests/test_factory_knowledge.py` (52), and `test_interventions/gated_actions/leases/backlog` together (62).
+  Ruff is clean. The whole unit suite and the four browser files were **not** run here. The factory runs them under
+  the watchdog.
+- *Only on fixtures:* this round too ran only with the stand-in AI. It never ran on the live instance, a real session
+  or the real load probe.
+- *Size:* 168 net lines in `dev/bin/` against main, within 450.
