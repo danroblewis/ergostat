@@ -28,7 +28,7 @@ import fac
 CAP = 20 * 1024 * 1024 - 4096         # bytes of one transcript (the page serves a file up to 20 MB)
 HOME = "/home/dev/.claude/projects"   # Claude Code's projects folder in the agent image (its user's home)
 SLUG = "-work"                        # Claude Code's folder for a session run in /work
-PARENTS = ("gap", "research", "review")   # the kinds a session is related to (its field of that name)
+PARENTS = ("gap", "research", "review", "situation")   # the kinds a session is related to (its field of that name)
 
 
 class Session:
@@ -69,7 +69,8 @@ class Session:
         rec = {"cost": None if not out or out.get("total_cost_usd") is None else round(float(out["total_cost_usd"]), 4),
                "turns": int((out or {}).get("num_turns") or self.copy.turns), "tools_used": dict(self.copy.tools),
                "seconds": round(time.time() - self.began), "lines": self.copy.lines,
-               "truncated": self.copy.cut, "subtype": (out or {}).get("subtype")}
+               "truncated": self.copy.cut, "subtype": (out or {}).get("subtype"),
+               **({"resources": out["resources"]} if (out or {}).get("resources") else {})}   # (its container's CPU, memory)
         bad = error or not out or out.get("is_error")
         if bad:
             rec["error"] = scrub(error or str((out or {}).get("result") or "no result"), self.copy.tok)[-600:]

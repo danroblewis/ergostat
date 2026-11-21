@@ -188,7 +188,7 @@ blocks:
 
   implement-when:
     type: expr
-    description: build while gaps wait (ready, or sent back), the intake is open, the day's AI money is not spent, and the implementor pool has room
+    description: build while gaps wait (ready, or sent back), the intake is open, the day's AI money is not spent, and the implementor pool has room - the pool the risk target held to what the machine fits, min(pool, busy + room)
     in:
       ready: goal.ready-gaps-taken.off
       fixes: goal.fixes-taken.off
@@ -196,7 +196,9 @@ blocks:
       over: goal.ai-budget.off
       busy: stock.gaps-building
       pool: stock.implementor-pool
-    expr: max(ready, fixes) * min(open, 1) * (1 - over) * (busy < pool)
+      room: auxiliary.session-headroom
+      full: block.machine-full         # (no session fits, a resource past its goal, or the headroom stale)
+    expr: max(ready, fixes) * min(open, 1) * (1 - over) * (busy < min(pool, busy + room)) * (1 - full)
     out: block.implementor
   implementor:
     type: ai
@@ -216,13 +218,15 @@ blocks:
 
   review-when:
     type: expr
-    description: review while built gaps wait, the day's AI money is not spent, and the reviewer pool has room
+    description: review while built gaps wait, the day's AI money is not spent, and the reviewer pool has room - the pool held to what the machine fits, min(pool, busy + room)
     in:
       waiting: goal.built-gaps-reviewed.off
       over: goal.ai-budget.off
       busy: stock.gaps-in-review
       pool: stock.reviewer-pool
-    expr: waiting * (1 - over) * (busy < pool)
+      room: auxiliary.session-headroom
+      full: block.machine-full
+    expr: waiting * (1 - over) * (busy < min(pool, busy + room)) * (1 - full)
     out: block.reviewer
   reviewer:
     type: ai
