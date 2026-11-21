@@ -312,3 +312,14 @@ in full as the factory runs it (`suite_watch.py`, `-n 8 --dist worksteal`): 2228
 
 Here: `tests/test_factory_resources.py` 10 passed; `tests/test_factory.py` and `tests/test_factory_knowledge.py` 151
 passed, 2 skipped; ruff clean (`ergostat tests scripts dev/bin`). Not run here: the four browser files.
+
+Continued, round 1, after the factory's next fast-suite run: the merge of main 39d47bf was already committed
+(64c1848c; no conflict markers left, main an ancestor of HEAD). The `unit` tail given names no test (one `F` at about
+12%). Run here in full as the factory runs it (`suite_watch.py`, `-n 8 --dist worksteal`, on e88e2055): 2229 passed,
+1 failed, rc 1, killed null. The one failure is
+`tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped`, at a `wait_for(..., 10)` on
+`agent.ran`/`agent.failed` after `stop_run`. It builds its own model in `tmp_path` and exercises the warm runner under
+`ergostat/`, which this branch does not change; alone it passes (`tests/test_warm.py` 21 passed). Load-dependent and
+main's code (lesson-10, lesson-13): not fixed here. `test_my_turn_respects_headroom`, this branch's fault last round,
+passed in this full run. No code changed in this round. Ruff clean (`ergostat tests scripts dev/bin`). Not run here:
+the four browser files.
