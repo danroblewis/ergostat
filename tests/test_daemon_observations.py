@@ -55,8 +55,8 @@ def met(i=0):
 
 
 def say(lines):
-    return "import json, sys\nsys.stdout.write(''.join(json.dumps(o) + '\\n' for o in %r)); sys.stdout.flush()\n" \
-           % (lines,) + BEAT
+    return f"import json, sys\nsys.stdout.write(''.join(json.dumps(o) + '\\n' for o in {lines!r})); sys.stdout.flush()\n" \
+           + BEAT
 
 
 def mine(e):

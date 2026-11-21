@@ -64,7 +64,8 @@ def test_the_sampler_never_samples_sooner_than_its_floor(sleepers):
         for t in tracked:
             real.finish(t)
     assert at, "a sample within 3 s"
-    assert all(b - a >= 0.95 for a, b in zip(at, at[1:], strict=False)), [round(b - a, 3) for a, b in zip(at, at[1:])]
+    gaps = [b - a for a, b in zip(at, at[1:], strict=False)]
+    assert all(g >= 0.95 for g in gaps), gaps
 
 
 def test_the_samplers_keep_their_intervals_and_floor(sleepers):
