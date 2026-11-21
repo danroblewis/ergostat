@@ -72,7 +72,11 @@ Work through these steps in order. Ask the person only what you cannot infer.
    too, or it shows as "not recorded" and counts as unfinished. Then the step that starts the work can take only
    what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
-   to check the links came through (the Timeline's projection and the list's **done by** are the completion
+   to check the links came through, or ask from the command line: `ergostat item ID --near [N]` (the items within N
+   hops, 1 to 4), `ergostat item A --path B` (a shortest chain of relations, a backward step named by its inverse),
+   `ergostat item ID --about` (what links to it, `declared`, and what names its id in a field, `inferred`); each
+   with `--json`, the same as `/api/items-query`, visiting at most 2,000 items and saying `capped` past that
+   (the Timeline's projection and the list's **done by** are the completion
    estimates: see "When will it be done", below); `examples/roadmap/` is a small model built this way. A parent that moves on
    when its children do (an epic shipped once every ticket is done) is a rule on its kind, never a block:
    `join: {children: parent, all: done, to: shipped}` (`any:` for the first child to start).
