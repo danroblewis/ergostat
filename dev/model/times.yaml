@@ -4,6 +4,7 @@
 # a goal the owner sets (hold:). The holds here are first guesses: `python3 dev/bin/times.py setpoints`, run in the
 # instance's folder, sets each to today's reading. Waiting states (open, replan, planned, split, ready, fix, built,
 # approved, queue-failed, dead) are the cheapest time to remove; working ones are leased, building, in-review, queued.
+# setpoints: first guesses, never derived from the record (times.py setpoints rewrites this line when it runs)
 defaults:
   system: times
 

@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import re
 
-from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Spec, Takes, own_kind
+from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Ref, Spec, Takes, own_kind
 
 TERMS_KEYS = {"ttl", "attempts"}
+POOL_KEYS = {"now", "most"}
 TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order"}
 
 
@@ -90,12 +91,45 @@ def takes(c, m, what: str) -> Takes | None:
     return Takes(kind, list(states), list(to), where, unblocked, order)
 
 
-def pool(c, m, what: str) -> int:
+def pool(c, m, what: str) -> tuple[int, Ref | None]:
+    """``pool: N``, or ``pool: {now: stock.S, most: N}`` (read from S at each dispatch, never above N): the most, and
+    the stock (None for a number). Whether S exists and is measured is ``check``'s, after the stocks."""
     n = m.get("pool", 1)
+    now = None
+    if isinstance(n, dict):
+        raw = n
+        c.keys(raw, POOL_KEYS, f"{what}.pool")
+        if "now" not in raw:
+            c.err(f"{what}.pool.now: the stock the pool is read from (now: stock.NAME)", m.at("pool"), "missing-key")
+        else:
+            now = c.ref(raw["now"], raw.at("now"), f"{what}.pool.now", ("stock",))
+        n = raw.get("most")
+        if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+            c.err(f"{what}.pool.most: a whole number, 1 or more (the most runs of it at once, whatever the stock says)",
+                  raw.at("most") or m.at("pool"), "bad-number")
+            return 1, now
+        return n, now
     if isinstance(n, bool) or not isinstance(n, int) or n < 1:
-        c.err(f"{what}.pool: a whole number, 1 or more (the most runs of it at once)", m.at("pool"), "bad-number")
-        return 1
-    return n
+        c.err(f"{what}.pool: a whole number, 1 or more (the most runs of it at once), or {{now: stock.NAME, most: N}}",
+              m.at("pool"), "bad-number")
+        return 1, None
+    return n, None
+
+
+def pool_now(c, spec: Spec, b) -> None:
+    """A pool read from a stock: the stock exists and something reads its level (else it would never be read)."""
+    r, what = b.pool_now, f"block {b.name}.pool.now"
+    st = spec.stocks.get(r.name)
+    if r.port:
+        c.err(f"{what}: the stock's level (stock.{r.name}), not one of its sensors", b.where, "bad-ref")
+        b.pool_now = None
+    elif st is None:
+        c.err(f"{what}: {r.name!r} is not a stock" + c.suggest(r.name, spec.stocks), b.where, "unknown-ref")
+        b.pool_now = None
+    elif not st.sensors:
+        c.err(f"{what}: nothing reads its level: stock {r.name} has no sensor (give it one, or write pool: N)", b.where,
+              "pool-unmeasured")
+        b.pool_now = None
 
 
 def person_gates(spec: Spec, b) -> list[str]:
@@ -111,8 +145,11 @@ def check(c, spec: Spec) -> None:
     items, so neither every: nor cron: (nor a pool without takes:), nor mode: advise (it asks per command, not per item)."""
     for b in spec.blocks.values():
         what = f"block {b.name}"
+        mapped = b.pool_now is not None
+        if mapped:
+            pool_now(c, spec, b)
         if b.takes is None:
-            if b.pool != 1:
+            if b.pool != 1 or mapped:
                 c.err(f"{what}.pool: only a block that takes items runs more than once at a time (takes: {{kind: K, at: S}})",
                       b.where, "pool-without-takes")
             continue

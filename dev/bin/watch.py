@@ -77,7 +77,8 @@ def hours_in(g: dict, start: float, now: float) -> float:
 
 def explained(g: dict, gaps: dict, cfg: dict) -> bool:
     """A wait that is no trouble: waiting on main to move, its dependencies unmerged or its pool full, the queue busy or
-    its push held (a push-pending gap whose outcome waits for its batch's push, queue.py tell())."""
+    its push held (a push-pending gap whose outcome waits for its batch's push, queue.py tell(), while that push still
+    waits for the coordinator)."""
     st, n, p = g["state"], lambda *s: sum(x["state"] in s for x in gaps.values()), pools.state(cfg)  # noqa: E731
     waits = [d for d in fac.ids(g["fields"].get("depends_on")) if gaps.get(d, {}).get("state") != "merged"]
     if g["fields"].get("waits_on_main"):                 # (main-broken: it waits for main to move, by design)
@@ -85,13 +86,27 @@ def explained(g: dict, gaps: dict, cfg: dict) -> bool:
     return (st in ("ready", "fix") and bool(waits or n("building") >= p["implementor"])) or (
         st == "built" and n("in-review") >= p["reviewer"]) or (
         st == "approved" and bool(n("queued", "queue-failed") or queue_state(cfg).get("pending"))) or (
-        st == "push-pending" and any(e.get("item") == g["id"] for e in (queue_state(cfg).get("pending") or {}).get("then") or []))
+        st == "push-pending" and carried(g, cfg) and push_waits(cfg))
+
+
+def carried(g: dict, cfg: dict) -> bool:
+    """A push-pending gap whose outcome the pending push holds back (queue.py tell()); not carried, nothing settles it."""
+    return any(e.get("item") == g["id"] for e in (queue_state(cfg).get("pending") or {}).get("then") or [])
+
+
+def push_waits(cfg: dict) -> bool:
+    """The pending push still waits for the coordinator; ran, denied, failed or unreadable: it is no reason to wait."""
+    aid = (queue_state(cfg).get("pending") or {}).get("action")
+    try:
+        return bool(aid) and detail(aid).get("state") in ("held", "requested", "approved")
+    except (RuntimeError, ValueError, FileNotFoundError):
+        return False
 
 
 def stuck(cfg: dict, gaps: dict, now: float) -> list[dict]:
     s, out = settings(cfg), []
     for g in gaps.values():
-        limit = s["stuck"].get(g["state"])
+        limit = 0 if g["state"] == "push-pending" and not carried(g, cfg) else s["stuck"].get(g["state"])
         if limit is None or now - float(g.get("first") or now) < float(limit) * 3600 or explained(g, gaps, cfg):
             continue
         start = visit_start(detail(g["id"]).get("moves") or [], g["state"]) or float(g.get("entered") or now)
