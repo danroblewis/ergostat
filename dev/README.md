@@ -218,8 +218,8 @@ at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a si
 sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
 made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
 file).
-The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
-`dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
+The plan review is advice, never a gate (which plans it reads: *Planning by size* below; `[plan] review = off`
+reads none, and `sample` 1 in `sample_every` = 3 now marks only the lint sweep's plans; `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
 `review/<branch>-plan` for the knowledge loop. "This should not be built" is only asked of you (`park-gap`, in the
 inbox). `plan-review-agreement` and `plan-{flagged,clean}-{fix-rounds,parks}` say what the stage is worth. A definition you write yourself skips all of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
@@ -271,6 +271,33 @@ count is left out of the share (never a hit) and named on stderr; with nothing m
 
 **Not covered:** gaps whose definitions you wrote (no planner, no size; a plan that finds your definition already
 there records no size either), and split parents (they merge nothing; a split clears an earlier size).
+
+**Planning by size.** The planner reads the class already on an open gap (`planned_size` with `size_confidence`,
+before it plans) and does as much as the class calls for. It trusts a class only when it is exactly S, M, L or XL and
+its confidence (low 0.25, medium 0.5, high 0.75) is at least `[planning] min_size_confidence`. Anything else (no
+class, `"s "`, a missing or unknown confidence, one below the bar) takes the full planner, marked for the plan review.
+So does every replan (the gap's state `replan`, which the fold sets from the send-back by seq) but XL, and every
+sub-gap of a split (they carry no class).
+- **S**: no session. The definition is written from the gap's own title and text with the house rules' done
+  criteria and a 50-line budget, created exclusively in `run/defs/` (one already there, or one that lands first, is
+  kept byte for byte and the gap is the coordinator's). `defined_by: size-s`, `planning_cost_usd: 0`. **No AI and no
+  reviewer has looked at this definition**; the implementor names the tests.
+- **M**: one session under `[ai] planner_m_session_usd`, then ready with no plan review (`defined_by:
+  plan-unreviewed`). If it splits, the sub-gaps are marked for review.
+- **L**: the full planner. A share `[planning] l_review_share` is marked for review, picked from the gap's id alone
+  (a lease retry picks the same); the rest are ready unreviewed, as M is.
+- **XL**: one definition for the gap itself is sent back ("an XL gap must split"). It counts toward the lint's park
+  (the 6th send-back parks), so a planner that keeps answering whole stops costing money.
+Unreviewed means unreviewed: nothing here claims M, unsampled L or S plans are as good as reviewed ones. A cap above
+`planner_session_usd` (or 0), or a share or confidence outside [0, 1], stops the planner run with an error before any
+session. Unset, the cap is the planner's own, every L plan is reviewed and no class is trusted.
+
+Each planner and plan-review session also adds its cost to `planning_cost_usd` (summed, so plan, review and replan
+add up). A session that times out, errors or is cancelled adds its whole reservation, to `ai_cost_usd` too.
+`measure.py planning-cost-share` is planning dollars over AI dollars, of gaps merged in 14 days that carry the field.
+A gap without it is left out, never counted as 0; one with a planning cost negative or above its total is left out
+and named on stderr; with none it has no value (exit 1). It says where the money went, not that less planning is
+safe.
 
 ## The pools: one at a time, raised on good results
 

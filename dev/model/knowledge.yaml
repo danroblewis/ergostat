@@ -107,6 +107,11 @@ auxiliaries:
     description: of gaps finished in 14 days whose plan review found nothing blocking, the share parked - against plan-flagged-parks, what the plan review is worth
     driven-by: [+flow.plan-reviews-written]
     sensor: {run: python3 dev/bin/planreview.py value parks clean, every: 10m, timeout: 1m, description: the factory's measures}
+  planning-cost-share:
+    unit: share
+    description: planning dollars (planner and plan review sessions) over all AI dollars, of gaps merged in 14 days that carry a planning cost - where the money went, not a claim that less planning is safe
+    driven-by: [+flow.plans-written, -flow.small-gaps-defined, -flow.plans-unreviewed]
+    sensor: {run: python3 dev/bin/measure.py planning-cost-share, every: 10m, timeout: 1m, description: the factory's measures}
   splits-clean:
     system: intake
     unit: share
@@ -129,6 +134,16 @@ flows:
     driven-by: [+stock.gaps-replan]
     equation: stock.gaps-replan / plan-time
     sensor: {items: gap, entering: ready, where: {defined_by: plan, replanned: true}, over: 1d}
+  small-gaps-defined:
+    from: gaps-open
+    to: gaps-ready
+    description: an open gap sized S - its definition written from its own title and text with the house rules, no planner session, no review
+    sensor: {items: gap, entering: ready, where: {defined_by: size-s}, over: 1d}
+  plans-unreviewed:
+    from: gaps-open
+    to: gaps-ready
+    description: an open gap sized M (one session under its own cap), or L not picked for the plan review - its plan lint-clean, the gap ready with no plan review
+    sensor: {items: gap, entering: ready, where: {defined_by: plan-unreviewed}, over: 1d}
   sub-gaps-planned:
     to: gaps-ready
     description: sub-gaps of a split, each requested and defined by the planner (lint-clean)
@@ -375,7 +390,7 @@ blocks:
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h
     in: block.plan-when
-    out: [flow.plans-written, flow.replans-written, flow.gaps-split-off, flow.replans-split-off, flow.sub-gaps-planned,
+    out: [flow.plans-written, flow.small-gaps-defined, flow.plans-unreviewed, flow.replans-written, flow.gaps-split-off, flow.replans-split-off, flow.sub-gaps-planned,
           flow.plans-failing-lint, flow.parked-in-plan]
 
   plan-lint:

@@ -1507,3 +1507,225 @@ def test_a_merged_lesson_is_not_carried_twice(tmp_path):
     assert "lesson/seen-lesson-1-aaa" in got["knowledge"]                     # its gap closed: carried from the record
     assert section(got["text"], "lesson-1").count("an approval written over a fresh denial") == 1
     assert got["text"].count("an approval written over a fresh denial") == 2   # lesson-1 and lesson-2, each once
+
+
+# ---- planning by size (docs/roadmap/overnight/plan-by-size.md)
+
+def by_size(f: Instance, m_usd: float = 0.4, share: float = 0.0, bar: float = 0.5) -> None:
+    """The size settings: the M cap (the planner's is 1.0), [planning] l_review_share and min_size_confidence."""
+    f.config.write_text(f.config.read_text().replace("[ai]\n", f"[ai]\nplanner_m_session_usd = {m_usd}\n")
+                        + f"[planning]\nl_review_share = {share}\nmin_size_confidence = {bar}\n")
+
+
+def size_as(f: Instance, gid: str, cls, conf="high") -> None:
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"planned_size": cls, "size_confidence": conf}}], None)
+
+
+def reserved(f: Instance) -> list[float]:
+    """The planner sessions started: each reserved its most in the ledger first."""
+    p = f.model / "run" / "costs.jsonl"
+    rows = [json.loads(x) for x in p.read_text().splitlines()] if p.exists() else []
+    return [r["usd"] for r in rows if r.get("kind") == "reserved" and r.get("role") == "planner"]
+
+
+INPROC = """import contextlib, io, fac, intake, plan, planreview
+what, gid, answer = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+def session(*a, **k):
+    if answer is None:
+        raise TimeoutError("the session timed out")
+    return {"result": answer[0], "total_cost_usd": answer[1]}
+fac.session = session
+if what == "race":                               # the check finds nothing; the coordinator's file lands before the write
+    def late(cfg, gap):
+        (fac.run_dir(cfg, "defs") / f"{fac.branch_of(gap)}.md").write_bytes(answer.encode())
+        return None
+    intake.definition = late
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    try:
+        cfg = fac.config()
+        if what == "review":
+            planreview.review_one(cfg)
+        else:
+            plan.planner(cfg, json.loads(fac.ergostat("item", gid, "--json").stdout))
+    except TimeoutError:
+        pass
+print(json.dumps([json.loads(x) for x in out.getvalue().splitlines() if x.startswith('{"event"')]))"""
+
+
+def inproc(f: Instance, what: str, gid: str, answer) -> list[str]:
+    """plan.py's planner (or the plan review) in one process, its session answering ``answer`` ([text, cost]; None:
+    a timeout); its events folded."""
+    return f.fold(f.py(INPROC, what, gid, json.dumps(answer)), gid)
+
+
+def test_a_small_gap_is_ready_without_a_planner_session(tmp_path):
+    f = Instance(tmp_path)
+    by_size(f)
+    gid = f.opened()
+    size_as(f, gid, "S")
+    said, _ = f.run("plan.py", gid)
+    g = f.item(gid)
+    assert said == ["gap.defined"] and g["state"] == "ready" and reserved(f) == []          # no session
+    assert g["fields"]["defined_by"] == "size-s" and g["fields"]["planning_cost_usd"] == 0
+    assert g["fields"]["plan_review"] is None
+    text = (f.model / "run" / "defs" / "alpha-thing.md").read_text()
+    assert text.startswith("# alpha-thing: Alpha thing") and "size: S (confidence: high)" in text
+    assert "no planner session, no review" in text
+    # a definition appearing between the check and the write is left byte-for-byte
+    g2 = "gap/delta"
+    f.fold([{"event": "gap.requested", "item": g2, "data": {"branch": "delta"}}], None)
+    size_as(f, g2, "S")
+    mine = "# mine\n\nthe coordinator's, written meanwhile\n"
+    assert inproc(f, "race", g2, mine) == ["gap.defined"]
+    assert (f.model / "run" / "defs" / "delta.md").read_bytes() == mine.encode()
+    assert f.item(g2)["fields"]["defined_by"] == "coordinator" and reserved(f) == []
+
+
+def test_a_medium_plan_skips_review_under_its_own_cap(tmp_path):
+    f = Instance(tmp_path)
+    by_size(f, m_usd=0.4)
+    gid = f.opened()
+    size_as(f, gid, "M", "medium")
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    g = f.item(gid)["fields"]
+    assert said == ["gap.defined"] and f.item(gid)["state"] == "ready" and "gap.planned" not in said
+    assert reserved(f) == [0.4]                                        # its own cap, not planner_session_usd (1.0)
+    assert g["defined_by"] == "plan-unreviewed" and g["plan_review"] is None and g["planning_cost_usd"] == 0
+    assert (f.model / "run" / "defs" / "alpha-thing.md").read_text().startswith("# alpha-thing: a plan")
+    # an M gap that splits: the sub-gaps have no class, so they take the full path: marked for review
+    f.fold([{"event": "gap.requested", "item": "gap/delta", "data": {"branch": "delta"}}], None)
+    size_as(f, "gap/delta", "M", "high")
+    split = PLAN.format(b="d-one") + PLAN.format(b="d-two") + covered("d-one", "d-two")
+    assert f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=split)[0][-1] == "gap.split"
+    assert reserved(f) == [0.4, 0.4]
+    for sub in ("gap/d-one", "gap/d-two"):
+        s = f.item(sub)["fields"]
+        assert (s["defined_by"], s["plan_review"], s["planning_cost_usd"]) == ("plan-split", "wanted", 0)
+
+
+def pick(gid: str) -> float:
+    import hashlib
+    return int(hashlib.sha1(f"l-review:{gid}".encode()).hexdigest(), 16) / 16 ** 40
+
+
+def test_large_plans_are_reviewed_on_a_stable_sample(tmp_path):
+    a, b = sorted(["gap/alpha-thing", "gap/delta"], key=pick)            # a falls under the share, b over it
+    share = (pick(a) + pick(b)) / 2
+    assert 0 < share < 1
+    for s, reviewed in [(0, {a: False, b: False}), (1, {a: True, b: True}), (share, {a: True, b: False})]:
+        (tmp_path / str(s)).mkdir()
+        f = Instance(tmp_path / str(s))
+        by_size(f, share=s)
+        f.opened()
+        f.fold([{"event": "gap.requested", "item": "gap/delta", "data": {"branch": "delta"}}], None)
+        for gid in (a, b):
+            br = gid[4:]
+            for _ in range(3):                                           # again, as a lease retry would
+                size_as(f, gid, "L")
+                said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b=br))
+                g = f.item(gid)["fields"]
+                assert said == ["gap.defined"], (s, gid)
+                assert (g["plan_review"] == "wanted", g["defined_by"]) == (
+                    reviewed[gid], "plan" if reviewed[gid] else "plan-unreviewed"), (s, gid)
+                (f.model / "run" / "defs" / f"{br}.md").unlink()
+                f.fold([{"event": "gap.requested", "item": gid, "data": {}}], None)   # open again
+    # a replan (the fold's state, from the send-back) is reviewed even at share 0, and defined_by is written anew
+    (tmp_path / "replan").mkdir()
+    f = Instance(tmp_path / "replan")
+    by_size(f, share=0)
+    gid = f.opened()
+    size_as(f, gid, "L")
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    assert f.item(gid)["fields"]["defined_by"] == "plan-unreviewed"
+    (f.model / "run" / "defs" / "alpha-thing.md").unlink()
+    f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["again"]}}], None)
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    g = f.item(gid)["fields"]
+    assert said == ["gap.defined"] and (g["defined_by"], g["plan_review"], g["replanned"]) == ("plan", "wanted", True)
+
+
+def test_an_xl_gap_planned_whole_is_sent_back(tmp_path):
+    f = Instance(tmp_path)
+    by_size(f)
+    gid = f.opened()
+    size_as(f, gid, "XL")
+    for n in (1, 2):                                                      # each time toward the lint's park
+        said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+        g = f.item(gid)
+        assert said == ["gap.plan-sent-back"] and g["state"] == "replan"
+        assert any("must split" in x for x in g["fields"]["plan_findings"]) and g["fields"]["plan_lint_failures"] == n
+    assert not (f.model / "run" / "defs" / "alpha-thing.md").exists()
+    split = PLAN.format(b="alpha-one") + PLAN.format(b="alpha-two") + covered("alpha-one", "alpha-two")
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=split)
+    assert said[-1] == "gap.split" and f.item(gid)["state"] == "split"
+    assert f.item("gap/alpha-one")["state"] == f.item("gap/alpha-two")["state"] == "ready"
+
+
+@pytest.mark.parametrize("fields", [{}, {"planned_size": "s ", "size_confidence": "high"},
+                                    {"planned_size": "S", "size_confidence": "low"}, {"planned_size": "S"},
+                                    {"planned_size": "S", "size_confidence": 0.9},
+                                    {"planned_size": "M", "size_confidence": "sure"}])
+def test_an_unsized_or_unsure_gap_takes_the_full_path(fields, tmp_path):
+    f = Instance(tmp_path)
+    by_size(f, share=0, bar=0.5)
+    gid = f.opened()
+    f.fold([{"event": "gap.measured", "item": gid, "data": fields}], None)
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    g = f.item(gid)["fields"]
+    assert said == ["gap.defined"] and reserved(f) == [1.0]               # the full planner, under its own cap
+    assert (g["defined_by"], g["plan_review"]) == ("plan", "wanted")      # reviewed, never the S or M path
+
+
+@pytest.mark.parametrize("setting, key", [(dict(m_usd=2.0), "planner_m_session_usd"),
+                                          (dict(share=1.5), "l_review_share"),
+                                          (dict(bar=-0.1), "min_size_confidence")])
+def test_size_settings_out_of_bounds_stop_before_a_session(setting, key, tmp_path):
+    f = Instance(tmp_path)
+    by_size(f, **setting)
+    gid = f.opened()
+    said, _ = f.run("plan.py", gid, fails=True)
+    assert said == [] and key in f.stderr and reserved(f) == []
+    assert f.item(gid)["state"] == "open"
+
+
+def test_planning_cost_is_summed_and_a_failed_session_charges_its_reservation(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    assert inproc(f, "plan", gid, [PLAN.format(b="alpha-thing"), 0.25]) == ["gap.defined"]
+    assert inproc(f, "review", gid, None) == ["gap.measured", "gap.measured"]     # timed out: its 1.0 reserved
+    (f.model / "run" / "defs" / "alpha-thing.md").unlink()
+    f.fold([{"event": "gap.plan-sent-back", "item": gid, "data": {"plan_findings": ["again"]}}], None)
+    assert inproc(f, "plan", gid, None) == ["gap.measured"]                     # the replan timed out: 1.0
+    g = f.item(gid)["fields"]
+    assert g["planning_cost_usd"] == g["ai_cost_usd"] == 2.25
+
+
+def test_planning_cost_share_leaves_out_unrecorded_gaps(tmp_path):
+    f = Instance(tmp_path)
+    now = time.time()
+    merged_gap(f, "gap/none", now - DAY, ai_cost_usd=50.0)                       # no field: left out, never 0
+    r = size_measure(f, "planning-cost-share")
+    assert r.returncode == 1 and "no value yet" in r.stderr
+    merged_gap(f, "gap/a", now - DAY, planning_cost_usd=1.0, ai_cost_usd=4.0)
+    merged_gap(f, "gap/b", now - DAY, planning_cost_usd=0, ai_cost_usd=6.0)
+    merged_gap(f, "gap/over", now - DAY, planning_cost_usd=5.0, ai_cost_usd=2.0)  # above its total: left out
+    merged_gap(f, "gap/neg", now - DAY, planning_cost_usd=-1.0, ai_cost_usd=2.0)  # negative: left out
+    merged_gap(f, "gap/old", now - 20 * DAY, planning_cost_usd=9.0, ai_cost_usd=9.0)   # outside the window
+    r = size_measure(f, "planning-cost-share")
+    assert r.returncode == 0 and r.stdout.strip() == "0.1", r.stderr
+    assert "gap/over" in r.stderr and "gap/neg" in r.stderr and "gap/a" not in r.stderr
+
+
+def test_the_size_paths_are_in_the_model():
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    spec, _ = read(ROOT / "ergostat.yaml")
+    for flow, by in [("small-gaps-defined", "size-s"), ("plans-unreviewed", "plan-unreviewed")]:
+        fl = spec.flows[flow]
+        assert (fl.source, fl.target) == ("gaps-open", "gaps-ready")
+        items = [s.items for s in fl.sensors.values()]
+        assert items and all(i.get("entering") == "ready" and i.get("where") == {"defined_by": by} for i in items)
+        assert any(flow in str(r) for refs in spec.blocks["planner"].outputs.values() for r in refs)
+    aux = spec.auxiliaries["planning-cost-share"]
+    assert [s.run for s in aux.sensors.values()] == ["python3 dev/bin/measure.py planning-cost-share"]
