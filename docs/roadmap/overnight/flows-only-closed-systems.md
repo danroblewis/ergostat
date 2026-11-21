@@ -25,3 +25,34 @@ The owner asked for a Dynamics toggle that shows "only flows, the double-line th
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built (round 1); 31 net lines of code (diagram.js +5, dynamics.js +22, style.css +4), and one phrase in
+docs/QUICKSTART.md. **Not run in a browser:** this container has no Playwright, so the five acceptance tests skip here
+and none was run, nor broken on purpose to watch it fail (lesson-9). They rest on the factory's browser gate running
+`tests/test_diagram_rendering.py`, not skipping it. The graph the tests name was checked against the server's real
+answer: on the closed view, `/api/graph?view=dynamics` gives the three boxes and exactly the six connectors the tests
+list, and the edited model the no-flows test serves loads with only the three stock reads left.
+
+Choices made alone (each easy to undo):
+- **What "carries a flow" means.** Every one of the six lines between closed systems in `software-factory` is a
+  connector, so the drawing class can't tell them apart. The rule, in `sdFlowLinks` (dynamics.js), reads the model:
+  a pipe, or a line that crosses a system's edge (at a port, or ending at a shadow or a stub) whose tail part is a
+  flow (a valve or a disturbance, i.e. a flow's rate goes across). So `deployed` → `fixes`, `regressions` and
+  `shipped` stay; `bugs-live`, `missing-ops` and `users` read by intake's flows are information and are hidden. A
+  shadow or stub at the end of a kept line stays too.
+- **Open systems are unchanged.** A connector from a flow to a flow, both drawn in open systems (`open=*`), is still
+  hidden, as `test_flows_only_hides_links_and_non_flow_parts` requires (no `.info` line seen). Giving it the same
+  rule would change that accepted test, so this gap leaves it alone.
+- **The note** is an SVG text in the drawing itself, centred above it, shown only with Flows only and only when the
+  level keeps no line at all. Because it is part of the drawing, an export made with Flows only on carries it too.
+- **The legend with Flows only** lists stock and source / sink when the level has them, flow and biflow only for
+  pipes kept, and connector + / − only for the signs of the lines kept. It never lists auxiliary, exogenous or the
+  loops. export.js was not touched, so a view with no stock (the closed view itself) still gets no legend. That is
+  why the legend test uses `open=product`: factory and modelling stay closed, and `<deployed>`'s lines into
+  product's flows are kept.
+- **lesson-9's "closed software-factory view":** tests 1 to 3 use the plain closed view. Test 4 uses the closed view
+  of a copy with `deployed`'s couplings taken out, since the real model does carry flows across. Test 5 uses
+  `open=product` (reason above). Each asserts something today's code does not do: links kept, the exact set hidden,
+  ports hidden, the note, the legend without auxiliary or loops.
