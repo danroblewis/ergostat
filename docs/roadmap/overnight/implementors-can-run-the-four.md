@@ -151,8 +151,8 @@ Round 6, the round's unit suite failed; main (b24eb901) was already merged (f79d
 - **The likely cause, this branch's own:** test_implementor_environment_has_a_browser is the only unit test that
   runs `uv run` inside the unit suite (`[suites] browser_ready`). In a fresh container, a `uv run` resyncs the
   project's .venv and prints `Uninstalled 1 package ... Installed 1 package`: ergostat's editable install is taken
-  out and put back, under the seven other xdist workers that are starting `python -m ergostat` from that .venv. This
-  was seen here, in the first run of tests/test_agents.py.
+  out and put back, under the seven other xdist workers that are starting `python -m ergostat` from that .venv. The
+  resync was seen here only from the outer `uv run` of a pytest command, not from the test's nested one.
 - **Fixed (decided alone, reversible, in tests/ only):** the test runs the real `browser_ready` command with
   `UV_NO_SYNC=1`, so the .venv is left as it is. Playwright still comes from `--with`, and the factory's own
   `browser_ready` (alone, in its own container) is unchanged. The test now also fails if the launch prints
