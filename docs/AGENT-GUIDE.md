@@ -539,7 +539,10 @@ blocks:
   `redesign`, or a proposal of the structure with the record of the burst as its evidence); value proposals on a
   model missing structure only chase the burst.
 - The proposals ergostat makes are the same items as the record grows: one revised in place (`revisions`) is not
-  churn. One superseded says why (what it was about was edited or removed, or it is no longer found).
+  churn. An edit elsewhere carries a waiting change, yours too (one passed goes back to testing); one superseded says
+  why: what it was about was edited or removed, its edit no longer applies (propose it again on the files as they are),
+  its finder no longer finds it, it was recorded without what it is about, it is no longer of its kind, or it would
+  change who decides.
 
 ## 3h. When will it be done: the items' completion estimates
 
