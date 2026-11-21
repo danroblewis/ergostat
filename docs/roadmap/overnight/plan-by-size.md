@@ -55,3 +55,66 @@ The implementor breaks each guarded line (the fail-closed check, the ceiling che
 - XL: say what stops an XL gap whose planner keeps sending a single definition (does send_back count toward the existing retry/park limit?), so it cannot loop on planner money (lesson-4).
 - M split 'handled as today': state whether an M plan that splits gets reviewed. The sub-gaps then take the unsized path, which is reviewed; confirm that this is intended and tested.
 - lesson-7: merge origin/main into the branch and rerun the suites before reporting it built.
+
+## Where it stopped
+
+Built. These are the decisions made alone, each the more reversible option, and the answers to the notes.
+
+**"Planned" read as "marked for the plan review".** The owner decided on 2026-11-20 that the plan review is never a
+gate. On main a lint-clean plan is `ready` at once, `planned` is a legacy state that the lint sweep empties, and
+`test_the_knowledge_model_loads` asserts that the planner never moves a gap to `planned`. So a "reviewed" plan here is
+`ready` with `plan_review: wanted` (and `defined_by: plan`), and an unreviewed one is `ready` with `plan_review: null`
+(`defined_by: plan-unreviewed`, or `size-s` for S). The tests assert those fields. Making the review a gate again
+would be the owner's call. `[plan] review = off` still turns the review off for every path.
+
+**Where the class comes from.** The planner reads `planned_size` and `size_confidence` (the gap-size fields) as they
+are on the gap before it plans. A confidence counts as low 0.25, medium 0.5, high 0.75 against
+`[planning] min_size_confidence`. Nothing in this gap sets a class on an open gap: the coordinator (or an earlier
+plan) has to have recorded it. When the settings are unset, nothing is trusted (bar 1.0), the M cap is the planner's
+own, and the L share is 1, so a config without `[planning]` behaves as main does, with every plan reviewed.
+`dev/factory.toml` sets 0.5, $2 and 0.5.
+
+Answers to the plan review's notes:
+- *Stable sample (lesson-9)*: the test computes the two fixture gaps' picks and sets the share between them, so
+  share is strictly in (0, 1) and one gap falls on each side. Each gap is planned three times, as lease retries
+  would be. Replacing the per-gap pick with `random.random() < share` makes the test fail (checked).
+- *Failed sessions (lesson-3)*: a planner or plan-review session that times out, errors or is cancelled (any
+  BaseException, including SystemExit on SIGTERM) adds its whole reservation to `planning_cost_usd` and
+  `ai_cost_usd`. So does a session that gives no cost. `planning_cost_usd` is a `sum` fold (ergostat.yaml: one line
+  outside 'Files to touch', needed for the replan to add up). The test covers plan $0.25, then a plan review that
+  timed out ($1), then a replan that timed out ($1), giving 2.25. Not covered: an error *after* a planner session
+  returned (in the lint, say) loses that session's cost from the gap, as main already loses `ai_cost_usd` there.
+  The ledger still holds it.
+- *Confidence missing or unreadable*: `{"planned_size": "S"}`, a confidence of `0.9` (a number) and `"sure"` are
+  cases of `test_an_unsized_or_unsure_gap_takes_the_full_path`.
+- *Planning cost above the total, or negative*: left out of the share and named on stderr, never folded in. The same
+  goes for a cost that is not a number (bool, NaN). Tested.
+- *Exclusive create (lesson-1)*: `define` creates `run/defs/<branch>.md` with mode `"x"`. The test makes the
+  coordinator's file appear inside the check (`intake.definition` patched to write it and answer None). The file is
+  left byte for byte and the gap is `defined_by: coordinator`. Changing the mode to `"w"` makes the test fail
+  (checked).
+- *Replan (lesson-5, lesson-2)*: a replan is recognised by the gap's state `replan`, which the fold sets from the
+  send-back event in record order (seq), never by comparing times. `defined_by` and `plan_review` are written by
+  every `gap.defined`, so an old `plan-unreviewed` or `size-s` never survives a replan (tested: L unreviewed, sent
+  back, then `plan` + `wanted`). The replanned gap's class is ignored, except XL.
+- *README (lesson-8)*: it says in bold that no AI and no reviewer has looked at an S definition. It also says that
+  nothing claims M, unsampled L or S plans are as good as reviewed ones.
+- *Model*: `test_the_size_paths_are_in_the_model` checks both flows (open to ready, their sensors' `defined_by`, in
+  the planner's `out`) and the auxiliary's sensor command. Renaming either one makes it fail (checked).
+- *XL loop (lesson-4)*: the XL refusal goes through `send_back`, so it counts toward `plan_lint_failures`, and the
+  6th refusal parks the gap (MOST_LINT). Tested: two refusals give counts 1 and 2. The planner learns the rule from
+  the finding "an XL gap must split" (its brief does not carry the class).
+- *M split*: an M plan that splits is not reviewed as a whole (a parent merges nothing). Its sub-gaps carry no class,
+  so they are marked for review (`defined_by: plan-split`, `plan_review: wanted`) and get `planning_cost_usd: 0`,
+  since their planning was paid on the parent. This is intended, and tested in the M test.
+- *lesson-7*: this container has no `origin`. Local `main` is 505a93e9, the branch's own base, so there was nothing
+  to merge. The queue merges main again.
+
+Mutation checks (lesson-9). Each guarded line was broken by hand and its test watched fail: the confidence bar, the
+exact-class check, the M ceiling, the share bound, the confidence floor, the per-gap pick, replan-always-reviewed,
+the XL refusal, the exclusive create, the M cap in use, the planner's and the plan review's failure charge, the
+field filter (a missing field counted as 0), the range filter, a flow's sensor and the auxiliary's sensor.
+
+Size: 157 net lines in dev/bin, dev/model, dev/factory.toml, dev/prompts and ergostat.yaml, against a budget of 220.
+`dev/bin/planreview.py` and `ergostat.yaml` are outside 'Files to touch'. They are needed for the plan review's
+planning cost and for the summed field.
