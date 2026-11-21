@@ -220,6 +220,7 @@ class Server:
             return _text({"ok": not any(p.level == "error" for p in problems),
                           "problems": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
                                         **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
+                                        **({"items": p.items} if p.items else {}),
                                         "file": str(p.where.file) if p.where else None,
                                         "line": p.where.line if p.where else None} for p in problems],
                           "counts": {"stocks": len(spec.stocks), "flows": len(spec.flows), "auxiliaries": len(spec.auxiliaries),

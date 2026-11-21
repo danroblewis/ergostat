@@ -66,7 +66,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "
                "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -672,10 +672,17 @@ class Compiler:
         from . import joins
         from .relations import compile_relations
         relations = compile_relations(self, m, what, rules)
+        about = m.get("about")                       # the field naming the parts it is about (SPEC §5a, *About*)
+        if about is not None and (not isinstance(about, str) or not about or about in relations
+                                  or rules.get(about, "replace") != "replace"):
+            self.err(f"{what}.about: the name of a field (not a relation) holding the parts of the model it is about "
+                     f"(goal.x, stock.y), folded by replace: an event that sets it replaces the list", m.at("about"),
+                     "bad-about")
+            about = None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what))
+                        join=joins.compile_join(self, m, what), about=about)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""

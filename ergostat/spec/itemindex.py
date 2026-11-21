@@ -14,7 +14,8 @@ folds only what is newer than it.
   counts as finished is known without reading every move.
 - ``links``: every item's relations to other items (SPEC §5a, *Relations*), one row per link (the item, the
   relation, the id it names), indexed both ways, so an item's links and the links to it (the inverse: ``blocks``,
-  ``children``) are both one lookup.
+  ``children``) are both one lookup. A kind that declares ``about:`` keeps there too, as relation ``@about``, each
+  part of the model its items name (``goal.x``), as its field now holds them: "the items about goal.x" is one lookup.
 
 In memory, only items still open are kept folded (their fold state, a few thousand at most, the
 latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
@@ -50,10 +51,12 @@ from pathlib import Path
 
 from ..store import damaged
 from . import codec
+from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of
 from .relations import links_of
 
-VERSION = 3                 # of the index's layout: a different one is rebuilt
+VERSION = 4               # of the index's layout: a different one is rebuilt (4: the @about links)
+ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
 IDLE = 86400.0              # an item with no event for this long is not kept in memory (storage: items: idle)
@@ -91,7 +94,7 @@ def kinds_key(spec) -> tuple:
     """What a fold depends on in the model: its item kinds (a change being tried shares the index
     when it leaves them as they are)."""
     return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())),
-                  tuple(sorted(getattr(k, "relations", None) or {})))
+                  tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 
@@ -451,9 +454,9 @@ class Index:
                                 "arrived=?, raw=?, raw_first=?, body=? where rid=?", (*values, rid))
             if restored:
                 self.db.execute("delete from moves where rid = ?", (rid,))
-            if k is not None and k.relations:                  # its links, as its fields now hold them
+            if k is not None and (k.relations or k.about):     # its links, as its fields now hold them
                 self.db.execute("delete from links where rid = ?", (rid,))
-                got = links_of(k, it.fields)
+                got = links_of(k, it.fields) + [(ABOUT, t) for t in parts_named(it.fields.get(k.about) if k.about else None)]
                 if got:
                     self.db.executemany("insert into links(rid, rel, dst) values (?,?,?)",
                                         [(rid, self.nid(r), t) for r, t in got])
@@ -698,13 +701,13 @@ class Index:
 
     @_healing
     def links_from(self, ids) -> list[tuple[str, str, str]]:
-        """(item, relation, the id it names) of each link the items ``ids`` hold."""
+        """(item, relation, the id it names) of each link the items ``ids`` hold (the ``@about`` links are not to items)."""
         ids, out = list(ids), []
         for i in range(0, len(ids), 500):
             part = ids[i:i + 500]
             out += [(a, self.name(r), d) for a, r, d in self.db.execute(
                 f"select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid where i.id in ({','.join('?' * len(part))})",
-                part)]
+                part) if self.name(r) != ABOUT]
         return out
 
     @_healing
@@ -715,7 +718,23 @@ class Index:
             part = ids[i:i + 500]
             out += [(a, self.name(r), d) for a, r, d in self.db.execute(
                 f"select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid where l.dst in ({','.join('?' * len(part))})",
-                part)]
+                part) if self.name(r) != ABOUT]
+        return out
+
+    @_healing
+    def about(self, parts=None) -> list[tuple[str, str]]:
+        """(item, part) for each item that names one of the model's ``parts`` (None: any) in its kind's ``about:`` field:
+        the link rows only, by the index on the part named."""
+        rel = self.known(ABOUT)
+        if rel == -1:
+            return []
+        sql, args = "select i.id, l.dst from links l join items i on i.rid = l.rid where l.rel = ?", [rel]
+        if parts is None:
+            return [tuple(r) for r in self.db.execute(sql, args)]
+        parts, out = list(parts), []
+        for i in range(0, len(parts), 500):
+            part = parts[i:i + 500]
+            out += [tuple(r) for r in self.db.execute(f"{sql} and l.dst in ({','.join('?' * len(part))})", (*args, *part))]
         return out
 
     @_healing
