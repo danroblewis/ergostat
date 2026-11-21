@@ -406,7 +406,8 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
                 findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
                 + ([f"the first failing merge of a batch of {len(todo)}, found by bisecting"] if len(todo) > 1 else []),
                 **timing(g, red))
-        landed += [(x, timing(x, green) | counted[x["id"]]) for x, _ in todo[:hi - 1]]    # (hi - 1 == lo: that prefix's run was green)
+        # (hi - 1 == lo: that prefix's run was green)
+        landed += [(x, timing(x, green) | counted[x["id"]]) for x, _ in todo[:hi - 1]]
         base, todo = onto, todo[hi:]
     fac.git(repo, "reset", "-q", "--keep", base)
     return landed, base
