@@ -1436,6 +1436,7 @@ def test_a_green_batch_lands_every_gap(tmp_path):
         it = f.item(f"gap/{g}")
         assert it["state"] == "merged" and it["fields"]["main_sha"] == head and it["fields"]["batch_size"] == 3
         assert it["fields"]["queue_attempts"] == 1 and len(it["fields"]["queue_runs"]) == 1
+        assert it["fields"]["merged_lines"] == 1                       # its own merge's line, not the batch's 3
     assert f.item("gap/d")["state"] == "approved" and f.item("gap/e")["state"] == "approved"
     acts = f.db()["acts"]
     assert len(acts) == 1 and acts[0][:2] == ["act", "push-main"] and f"sha={head}" in acts[0]   # one approval
@@ -1460,6 +1461,8 @@ def test_a_red_batch_is_bisected_to_the_failing_merge(tmp_path):
     assert git(f.checkout, "log", "--first-parent", "--format=%s", "-1", onto) == "Merge branch 'factory/q'"
     assert git(f.checkout, "rev-parse", "main~1") == onto                      # and the rest landed on it
     assert all(f.item(f"gap/{g}")["state"] == "merged" for g in "pqs")
+    assert [f.item(f"gap/{g}")["fields"]["merged_lines"] for g in "pqs"] == [1, 1, 1]   # s: its merge onto p, q
+    assert "merged_lines" not in f.item("gap/r")["fields"]                     # not merged: no count
     assert len(f.db()["acts"]) == 1
     run = {g: f.item(f"gap/{g}")["fields"]["queue_runs"] for g in "pqrs"}
     assert all(v == run["p"] for v in run.values()) and len(run["p"]) == 1     # the one run, on all four

@@ -202,8 +202,8 @@ python3 dev/bin/lesson.py add "Title" --check "the check"   # or: retire N "why"
 net lines that will merge outside `tests/` and `docs/`, `dev/` counted: S 50 or fewer (a net removal is S), M 51-150,
 L 151-400, XL over 400. A definition without it, or with another class or confidence, is sent back like any other
 planner problem, never given a default; each sub-gap of a split has its own. A replan replaces the size, and clears the
-lines of any earlier merge. At each merge the queue counts the net lines from main before it to the merged head and
-records `merged_lines` on `gap.merged`; when that count cannot be read the merge stands, `merged_lines` is null and
+lines of any earlier merge. At each merge the queue counts the net lines from main before it to the merged head (in a batch, each gap's
+own merge, not the batch's) and records `merged_lines` on `gap.merged`; when that count cannot be read the merge stands, `merged_lines` is null and
 `merged_lines_error` says why (a merge again always writes both, so no older count survives).
 
 `measure.py size-accuracy` is, over 14 days by each gap's latest merge, the share of merged gaps the planner sized
