@@ -18,6 +18,13 @@ _CACHE: dict = {}
 MERGES = "Approving merges this code into your repository; it then runs with your rights, outside the sandbox."
 
 
+def command(e: dict) -> str | None:
+    """How an entry is answered, as a command (said by ``inbox``, the status and the notifications alike); None when it
+    has no verb."""
+    flags = {"done": "--done N", "deny": "--deny --note WHY" if e["kind"] == "request" else "--deny"}
+    return f"ergostat inbox {e['id']} " + " | ".join(flags.get(v, f"--{v}") for v in e["verbs"]) if e["verbs"] else None
+
+
 def _cut(s: str, n: int = 80) -> str:
     return s if len(s) <= n else s[:n - 3] + "..."
 
@@ -138,11 +145,13 @@ def _changes(p, spec, now: float) -> list[dict]:
 
 def _requests(p, spec, now: float) -> list[dict]:
     """What check finds that modelling holds (``ergostat.modelling-request``, held: no tier has a change for it): read
-    on its item's page; answered when check no longer finds it, so it has no verb here."""
+    on its item's page. Approved, it goes back to the modelling loop; denied (with why), it is dismissed until its part
+    changes; and answered of itself when check no longer finds it."""
     from ..numbers import requests as rq
     if MODELLING_REQUEST not in spec.items:
         return []
-    return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now, "verbs": [],
+    return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now,
+             "verbs": ["approve", "deny"] if rq.approvable(spec, r) else ["deny"],
              "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
              "summary": f"modelling holds {r.get('code')} on {r.get('about')}", "why": _cut(r.get("why") or "", 200)}
             for r in rq.stored(p).values() if r["state"] == "held"]
