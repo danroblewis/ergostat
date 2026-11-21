@@ -21,3 +21,12 @@ From:
 ## Size budget
 
 0 net lines of code (knowledge only).
+
+## Where it stopped
+
+- Done (uncommitted): `dev/knowledge/review-lessons.md` § 5's "Seen as:" now ends with the new shape, appended
+  after a `;` like the others and wrapped at 120 characters, ending with a period like the other Seen-as lines. No
+  heading was added and no other line changed, so `knowledge.entries()` should still give lesson-1..lesson-13 in order.
+- Left: this session refused Bash, so the implementor could not run `test_knowledge_files_parse` or ruff, merge
+  origin/main in, or commit. The edit and this section are in the working tree for the factory to commit and test.
+  The code fix that the finding asks for (fact ids that can't collide) is outside this gap and belongs in its own gap.
