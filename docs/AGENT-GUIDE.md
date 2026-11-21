@@ -450,8 +450,10 @@ Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `p
 owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
 is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p). `mode: advise` asks before a command or
 an event, never before each item, so `check` refuses it on a block with `takes:` (`advise-with-takes`); to have a
-person hold such a block's items, gate it with `goal:` or `in: block.X` from a block they command, and its items wait
-while that is off (SPEC §9.5, *Dispatch*):
+person hold such a block's items, gate it with `in: block.X` from an `expr` block reading a `sensor: {manual: true}`
+stock: `ergostat sensor STOCK --read 1` opens it for all the items at once (not one by one), `--read 0` shuts it, and
+the items wait while it is off. A `person` block is no gate (its `--done` never sets a command; `check` refuses it as
+one, `person-gate`) (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`; a held modelling request is denied with `--deny --note WHY`,

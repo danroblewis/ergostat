@@ -244,6 +244,7 @@ class Sampler:
                 "running": bool(self.thread and self.thread.is_alive())}
 
     def _loop(self) -> None:
+        from ..library import reap
         while True:
             with self.lock:            # (one look: never a wait computed after the last run left, with no end)
                 if not self.runs:
@@ -256,6 +257,7 @@ class Sampler:
                 continue
             try:
                 self.sample()
+                reap.look_all()        # (and the runs' watches looked at: no thread of their own)
             except Exception:          # (a listing that failed: the next one may not)
                 pass
 
