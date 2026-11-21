@@ -97,9 +97,7 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
     craft(spec, lambda code, msg, where, about: out.append(Problem("note", msg, where, code, about)))
     if extremes:
         out += late(spec)
-    from .about import findings as about  # the items about parts: carried by findings, and names of no part
-    about(spec, out)
-    return out
+    return out              # (the items about parts are check's alone, after all of these: about.findings)
 
 
 def late(spec: Spec, wait: float | None = None) -> list[Problem]:

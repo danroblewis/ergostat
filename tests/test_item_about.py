@@ -219,22 +219,49 @@ def test_an_index_built_before_the_about_links_is_rebuilt(home):
     assert last_line(p, "goal.a") == "Open items about goal.a: knowledge/one (One)."
 
 
-def test_missing_part_is_a_finding_and_findings_carry_ids(home):
+def test_missing_part_is_a_finding_and_findings_carry_ids(home, capsys, monkeypatch):
     p = project(home)
     found(p, "knowledge/fb", ["goal.quiet"], "Feedback", at=T0)
     for n, name in enumerate(["goal.gone", "foo.x", "goal.", "block.nowhere", "stock.a.main"]):
         found(p, f"knowledge/bad{n}", [name, "stock.b"], at=T0 + 1 + n)
     found(p, "knowledge/gone-but-retired", ["goal.also-gone"], at=T0 + 9)
     p.events.add("knowledge.retired", item="knowledge/gone-but-retired", at=T0 + 10)
+    from ergostat.cli import main
+    from ergostat.mcp import Server
+    from ergostat.spec import findings as fi
+    from ergostat.spec.load import Problem
+    real_late = fi.late                                                    # a finding check adds after read: ids too
+
+    def late(spec, wait=None):
+        return real_late(spec, wait) + [Problem("finding", "an extreme", None, "extreme-test", "goal.quiet")]
+    monkeypatch.setattr(fi, "late", late)
+    main(["-C", str(home), "check", "--json", "--no-coherence"])
+    cli = json.loads(capsys.readouterr().out)["found"]
+    mcp = json.loads(Server(home).call("check", {})["content"][0]["text"])["problems"]
+    for problems in (cli, mcp):
+        missing = {f["about"]: f for f in problems if f["code"] == "about-missing-part"}
+        assert set(missing) == {"goal.gone", "foo.x", "goal.", "block.nowhere", "stock.a.main"}
+        assert missing["goal.gone"]["items"] == ["knowledge/bad0"] and "knowledge/bad0" in missing["goal.gone"]["message"]
+        fb = next(f for f in problems if f["code"] == "missing-feedback" and f["about"] == "goal.quiet")
+        assert fb["items"] == ["knowledge/fb"] and "open items about it: knowledge/fb" in fb["message"]
+        others = [f for f in problems if (f["about"] or "").startswith("block.") and f["code"] != "about-missing-part"]
+        assert others and all("items" not in f for f in others)                 # none named: no ids
+    ext = next(f for f in cli if f["code"] == "extreme-test")              # (the MCP's read runs its own extremes)
+    assert ext["items"] == ["knowledge/fb"]
+
+
+def test_loading_the_model_looks_nothing_up(home, monkeypatch):
+    """The about findings are check's alone: loading a model that declares ``about:`` (every CLI command, the engine,
+    a proposal's trial) never opens the item index for them."""
     from ergostat.spec import read
-    _, problems = read(home / "ergostat.yaml", extremes=False)
-    missing = {f.about: f for f in problems if f.code == "about-missing-part"}
-    assert set(missing) == {"goal.gone", "foo.x", "goal.", "block.nowhere", "stock.a.main"}
-    assert missing["goal.gone"].items == ["knowledge/bad0"] and "knowledge/bad0" in missing["goal.gone"].message
-    fb = next(f for f in problems if f.code == "missing-feedback" and f.about == "goal.quiet")
-    assert fb.items == ["knowledge/fb"] and "open items about it: knowledge/fb" in fb.message
-    others = [f for f in problems if f.about.startswith("block.") and f.code != "about-missing-part"]   # none named
-    assert others and all(f.items == [] for f in others)
+    p = project(home)
+    found(p, "knowledge/gone", ["goal.gone"])
+    monkeypatch.setattr(ii, "index_for", lambda *a, **k: pytest.fail("the item index opened on a load"))
+    monkeypatch.setattr(ab, "open_about", lambda *a, **k: pytest.fail("looked up on a load"))
+    m = mdl.load(home)
+    assert m.spec is not None and ab.declared(m.spec)
+    _, problems = read(home / "ergostat.yaml")
+    assert not [x for x in problems if x.code.startswith("about-")]
 
 
 def _off(p, name, value):

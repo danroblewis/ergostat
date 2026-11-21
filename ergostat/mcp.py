@@ -217,6 +217,9 @@ class Server:
             if path is None or path.name != mdl.YAML:
                 return _text(f"no {mdl.YAML} here or above {self.root}")
             spec, problems = read(path)
+            if not any(p.level == "error" for p in problems):
+                from .spec.about import findings as about
+                about(spec, problems)                       # as the CLI's check: last, so every finding carries ids
             return _text({"ok": not any(p.level == "error" for p in problems),
                           "problems": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
                                         **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
