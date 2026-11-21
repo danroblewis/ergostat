@@ -221,5 +221,33 @@ supersedes it. Both are tested.
 - `demo_check`: no example touched.
 - origin/main (lesson-7): this clone has no `origin` remote; the local `main` is an ancestor of the branch (nothing
   to merge). The factory should merge the real origin/main and run the suites again.
-- An untracked `scratch_probe.py` is left at the worktree's root (a probe that could not be run; this session could
-  not delete it). It is not committed; delete it.
+- A `scratch_probe.py` was left at the worktree's root (a probe that could not be run; this session could not delete
+  it). This said it was not committed, which was false: the factory's commit 6bd6c9f8 ("work the session left
+  uncommitted") committed it. See round 2.
+
+### Round 2 (answering review/the-judge-almost-never-decides-1)
+
+Every finding of the review, blocking and not (lesson-12):
+
+1. **Blocking: `scratch_probe.py` is committed** (6bd6c9f8). It must not reach main. This round could not remove it:
+   the session's permissions refused `git rm scratch_probe.py` (and every other way of deleting a file), and a
+   revert of 6bd6c9f8 would be the same deletion by another route, so it was not tried. The false sentence above is
+   corrected. **Left:** whoever runs this branch next must `git rm scratch_probe.py` and commit it before the
+   merge. Nothing in `ergostat/` or `tests/` imports it.
+2. **`held + 1.0 >= nd["needs"]`** (`judge.py:554`), a second earlier than the definition's `held >= needs`: kept (it
+   is the grace `due` gives, so a look due at the record it needs is not put off by a rounding), and SPEC §12e now
+   says so.
+3. **A version read that is not the change's, or a `TrialError`, takes a `MOST` slot each pass with no event**
+   (`judge.py:559-560`): kept as it is. `run` supersedes at the start of every pass on `p.model.spec`, so on the next
+   pass, with the model read again, the change is superseded and takes no slot. Not counting it against `MOST` would
+   let such changes be scored without a bound (lesson-4), which is worse than spending a look. SPEC §12e now says it
+   takes one of the pass's looks until then. Not tested further here: a model loaded once and never read again by
+   the caller would keep spending the slot, as the review says; that is the caller's model cache, not this gap.
+4. **Coherence unmeasurable on the before side only** (`scorecard.py:263`) counts neither way, apart from more
+   mismatches after, which count against it (`verdict`: `net_m = min(net_m, 0)`). It can never make a change better,
+   so it fails closed. The claim is narrowed to the accurate one: SPEC §12e says unmeasurable coherence "never counts
+   for the change", a kind compared before and not after counts against it, and unmeasurable before only never makes
+   it better while mismatches after still count against it. The "a one-sided loss counts against" line above holds
+   for the after side (the plan review's case); for the before side it is "never for", as this item says.
+
+No code changed in this round, so the size stays at 108 net lines.
