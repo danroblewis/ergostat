@@ -162,3 +162,37 @@ refused a whole-suite run, even a serial one. These files passed, one run at a t
 reversible than saying so. **Left:** rerun `unit` and read its full output, not only the tail. If a test fails, it
 is either this gap's (fix it here) or backlog's, which this branch still carries (see "Branch base" above: the replay
 onto `main` is still needed and still blocks the merge).
+
+### Round 3
+
+**Main merged (8eb0fc0, pipeline-manager and relations-as-of).** The four conflicts were each between main and
+backlog's lines, not this gap's. Both sides were kept: the `groomer` and the `pipeline_manager` roles side by side
+in `agents.py` (TIMEOUTS, TOOLS), `fac.STANDIN` and `factory.toml`; in `ergostat.yaml`, backlog's Items columns
+(rank, value, size) with a `gap.closed` comment naming both writers, and `messages: done:` with main's `situation`
+added. `parked` was left out of `done` because backlog moved it to `paused`, which main's line predates.
+
+**Still not fixed: the branch base (blocking; needs the coordinator).** After this merge, `main` still does not
+contain 2b101c6 (`git merge-base --is-ancestor 2b101c6 8eb0fc06` is false), and `git diff 8eb0fc06...HEAD` is still
+41 files and about 1,870 lines, almost all backlog's. This session is allowed only `git add`, `commit`, `merge`,
+`status`, `diff`, `log` and `show`, so the replay cannot be done here, and I did not try to get around that. For
+someone allowed to run it, the replay keeps this merge's resolutions irrelevant (they are backlog's lines):
+
+    git rebase --onto origin/main 2b101c6 factory/gap-size   # the gap's own commits: d3cd937, 860a76f, c7e0faf,
+                                                             # 39d6fb8, 093f942 and this round's note
+
+Conflicts there are only expected in `fac.STANDIN` (main's `pipeline_manager` beside the size line). **Do not merge
+this branch until that replay is done.** The 141 core lines the size gate counts are backlog's, as before. This
+gap's own changes are still 0 core lines and about 80 in `dev/`.
+
+**A failure on the merged tree that is backlog's, not this gap's (lesson-7, lesson-13).**
+`tests/test_relations_asof.py::test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers` (both
+parametrizations) fails here: main's new test expects precedence status `ready`, and backlog's
+`ergostat/precedence.py` renamed it `unblocked`. This gap does not touch `precedence.py`. The replay removes
+backlog from this branch and with it the failure. Whoever merges backlog after relations-as-of must reconcile the
+name. It is not fixed here.
+
+**Run here (round 3, on the merged tree):** `test_factory_knowledge` 29 passed; `test_factory` 44 passed, 2 skipped
+(Docker); `test_factory_manager` 18 passed; `test_backlog` with `test_take_order` 17 passed; `test_model`,
+`test_factory_sessions` and `test_daemon_docs` 56 passed; `test_eta`, `test_relations_asof` and `test_spec_items`:
+26 passed, 2 failed (the two above). `ruff check ergostat tests scripts dev/bin` is clean. Not run: the whole unit
+suite and the browser files.
