@@ -68,6 +68,7 @@ from . import observe as ob
 from . import proposals as pr
 from . import simulate as sim
 from . import trial as tr
+from . import version as ver
 from .improve import WORDING  # what a reader is told: judged by check alone, not the record
 
 SPLITS = (1, 2, 4)            # the record held out, whole, in halves and in quarters
@@ -475,6 +476,11 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
         out["verdicts"].append({"id": pid, "verdict": "superseded", "why": "the model changed since it was made"})
     judged = 0
     with pr.locked(p):
+        now_spec = pr.files_now(p)                    # judged only on the files as they are: else nothing, until reloaded
+        if now_spec is None or ver.version(now_spec) != ver.version(spec):
+            out["deferred"] = ("the model's files do not compile" if now_spec is None else
+                               "the model's files have changed since it was loaded")
+            return out
         for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):
             if x.get("kind") == REDESIGN:                    # a change set: judged as a whole, by its scorecard on the record
                 if x["state"] == "checked":
