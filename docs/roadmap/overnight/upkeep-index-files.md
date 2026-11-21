@@ -354,3 +354,13 @@ kills the run's whole process group, so the pump's pipe closes and the run ends.
 a fix made without knowing the failing test would be a guess (lesson-10, lesson-13). Next step: run the unit suite
 again with `-rf` and its full log (with `-o faulthandler_timeout=120`, so a hung test dumps its stack), then run
 whatever it names alone on this branch and on main. The base still holds the backlog merge, as round 7 says.
+
+### Round 8 (the size finding, a third time)
+
+Nothing changed, and it cannot change from inside this branch. `git merge-base --is-ancestor 2b101c6 main` still
+fails: main lacks the backlog merge, so the count is still this gap's 236 lines plus the backlog's 141. Making a
+branch at `main` to rebuild on was refused again in this session, so the rebuild could not be done here. For the
+reasons round 7 gives, I did not add a commit that reverts the backlog either. The finding clears only through the
+rebuild that round 7 sets out, step by step, for the factory or the coordinator. The gate cannot read a reason
+added after the first commit (`dev/bin/review.py:58,131-133`). If no one rebuilds it, a further round here
+changes nothing. The branch's head before this round is bc09afd.
