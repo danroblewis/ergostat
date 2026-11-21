@@ -36,6 +36,7 @@ OWNER = {"queue-goal-tolerance": "a goal's setpoint and tolerance are what decid
 NOT_MODELLING = {              # said by check, but no change to the model answers it: the owner's
     "no-modelling-loop", "template-stand-in", "template-library", "yaml-1.1", "where-typed", "deprecated-name",
     "used-twice", "not-exercised",
+    "schedule-removed",        # a goal: with every: is also a meant pace (SPEC §9.1): only its author can say which
 }
 OPEN = ("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
