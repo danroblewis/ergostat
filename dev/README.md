@@ -236,11 +236,14 @@ ergostat inbox                                  # the push and the switch wait h
 ergostat inbox action/<id> --approve --as coordinator
 ```
 
-One merge waits for its push at a time, and while it waits the queue takes no gap (`push-waiting`, read from
-`run/queue.json`). The push is asked under the lease of the run's own gap, and an approval is fenced out once that
-gap is leased again; so when the run's own gap does not land (sent back, queue-failed) and others do, its outcome is
-said only once the push settles: it stays `queued` until then. If you deny the push, the queue undoes that merge (`git reset --keep`) and
-sends the gap back.
+One merge waits for its push at a time, and while it waits the queue takes no gap: each run reads `run/queue.json`
+under the queue's lock before it takes one (an unreadable file counts as a push waiting), and gives its lease back,
+uncounted, saying nothing of the gap; the sensor `push-waiting` only keeps runs from starting. The push is asked under
+the lease of the run's own gap but is not fenced by it (`fenced: false` in `dev/model/landing.yaml`): once approved it
+runs whatever became of that lease, safe because it pushes only that commit and only as a fast-forward of the remote's
+main (a stale one is refused by git). When the run's own gap does not land (sent back, queue-failed) and others do, it
+waits at `push-pending` (its lease ends there, not back at `approved`) and its outcome is said once the push settles.
+If you deny the push, the queue undoes that merge (`git reset --keep`) and sends the gap back.
 
 **The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
 its pages drew nothing); the first failure in that order is the one reported.
@@ -305,8 +308,9 @@ instance's folder sets each to today's reading (one with nothing in the window k
 as a table, the waiting states first (time spent waiting on someone else, the cheapest to remove: open and replan for
 the planner, planned for the plan review, split for its sub-gaps, ready and fix for the implementor, built for the
 reviewer, approved for the queue, queue-failed for triage, dead for a park), then the working ones, where a run holds
-the gap (leased: the planner's, the plan review's and triage's whole run and the others' start; building; in-review;
-queued: the queue's run from its `gap.queued`, its lock, the merge and the suites), the loop and the gates, with how
+the gap (leased: the planner's, the plan review's and triage's whole run and the others' start, the queue's wait for
+its lock with it; building; in-review; queued: the queue's run from its `gap.queued`, said once it holds its lock, the
+merge and the suites), the loop and the gates, with how
 many gaps are in each state now and the oldest of them.
 
 ## Record an intervention
