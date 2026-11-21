@@ -191,14 +191,7 @@ def time_constants(spec: Spec, pl: sim.Plan | None = None, cond: Condition | Non
     """Each part's time constant at the model's start (hours), from one evaluation of its equations, never a run:
     a stock's own drain (1 over its Jacobian's diagonal) and a delay's time. None when the equations fail there."""
     pl = pl or sim.plan(spec)
-    cond = cond or Condition("usual", "with everything as usual", usual=True)
-    d = _data(spec, pl, 1.0, cond, scales, 2)
-    st = sim._Stepper(pl, pl.integrate)
-    for r, vals in d.values.items():
-        st.V[r] = vals[0] if vals[0] is not None else 0.0
-    state: dict[str, float | None] = {s: d.started[f"stock.{s}"][1] for s in pl.integrate}
-    for s, v in state.items():
-        st.V[f"stock.{s}"] = v
+    st, state = _at_start(spec, pl, cond or Condition("usual", "with everything as usual", usual=True), scales)
     try:
         st.evaluate()
         st.rates(state)
@@ -206,6 +199,19 @@ def time_constants(spec: Spec, pl: sim.Plan | None = None, cond: Condition | Non
         return None
     out = {f"stock.{s}": 1.0 / x for s, x in st.diag.items() if x > 0}
     return out | {r: sum(1.0 / x for x in c.decay) for r, c in pl.eqs.items() if c.decay and all(c.decay)}
+
+
+def _at_start(spec: Spec, pl: sim.Plan, cond: Condition, scales: dict | None) -> tuple[sim._Stepper, dict[str, float | None]]:
+    """The stepper set at the model's start under ``cond`` (every input as the condition has it, each stock at
+    its start), not yet evaluated, and the stocks' levels there: the one point time constants and modes share."""
+    d = _data(spec, pl, 1.0, cond, scales, 2)
+    st = sim._Stepper(pl, pl.integrate)
+    for r, vals in d.values.items():
+        st.V[r] = vals[0] if vals[0] is not None else 0.0
+    state: dict[str, float | None] = {s: d.started[f"stock.{s}"][1] for s in pl.integrate}
+    for s, v in state.items():
+        st.V[f"stock.{s}"] = v
+    return st, state
 
 
 class _NoRecord:

@@ -116,7 +116,26 @@ class Explainer:
             out.append("")
             out.append("Blocks serving no goal: " + "; ".join(self.block_line(b) for b in loose) + ".")
         out += self.feedback()
+        ms = self.modes()
+        if ms is not None:
+            from ..numbers.modes import said
+            out += ["", *said(ms)]
         return "\n".join(out)
+
+    def modes(self):
+        """The stocks' modes at the start (``numbers/modes.py``), once per model; None when no flow or auxiliary
+        has an equation (then nothing is imported)."""
+        s = self.s
+        if not any(x.equation is not None for t in (s.flows, s.auxiliaries) for x in t.values()):
+            return None
+        kept = s.lookups().kept
+        if "numbers.modes" not in kept:
+            from ..numbers import modes as md
+            try:
+                kept["numbers.modes"] = md.at_start(s)
+            except Exception as e:                       # said, never taken as no modes
+                kept["numbers.modes"] = md.Modes(f"{type(e).__name__}: {e}", [], [])
+        return kept["numbers.modes"]
 
     def feedback(self) -> list[str]:
         """The causal loops, as system dynamics counts them: reinforcing, balancing, not known."""
@@ -400,6 +419,11 @@ class Explainer:
         if inner:
             lines.append(f"  Seen from outside, it is an inner loop: it is given a setpoint for {', '.join(inner)} and holds it, "
                          f"and what it holds is read back out. An outer loop can treat it as one block (a cascade).")
+        ms = self.modes()
+        if ms is not None:
+            from ..numbers.modes import said
+            inside = lambda m: m.most_in is not None and name in s.chain(s.stocks[m.most_in[6:]].system)  # noqa: E731
+            lines += said(ms, "Modes most in it (at the start, of the stocks' Jacobian; explain for all):", inside, "    ")
         if self.p is not None and goals:
             st = [self.status.get(g.name, "unknown") for g in goals]
             lines.append("  Now: " + ", ".join(f"{st.count(k)} {k}" for k in ("holding", "off", "unknown") if st.count(k)) + ".")
