@@ -210,7 +210,7 @@ blocks:
             where: {waits_on_parked: null, waits_on_main: null}}
     # (its dependencies finished, none of them parked; not waiting for main to move past tests failing on it; by the
     # backlog's rank, the critical first among equals)
-    pool: 4                          # the most: the pool now is implementor-pool (dev/model/pools.yaml)
+    pool: 9                          # the most: the pool now is implementor-pool (dev/model/pools.yaml)
     lease: {ttl: 90m, attempts: 2}
     timeout: 6h
     in: block.implement-when
@@ -235,7 +235,7 @@ blocks:
     run: python3 dev/bin/review.py
     prompt: dev/prompts/reviewer.md
     takes: {kind: gap, at: built, to: [approved, fix, parked]}
-    pool: 2                          # the most: the pool now is reviewer-pool (dev/model/pools.yaml)
+    pool: 6                          # the most: the pool now is reviewer-pool (dev/model/pools.yaml)
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h
     in: block.review-when

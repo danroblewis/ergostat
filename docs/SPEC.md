@@ -1921,7 +1921,8 @@ Common to machine blocks: `agent` (optional: the shared machine it runs on, sect
 and `min` (limits on one run's amount), `timeout`, `every`/`cron` (its schedule when nothing commands it; when something does, `every`
 is the least time between runs), `takes`, `pool` and `lease` (the items it works, a run for each, and its leases' terms:
 section 9.5), `on` (the event types that start it, a run for each: *Started by an event*, below),
-`mode` (`auto`, or `advise`: its commands wait for a person to approve), and its control law's
+`mode` (`auto`, or `advise`: its commands wait for a person to approve; not on a block that takes
+items, which `check` refuses as `advise-with-takes`: gate it instead, section 9.5), and its control law's
 constants when it says them: `gain` (for a block that steps a setting by its goal's error, the step
 per unit of error, acting at once on the error it has just read, u_k = u_(k−1) + gain × e_k: integral
 action, C(z) = gain·z/(z − 1)), `integral-time` (with `gain`, a PI law in velocity form), `deadband`
@@ -2124,7 +2125,10 @@ ticket queue's most urgent. The dispatcher and the completion estimates (section
 the order the block will take them; only the critical tiebreak among equals is measured differently (section 5a). `check`
 notes an order field no item in the record holds yet (`takes-order-unset`). ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
-items has no `every:` or `cron:`: its items start it. A kind taken by a block gains two states, when
+items has no `every:` or `cron:`: its items start it. Nor has it `mode: advise` (`check`:
+`advise-with-takes`), which asks before a command or an event, never before each item: to have a person
+hold its items, gate it with `goal:` or `in: block.X` from a block a person commands, and its items wait
+while that is off. A kind taken by a block gains two states, when
 it does not list them: `leased`, after the first `at` state, and `dead`, last.
 
 **A lease** is a run's hold on one item. Its events, about the item, are ergostat's own:
@@ -2165,8 +2169,10 @@ them, section 9.1): that is an ack. A lease that expired is not ended again when
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
 to run on, and the item was back in the queue meanwhile): when its lease expires, the engine that started it sends
 SIGTERM to its process group and every process it started (in whatever group or session), and SIGKILL after a grace
-(`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records `ergostat.run.killed` (about its block; `run`, `item`,
-`fence`, `why`, `signal`: TERM or KILL, `pids`, `grace`). The run then ends as any run: `agent.failed`, its note
+(`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records
+`ergostat.run.killed` (about its block; `run`, `item`, `fence`, `why`, `signal`: TERM or KILL, or `cancel` with no
+`pids` for a run a daemon holds, which is sent `cancel` instead: section 9.7, *Cancel*; `pids`, `grace`). The run
+then ends as any run: `agent.failed`, its note
 `killed: ...`, its time, resources and cost measured (section 9.1); its lease is not ended again. The lease is read
 again after the expiry is recorded, and the run is killed only when that expiry took (not renewed meanwhile); a run
 that ended meanwhile is not signalled, nor, once its tree is gone, anything under its pid. A run that renews
