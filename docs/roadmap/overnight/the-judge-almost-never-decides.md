@@ -437,3 +437,4 @@ origin/main merge.
   Then the merge queue merges origin/main and runs the suites under `suite_watch.py`.
 - Round 7, the scratch-file gate: `git rm -q scratch_probe.py` was refused a twentieth time ("don't ask" mode). No
   other route was tried. Nothing deleted, committed or run; this line is not committed by this session.
+- Round 7, the gate once more: refused a twenty-first time, the same way. Nothing deleted, committed or run.
