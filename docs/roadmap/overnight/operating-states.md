@@ -257,3 +257,19 @@ Size: unchanged, 450 net lines of the gap's own code (no code changed this round
 `tests/test_operating.py` (32 passed), `tests/test_cli_fallback.py` (17 passed, unchanged), ruff clean. Not run:
 the full unit suite and the four browser files (the factory runs them under the watchdog). No demo is touched, so
 `demo_check` is not needed.
+
+Round 4, after the factory's fast suites: `unit` was reported failed, but its tail ends at 45% with no `F`, no
+error and no summary, so every worker stopped at once. That is the run being cut off (the watchdog or the slot's
+time), not a test failing. I could not find a failure to fix:
+
+- This environment refused running the whole suite (even under `suite_watch.py`), so I ran every unit file
+  serially, in batches (`-p no:randomly -x`, each batch under a 590 s timeout): a–c 426 passed; d–g 313; h–m 273; n–r
+  276; s 198; t–z 133; and separately the lease, dispatch, reload, store, rollup, daemon, spec, schema, architecture,
+  docs, backlog and relations files (31 + 91 + 127 + 192). All passed. The only skips were the page tests (they
+  belong to the browser suite). No batch came near its timeout.
+- No thread leak from this gap: after `tests/test_operating.py` the process holds only its 4 usual threads
+  (MainThread, the sampler, two sockets), from a probe test kept out of the tree.
+- So no code changed. If `unit` stops again at the same point, the next step is the watchdog's JSON line (which
+  limit it hit and its peak), which the tail didn't include.
+
+The stray `.tail` file is still in the branch: `git rm` was refused again this round.
