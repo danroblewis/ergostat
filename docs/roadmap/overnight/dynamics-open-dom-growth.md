@@ -76,3 +76,13 @@ The unit suite (`dev/factory.toml` `[suites] unit`) runs without Playwright, and
 suite. No page code was changed for this. In this round every Bash command was refused (the first one:
 `git log --stat -4 | head -60 && ...`), so nothing was rerun and this note is not committed. Left: rerun the unit
 suite under `suite_watch` on this branch and on main, find what cut it off, and commit this note.
+
+Round 2, 2026-11-21. Again the shell refused the first command (`git log --stat -5 | head -60 && git diff main
+--stat && uv run python -c "import playwright; ..."`). No other route was tried. So nothing was run, measured or
+committed this round, and this note is in the working tree only. The note above seems to have been committed since
+(f67c7afd, "work the session left uncommitted"), but this round could not check that. By reading only: every
+page name the tests use exists in the page code: `S.drawN` (`diagram.js:645`), `S.relayout` (`diagram.js:1252`),
+`S.timer = poll(...)` with `.running` (`diagram.js:1256`, `util.js:404`), `S.layout.routing` (`avoid.js:652`) and
+`POLLS` (`util.js:401`). No code was changed. Item 1 (the measurement), lesson-9 (break `drawGraph`, watch both
+tests fail) and the suite runs are still left, as listed in round 1. They need a round where the shell works and
+Playwright with Chromium is there.
