@@ -193,3 +193,84 @@ claimed.
 - lesson-4: `cap = max(50, total//10)` has a floor and no ceiling, so per-item mode can make up to `cap` per-id event queries. Either add a hard ceiling to the shared cap function, past which the whole mode takes over, or say in Risks why `cap` queries never cost more than the whole fold.
 - Item 5: say what 'the `most` latest with `first <= until`' are ordered by (first? last move by until?) and on which side of `until` it falls. A move exactly at `until` counts, as everywhere else.
 - Test 6 works out the expected keys in Python, so it checks the snapshot against a Python copy of the rule, not against what pages.js and snapKey do. Test 8 is the real check of the keys. Make sure it covers a model with two systems, and a kind chosen as well as no kind chosen.
+
+## Where it stopped
+
+Built: points 1 to 8. Not done: three parts of point 9 (below). Size: 164 net lines of code outside `tests/` and
+`docs/` (`asof.py` 119, `itemindex.py` +13, `items.py` +12, `snapshot.py` +16, `precedence.py` +4,
+`relations_api.py` 0), within the 230 budget.
+
+**Not done, and why** (no one could be asked, so each is left for the factory, not worked around):
+- **Test 8 (browser) was written and never run.** Playwright is not installed in this container. In this session
+  `uv run --with playwright==1.63.0` was refused (it would fetch a package), so `tests/test_items_page.py` only
+  skips here. I checked its selectors and the snapshot path against `pages.js`, `relations.js` and `util.js` by
+  reading them. It still has to be run, and broken on purpose once, by the factory's browser suite.
+- **origin/main was not merged.** This clone has no `origin` remote, and its `main` is the branch's own base
+  (3adf48a), so there was nothing to merge and nothing to fetch without the network. The merge and the second
+  suite run belong to the factory.
+- **The whole unit suite was not run here** (the brief says the factory runs it). Run one file at a time and all
+  passing: `test_relations_asof.py` (9), `test_relations.py`, `test_graph_cli_web.py`, `test_item_index.py`,
+  `test_rollup.py`, `test_index_files.py`, `test_scale_caches.py`, `test_transcripts.py`. `ruff check ergostat tests
+  scripts` is clean.
+
+**Each new test broken on purpose once** (the code was changed, the test run, the change reverted):
+- Test 1: with `until` ignored in `build`, it fails (c and d appear). With the rows read at `until - 1e-6` (a `<`
+  boundary), it fails: `ticket/y`, made exactly at `until`, vanishes. I added `ticket/y` because the first version
+  did not catch this. With the refold at `until - 1e-6`, it fails (a is `todo`, not `doing`). With x refolded with
+  no `until`, it fails ("x made again").
+- Test 2: with the reads swapped (the late set read before the rows, `_between` between them), each parameter
+  fails. `items`: b is missing from the read's answer. `links_from`: the read gives `b → ticket/c`, not
+  `b → ticket/a`. `links_to`: the read for a has no `b → a`. The test checks the answer of the read the write fell
+  into, as well as the build's answer. The build's answer alone would not show it: a later read re-reads the late
+  set first and repairs it.
+- Test 3: with the whole mode never taken (cap + 1000), it fails ("Index.items read in the whole mode"). With the
+  whole mode's `links_to` leaving out `parent` links, it fails. To catch that, I added a run that asks for epics
+  only, so the tickets are reached through `links_to`. The first version, which asked for every kind, did not
+  catch it.
+- Test 4: with the view's links read as `spec.items[kind].relations`, it fails (KeyError: None) in both modes.
+  With links read off a kindless item's fields, it fails. To catch that, I added direct asserts on the view's
+  `links_from` and `links_to`, because `build` already drops a kindless item's links.
+- Test 5: with "finished" judged by the item's state now, it fails (5 finished, not 4).
+- Test 6: with the per-system request left out of the snapshot, it fails (`items-graph?kinds=epic,goal` is
+  missing).
+- Test 7: with a view always built (at `now` when `until` is None), it fails ("a view built for now").
+
+**Choices made alone (the most reversible option each time):**
+- **The first late read is in `AsOf.__init__`**, under the lock, before any rows are read. That read decides the
+  whole mode up front, so test 3's guard ("no index read after the first late read") holds from the start. After
+  each rows read the late set is read again, as point 2 says. `late_ids` only grows: an id once late stays late,
+  so its rows are never used again.
+- **`count`** (the review's note). The rows are counted with `newest <= until`, then the late set is read. If the
+  late set gained an id while the count was read, the count is read again: that id now has `newest > until`, so
+  SQL leaves it out. Once the late set holds still across a count, no counted row is in `late_ids`, so "rows minus
+  those in `late_ids`" is the count itself. The folded late items that match are then added. The retries are
+  bounded: each one adds an id to the late set, and past `cap` the whole mode answers. Covered in test 1 (4 open
+  at `until`, 5 now) and test 3 (equal in both modes, 3).
+- **`items` with `n`**: if the late set gained an id while the rows were read and the rows were cut at `n`, they
+  are read again. Without that, a row dropped for being late could leave fewer than `n` items when more were
+  there.
+- **Items of no kind in the whole mode** (review note). `fold_all(..., kind=None, ...)` folds every item of the
+  record, of a kind or of none, as `project`'s fallback always did with no kind. An item of no kind gets
+  `kind: None` and the status `Kinds[None]` gives it (no states, so `ready` unless it is dead). An id that a
+  relation names but that was absent at `until` is not an item of the answer. The item naming it waits on it,
+  as on main for an id never seen ("an item never seen is not known to be finished").
+- **Test 2's write** goes through a second `Index` opened on the same file. It calls `catch_up` and is closed
+  after the build, so it stands for another process (review note). The `assert b in ix.late(U)` inside
+  `_between` runs on the build's own index (its lock is an `RLock`), so the file the build reads is shown to hold
+  the change.
+- **lesson-4, the cap** (review note). There is no ceiling: one would change `items._late` for every caller too.
+  Here is why `cap` per-id queries never cost more than the whole fold. Each query reads one item's events up to
+  `until`, through the record's item index. Together they read a subset of the events that the whole fold reads
+  (every item's, up to `until`). `cap` is at most a tenth of the items, plus 50. Nothing multiplies processes or
+  threads.
+- **`stays(until=)`, the candidates** (review note). The `most` items of the kind with a move at or before
+  `until`, latest first by their latest such move (`max(t) where t <= until`). An item with a move by then has
+  `first <= until`. A move exactly at `until` counts (`t <= until`) (test 5: `ticket/u`'s todo ends at `until`
+  and counts). "Finished" is the item's last move by `until` being into a finished state.
+- **A kind chosen in a snapshot** (review note on test 8). The snapshot holds `items-graph?kinds=K` for each
+  related kind (point 7), and test 6 checks those keys. But the page cannot reach them: with a kind chosen it asks
+  for `items?kind=K` first, which no snapshot holds (`_requests` asks only for `items`). So it says "not in this
+  snapshot" before it asks for the graph. Test 8 covers no kind chosen in a model with two systems, two related
+  kinds together in one of them. Adding `items?kind=` to a snapshot is outside this definition. It is recorded in
+  docs/GAPS.md as "A kind chosen in a snapshot".
+- README's line on what a snapshot holds now names the Items page's Graph and Timeline (point 8).
