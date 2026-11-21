@@ -21,3 +21,15 @@ From:
 ## Size budget
 
 0 net lines of code (knowledge only).
+
+## Where it stopped
+
+Built: lesson-8's "Seen as:" in dev/knowledge/review-lessons.md gains the pool-schema shape. Nothing else changed
+(`git diff main --stat`: that file and this one).
+
+The factory's `unit` run was reported failed, but its tail stops at 36% of the progress lines with no failing test,
+error or traceback in it. That looks like the run was cut off (a timeout or the watchdog), not a test failing. The only
+test that reads dev/knowledge/ is tests/test_factory_knowledge.py. All 22 of its tests pass (run alone, serially, after
+the report). The branch changes no code, so no code fix applies. I did not re-run the whole unit suite myself: the
+house rules leave that to the factory, under the watchdog. If the next run fails again, the test it names is what to
+look at.
