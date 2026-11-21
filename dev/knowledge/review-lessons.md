@@ -84,7 +84,9 @@ variable.
 
 ## 12. A fix round answers every finding, not only the blocking ones
 Seen as: warm2: two non-blocking findings of round 1 (a stale SPEC sentence, a traceback on a bad --check-warm file)
-ignored in the fix round, then blocking in round 2, parking the gap.
+ignored in the fix round, then blocking in round 2, parking the gap; redesign-rescored-as-the-record-moves: the
+blocking stray-file finding answered in rounds 2 and 3 by rewording a comment (c234835d) instead of removing the
+file, so it stayed committed across rounds.
 **Check:** list every finding of the review you are answering, blocking and not, and for each say in the report what
 changed or why it stays; a non-blocking finding left unanswered becomes blocking in the next round.
 *About:* goal.few-fix-rounds, goal.first-pass-good.
