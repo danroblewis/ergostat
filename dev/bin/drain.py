@@ -39,7 +39,8 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import live  # noqa: E402
 
-AI = ("implementor", "reviewer", "planner", "researcher", "pipeline-manager", "groomer")   # the type: ai blocks
+AI = ("implementor", "reviewer", "planner", "researcher", "pipeline-manager", "groomer",   # the type: ai blocks
+      "join-judge")
 KINDS = ("gap", "research", "situation")                                                          # what they take
 WAITING = ("installed", "approved", "draining")
 STALE = 30 * 60                       # a switch begun this long ago whose process never cleared the flag: given up
