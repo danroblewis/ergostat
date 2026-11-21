@@ -277,3 +277,20 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
 - *README:* the line on the watch's `in:` names both goals, says the `in:` is drawing only (switcher-actually-runs-2),
   and is rewrapped.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 10 (2026-11-21): the `unit` run with one `F` at 39%.**
+- *The merge of main e8d3e33* was already committed (456d8d18), and no conflict markers are left. `dev/model/manager.yaml`
+  is resolved as round 9 says. Nothing was left to resolve.
+- *The failing test is not named:* the tail shows one `F` at 39%, and the run ends at 99% partway through a line, with
+  no summary, no `FAILED` line and no closing line from suite_watch. The run was ended from outside before pytest said
+  which test failed. This session's shell refused a whole-suite run (serial, under suite_watch) that would have named it.
+- *Every file that reads the branch's code passes under load:* under suite_watch with `-n 8 --dist worksteal`,
+  `test_factory.py`, `test_factory_knowledge.py`, `test_factory_times.py`, `test_backlog.py`,
+  `test_code_health_coverage.py`, `test_factory_resources.py`, `test_factory_sessions.py`, `test_interventions.py`,
+  `test_gated_actions.py` and `test_leases.py` together gave 263 passed, 2 skipped, rc 0. `test_factory_manager.py` on
+  its own gave 31 passed. A search of `tests/` finds no other file that reads `dev/bin/`, `dev/model/`, `dev/prompts/`,
+  `dev/factory.toml` or the repo's own `ergostat.yaml`. Those are the only things this branch changes, apart from docs.
+- *No code changed (lesson-13):* no test fails here, and without a name the failure can't be tied to this branch. The
+  factory should run the unit suite to completion. If it names a test outside the files above, it should run that test
+  on clean main (`onmain.py`).
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
