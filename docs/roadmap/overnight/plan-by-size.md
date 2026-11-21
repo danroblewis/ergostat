@@ -118,3 +118,13 @@ field filter (a missing field counted as 0), the range filter, a flow's sensor a
 Size: 157 net lines in dev/bin, dev/model, dev/factory.toml, dev/prompts and ergostat.yaml, against a budget of 220.
 `dev/bin/planreview.py` and `ergostat.yaml` are outside 'Files to touch'. They are needed for the plan review's
 planning cost and for the summed field.
+
+**The fast suites' failure after round 1.** The factory's `unit` run (`-n 8 --dist worksteal`) showed one `F` near
+14%, but its tail does not name the test. This session was not allowed to run the whole suite, and there is no suite
+log to read. Every test file that reads what this branch changes was run alone on the branch and passed:
+`tests/test_factory_knowledge.py`, `test_factory.py`, `test_factory_resources.py`, `test_factory_manager.py`,
+`test_factory_sessions.py`, `test_factory_times.py`, `test_backlog.py`, `test_code_health_coverage.py` and
+`test_daemon_docs.py`. No other test file reads `dev/bin`, `dev/model`, `dev/factory.toml`, the root `ergostat.yaml`
+or this definition. So no code was changed: a fix without the failing test's name would be a guess (lesson-10,
+lesson-13). Left: the factory's rerun of the failed test on clean main. If it fails there too, it is unrelated. If it
+is in one of the files above and fails only under load, its name is needed for a fix round.
