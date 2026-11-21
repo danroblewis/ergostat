@@ -51,3 +51,36 @@ also routinely review the current pipeline and research potential ways we can sp
 ## Size budget
 
 450 net lines of the programs in `dev/bin/` (the model, the prompt, tests and docs apart), most of it rewritten.
+
+## Where it stopped
+
+Built by a coordinator's agent and handed to the factory unmerged. Items 1 to 4 of the definition are built; item 5 is
+built but for the goal named in "Left to do" 3. It has run only on fixtures with the stand-in AI: never on the live
+instance, a real session or the real load probe.
+
+**Suites** (on the work commit, based on main 0ecf249, 14 commits behind origin/main when this was written, with
+`ergostat.yaml` changed on both sides):
+
+- factory and manager tests: 120 passed;
+- unit suite: **1 failed**, 2083 passed, 14 skipped, 1 xfailed;
+- ruff: clean. `ergostat check`: ok, 43 of 43 goals closed by a loop.
+
+**The failure, not fixed:** `tests/test_factory_manager.py::test_a_trigger_left_unanswered_or_a_failed_session_comes_back`
+fails about one run in three, alone too. Cause, measured over 8 runs (3 collisions, and the same 3 failures): `raise_one`
+names a situation by the second (`situation/<reason>-YYYYmmdd-HHMMSS`), so two raised within one second are one item,
+and the later overwrites the earlier's `prints`. The ids need something unique; the test's bound should not be loosened.
+
+**Left to do, found on reading the code (none has a test yet):**
+
+1. `main-twice` reads every `main-broken` intervention, remedied ones too, so once a test has failed on two main commits
+   the condition never clears: `pipeline-broken-minutes` grows and `merge-pipeline-flowing` stays off for good. It should
+   read only unremedied ones, or a recent window.
+2. Situations already in the live record carry `print`, not `prints`, so they do not count as handled: the first session
+   after the switch is given every standing trigger again. One left `raised` by the old code would be taken with no
+   `triggers`. The switch needs both handled.
+3. The definition's goal on `minutes-since-manager` at `every` is **not built**: that reading rightly grows while nothing
+   changes, so such a goal would sit off. Decide whether to drop it from the definition's intent or hold it differently.
+4. `manage-when`'s `max(1, stuck, broken)` always equals 1: it only draws those goals into the loop. The hold of 30 on
+   `merge-pipeline-flowing` repeats `[manager] broken_minutes` and will not follow a change to it.
+5. The earlier cap `interventions_per_hour` is gone, as each session now takes all triggers at once. The limits are now
+   `most_actions` (8) and the 6 gaps given in full; a trigger left unanswered returns at the next session.
