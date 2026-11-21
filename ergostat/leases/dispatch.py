@@ -3,7 +3,8 @@
 - **Dispatch.** For each block that takes items: while nothing commands it, or what commands it is on, every item of
   its kind in one of its ``at`` states, not held, not put off (``not_before``), and matching its ``where``, is leased
   to a run of its own, oldest first, while the block's runs in flight (its leases held, from the fold, and the runs
-  going here) are fewer than its ``pool``. An item put off (``not_before``) is looked at again when it falls due. It
+  going here) are fewer than its pool now (``poolnow.py``: its ``pool:``, or its stock's level as the engine last read
+  it, at most its ``most``, read in the same hold of the lock as the count and the take). An item put off (``not_before``) is looked at again when it falls due. It
   looks whenever the record has something new (an item reaching its
   state starts a run at once; the lease is caused by that event), woken by the write itself (``notify.py``; another
   process's write by the kernel's file notification, else at its next check, every quarter second), and every second
@@ -33,7 +34,7 @@ import uuid
 
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, RENEWED, TAKEN
+from . import ENDED, EXPIRED, RENEWED, TAKEN, poolnow
 from .fold import held
 from .kill import kill
 from .ready import Ready, unblocked
@@ -74,6 +75,7 @@ class Dispatcher:
         self.due = float("inf")                       # when the first item put off (not_before) may be taken
         self.due_now: set[str] = set()                # items put off that may be taken now (their daemon revived)
         self.overdue: dict[tuple, float] = {}         # (item, fence, expires) → when (monotonic) a pass first found it overdue
+        self.unread: set[str] = set()                 # blocks whose pool's stock has no reading, said once
 
     @property
     def spec(self):
@@ -160,7 +162,7 @@ class Dispatcher:
             with self.lock:
                 every, ix = self.items_of(b.takes.kind)
                 mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-                room = b.pool - len(mine | set(self.going.get(b.name, {})))
+                room = self.pool_now(b) - len(mine | set(self.going.get(b.name, {})))
                 if b.params.get("daemon"):           # the daemon's room, shared by every block it serves (SPEC §9.7)
                     room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
                 if room <= 0:
@@ -168,6 +170,20 @@ class Dispatcher:
                 for it in unblocked(self, b, self.ready(b, every, now))[:room]:
                     self.stale = True
                     self.take(b, self.whole(ix, it))
+
+    def pool_now(self, b) -> int:
+        """The block's pool now: its ``pool:``, or its stock's level as the engine last read it (a stored value: no
+        sensor runs here), at most its ``most``. Unread: 0, said once until it is read again."""
+        if b.pool_now is None:
+            return b.pool
+        v = self.e.get(b.pool_now)
+        if poolnow.unread(v):
+            if b.name not in self.unread:
+                self.unread.add(b.name)
+                self.e.say(f"{b.name}: its pool ({b.pool_now}) has no reading: it takes nothing new")
+        else:
+            self.unread.discard(b.name)
+        return poolnow.now(b, v)
 
     def ready(self, b, every, now: float) -> list:
         """The items a block may take now, in the order it takes them: oldest in its first state first."""
