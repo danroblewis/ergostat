@@ -79,7 +79,9 @@ ergostat sensor intake-open.main --read 1      # the implementor may take ready 
 The reviewer, the queue and triage work on what is already in the pipe whatever the intake says. Each AI session is
 held to the daily cap (fails closed: a spend not read stops them), each costs at most its `*_session_usd`, and the
 merge queue and triage hold while the machine's suite slots are all taken; the implementor's and triage's suites each
-hold a slot (`[suites] slot`), the queue's lock being its own (the load interlock).
+hold a slot (`[suites] slot`), the queue's lock being its own (the load interlock). Triage never takes the queue's lock:
+it reruns the failed tests in its own worktree, on the main the run failed on (`pre`), so neither its rerun nor its
+wait for a quiet machine holds the queue.
 
 ## Submit a gap
 
@@ -117,8 +119,11 @@ the intake says so on stderr and takes it once the other stops (of two requests 
 read is taken, the other waits). Each run fetches its session's work to a side ref of its own
 (`refs/incoming/<run>/factory/NAME`). Before each implementor run on a branch behind main, implement.py merges main in
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
-(it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
-the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
+(it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
+`uv run python scripts/suite_watch.py`; its refused calls are kept as `tool_denials`, and a session with no result or
+a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
+`tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
+merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
 after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
@@ -139,8 +144,32 @@ gap/NAME` shows each round, its reviews, the context each session was given and 
 
 **The kill rule** is in `[gates]` (dev/factory.toml): `kill_after = 6` failed gates (fix verdicts, queue conflicts, real
 failures in the queue), `build_failures = 6` failed fast-suite runs of the implementor's, or `build_hours = 12` of
-building over its rounds, park a gap; within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make
-its failing fast suites pass.
+building over its rounds, park a gap. The three count over the gap's whole life (each a `sum` in the gap kind's fold:
+each failed build adds one to `build_failures`): a later successful build or a review round resets none of them, and a
+gap continued from a park (`manage.py continue`, `parks.py resume`) is a new item, under an id not yet in the record,
+that starts from zero. Within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make its failing fast
+suites pass.
+
+**Scratch files are refused by a program, not a review.** After each session, before the fast suites, implement.py
+lists the files the branch adds against main and refuses any with a path part matching `[gates] scratch_patterns`
+(`.scratch*`, `scratch*`, `tmp*`, `_probe*`, `*_probe*.py`, `*.orig`, `*.rej`), or under a new top-level file or folder
+the definition's "Files to touch" does not name (checked only when the definition has that section). A file already on
+main is never refused. The list goes back to the session's next round (one of its `suite_fix_rounds`, not a review
+round); still there after the last, the run counts as a failed build.
+
+**A gap may not add findings to the model.** Next, still before the fast suites, implement.py runs `[suites] check`
+(`ergostat check --json --no-coherence`) on the branch and on a clone of the main it merged, and compares their
+findings by code and part (`code part`, or the code alone for a finding about no part). Every level counts, notes
+too, but codes matching `fac.RECORD_FINDINGS` (`calibration-*`, `fit-*`, `takes-order-unset`), which depend on the
+record rather than the change. Check waits only 5 s for its extreme-conditions tests, each side from cold, so how many
+finish depends on load: when either side says some did not finish (an `extremes-running` or `extremes-skipped`
+note), no `extreme-conditions` finding is compared on either side. A new one is then missed until a run where both
+sides finish. A finding new on the branch goes back to the
+session's next round with the list, as scratch files do. A side whose check printed no readable JSON is a failure to
+compare, sent back the same way, never "no new findings". A definition may allow a named finding with a reason, one
+line near its top: `allows-findings: [code part: why, ...]` (`code: why` for one about no part; no comma inside a reason; one with no reason allows
+nothing). The allowances used are recorded on `gap.built` as `allowed_findings`, and the reviewer's brief lists each
+allowance of the definition among the gates, to judge its reason.
 
 **A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
 runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
@@ -169,7 +198,13 @@ python3 dev/bin/backlog.py pin GAP 1              # or: pin GAP --off
 python3 dev/bin/backlog.py dep add GAP ON         # or: dep rm GAP ON (kept: GAPS.md does not add it again)
 python3 dev/bin/backlog.py close GAP --done --why "landed in abc1234"   # or --duplicate-of OTHER
 python3 dev/bin/backlog.py propose                # the solver's order and why, writing nothing
+python3 dev/bin/backlog.py propose FILE           # a proposal as the program checks it, writing nothing
+python3 dev/bin/backlog.py refuse-link GAP ON --why "its definition names no need of ON"
 ```
+
+A refused link (run/backlog/refused-links.jsonl) is dropped from every later grooming proposal, shown among its
+refusals with the reason; `dep add` of the same pair adds it and clears the refusal. An unreadable file refuses
+nothing and says so in the proposal.
 
 A GAPS.md entry whose head (its opening parenthetical, or the clause after its colon) begins with "done" or
 "superseded by" is never found as open, and one the record holds not yet started is closed.
@@ -185,6 +220,20 @@ the files they changed, gaps active and ready with the files they touch, 40 line
 program (`plan.lint`, no AI: the sections, tests named `tests/...py::test_name`, a budget within
 `[gates] plan_budget_most`, lessons, `depends-on` names and files that exist or are marked new); one that fails goes
 straight back to the planner (the 6th failure parks), and a lint-clean one is the definition at once: the gap is ready.
+A split is checked further, and sent back the same way, naming the sub-gap or point: each sub-gap's budget must name
+at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a single plan keeps
+`plan_budget_most`), and the answer must hold exactly one `<coverage>` block restating what the parent must do, a
+`- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
+sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
+made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
+file). Once every sub-gap is merged the join moves the parent to `joined`, never to `merged`, and the **join judge**
+(`plan.py join`, the plan reviewer's model and session cap, `[ai] join_judge_*`) reads, in a read-only clone of main,
+the parent's entry, its coverage, and each sub-gap's definition and last review (anything unreadable shown as
+`(missing: why)`). `covered` merges the parent, its verdict, reasons and `judged_at` recorded. `short` requests a new
+sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points not built), adds those points to the
+coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
+most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
+cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -197,6 +246,47 @@ python3 dev/bin/request.py "My change" --depends-on other-gap [--definition my-d
 python3 dev/bin/ask.py "How does the queue decide a flake?"  # answered in run/research/, summary on the item
 python3 dev/bin/lesson.py add "Title" --check "the check"   # or: retire N "why"; proposals wait in the inbox
 ```
+
+**The knowledge queue.** The review lessons have a work queue of their own, not the gap queue (the owner,
+2026-11-21). A `lesson` item moves proposed -> approved -> applied (or denied, retired), with its exact text on the
+item (`entry`). The librarian proposes; approving `knowledge-change` in the inbox runs `lesson.py request`, which
+records the item approved; `lesson.py add` and `retire` are approved at once. The program block `lesson-apply`
+(`dev/model/knowledge.yaml`, pool 1, no AI) then applies it. A new lesson is numbered past the seed's and every applied
+one's, and past one kept for each new lesson still requested as an unmerged gap (it numbers itself next in the seed);
+a record lesson whose number the seed holds all the same is carried as `lesson-N-record`, said on stderr. A retire marks lesson N (and an applied entry carrying it) retired. There is no session, branch, review,
+merge or gap. `knowledge.block` carries the repository's `dev/knowledge/review-lessons.md` (the seed) merged with the
+applied items: a "seen as" line goes under its lesson, a new lesson is its own entry, and a retired one is left out
+with its lines. The lesson ids and the item ids are recorded as carried, and the existing size budget is unchanged.
+When the record cannot be read, the brief says so and carries the seed only. `knowledge.py sync` shows applied
+entries as `knowledge/*` items. The items live in the instance's record, so a version switch keeps them.
+`lesson-settle` also runs the migration, every run and idempotently. A lesson `requested` under the old path whose
+own `gap/knowledge-*` has not merged is approved, for `lesson-apply` to apply and number, and that gap is closed
+(`end: superseded`, with the reason). Only a gap in a state no run is in (open, planned, replan, ready, fix, parked)
+that no lease holds is closed. A merged one is left alone, since its text is in the files already and is not carried
+twice. One in flight or leased waits for a later run, and so does one whose lease fence moved as it was closed (taken
+in between). A gap the record does not hold is left alone and reported. No other gap is touched. Measured: `lessons-to-apply` (approved, waiting) held at 0 by the goal `lessons-applied`, which
+`lesson-apply`'s loop reads, and `lesson-apply-hours` (proposed, or approved for the coordinator's own, to applied,
+over 14 days; `lesson.py hours`). A new lesson from the librarian has no check yet ("not yet written"): retire it and
+`add` it again with one.
+
+**Size classes.** Each plan's `## Size budget` holds `size: S|M|L|XL (confidence: low|medium|high)`, a class of the
+net lines that will merge outside `tests/` and `docs/` (everything else counts: `dev/`, `scripts/`, `examples/`,
+root files): S 50 or fewer (a net removal is S), M 51-150, L 151-400, XL over 400. A definition without it, or with
+another class or confidence, is sent back like any other planner problem, never given a default; each sub-gap of a
+split has its own. A replan replaces the size, and clears the lines of any earlier merge. At each merge the queue
+counts the net lines from main before it to the merged head (in a batch, each gap's own merge, not the batch's) and
+records `merged_lines` on `gap.merged`; when that count cannot be read the merge stands, `merged_lines` is null and
+`merged_lines_error` says why (a merge again always writes both, so no older count survives).
+
+`measure.py size-accuracy` is, over 14 days by each gap's latest merge, the share of merged gaps the planner sized
+whose lines fell inside their class; `size-accuracy-high` is the same for high-confidence gaps. The class scored is
+`planned_size` (with `size_confidence`), which only the planner writes. The planner never writes `size`: that is the
+groomer's (`gap.groomed`, S/M/L or hours), which the solver ranks by, and it is never scored. A sized gap with no
+count is left out of the share (never a hit) and named on stderr; with nothing measurable either one has no value
+(exit 1), and `-high` too when only low or medium gaps can be measured.
+
+**Not covered:** gaps whose definitions you wrote (no planner, no size; a plan that finds your definition already
+there records no size either), and split parents (they merge nothing; a split clears an earlier size).
 
 ## The pools: one at a time, raised on good results
 
@@ -213,12 +303,49 @@ The machine is measured every 30 s (`dev/bin/resources.py`, `dev/model/resources
 disk and threads, the Docker VM's limits and use, and each factory container's CPU and memory, kept on its gap
 (`resources`: each session's and suite's peak and mean) and in `run/resources/sessions.jsonl`. The setpoints are the
 goals in `dev/model/resources.yaml` (change them there). `session-headroom` is how many more sessions fit, from the
-measured use of a session and its suite. **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
+measured use of a session and its suite (of the session alone when `[suites] slot` is set: the slots cap the suites,
+and the readings include those running). **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
 the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
 (`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
-new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous) older
-than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
+new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous, nor
+one whose switch waits) older than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
 which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
+
+## Coverage: the modules below a floor
+
+With `[suites] queue_coverage = true`, the queue's unit run on main (an implementor's runs never) sets
+`ERGOSTAT_COVERAGE`. It is on: the tracer's overhead on the full unit suite was measured within the machine's noise
+(273 s without, 255 s with, 2026-11-20). Until the queue's first green unit run after this lands, the measure below
+has no value. A line tracer (`tests/coverage_lines.py`, Python 3.12's `sys.monitoring`, no package)
+records the lines each test process ran of `ergostat/`, `dev/bin/` and `scripts/`. `scripts/coverage_report.py DIR`
+combines the workers' files into `DIR/coverage.json`: per module its statements (from the file's `ast`, docstrings
+not counted), those covered and the share, stamped with the commit and its `seq` (main's first-parent commits). The
+last five reports are kept under `run/coverage/`, by that seq; one that cannot be read is removed at once. The queue
+runs main's copy of the script (before the merge), so a branch never scores its own coverage, and a report that fails
+or times out is "no report", never a failed merge. `coverage_report.py DIR --below 0.6` lists the modules under the
+floor, worst first; the floor is `[code_health] coverage_floor` (0.6).
+
+To measure the overhead again (after a change to the tracer), time the fast unit suite twice, the second time with
+the tracer, and compare:
+
+```sh
+scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal
+scripts/in_container.sh env ERGOSTAT_COVERAGE=run/coverage/probe uv run python scripts/suite_watch.py -- \
+  uv run python -m pytest -q -n 8 --dist worksteal       # (set inside: the container is not given the caller's env)
+```
+
+At 15% overhead or less, `queue_coverage = true` stays; above 15%, the tracer belongs on a nightly unit run instead
+(the definition's point 3), with both times noted in `docs/roadmap/overnight/code-health-coverage.md`.
+
+`python3 dev/bin/measure.py coverage-below-floor` counts the modules under the floor, and `measure.py coverage
+ergostat/model.py` reads one module's share (the auxiliary `coverage-below-floor` in `dev/model/measures.yaml`). With
+no report, an unreadable one, or the latest of a commit on main more than 20 of main's merges old, neither has a
+value (exit 1): never 0, never everything below.
+
+**What it does not see.** Code run only in a child process (the daemons, `python -m ergostat` under a subprocess, a
+`dev/bin` program called by its path) is not traced, so every share is a lower bound. A module no test imported
+in-process is marked `"subprocess-only": true`: its tests, if any, reach it only through a child process, and it is
+not known to be untested.
 
 ## Approve the push
 
@@ -229,19 +356,73 @@ ergostat inbox                                  # the push and the switch wait h
 ergostat inbox action/<id> --approve --as coordinator
 ```
 
-One merge waits for its push at a time. If you deny the push, the queue undoes that merge (`git reset --keep`) and
-sends the gap back.
+One merge waits for its push at a time, and while it waits the queue takes no gap: each run reads `run/queue.json`
+under the queue's lock before it takes one (an unreadable file counts as a push waiting), and gives its lease back,
+uncounted, saying nothing of the gap; the sensor `push-waiting` only keeps runs from starting. The push is asked under
+the lease of the run's own gap but is not fenced by it (`fenced: false` in `dev/model/landing.yaml`): once approved it
+runs whatever became of that lease, safe because it pushes only that commit and only as a fast-forward of the remote's
+main (a stale one is refused by git). When the run's own gap does not land (sent back, queue-failed) and others do, it
+waits at `push-pending` (its lease ends there, not back at `approved`) and its outcome is said once the push settles.
+If you deny the push, the queue undoes that merge (`git reset --keep`) and sends the gap back. A push that ran, failed
+or was denied is settled within minutes even with no gap approved to start a run: the block `push-settler`
+(`queue.py settle`, at most every 2 minutes) is commanded by the sensor `push-settleable` (`queue.py settleable`, every
+minute), 1 while a pending push ran, was denied, failed or cannot be read, or a block was remedied. It settles under the
+queue's lock when no run holds it (a run holding it settles the push itself), and saves `run/queue.json` before it says
+anything, so a run killed part way says an outcome at most once (one killed between the two leaves its gap at `push-pending`
+with no push carrying it, which the watch raises as stuck at once). A failed push says the held outcome at once and blocks
+the queue; an action that cannot be read is read again on the next two runs before it counts as failed. The watch counts a `push-pending` gap as explained only while its push is held, requested or approved, and one that no
+pending push carries as stuck at once.
 
 **The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
-its pages drew nothing); the first failure in that order is the one reported.
+its pages drew nothing). The first of them to fail is the one reported, and it stops the rest: a unit failure kills
+the browser run still going (and the other way round), which is recorded `stopped_by` it, its own result not judged.
+
+**The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
+triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
+queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a branch that adds
+its own failing test to the list is still red in the queue, and its line takes effect only once it is on main. (The
+implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch that adds the list,
+or a line to it, is not held up on its own machine by a test it quarantines; the queue still runs it.) After each unit run
+(and each triage rerun) the quarantined tests run once more, with `-rA` (the queue and implementor: `[suites] alone`;
+triage: `rerun`), never blocking. Each result is said on `flake/<test>` (`flake.measured`: `quarantined`, `last_run`,
+`last_run_log`), read from that run's whole log: `pass` only on the test's own PASSED line with no FAILED or ERROR
+line, `fail` on either, `unknown` otherwise (skipped, not collected, a run that never started or left no log). A
+skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
+released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
+sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
+a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.
 
 **Batches.** The queue merges up to `batch` approved gaps onto main in turn (in rank order) and runs the suites once.
 The batch is 1 to start (`[pools] batch = 1`: one gap a run, the queue as it always was). A green batch asks for one
 push, of its last merge, so one approval lands the batch, and a denial sends every gap of it back. A red batch is
 bisected (the suites again on the first half of the merges, and so on) to the first merge that fails; that gap goes to
-flake triage with its failures, the merges before it land, and those after it are merged again and run once more. A
+flake triage with its failures, the merges before it land, and those after it are merged again and run once more.
+When the red run named its failing tests (`FAILED`/`ERROR` lines), those are first run alone, serially
+(`[suites] rerun`, `-rA`), on the whole red tree. Only if one fails there too does each bisecting step run only those:
+red when one of them fails, green only when the run passes and each says PASSED; a step that cannot tell (a test not
+found on that prefix, a run that never started) runs every suite instead. A failure that shows only in the full run
+(order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a
+killed run) are bisected with every suite, as before. A green on the named tests alone never lands anything: the
+merges before the failing one are merged again with those after it, and the lot lands only on a full green run of
+that very tree; the failing gap's `pre` is then main's head before them, so its triage runs it on main alone. Each
+failing merge costs at most `2 + 2 ceil(log2 m)` runs (the red run, the rerun on its tree, and each step, two when a
+named run cannot tell), most of them its failing tests rather than the suites. A
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
+
+The batch is filled with gaps that merge. The queue walks the approved gaps in rank order and dry-merges each onto the
+batch so far (`git merge-tree --write-tree`, which leaves the checkout alone) until the batch is full. A gap that
+conflicts with main is sent back at once, as a failed gate, and takes no slot. A gap that conflicts only with a
+batch-mate stays `approved`, with no gate failed, and waits for a later run. The run's own gap is always in its batch
+unless it is sent back: the last slot is kept for it, however low it ranks, and when it conflicts only with a
+batch-mate the walk is made again with the own gap first, so the batch-mate is the one left `approved`. Its lease is
+never given back while others land, since the batch's push is asked under it. When the own gap is sent back, the walk
+is made again in rank order, so gaps passed over for its slot fill the batch. Whether a gap conflicts is git's exit
+code, not the files it names. The real merges then make the batch's first run: when they all succeed, their tree must
+be the dry-merged one, or the run stops before any suite. A real merge that conflicts (one merged again after
+bisecting, or one where the dry merge was clean) is undone and sent back as a failed gate, and the rest go on to the
+suites, so what is tested is still what lands. If git cannot make a dry merge at all, the run fails there: gaps
+already sent back stay sent back, the rest stay `approved`.
 
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
@@ -255,6 +436,50 @@ queue run, each run's whole length once) measures what it buys. If the push fail
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
 `ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.
+
+## Time in each state
+
+Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
+last read (at most 50 a run, those never read first) and writes `gap.timed` on it when its timing changed, for any gap
+whatever its end (merged, parked, dead or still open). Its bookmark, each gap's count of events read, is kept in
+`run/times.json`, outside the record, and moves on every read, so an event that changes no timing is read once; a lost
+or unreadable bookmark makes it read every gap again (and write only a changed timing). Each is counted from the record alone:
+
+- `time_in`: per state, the hours of its visits summed and how many (`visits`), and when it last left (`left`). A
+  visit runs from the move into the state to the next move, in the record's order (the fold's moves, the lease's own
+  `leased` and `dead` among them); the visit a gap is in now counts once it ends (`status.py` shows it apart).
+- `loop_rounds`, `loop_hours`, `loop_ended`: the build-review loop as one span, from the first time the gap is taken to
+  build (leased from ready or fix) to the first approval, park, close or dead letter after its last build and its last
+  send-back; its rounds are its builds. A queue send-back (a conflict, a denied push, a real failure) reopens the loop:
+  it ends at the approval after it, or at a park or close straight from fix. While it still goes round, `loop_ended` is
+  empty and its span runs to its latest move.
+- `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
+  `build_hours`), `fast` (its ruff and unit suites, every try in a round, `fast_seconds`; a build recorded before it
+  has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
+  `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
+  at once, or the coordinator settling it).
+
+A gap's record rolled up (after 7 days by default, `ergostat/rollup.py`) starts with a snapshot: its moves are kept
+there, so `time_in` and the loop are counted as before, but the events carrying the gate times are in the archive. The
+gates start from the snapshot's own (what the gap's last `gap.timed` before the roll-up said), and only the events
+after it are added, so a later event or a lost bookmark recounts them the same; a merge in the snapshot still waiting
+for its push is carried over from the snapshot's state. A gap rolled up before it was ever timed (the first run on an
+old record) has its gates unknown (`null`), counted in no gate's measure rather than as zero, and stays so even if
+it is built again (a sum of only its later rounds would be an undercount read as a whole); gate events between its
+last `gap.timed` and the roll-up (only if the timer was stopped that long) are not counted.
+
+The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, `loop-hours`, `loop-rounds` and
+`gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the
+gaps that left the state, ended the loop or passed the gate in the window, not only the merged ones; 0 with none.
+Each has a goal (`hold:`) to set; the shipped ones are first guesses, and `python3 dev/bin/times.py setpoints` in the
+instance's folder sets each to today's reading (one with nothing in the window keeps its own). `status.py` prints them
+as a table, the waiting states first (time spent waiting on someone else, the cheapest to remove: open and replan for
+the planner, planned for the plan review, split for its sub-gaps, ready and fix for the implementor, built for the
+reviewer, approved for the queue, queue-failed for triage, dead for a park), then the working ones, where a run holds
+the gap (leased: the planner's, the plan review's and triage's whole run and the others' start, the queue's wait for
+its lock with it; building; in-review; queued: the queue's run from its `gap.queued`, said once it holds its lock, the
+merge and the suites), the loop and the gates, with how
+many gaps are in each state now and the oldest of them.
 
 ## Record an intervention
 
@@ -276,7 +501,8 @@ on a read-only clone of main like the other sessions, its conversation kept as a
 
 **The triggers** (`dev/bin/watch.py`, the block `pipeline-watch`, every 5 minutes; `[manager]` in the settings), in
 order: the queue blocked (`run/queue.json`, or an open intervention of class `queue`); a gap dead past half an hour, or
-parked within `parked_within_hours` (48) unless another gap carries its branch on; a gap in one state past
+parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or none said) unless
+another gap carries its branch on or the coordinator marked it `deferred: true` or `cancelled: true`; a `waits_on` or `needs` park not cleared in `park_wait_hours` (24); a gap in one state past
 `[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
 lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
 queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes
@@ -298,6 +524,19 @@ queue one only once main is clean and pushed). Asked in the inbox: `close GAP` (
 `intervention.recorded` with a class and `by: pipeline-manager`, open like the coordinator's, so the interventions still
 count what the factory lacks. By hand (as the coordinator): `python3 dev/bin/manage.py continue gap/NAME --why ...`.
 
+**Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
+records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in
+`parked_until`), `needs` (an action named for someone), `kill-rule` (rounds, hours or attempts ran out: the implementor,
+the reviewer, the queue, triage, the plan lint, dead letters), `deferred` (the manager's park, once the coordinator
+approved it), `cancelled` (the plan review's), `split` (split-watch: the stopped sub-gaps). The reviewer's park verdict
+gives its kind and condition; one naming nothing checkable is a `defect`. The block `park-resume` (every 5 minutes, no
+AI) resumes `waits_on` once the gap merged or the commits are on main, `needs` once
+`ergostat event --add gap.need-met --item gap/NAME --data '{"need_met": "what was done"}'` is recorded, and `split`
+once each stopped sub-gap is resumed or closed (the split gap back to split, the continuations its children). A resume
+is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the parked gap saying what cleared (a
+continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Measures:
+`measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.
+
 **The velocity watch**: each heartbeat reads queue wait, suite minutes, cycle hours and each waiting state's time; when
 `queue-wait-short` or `suites-in-time` is off it files a gap (merge batching with bisection; faster suites), at most
 one of its own open at a time, and never one whose branch exists.
@@ -305,9 +544,24 @@ one of its own open at a time, and never one whose branch exists.
 ## Upgrade and revert
 
 Each green merge opens an `upgrade` item; the upgrader installs it into `~/ergostat-live/<sha>` and checks the model
-with its own code, then asks for `switch-instance`. Approving it (the inbox, as above) stops the engine, points
-`current` at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record
-read, the merge queue in the model); unhealthy, it goes back to the previous version by itself. By hand:
+with its own code, then asks for `switch-instance`. Only the newest waits: the switcher (`dev/bin/drain.py`, every
+minute) withdraws a request for a version older than one waiting, or than the one running (its action denied by the
+switcher, saying which version supersedes it). Approving it (the inbox, as above; or standing, with `gate: auto` on the
+action in the instance's model) does not switch at once: the switch waits for a quiet moment (at most `[upgrade]
+quiet_runs` AI runs under way) or, at the latest, the daily window (`[upgrade] daily_at`, 04:00 local) passing; then it
+drains: `run/drain.json` is written and the AI blocks take no new item (each run gives its item back uncounted) while
+the runs under way finish, for at most `[upgrade] drain_minutes` (45); the runs still going then are given back
+uncounted (not a failure of their gaps) and stopped with the engine. The switch then stops the engine, points `current`
+at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record read, the
+merge queue in the model); unhealthy, it goes back to the previous version by itself. Either way it removes
+`run/drain.json`. A switch that ends with no outcome recorded (it failed before stopping the engine, as with a version
+no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
+never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
+runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
+`drain-minutes` stops counting once the switch begins. The switcher reads the goal (`in:`) rather than naming it
+(`goal:`): a goal named would command it, and a commanded block leaves its `every:` (`ergostat check` says
+`schedule-removed`); the pipeline watch reads `no-stuck-gaps` the same way. The groomer and the plan review start no session while
+`run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
 python3 dev/bin/live.py switch <sha>           # the same, in the foreground

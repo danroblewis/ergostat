@@ -24,10 +24,40 @@ stocks:
     unit: upgrades
     description: versions installed in their own folders and checked, waiting for the coordinator to approve the switch
     sensor: {items: upgrade, state: installed, every: 1m}
+  upgrades-approved:
+    unit: upgrades
+    description: switches approved, waiting for a quiet moment ([upgrade] quiet_runs) or the daily window ([upgrade] daily_at)
+    sensor: {items: upgrade, state: approved, every: 1m}
+  upgrades-draining:
+    unit: upgrades
+    description: switches draining - the AI blocks take no new item (run/drain.json) while the runs under way finish
+    sensor: {items: upgrade, state: draining, every: 1m}
   upgrades-switching:
     unit: upgrades
     description: versions switched to, their health not yet shown
     sensor: {items: upgrade, state: switched, every: 1m}
+
+auxiliaries:
+  drain-minutes:
+    unit: minutes
+    description: how long the drain under way has gone (0 when none, or once its switch began)
+    driven-by: [+stock.upgrades-draining]
+    sensor: {run: python3 dev/bin/drain.py minutes, every: 1m, timeout: 1m, description: the switcher}
+  drain-overrun:
+    unit: minutes
+    description: how far the drain under way has gone past its bound ([upgrade] drain_minutes; 0 within it)
+    driven-by: [+auxiliary.drain-minutes]
+    sensor: {run: python3 dev/bin/drain.py overrun, every: 1m, timeout: 1m, description: the switcher}
+  push-waiting:
+    unit: switch
+    description: 1 while the merge queue can take no gap - its last batch's push waits for approval, or the queue is blocked (run/queue.json)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/queue.py waiting, every: 1m, timeout: 1m, description: the merge queue's state}
+  push-settleable:
+    unit: switch
+    description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
 
 flows:
   gaps-approved:
@@ -103,12 +133,32 @@ flows:
     driven-by: [+stock.upgrades-available]
     equation: supersede-share * stock.upgrades-available / install-time
     sensor: {items: upgrade, entering: superseded, over: 1d}
-  upgrades-switched:
+  switches-approved:
     from: upgrades-installed
-    to: upgrades-switching
-    description: the coordinator approved the switch - the engine stopped, current pointed at it, started
+    to: upgrades-approved
+    description: the coordinator approved the switch (or approves them standing) - it waits for a quiet moment
     driven-by: [+stock.upgrades-installed]
-    equation: stock.upgrades-installed / approve-time
+    equation: (1 - withdraw-share) * stock.upgrades-installed / approve-time
+    sensor: {items: upgrade, entering: approved, over: 1d}
+  switches-withdrawn:
+    from: upgrades-installed
+    description: a newer version waits or runs - the older switch request withdrawn from the inbox
+    driven-by: [+stock.upgrades-installed]
+    equation: withdraw-share * stock.upgrades-installed / approve-time
+    sensor: {items: upgrade, entering: withdrawn, over: 1d}
+  drains-begun:
+    from: upgrades-approved
+    to: upgrades-draining
+    description: a quiet moment, or the daily window - the AI blocks take no new item
+    driven-by: [+stock.upgrades-approved]
+    equation: stock.upgrades-approved / quiet-wait
+    sensor: {items: upgrade, entering: draining, over: 1d}
+  upgrades-switched:
+    from: upgrades-draining
+    to: upgrades-switching
+    description: drained, or the bound reached (the runs still going given back uncounted) - the engine stopped, current pointed at it, started
+    driven-by: [+stock.upgrades-draining]
+    equation: stock.upgrades-draining / drain-time
     sensor: {items: upgrade, entering: switched, over: 1d}
   upgrades-kept:
     from: upgrades-switching
@@ -178,6 +228,20 @@ parameters:
     value: 2h
     estimate: true
     description: how long the coordinator takes to approve a switch
+  withdraw-share:
+    value: 0.5
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of switch requests withdrawn for a newer version
+  quiet-wait:
+    value: 6h
+    estimate: true
+    description: how long an approved switch waits for a quiet moment (at most a day, the daily window)
+  drain-time:
+    value: 30m
+    estimate: true
+    description: how long the runs under way take to finish ([upgrade] drain_minutes at most)
   health-time:
     value: 2m
     estimate: true
@@ -210,6 +274,11 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: the instance runs the newest installed version
+  drains-within-bound:
+    auxiliary: drain-overrun
+    hold: "<= 2"
+    tolerance: 0
+    description: a drain ends by its bound ([upgrade] drain_minutes) and the switcher's next minutes - past them the switch is stuck
 
 actions:
   push-main:
@@ -219,37 +288,47 @@ actions:
     class: push
     args: {sha: the green merge commit on the checkout's main}
     timeout: 5m
+    fenced: false                    # runs once approved, whatever became of the asking run's lease: it pushes only
+                                     # that commit, and only as a fast-forward of the remote's main (git refuses else)
     description: Push exactly that commit to origin's main (a fast-forward, or refused) - the coordinator approves it
   switch-instance:
-    run: python3 dev/bin/live.py switch {sha} --detach
+    run: python3 dev/bin/drain.py approve {sha}
     in: .
-    gate: approve
+    gate: approve                    # standing approval: gate auto (only the newest ever waits: drain.py)
     class: switch
     args: {sha: the installed version to switch the instance to}
-    description: Switch the instance to an installed version, in a process of its own; it reverts on failure
+    description: Switch the instance to an installed version - at a quiet moment or the daily window, once the runs under way drained; it reverts on failure
 
 blocks:
   queue-when:
     type: expr
-    description: land while approved gaps wait and no suite runs on the machine (the load interlock)
+    description: land while approved gaps wait, no suite runs on the machine (the load interlock) and no push waits for approval (a run would only give its gap back)
     in:
       waiting: goal.approved-gaps-landed.off
       busy: goal.machine-quiet.off
       threads: goal.suite-threads-within.off
       memory: goal.suite-memory-within.off
-    expr: waiting * (1 - max(busy, threads, memory))
+      pushing: auxiliary.push-waiting
+    expr: waiting * (1 - max(busy, threads, memory, pushing))
     out: block.merge-queue
   merge-queue:
     type: program
     description: one run at a time, under the coordinator's queue lock - merge a batch (stock.queue-batch) into a clean main, ruff, unit and browser at once, demo_check, once a batch; push if green (gated, one approval a batch), else bisect to the first failing merge, send it to triage and land the rest
     run: python3 dev/bin/queue.py
-    takes: {kind: gap, at: approved, to: [merged, fix, queue-failed]}
+    takes: {kind: gap, at: approved, to: [merged, fix, queue-failed, push-pending]}
     pool: 1
     lease: {ttl: 30m, attempts: 3}
     timeout: 3h
     actions: [push-main]
     in: block.queue-when
     out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures]
+  push-settler:
+    type: program
+    description: settles the last batch's push once it ran, failed or was denied, with no gap approved to start a run - under the queue's lock when it is free (a run holding it settles the push itself), its held outcome said at most once; commanded by push-settleable
+    run: python3 dev/bin/queue.py settle
+    every: 2m
+    timeout: 1m
+    in: auxiliary.push-settleable
 
   triage-when:
     type: expr
@@ -293,7 +372,16 @@ blocks:
     agent: coordinator
     description: the coordinator approves the switch to the newest installed version - the gated action switch-instance, asked in the inbox
     in: goal.upgrades-switched-to
-    out: flow.upgrades-switched
+    out: flow.switches-approved
+  switcher:
+    type: program
+    description: withdraws the older switch requests; the newest approved one waits for a quiet moment or the daily window, drains the runs under way (to its bound), then starts the switch
+    run: python3 dev/bin/drain.py
+    every: 1m
+    timeout: 5m
+    in: goal.drains-within-bound     # read, not commanded: a goal: here would put a controller in front of it and take
+                                     # it off its schedule (only a drain sets the goal off, and only the switcher drains)
+    out: [flow.switches-withdrawn, flow.drains-begun, flow.upgrades-switched]
   switch:
     type: external
     description: the switch's own process (dev/bin/live.py switch) - started by the approved action, it outlives the engine it stops; health-checked, kept or reverted

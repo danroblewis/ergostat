@@ -37,9 +37,19 @@ def classed(findings: list[str]) -> list[dict]:
     return [{"class": m[1] if (m := CLASS.match(x)) else "none", "text": CLASS.sub("", x, 1)} for x in findings]
 
 
+def coverage(cfg: dict, gap: dict) -> str:
+    """A sub-gap's parent's coverage (run/plans/<parent-branch>.md, saved by plan.py at the split), or `(none)`."""
+    parents = fac.ids(gap["fields"].get("parent"))
+    gaps = {g["id"]: g for g in fac.items("gap")} if parents else {}
+    for p in (gaps[p] for p in parents if p in gaps):
+        if (f := fac.run_dir(cfg, "plans") / f"{fac.branch_of(p)}.md").is_file():
+            return f"(of {p['id']})\n\n{f.read_text().strip()}"
+    return "(none)"
+
+
 def review_one(cfg: dict) -> int:
     marked = [g for g in fac.items("gap") if g["fields"].get("plan_review") == "wanted"]
-    if not marked:
+    if not marked or fac.draining(cfg):                 # (a switch drains the runs under way: next turn)
         return 0
     gap = sorted(marked, key=lambda g: (g["state"] != "ready", float(g["fields"].get("ready_at") or 0)))[0]
     if why := fac.may_spend(cfg, float(cfg["ai"]["plan_reviewer_session_usd"])):
@@ -50,7 +60,7 @@ def review_one(cfg: dict) -> int:
     fac.say("gap.measured", gid, plan_review="started")              # (taken once, whatever happens next)
     _, work = agents.clone(cfg, branch, "plan_reviewer", at=f"origin/{cfg['git']['base']}")
     text, context = brief.assemble(cfg, "plan_reviewer", gap, work, definition=target.read_text(), branch=branch,
-                                   graph=brief.graph(cfg, gap))
+                                   graph=brief.graph(cfg, gap), coverage=coverage(cfg, gap))
     context["brief"] = brief.save(cfg, "plan_reviewer", gap, text)
     import review
     try:
@@ -81,7 +91,8 @@ def review_one(cfg: dict) -> int:
 
 def park(gid: str, why: str) -> int:
     """The gated action, once the coordinator approved it (outside a run: recorded with `event --add`)."""
-    fac.add("gap.parked", gid, parked_at=time.time(), parked_by="plan-review", parked_in="plan",
+    fac.add("gap.parked", gid, parked_at=time.time(), parked_by="plan-review", parked_in="plan", parked_for="cancelled",
+            parked_until=None, resumed_as=None, resumed_at=None, need_met=None,
             where_it_stopped=f"The plan review asked that it not be built, and the coordinator agreed:\n{why}"[:4000])
     return 0
 
