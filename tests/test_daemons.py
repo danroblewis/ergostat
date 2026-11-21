@@ -662,3 +662,65 @@ def test_a_daemon_runs_1200_lines_are_all_recorded_in_order(tmp_path):
     assert [x["data"]["i"] for x in seen] == list(range(1200)), "every line, in the order printed"
     assert {x["causedby"] for x in seen} == {started[0]["id"]} and {x["item"] for x in seen} == {"ticket/1"}
 
+
+BURN = r'''
+import json, os, sys, time
+mode = sys.argv[1]
+for line in sys.stdin:
+    m = json.loads(line)
+    if m["op"] != "item":
+        continue
+    sys.stdout.write(json.dumps({"event": "ticket.started", "run": m["run"]}) + "\n"); sys.stdout.flush()
+    t = time.process_time()
+    while time.process_time() - t < 0.6:        # 0.6 s of CPU in its run, then it crashes or hangs, never done
+        pass
+    if mode == "crash":
+        os._exit(3)
+    time.sleep(600)                             # (hung: its cancel never read)
+'''
+
+
+def _failed_warm_run(tmp_path, mode: str, timeout: str) -> dict:
+    (tmp_path / "burn.py").write_text(BURN)
+    p = project(tmp_path, KIND + f"""
+blocks:
+  worker:
+    type: program
+    takes: {{kind: ticket, at: ready}}
+    timeout: {timeout}
+    lease: {{ttl: 1m}}
+    daemon: {{run: python3 burn.py {mode}, warm: true, concurrency: 1, restart: {{backoff: [5s, 5s]}}}}
+""")
+    p.events.add("ticket.opened", item="ticket/1", source="t")
+    e = start(p)
+    try:
+        assert wait_for(lambda: events(p, "agent.failed"), 20)
+    finally:
+        e.close()
+    return events(p, "agent.failed")[0]["data"]
+
+
+def test_a_crashed_warm_run_is_charged(tmp_path):
+    data = _failed_warm_run(tmp_path, "crash", "1m")
+    assert "exited 3" in data["note"], data
+    res = data.get("resources") or {}
+    assert res.get("method") == "warm" and 0.5 <= res.get("cpu", 0) < 1.5, f"its 0.6 s charged, not lost: {data}"
+
+
+def test_a_timed_out_warm_run_is_charged(tmp_path, monkeypatch):
+    monkeypatch.setattr(kill, "GRACE", 1.0)
+    data = _failed_warm_run(tmp_path, "hang", "2s")
+    res = data.get("resources") or {}
+    assert res.get("method") == "warm" and 0.5 <= res.get("cpu", 0) < 1.5, f"its 0.6 s charged, not lost: {data}"
+
+
+def test_a_warm_run_whose_leader_cannot_be_read_when_it_ends_is_unknown_never_zero():
+    import subprocess
+
+    from ergostat.daemons import usage
+    gone = subprocess.Popen(["true"], start_new_session=True)
+    gone.wait()                                  # (reaped by Popen: no rusage of its own to give)
+    cpu, _, _ = usage.charge({gone.pid: 0.5}, gone.pid)
+    assert cpu is None, "its leader unread at the end: unknown, never the rest of the group (here none) as all"
+    assert usage.charge({gone.pid: 0.5}, gone.pid, last=1.25)[0] == 0.75, "reaped with its CPU known: charged"
+

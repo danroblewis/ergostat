@@ -247,10 +247,11 @@ class Process:
             if "done" in obj:                        # strict: exactly {"done": EXIT, "run": ID}, EXIT a whole number
                 if set(obj) != {"done", "run"} or type(obj["done"]) is not int:
                     return self.stray(text, 'done is exactly {"done": EXIT, "run": ID}, EXIT a whole number')
-                if self.d.warm:
-                    self.charge(h)
-                with self.lock:
-                    self.runs.pop(run, None)
+                res, why = self.charge(h) if self.d.warm else (None, None)
+                with self.lock:                      # (the run is charged by whichever takes it: this, or fail_all)
+                    if self.runs.pop(run, None) is not h:
+                        return None
+                    h.resources, self.recycle = res, self.recycle or why
                     self.served += 1
                     if not self.runs:
                         self.idle_since = time.monotonic()
@@ -279,20 +280,22 @@ class Process:
 
     # ---- runs and readings
 
-    def charge(self, h: Handle) -> None:
-        """(warm) The CPU its group used while it held the run; what it left running, or a cancelled run, and it is
-        replaced before it is handed another (it holds one run at a time, so nothing else's CPU is in it)."""
-        cpu, left, dead = usage.charge(self.before, self.pid)
-        h.resources = {**({"cpu": round(cpu, 3)} if cpu is not None else
-                          {"unmeasured": "its group's CPU could not be read when it was handed the run"}),
-                       "method": "warm", **({"left_running": len(left)} if left else {}),
-                       **({"unreaped": len(dead)} if dead else {})}
+    def charge(self, h: Handle) -> tuple[dict, tuple[str, bool] | None]:
+        """(warm) The CPU its group used while it held the run, at its ``done`` or when it failed (crashed: its
+        leader's from its ``wait4``); unknown, never zero, when that cannot be read. And why it is replaced before it
+        is handed another: what it left running, a cancelled run (it holds one run at a time, so nothing else's CPU
+        is in it)."""
+        ru = self.proc.rusage
+        cpu, left, dead = usage.charge(self.before, self.pid, ru.ru_utime + ru.ru_stime if ru else None)
+        res = {**({"cpu": round(cpu, 3)} if cpu is not None else {"unmeasured": "its group's CPU could not be read when "
+               + ("it was handed the run" if self.pid not in self.before else "the run ended")}),
+               "method": "warm", **({"left_running": len(left)} if left else {}),
+               **({"unreaped": len(dead)} if dead else {})}
         why = (f"left {len(left)} process(es) of its group running after its run", True) if left else \
             ("its run was cancelled", False) if h.cancelled is not None else \
             (f"served {self.served + 1} runs (recycle: {self.d.recycle})", False) if self.served + 1 >= self.d.recycle \
             else None
-        with self.lock:
-            self.recycle = self.recycle or why
+        return res, why
 
     def hold(self, run: str, h: Handle, line: dict | None) -> bool:
         """The run held; its line sent now, or (None: a warm process's) by ``hand``, outside the supervisor's lock."""
@@ -332,7 +335,9 @@ class Process:
             runs, reqs = list(self.runs.values()), list(self.requests.values())
             self.runs.clear()
             self.requests.clear()
-        for h in runs:
+        for h in runs:                               # (warm: a run sent, crashed or hung, charged what it used)
+            if self.d.warm and h.sent:
+                h.resources = self.charge(h)[0]
             h.end(None, note, requeue and h.cancelled is None)
         for h in reqs:
             h.answer(None, note)
