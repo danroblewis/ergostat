@@ -41,3 +41,8 @@ in dev/knowledge/review-lessons.md plus this file. The only tests that read dev/
 tests/test_factory_knowledge.py (test_factory_manager.py imports its fixture). Both files pass run serially (40
 passed), and ruff is clean. With no code changed and no failing test named, I made no code fix. This is the reversible
 option: if a later run names a test, that test is the lead.
+
+Round 2: there were no review findings to answer (none were handed over). Checked again: the branch's diff against main is
+unchanged (the lesson-8 "Seen as" lines and this file), main is still its base (8eb0fc0), and this clone has no
+origin remote, so there was nothing to merge in. tests/test_factory_knowledge.py: 22 passed, run alone. ruff is clean.
+The unit suite and the browser files are left to the factory's watchdogged run.
