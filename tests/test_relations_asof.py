@@ -234,10 +234,10 @@ def test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers(tmp_
     assert mode == "whole" or "misc/1" in made[0].folded
     by = by_id(g)
     m = by["misc/1"]
-    assert m["kind"] is None and m["links"] == {} and m["status"] == "ready"
+    assert m["kind"] is None and m["links"] == {} and m["status"] == "unblocked"
     assert by["ticket/a"]["links"] == {"blocked_by": ["misc/1"]} and by["ticket/a"]["inverse"] == {}
     assert by["ticket/a"]["status"] == "blocked" and by["ticket/a"]["waiting"] == ["misc/1"]
-    assert by["ticket/z"]["status"] == "ready" and by["ticket/z"]["inverse"] == {}
+    assert by["ticket/z"]["status"] == "unblocked" and by["ticket/z"]["inverse"] == {}
     view = made[0]                                          # and the view itself gives it none, either way
     with view.lock:
         assert view.links_from(["misc/1"]) == [] and view.links_to(["ticket/a"]) == []

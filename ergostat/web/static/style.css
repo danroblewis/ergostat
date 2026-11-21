@@ -869,6 +869,9 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 .rg-key.rg-blocked i { border-style: dashed; border-color: var(--line-strong); }
 .rg-key.rg-done i { border-color: var(--line); background: var(--fill); }
 .rg-key.rg-dead i { border-color: var(--bad); }
+.rg-key.rg-paused i { border-style: dashed; border-color: var(--line-strong); background: var(--fill); }
+button.rg-key { font: inherit; color: inherit; cursor: pointer; }
+button.rg-key.on { outline: var(--hair) solid var(--accent); }
 .rg-key.rg-critkey i { border: 0; height: var(--sp-0); background: var(--bad); border-radius: 0; }
 .rg-node { cursor: pointer; }
 .rg-node text { font-size: var(--canvas); fill: var(--ink); pointer-events: none; }
@@ -884,6 +887,7 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 .rg-node.rg-blocked .rg-id { fill: var(--ink-2); }
 .rg-node.rg-done .rg-box { fill: var(--chrome); stroke: var(--line); }
 .rg-node.rg-done text { fill: var(--muted); }
+.rg-node.rg-paused .rg-box { fill: var(--fill); stroke: var(--line-strong); stroke-dasharray: 2 3; }
 .rg-node.rg-dead .rg-box { stroke: var(--bad); }
 .rg-node.rg-dead .rg-pill { fill: var(--bad); }
 .rg-node.rg-critical .rg-box { stroke: var(--bad); stroke-width: 2.2; }
