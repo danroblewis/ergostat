@@ -26,6 +26,7 @@ import time
 from ..spec.ir import (
     ACTIONS,
     ACTIONS_MEASURES,
+    BUDGET_MEASURES,
     CONTEXT_MEASURE,
     CONTEXT_MEASURES,
     COST,
@@ -124,8 +125,11 @@ READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
 
 def measure(p, name: str) -> float | None:
     if name.startswith(("trust.", "messages.", "intent.", "leases.", "actions.", "workspaces.", "inbox.", "interventions.",
-                        "cost.")):                 # by hand: trust.contradicted@developer
+                        "cost.", "budget.")):      # by hand: trust.contradicted@developer
         name = "ergostat." + name
+    if name in BUDGET_MEASURES:                    # what is left of the day's AI budget (SPEC §9.9)
+        from ..costs import budget
+        return budget.left(p, getattr(p.model, "spec", None))
     if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
         name = "ergostat.model." + name.removeprefix("model.")
     if TRUST.match(name):                          # how far blocks' claims hold (SPEC §12g)
@@ -176,7 +180,7 @@ def measure(p, name: str) -> float | None:
     if name not in MODEL_MEASURES:
         known = [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES,
                  *ACTIONS_MEASURES, *WORKSPACES_MEASURES, *COST_MEASURES,
-                 *INBOX_MEASURES]
+                 *INBOX_MEASURES, *BUDGET_MEASURES]
         raise MeasureError(f"no measure {name!r}: {', '.join(known)}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
@@ -186,7 +190,7 @@ def measure(p, name: str) -> float | None:
 def all_of(p) -> dict[str, float | None]:
     out = {}
     for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES, *ACTIONS_MEASURES,
-              *WORKSPACES_MEASURES, *COST_MEASURES, *INBOX_MEASURES]:
+              *WORKSPACES_MEASURES, *COST_MEASURES, *INBOX_MEASURES, *BUDGET_MEASURES]:
         try:
             out[n] = measure(p, n)
         except Exception as e:                        # one measure that cannot be read leaves the others

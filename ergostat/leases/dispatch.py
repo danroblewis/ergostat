@@ -31,6 +31,7 @@ import threading
 import time
 import uuid
 
+from ..costs import budget
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
 from . import ENDED, EXPIRED, RENEWED, TAKEN
@@ -105,6 +106,7 @@ class Dispatcher:
                     self.due = float("inf")
                     if mono - last >= EVERY:
                         last = mono
+                        budget.recover(self.p, self.spec)    # (at most once a minute: SPEC §9.9)
                         if self.blocks or self.holding:      # (a model with no block that takes: nothing to watch)
                             self.watch()
                     self.tick()
@@ -184,19 +186,26 @@ class Dispatcher:
             got.append(i)
         return sorted(got, key=lambda i: (b.takes.at.index(i.state), i.entered, i.first))
 
-    def once(self, b, why: str) -> list[str]:
+    def once(self, b, why: str, outcome: dict | None = None) -> list[str]:
         """A run asked for by hand (``ergostat block NAME --now``): it leases the next item the block would take, and
-        runs here, at once, whatever its pool; with nothing to take, nothing runs."""
+        runs here, at once, whatever its pool; with nothing to take, nothing runs. A take the budget refused is said in
+        ``outcome["refused"]``."""
+        out: dict = {}
         with self.lock:
             got = ordered(b, unblocked(self, b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
                                                           time.time())))
-            started = self.take(b, got[0], inline=True) if got else None
+            started = self.take(b, got[0], inline=True, out=out) if got else None
+        if out.get("refused"):
+            if outcome is not None:
+                outcome["refused"] = out["refused"]
+            self.e.say(f"{b.name}: refused: budget: {out['refused']}")
+            return []
         if started is None:
             self.e.say(f"{b.name}: nothing to take ({b.takes.kind} at {', '.join(b.takes.at)})")
             return []
         return self._work(*started, why=why)
 
-    def take(self, b, it, inline: bool = False):
+    def take(self, b, it, inline: bool = False, out: dict | None = None):
         self.due_now.discard(it.id)
         t = terms(self.spec, b)
         lease = it.fields.get("lease") if isinstance(it.fields.get("lease"), dict) else {}
@@ -209,18 +218,30 @@ class Dispatcher:
                 return None                                       # ergostat is stopping: nothing more is taken
             self.e.running.add(key)
             self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
+        data = {"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
+                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1}
+        spec = self.spec
         try:
-            ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
-                                   data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
-                                         "max": t["attempts"], "back": it.state, "tier": t["tier"],
-                                         "attempt": int(lease.get("attempts") or 0) + 1})
-            now = its.one(self.p.events, self.spec, it.id)
+            def write(more: dict | None = None) -> dict:
+                return self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause, data={**data, **(more or {})})
+            ev, no = (write(), None) if spec.budget is None else budget.permit(self.p, spec, b, write, run)
+            if ev is None:                                        # the budget refused it: no lease, nothing marked
+                self.ours.discard(run)
+                with self.e.lock:
+                    self.e.running.discard(key)
+                if out is not None:
+                    out["refused"] = no
+                return None
+            now = its.one(self.p.events, spec, it.id)
             got = held(now.fields) if now else None
         except BaseException:
+            budget.OPEN.discard(run)
             with self.e.lock:
                 self.e.running.discard(key)
             raise
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+            if run in budget.OPEN:                                # (nothing ran: its reserve given back)
+                budget.close(self.p, b.name, run, 0.0, "the take lost: another holder won")
             self.ours.discard(run)
             with self.e.lock:
                 self.e.running.discard(key)
@@ -229,6 +250,7 @@ class Dispatcher:
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}
         if self.e.stop.is_set():                                  # it raced the stop: given back, not counted, not run
             self.give_back(b.name, it.id)
+            budget.OPEN.discard(run)                              # (no end: recovery closes it, at its reserve)
             with self.e.lock:
                 self.e.running.discard(key)
             return None
@@ -264,6 +286,7 @@ class Dispatcher:
         finally:
             if slot:
                 slot.release()
+            budget.OPEN.discard(run)         # (not ended by its run: recovery closes it, at its reserve)
             with self.lock:                  # claimed under the lock, ended outside it: once, here or by give_back
                 mine = self.going.get(b.name, {}).get(item["id"], {}).get("run") == run
                 if mine:
