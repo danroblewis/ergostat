@@ -2114,6 +2114,80 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
             drain.settings({"upgrade": bad})
 
 
+# ---- merges of the files many gaps edit at once (.gitattributes)
+
+
+def merge_two(tmp: Path, rel: str, base: str, one: str, two: str, attributes: bool = True) -> tuple[int, str]:
+    """``base`` committed at ``rel`` on main with its folder's .gitattributes from this repository (or none), ``one`` on
+    a branch, ``two`` on main, and the branch merged in: (git merge's return code, the file after it)."""
+    (tmp / rel).parent.mkdir(parents=True)
+    git(tmp, "init", "-q", "-b", "main")
+    if attributes:          # docs/.gitattributes, dev/knowledge/.gitattributes: each beside the file it merges
+        attrs = Path(rel).parent / ".gitattributes"
+        (tmp / attrs).write_text((ROOT / attrs).read_text())
+    (tmp / rel).write_text(base)
+    git(tmp, "add", "-A")
+    git(tmp, "commit", "-qm", "base")
+    git(tmp, "checkout", "-qb", "one")
+    (tmp / rel).write_text(one)
+    git(tmp, "commit", "-qam", "one")
+    git(tmp, "checkout", "-q", "main")
+    (tmp / rel).write_text(two)
+    git(tmp, "commit", "-qam", "two")
+    r = subprocess.run(["git", "-C", str(tmp), "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q",
+                        "--no-edit", "one"], capture_output=True, text=True)
+    return r.returncode, (tmp / rel).read_text()
+
+
+MERGED_GAPS = """\
+# Known gaps
+
+## Things
+
+- **Alpha** (open): a.
+- **Beta** (open): b.
+- **Gamma** (open): c.
+
+## Done recently
+
+- **Older** (done, 1111111): long ago.
+"""
+
+
+def test_two_gaps_editing_gaps_md_merge_cleanly(tmp_path):
+    """Two gaps that each finish a different entry, moving it to the top of *Done recently*, merge without a conflict
+    (they conflict without the union merge); two that edit entries side by side merge too, and the entries that
+    leaves twice are the intake's to report (tests/test_backlog.py::test_a_duplicated_gaps_entry_is_reported)."""
+    if str(BIN) not in sys.path:
+        sys.path.insert(0, str(BIN))
+    intake = module("intake")
+    one = MERGED_GAPS.replace("- **Alpha** (open): a.\n", "").replace(
+        "## Done recently\n\n", "## Done recently\n\n- **Alpha** (done, 2222222): a.\n")
+    two = MERGED_GAPS.replace("- **Gamma** (open): c.\n", "").replace(
+        "## Done recently\n\n", "## Done recently\n\n- **Gamma** (done, 3333333): c.\n")
+    assert merge_two(tmp_path / "a", "docs/GAPS.md", MERGED_GAPS, one, two, attributes=False)[0] != 0
+    rc, text = merge_two(tmp_path / "b", "docs/GAPS.md", MERGED_GAPS, one, two)
+    assert rc == 0 and "<<<<<<<" not in text
+    assert {e["title"]: e["gaps_says"] for e in intake.gaps_md(text)} == {"Beta": "open"}
+    assert "**Alpha** (done, 2222222)" in text and "**Gamma** (done, 3333333)" in text and intake.twice(text) == {}
+    rc, text = merge_two(tmp_path / "c", "docs/GAPS.md", MERGED_GAPS, MERGED_GAPS.replace("(open): a.", "(open): a!"),
+                         MERGED_GAPS.replace("(open): b.", "(done, 4444444): b."))
+    assert rc == 0 and sorted(intake.twice(text)) == ["gap/alpha", "gap/beta"]
+
+
+def test_two_lessons_editing_review_lessons_merge_cleanly(tmp_path):
+    """Two gaps that each add to the review lessons (a line on the last lesson, a new lesson after it) merge without a
+    conflict, keeping both; without the union merge they conflict."""
+    base = (ROOT / "dev" / "knowledge" / "review-lessons.md").read_text()
+    one = base.rstrip("\n") + "\nSeen as: one more case, from the first gap.\n"
+    two = base + "\n## 99. A lesson from the second gap\nIts shape.\n**Check:** its check.\n"
+    rel = "dev/knowledge/review-lessons.md"
+    assert merge_two(tmp_path / "a", rel, base, one, two, attributes=False)[0] != 0
+    rc, text = merge_two(tmp_path / "b", rel, base, one, two)
+    assert rc == 0 and "<<<<<<<" not in text and text.startswith(base.rstrip("\n"))
+    assert "one more case, from the first gap" in text and "## 99. A lesson from the second gap" in text
+
+
 # ---- park-owns-resume (docs/roadmap/overnight/park-owns-resume.md): whoever parks says why and what would end it
 
 def pipe(tmp: Path, **kw):
