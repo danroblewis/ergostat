@@ -128,3 +128,16 @@ log to read. Every test file that reads what this branch changes was run alone o
 or this definition. So no code was changed: a fix without the failing test's name would be a guess (lesson-10,
 lesson-13). Left: the factory's rerun of the failed test on clean main. If it fails there too, it is unrelated. If it
 is in one of the files above and fails only under load, its name is needed for a fix round.
+
+**The fast suites' failure after round 1, named.** The second `unit` run named its two failures:
+`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (the lease history was
+`['expired', 'ack']`, not `['ack']`) and `tests/test_daemons.py::test_a_short_lived_daemon_is_sampled_before_it_ends`
+(no sample within 3 s). Both are unrelated to this branch (lesson-13): `git diff --stat main...HEAD` touches no file
+under `ergostat/` and neither test file. The only test file it changes is `tests/test_factory_knowledge.py`. Both
+tests build their own project in `tmp_path` from an inline model, so they never read `dev/`, the root
+`ergostat.yaml` or this definition. (The only change to `ergostat.yaml` is one `planning_cost_usd: sum` field on the
+factory's gap items.) Run alone on the branch, both pass (2 passed in 7.4 s). Both are timing tests: one renews a 1 s
+lease from session events 0.4 s apart, the other expects a daemon sampled within 3 s of its start. They failed under
+`-n 8` with the rest of the suite running, so they depend on load (lesson-10). The cause may be a real race in the
+lease watchdog or the daemon sampler, or the tests' fixed timings. Finding out belongs in a gap of its own, not this
+branch. No code was changed for them. Left: the factory's rerun of the two tests on clean main.
