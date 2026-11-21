@@ -193,3 +193,61 @@ The existing `tests/test_gated_actions.py` and `tests/test_program_actions.py` p
 - Novelty is keyed by action name only. An action whose command was changed but kept its name counts as known. Say so in SPEC (lesson-8: don't let 'novel' read as 'this command never ran').
 - Step 4: say exactly which recorded stepped gate is used for a refolded id. After a re-hold, the later `requested` event carries `risk_at_act`, not `risk`; the fold must keep the original request's `risk.gate` (or take the stricter of the recorded ones). Define it and cover it in test_act_takes_the_stricter_of_request_and_act.
 - The fallback to the spec passed in when the model has no file has no acceptance test. Add one, in which an in-memory model with a risk: that steps at the act is still re-held or denied, or state why it is exempt.
+
+## Where it stopped
+
+**Built** (round 1): `ergostat/actions/risk.py` (the score, `clamp`, `inputs`, `step`, `stricter`, plus `assess` and
+`note`), the step at `gate.request`, the re-check at `gate.run_once` (`at_act`, `rehold`), notes in `result`, the
+`risk:` key in `actions/compile.py`, `Action.severity` / `Action.threshold`, one line in the MCP tool description,
+SPEC §12k, the GAPS entry. 27 tests in `tests/test_act_risk.py`. Net code: 178 lines (risk.py 98, gate.py 51,
+compile.py 25, ir.py 3, server.py 1), under the 220 budget.
+
+**Choices made alone** (each the more reversible, or stricter, option):
+- GAPS: the entry is at line 228 now (not 188); that is the one changed.
+- `docs/AGENT-GUIDE.md` names `actions:` but does not list its keys, so it is unchanged.
+- A gate already `deny` with a score ≥ T says "act-risk 50 ≥ 8: its gate is deny already", so the denied note names
+  the score and the threshold for every base gate.
+- An unknown gate string, wherever it is met by `step`/`stricter`, counts as `deny`.
+- An invalid `severity` (a compile error, so the model never runs) is kept as 5 in the compiled spec.
+- The act's `risk_at_act` carries `gate` (the act's own stepped gate), `asked` (the request's) and `effective`. When
+  the model is unreadable it is `{model: unreadable}`; when the action is gone, `{effective: deny}`.
+
+**The plan review's notes:**
+- lesson-5, the re-hold clears the stale approval: the re-held `requested` event writes `approved_by: None`;
+  `test_contradiction_between_request_and_act_reholds` asserts `approved_by is None`. It and
+  `test_model_unreadable_at_act_reholds` run a second `gate.sweep` and assert it returns 0 with no new event.
+- Re-hold order: `rehold` writes the event first, then removes the lock (said in its docstring).
+  `test_rehold_removes_only_its_own_lock` watches `record.step` and asserts the lock still existed when the hold was
+  written.
+- Compile: `true` is rejected for S and for T, and `.nan`, `.inf` and `-.inf` for T, all in `test_risk_key_validated`.
+- No asking block: SPEC §12k says an owner's own request scores c = 1 and an `auto` one with S ≥ 2 is held for that
+  owner, and that this is intended.
+- Novelty by name only: said in SPEC §12k.
+- Step 4, the refolded id: the request's stepped gate is the first `requested`'s `risk.gate`. A re-hold writes no
+  `risk`, so the fold keeps it. `test_act_takes_the_stricter_of_request_and_act` asserts `risk.gate == "approve"`
+  after the re-hold, then approves by `gate` again and sees it re-held again.
+- In-memory fallback: `test_in_memory_model_is_scored_at_the_act_from_the_spec_given` sets `model.path = None` and
+  writes a broken file. It is still re-held at the act, scored from the spec given, not the file.
+
+**lesson-9, each break and what failed** (each reverted):
+- S dropped from the score: 10 tests failed (`test_score_formula`, both `alone` tests, the three base-gate tests, NaN,
+  contradiction, in-memory, stricter). Note that `(1+4c)(1+n) ≥ T/S`, as the definition words it, is the same
+  inequality as `S(1+4c)(1+n) ≥ T`, so the break run was "S left out".
+- Missing c as 0 (no claims, none checked): 6 failed, including both "no claims" tests.
+- Missing n as 0 (unreadable record): `test_novelty_record_unreadable_counts_novel` failed.
+- NaN clamp removed: `test_nan_share_counts_as_one` failed (c was NaN).
+- Act re-check skipped: 9 failed. That includes `test_never_looser`, but only after it was changed to work out the act's
+  gate itself; at first it read the recorded `risk_at_act` and missed the break.
+- The act's gate taken instead of the stricter: `test_act_takes_the_stricter_of_request_and_act` failed.
+
+**Not done here:**
+- There is no `origin` ref in this clone, only `main`, which is this branch's base (505a93e9). Fetching would reach
+  the network, so origin/main was not merged here.
+- The full unit suite and the four browser files were not run by me (the factory runs them after).
+
+**Run:** `tests/test_act_risk.py`, `test_gated_actions.py`, `test_program_actions.py`, and every other test file
+that goes through the gate: `test_inbox`, `test_interventions`, `test_messages`, `test_gate`, `test_workspaces`,
+`test_leased_workspaces`, `test_calls`, `test_impact`, `test_recipes`, `test_watchdog`, `test_templates`,
+`test_repair2`, `test_inbox_page`, `test_factory`, `test_factory_manager`. All passed, with 33 page tests in
+`test_inbox_page` and 2 in the factory files skipped (run without Playwright). `uv run ruff check ergostat tests
+scripts` is clean.
