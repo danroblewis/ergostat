@@ -262,8 +262,9 @@ def test_a_reservation_dated_in_the_future_counts(tmp_path):
     assert sp.spent(p, now) == pytest.approx(0.4)
 
 
-def _one(root: str, started, release, out):
+def _one(root: str, ready, started, release, out):
     p = SimpleNamespace(dir=Path(root))
+    ready.set()                                          # up and about to ask for the lock
     try:
         with sp.held(p, 0.5, 0.5) as box:
             started.set()
@@ -275,25 +276,32 @@ def _one(root: str, started, release, out):
 
 
 def test_two_runs_cannot_both_take_the_last_of_the_cap(tmp_path):
-    ctx = mp.get_context("fork")
+    ctx = mp.get_context("spawn")                        # not fork: the pytest worker has other tests' threads
     started_a, started_b, release, out = ctx.Event(), ctx.Event(), ctx.Event(), ctx.Queue()
-    a = ctx.Process(target=_one, args=(str(tmp_path), started_a, release, out))
+    ready_a, ready_b = ctx.Event(), ctx.Event()
+    a = ctx.Process(target=_one, args=(str(tmp_path), ready_a, started_a, release, out))
+    b = None
     a.start()
     try:
         assert started_a.wait(20)
         with open(tmp_path / "modelling" / "ai-spend.lock", "a") as lk:      # the lock is held through the call
             with pytest.raises(BlockingIOError):
                 fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        b = ctx.Process(target=_one, args=(str(tmp_path), started_b, release, out))
+        b = ctx.Process(target=_one, args=(str(tmp_path), ready_b, started_b, release, out))
         b.start()
+        assert ready_b.wait(20)
         assert not started_b.wait(1.0)                    # b waits for the lock while a is mid-call
         release.set()
         a.join(20)
         b.join(20)
     finally:
         release.set()
-        for x in (a,):
-            x.join(5)
+        for x in (a, b):
+            if x is not None:
+                x.join(5)
+                if x.is_alive():
+                    x.kill()
+                    x.join(5)
     got = sorted(out.get(timeout=5) for _ in range(2))
     p = SimpleNamespace(dir=tmp_path)
     assert got == ["called", "capped"]
