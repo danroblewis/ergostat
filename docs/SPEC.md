@@ -490,6 +490,7 @@ remotes:
     systems: [triage]                 # optional: only these of its systems (and what is inside them)
     within: support                   # optional: the system it is drawn inside
     every: 1m                         # how often its model and readings are read (default 1m, least 10s)
+    show: [stock.open]                # optional: what its closed box shows, in its own names
     description: the incident desk
 ```
 
@@ -501,6 +502,7 @@ remotes:
 | `within` | system name | the file's default | The local system it is drawn inside |
 | `every` | duration | `1m` | How often its model is checked and its readings read |
 | `description` | string | where it runs | |
+| `show` | list | its top systems' `show:` | The measures its closed box shows, each `stock.NAME`, `flow.NAME` or `auxiliary.NAME` in the **remote's own** names, as it serves them: `stock.open` is its `open`, drawn here as `incidents-open`, even when this model has an `open` of its own; a local part is never shown on a remote's box. It takes the place of the served tops' `show:`. Anything else is **bad-remote**, an error |
 
 **What it becomes here.** Each part it serves is put in under the remote's name (`stock.incidents-open`),
 as a template's instance names its parts (§2a), in the system `incidents` (its own systems inside it,
@@ -535,6 +537,21 @@ least) is stale and is not taken.
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
 in place like any system. In Process its kinds' maps are drawn beside ours, framed *remote incidents*.
+Its closed box shows, in this order of precedence: (a) the `show:` on its `remotes:` entry; else (b) the
+served `show:` of its top systems (those with no `within`, or with `systems:` the kept ones whose `within` is
+not kept), in the order it serves them, each part once, a part `systems:` leaves out cut; else (c) the
+measures of its goals that it serves (never a stand-in's); (d) a remote never read shows the parts its local
+`show:` names, each *never read*, and with none no measures at all, never a goal's. A system inside it shows
+its own served `show:`. The panel (Dynamics' module, the system panel) lists them under the remote note,
+and Blocks' box draws them as rows. A measure there is **stale**, dimmed, and says `last V · AGE old`
+(AGE: the snapshot's moment less its newest reading here) or *never read* when the remote is not answering,
+its readings fail, or it has not answered yet: then every measure is stale. When it answers, a measure is
+stale when its sensors' newest reading here is older than three of its sensor's periods (two minutes at
+least, also for a sensor with no period), and says *never read here* when they have none; a part with no
+sensor here is stale only when the remote is not answering. A local `show:` part it does not serve stays,
+dimmed, *not served*, and is a finding (**remote-show-unresolved**, on the `show:` key: the version it was
+checked against, as last read when the remote is not answering, and why: it serves no such part, `systems:`
+leaves it out, or the name is a local one); neither it nor a *never read* one is charted.
 The local residuals, coherence and attention leave its parts out: they are held to its own record, there.
 
 **Never edited here.** A model change (§12e) that would write a remote part is refused, as one that would
@@ -1756,7 +1773,20 @@ saturation.
 **Lines take effect as they arrive.** A run's standard output is read while it runs, line by line, and each
 complete line is taken when it is printed, in the order printed; half a line waits for the rest (or for the end of
 the output). Its input is written, and its errors go to its log, beside the reading, so neither a large output nor
-a program that reads its input slowly stalls it. Event lines in a row are recorded together, in one write, before
+a program that reads its input slowly stalls it. **A run outlives its engine:** it starts in its own session, its
+input is a file and its output goes to its run log file (`runs/RUN.out` in the state folder), which the engine
+follows (looking again within 50 ms when nothing is new), so no pipe ties the run to the engine: an engine killed
+mid-run leaves the run going, and a small `sh` wrapper writes its exit code to `runs/RUN.exit` when it ends.
+`runs/RUN.json` is its record: pid, the process's start time (a pid reused by another process has another start
+time), run id, lease and block. The files are removed once the engine has read the run to its end. (Taking up a run
+left behind by a stopped engine is not built yet.) A run has ended when its process has and nothing it started is
+left in its process group, or 2 s after its process ended, whichever is first. **Its exit code is the wrapper's**,
+and `sh` reports a command killed by signal N and one that exits with 128+N alike, so the wrapper chooses: for HUP,
+INT, PIPE, ALRM, TERM, USR1, USR2 and KILL it ends itself by the same signal, and the run's exit reads -N (as a
+simple command's did before the wrapper); for every other code it exits with the code itself, so a run killed by a
+signal that dumps core (SEGV, ABRT, QUIT, ILL, BUS, FPE, TRAP, SYS, XCPU, XFSZ) reads 128+N, e.g. 139, never
+crashing the wrapper. The cost: a command that *exits* 129, 130, 134, 137, 139, 141, 142, 143 or another such code on
+purpose reads as ended by that signal (section 12's triage files both as `signal`). Event lines in a row are recorded together, in one write, before
 anything printed after them, so a run printing thousands of lines a second costs a few writes. A program flushes
 each line for it to be seen at once (`print(..., flush=True)`, `python -u`; `echo` and `jq -c` in a shell already
 do); what it holds in its own buffer arrives when it flushes or ends. By line:
@@ -1881,7 +1911,7 @@ and moved, that event says what the run cost, measured by ergostat, never by the
 
 | Field | What | How |
 |---|---|---|
-| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status; the clock |
+| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status (the run's wrapper's: a signal that dumps core reads 128+N, section 9.1); the clock |
 | `resources.cpu` (`cpu_user`, `cpu_system`) | CPU seconds of its whole process tree: its process, everything it started, user and system | The larger of its wait status (`wait4`: exact for the process and every descendant it waited for) and one shared sampler's sum (below) |
 | `resources.memory_peak` | The most memory the tree held at once, in bytes (resident) | The larger of the sampler's peak (summed over the tree at each sample) and the largest single process (`wait4`) |
 | `resources.processes_peak`, `open_files_peak` | The most processes in its tree, and the most files they held open at once | The sampler; open files where cheap to count (Linux `/proc`, macOS `libproc` for the user's own processes), else left out |
@@ -2186,10 +2216,14 @@ the order the block will take them; only the critical tiebreak among equals is m
 notes an order field no item in the record holds yet (`takes-order-unset`). ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. Nor has it `mode: advise` (`check`:
-`advise-with-takes`), which asks before a command or an event, never before each item: to have a person
-hold its items, gate it with `goal:` or `in: block.X` from a block a person commands, and its items wait
-while that is off. A kind taken by a block gains two states, when
-it does not list them: `leased`, after the first `at` state, and `dead`, last.
+`advise-with-takes`), which asks before a command or an event, never before each item. To have a person
+hold its items, gate it with `in: block.X` from an `expr` block that reads a stock with `sensor: {manual:
+true}` (`expr: o` over `in: {o: stock.open}`). `ergostat sensor open --read 1` opens the gate and
+`--read 0` shuts it. It opens for all of the block's items at once, not for one item; while it is off,
+or has no reading yet, the items wait. A `person` block is no gate: its `--done` records work and never
+sets a command, so `check` refuses one wired to command a block that takes (`person-gate`). A kind taken
+by a block gains two states, when it does not list them: `leased`, after the first `at` state, and
+`dead`, last.
 
 **A lease** is a run's hold on one item. Its events, about the item, are ergostat's own:
 
@@ -2519,6 +2553,39 @@ rc 3. A daemon that is not warm, or a FILE that is missing, not JSON or not a JS
 the file named, nothing run). A program started for a run reads its `env` from the line and passes `{**os.environ, **env}` to what it starts;
 it never writes its own environment, and it reaps what it starts before `done`.
 
+### 9.8 Engine shards
+
+A model can be divided into **shards**, each to be run by an engine of its own. The division is worked out from the
+model's graph, never written in it (invariant 8): `ergostat/spec/shards.py`'s `plan(spec, most=16)` reads the compiled
+model and changes nothing. Nothing on the running path uses it yet.
+
+- **Seeds.** Each top-level system (the outermost system a part is within) starts a shard, named after the system,
+  lowercased. A name that is not `^[a-z0-9][a-z0-9-]{0,63}$` becomes `s-` and the first 12 hex digits of the system
+  name's sha256; a name already taken gets `-2`, `-3` and so on. The **lead** shard, named `lead`, always exists, even
+  in a model with no systems. It holds the parts with no system, ergostat's own kinds (`ergostat.*`) that no block
+  takes, agents no block runs on, and anything else nothing assigns.
+- **Parts.** Every stock, flow, auxiliary, goal, block, sensor, agent and kind of item is in exactly one shard. A
+  sensor is in its part's shard, an agent in the shard of the blocks that run on it, a kind in the shard of the
+  blocks that take it, else in its system's, else in the lead. `Plan.of(ref)` names a part's shard and raises
+  `KeyError` for one not in the model; it has no default. A stock's estimate or uncertainty is in the stock's shard.
+- **Merges.** Two shards are merged when blocks in each run on the same agent (its `at-once` is counted in one
+  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon. Kinds
+  tied by a join (a parent kind and the kinds whose relation names it) count as one kind here. Nothing else merges
+  shards; in particular, reading a signal across them does not. Each merge is recorded in `Plan.why`: the shard that
+  joined, the rule (`agent`, `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
+- **Wires.** `Plan.wires` lists, sorted, each value a part in one shard reads from a part in another that exists only
+  in memory, with the shard it comes from and the one that reads it: a goal's setpoint, error or off (`goal`), a
+  block's output read by another block (`cascade`), a block's output to a goal's setpoint (`setpoint`) or to a block,
+  flow or auxiliary (`command`), a flow or auxiliary worked out from its equation (`equation`), a stock's estimate or
+  uncertainty, which its shard's observer keeps (`estimate`), and any other stock, flow or auxiliary with no sensor
+  (`memory`). The readers counted are goals (their part), equations, blocks (their inputs, and each goal they read or
+  act in as an actuator, with that goal's part, as the engine gives them), and the observer of an estimated stock
+  (each flow it adds up). Reading a part with a sensor is reading the measurements, which any shard can do, so it is
+  never a wire; its sensors are read only by the shard that owns it. Writing to one (a command) still is.
+- **Ceiling.** `most` is clipped to 1 to 16. While there are more shards than that, the two smallest (counted in
+  parts, ties broken by name) are merged (`ceiling`). With `most` 1 there is one shard, the lead, with every part.
+- **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
+
 ## 10. Agents
 
 A machine shared by several blocks. Declare one only to say something true across them; whatever
@@ -2689,6 +2756,12 @@ change only through the use's `with:`):
 - **event-names-mixed**: an item kind whose event types are not all `KIND.verb-past`, with the name each reads best as;
 - **queue-goal-tolerance**: a goal served by a block that takes the items its stock counts, with a tolerance or a
   setpoint above 0, so items wait unseen (the block runs only while the goal is off);
+- **schedule-removed**: a machine block with `every:` or `cron:`, and no `takes:` or `on:`, that also names a `goal:`.
+  The controller that goal puts in front of it (§9.1) commands it, and a commanded block leaves the clock: it runs
+  only while the goal is off, its `every:` only a pace. Meant, that is a paced controller; meant as a schedule (a
+  sweep that must run whatever the goal reads, or one whose goal only its own runs can set off), read the goal as an
+  input instead (`in: goal.NAME`). Only the model's author knows which was meant, so `check` says it and no
+  modelling request is raised for it (§12e);
 - **process-not-identified**: a goal's `process:` with no `identified:`.
 
 **A kind's states, chained** (findings, `ergostat/spec/chains.py`). When two or more stocks count the items of one
@@ -3239,15 +3312,50 @@ process (follows 2% held out; its errors held out not white). What would: a step
 in its input (a burst of arrivals), or 2h more of record". It holds while the loop is as it was (`loop.key`) and clears
 once an identification passes.
 
-**Outside steps** (`ident.outside_steps`, `ident.around`, `loop.around_step`): a large change in what arrives at the
+**Outside steps** (`ident.outside_steps`, `experiments.py`, `loop.around_step`): a large change in what arrives at the
 goal's stock (a flow into it from outside the loop, measured) or in a measured input beside the path (a change from one
 bucket to the next past six of its typical changes and a fifth of its range: a burst like 130 tickets added at once)
-excites the loop from outside, as a step test does, while the controller keeps working. The process is identified
-from the record around the largest one, that input fitted beside u: from forty buckets before it to where y has come
-half way back from its furthest, fitted; as long again after, held out. Its estimate leans far less toward the
-controller's inverse than one from the loop working (on a synthetic loop with a known process, its gain within a
-quarter where the loop working's was off by half or more: `tests/test_churn.py`). It is ranked with the others, and
-said "identified around an outside step at 14:20 (flow.asked)", in its reason and its `identified:`.
+excites the loop from outside, as a step test does, while the controller keeps working. Every input is searched. Steps
+on different inputs within forty buckets of each other are one step, at the earlier bucket, naming each input. On one
+input, the larger of two such steps is kept (a burst's rise and fall are one). At most six are kept, the largest, and
+they are taken in bucket order. Their windows, those inputs fitted beside u, are fitted together as one data set of
+several experiments (Ljung §14.3, as the step tests are): the same K, τ and θ, each its own start and level, all but
+the last fitted and the last held out whole. Windows that overlap are one experiment over their union, held out to its
+last step's end. The windows are chosen in passes, three fits at most:
+- Pass 0 is y's excursion: from forty buckets before the step to where y has come half way back, read no further than
+  the next step. With one experiment, as long again after it is held out.
+- Each later pass sizes the windows from the process the kept pass found. It fits from forty buckets before the step
+  to its settling S = max(θ + 4τ, 5 (τ + θ) − 40 buckets) after it. With one experiment, it holds out as long again (20
+  buckets at least).
+- A later pass is kept unless it is worse by the order the identifications are ranked by (proposable, told apart,
+  then precision). Its held-out record differs from the kept pass's, so this is not a like-for-like comparison: the
+  precision favours the longer window.
+- The passes stop when one would fit windows already fitted, when the kept pass found no process, or when it found an
+  integrator (no settling to size from). What each pass did is said in `outside_step.passes`, and `window` says
+  `process` or `excursion`.
+- Nothing is clipped or filled in. A step whose process window runs past the record's end is dropped and said: "the
+  step at 18:00 (flow.asked): the record after it covers 7m of the 8m40s its process needs to settle". If an earlier
+  pass fitted that step, its result is not proposable either, and when no step is left nothing is proposed. A step
+  where u or an input fitted has no readings in its window is dropped ("d2 has no readings in its window"). It is not
+  filled from another experiment. When none is left, there is no process.
+- The steps said as dropped (`outside_step.dropped`) are those the kept pass dropped, with the "covers" lines a later
+  pass found for steps the kept pass fitted. A pass that was not kept does not add its own drops
+  (`test_a_drop_in_a_pass_not_kept_is_not_said`).
+- When there are several experiments, the record drawn with the result is the held-out one, the last (`last`), as for
+  step tests (`test_the_record_of_several_experiments_draws_only_the_held_out_one`).
+
+What is measured, on a synthetic loop with a known process (`tests/test_outside_experiments.py`):
+- With one burst (τ = 60 s), K is within 0.1 and θ within 10 s on each of six seeds. The mean relative error of K and τ
+  is under 0.3 and under a third of the loop working's.
+- With three equal bursts, the standard error of K is below that from the largest burst alone, on each seed.
+- With a slow process (τ = 300 s), the excursion's fitted part spans too little on every seed. The mean error is under
+  0.3 and at most half the excursion's, but not every seed reaches a process window, so no per-seed claim is made. On
+  some seeds the longer window has no step of u large enough for `ident.moves`: integral action ramps u.
+
+The result is ranked with the others. It is said "identified around outside steps at 14:20, 16:05 (flow.asked), each
+window from the process (θ + 4τ = 7m)" in its reason and its `identified:`, with any steps dropped. A later pass kept
+as an integrator has no τ, and is said "… from the process (integrating: no settling time, so no θ + 4τ)"
+(`test_the_reason_names_every_step_and_how_its_window_was_chosen`).
 
 **Analysis** (`lti.py`; Åström & Wittenmark, *Computer-Controlled Systems*, ch. 2, 3, 8): with the
 process (the model's, else the one identified, said as such) and the controller as its block writes
@@ -3727,8 +3835,25 @@ ergostat's own kinds are left out). Each records what it is about (`about`), why
 |---|---|
 | open | check finds it, and no change waiting cites it |
 | proposed | a change waiting cites it (its finding, `finding:CODE@ABOUT` or `coherence:CODE@ABOUT`, among its evidence) |
-| held | no tier enabled has a change for it, or its change was turned away (with why); the owner's when the owner dismissed it; opened again when the model's version changes |
+| held | no tier enabled has a change for it, or its change was turned away (with why); left to the owner (no tier takes it up) when the owner dismissed its change, or its finding is control; opened again when the model's version changes (unless left to the owner). It is in the inbox (§12o) |
 | answered | check no longer finds it |
+| dismissed | the owner denied it from the inbox with why (`--deny --note WHY`; the note and who are kept): not raised again while the part it is about is unchanged (its definition and description, hashed; a finding about the model, or about no part found, waits on the whole model); raised again (`reopened`) once that part changes, as a new finding: untried, not the owner's, its tier the finding's, its dismissal's note and who cleared. Counted as an answered intervention (denied), never a suppressed one |
+
+A held request **approved** from the inbox is `reopened`: open again, for the AI tier (`tier: ai`, its tries given
+back, `approved_by` kept); if the AI tier holds it again after its tries, it is back in the inbox. Approval is offered
+from an allowlist: only for a request the tiers take up (raised by check, a craft note, a coherence mismatch or the
+fit; never a redesign's, such as `too-large`), whose tier is the rule or the AI tier (not the owner's), whose finding is
+not one only the owner changes, and only when the model runs the AI tier. Otherwise the owner's own change citing it
+answers it, or a dismissal. A redesign's request the owner dismissed stays dismissed across the redesigner's passes
+while its unit is as it was (its own parts, hashed), and is held again once the unit changes.
+
+Every write of a request's state (the owner's answer, the collector's moves, a tier's word, the redesigner's holds and
+its run's end) is made under one lock (`requests.lock` in the project's state), the request read again inside it. A
+tier that read a request before calling its model writes its word only if the request has not moved since it read it
+(the record's seq of its last move, an event that changed its state or reopened it, is the one it read; the state alone
+is not enough, because held then approved is open again): an answer the owner gave meanwhile stands. A tier's own
+word in the same state (its tries and cost) and a refreshed wording from check are not moves. The redesigner's run writes its end only on a request still open (or
+answered as never ended), never over a dismissal.
 
 The **request collector** (`modelling requests`, the sensor of the template's `requests-raised`) reads check, raises
 what is new, answers what is gone and moves each to where its changes say it is. **The tiers**, each an ordinary
@@ -4978,6 +5103,11 @@ must reach the person and be quick to answer. **The inbox** is everything waitin
 | `advise` | an advised command (`block.advised`) is neither approved (`block.approved`) nor denied (`block.denied`) | `advise/BLOCK@SEQ` | `approve`, `deny` |
 | `steptest` | a step test was offered (`steptest.offered`, recorded when a loop's analysis first offers it, section 12d), is undecided, and the loop is as it was | `steptest/<id>` | `approve`, `deny` (accepted or dismissed) |
 | `change` | a change to the model awaits the owner (the review queue, section 12b; with a judge, the ones it passed) | `change/<id>` | `approve`, `deny` (accepted or dismissed) |
+| `request` | a modelling request is `held` (section 12e, *Requests*) | `request/<id>` | `approve` (`reopened`: open again for the AI tier, its tries given back; offered only for a request the tiers take up, never a redesign's, and when the model has the AI tier: section 12e), `deny --note WHY` (`dismissed`, with the note, until its part changes) |
+| `breaker` | a block started by events tripped its breaker (`trigger.tripped`, section 9.3) | `breaker/BLOCK@SEQ` | `approve` (`trigger.reset`) |
+
+An entry kind with no verb is not shown as answerable (`answer` says where it is settled instead); today every kind has
+one. `ergostat inbox`, the status and the notifications say the same command for each entry.
 
 A person's or an advised block's entry is **one ask**: `SEQ` is the event that asked. A newer ask before any answer
 replaces it (the older is superseded, and no longer waits); an answer is to exactly the ask shown, and is recorded
@@ -5217,7 +5347,9 @@ program and how it ended. The item keeps the error, the traceback, the tail of s
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
 of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. A failure starts
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
-timeout, a kill, a signal or failing to start; one that fails again after its fix was applied is opened again. The loop's
+timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
+(SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that
+exits with such a code on purpose is noted too. One that fails again after its fix was applied is opened again. The loop's
 own blocks (`repair-fix`, `repair-settle`) and any run a failure's events caused (six steps up the cause chain) record no
 failure. States: `noted`, `open`, `leased` (being fixed), `awaiting-approval`, `applied`, `dismissed`, `dead` (its fixes
 failed `tries` times).

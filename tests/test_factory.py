@@ -919,6 +919,23 @@ def test_a_skipped_quarantined_test_is_not_a_pass(tmp_path, monkeypatch):
     assert fac.beside([T], tmp_path / "never.txt", gone) == {T: "unknown"}          # a run that never ran
 
 
+def test_the_quarantine_list_parses_with_who_when_why():
+    """Each line of the real tests/quarantine.txt is `test id | who | when | why`: an id naming a test that exists,
+    who added it, an ISO date and a reason, all four given; and the id is what fac.quarantine reads."""
+    import datetime
+    text = (ROOT / "tests" / "quarantine.txt").read_text()
+    lines = [x for x in text.splitlines() if x.strip() and not x.lstrip().startswith("#")]
+    for line in lines:
+        fields = [x.strip() for x in line.split("|")]
+        assert len(fields) == 4 and all(fields), line
+        test, who, when, why = fields
+        path, name = test.split("::")
+        assert f"def {name}(" in (ROOT / path).read_text(), test                    # a test that exists
+        datetime.date.fromisoformat(when)
+    ids = [x.split("|")[0].strip() for x in lines]
+    assert len(set(ids)) == len(ids)                                                # each test listed once
+
+
 def test_a_quarantined_failure_is_recorded(tmp_path):
     f = quarantined(tmp_path, f"FAILED {T} - boom\n", rc=1)
     gid = ready(f)
@@ -2551,6 +2568,149 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
                 {"daily_at": "24:00"}, {"daily_at": "4am"}):
         with pytest.raises(SystemExit):
             drain.settings({"upgrade": bad})
+
+
+# ---- switcher-actually-runs (docs/roadmap/overnight/switcher-actually-runs.md): the timed blocks on the engine's clock
+
+def instance_engine(f: Factory):
+    """The real engine on the factory's model in a disposable instance (``f.model``: dev/ linked, a record of its own),
+    its loop not started: (the engine, the blocks its clock starts on their own: its plan, as ``_schedule`` reads it)."""
+    from ergostat import model as mdl
+    from ergostat.spec.engine import Engine
+    from ergostat.store import Project
+    (f.model / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+    e = Engine(Project(mdl.load(f.model)), say=lambda s: None)
+    _, timed_blocks, _, crons, _ = e._plan(e.spec, {}, {})
+    return e, {b.name for b in timed_blocks} | {k.split("/", 1)[1] for k in crons if k.startswith("block/")}
+
+
+def on_the_clock(tmp_path, name: str, goal: str) -> None:
+    from ergostat.spec.ir import Ref
+    e, scheduled = instance_engine(Factory(tmp_path))
+    b = e.spec.blocks[name]
+    assert b.every and name in scheduled                                       # the clock starts it
+    assert e.spec.commanders_of(name) == [] and e.command_of(b) == (None, {})  # and nothing commands it: whether the
+    assert Ref("goal", goal) in b.reads() and name in e.spec.loop(goal).controllers   # goal holds or not; it is read
+
+
+def test_the_switcher_is_on_the_engines_schedule(tmp_path):
+    on_the_clock(tmp_path, "switcher", "drains-within-bound")
+
+
+def test_the_pipeline_watch_is_on_the_engines_schedule(tmp_path):
+    on_the_clock(tmp_path, "pipeline-watch", "no-stuck-gaps")
+
+
+def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
+    from ergostat.cli import main
+    model = textwrap.dedent("""\
+        name: t
+        stocks:
+          q: {unit: jobs, sensor: {run: echo 0, every: 1m}}
+        flows:
+          done: {from: q}
+        goals:
+          short: {stock: q, hold: "<= 0"}
+        blocks:
+          sweep: {type: program, run: echo 1, every: 1m, goal: short, out: flow.done}
+        """)
+
+    def found(text: str, where: Path) -> list[str]:
+        where.mkdir()
+        (where / "ergostat.yaml").write_text(text)
+        main(["-C", str(where), "check", "--json"])
+        return [x["about"] for x in json.loads(capsys.readouterr().out)["found"] if x["code"] == "schedule-removed"]
+    assert found(model, tmp_path / "goal") == ["block.sweep"]
+    assert found(model.replace("goal: short", "in: goal.short"), tmp_path / "read") == []
+    assert found(model.replace("every: 1m, goal", "goal"), tmp_path / "unscheduled") == []    # (paced by nothing)
+    assert found(model.replace("every: 1m, goal", "cron: '0 4 * * *', goal"), tmp_path / "cron") == ["block.sweep"]
+    old = tmp_path / "main"                                    # the factory's model as main had it: both caught
+    (old / "dev").mkdir(parents=True)
+    for x in (ROOT / "dev").iterdir():
+        if x.name != "model":
+            (old / "dev" / x.name).symlink_to(x)
+    (old / "dev" / "model").mkdir()
+    for x in (ROOT / "dev" / "model").iterdir():
+        (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.drains-within-bound", "goal: drains-"
+                                                    "within-bound").replace("in: goal.no-stuck-gaps", "goal: no-stuck-gaps"))
+    (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+
+    def noted(path: Path) -> set[str]:      # (a craft note, not an extremes finding: a second model's extremes, ~60 s
+        return {p.about for p in read(path, extremes=False)[1] if p.code == "schedule-removed"}   # of a worker, not run)
+    assert {"block.switcher", "block.pipeline-watch"} <= noted(old / "ergostat.yaml")
+    # the factory's now: only plan-lint, whose every: is meant as a pace (it sweeps while plans wait in planned); the
+    # modelling template's paced blocks are its own (parts a template made are not noted)
+    assert noted(ROOT / "ergostat.yaml") == {"block.plan-lint"}
+
+
+def test_a_paced_block_raises_no_modelling_request(tmp_path):
+    """``schedule-removed`` is said by check, never sent to the modelling loop: a goal: with every: is also a meant pace
+    (SPEC §9.1), so no tier (and above all not the ai tier) is asked to change it."""
+    from ergostat import model as mdl
+    from ergostat.numbers import requests as rq
+    from ergostat.store import Project
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
+        name: t
+        stocks:
+          q: {unit: jobs, sensor: {run: echo 0, every: 1m}}
+        flows:
+          done: {from: q}
+        goals:
+          short: {stock: q, hold: "<= 0"}
+        blocks:
+          sweep: {type: program, run: echo 1, every: 1m, goal: short, out: flow.done}
+        """))
+    p = Project(mdl.load(tmp_path))
+    assert "schedule-removed" in {x.code for x in read(tmp_path / "ergostat.yaml", extremes=False)[1]}   # check says it
+    rq.sync(p, coherence=False, extremes=False)
+    got = rq.stored(p).values()
+    assert any(r["code"] == "no-description" for r in got)          # the other notes still reach the loop
+    assert [r for r in got if r["code"] == "schedule-removed"] == []
+
+
+@pytest.mark.slow
+def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, monkeypatch):
+    from ergostat.actions import gate
+    f = Factory(tmp_path)
+    f.config.write_text(f.config.read_text().replace("[instance]\nport = 0\n", "[instance]\nport = 0\nhealth_wait = 1\n")
+                        .replace('run = "run"', f'run = "{f.model / "run"}"'))   # (the switch runs in live/instance)
+    monkeypatch.setenv("FACTORY_CONFIG", str(f.config))                        # (the engine's runs inherit it)
+    a, b = versions(f, 2)
+    live = tmp_path / "live"
+    fake_version(live, a, starts=True)
+    fake_version(live, b, starts=True)
+    (live / "instance").mkdir()
+    subprocess.run([sys.executable, str(BIN / "live.py"), "init"], cwd=live / "instance", env=f.env,
+                   check=True, capture_output=True)
+    e, scheduled = instance_engine(f)
+    p, spec = e.p, e.spec
+    held = gate.request(p, spec, "switch-instance", {"sha": b}, {"block": "upgrader"}, asker="program", key=b)
+    assert held["state"] == "requested"
+    uid = f"upgrade/{b[:12]}"
+    for ev, data in [("upgrade.opened", {"sha": b}), ("upgrade.installed", {"check": "ok", "previous": a}),
+                     ("upgrade.switch-asked", {"switch": "held", "switch_action": held["id"]})]:
+        p.events.add(ev, item=uid, source="upgrader", data=data)      # the live order: asked, then approved
+    assert gate.approve(p, spec, held["id"], by="coordinator")["state"] == "ran"   # approving runs drain.py approve
+    sw = spec.blocks["switcher"]
+    assert "switcher" in scheduled
+    try:
+        for _ in range(2):                                     # two of its minutes: it drains, then switches
+            assert e.start(sw, "schedule")                     # as the clock starts it (_schedule)
+            deadline = time.monotonic() + 120
+            while "switcher" in e.running and time.monotonic() < deadline:
+                time.sleep(0.2)
+            assert "switcher" not in e.running
+        said = [x["type"] for x in p.events.query(n=None, item=uid)]
+        assert said[-3:] == ["upgrade.switch-approved", "upgrade.draining", "upgrade.drained"], said
+        runs = p.events.query(n=None, type="agent.started", item="switcher")
+        assert len(runs) == 2 and all(r["data"]["trigger"] == "schedule" for r in runs)
+        deadline = time.monotonic() + 90                       # the switch, in its own process (live.py switch)
+        while (os.readlink(live / "current") != b or (f.model / "run" / "drain.json").exists()) \
+                and time.monotonic() < deadline:
+            time.sleep(0.5)
+        assert os.readlink(live / "current") == b and not (f.model / "run" / "drain.json").exists()
+    finally:
+        e.close()
 
 
 # ---- merges of the files many gaps edit at once (.gitattributes)
