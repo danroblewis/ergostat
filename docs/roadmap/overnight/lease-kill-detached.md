@@ -42,4 +42,5 @@ Round 1: built, within budget (+51 −17 = 34 net lines in `ergostat/`, docstrin
   `still()` ignoring the start time, the reused-pid test fails ("a pid used again is left alone").
 - Run, one file at a time: `test_resilience.py` (26 passed), `test_lease_kill.py` (10), `test_leases.py` (29),
   `test_trial_stops.py` (2), `test_streamed_output.py` (10). Ruff is clean. Not run: the full unit suite and the
-  browser files (the factory runs them under the watchdog), and the merge of origin/main (no network).
+  browser files (the factory runs them under the watchdog). This clone has no `origin/main` ref; local `main` has
+  nothing this branch lacks (`git rev-list --count HEAD..main` is 0), so nothing was merged.
