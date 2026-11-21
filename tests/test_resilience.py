@@ -468,3 +468,68 @@ def test_compact_projects_skips_a_folder_an_engine_runs_in(tmp_path, home, monke
     shutil.rmtree(gone)
     monkeypatch.setattr("ergostat.runner.running_pid", lambda project, wait=True: 123 if project.dir == p.dir else None)
     assert projects.orphans() == []
+
+
+def test_a_lease_kill_reaches_a_detached_child(tmp_path):
+    """A run starts a child in a session of its own through a parent that then exits (the child's parent is pid 1, or
+    a subreaper, by the time the lease expires): the run's ``Watch`` saw it, so the kill stops it too."""
+    from ergostat.leases.kill import KILLED
+
+    from .test_lease_kill import alive, one, pid_in
+    from .test_leases import start, wait_for
+    kid = ("sh -c 'python3 -c \"import os, time; os.setsid(); open(\\\"kid.pid\\\", \\\"w\\\").write(str(os.getpid())); "
+           "time.sleep(60)\" & until [ -s kid.pid ]; do sleep 0.1; done; sleep 1; touch gone'; sleep 60")
+    p = one(tmp_path, kid, lease="{ttl: 5s, attempts: 3}")
+    e = start(p)
+    other = None
+    try:
+        other = pid_in(tmp_path / "kid.pid")
+        assert wait_for(lambda: (tmp_path / "gone").exists(), 5)
+        assert not p.events.query(n=None, type=KILLED), "its parent gone before the kill: the window the test is for"
+        got = wait_for(lambda: p.events.query(n=None, type=KILLED), 15)
+        assert got, "killed once its lease expired"
+        assert wait_for(lambda: not alive(other), 5), "the detached child too, though no longer under the run"
+        assert other in got[0]["data"]["pids"]
+    finally:
+        e.close()
+        if other and alive(other):
+            import os
+            import signal
+            os.kill(other, signal.SIGKILL)
+
+
+def test_a_lease_kill_leaves_a_reused_pid_alone(tmp_path, monkeypatch):
+    """A pid the run's ``Watch`` saw, now another process's (its start time not the one seen), is never signalled;
+    one still the process seen is (lesson-5)."""
+    import subprocess
+    import threading
+    import types
+
+    from ergostat.leases import kill
+    from ergostat.library import reap
+
+    from .test_lease_kill import alive
+    monkeypatch.setattr(kill, "GRACE", 1.0)
+    procs = [subprocess.Popen(["sleep", "30"], start_new_session=True) for _ in range(3)]
+    run, seen_child, reused = procs
+    said = []
+    eng = types.SimpleNamespace(lock=threading.Lock(), live={"r1": run}, say=lambda *a: None,
+                                p=types.SimpleNamespace(events=types.SimpleNamespace(add=lambda *a, **k: said.append(k))))
+    try:
+        run.watch = reap.Watch(run.pid)
+        run.watch.look()
+        now: dict[int, str] = {}
+        reap.tree(now)
+        run.watch.started[seen_child.pid] = now[seen_child.pid]           # seen under the run, detached since
+        run.watch.started[reused.pid] = "Thu Jan  1 00:00:00 1970"         # seen once; the pid is another's now
+        kill._stop(eng, run, "r1", "its lease expired", "ticket/1", 1, "worker")
+        run.wait(5)
+        seen_child.wait(5)
+        assert alive(reused.pid) and reused.poll() is None, "a pid used again is left alone"
+        pids = said[0]["data"]["pids"]
+        assert run.pid in pids and seen_child.pid in pids and reused.pid not in pids
+    finally:
+        run.watch.close()
+        for x in procs:
+            x.kill()
+            x.wait()
