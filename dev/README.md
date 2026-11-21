@@ -119,7 +119,12 @@ read is taken, the other waits). Each run fetches its session's work to a side r
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
 (it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
 the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
+after: ruff, the unit suite and the four browser files, each under the watchdog in a suite container of the agent image
+and the suite slot; a browser test skipped fails them, as in the queue. **No browser stops the round:** before the
+session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
+missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
+starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with
+`uv run --with playwright==1.63.0` (inside its own container's limits: the host's slot is not reachable from there). The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
 between build and review is not a failed gate: the merge queue merges the branch into the main of its moment and runs
@@ -143,7 +148,7 @@ building over its rounds, park a gap; within a run the implementor gets `[ai] su
 its failing fast suites pass.
 
 **A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
-runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
+runs those tests again alone on the branch (the `[suites] alone` command, `rerun` for browser tests, in the same kind of suite container, in the
 suite slot). Passing alone, they are flakes (`flake.seen`) and the fast suites run once more, uncounted. Still failing,
 they run once on clean main (the commit the branch merged, `built_main`). A test that fails there too becomes
 `flake/<test>` in the state `main-broken` and the intervention `intervention/main-broken-<sha12>` (class `main-broken`,

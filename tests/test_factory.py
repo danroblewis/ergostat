@@ -146,6 +146,7 @@ class Factory:
             ruff = "true"
             unit = "{unit}"
             browser = "true"
+            browser_ready = "true"
             demo = "true"
             rerun = "echo again {{tests}}"
             alone = "{alone} {{tests}}"

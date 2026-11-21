@@ -1,12 +1,15 @@
 """implementor: takes a gap at ready (or at fix, sent back with its findings), under a lease, and builds it:
 
 1. a clone of the factory's drop repository (agents.py: never the owner's), on the branch factory/<branch> from main;
+   Playwright's Chromium launched once in the image, in a suite container and the slot (agents.browser_ready): no
+   browser stops the round before it starts (given back uncounted, its reason said), never a browser file skipped;
    the definition of done committed first (`docs/roadmap/overnight/<branch>.md`) when the branch lacks it, by this
    program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
    left for the session, its files in the brief); then published to the drop;
 2. a session in a container of its own (or the stand-in) on a brief assembled from dev/prompts/implementor.md;
 3. what it left uncommitted committed and bundled back to the drop (in a container with no network); the fast suites
-   (ruff, then the unit suite under the watchdog) in a container with no network, in a machine-wide slot; a failure
+   (ruff, then the unit suite and the four browser files under the watchdog, a browser test skipped counting as a
+   failure) in a container with no network, in a machine-wide slot; a failure
    that names tests is triaged first (onmain.py: run alone on the branch, a flake retried once; run on clean main, a
    test failing there too is main's), and a failure of the gap's is given back to a session to fix, `suite_fix_rounds`
    times;
@@ -114,6 +117,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
         return 0
     fac.say("gap.started", branch=branch, rework=rework, building_at=began)
     home, work = agents.clone(cfg, branch, "implementor")
+    logs = fac.run_dir(cfg, "logs")
+    agents.browser_ready(cfg, home, logs, f"{fac.run_tag(branch, began)}-ready")   # (no browser: stopped, uncounted)
     base_sha = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")
     definition, held = definition_first(cfg, gap, work)
     conflicts = merge_main(work, base_sha)
@@ -123,7 +128,6 @@ def build(cfg: dict, given: dict, began: float) -> int:
     context["brief"] = brief.save(cfg, "implementor", gap, text)
     context["round"], context["merge_conflicts"] = rounds, conflicts
     cost, sessions, used = 0.0, 0, []
-    logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
     seen: dict[str, bool] = {}                                  # tests run on main in this run: failed there?
     retried, deadline = False, began + (hours - float(f.get("build_hours") or 0)) * 3600

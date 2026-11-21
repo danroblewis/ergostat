@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shlex
 import stat
 import subprocess
@@ -38,7 +39,9 @@ TOOLS = {
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
                     "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
-                    "Bash(mkdir:*)"],
+                    "Bash(mkdir:*)",                # the suites under the watchdog, the browser files with Playwright:
+                    "Bash(uv run python scripts/suite_watch.py -- uv run python -m pytest:*)",
+                    "Bash(uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest:*)"],
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
@@ -334,11 +337,26 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             if name:
                 killed(name)
         out[n] = {"rc": rc, "seconds": round(secs)} | ({"resources": use} if use else {})
-        if rc:
-            text = log.read_text()
+        text = log.read_text()
+        skipped = len(re.findall(r"^SKIPPED", text, re.M)) if n == "browser" else 0    # (a skip is a failure, as in
+        if rc or skipped:                                                               # the queue)
+            out[n] |= {"skipped": skipped} if skipped else {}
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
     return out
+
+
+def browser_ready(cfg: dict, home: Path, logs: Path, tag: str) -> None:
+    """Playwright and its Chromium launched once, in a suite container of the implementor's image on the session's
+    work, in the suite slot, before the round: missing (or no [suites] browser_ready to say how), the round stops here
+    (Refused, uncounted), never a browser file skipped later."""
+    if not str(cfg["suites"].get("browser_ready") or "").strip():
+        raise Refused("no [suites] browser_ready in the factory's settings: the round cannot know the browser is there")
+    got = suites(cfg, home, ("browser_ready",), logs, tag)
+    if got.get("failed"):
+        raise Refused(f"no browser: Playwright's Chromium does not launch in {settings(cfg)['image']} (the browser files "
+                      f"would skip); rebuild the dev image, then `docker build -t {settings(cfg)['image']} dev/agent`. "
+                      f"It said: {got['tail'][-400:]}")
 
 
 def contained(cfg: dict, cmd: str, work: Path) -> tuple[str, str]:
