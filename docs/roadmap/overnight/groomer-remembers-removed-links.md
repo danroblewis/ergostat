@@ -23,3 +23,24 @@ On 2026-11-21 the groomer proposed that `architecture-reviewer` wait on two gaps
 
 ## Size budget
 30 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. Choices made without anyone to ask, each the most reversible:
+
+- `propose` had no proposal to drop a link from, so it takes an optional `FILE` (`propose [FILE]`): the proposal as
+  `check()` leaves it, printed as the groomer's diff, with nothing written. Without a file it is unchanged. The same
+  drop applies where proposals actually flow: `groom` (the proposal put to the coordinator) and `apply FILE` (by the
+  groomer). It does not apply to changes by hand (`dep add`).
+- The record file is append-only, one JSON line per decision. In file order a later line wins. `dep add` of a recorded
+  pair appends `cleared: true` once the link is applied, so a `dep add` refused for a cycle keeps the refusal. Nothing
+  is rewritten. A missing file refuses nothing and says nothing. A file that cannot be read or parsed refuses
+  nothing, and the proposal's refusals carry a line saying so (lesson-3).
+- lesson-1: `dep add` reads the record and then appends without a lock. A `refuse-link` written in between is
+  overridden by the clear, which is the later, explicit decision either way.
+- dev/README.md lists the two new commands. That file is outside the list of files to touch, but the house rule says to
+  keep the agent guide current.
+
+Size: 33 net lines in dev/bin/backlog.py (42 added, 9 removed) and +2 in the groomer's prompt. That is 3 lines over,
+from the new subcommand's argparse lines and the optional FILE for `propose`. I kept them as plain lines rather than
+packing them tighter.
