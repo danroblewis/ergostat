@@ -1,6 +1,7 @@
 """flake triage: takes a gap whose queue run failed, under a lease. The tests that failed are run again alone (with
-the branch merged into the same main, in a worktree of the triage's own, under the queue's lock once the machine is
-quiet). If they pass alone, each is a `flake` item and the gap goes back to the queue (retried, not blamed), at most
+the branch merged into the main it failed on, `pre`, whatever main has become since, in a worktree of the triage's own,
+under a suite slot once the machine is quiet; never under the queue's lock, so neither the rerun nor the wait holds the
+queue). If they pass alone, each is a `flake` item and the gap goes back to the queue (retried, not blamed), at most
 `RETRIES` times; if they fail again, or nothing names the tests (ruff, a watchdog kill, demo_check), the failure is the
 branch's: back to fix with what failed, or parked on its `[gates] kill_after`-th failed gate."""
 
@@ -52,9 +53,8 @@ def main() -> int:
     if tests and int(f.get("retries") or 0) >= RETRIES:
         got = {"why": f"retried {RETRIES} times as flaky already: the failure is the branch's"}
     elif tests:
-        with fac.queue_lock(cfg):
-            fac.wait_quiet(cfg)
-            rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
+        fac.wait_quiet(cfg)                             # (a suite slot, in fac.suite: never the queue's lock)
+        rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
     if rc == 0:                                  # (only quarantined tests failed: no flake seen, no retry spent)
         tests = [t for t in tests if t not in got.get("quarantined", [])]
         for t in tests:
@@ -67,7 +67,7 @@ def main() -> int:
         why = f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, in the merge queue:\n" + "\n".join(
             f"- {x}" for x in findings)
         fac.say("gap.measured", failed_gates=1, findings=findings, triage=got)
-        review.park(cfg, gap, why, f"queue run {n}", where="triage")
+        review.park(cfg, gap, why, f"queue run {n}", where="triage", kind="kill-rule")
         return 0
     fac.say("gap.sent-back", sent_back_by="triage", findings=findings, failed_gates=1, fix_rounds=1, triage=got)
     return 0
