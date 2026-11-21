@@ -2094,8 +2094,8 @@ def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
                                                     "within-bound").replace("in: goal.no-stuck-gaps", "goal: no-stuck-gaps"))
     (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
 
-    def noted(path: Path) -> set[str]:
-        return {p.about for p in read(path)[1] if p.code == "schedule-removed"}
+    def noted(path: Path) -> set[str]:      # (a craft note, not an extremes finding: a second model's extremes, ~60 s
+        return {p.about for p in read(path, extremes=False)[1] if p.code == "schedule-removed"}   # of a worker, not run)
     assert {"block.switcher", "block.pipeline-watch"} <= noted(old / "ergostat.yaml")
     # the factory's now: only plan-lint, whose every: is meant as a pace (it sweeps while plans wait in planned); the
     # modelling template's paced blocks are its own (parts a template made are not noted)

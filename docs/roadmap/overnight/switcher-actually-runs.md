@@ -71,3 +71,22 @@ I found nothing in the branch that explains a stop of the whole run, and changed
 unit suite again under `suite_watch.py`. If it stops at the same place, run
 `tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine` alone with `-x -s` to see
 whether it hangs.
+
+### The unit suite stopped again, at 12% (the second suite-fix session)
+
+This session could run pytest one file at a time, but not other commands. Measured:
+- The switch test alone passes in 72 s; the two schedule tests pass in 77 s. All of `tests/test_factory.py`, serially:
+  74 passed, 2 skipped, 208 s. Nothing hangs, and nothing outlives the tests.
+- Almost all of that time is the fixture's `read(ROOT / "ergostat.yaml")`, which runs the extreme-conditions tests.
+  They are kept in memory per process (each test has a home of its own). The first read in a process stops at the
+  60 s `BOUND` (branch: 78 of 459 conditions not run). The second finishes the rest (13.7 s). The model as main has it
+  costs the same (60 s, 66 not run, then 11.5 s), so the branch's model edit does not add to it.
+- The one cost the branch did add: `test_check_reports_a_schedule_a_goal_removes` read a second whole model (main's
+  version) with its extremes. That is about 40 s more CPU on one worker, and a fourth run of the full extremes in the
+  same process. It now reads the two models with `extremes=False` (the note is a craft note, and is still read: the
+  test still finds `block.plan-lint`). It runs in 0.95 s, and it still fails when the check is broken: that was tried.
+  This changes a test's cost, not its bounds or what it asserts.
+Still not found: why the whole run stopped with no failure and no `suite_watch` line. A stop from outside, with
+nothing in pytest printed, fits a slot or container limit. That limit is not in this repository (`dev/factory.toml`
+gives `unit` no timeout). If the next run stops at the same place, run main's unit suite in the same slot and see
+whether it stops too. If it does, the stop does not come from this branch (lesson-13).
