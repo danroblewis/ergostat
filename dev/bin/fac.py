@@ -258,20 +258,20 @@ def budget_of(definition: str, default: int = 600) -> int:
 
 
 def allowances(definition: str) -> dict[str, str]:
-    """The definition's `allows-findings: [code part: why, ...]`: each `ergostat check` finding it allows ("code part"),
-    with its reason (no comma in it); one with no reason allows nothing."""
+    """The definition's `allows-findings: [code part: why, ...]`: each `ergostat check` finding it allows ("code part",
+    or the code alone for one about no part), with its reason (no comma in it); one with no reason allows nothing."""
     m = re.search(r"^allows-findings:\s*\[(.*)\]\s*$", definition, re.M)
-    return {f"{c} {p}": why.strip() for c, p, why in re.findall(r"([\w.-]+) ([^\s:,\]]+):([^,\]]*)", m[1] if m else "")
-            if why.strip()}
+    return {f"{c} {p}" if p else c: why.strip() for c, p, why in re.findall(
+        r"([\w.-]+)(?: ([^\s:,\]]+))?:([^,\]]*)", m[1] if m else "") if why.strip()}
 
 
-RECORD_FINDINGS = ["calibration-*", "fit-*", "extremes-running", "extremes-skipped", "takes-order-unset"]  # (record)
+RECORD_FINDINGS = r"calibration-.*|fit-.*|takes-order-unset"   # (codes of findings of the record, not the change)
+UNFINISHED = {"extremes-running", "extremes-skipped"}   # notes: check's extreme-conditions tests did not all finish
 
 
-def findings(text: str, record: list[str]) -> set[str] | None:
+def findings(text: str, record: str) -> set[str] | None:
     """The findings in `ergostat check --json`'s output (in a log), each "code part" (the code alone about no part), but
-    those whose code matches a glob of `record`; None when no output there says (the check could not run)."""
-    import fnmatch
+    those whose code matches the regex `record`; None when no output there says (the check could not run)."""
     for m in re.finditer(r"^\{", text, re.M):
         try:
             got = json.JSONDecoder().raw_decode(text[m.start():])[0]
@@ -279,7 +279,7 @@ def findings(text: str, record: list[str]) -> set[str] | None:
             continue
         if isinstance(got, dict) and isinstance(got.get("found"), list):
             keys = [(str(x.get("code") or x.get("level")), x.get("about")) for x in got["found"] if isinstance(x, dict)]
-            return {f"{c} {a}" if a else c for c, a in keys if not any(fnmatch.fnmatchcase(c, p) for p in record)}
+            return {f"{c} {a}" if a else c for c, a in keys if not re.fullmatch(record, c)}
     return None
 
 
@@ -557,9 +557,10 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
         with note.open("a") as f:
             f.write(f"worked by the stand-in ({len(brief)} characters of brief)\n")
         said = f"wrote {note.relative_to(cwd)}"
+        refused = re.search(r"^# (Scratch files refused|New `ergostat check` findings)", brief, re.M)
         for p in filter(None, os.environ.get("FACTORY_STANDIN_WRITES", "").split(",")):   # (the tests' scratch files:
-            if re.search(r"^# (Scratch files refused|New `ergostat check` findings)", brief, re.M):  # removed once refused)
-                git(cwd, "rm", "-q", "--", p)
+            if refused and (refused[1][0] == "S" or f"`{Path(p).name.replace('@', ' ')}`" in brief):   # removed once
+                git(cwd, "rm", "-q", "--", p)                    # refused; a check finding's, once the brief lists it)
             else:
                 (cwd / p).parent.mkdir(parents=True, exist_ok=True)
                 (cwd / p).write_text("a scratch file\n")

@@ -154,12 +154,14 @@ round); still there after the last, the run counts as a failed build.
 **A gap may not add findings to the model.** Next, still before the fast suites, implement.py runs `[suites] check`
 (`ergostat check --json --no-coherence`) on the branch and on a clone of the main it merged, and compares their
 findings by code and part (`code part`, or the code alone for a finding about no part). Every level counts, notes
-too, but codes matching `fac.RECORD_FINDINGS` (`calibration-*`, `fit-*`, `extremes-running`, `extremes-skipped`,
-`takes-order-unset`), which depend on the record or the clock rather than the change. An extreme-conditions test that
-did not finish in check's own wait is therefore compared on neither side. A finding new on the branch goes back to the
+too, but codes matching `fac.RECORD_FINDINGS` (`calibration-*`, `fit-*`, `takes-order-unset`), which depend on the
+record rather than the change. Check waits only 5 s for its extreme-conditions tests, each side from cold, so how many
+finish depends on load: when either side says some did not finish (an `extremes-running` or `extremes-skipped`
+note), no `extreme-conditions` finding is compared on either side. A new one is then missed until a run where both
+sides finish. A finding new on the branch goes back to the
 session's next round with the list, as scratch files do. A side whose check printed no readable JSON is a failure to
 compare, sent back the same way, never "no new findings". A definition may allow a named finding with a reason, one
-line near its top: `allows-findings: [code part: why, ...]` (no comma inside a reason; one with no reason allows
+line near its top: `allows-findings: [code part: why, ...]` (`code: why` for one about no part; no comma inside a reason; one with no reason allows
 nothing). The allowances used are recorded on `gap.built` as `allowed_findings`, and the reviewer's brief lists each
 allowance of the definition among the gates, to judge its reason.
 

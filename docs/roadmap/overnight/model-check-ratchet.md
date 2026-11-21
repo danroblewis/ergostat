@@ -34,3 +34,22 @@ One reviewed, green gap (`state-times`) added 137 `ergostat check` findings to t
   parallel.
 - Beyond the files to touch, `dev/bin/review.py` (the reviewer is shown each allowance) and `dev/factory.toml` (the
   `check` command) were changed. The definition asks for both, and the named files alone cannot do it.
+- **Round 2 (review/model-check-ratchet-1), each finding:**
+  - Extreme-conditions findings depend on load (blocking): when either side carries an `extremes-running` or
+    `extremes-skipped` note, no `extreme-conditions` finding is compared on either side (implement.py new_findings,
+    `fac.UNFINISHED`). The README now says this, and says a new one goes unseen until a run where both sides finish.
+    Running check with no wait was the other option. It needs a new flag on `ergostat check`, which is outside the
+    files to touch, so I took the narrower, reversible fix. The test (in test_record_dependent_findings_are_not_counted)
+    has the branch finish one more test than main: with a note it is built, without one it is sent back. The case
+    where only main is unfinished is not tested apart, because the branch inherits main's files; the code treats both
+    sides the same (`mine | theirs`).
+  - A finding about no part can now be allowed, as `code: why` (fac.allowances). It is tested, and definition.md and
+    the README say so.
+  - The brief's list: the stand-in now removes a finding's file only when the brief names that finding. So the
+    second round of test_a_build_adding_a_check_finding_is_sent_back is built only if the list reached the session.
+  - Scope: unchanged from round 1 (above).
+  - I broke each change and watched its test fail: the unfinished drop (record test), the brief's list (sent-back
+    test, which parked), and the lone-code regex (allowed test). `RECORD_FINDINGS` is now a regex instead of globs,
+    to stay inside the budget: dev/bin is at 70 net lines.
+  - The merge of main (9ec5588e) conflicted only in dev/factory.toml. Both sides were kept: the branch's `check` line,
+    and main's `queue_coverage` and `[code_health]`.
