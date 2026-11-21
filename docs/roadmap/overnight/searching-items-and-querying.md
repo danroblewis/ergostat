@@ -173,3 +173,40 @@ Round 2 removed the `alter table` on open, and the probe now reads a partial ind
    removed. The test now covers the real case (another path, the old file left alone) and the stamp reset.
 4. SPEC's "as they are now" was false for the API's `at=`. → The API refuses `search=` with `at=` (400). The test is in
    `test_search_cli_and_api_agree`, and SPEC names both refusals.
+
+**Round 3: main already holds the search; this branch's code gave way to it (merge c773dc6f).** The factory merged
+main e1e778c1 into the branch. Main had meanwhile landed the parked branch itself: cbadc4cc (item-text-search,
+round 2) is an ancestor of e1e778c1, and so are gap/item-graph-queries (near, path, about; `VERSION` 5, the `@about`
+links) and `use: upkeep`'s index tidier. Keeping both sides would have put two implementations of one search in the
+same files, so each conflict was resolved to main's side. After the merge, `git diff MERGE_HEAD` is empty for every
+file in `ergostat/` and `tests/`, and for `docs/AGENT-GUIDE.md`, `docs/GAPS.md` and the parked
+`docs/roadmap/overnight/item-text-search.md`. The branch's second SPEC §5a *Search* paragraph, which merged without a
+conflict, was removed: main's own paragraph (SPEC line 799) stays. GAPS keeps main's one entry for gap/item-search,
+with search and near/path/about both done. Leaving the branch's copy would have listed it twice, which intake reports
+as a standing problem. So this branch now adds only this file. 0 net lines of code.
+
+Against the definition of done, as main now has it (checked by reading main's code and by `tests/test_item_search.py`,
+main's copy):
+- Points 1 and 2 hold on main, which follows the parked branch's round 2. The names differ from this branch's earlier
+  rounds (`items.SEARCH_WORDS`, `items.words`, refused with `BadSet`; the partial index `items_textless`; the CLI's
+  blank-search message "1 to 8 words"). `--search` is in `goodmodel.READ_FLAGS`, next to main's `near`, `path_to` and
+  `about_item`.
+- Point 3: kept, because main's side was taken whole.
+- Point 4: SPEC §5a *Search*, the AGENT-GUIDE's item commands, the `--search` help and the GAPS entry are main's. The
+  GAPS entry names `factory/item-text-search`, not this branch's merge commit. It also says near/path/about are
+  **done**, not open as this definition expected, because gap/item-graph-queries has landed.
+- Point 5: the parked file is main's copy, which is the parked branch's own (its round-2 "Where it stopped" included).
+- Point 6: not run here. The brief leaves the unit suite and the four browser files to the factory, under
+  `scripts/suite_watch.py`.
+
+Commands refused this round (Bash): `git checkout --theirs -- <the conflicted files>`, `git show MERGE_HEAD:<path> >
+<path>`, and a `for` loop over `git merge-base --is-ancestor`. The conflicts were resolved with the editor instead,
+and each file was compared with `git diff MERGE_HEAD`.
+
+Tests run, round 3, after the merge (one command at a time): `tests/test_item_search.py` (8 passed);
+`test_item_index`, `test_cli_fallback`, `test_item_graph_queries`, `test_item_about` (101 passed);
+`test_graph_cli_web`, `test_spec_items`, `test_item_sets`, `test_daemon_docs` (76 passed). `ruff check ergostat tests
+scripts`: clean. No break was made this round, since the branch changes no code (lesson-9 does not apply).
+
+Left, for the factory: run the unit suite and the four browser files under the watchdog (point 6). If they pass, the
+gap is closed by main as it stands. Landing this branch adds only this record.
