@@ -43,6 +43,14 @@ only the work: judge what is in the branch, not what anyone says about it.
 Read the code; run single test files if you need to (`uv run python -m pytest -q tests/test_x.py`), never the whole
 suite. Change nothing.
 
+# The bar (operator, 2026-11-20)
+
+Block only for what would hurt main: a bug, a wrong behaviour, a missing test of the definition's risk, a security or
+data-loss hole, scope outside the definition, a scratch or stray file committed. Not blocking (put under
+`non_blocking`): main having moved since the build (the merge queue merges it and runs the suites again), a size
+overrun under 25% (say it), wording, docs polish, a finding the definition does not ask for. A finding you raised
+before and that is fixed is not raised again.
+
 # Your answer
 
 End with exactly one fenced JSON block:

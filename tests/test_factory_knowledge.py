@@ -34,6 +34,10 @@ depends-on: []
 
 It works.
 
+## Files to touch
+
+- `app.py`, and `fresh.py` (new)
+
 ## Risks
 
 - lesson-3: a ledger it cannot read.
@@ -55,8 +59,8 @@ class Instance(Factory):
         super().__init__(tmp, **kw)
         self.config.write_text(self.config.read_text().replace("[ai]\n", "[ai]\n" + "".join(
             f'{r}_model = "opus"\n{r}_session_usd = 1.0\n' for r in ("planner", "plan_reviewer", "researcher",
-                                                                     "librarian"))))
-        self.config.write_text(self.config.read_text() + "[knowledge]\nlibrarian = true\n")
+                                                                     "librarian", "groomer"))))
+        self.config.write_text(self.config.read_text() + "[knowledge]\nlibrarian = true\n[plan]\nreview = \"all\"\n")
         self.fake.write_text(FAKE_MORE)
 
     def drain(self) -> list[str]:
@@ -178,20 +182,13 @@ def test_planner_writes_plan_and_review_makes_ready(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
-    assert said == ["gap.planned"]
+    assert said == ["gap.defined"]                             # lint-clean: the definition at once, never a review gate
     gap = f.item(gid)
-    assert gap["state"] == "planned" and gap["fields"]["risks"] == ["lesson-3"] and gap["fields"]["replanned"] is False
+    assert gap["state"] == "ready" and gap["fields"]["defined_by"] == "plan" and gap["fields"]["risks"] == ["lesson-3"]
+    assert gap["fields"]["replanned"] is False and gap["fields"]["plan_review"] == "wanted"
     assert gap["fields"]["contexts"][0]["role"] == "planner" and "lesson-3" in gap["fields"]["contexts"][0]["knowledge"]
-    plan = (f.model / "run" / "plans" / "alpha-thing.md").read_text()
+    plan = (f.model / "run" / "defs" / "alpha-thing.md").read_text()
     assert plan.startswith("# alpha-thing: a plan") and "test_unreadable_ledger_refuses" in plan
-    f.run("intake.py")
-    assert f.item(gid)["state"] == "planned"                  # the intake never takes a plan for a definition
-    said, _ = f.run("plan.py", gid, argv=("review",))
-    assert said == ["gap.defined"]
-    gap = f.item(gid)
-    assert gap["state"] == "ready" and gap["fields"]["defined_by"] == "plan"
-    assert (f.model / "run" / "defs" / "alpha-thing.md").read_text() == plan    # the plan as it was reviewed
-    assert gap["fields"]["contexts"][-1]["role"] == "plan_reviewer"
     said, _ = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.built"]
     assert "test_unreadable_ledger_refuses" in git(tmp_path / "live" / "drop.git", "show",
@@ -208,22 +205,48 @@ def test_a_written_definition_skips_the_planner(tmp_path):
     assert not (f.model / "run" / "plans").exists()           # no session, nothing spent
 
 
-def test_plan_review_sends_back_then_parks(tmp_path):
+def test_plan_review_is_advice_never_a_gate(tmp_path):
     f = Instance(tmp_path)
     gid = f.opened()
     f.run("plan.py", gid)
-    said, _ = f.run("plan.py", gid, argv=("review",), FACTORY_STANDIN_VERDICT="fix")
+    verdict = ('```json\n{"verdict": "fix", "blocking": ["[design] the step condition cancels severity out"], '
+               '"non_blocking": ["[lesson-9] test the empty ledger", "untagged"]}\n```')
+    said, _ = f.run("planreview.py", FACTORY_STANDIN_PLAN_REVIEWER=verdict)
+    assert said == ["gap.measured", "review.written", "gap.measured"]
     gap = f.item(gid)
-    assert said == ["gap.plan-sent-back"] and gap["state"] == "replan"
-    assert gap["fields"]["plan_findings"] == ["the stand-in's blocking finding"]
-    said, _ = f.run("plan.py", gid)
-    assert said == ["gap.planned"] and f.item(gid)["fields"]["replanned"] is True
-    brief = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
-    assert "the stand-in's blocking finding" in brief          # the planner was given what the review found
-    said, _ = f.run("plan.py", gid, argv=("review",), FACTORY_STANDIN_VERDICT="fix")
-    gap = f.item(gid)
-    assert said[-1] == "gap.parked" and gap["state"] == "parked" and gap["fields"]["parked_in"] == "plan"
-    assert not (f.model / "run" / "defs" / "alpha-thing.md").exists()
+    assert gap["state"] == "ready" and gap["fields"]["plan_review"] == "done" and gap["fields"]["plan_flagged"] is True
+    review = f.item("review/alpha-thing-plan")["fields"]        # each finding with its class, for the knowledge loop
+    assert review["stage"] == "plan" and review["round"] == 0 and review["classes"] == ["design", "lesson-9"]
+    assert [x["class"] for x in review["findings"]] == ["design", "lesson-9", "none"]
+    text = (f.model / "run" / "defs" / "alpha-thing.md").read_text()
+    assert text.endswith("## Notes from the plan review (answer each)\n\n- the step condition cancels severity out\n"
+                         "- test the empty ledger\n- untagged\n")
+    assert f.run("planreview.py")[0] == []                     # read once
+    assert "acts" not in f.db()
+
+
+def test_a_park_from_the_plan_review_is_only_asked(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.run("plan.py", gid)
+    said, _ = f.run("planreview.py", FACTORY_STANDIN_VERDICT="park")
+    assert "gap.parked" not in said and f.item(gid)["state"] == "ready"
+    act = f.db()["acts"][0]
+    assert act[1] == "park-gap" and f"gap={gid}" in act and "why=stopped by the stand-in" in act
+    r = subprocess.run([sys.executable, str(BIN / "planreview.py"), "park", gid, "a", "duplicate"], cwd=f.model,
+                       env=f.env, capture_output=True, text=True, timeout=120)             # approved: the action runs
+    assert r.returncode == 0, r.stderr
+    f.drain()
+    assert f.item(gid)["state"] == "parked" and "a duplicate" in f.item(gid)["fields"]["where_it_stopped"]
+
+
+@pytest.mark.parametrize("mode", ["all", "off", "sample"])
+def test_the_plan_review_setting_marks_plans(mode, tmp_path):
+    f = Instance(tmp_path)
+    f.config.write_text(f.config.read_text().replace('review = "all"', f'review = "{mode}"\nsample_every = 3'))
+    marked = f.py("import fac, plan; cfg = fac.config(); "
+                  "print(json.dumps([plan.review_wanted(cfg, f'gap/g{i}') for i in range(30)]))")
+    assert sum(marked) == {"all": 30, "off": 0}.get(mode, sum(marked)) and (mode != "sample" or 4 <= sum(marked) <= 16)
 
 
 def test_planner_splits_into_sub_gaps(tmp_path):
@@ -232,19 +255,22 @@ def test_planner_splits_into_sub_gaps(tmp_path):
     split = (PLAN.format(b="alpha-one").replace('branch="alpha-one"', 'branch="alpha-one" title="One"')
              + PLAN.format(b="alpha-two").replace("depends-on: []", "depends-on: [alpha-one]"))
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=split)
-    assert said == ["gap.requested", "gap.planned", "gap.requested", "gap.planned", "gap.split"]
+    assert said == ["gap.requested", "gap.defined", "gap.requested", "gap.defined", "gap.split"]
     assert f.item(gid)["state"] == "split" and f.item(gid)["fields"]["children"] == ["gap/alpha-one", "gap/alpha-two"]
     one, two = f.item("gap/alpha-one"), f.item("gap/alpha-two")
-    assert one["state"] == two["state"] == "planned" and one["fields"]["title"] == "One"
+    assert one["state"] == two["state"] == "ready" and one["fields"]["title"] == "One"
     assert two["fields"]["parent"] == [gid] and two["fields"]["depends_on"] == ["gap/alpha-one"]
-    assert one["fields"]["source"] == "plan" and (f.model / "run" / "plans" / "alpha-two.md").is_file()
+    assert one["fields"]["source"] == "plan" and one["fields"]["defined_by"] == "plan-split"
+    assert (f.model / "run" / "defs" / "alpha-two.md").is_file()
     # a split naming a gap that exists (its id reused would merge old fields in) is refused, and sent back
     said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-one") + PLAN.format(b="new"))
     assert said == ["gap.plan-sent-back"] and "'alpha-one'" in f.item("gap/delta")["fields"]["plan_findings"][0]
     assert f.item("gap/alpha-one")["fields"]["parent"] == [gid]
     f.fold([{"event": "gap.found", "item": "gap/a-long-title", "data": {"branch": "short"}}], None)
     said, _ = f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=PLAN.format(b="short") + PLAN.format(b="new"))
-    assert said[-1] == "gap.parked" and "'short'" in json.dumps(f.item("gap/delta")["fields"]["plan_findings"])
+    delta = f.item("gap/delta")["fields"]                       # (the lint's)
+    assert said == ["gap.plan-sent-back"] and "'short'" in json.dumps(delta["plan_findings"])
+    assert delta["plan_lint_failures"] == 2
     plan = f.py("import plan; print(json.dumps([plan.problems([(n, '', b) for n, b in json.loads(sys.argv[1])], "
                 "'big', {'gap/old'})]))", json.dumps(
                     [[f"p{i}", ""] for i in range(7)] + [["Bad_Name", ""], ["late", "depends-on: [later]"],
@@ -270,7 +296,7 @@ def test_researcher_answers(tmp_path):
     assert (f.model / r["fields"]["report"]).read_text().startswith("# The stand-in's answer")
     assert r["fields"]["contexts"][0]["role"] == "researcher" and r["fields"]["sources"] == ["none"]
     said, _ = f.run("plan.py", gid)
-    assert said == ["gap.planned"]
+    assert said == ["gap.defined"]
     brief = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
     assert "Nothing was read." in brief                        # the report went into the planner's brief
 
@@ -368,9 +394,9 @@ def test_the_knowledge_model_loads():
     assert [p for p in problems if p.level == "error"] == []
     assert {"research", "lesson"} <= set(spec.items) and "knowledge-change" in spec.actions
     assert {"planned", "replan", "split"} <= set(spec.items["gap"].states)
-    for name in ("planner", "plan-review", "researcher"):
-        assert spec.blocks[name].pool == 1
-    assert spec.blocks["planner"].takes.at == ["open", "replan"] and spec.blocks["plan-review"].takes.at == ["planned"]
+    assert spec.blocks["planner"].pool == 12 and spec.blocks["researcher"].pool == 1
+    assert spec.blocks["planner"].takes.at == ["open", "replan"] and spec.blocks["plan-review"].takes is None
+    assert "ready" in spec.blocks["planner"].takes.to and "planned" not in spec.blocks["planner"].takes.to
     assert {"knowledge-entries", "gaps-planned", "lessons-proposed"} <= set(spec.stocks)
 
 
@@ -387,8 +413,6 @@ def test_a_gap_whose_id_is_not_its_branch_is_one_item(tmp_path):
     branch = f.item(gid)["fields"]["branch"]
     assert gid != f"gap/{branch}"                                   # (60 characters of the title; the branch, 32)
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b=branch))
-    assert said == ["gap.planned"] and f.item(gid)["state"] == "planned"
-    said, _ = f.run("plan.py", gid, argv=("review",))
     assert said == ["gap.defined"] and f.item(gid)["state"] == "ready"
     f.run("intake.py")
     said, _ = f.run("implement.py", gid)
@@ -423,7 +447,7 @@ def test_a_dead_or_unanswered_question_is_planned_without(tmp_path):
     assert said == ["gap.measured"] and f.item(gid)["fields"]["research_waits"] == 1     # two still waits
     f.fold([{"event": "gap.measured", "item": gid, "data": {"research_waits": 11}}], None)
     said, _ = f.run("plan.py", gid)
-    assert said == ["gap.planned"]                                   # after 12 waits: planned without
+    assert said == ["gap.defined"]                                   # after 12 waits: planned without
     brief = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
     assert f"### {one}\n\n(no answer: the question is a dead letter" in brief
     assert f"### {two}\n\n(no answer: the question was not answered in 12 waits)" in brief
@@ -499,3 +523,154 @@ def test_knowledge_entries_counts_the_items():
     sensor = spec.stocks["knowledge-entries"].sensors["main"]
     assert sensor.run is None and (sensor.items["kind"], sensor.items["state"]) == ("knowledge", ["active"])
     assert spec.items["knowledge"].states == ["active", "retired"] and spec.blocks["knowledge-sync"].type == "program"
+
+
+LINT = "import fac, plan; print(json.dumps(plan.lint(fac.config(), sys.argv[1], tuple(sys.argv[2:]))))"
+GOOD = PLAN.format(b="alpha-thing").split(">\n", 1)[1].rsplit("</definition>", 1)[0]
+
+
+def test_the_lint_catches_each_missing_piece(tmp_path):
+    f = Instance(tmp_path)
+    f.opened()
+    assert f.py(LINT, GOOD) == []
+    assert f.py(LINT, GOOD.replace("depends-on: []", "depends-on: [alpha-thing, sib, nowhere]"), "sib") == [
+        "depends-on 'nowhere': no gap, sub-gap of this plan or branch merged into main"]   # a gap, a sibling: fine
+    git(f.checkout, "branch", "landed")                        # a branch merged into main: fine
+    assert f.py(LINT, GOOD.replace("depends-on: []", "depends-on: [landed]")) == []
+    for section in ("Definition of done", "Files to touch", "Risks", "Acceptance tests", "Size budget"):
+        assert f"no `## {section}` section" in f.py(LINT, GOOD.replace(f"## {section}", "## Other"))
+    cases = {"depends-on: []\n": ("", "no `depends-on"),
+             "- `tests/test_x.py::test_unreadable_ledger_refuses`": ("- the ledger test", "not named as `tests/"),
+             "100 net lines.": ("small.", "names no number"),
+             "100 net lines": ("900 net lines", "900 net lines: at most 600"),
+             "lesson-3:": ("lesson-999:", "lesson-999 under Risks is no review lesson"),
+             "`fresh.py` (new)": ("`fresh.py`", "`fresh.py` under Files to touch is not on main"),
+             "- `app.py`, and `fresh.py` (new)": ("- the app", "no file named under Files to touch")}
+    for old, (new, found) in cases.items():
+        got = f.py(LINT, GOOD.replace(old, new))
+        assert len(got) == 1 and found in got[0], (old, got)   # each piece missing: exactly its finding
+
+
+def test_a_lint_failure_goes_back_uncounted(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    bad = PLAN.format(b="alpha-thing").replace("## Risks", "## Worries")
+    for n in range(1, 6):
+        said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=bad)
+        gap = f.item(gid)["fields"]
+        assert said == ["gap.plan-sent-back"] and gap["plan_sent_back_by"] == "lint" and gap["plan_lint_failures"] == n
+        assert gap["plan_findings"] == ["no `## Risks` section"] and not gap.get("plan_failures")
+    assert not (f.model / "run" / "defs" / "alpha-thing.md").exists()         # never the definition
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=bad)              # the 6th: a planner that cannot
+    assert said[-1] == "gap.parked" and f.item(gid)["fields"]["parked_in"] == "plan"
+
+
+def test_the_sweep_defines_plans_the_old_review_held(tmp_path):
+    f = Instance(tmp_path)
+    plans = f.model / "run" / "plans"
+    plans.mkdir(parents=True)
+    for name in ("held", "sent", "bad", "linted"):
+        (plans / f"{name}.md").write_text(GOOD.replace("## Risks", "## Worries") if name == "bad" else GOOD)
+    f.fold([{"event": "gap.planned", "item": "gap/held", "data": {"branch": "held"}},
+            {"event": "gap.planned", "item": "gap/bad", "data": {"branch": "bad"}},
+            {"event": "gap.plan-sent-back", "item": "gap/sent", "data": {"branch": "sent",
+                                                                          "plan_findings": ["a sharper test"]}},
+            {"event": "gap.plan-sent-back", "item": "gap/linted", "data": {"branch": "linted",
+                                                                            "plan_sent_back_by": "lint"}}], None)
+    said, _ = f.run("plan.py", argv=("lint",))
+    assert sorted(said) == ["gap.defined", "gap.defined", "gap.plan-sent-back"]
+    assert f.item("gap/held")["state"] == f.item("gap/sent")["state"] == "ready"
+    assert f.item("gap/held")["fields"]["released_from"] == "planned" and f.item("gap/bad")["state"] == "replan"
+    assert (f.model / "run" / "defs" / "sent.md").read_text().endswith("(answer each)\n\n- a sharper test\n")
+    assert f.item("gap/linted")["state"] == "replan"           # the lint's own: the planner writes it again
+    assert f.run("plan.py", argv=("lint",))[0] == []
+
+
+def graph_fixture(f: Instance, n_ready: int = 1) -> None:
+    """A merged gap (its merge commit in the checkout), an active one and ready ones, each with its files."""
+    (f.checkout / "merged_mod.py").write_text("x = 1\n")
+    git(f.checkout, "checkout", "-q", "-b", "landed")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "landed")
+    git(f.checkout, "checkout", "-q", "main")
+    git(f.checkout, "merge", "-q", "--no-ff", "-m", "Merge landed", "landed")
+    sha = git(f.checkout, "rev-parse", "HEAD")
+    defs = f.model / "run" / "defs"
+    defs.mkdir(parents=True, exist_ok=True)
+    now = __import__("time").time()
+    lines = [{"event": "gap.merged", "item": "gap/landed", "data": {"title": "Landed work", "branch": "landed",
+                                                                    "merged_at": now - 3600, "main_sha": sha}},
+             {"event": "gap.merged", "item": "gap/old", "data": {"title": "Old", "branch": "old", "merged_at": now - 9e5}}]
+    for name, event in [("busy", "gap.started")] + [(f"next-{i}", "gap.defined") for i in range(n_ready)]:
+        (defs / f"{name}.md").write_text(GOOD.replace("`app.py`, and `fresh.py` (new)", f"`{name}_mod.py` (new)"))
+        lines.append({"event": event, "item": f"gap/{name}", "data": {
+            "title": name.title(), "branch": name, "definition": f"run/defs/{name}.md", "depends_on": ["gap/landed"]}})
+    f.fold(lines, None)
+
+
+GRAPH = "import fac, brief; print(json.dumps(brief.graph(fac.config(), {'id': sys.argv[1]})))"
+
+
+def test_the_graph_brief_lists_merged_active_and_ready(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    graph_fixture(f)
+    text = f.py(GRAPH, gid)
+    merged, active, ready = text.split("### ")[1:]
+    assert "gap/landed (merged, `landed`): Landed work. Changed: merged_mod.py" in merged and "gap/old" not in text
+    assert "gap/busy (building, `busy`): Busy. Touches: busy_mod.py" in active
+    assert "gap/next-0 (ready, `next-0`): Next-0. Touches: next-0_mod.py. Depends on: gap/landed" in ready
+    assert gid not in text                                     # never the gap itself
+
+
+def test_the_graph_brief_stays_bounded(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    graph_fixture(f, n_ready=60)
+    text = f.py(GRAPH, gid)
+    lines = text.splitlines()
+    assert len(lines) <= 40 and "gap/landed" in text and "gap/busy" in text      # every section keeps its share
+    assert lines[-1].startswith("- ... and ") and lines[-1].endswith(" more not shown")
+
+
+def test_the_reviewer_sees_overlap_in_its_brief(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    graph_fixture(f)
+    dup = PLAN.format(b="alpha-thing").replace("`app.py`, and `fresh.py` (new)", "`merged_mod.py`, `busy_mod.py` (new)")
+    assert f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=dup)[0] == ["gap.defined"]
+    planner = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
+    f.run("planreview.py")
+    context = f.item(gid)["fields"]["contexts"][-1]
+    reviewer = (f.model / context["brief"][5:]).read_text()
+    assert context["role"] == "plan_reviewer"
+    for brief_ in (planner, reviewer):                         # what landed and what is active, with their files
+        assert "Changed: merged_mod.py" in brief_ and "gap/busy (building, `busy`): Busy. Touches: busy_mod.py" in brief_
+    assert "`merged_mod.py`, `busy_mod.py` (new)" in reviewer and "{graph}" not in reviewer
+    assert "advice, never a gate" in reviewer
+
+
+def test_plan_review_waits_for_money(tmp_path):
+    f = Instance(tmp_path)
+    gid = f.opened()
+    f.run("plan.py", gid)
+    f.config.write_text(f.config.read_text().replace("plan_reviewer_session_usd = 1.0", "plan_reviewer_session_usd = 9e9"))
+    assert f.run("planreview.py")[0] == [] and f.item(gid)["fields"]["plan_review"] == "wanted"
+
+
+def test_plan_review_measures(tmp_path):
+    f = Instance(tmp_path)
+    now = __import__("time").time()
+    rev = lambda *bs: [{"verdict": "fix" if b else "merge", "blocking": b, "at": now - 60} for b in bs]  # noqa: E731
+    gaps = [("a", "merged", rev(0), True, 0), ("b", "merged", rev(2), True, 3), ("c", "parked", rev(1), True, 0),
+            ("d", "merged", rev(0), False, 1), ("e", "merged", [{"verdict": "fix", "blocking": 1, "at": now - 9e6}], False, 5)]
+    f.fold([{"event": "gap.merged" if st == "merged" else "gap.parked", "item": f"gap/{n}", "data": {
+        "plan_reviews": r, "plan_review": "done", "plan_flagged": any(x["blocking"] for x in r), "fix_rounds": fr,
+        ("merged_at" if st == "merged" else "parked_at"): now - (9e6 if n == "e" else 60)}}
+        for n, st, r, _, fr in gaps] + [{"event": "gap.defined", "item": "gap/w", "data": {"plan_review": "wanted"}}],
+        None)
+    read = lambda *a: f.py("import planreview; print(planreview.reading(*sys.argv[1:]))", *a)  # noqa: E731
+    assert read("waiting") == 1.0
+    assert read("agreement") == 0.5                            # a, d of a, b, c, d (e's review is past 14 days)
+    assert read("value", "fix-rounds", "flagged") == 1.5 and read("value", "fix-rounds", "clean") == 0.5
+    assert read("value", "parks", "flagged") == 0.5 and read("value", "parks", "clean") == 0.0
