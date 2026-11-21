@@ -196,3 +196,32 @@ name. It is not fixed here.
 `test_factory_sessions` and `test_daemon_docs` 56 passed; `test_eta`, `test_relations_asof` and `test_spec_items`:
 26 passed, 2 failed (the two above). `ruff check ergostat tests scripts dev/bin` is clean. Not run: the whole unit
 suite and the browser files.
+
+### Round 4 (the factory's `unit` failures after round 3)
+
+**Main's merge was already committed** (b6c58727); there was nothing left to resolve.
+
+**The replay is still not done (blocking; needs the coordinator).** `git rebase --onto main 2b101c6 factory/gap-size`
+was refused in this session again, and I did not try to get around that. The branch still carries backlog (2b101c6),
+and everything said about this in rounds 2 and 3 still holds. **Do not merge until the replay is done.**
+
+**`test_relations_asof.py::test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers` (both
+modes): fixed by reconciling the merge.** Main's new test expects the precedence status `ready`. Backlog (which this
+branch carries) renamed that status to `unblocked`. On this tree, `ergostat/precedence.py`, SPEC ("*unblocked* ...
+not 'ready', which is often a state's name"), `relations.js`, `test_relations.py` and `test_items_page.py` all use
+`unblocked`. Putting `ready` back in the code would break all of them. So the two expected strings in main's test
+are now `unblocked`: a merge resolution, not a changed bound. After the replay (with no backlog), main's version
+of the test is right as it stands. Then this change is not needed, and whoever merges backlog makes the same
+change. Lesson-9: the test failed on this tree before the change, and it passes after.
+
+**`test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`: not fixed here (lesson-10,
+lesson-13).** Neither this gap nor backlog touches the test or the code it guards: `git diff main HEAD` is empty
+for `tests/test_leases.py`, and backlog's change to `ergostat/leases/dispatch.py` and `ready.py` is the take order
+only, not the watchdog. The test's lease has a 1 s TTL, and the holder renews it only through `ergostat event --add`
+calls, a fresh Python process each, 0.4 s apart. Under a whole suite at `-n` with 119 processes, a cold start of
+more than about 1 s lets the lease lapse. The test is timing-bound on `main` too. Here it passes alone (1 passed in
+3.4 s), and so does all of `test_leases.py` (20 passed). If it is a real race in the watchdog, it is main's and
+belongs in its own gap.
+
+**Run here (round 4):** `test_relations_asof` 9 passed; `test_leases` 20 passed. `ruff check ergostat tests scripts
+dev/bin` is clean. Not run: the whole unit suite and the browser files.
