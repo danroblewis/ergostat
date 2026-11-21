@@ -47,3 +47,12 @@ only test outside the acceptance tests that asserts a give-back's `after` is
 `test_a_switch_waits_for_the_runs_under_way` (`"5m"`, tests/test_factory.py:2710). It comes from the drain's nack in
 `dev/bin/fac.py:87`, which this branch does not touch. Left: the failing test's name from the factory's full log,
 then either a fix here (if it is this branch's) or a report against main (lesson 13).
+
+Round 2 (after main 313f147b was merged in, 1bbe4aee): no code changed. Run here, one file at a time:
+tests/test_factory.py (120 passed, 2 skipped), tests/test_review.py and tests/test_factory_resources.py (32 passed),
+and `ruff check ergostat tests scripts` (clean). Lesson 9: putting `after="5m"` back in review.py fails
+`test_a_pool_full_give_back_waits_under_a_minute[reviewer-...]`. Putting it back in implement.py fails the implementor
+case and `test_the_highest_ranked_gap_takes_the_next_free_slot`. Both were restored. The whole unit suite was not run
+here (the brief leaves it to the factory), so the earlier unnamed `unit` failures are still unnamed. If they come back,
+the factory's full log must name them. This branch changes only the two `after` values, and by reading no other test
+depends on them.
