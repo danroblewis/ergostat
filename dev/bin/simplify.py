@@ -173,8 +173,20 @@ def request(cfg: dict, now: float | None = None) -> int:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
+def own_merge(repo, branch: str, pre: str, head: str) -> str:
+    """The gap's own merge commit in pre..head, a range the queue gives every gap of a batch alike: the one first-parent
+    merge whose subject is queue.message's for this branch. None, or more than one, is an error (never the batch)."""
+    want = f"Merge branch '{fac.git_branch(branch)}'"
+    rows = fac.git(repo, "log", "--first-parent", "--merges", "--format=%H%x1f%s", f"{pre}..{head}").splitlines()
+    hits = [h for h, _, s in (r.partition("\x1f") for r in rows) if s == want]
+    if len(hits) != 1:
+        raise RuntimeError(f"{len(hits)} merges of {fac.git_branch(branch)} in {pre[:12]}..{head[:12]}, not one")
+    return hits[0]
+
+
 def removals(cfg: dict, given: dict) -> int:
-    """One removal/<gap>-<n> per `Removed: <class> <path>[::<name>] <lines>` trailer of the merged commits (pre..main);
+    """One removal/<gap>-<n> per `Removed: <class> <path>[::<name>] <lines>` trailer of the gap's own merged commits
+    (M^1..M^2 of its merge M, found in the batch's pre..main, so a batch-mate's commits are never read);
     a class off the allowlist, or a trailer that does not parse, is recorded as unclassified, never dropped."""
     ev = given.get("event") or {}
     gid, data = ev.get("item"), ev.get("data") or {}
@@ -183,13 +195,14 @@ def removals(cfg: dict, given: dict) -> int:
         return 0
     if not (data.get("pre") and data.get("main_sha")):
         raise RuntimeError(f"{gid}'s gap.merged names no pre and main_sha")
-    log = fac.git(fac.path(cfg, "checkout"), "log", "--topo-order", "--reverse", "--format=%B%x1e", f"{data['pre']}..{data['main_sha']}")
-    branch = fac.branch_of(gap)
+    repo, branch = fac.path(cfg, "checkout"), fac.branch_of(gap)
+    merge = own_merge(repo, branch, data["pre"], data["main_sha"])
+    log = fac.git(repo, "log", "--topo-order", "--reverse", "--format=%B%x1e", f"{merge}^1..{merge}^2")
     for n, raw in enumerate((t for body in log.split("\x1e") for t in TRAILER.findall(body)), 1):
         m = re.fullmatch(r"(\S+)\s+([^\s:]+(?:::\S+)?)\s+(\d+)", raw)
         cls, where, lines = (m.groups() if m else ("", raw, "0"))
         path, _, name = where.partition("::")
-        fac.say("removal.recorded", f"removal/{branch}-{n}", gap=gid, merge=data["main_sha"], path=path, name=name,
+        fac.say("removal.recorded", f"removal/{branch}-{n}", gap=gid, merge=merge, path=path, name=name,
                 lines=int(lines), trailer=raw, **{"class": cls if cls in CLASSES else "unclassified"})
     return 0
 

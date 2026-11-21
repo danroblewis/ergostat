@@ -293,7 +293,8 @@ def test_removals_recorded_by_class(simp, repo, monkeypatch, capsys):
     (repo / "ergostat" / "small.py").write_text("")
     git(repo, "commit", "-q", "-am", "tidy\n\nRemoved: tidy ergostat/small.py 2")
     git(repo, "checkout", "-q", "main")
-    git(repo, "merge", "-q", "--no-ff", "factory/simplify-ergostat-big-20261121", "-m", "Merge")
+    git(repo, "merge", "-q", "--no-ff", "factory/simplify-ergostat-big-20261121", "-m",
+        "Merge branch 'factory/simplify-ergostat-big-20261121'")         # (queue.message's subject)
     merged = git(repo, "rev-parse", "HEAD")
     fac = sys.modules["fac"]
     gaps = {"gap/simplify-ergostat-big-20261121": {"source": "simplifier", "branch": "simplify-ergostat-big-20261121"},
@@ -313,6 +314,41 @@ def test_removals_recorded_by_class(simp, repo, monkeypatch, capsys):
     assert (d[0]["path"], d[0]["name"], d[0]["lines"]) == ("ergostat/big.py", "unnamed_fn", 2)
     assert (d[2]["path"], d[2]["name"], d[2]["trailer"]) == ("ergostat/small.py", "", "tidy ergostat/small.py 2")
     assert {x["merge"] for x in d} == {merged} and {x["gap"] for x in d} == {"gap/simplify-ergostat-big-20261121"}
+
+
+def test_removals_read_only_the_gaps_own_merge_in_a_batch(simp, repo, monkeypatch, capsys):
+    """The queue gives every gap of a batch the same pre and main_sha (the batch's head): a batch-mate merged before
+    and one after, each with a `Removed:` line, are not the simplifier's, and its merge sha is its own merge."""
+    pre = git(repo, "rev-parse", "HEAD")
+
+    def branch_with(name: str, path: str, body: str) -> None:
+        git(repo, "checkout", "-q", "-b", f"factory/{name}", pre)
+        (repo / path).write_text(f"# {name}\n")
+        git(repo, "add", path)
+        git(repo, "commit", "-q", "-m", f"{name}\n\n{body}")
+        git(repo, "checkout", "-q", "main")
+
+    branch_with("before", "ergostat/before.py", "Removed: dead ergostat/before.py::x 3")
+    branch_with("simplify-ergostat-big-20261121", "ergostat/big.py", "Removed: dead ergostat/big.py::unnamed_fn 2")
+    branch_with("after", "ergostat/after.py", "Removed: obsolete ergostat/after.py 4")
+    shas = {}
+    for name in ("before", "simplify-ergostat-big-20261121", "after"):
+        git(repo, "merge", "-q", "--no-ff", f"factory/{name}", "-m", f"Merge branch 'factory/{name}'")
+        shas[name] = git(repo, "rev-parse", "HEAD")
+    fac = sys.modules["fac"]
+    monkeypatch.setattr(fac, "ergostat", lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps(
+        {"id": a[1], "kind": "gap", "state": "merged",
+         "fields": {"source": "simplifier", "branch": "simplify-ergostat-big-20261121"}}), ""))
+    event = {"type": "gap.merged", "item": "gap/simplify-ergostat-big-20261121",
+             "data": {"main_sha": shas["after"], "pre": pre}}               # (the batch's head, as queue.py says it)
+
+    assert simp.removals(simp.cfg, {"event": event}) == 0
+    d = [json.loads(x)["data"] for x in capsys.readouterr().out.splitlines()]
+    assert [(x["class"], x["path"], x["name"]) for x in d] == [("dead", "ergostat/big.py", "unnamed_fn")]
+    assert d[0]["merge"] == shas["simplify-ergostat-big-20261121"]
+    with pytest.raises(RuntimeError, match="0 merges"):                     # its merge not in the range: no record
+        simp.removals(simp.cfg, {"event": {**event, "data": {"main_sha": shas["before"], "pre": pre}}})
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.slow                                                                 # (the model's checks: about 20 s)

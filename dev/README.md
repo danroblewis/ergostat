@@ -317,7 +317,8 @@ It asks for `gap/simplify-<module>-<yyyymmdd>` (`source: simplifier`) with a def
 `Removed: <class> <path>[::<name>] <lines>`. The ordinary implementor and reviewer build it. Pool 1 is fixed in the
 code and held under `run/simplify.lock`. A git that fails, a missing coverage report or an in-flight definition it
 cannot read means no pick; the run says why. On each merged simplification, `simplify.py removals` makes one
-`removal/<gap>-<n>` item per trailer, and a class off the allowlist is recorded as `unclassified`. To see what it
+`removal/<gap>-<n>` item per trailer, and a class off the allowlist is recorded as `unclassified`. It reads only
+the gap's own merge (found by its subject in the batch's range), never a batch-mate's commits. To see what it
 would pick: `python3 dev/bin/simplify.py pick`.
 
 ## The machine's resources: a cap on the pools

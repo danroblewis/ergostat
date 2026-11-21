@@ -227,3 +227,23 @@ build their own project in `tmp_path` from an inline model, and neither reads `d
 flakes of the engine (lesson-10), to be run again on clean main. A fix for either belongs in its own gap. Not run here:
 the two tests alone, on this branch or on main (the shell refused pytest in this session), so "they pass alone" is not
 shown. No code changed in this round.
+
+### Round 4: the removals read the gap's own merge, not the batch
+
+The review found that `removals` read `pre..main_sha` from `gap.merged`. The queue gives every gap of a batch the
+same `pre` and `main_sha` (the head after the whole batch), so a simplifier gap merged with others would record their
+`Removed:` lines as its own and store the batch head as its merge sha. Fixed: `own_merge` in `dev/bin/simplify.py`
+finds the gap's merge M in `pre..main_sha` (`--first-parent --merges`, with the subject that `queue.message` writes,
+`Merge branch 'factory/<branch>'`). The trailers come from `M^1..M^2`, and the item's `merge` is M. If no merge
+matches, or more than one does, it raises and records nothing (lesson-3) instead of falling back to the batch range.
+The subject is written out in `simplify.py`, not imported from `queue.py`, so a change to `queue.message` must change
+both; the removals tests would then fail. The existing removals test now merges with that subject.
+
+New test: `test_removals_read_only_the_gaps_own_merge_in_a_batch`. It builds a batch of three merges under one shared
+batch head: a batch-mate before the gap and one after, each with a `Removed:` line. It expects only the gap's own
+trailer and its own merge sha, and an error when the gap's merge is not in the range. Break check: with the old
+`pre..main_sha` range put back, the test fails, because the batch-mate's trailer is recorded too. `dev/README.md`
+now says that the removals read only the gap's own merge.
+
+Run: this file (11 passed), and ruff clean. Not run: `tests/test_factory.py` (the shell refused that command in this
+round), the full unit suite and the four browser files.
