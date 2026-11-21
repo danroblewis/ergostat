@@ -167,3 +167,18 @@ So it looks like a load-dependent failure in the daemons' revive path (lesson-10
 change `ergostat/daemons/` in this branch, because a fix there is outside this definition of done. That is the more
 reversible choice. Two things are worth their own gap: the stray-line write in `proc.py` that races the log being
 closed, and whether `revive` under load can miss its 30-second window. No code changed this round.
+
+### After round 3: the factory's second unit run
+
+The tail the factory gave this time stops at 85%. It shows only `.` and `s`, with no `F`, `E`, traceback or summary
+line. Like the round 2 tail, it names no failing test, so the run looks cut off (a kill or a timeout) rather than
+failed. The branch still adds only a module that nothing imports, its test file and doc text
+(`git diff --stat main...HEAD` lists five files). I reran these here, one call each:
+- `tests/test_shards.py`: 14 passed;
+- `tests/test_warm.py`: 21 passed, including the test that failed in the run before;
+- the tests that read SPEC, GAPS, the roadmap or `ergostat/spec/` (`test_spec_systems`, `test_spec_compile`,
+  `test_spec_schema`, `test_guide`, `test_coherence`, `test_architecture`, `test_factory`, `test_factory_knowledge`,
+  `test_daemon_docs` and `test_parity`): 204 passed, 2 skipped.
+
+ruff is clean. No test failed, so there was nothing to fix and no code changed. This sandbox refuses the whole suite.
+If a full run names a failing test, that test is the place to start.
