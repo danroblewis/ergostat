@@ -92,3 +92,34 @@ Run, one file at a time: `test_resilience.py` (29 passed), `test_lease_kill.py` 
 passes), `test_run_costs.py` (14), `test_streamed_output.py` (10). Ruff is clean. Not run: the full unit suite and the
 browser files (the factory runs them). Local `main` has nothing this branch lacks (`git rev-list --count HEAD..main`
 is 0), and there is no `origin/main` in this clone, so nothing was merged.
+
+Round 3, answering review/lease-kill-detached-2 (every finding):
+
+- **Merge of main (0441187f, with rs-detach):** `tests/test_resilience.py` conflicted; both sides kept (this branch's
+  lease-kill tests, then main's section 6). The engine merged cleanly: the run is now main's wrapper
+  (`runrecord.command`) in a session of its own, and its watch is on the wrapper's pid, so the command and what it
+  starts are under it.
+- **Blocking, lesson-12/lesson-6 (the Watch made before the try):** fixed for real this time. Round 2's subject
+  claimed it and the code did not do it; that claim was wrong. `proc.watch` is now set to None, then the `Watch` is
+  built *inside* the `try` whose `finally` reads, waits on and takes the run off the lists. A `RuntimeError` from it
+  (no thread to spare) leaves `proc.watch` None, and the run is followed as any run. `kill.py` already handles a run
+  with no watch: it still signals the run's own pid and its group. The `finally` closes the watch only if it exists.
+  New test `test_a_run_whose_watch_cannot_start_still_ends_as_a_run` (`reap.Watch` raising: the run is read, its
+  `agent.failed` recorded, `procs`/`live` emptied). With the `except` broken it fails.
+- **Lesson-8, the lstart limit not in SPEC or the kill.py docstring:** both now say start times are read to the
+  second, so a pid freed and taken again within the same second as its first start is not told apart.
+- **`Watch.look`'s `setdefault` (a pid the run had, reused by another child of the same run):** fixed. A pid under
+  the run at this look gets the start time it has now (it is the run's, whatever held the pid before). The run's own
+  pid keeps its first stamp. New test `test_a_watch_knows_a_pid_its_run_took_again`; with `setdefault` back, it fails.
+- **Size:** answered below.
+
+**Size overrun, the reason (round 3):** `ergostat/` counts +108 −33 = 75 net lines against 40 (+88%, docstrings and
+comments counted): `reap.py` +58, `kill.py` +9, `engine.py` +8. Since round 2: +5 in `engine.py` (the watch built
+inside the try, with its fallback, and the guarded close), and the docstring's lstart limit. The reasons for the rest
+are those of round 2: the shared looker (so a run costs one thread), the start-time check (lesson-5), and the
+fail-closed paths (lesson-3). Each answers a finding or a house rule.
+
+Run, one file at a time, after the merge: `test_resilience.py` (40 passed), `test_lease_kill.py` +
+`test_trial_stops.py` (12), `test_leases.py` (29), `test_notify.py` (4, 1 skipped: kqueue, macOS only),
+`test_run_costs.py` (14), `test_streamed_output.py` (10). Ruff is clean. Not run: the full unit suite and the browser
+files (the factory runs them).

@@ -85,8 +85,8 @@ class Watch:
             procs = tree(now)
         got = descendants(self.pid, procs)
         with self._lock:
-            for p in (got | {self.pid}) & now.keys():
-                self.started.setdefault(p, now[p])
+            for p in (got | {self.pid}) & now.keys():   # (under it now: its own, whatever held the pid before)
+                self.started[p] = now[p] if p in got else self.started.get(p, now[p])
             self.seen |= got
 
     def still(self) -> set[int]:
