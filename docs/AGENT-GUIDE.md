@@ -322,7 +322,10 @@ longer, then check again.
       (`system-splits`, `systems-merge`, `interface`, `time-scales`, `purpose`) are answered or knowingly left: loose
       parts that fall into unlinked clusters may each be a system. A system whose subsystems share few links is
       nearly decomposable (`explain` says so): that is a good hierarchy, so leave its structure alone and change one
-      subsystem at a time (`docs/proposals/architecture.md`).
+      subsystem at a time (`docs/proposals/architecture.md`). With the project, `explain system.NAME` (and the MCP
+      `explain` tool) also gives the relative gain array of a system of two or more loops, from the step tests the
+      owner approved since its process last changed, or why it is not computed: a λ far from 1 says its loops interact
+      and may be paired wrongly; run an approved step test of each loop before reading it.
 
 ### Modelling well: beyond correct
 
