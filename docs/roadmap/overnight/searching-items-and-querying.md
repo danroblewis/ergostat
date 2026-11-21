@@ -117,3 +117,11 @@ review notes. For the same reason:
 2. Run the unit suite and the four browser files under `scripts/suite_watch.py` after merging origin/main (point 6).
    Neither was run here. No `origin` exists in this clone, and the brief leaves the full suites to the factory.
 3. Correct the graph's wrong "merged" status for gap/item-text-search.
+
+**After the factory's unit run failed (same round):** the tail handed back holds only progress dots. It names no
+test and shows no traceback, so it looks like the run was cut off or killed. The fix round could not run a shell
+(Bash was refused), so it could neither reproduce the failure, run a test, nor commit. Reading the changed paths for a
+hang found no cause: `_where` → `_rebuild` takes `begin immediate` only under the index's lock and outside any open
+transaction, `text_of` never gives NULL, so the rebuild cannot loop, and nothing else writes `items` rows. No code was
+changed, because a guessed fix would break lesson-13. Left: run the unit suite again under `scripts/suite_watch.py`
+with the failing test's name and traceback kept, then fix what it names.
