@@ -269,17 +269,17 @@ def test_the_watchdog_backs_off_a_restart_and_does_it_when_its_turn_comes(tmp_pa
 
 
 def test_a_hang_while_starting_is_restarted_after_the_deadline(tmp_path):
-    import time
+    import threading
 
     from ergostat.spec import watchdog as wd
+    before = set(threading.enumerate())
     restarted, said = [], []
     wd.startup(tmp_path, said.append, restarted.append, deadline=0.2)
-    fine = wd.startup(tmp_path / "x", said.append, restarted.append, deadline=0.2)
+    fine = wd.startup(tmp_path / "x", said.append, restarted.append, deadline=30)   # finished long before it
     fine.set()
-    deadline = time.monotonic() + 5
-    while not restarted and time.monotonic() < deadline:
-        time.sleep(0.05)
-    time.sleep(0.3)
+    for t in set(threading.enumerate()) - before:     # each watcher done: the hung one restarted, the fine one not
+        if t.name == "ergostat-startup":
+            t.join(60)                                # (the dump runs lsof, slow under load)
     assert restarted == ["not started within 0s"] and any("not started" in s for s in said)
     assert list((tmp_path / "stalls").glob("*-start.txt"))
 
