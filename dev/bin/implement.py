@@ -1,7 +1,9 @@
 """implementor: takes a gap at ready (or at fix, sent back with its findings), under a lease, and builds it:
 
 1. a clone of the factory's drop repository (agents.py: never the owner's), on the branch factory/<branch> from main;
-   the definition of done committed first (`docs/roadmap/overnight/<branch>.md`) when the branch lacks it, by this
+   Playwright's Chromium launched once in the image, in a suite container and the slot (agents.browser_ready): no
+   browser stops the round before it starts (given back uncounted, its reason said), never a browser file skipped;
+   the definition of done committed first (`dev/records/<branch>.md`) when the branch lacks it, by this
    program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
    left for the session, its files in the brief); then published to the drop;
 2. a session in a container of its own (or the stand-in) on a brief assembled from dev/prompts/implementor.md;
@@ -9,7 +11,8 @@
    suites, a branch adding scratch files (`strays`: [gates] scratch_patterns, or a new top-level file or folder the
    definition's Files to touch does not name) is refused, back to the session's next round with the list (uncounted;
    still there after the last, a failed build), and so is one adding `ergostat check` findings (`new_findings`); the
-   fast suites (ruff, then the unit suite under the watchdog) in a container with no network, in a machine-wide slot; a failure
+   fast suites (ruff, then the unit suite and the four browser files under the watchdog, a browser test skipped
+   counting as a failure) in a container with no network, in a machine-wide slot; a failure
    that names tests is triaged first (onmain.py: run alone on the branch, a flake retried once; run on clean main, a
    test failing there too is main's), and a failure of the gap's is given back to a session to fix, `suite_fix_rounds`
    times;
@@ -40,7 +43,7 @@ import pools  # noqa: E402
 def definition_first(cfg: dict, gap: dict, work: Path) -> tuple[str, str]:
     """The definition file (fac.definition_file), committed as the branch's first commit when the branch does not have
     it (by this program, in the clone it made, before any session); (its text, the commit that holds it)."""
-    branch, rel = fac.branch_of(gap), fac.definition_file(gap)
+    branch, rel = fac.branch_of(gap), fac.definition_file(gap, work)
     target = work / rel
     if not target.is_file():
         text = brief.definition_text(cfg, str(gap["fields"].get("definition", "")), branch)
@@ -82,7 +85,8 @@ def strays(cfg: dict, repo: Path, base: str, head: str, definition: str) -> list
     if not isinstance(pats, list) or not all(isinstance(p, str) for p in pats):
         raise ValueError(f"[gates] scratch_patterns must be a list of globs, not {pats!r}")
     on_main = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", base).splitlines())
-    tops = {p.split("/", 1)[0] for p in on_main} | {p.split("/", 1)[0] for p, _ in brief.files_of(definition)}
+    tops = {p.split("/", 1)[0] for p in on_main} | {p.split("/", 1)[0] for p, _ in brief.files_of(definition)} | {
+        fac.DEFS.split("/", 1)[0]}                                         # (the definition's own folder: dev/records)
     listed = brief.section(definition, "Files to touch") is not None
     changed = fac.git(repo, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "--diff-filter=d",
                       f"{base}...{head}").splitlines()
@@ -179,6 +183,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
         return 0
     fac.say("gap.started", branch=branch, rework=rework, building_at=began)
     home, work = agents.clone(cfg, branch, "implementor")
+    logs = fac.run_dir(cfg, "logs")
+    agents.browser_ready(cfg, home, logs, f"{fac.run_tag(branch, began)}-ready")   # (no browser: stopped, uncounted)
     base_sha = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")
     definition, held = definition_first(cfg, gap, work)
     conflicts = merge_main(work, base_sha)
@@ -188,9 +194,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
     context["brief"] = brief.save(cfg, "implementor", gap, text)
     context["round"], context["merge_conflicts"] = rounds, conflicts
     cost, sessions, used = 0.0, 0, []
-    logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
-    fast_seconds = 0.0                                  # every try's ruff and unit (times.py's gate `fast`)
+    fast_seconds = 0.0                                  # every try's fast suites (times.py's gate `fast`)
     mains, allowed = {}, []                       # main's check findings by its sha; the allowances the branch used
     seen: dict[str, bool] = {}                                # tests run on main in this run: failed there?
     retried, deadline = False, began + (hours - float(f.get("build_hours") or 0)) * 3600
@@ -220,7 +225,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
             continue
         suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
                                        deadline, seen, retried)
-        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in ("ruff", "unit"))
+        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in onmain.FAST)
         used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
         if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
             break

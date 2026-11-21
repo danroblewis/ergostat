@@ -395,6 +395,7 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
             out[x.id] = {"waits_in": b.name, "position": None if pos is None else pos + 1, "capacity": cap,
                          "why": waits + f"{held.get(b.name, 0)} of {cap} busy in {b.name}{bind}"
                          + (f"; {pos} ahead of it" if pos is not None else "") + put
+                         + (f"; {b.pool_said}" if b.pool_said and b.name not in (pools or {}) else "")
                          + (f"; a run takes {human(med)} (median)" if med else "") + (f"; assumed: {b.assumed}" if b.assumed else "")}
             continue
         if x.state in k.paused:

@@ -14,12 +14,17 @@ when nothing in the window to measure, but for the six named at the end, which h
   fix-rounds          mean rounds sent back to the implementor per merged gap
   flake-rate          flaky retries per queue run
   cost-per-merged     dollars of AI sessions per merged gap (every round, implementor and reviewer)
+  tool-denials        tool calls refused to the AI sessions (sessions.py), over the sessions that said; one with no
+                      result (a timeout, a crash) or a result silent on them is left out and counted on stderr, and
+                      with none that said there is no value (exit 1)
+  tool-denials-unknown  the sessions left out of tool-denials
   interventions-trend the coordinator's interventions over the last 7 days less the 7 before
   lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
   first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
+  manager-triggers-per-session, manager-actions-per-session   the mean a pipeline manager session was given, and did
   parks KIND          gaps whose last park was for KIND (parks.KINDS); resumes KIND: parks of KIND resumed (by the
                       program or by hand); parked-hours KIND: their mean hours parked, to the resume or now
   in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes (each also with -p90)
@@ -79,6 +84,20 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         if not first:
             raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
+    if name in ("manager-triggers-per-session", "manager-actions-per-session"):   # (allowlist: a typo is refused)
+        done = [r["fields"] for r in recent(fac.items("situation"), "handled_at", since)]
+        field = "triggers_n" if name == "manager-triggers-per-session" else "actions_n"
+        return round(statistics.mean(float(r.get(field) or 0) for r in done), 2) if done else 0.0
+    if name in ("tool-denials", "tool-denials-unknown"):   # unknown: a timeout, a crash, a result silent on them
+        rows = [r["fields"] for r in recent(fac.items("session"), "started", since)]
+        unknown = [r for r in rows if "tool_denials" not in r]
+        if name == "tool-denials-unknown":
+            return float(len(unknown))
+        if unknown:
+            print(f"tool-denials: left out, {len(unknown)} session(s) whose refusals are unknown", file=sys.stderr)
+            if len(unknown) == len(rows):
+                raise SystemExit("tool-denials: no value (no session in the window said what it was refused)")
+        return float(sum(int(r["tool_denials"] or 0) for r in rows if "tool_denials" in r))
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
     if name in ("size-accuracy", "size-accuracy-high"):
