@@ -74,6 +74,7 @@ batch_max = 4                        # the most the tuner may ask for while the 
 [manager]                            # the pipeline manager's triggers (dev/bin/watch.py)
 open = 1                             # the switch managing-open: 0 pauses it
 parked_within_hours = 48             # a park this recent is looked at (older ones were the coordinator's)
+park_wait_hours = 24                 # a waits_on / needs park not cleared this long is looked at (dev/bin/parks.py)
 intervention_hours = 12              # an open defect (not a decision: operator-decision, factory-tuning, factory: false)
                                      # unremedied this long is looked at
 interventions_per_hour = 3           # at most this many such looks an hour (the first run's backlog)
