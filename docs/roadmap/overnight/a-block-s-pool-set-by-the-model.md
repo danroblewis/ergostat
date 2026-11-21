@@ -281,3 +281,13 @@ pool reads the stock's level, as `read_at` and the engine pick it.
 
 **Not run here:** the whole unit suite under `-n 8` and the four browser files. This session may not run them;
 the factory runs them after it. No example under `examples/` was touched.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:11).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 8: ack
+- attempt 9: nack exited 1
+- attempt 10: nack exited 1
+- attempt 11: nack exited 1
