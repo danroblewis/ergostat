@@ -74,6 +74,13 @@ approved = 4
 queued = 3
 queue-failed = 1
 
+[resources]                          # the machine (dev/model/resources.yaml holds the setpoints)
+session_cpus = 0.5                   # one session's use until three are measured (run/resources/sessions.jsonl)
+session_memory_gb = 1.0
+suite_cpus = 4.0                     # one of its suites' (in a container of 4 CPUs and 12 GB)
+suite_memory_gb = 4.0
+session_keep_hours = 24              # session folders and installs younger than this are never cleaned up
+
 [instance]
 port = 8798
 
