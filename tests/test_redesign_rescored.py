@@ -4,6 +4,7 @@ most once every 30 minutes and one a pass; a promoted one is written only on a s
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import time
 
@@ -308,15 +309,29 @@ def test_the_write_path_rescore_and_write_hold_the_lock(tmp_path, monkeypatch):
             except OSError:
                 return False
 
+    real_locked, holds = pr.locked, {"n": 0, "in": None}
+
+    @contextlib.contextmanager
+    def counted(p_):                                         # numbers each hold, so two holds can't pass for one
+        with real_locked(p_):
+            holds["n"] += 1
+            holds["in"] = holds["n"]
+            try:
+                yield
+            finally:
+                holds["in"] = None
+
     def watched(p_, x, at=None):
         if after:
-            held.append(not lock_free())
+            held.append((not lock_free(), holds["in"]))
         return real(p_, x, at)
 
     def accept(*a, **k):
-        held.append(not lock_free())
+        held.append((not lock_free(), holds["in"]))
         return real_accept(*a, **k)
+    monkeypatch.setattr(pr, "locked", counted)
     monkeypatch.setattr(rd, "judged", watched)
     monkeypatch.setattr(pr, "_accept", accept)
     assert jd.run(p, "judge", at=t0)["accepted"] == 1 and pr.stored(p)[got["id"]]["state"] == "accepted"
-    assert held == [True, True]                              # the write-path rescore, then the write: one hold
+    assert len(held) == 2 and all(h for h, _ in held)        # the write-path rescore, then the write, both locked
+    assert held[0][1] is not None and held[0][1] == held[1][1]   # and in the same hold, with no gap between

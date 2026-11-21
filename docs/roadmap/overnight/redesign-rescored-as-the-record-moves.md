@@ -170,5 +170,26 @@ of code against the budget of 200.
 - The origin/main merge. This clone has no `origin` remote ref and the network is off limits. Local `main` (8eb0fc0)
   is this branch's base, so it is already contained. The queue has to merge origin/main (`proposals-drawn-dashed-in-both`
   touches `review.js`, lesson-7) and run both suites again.
-- An untracked scratch file, `tests/test_probe_tmp.py`, holds only a comment. `rm` was refused. It was never committed,
-  so delete it.
+- A scratch file, `tests/test_probe_tmp.py`, holds only a comment. `rm` was refused. (Corrected in round 2: this
+  said it was never committed, which was false. Commit 69e04cdb committed it.)
+
+### Round 2 (the fix round)
+
+The review's findings, every one of them (lesson-12):
+
+- *Blocking: `tests/test_probe_tmp.py` committed.* **Not fixed.** In this session `git rm` and `git rm --cached`
+  were both refused, so no tool I may use can take the file out of the branch. It holds only a comment and no test,
+  so pytest collects nothing from it. Someone with delete rights must run
+  `git rm tests/test_probe_tmp.py && git commit` before this branch is merged. The false "never committed" sentence
+  above is corrected.
+- *Not run by the reviewer.* Run here, one file at a time: test_redesign_rescored (12 passed), test_redesign plus
+  test_redesign_rescored (31), test_modelling_core (24), test_modelling_core2 (11). Ruff is clean. The whole unit
+  suite and the four browser files were still not run (they are left to the factory's watchdogged run). Main
+  (7b39bc94) was merged in at 26a4f3d2. This clone has no origin remote, so the queue still has to merge origin/main
+  and run both suites again (lesson-7).
+- *The lock test would pass with two holds.* Made stronger. The test now wraps `pr.locked` to number each hold, and
+  asserts that the write-path `rd.judged` and `pr._accept` run inside the same numbered hold. I broke the code on
+  purpose by splitting `write_redesign` into two holds, and the test failed on that assertion. Then I put the code
+  back.
+- *An unreadable mark stops every class's writes, and SPEC did not say so.* SPEC §12e now says "nothing is scored or
+  written that pass, of any class (words and parameter changes too, not only redesigns)".

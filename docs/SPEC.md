@@ -3628,7 +3628,7 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   few seconds move the mark nearly every pass, so in practice a waiting redesign is scored again about every 30 minutes,
   and most promoted ones are scored again when they are written. A mark that cannot be read fails closed: every passed
   redesign says `rescoring` with why (the review queue shows it), written once, not each pass; nothing is scored or
-  written that pass, and the next pass that can read it scores them again at once, one a pass. **A promoted redesign is
+  written that pass, of any class (words and parameter changes too, not only redesigns), and the next pass that can read it scores them again at once, one a pass. **A promoted redesign is
   written only on a scorecard of the record as it is**: in one hold of the proposals' lock it is read again, its mark
   held against the record's, scored again when they differ (or it says `rescoring`), and written only if still better.
 - **Never written without the owner** unless the class is promoted by name: `accept: {redesign: auto}`; `accept: auto`
