@@ -44,6 +44,13 @@ params:
     description: a record's field that names its event instead (answered, closed), when it has one
   cursor-field:
     description: a field that only grows (a time, a sequence); only records past the greatest seen are taken
+  mirror:
+    type: bool
+    default: false
+    description: "mirror an outside log: each entry recorded once, under the id cite:<this sensor>:<type>:<its cursor-field>, the cursor confirmed against the record and recovered from it; needs cursor-field, takes no changes"
+  position:
+    default: int
+    description: "with mirror, how positions order: int (whole numbers) or text (ordered as text, so zero-padded, fixed-width times)"
   path:
     description: where the list of records is in the answer (data.items), when it is not the answer itself
   fields:
@@ -96,6 +103,6 @@ flows:
     to: ${into|collected}
     description: new items, as the collector sees them (per hour, over ten minutes)
     sensor:
-      run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --event ${event:quote} --event-field ${event-field:quote} ${cursor-field:arg} ${path:arg} ${fields:arg} ${changes:arg} --stand-in ${stand-in-rate} --window 600
+      run: ${lib} collect --name ${name} --kind ${kind} ${command:arg} ${url:arg} ${headers:arg} --id-field ${id-field:quote} --event ${event:quote} --event-field ${event-field:quote} ${cursor-field:arg} ${path:arg} ${fields:arg} ${changes:arg} ${mirror:arg} --position ${position:quote} --stand-in ${stand-in-rate} --window 600
       every: ${poll}
       averages: 10m
