@@ -242,3 +242,16 @@ No code was changed in this round, because no fault was found to fix. The next s
 failing test's name and traceback, or the watchdog's JSON line if the run was killed). `tests/test_zz_scratch.py` was
 committed by the factory as "work the session left uncommitted". It holds only a docstring and runs no test. This
 session could not delete it either. It should be removed before merging.
+
+**Round 2, answering the review.** Both findings were blocking, and there were no non-blocking ones:
+- *A kept integrating pass raised a TypeError in `proposals._around`* (`θ + 4τ` with τ None). Fixed: the window is
+  still labelled `"process"`, since rule 4 labels any kept pass ≥ 1 that way, but it is said "… from the process
+  (integrating: no settling time, so no θ + 4τ)". Test 9 now asserts that text on a crafted integrating result. Test 5
+  passes its real kept-integrating result through `_around`. With the guard removed, both tests fail with the
+  TypeError (2 failed), and they pass with it. SPEC's *Outside steps* paragraph names the wording.
+- *`tests/test_zz_scratch.py` committed.* **Still not done.** This session was refused `git rm` on it, as earlier
+  sessions were refused deletion, so it is still tracked. It holds only a docstring and runs no test. The factory or
+  coordinator must `git rm tests/test_zz_scratch.py` before merging. This branch must not reach main until then.
+
+Run in round 2, green: `tests/test_outside_experiments.py` and `tests/test_churn.py` (16 passed, 1 xfailed), and
+`ruff check ergostat tests scripts`. The whole unit suite, the browser files and `demo_check` were not run here.

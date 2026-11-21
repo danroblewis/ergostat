@@ -203,6 +203,8 @@ def test_a_later_pass_that_fails_keeps_the_previous_window(monkeypatch):
     o = r["outside_step"]
     assert o["window"] == "process" and o["passes"][1] == "kept" and r["form"] == "integrating"
     assert o["passes"][2].startswith("not run: integrating")
+    from ergostat.control import proposals as cp
+    assert "from the process (integrating: no settling time, so no θ + 4τ)" in cp._around(r)   # no TypeError on τ None
 
     def worse(h, *a, **kw):
         return {"found": True, "form": "fopdt", "K": 0.5, "tau": 60.0, "theta": 20.0, "h": h, "why": ["fake"],
@@ -317,3 +319,9 @@ def test_the_reason_names_every_step_and_how_its_window_was_chosen():
     assert cp._around(r) == f"identified around outside steps at {hm(a)}, {hm(b)} (flow.asked), each window from y's " \
                             "excursion (not found: too little record); the step at 18:00 (flow.asked): the record after " \
                             "it covers 7m of the 8m40s its process needs to settle"
+    i = {"K": 0.001, "tau": None, "theta": 20.0, "form": "integrating",        # a later pass kept as an integrator
+         "outside_step": {"at": a, "input": "flow.asked", "steps": steps, "window": "process",
+                          "passes": ["kept", "kept", "not run: integrating, no settling time to size a window from"],
+                          "dropped": []}}
+    assert cp._around(i) == f"identified around outside steps at {hm(a)}, {hm(b)} (flow.asked), each window from the " \
+                            "process (integrating: no settling time, so no θ + 4τ)"
