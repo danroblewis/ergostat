@@ -299,7 +299,7 @@ N ≈ 30. After it: model load passes a minute at N ≈ 400 and an hour (project
 | 10 | The Blocks view describes every block with every goal's loop | `blockdiagram.py: Diagram.block_fn` → `Spec.loop(g)` for every goal | N³ (51 s at N = 30) | Constant (#6) |
 | 11 | Every graph request recomputes the causal loops and matches every edge against every loop | `graph.py: control`, `causal_loops`; `web/server.py: api('graph')` | N² per request, every 2.5 s per open page | Constant: cache per model version; match edges to loops by an index |
 | 12 | The page polls the whole graph every 2.5 s whatever it costs | `static/diagram.js` (`poll(tick, 2500)`) | requests pile up once an answer > 2.5 s | Constant: poll the readings, not the structure; back off when an answer is slow |
-| 13 | Drawing and routing one system in the browser | `static/layouts.js`, libavoid (`static/libavoid`) | ~shapes^2.8 (190 s for 280 shapes) | **Design** for large views: route only what is on screen, or draw systems as boxes until opened (the folding does this for everything, not for one system) |
+| 13 | Drawing and routing one system in the browser | `static/layouts.js`, libavoid (`static/libavoid`) | ~shapes^2.8 (190 s for 280 shapes) | **Design** for large views: route only what is on screen, or draw systems as boxes until opened (the folding does this for everything, not for one system). Partly done: one system's lines are routed in groups of at most 100 (`static/routeparts.js`; *Routing one system in parts* below); not measured at scale_model's N = 10 or 30 |
 | 14 | Calibration: a Nelder-Mead search per scope, every evaluation a whole-model replay | `numbers/estimate.py: estimate`, `solve`, `Problem.runs` → `simulate.py: replay` | N^1.5–N^2 (926 s at N = 30) | **Design**: replay only the scope's subgraph (its stocks and what drives them), and calibrate scopes in parallel processes |
 | 15 | One process, one core | the engine, the web server and every command are single CPython processes | – | **Design** at N ≫ 1,000: shard the engine by system (systems are already the model's grouping) |
 
@@ -308,6 +308,26 @@ would bring model load, the Blocks view and the graph answer to seconds at N = 1
 the engine: #2 and #3 remove the two largest parts of the pass, but what is left (every goal and every
 built-in, O(N)) still runs once per reading, O(N) times a second, so its bend moves from N ≈ 50 to perhaps
 N ≈ 150 to 300, not past it. Fixes 1, 4, 9, 13, 14 and 15 change how ergostat works.
+
+**Routing one system in parts (#13, in part).** In a view of one system no part is in an open system, so on main
+every line was in the one shared group, and the crossing weighing, most of the routing time, ran over all of them
+together. Now any group of more than 100 lines is parted (`static/routeparts.js`, `docs/layout-rules.md`): a hub's
+lines (a part with more than 8) stay shared, the rest are split where they share no part, and a piece of more than
+100 is cut into bands; the shared group past 100 lines is routed with no weight on crossings. Measured in the
+container, in one browser, one after the other, twice each (the two runs within 25 ms of each other), on the two
+models of the end-to-end tests: the worker's whole routing (first pass, groups, spacing pass; not the page's passes
+after it) for the branch's groups, against main's grouping (every line in one weighed group) routed by the same
+core, which differs from main's only in reading `spec.penalties`. Main itself was not checked out and run.
+
+| Model (one system) | Lines | Groups | Main's grouping | Parted |
+|---|---:|---|---:|---:|
+| 12 chains of 8 stocks, one flow driving each chain's first | 182 | 98 + 70, 14 shared | 1.02 s | **0.25 s** |
+| one chain of 90 stocks, no hub | 178 | 99 + 68, 11 shared | 0.40 s | 0.42 s: **not improved** |
+
+The chain's weighing fell (0.23 s to 0.17 s) but the spacing pass the groups bring (0.07 s) took it back. A
+one-system view with 12 valves each driving 10 flows (384 lines, 144 at the hubs, shared and routed free) routes in
+0.6 s. scale_model's `system=sys-001` (N = 10 and N = 30, the 190 s above) was not measured again, so #13's time
+stands as measured before.
 
 ## Extrapolation to 120,000 stocks and 400,000 flows
 

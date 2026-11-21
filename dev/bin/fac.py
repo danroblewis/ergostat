@@ -23,7 +23,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent          # dev/
 MODEL = Path.cwd()                                     # the model's folder: ergostat runs every block there
 TRAILER = "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-DEFS = "docs/roadmap/overnight"
+DEFS = "dev/records"                                   # where a gap's definition is written (the owner, 2026-11-21)
+OLD_DEFS = "docs/roadmap/overnight"                    # where the first gaps' are: still read, the new path first
+REF = re.compile(r"([\w/.-]+):((?:dev/records|docs/roadmap/overnight)/[a-z0-9-]+\.md)")
 
 
 # ---- settings
@@ -218,12 +220,16 @@ def branch_of(gap: dict) -> str:
     return b
 
 
-def definition_file(gap: dict) -> str:
-    """The definition's path in the repository: `docs/roadmap/overnight/<branch>.md`, or, for a gap that `continues` a
-    branch and names its `definition` as `REF:docs/roadmap/overnight/X.md`, that file (the continued branch's own, so
-    no copy is made under the new gap's name)."""
-    m = re.fullmatch(r"[\w/.-]+:(docs/roadmap/overnight/[a-z0-9-]+\.md)", str(gap["fields"].get("definition") or ""))
-    return m.group(1) if m and gap["fields"].get("continues") else f"{DEFS}/{branch_of(gap)}.md"
+def definition_file(gap: dict, work: Path | None = None) -> str:
+    """The definition's path in the repository: `dev/records/<branch>.md`, or the old
+    `docs/roadmap/overnight/<branch>.md` when the clone ``work`` has only that (a branch begun before the move); or,
+    for a gap that `continues` a branch and names its `definition` as `REF:dev/records/X.md` (or the old folder), that
+    file (the continued branch's own, so no copy is made under the new gap's name)."""
+    m = REF.fullmatch(str(gap["fields"].get("definition") or ""))
+    if m and gap["fields"].get("continues"):
+        return m.group(2)
+    new, old = (f"{d}/{branch_of(gap)}.md" for d in (DEFS, OLD_DEFS))
+    return old if work and not (work / new).is_file() and (work / old).is_file() else new
 
 
 def git_branch(branch: str) -> str:
@@ -240,10 +246,12 @@ def run_tag(branch: str, began: float) -> str:
 
 
 def net_lines(repo: Path, base: str, head: str, core: bool = True) -> int:
-    """Net lines changed outside tests/ and docs/: of ergostat's core (dev/ and the root model left out too), or, with
-    core=False, with dev/ and the root model counted (a merge's lines, scored against its planned size class)."""
+    """Net lines changed outside tests/, docs/ and the gaps' records (dev/records/): of ergostat's core (dev/ and the
+    root model left out too), or, with core=False, with dev/ and the root model counted (a merge's lines, scored
+    against its planned size class)."""
     add = rem = 0
     out = git(repo, "diff", "--numstat", f"{base}...{head}", "--", ".", ":(exclude)tests", ":(exclude)docs",
+              f":(exclude){DEFS}",
               *((":(exclude)dev", ":(exclude)ergostat.yaml") if core else ()))
     for line in out.splitlines():
         a, d, _ = line.split("\t", 2)

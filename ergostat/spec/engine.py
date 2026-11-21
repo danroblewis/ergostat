@@ -45,7 +45,7 @@ from . import blocks as bl
 from . import runrecord, stream, triggers
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
-from .observer import KEEP, RUN, Observer, estimated, opted, stale_age
+from .observer import KEEP, PORTS, RUN, Observer, estimated, opted, stale_age
 
 TICK = 1.0
 READERS = 8                 # the fixed pool that runs sensors' commands and queries: no thread per reading (scale.md #1)
@@ -97,13 +97,15 @@ class Engine:
     incremental = True                                 # a pass works out only what changed (False: everything, each pass)
     lock_wait = 5.0                                    # seconds ``close`` waits for a lock it stops under, at most
 
-    def __init__(self, project, say=print):
+    def __init__(self, project, say=print, shard: str | None = None):
         self.p, self.say = project, say
         self.spec: Spec = project.model.spec
+        self.shard = shard                             # the shard it works on (SPEC §9.8); None: the whole model
+        self._shard_of(self.spec)
         self.stop = threading.Event()
         self.lock = threading.RLock()
         self.signals: dict[str, float] = {}
-        self.builtins = {n: bl.make(self.spec.blocks[n], self.spec) for n in bl.order(self.spec)}
+        self.builtins = {n: bl.make(self.spec.blocks[n], self.spec) for n in bl.order(self.spec) if self.own(f"block.{n}")}
         self.status: dict[str, str] = {}               # goal → holding / off
         self.setpoint: dict[str, float] = {}           # goal → a setpoint a block set (a cascade)
         self.per: dict[str, tuple] = {}                # goal held per item or group → (worst, breaking, how many)
@@ -121,7 +123,7 @@ class Engine:
         self.reading: set[str] = set()                 # sensors whose read is under way
         self.seen: dict[str, float] = {}               # series → the newest reading's time
         self.slots = {a.name: threading.Semaphore(a.at_once) for a in self.spec.agents.values()}
-        self.machines = [b for b in self.spec.blocks.values() if b.machine]
+        self.machines = [b for b in self.spec.blocks.values() if b.machine and self.own(f"block.{b.name}")]
         # what caused what, kept so the record can say it (causedby): the event carrying each block's latest
         # output (a built-in's decision, or the run that gave the command), each block's latest run, and the
         # run whose moving a flow made a sensor read at once
@@ -196,6 +198,53 @@ class Engine:
         self.born = time.time()                        # (or when it last woke: nothing is stale before it could be read)
         self.clock_at = (self.born, time.monotonic())
 
+    # ---- its shard (SPEC §9.8)
+
+    def _shard_of(self, spec: Spec):
+        """This engine's ``Shard`` in this model's plan (None: no shard). ValueError when the plan has no such shard:
+        it never runs nothing quietly, nor everything."""
+        if self.shard is None:
+            return None
+        from .shards import planned
+        got = planned(spec).shards.get(self.shard)
+        if got is None:
+            raise ValueError(f"no shard {self.shard!r} in this model (its shards: {', '.join(planned(spec).shards)})")
+        return got
+
+    @property
+    def plan(self):
+        from .shards import planned
+        return None if self.shard is None else planned(self.spec)
+
+    def own(self, key: str, spec: Spec | None = None) -> bool:
+        """Whether a part (a key ``Plan.of`` takes) is this engine's to work on, in ``spec`` (the model now if None):
+        every part with no shard; else as ``Plan.of`` says, and by nothing else (a part not in the plan raises)."""
+        if self.shard is None:
+            return True
+        from .shards import planned
+        return planned(spec or self.spec).of(key) == self.shard
+
+    def _mine(self, spec: Spec):
+        return None if self.shard is None else lambda k: self.own(k, spec)
+
+    def _measured(self, spec: Spec) -> set | None:
+        """The stocks, flows and auxiliaries ``measure`` reads: its own, and those its parts read in other shards (a
+        goal's ``of``, a block's reads, an equation's refs, an observed stock's flows). None: every one."""
+        if self.shard is None:
+            return None
+        kept, k = spec.lookups().kept, f"engine.measured.{self.shard}"
+        if k not in kept:
+            tables = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries}
+            got = {(kd, n) for kd, t in tables.items() for n in t if self.own(f"{kd}.{n}", spec)}
+            refs = [g.of for n, g in spec.goals.items() if self.own(f"goal.{n}", spec)]
+            refs += [r for n, b in spec.blocks.items() if self.own(f"block.{n}", spec) for r in b.reads()]
+            refs += [Ref.parse(t) for kd, n in sorted(got) if kd != "stock" and tables[kd][n].equation
+                     for t in tables[kd][n].equation.refs]
+            refs += [Ref("flow", f.name) for n in opted(spec).stocks if ("stock", n) in got for f in spec.flows_of(n)]
+            kept[k] = got | {(r.kind, r.name) for r in refs if r is not None and r.name in tables.get(r.kind, ())
+                             and not (r.port in PORTS and r.port not in tables[r.kind][r.name].sensors)}  # (an estimate: a wire)
+        return kept[k]
+
     # ---- signals
 
     def get(self, r: Ref) -> float | None:
@@ -222,6 +271,8 @@ class Engine:
         else:
             by = self._wiring()["parts"]
             parts = list(dict.fromkeys(x for sr in only for x in by.get(sr, ())))
+        if (read := self._measured(spec)) is not None:          # a shard: its own, and what they read (SPEC §9.8)
+            parts = [x for x in parts if x in read]
         for kind, name in parts:
             x = tables[kind].get(name)
             if x is None:
@@ -263,7 +314,7 @@ class Engine:
         goals to work out again (None: every one); ``out``: see ``_event``. Returns the signals that changed."""
         spec, sig, changed = self.spec, self.signals, set()
         names = spec.goals if only is None else sorted((g for g in only if g in spec.goals), key=self._wiring()["goal_pos"].get)
-        for name in names:
+        for name in (n for n in names if self.own(f"goal.{n}", spec)):
             g = spec.goals[name]
             r = self.setpoint.get(name, g.hold.value)
             if sig.get(f"goal.{name}", MISSING) != r:
@@ -305,7 +356,7 @@ class Engine:
         from .goal_per import held, members, sensor_of
         moved, version = set(), None
         for g in self.spec.goals.values():
-            s = sensor_of(self.spec, g) if g.per else None
+            s = sensor_of(self.spec, g) if g.per and self.own(f"goal.{g.name}") else None
             if s is None or not (every or s.series in (changed or ())):
                 continue
             if version is None:
@@ -378,6 +429,8 @@ class Engine:
                     if tick:
                         names |= {n for n, on in self.was_commanded.items() if on and n not in self.running}
                     pos = w["mpos"]
+                    if self.shard is not None:                          # (its shard's: SPEC §9.8)
+                        names &= {b.name for b in self.machines}
                     todo = [b for b in sorted((self.spec.blocks[n] for n in names if n in pos), key=lambda b: pos[b.name])
                             if self.due(b, events)]
             if events:
@@ -543,7 +596,7 @@ class Engine:
             return set()
         ob = self.observer
         if ob is None:
-            ob = self.observer = Observer(self.spec, lambda n: self.history(self.spec, n))
+            ob = self.observer = Observer(self.spec, lambda n: self.history(self.spec, n), mine=self._mine(self.spec))
         ob.advance(now, self.signals)
         new = []
         for n, tr in ob.tracks.items():
@@ -591,7 +644,7 @@ class Engine:
                 ages[str(r)] = age
         changed = set(ages) ^ set(self.stale_parts)
         self.stale_parts = ages
-        for name, policy in o.goals.items():
+        for name, policy in ((n, x) for n, x in o.goals.items() if self.own(f"goal.{n}")):
             g = self.spec.goals[name]
             age = ages.get(str(Ref(g.of.kind, g.of.name)))
             if (age is None) != (name not in self.stale):
@@ -998,7 +1051,8 @@ class Engine:
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
                     elif code and not note:
-                        note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
+                        note = (old.STOPPED_WITH_US if old.STOPPING.is_set() or self.stop.is_set()
+                                else STOPPED_BY_OWNER if asked else f"exited {code}")
         finally:                                                 # its entry in the block's log, whole, as it ends
             if rl is not None:
                 from ..repair.capture import TAIL
@@ -1286,17 +1340,18 @@ class Engine:
 
     def _item_sensors(self) -> tuple[dict[bool, list[Sensor]], dict[str, bool]]:
         """The model's sensors that count items, by the fold they count from; and each one's fold."""
-        kept = self.spec.lookups().kept
-        got = kept.get("engine.item_sensors")
+        spec = self.spec
+        kept = spec.lookups().kept
+        got = kept.get(f"engine.item_sensors.{self.shard}")
         if got is None:
             from .counts import transcript_of
             by: dict[bool, list[Sensor]] = {False: [], True: []}
             flag = {}
-            for s in self.spec.sensors():
-                if s.items is not None:
-                    flag[s.series] = transcript_of(self.spec, s)
+            for s in spec.sensors():
+                if s.items is not None and self.own(f"{s.of.kind}.{s.of.name}.{s.name}", spec):
+                    flag[s.series] = transcript_of(spec, s)
                     by[flag[s.series]].append(s)
-            got = kept["engine.item_sensors"] = (by, flag)
+            got = kept[f"engine.item_sensors.{self.shard}"] = (by, flag)
         return got
 
     def _read_here(self, sensors: list[Sensor]) -> list[tuple]:
@@ -1428,12 +1483,13 @@ class Engine:
         """What the clock reads, from this model: its timed sensors and blocks, its judges and its crons. A cron
         already counting down, and written the same, keeps its next time (a model change moves no schedule)."""
         from ..cron import Cron
-        timed = [s for s in spec.sensors() if s.measured and not s.cron]
-        machines = [b for b in spec.blocks.values() if b.machine]
+        sensors = [s for s in spec.sensors() if self.own(f"{s.of.kind}.{s.of.name}.{s.name}", spec)]   # (its shard's)
+        timed = [s for s in sensors if s.measured and not s.cron]
+        machines = [b for b in spec.blocks.values() if b.machine and self.own(f"block.{b.name}", spec)]
         timed_blocks = [b for b in machines if (b.every and not b.cron) and not spec.commanders_of(b.name)]
-        judges = [b for b in spec.blocks.values() if b.type == "judge"]
+        judges = [b for b in spec.blocks.values() if b.type == "judge" and self.own(f"block.{b.name}", spec)]
         new: dict[str, tuple] = {}
-        for s in spec.sensors():
+        for s in sensors:
             if s.measured and s.cron:
                 new[s.series] = (Cron(s.cron), lambda s=s: self.read_soon(s), s.cron)
         for b in machines:
@@ -1610,7 +1666,7 @@ class Engine:
             self.say(f"actions: {aid}: {type(e).__name__}: {e}")
 
     def _initial(self) -> None:
-        for g in self.spec.goals:
+        for g in (g for g in self.spec.goals if self.own(f"goal.{g}")):
             last = self.p.events.query(n=1, item=g, type="loop.*", unvoided=True)
             if last:
                 self.status[g] = last[-1]["type"].split(".", 1)[1]
@@ -1704,8 +1760,12 @@ class Engine:
             before, was = self.spec, self.version
             # all of it worked out first, nothing of the running model touched: a change that cannot be taken (a
             # built-in that will not make, a version that will not hash) leaves the last one running as it was
+            self._shard_of(new)                          # its shard gone from the new plan: refused, nothing taken
+            goals = {n for n in new.goals if self.own(f"goal.{n}", new)}     # what it works on under the new model
+            blocks = {n for n in new.blocks if self.own(f"block.{n}", new)}
+            read = self._measured(new)
             builtins, kept_as = {}, []
-            for n in bl.order(new):
+            for n in (n for n in bl.order(new) if n in blocks):
                 b, kept = new.blocks[n], self.builtins.get(n)
                 if kept is not None and same(kept.b, b):
                     kept_as.append((kept, b))
@@ -1718,7 +1778,7 @@ class Engine:
                             setattr(x, k, v)
                 builtins[n] = x
             version = history.version(model)
-            observer = Observer(new, lambda n: self.history(new, n), carry=self.observer) \
+            observer = Observer(new, lambda n: self.history(new, n), carry=self.observer, mine=self._mine(new)) \
                 if self.observer and opted(new).stocks else None
             carried = sorted(n for n in self.running if n.split(" ", 1)[0] in before.blocks)   # ("block item": a leased run)
             blk = lambda n: n.split(" ", 1)[0]                                                    # noqa: E731
@@ -1732,31 +1792,38 @@ class Engine:
             for n in set(self.builtins) - set(builtins):
                 self.signals.pop(f"block.{n}", None)
             self.builtins = builtins
-            for g in set(self.status) - set(new.goals):
+            for g in set(self.status) - goals:                   # (a goal removed, or moved to another shard)
                 self.status.pop(g, None)
+            for d in (self.per, self.per_rows):
+                for g in set(d) - goals:
+                    d.pop(g, None)
             o = opted(new)                                       # what the new model no longer asks the observer for
-            for g in set(self.stale) - set(o.goals):
+            for g in set(self.stale) - (set(o.goals) & goals):
                 self.stale.pop(g, None)
             self.stale_parts = {k: v for k, v in self.stale_parts.items() if k in {str(r) for r in o.parts}}
             for k in [k for k in self.signals if k.endswith((".estimate", ".uncertainty")) and k.startswith("stock.")]:
-                st = new.stocks.get(k.split(".")[1])
-                if st is None or k.split(".")[2] not in st.sensors and k.split(".")[1] not in o.stocks:
+                st, n = new.stocks.get(k.split(".")[1]), k.split(".")[1]
+                if st is None or k.split(".")[2] not in st.sensors and (n not in o.stocks or not self.own(f"stock.{n}", new)):
                     self.signals.pop(k, None)
+            if read is not None:                                 # a part it no longer reads: its readings forgotten
+                for k in [k for k in self.signals if k.split(".")[0] in ("stock", "flow", "auxiliary")]:
+                    if tuple(k.split(".")[:2]) not in read and not k.endswith((".estimate", ".uncertainty")):
+                        self.signals.pop(k, None)
             self.observer = observer
-            for k in [k for k in self.signals if k.startswith("goal.") and k.split(".")[1] not in new.goals]:
+            for k in [k for k in self.signals if k.startswith("goal.") and k.split(".")[1] not in goals]:
                 self.signals.pop(k, None)
             setters = {t.name for b in new.blocks.values() for t in b.targets() if t.kind == "goal"}
-            for g in set(self.setpoint) - setters:               # a cascade removed: its goal holds what is written
+            for g in set(self.setpoint) - (setters & goals):     # a cascade removed: its goal holds what is written
                 self.setpoint.pop(g, None)
             for a in new.agents.values():
                 if a.name not in self.slots or before.agents.get(a.name) is None or \
                         before.agents[a.name].at_once != a.at_once:
                     self.slots[a.name] = threading.Semaphore(a.at_once)   # (a run holding the old one gives it back)
             for n in list(self.outputs):
-                if n not in new.blocks and n not in self.running:
+                if n not in blocks and n not in self.running:
                     self.outputs.pop(n, None)
                     self.commands.pop(n, None)
-            self.machines = [b for b in new.blocks.values() if b.machine]
+            self.machines = [b for b in new.blocks.values() if b.machine and b.name in blocks]
             self.spec = new
             self.p.model = model
             self.version = version
@@ -1802,7 +1869,7 @@ class Engine:
         # A run still going: its lease given back, not counted (SPEC §9.5). Its process outlived kill_all (or a daemon
         # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
         # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
-        self.dispatch.give_back()
+        self.dispatch.give_back()                # (and every lease still held here, its run's own end failed)
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 
