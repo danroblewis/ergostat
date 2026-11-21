@@ -181,3 +181,14 @@ keeps every test's `tmp_path`, so it may outgrow a 2 GB `/tmp`. Neither is shown
 unit suite run serially in the background (with and without `suite_watch.py`), `taskset -c 0-3` (to run under the
 container's 4 CPUs), and a `du` of `/tmp`'s pytest folder piped through `sort` and `wc`.
 Budget unchanged: about 7 net lines over 100. ruff is clean.
+
+Round 5 (the finding handed over is again review rs-calls-1's blocking one, answered in round 3). Main
+(`20339898`) is merged in (`0fe917fa`), and the fix survives the merge: `cli/record.py`, `cli/leases.py` and
+`cli/gated.py` each make the key once with `fast.key()` and pass it to both the socket call and their own fallback.
+No code changed this round. Run here at the branch's head, one batch of files at a time, serially
+(`-p no:randomly`), all passing: `test_calls`, `test_gated_actions`, `test_leases`, `test_resilience`,
+`test_program_actions`, `test_lease_kill` (116 passed), then `test_daemons`, `test_daemons_restart`,
+`test_spec_engine`, `test_ticket_factory_daemons`, `test_warm` (71 passed). ruff is clean. Not run here: the whole
+unit suite and the browser files. Budget not recounted this round; it is unchanged since round 4 (about 7 net lines
+over 100). Refused this session: a `git diff --numstat` piped through `awk` to recount the budget, which was
+chained after the second test batch (the batch was then run alone).
