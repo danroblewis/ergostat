@@ -56,3 +56,18 @@ case and `test_the_highest_ranked_gap_takes_the_next_free_slot`. Both were resto
 here (the brief leaves it to the factory), so the earlier unnamed `unit` failures are still unnamed. If they come back,
 the factory's full log must name them. This branch changes only the two `after` values, and by reading no other test
 depends on them.
+
+Round 3 (the third `unit` failure, one `F` at about 19%): `.pytest_cache/v/cache/lastfailed` in the worktree named
+`test_a_pool_full_give_back_waits_under_a_minute[implementor-...]` and
+`test_the_highest_ranked_gap_takes_the_next_free_slot`. Those are also the two that round 2's lesson-9 check broke on
+purpose, so the cache does not prove they were the `unit` failure. By reading, this branch's own test harness
+(`Slots`) has a load race. When a played run ends, `Dispatcher._work` pokes the engine. With no loop running, the poke
+runs a whole `evaluate()` in the run's thread, after `running` is cleared, so `Slots.tick`'s wait can end before that
+pass does. Its first pass is a full one: it steps `implement-when` / `review-when` with no sensor readings and pops the
+gate signal the next tick has just set. The dispatcher then reads the block as commanded to 0 and takes nothing. Under
+load the pass is slower and overlaps more often, which fits both tests named and a failure that moves between runs.
+Fix (tests only, no bound changed): `Slots` stubs `e.poke`, since the test is the pass and sets the gate at each tick.
+The dispatch is still the engine's own. The race was not reproduced here (a profiling plugin under /tmp was refused),
+so the fix is shown by reading. Run here: tests/test_factory.py (120 passed, 2 skipped), ruff clean. Separately, each
+test process spends about 60 s once in `Factory.__init__` reading ergostat.yaml (the extremes check). That is main's
+fixture, not this branch's.

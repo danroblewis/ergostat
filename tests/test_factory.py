@@ -3313,6 +3313,10 @@ class Slots:
         self.p.events.add = lambda type_, *a, **k: add(type_, *a, **{"at": self.t0 + self.at, **k})
         self.e.dispatch.pool_now = lambda b: 1 if b.name == block else 0          # (only this block takes, one at once)
         self.e.run_block = self.run_block
+        # (no pass of the engine's own: a run's end pokes it, and with no loop that runs a whole pass of real sensors in
+        # the run's thread, which outlived the tick under load and set the gate from the machine's real readings over
+        # the test's; the test is the pass here, setting the gate at each tick)
+        self.e.poke = lambda *blocks, now=True: None
         self.full = lambda: False
         self.gate = 1.0
         self.taken: list[tuple[float, str, str]] = []                          # (when, the gap, how its run ended)
