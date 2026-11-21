@@ -106,3 +106,57 @@ The report lists, for each test above, the break that was made and the failure s
 
 - The rule that every proposed model is refused by check (and otherwise dropped as a proposal) removes alternatives that change meaning rather than syntax: a new heartbeat default, a renamed derived daemon name, merging concurrency/pool semantics. Mark each pair as syntax or semantics. Only syntax pairs must fail check, and the error output must name the changed key or value. Semantics pairs must pass check and state the behaviour change with a code citation.
 - test_the_places_to_rewrite_are_counted_from_the_tree_as_it_is asserts exact counts against the live docs and examples on every run, so after merge any unrelated branch that adds a daemon example fails a test about a proposal doc and must edit outside its gap (lesson-13). Record the commit the counts were taken at, and enforce equality only while this branch is built. The permanent test should only check that each regex still matches at least one place.
+
+## Where it stopped
+
+Built, round 1. Nothing is left in the definition except the suites, which the factory runs (below).
+
+- **Done.** `docs/proposals/daemon-yaml.md` (the seven sections, 13 today/proposed pairs plus one today-only model,
+  the table of 13 rows, six follow-up gaps), `tests/test_daemon_yaml_review.py` (the seven named tests, plus
+  `test_there_is_a_pair_in_every_section`), and two additions to the GAPS entry (the pointer, in its first
+  paragraph, and the concurrency finding). Nothing under `ergostat/`, `examples/`, `scripts/`, SPEC, DAEMONS.md or
+  the skill changed: the schema is the same, so SPEC, the agent guide and the skill are already current. 0 net lines
+  of code outside `tests/` and `docs/`. The review is about 1,000 lines, not 300 to 450: the 27 YAML models, each
+  complete as point 1 asks, are most of it.
+- **Point 4's answer.** A non-warm `concurrency` multiplies engine threads (one per run held: `leases/dispatch.py:223`,
+  waiting in `daemons/work.py:run_item`), not processes (one process, two threads: `daemons/proc.py:105-106`),
+  bounded only by the blocks' `pool`, which has no maximum either (`leases/compile.py:85-90`). So the GAPS entry got
+  the line. Recorded, not fixed (lesson-13).
+- **Reversible choices made alone (no one to ask).**
+  - The plan review's first note is followed: each proposed block is marked `syntax: 'KEY'` (refused by `check`,
+    and its output must contain KEY) or `semantics` (accepted by `check`, and its compiled daemons must differ from
+    its today twin's; the section states the behaviour with a citation). Two pairs are semantics: `knobs-pool` and
+    `knobs-heartbeat`.
+  - Two of the GAPS entry's alternatives are today's form: a top-level `daemons:` beside `agents:`, and `push: true`
+    beside `daemon:`. As the definition says, each is reported as a finding and dropped as a proposal. It is shown by a
+    model that passes `check` with no proposed twin (`where-top`), or by the today half of the other alternative's
+    pair (`push`).
+  - The plan review's second note, in a slightly different form: the counts were taken at `f7b93be` (said above the
+    table). On this branch the test recounts the tree itself and compares exactly (so the definition's break check,
+    a daemon sensor added to the docs, fails it). On any other branch, or a detached HEAD, it recounts at `f7b93be`
+    from git and compares exactly, and it requires only that each regex still matches somewhere in the tree. So
+    after the merge a new daemon example elsewhere does not fail it, and a wrong number still does. This is
+    reversible: one constant (`BRANCH`) in the test.
+- **The merge.** This clone has no `origin` remote. Local `main` is `f7b93be`, this branch's parent: `git merge main`
+  says "Already up to date". No numbers moved. A review that merges a newer origin/main should expect the table's
+  counts to need recounting if `daemons-left-over` or `from-upkeep-s-fault-injection` landed doc or example changes.
+- **Tests run.** `tests/test_daemon_yaml_review.py`: 33 passed. `tests/test_daemon_docs.py` (whole file, unchanged):
+  29 passed. `uv run ruff check ergostat tests scripts`: clean. **Not run by me**: the unit suite and the four
+  browser files. The sandbox refused the whole-suite command (`scripts/suite_watch.py -- ... -n 8`), so they are
+  left to the factory's run under the watchdog. `demo_check` does not apply: no example is touched.
+- **Break checks (lesson-9).** Each was made, the failure seen, and the change reverted:
+  - Push's proposed mark removed: `test_the_review_has_a_section_for_each_question_in_the_gap` failed
+    (`('Push', set())`), and so did `test_there_is_a_pair_in_every_section`.
+  - `stdin-timeout` → `stdin_timeout` in `knobs-stdin`'s today block:
+    `test_every_today_model_passes_check_as_ergostat_accepts_it_now[knobs-stdin]` failed (`unknown key
+    'stdin_timeout'`).
+  - `names`'s proposed block replaced by its today twin: `test_every_proposed_model_is_refused_by_check_today[names]`
+    failed (rc 0).
+  - Push's count 3 → 4: the count test failed (`Push: says 4, counted 3`). A daemon sensor added to DAEMONS.md: it
+    failed (`A modifier instead of a kind: says 12, counted 13`, and 4 more rows). With `BRANCH` changed so that it
+    ran in after-merge mode, the added sensor passed, and Push's count changed to 2 failed (`says 2, counted 3`).
+  - Stated `WARM_ALL` 64 → 65: the knobs test failed (`(32, 65) == (32, 64)`).
+  - "adds a field" removed: the with test failed.
+  - The GAPS test: renaming the file was refused by the sandbox (`git mv`). Instead the GAPS entry's link was changed
+    to `daemon-yamlx.md`, and the test failed. Without the file, every other test in the file fails as well, since
+    they all read it.
