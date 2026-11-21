@@ -54,3 +54,30 @@ depends-on: [split-verified-1]
 ## Size budget
 150 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+
+Built; every point of the definition is done and its six acceptance tests pass. Choices made alone (the most
+reversible, each easy to undo):
+
+- **"No new problem" in `ergostat check`** is read as no new error or finding. The test compares the branch's errors
+  and findings with main's (the same `ergostat.yaml` and `dev/` of `main`) and finds nothing new. Two *notes* (the
+  structure's advisory screens) change. `system-splits` is new for system `intake`: the split/join parts (`gaps-split`,
+  `gaps-joined`, `join-judge`, `split-watch`) form a cluster with one link to the rest. `time-scales` for `intake`
+  already existed; its numbers changed (`gaps-joined` at 30m is now among the fast parts). Making the split/join parts
+  a system of their own would end the first note, but that moves existing parts, so it is left for the owner.
+- **The judge's settings** are `[ai] join_judge_model = "opus"` and `join_judge_session_usd = 3.0`, the same values as
+  the plan reviewer's, as a role of their own (the session code finds a role's model and cap by its name).
+- **A name already taken** (`<parent-branch>-join-<n>` is a gap id or a branch already, or does not match `fac.SAFE`)
+  fails the run: the cost is recorded, the parent stays in `joined`, and once the lease's attempts run out it becomes
+  a dead letter, which dead.py parks. No other name is tried. The name can only be taken if a run fails between the
+  request and `gap.split` (two lines printed one after the other), or if someone made a gap of that name by hand.
+- **`dev/bin/drain.py`** (not in Files to touch) lists `join-judge` among the AI blocks a switch drains.
+  `tests/test_factory.py::test_a_switch_waits_for_the_runs_under_way` requires every `type: ai` block to be listed.
+- **The planner** is given a requested gap's `entry` field as its GAPS entry. This is how the new sub-gap's points
+  reach it (plan.py's planner, one line).
+- **Not touched:** `[manager.stuck_hours]` names no `joined`, so a parent that waits in `joined` (for example on a
+  spent budget) is not raised as stuck. `dev/bin/times.py` is avoided, as the definition says.
+- **Size:** 3 net lines outside `tests/`, `docs/` and `dev/` (`ergostat.yaml`). Under `dev/` there are about 104 in
+  Python (plan.py 101) and 51 in `dev/model/knowledge.yaml` (the new stock, flows, parameters and block).
+- **origin/main** cannot be merged in: this clone has no remote and no network. Its base is `main` at e8d3e331.
