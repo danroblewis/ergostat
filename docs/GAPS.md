@@ -231,10 +231,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `refused_expiries` folds each expired item uncached, transcripts included, on every measure sample and estimate
   read. Still needed: read `refused` from the item index, and a performance test with many expired items and long
   transcripts.
-- **Daemons, left over:** a daemon's lines are taken one at a time (a run's process batches the lines that arrive
-  together into one write); a sensor daemon's observations (event lines about items, as a `run:` sensor may print) are
-  not taken; a daemon's CPU is sampled every 30 s, so a daemon that lives less than that is measured only when it
-  ends.
 - **Daemons across the engine's own restarts** (follow-up, found in `tf-daemons`' review): the paths that start the
   engine's process again in place (`_restart` and `_restart_hard` in `ergostat/cli/running.py`: an exec for a new
   model's name or store, and the watchdog's last resort after `runner.kill_all()`) do not stop the daemons first. A
@@ -359,6 +355,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Done recently
 
+- **Daemons, left over** (done on `factory/daemons-left-over`; SPEC §6 and §9.7,
+  `docs/roadmap/overnight/daemons-left-over.md`): a daemon's lines that arrive together are taken together, per run,
+  up to 500 at once, in the order printed (`ergostat/daemons/lines.py`), and a line over 1 MiB is dropped; a sensor
+  daemon's observations (`{"event": ..., "item": ..., "sensor": S}`, or a relayed `{"message": ...}`) are checked and
+  recorded as a `run:` sensor's are, from that sensor, at most 50 a second, the drops counted and said once
+  (`ergostat/daemons/observe.py`), and one for a sensor the daemon does not serve is dropped; a new daemon's CPU is
+  sampled about 1 s after it starts, then at doubling gaps up to every 30 s, never two samples within 1 s
+  (`ergostat/costs/sampler.py`).
 - **Warm processes for blocks** (done on `factory/warm3`, finishing `warm2` and `warm3`, each parked after two failed
   gates; SPEC §9.7, `docs/roadmap/overnight/warm2.md`): `warm: true` on a daemon, a declared promise that the program
   keeps no state between runs: `concurrency` processes, one run each at a time, each run charged its process group's
