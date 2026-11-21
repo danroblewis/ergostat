@@ -202,6 +202,9 @@ def context(cfg: dict, gaps: dict[str, dict]) -> str:
 
 
 def groom(cfg: dict, gaps: dict[str, dict]) -> int:
+    if fac.draining(cfg):
+        print("groomer: a switch drains the runs under way: next turn", file=sys.stderr)
+        return 0
     d = fac.run_dir(cfg, "backlog")
     pending = d / "pending.json"
     if pending.is_file():

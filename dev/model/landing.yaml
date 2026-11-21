@@ -40,9 +40,14 @@ stocks:
 auxiliaries:
   drain-minutes:
     unit: minutes
-    description: how long the drain under way has gone (0 when none)
+    description: how long the drain under way has gone (0 when none, or once its switch began)
     driven-by: [+stock.upgrades-draining]
     sensor: {run: python3 dev/bin/drain.py minutes, every: 1m, timeout: 1m, description: the switcher}
+  drain-overrun:
+    unit: minutes
+    description: how far the drain under way has gone past its bound ([upgrade] drain_minutes; 0 within it)
+    driven-by: [+auxiliary.drain-minutes]
+    sensor: {run: python3 dev/bin/drain.py overrun, every: 1m, timeout: 1m, description: the switcher}
 
 flows:
   gaps-approved:
@@ -260,10 +265,10 @@ goals:
     tolerance: 0
     description: the instance runs the newest installed version
   drains-within-bound:
-    auxiliary: drain-minutes
-    hold: "<= 46"
+    auxiliary: drain-overrun
+    hold: "<= 2"
     tolerance: 0
-    description: a drain ends by its bound ([upgrade] drain_minutes, 45, and the switcher's minute) - past it the switch is stuck
+    description: a drain ends by its bound ([upgrade] drain_minutes) and the switcher's next minutes - past them the switch is stuck
 
 actions:
   push-main:
