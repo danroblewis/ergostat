@@ -247,7 +247,7 @@ class Supervisor(Hands):
         try:
             p = Process(slot.d, self.e.spec.root, callback_env(self.e.spec, self.e.p.dir, self.e.socket), log,
                         lambda s, v, n=slot.d.name: self._pushed(n, s, v),
-                        lambda s, o, n=slot.d.name: self._observed(n, s, o))
+                        lambda s, o, t, n=slot.d.name: self._observed(n, s, o, t))
         except OSError as err:
             log.close()
             self._restart(slot, f"could not start: {err}", False)
@@ -372,7 +372,10 @@ class Supervisor(Hands):
         for p in procs:
             p.fail_all(old.STOPPED_WITH_US, True)
             killpg(p.pid, 1.0)                       # (ended or not: what it started goes too)
-        self.flush_observed(every=True)              # (each window's drops said, open or not, before ergostat stops)
+        deadline = time.monotonic() + 1.0            # (its reader's last lines counted, unless something it started
+        while any(not p.ended.is_set() for p in procs) and time.monotonic() < deadline:   # still holds its output)
+            time.sleep(0.02)
+        self.flush_observed(every=True)              # (each window's drops said, open or not; a line after: the log's)
         if self.slots or self.draining:
             self.write(final=True)
 

@@ -366,3 +366,34 @@ branch is clear of it.
   `ruff check ergostat tests scripts` (clean). The full unit suite and the four browser files were not run here. The
   factory runs them under the watchdog. Round 3's lease failure (`test_leases_survive_a_restart_the_fold_is_the_truth`)
   is outside this gap, as said above.
+
+**Round 5: the unit suite stopped again, with no failure shown.** The merge of main (a0dc0ec9) was already committed
+(a72321e3; no conflict markers left in `docs/GAPS.md`). The tail of the factory's unit run passes every test it shows,
+to 2,019 of about 2,031, and then stops in the middle of a line. There is no pytest summary and no closing JSON line
+from `suite_watch.py`. So the watchdog itself ended before it could print, and that means the container stopped, not
+an assertion. This is what round 1 saw. The cause can't be found from a 3,000-character tail, and parallel runs are
+not allowed in this shell. **Not known:** whether the stop comes from this branch. To find out, the factory needs the
+full log and the container's exit reason (OOM or not).
+
+What this round changed answers the four findings of `review/daemons-left-over-1`, which no earlier round had
+answered (lesson-12). One of them is a timing flaw that load can trigger (lesson-10):
+1. *SPEC "taking effect as printed".* It now says the lines take effect in the order printed, and that a run's line
+   may be taken after lines of the same read that are no run's (requests, readings, observations) printed after it.
+2. *The burst depends on load.* The lines of one read are now judged at the time the read came (`Process.read_at`, on
+   `observe._now`, passed to `on_observe(sensor, obj, now)` and `Hands._observed(..., now)`). They are no longer
+   judged at the time each line is recorded. So 50 slow record writes can no longer close the window before the 51st
+   line is judged. New test: `test_a_reads_observations_are_judged_at_the_time_it_was_read`. It feeds 60 lines in one
+   `chunk` and moves the clock 0.03 s with each record. With the old behaviour (`now=None`) it records 60 and fails
+   (tried).
+3. *Lines after `close`'s flush.* `Supervisor.close` now waits up to 1 s after `killpg` for the readers to end, then
+   flushes. The flush with `every=True` sets `Observed.closed`, so a line read after it opens no window. It is
+   stray-logged ("... or after ergostat stopped") and never counted. SPEC says so. New test:
+   `test_a_line_after_the_stops_flush_is_logged_not_counted`. With the `closed` check removed it fails (tried).
+4. *lesson-7.* `daemons-across-the-engine-s-own-restarts` is still not on main. When it lands, the merge queue should
+   run the daemon suites again.
+
+Size: about +14 net lines under `ergostat/`, so about 232 in all (budget 260). Run here, one file per command:
+`test_daemon_lines.py` (7), `test_daemon_observations.py` (9), `test_sampler_ramp.py` (3, before this change; it
+touches no sampler code), `test_daemons.py` (28), `test_warm.py` (21), `test_daemon_docs.py` (29), `test_run_costs.py`
+(14) and `test_ticket_factory_daemons.py` (6), all passed. `ruff check ergostat tests scripts` is clean. The full unit
+suite and the four browser files were not run here.

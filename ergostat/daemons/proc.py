@@ -17,7 +17,7 @@ import threading
 import time
 
 from ..costs.sampler import Measured
-from . import lines, usage
+from . import lines, observe, usage
 
 QUEUE = 1000                 # lines waiting for its standard input, at most
 CHUNK = 65536                # bytes read from its standard output at once
@@ -84,9 +84,10 @@ class Handle:
 
 
 class Process:
-    def __init__(self, d, cwd, env: dict, log, on_push, on_observe=lambda sensor, obj: False):
+    def __init__(self, d, cwd, env: dict, log, on_push, on_observe=lambda sensor, obj, now: False):
         self.d, self.log, self.on_push, self.on_observe = d, log, on_push, on_observe
         self.partial, self.skipping = b"", False     # (the reader's: a line not yet whole; one over LINE_MAX)
+        self.read_at: float | None = None            # (the reader's: when this read came, on observe's clock)
         self.q: queue.Queue = queue.Queue(QUEUE)
         self.lock = threading.Lock()
         self.runs: dict[str, Handle] = {}
@@ -167,7 +168,7 @@ class Process:
         """One read's bytes: its whole lines (UTF-8, what is not replaced) taken in ``lines.plan``'s order, a run's
         together; a partial line kept for the rest of it (at the end of the output, taken as it is). A line over
         ``LINE_MAX`` is dropped up to its newline, said once, never held."""
-        self.last_out = time.monotonic()
+        self.last_out, self.read_at = time.monotonic(), observe._now()   # (its observations judged at one time)
         if self.skipping:                            # (the rest of a line over LINE_MAX, up to its newline)
             cut = data.find(b"\n")
             if cut < 0:
@@ -255,9 +256,9 @@ class Process:
         if "sensor" in obj and ("event" in obj or "message" in obj):
             if "reading" in obj:
                 return self.stray(text, "a reading or an observation, not both")
-            if self.on_observe(obj["sensor"], obj):
+            if self.on_observe(obj["sensor"], obj, self.read_at):
                 return None
-            return self.stray(text, "an observation for no sensor of its own")
+            return self.stray(text, "an observation for no sensor of its own, or after ergostat stopped")
         if "sensor" in obj and "reading" in obj and self.on_push(obj["sensor"], obj["reading"]):
             return None
         return self.stray(text, "tagged with no run, request or push sensor of its own")

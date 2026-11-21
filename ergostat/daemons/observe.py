@@ -28,6 +28,7 @@ class Observed:
     def __init__(self):
         self.lock = threading.Lock()
         self.windows: dict[str, Window] = {}
+        self.closed = False         # (flushed at ergostat's stop: a line after it is the log's, never a window's)
 
     @staticmethod
     def _decide(w: Window | None, now: float) -> tuple[bool, bool]:
@@ -35,10 +36,13 @@ class Observed:
         fresh = w is None or now - w.t0 >= 1.0
         return fresh, fresh or w.n < OBSERVE_PER_S
 
-    def admit(self, sensor: str, now: float | None = None) -> tuple[bool, int]:
-        """One line of ``sensor``'s: whether it is taken, and the drops of its window just closed, to be said now."""
+    def admit(self, sensor: str, now: float | None = None) -> tuple[bool | None, int]:
+        """One line of ``sensor``'s: whether it is taken (None: ergostat has stopped), and the drops of its window just
+        closed, to be said now. ``now``: when the line was read (a read's lines are judged at one time)."""
         now = _now() if now is None else now
         with self.lock:
+            if self.closed:
+                return None, 0
             w = self.windows.get(sensor)
             fresh, ok = self._decide(w, now)
             closed = w.dropped if fresh and w is not None else 0
@@ -49,8 +53,10 @@ class Observed:
             return ok, closed
 
     def flush(self, now: float | None = None, every: bool = False) -> list[tuple[str, int]]:
-        """The windows a second old (``every``: all of them) closed: each one's drops, popped, to be said once."""
+        """The windows a second old (``every``: all of them, and none opened after) closed: each one's drops, popped,
+        to be said once."""
         now = _now() if now is None else now
         with self.lock:
+            self.closed = self.closed or every
             done = [s for s, w in self.windows.items() if every or now - w.t0 >= 1.0]
             return [(s, w.dropped) for s in done if (w := self.windows.pop(s)).dropped]
