@@ -469,3 +469,6 @@ origin/main merge.
   `modeller_spend`, which this branch does not touch. Run alone, the file passes 22 of 22, so the failure appears
   only when it runs with other files (lesson-10/13). It is named here and left alone. Not run: the whole unit suite
   and the four browser files under `suite_watch.py` (left to the factory).
+- Round 8, the scratch-file gate: the merge of main was already committed (96f24c13; main is an ancestor of HEAD, no
+  conflict markers in `judge.py`). `git rm -q scratch_probe.py` was refused the twenty-third time ("don't ask"
+  mode). No other route was tried. Only a person can clear it: `git rm scratch_probe.py && git commit`.
