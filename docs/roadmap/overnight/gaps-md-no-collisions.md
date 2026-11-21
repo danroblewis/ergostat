@@ -117,3 +117,9 @@ committed. Afterwards: `tests/test_factory.py -k "merge_cleanly or park"` 10 pas
 "fixture or duplicated"` 3 passed, and ruff is clean. The full unit suite and the browser files were not run here
 (the factory runs them). `git rm .gitattributes` was refused again, so the root `.gitattributes` is still
 committed. What is left is still one command: `git rm .gitattributes && git commit`.
+
+### Round 6, second try
+The merge of main was already committed (030fa648) and the tree was clean. Read-only Bash worked; `git rm
+.gitattributes` was refused again, so the root `.gitattributes` is still committed. I did not remove it with the
+file tools, since that is the removal the refusal blocked, done another way. Nothing else changed. What is left is
+the same one command, `git rm .gitattributes && git commit`, for the coordinator or a session allowed `git rm`.
