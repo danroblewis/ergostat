@@ -56,3 +56,14 @@ acceptance tests fail (an extra `upgrade.withdrawn`). With `keep` widened to cov
 third fails (the drain is not taken over). With the line restored, the tree is identical to the commit. No code was
 changed in this round. Not run here: the four browser files and demo_check (no example was touched). Left to the
 factory: its own unit and browser runs.
+
+Third report of `unit` failing, after d76b7354: this tail ends at 88% with no `F`, no `E`, no FAILED line and no
+summary, so pytest never reported a failure. The run was stopped from outside. dev/bin/onmain.py classes a unit
+failure that names no test the same way ("a watchdog kill: nothing to run alone"). The same tree ran the whole unit
+suite to rc 0 in round 2 (2475 passed in 631 s), so the cut-short runs look like a limit on the suite's time or
+memory on the factory's side, not a test this branch breaks. That is not proven: the cause of the kill is not in the
+tail. Run here: tests/test_factory.py, 119 passed, 2 skipped (285 s). Refused here: the whole unit suite under the
+watchdog (`timeout 1500 uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal -rfE
+-p no:cacheprovider`, run in the background), and a `sed` of this file. No code was changed: there is no failing test
+to fix, and a guessed change would be outside the gap (lesson-13). Left open: the factory's unit run with its full
+output (or suite_watch's kill reason), to show whether something killed it or a test hung.
