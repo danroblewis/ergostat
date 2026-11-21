@@ -435,3 +435,5 @@ origin/main merge.
   round 3 describes, for a session that can run its test.
 - **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`, with the uncommitted doc edits.
   Then the merge queue merges origin/main and runs the suites under `suite_watch.py`.
+- Round 7, the scratch-file gate: `git rm -q scratch_probe.py` was refused a twentieth time ("don't ask" mode). No
+  other route was tried. Nothing deleted, committed or run; this line is not committed by this session.
