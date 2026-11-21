@@ -421,3 +421,5 @@ origin/main merge.
 - **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`, with the uncommitted doc edits.
   Then the merge queue merges origin/main and runs the suites under `suite_watch.py`. Do not send this item to
   another automated round.
+- Round 6, the scratch-file gate again: `git rm -q scratch_probe.py` was refused a seventeenth time ("don't ask"
+  mode). No other route was tried. Nothing deleted, committed or run; this line is not committed by this session.
