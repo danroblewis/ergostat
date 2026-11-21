@@ -40,7 +40,7 @@ def graph(p, m, snap: dict, q: dict) -> dict:
         if got is not None and time.time() - got[0] < KEPT:
             return got[1]
     now = snap["at"]
-    ans = precedence.build(ev, spec, kinds, now, now - snap["window"])
+    ans = precedence.build(ev, spec, kinds, now, now - snap["window"], until=None if live else now)   # as it stood then
     ans["asked"] = kinds
     with _LOCK:
         for k in [k for k in _CACHE if k[:2] == key[:2] or time.time() - _CACHE[k][0] > KEPT]:
