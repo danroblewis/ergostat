@@ -74,9 +74,10 @@ def due(p, spec: Spec) -> list[dict]:
 
 
 def tries(p, x: dict) -> int:
-    """Calls on this change as it stands (each stamped with what it read): none made on an earlier version count."""
+    """Calls on this change as it stands (each stamped with what it read): none made on an earlier version count, nor
+    any that failed (``modeller.call``'s ``error``)."""
     return sum(1 for e in p.events.query(n=None, type=RAN) if (d := e.get("data") or {}).get("change") == x["id"]
-               and d.get("read") == seen(x))
+               and d.get("read") == seen(x) and not d.get("error"))
 
 
 def author(spec: Spec, x: dict) -> str | None:
@@ -228,15 +229,18 @@ def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: floa
             usd = float(got.get("usd") or 0.0)
             out["cost"]["usd"] = round(out["cost"]["usd"] + usd, 6)
             out["cost"]["calls"] += 1
-            p.events.add(RAN, source="reviewer", data={"change": x["id"], "usd": usd, "model": model, "read": seen(x)})
+            p.events.add(RAN, source="reviewer", data={"change": x["id"], "usd": usd, "model": model, "read": seen(x),
+                                                            **({"error": got["error"]} if got.get("error") else {})})
         if on_call is not None:
             on_call(got)
-        v = parse(got.get("result") or "")
-        if v is None and tries(p, x) >= TRIES:   # it cannot decide: given up, the owner's
+        v = None if got.get("error") else parse(got.get("result") or "")
+        if v is None and not got.get("error") and tries(p, x) >= TRIES:     # it cannot decide: the owner's (a failed call is no try)
             v = {"verdict": UNDECIDED, "findings": [], "summary": f"the reviewer could not decide in {TRIES} tries "
                  f"({got.get('error') or 'no verdict with its reasons'})"}
         if v is None:                       # no verdict with specific reasons: nothing recorded; it is read again next pass
             out["verdicts"].append({"id": x["id"], "verdict": None, "why": got.get("error") or "no verdict with its reasons"})
+            if got.get("error"):                # a failed call: no more this run (as the modeller's)
+                break
             continue
         out["verdicts"].append({"id": x["id"], "verdict": record(p, spec, x, v, cost=usd)})
     return out
