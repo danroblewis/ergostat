@@ -622,6 +622,9 @@ def test_the_run_wrapper_records_the_exit_under_each_shell(tmp_path, shell):
     assert got.returncode == -15 and f["exit"].read_text() == "143\n"          # ended by a signal: as without it
     import os
     import signal
+    tstp = 128 + signal.SIGTSTP                                                # a stop signal's code: never stops the wrapper
+    got = subprocess.run([path, *runrecord.command(f"exit {tstp}", f)[1:]], timeout=10, start_new_session=True)
+    assert got.returncode == tstp and f["exit"].read_text() == f"{tstp}\n"
     import sys
     import time
     deaf = f"{sys.executable} -c \"import signal, time; signal.signal(15, signal.SIG_IGN); time.sleep(1); print('late')\""
