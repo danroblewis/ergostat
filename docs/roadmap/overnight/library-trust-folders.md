@@ -277,3 +277,17 @@ compare it with a run on clean main before holding this branch on it.
   Size: 287 net lines outside tests and docs (budget 330).
 
 **Left:** run the unit suite and the four browser files under the watchdog.
+
+### The factory's unit run after round 5
+
+The tail it gave stops at 76% with no `F`, no `E`, no traceback, no summary line and no watchdog JSON line. The run
+was cut off and names no failing test, so no code was changed. The merge of main at 0216e0e5 was already finished
+(b899163e), and the tree was clean. A shell loop over test files was refused here
+(`for f in ...; do ... pytest ... tests/$f.py; done`), so the files were run singly instead. Run here after the
+merge, all passed: `test_library_trust` (46), `test_templates` and `test_modelling_template` (40, unchanged),
+`test_spec_schema` (27) and `test_modelling_core` (24). Also run were the merged files that touch templates or
+`uses:`: `test_modeller`, `test_modelreview`, `test_redesign` and `test_act_risk` (84), and `test_improve`,
+`test_modelling_ai_cap`, `test_runlog` and `test_resilience` (102). Ruff is clean.
+
+**Left:** run the unit suite and the four browser files under the watchdog, and keep the whole output. If the run is
+cut off again, read the watchdog's JSON line (whether it killed the run, and why) before looking at this branch.
