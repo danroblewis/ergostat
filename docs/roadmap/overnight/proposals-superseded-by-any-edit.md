@@ -201,3 +201,15 @@ here: `tests/test_churn_carry.py` (17 passed), and the six named files in one in
 `test_modelling_core`, `test_modelling_core2`, `test_review`, `test_bench`, `test_improve`: 109 passed). Ruff is clean.
 Not run here: the whole unit suite, the four browser files and `suite_watch` (left to the factory). The lease timing
 test above is still outside this gap.
+
+**After the factory's third unit run failed.** Two tests failed, out of 1948: the lease test above again, and
+`tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped` (it waits 5 s for a third process to
+start after the owner stops a run; under the run's load, 115 processes, that start had not happened yet). Neither test
+reaches this branch's code. Both models are a `program` block with a lease (`test_leases.model`, `test_warm.block`):
+no judge block, no `use: modelling`, and no program in them emits `propose`. So `judge.run` (`engine.judge`),
+`improve.submit` (`engine`'s `propose`), `review.refresh` and `proposals` never run in them. This branch changes only
+`ergostat/numbers/{proposals,review,judge,improve}.py`, not the engine, leases, daemons or warm processes. Both are
+timing waits in tests of process start-up and lease renewal under eight workers (lesson-10). Their fix belongs in a
+gap of their own (the parked lease-shutdown-race gap or a new warm-restart one), not here (lesson-13), so no code was
+changed. In this session the shell was refused, so neither test could be run alone or the suite run again; the
+factory's next run is what will show whether they pass.
