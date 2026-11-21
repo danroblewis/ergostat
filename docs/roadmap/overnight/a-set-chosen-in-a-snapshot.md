@@ -128,3 +128,14 @@ Run here: `tests/test_snapshot_sets.py` (4 passed), `tests/test_graph_cli_web.py
 **Still not run: the three browser tests.** `tests/test_items_page.py` and `tests/test_diagram_rendering.py` skip
 because there is no `playwright` module in this container. Their lesson-9 breaks are still to be made by the
 browser gate. The unit suite was not rerun here after the merge; the factory runs it.
+
+Round 2, after the fast suites. The `unit` tail given stopped at 72% with no test named. Run again here, serially,
+in four chunks (`tests/test_[a-d]*`, `[e-m]`, `[n-r]`, `[s-z]`): 2131 passed, 69 skipped, 1 failed. The failure is
+`tests/test_modelling_core.py::test_an_owner_asked_redesign_is_an_ask_the_block_takes_up`, at its line 161:
+`threading.active_count()` was 39 after `redesign_asked`, against 38 before. Its file alone passes (24 passed), and so
+does it after this branch's own test files in one process (28 passed). It counts every thread in the process, so a
+thread that an earlier test of the chunk started, and that is still going, throws the count off. It does not
+touch the snapshot: `git diff main...HEAD -- ergostat` is only `web/snapshot.py` (+2) and `web/snapshot_sets.py`
+(+75), and neither starts a thread. So it is not this gap's, and it is left unfixed here (lesson-13). Its own gap
+should count only the threads `redesign_asked` starts, not every thread alive. Still not run: the three browser
+tests (no `playwright` here) and the full suite under `-n 8` (a whole-suite run was refused here). Ruff is clean.
