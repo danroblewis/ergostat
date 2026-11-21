@@ -41,7 +41,7 @@ from ..costs.sampler import SAMPLER, Measured
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
 from . import blocks as bl
-from . import stream, triggers
+from . import runrecord, stream, triggers
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 from .observer import KEEP, RUN, Observer, estimated, opted, stale_age
@@ -94,6 +94,7 @@ def every_pass(b: Block) -> bool:
 
 class Engine:
     incremental = True                                 # a pass works out only what changed (False: everything, each pass)
+    lock_wait = 5.0                                    # seconds ``close`` waits for a lock it stops under, at most
 
     def __init__(self, project, say=print):
         self.p, self.say = project, say
@@ -798,6 +799,10 @@ class Engine:
                "outputs": {p: [str(r) for r in rs] for p, rs in b.outputs.items()}}
         if stale := self.stale_in(b):
             out["stale"] = {k: round(v, 1) for k, v in stale.items()}
+        if self.spec.improve.reviewed and b.type in ("ai", "person"):   # an author: the reviewer's verdicts on its changes
+            from ..numbers import reviewer as rv
+            if said := rv.memory(self.p, b.name):
+                out["reviewer"] = said
         law = {k: b.params[k] for k in ("gain", "integral-time", "deadband", "resolution", "limits") if b.params.get(k) is not None}
         if law:
             out["params"] = law                                   # its control law's constants, as the model writes them
@@ -946,23 +951,34 @@ class Engine:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
             else:
+                files, proc = runrecord.files(self.p.dir, begun["id"]), None   # its input, output, exit, record
                 try:
                     if refused:
                         raise OSError(refused)
-                    proc = Measured(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
+                    files["in"].write_text(stdin or "", encoding="utf-8")
+                    with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
+                        proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
+                                        stderr=lf, start_new_session=True)
+                    runrecord.write(files, proc.pid, begun["id"], b.name, item, fence)
                 except OSError as e:
                     note = refused or f"could not start: {e}"
+                    if proc is not None:                         # started, but its record not written: stopped
+                        old._kill(proc)
+                        proc.wait()
+                    runrecord.remove(files)
                 else:
                     old.LIVE.add(proc)
+                    if self.stop.is_set():                       # this engine stopping (set before its kill_all): it may
+                        old._kill(proc)                          # have missed this run (not STOPPING: process-wide)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                     try:
-                        if stream.pump(proc, stdin, b.timeout, take):
+                        if stream.follow(proc, files["out"], b.timeout, take):
                             note = f"stopped after its timeout of {b.timeout:g}s"
                     finally:
+                        runrecord.remove(files)                      # read to its end: nothing left to take again
                         resources = SAMPLER.finish(tracked)
                         old.LIVE.discard(proc)
                         with self.lock:
@@ -1753,8 +1769,19 @@ class Engine:
         return {**said, "version": self.version, "seconds": {"swap": round(worked, 3),
                                                              "record": round(time.monotonic() - took, 3)}}
 
+    def shut(self, wait: float) -> None:
+        """Dispatch closed: the stop set under the lock a take checks it under, so a lease taken past this waits in
+        ``running``. Never waited on for good (at most ``wait``: a lock held by something wedged, as the watchdog
+        allows); a take past its check without it sees the stop again after its write, and gives the item back."""
+        got = self.lock.acquire(timeout=wait)
+        try:
+            self.stop.set()
+        finally:
+            if got:
+                self.lock.release()
+
     def close(self) -> None:
-        self.stop.set()
+        self.shut(self.lock_wait)
         self.wake.set()
         if self.calls is not None:
             self.calls.close()
@@ -1766,6 +1793,10 @@ class Engine:
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
             time.sleep(0.05)
+        # A run still going: its lease given back, not counted (SPEC §9.5). Its process outlived kill_all (or a daemon
+        # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
+        # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
+        self.dispatch.give_back()
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 

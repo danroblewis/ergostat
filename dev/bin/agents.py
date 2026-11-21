@@ -221,14 +221,18 @@ def scrub(text: str, tok: str) -> str:
 # ---- the work: clones made here, bundles back
 
 def drop(cfg: dict) -> Path:
-    """The factory's own bare repository: what sessions return lands here, never in the owner's."""
+    """The factory's own bare repository: what sessions return lands here, never in the owner's. Its main is the
+    checkout's ``refs/remotes/<remote>/<base>`` (main as pushed), never the checkout's own main."""
     d = fac.path(cfg, "live") / "drop.git"
     if not (d / "HEAD").exists():
         d.parent.mkdir(parents=True, exist_ok=True)
         fac.git(d.parent, "init", "-q", "--bare", str(d))
     base = cfg["git"]["base"]
     fac.git(d, "symbolic-ref", "HEAD", f"refs/heads/{base}")
-    fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")), f"+refs/heads/{base}:refs/heads/{base}")
+    # main as pushed (the checkout's <remote>/<base>), never the checkout's own main, where the queue merges before
+    # testing: branches forked from that carried merges that later failed and were undone (operator, 2026-11-20)
+    remote = cfg["git"].get("remote", "origin")
+    fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")), f"+refs/remotes/{remote}/{base}:refs/heads/{base}")
     return d
 
 
@@ -316,10 +320,13 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
     ``tests``: the test ids a suite's `{tests}` names (each shell-quoted)."""
     import resources
     out: dict = {}
-    for n in names:
+    held = fac.quarantine(fac.path(cfg, "live") / "drop.git", cfg["git"]["base"])    # main's list: run beside
+    own = [t for t in fac.quarantine(home / "work", "HEAD") if t not in held]   # the work's own lines: deselected
+    for n in names:                                    # here only (this run lands nothing; the queue reads main's)
         cmd, name = cfg["suites"][n], None
         if tests is not None:
             cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
+        cmd = fac.deselected(n, cmd, held + own)
         if cfg["ai"]["mode"] != "standin":
             name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"
@@ -334,6 +341,9 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             text = log.read_text()
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
+    if "unit" in out:                                  # the quarantined tests beside it, never blocking
+        fac.beside(held, logs / f"{tag}-quarantined-alone.txt",
+                   lambda ts: suites(cfg, home, ("alone",), logs, f"{tag}-quarantined", tests=ts))
     return out
 
 

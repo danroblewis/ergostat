@@ -57,7 +57,7 @@ def rerank(gaps: dict[str, dict], by: str, over: dict | None = None, extra: dict
 
 def check(gaps: dict[str, dict], p: dict) -> tuple[dict, list[str]]:
     """A proposal as it can be applied, and what was refused: names that are no gap, links that close a cycle, fields
-    of a pinned gap's rank, closes of gaps started."""
+    of a pinned gap's rank, closes of gaps started, splits of a gap with built work."""
     refused, out = [], {"links_add": [], "links_rm": [], "grooming": {}, "closes": [], "splits": []}
     graph = {gid: set(g["fields"].get("depends_on") or []) for gid, g in gaps.items()}
     for a, b, *why in p.get("links_rm") or []:
@@ -90,9 +90,33 @@ def check(gaps: dict[str, dict], p: dict) -> tuple[dict, list[str]]:
         else:
             graph.update(moved)
             out["closes"].append({**c, "repointed": sorted(moved)})
-    out["splits"] = [s for s in p.get("splits") or [] if s.get("gap") in gaps and gaps[s["gap"]]["state"] in CLOSABLE
-                     and 2 <= len(s.get("into") or []) <= 6 and f"{s['gap']}-1" not in gaps]
+    for s in p.get("splits") or []:
+        if s.get("gap") in gaps and gaps[s["gap"]]["state"] in CLOSABLE and 2 <= len(s.get("into") or []) <= 6 \
+                and f"{s['gap']}-1" not in gaps:
+            why = built(gaps[s["gap"]])
+            if why:
+                refused.append(f"split {s['gap']}: {why}; its parts would start from main and abandon that work")
+            else:
+                out["splits"].append(s)
     return out, refused
+
+
+def built(g: dict) -> str | None:
+    """Why the gap has built work a split would abandon: it continues a branch, or its branch in the drop has commits
+    main lacks; a drop or branch that cannot be read counts as work (lesson-3). None: no branch, or none ahead."""
+    if g["fields"].get("continues"):
+        return f"it continues {g['fields']['continues']}"
+    try:
+        import agents
+        cfg = fac.config()
+        d, base = agents.drop(cfg), f"refs/heads/{cfg['git']['base']}"
+        ref = f"refs/heads/{fac.git_branch(fac.branch_of(g))}"
+        if not fac.git_ok(d, "rev-parse", "--verify", "-q", ref) and fac.git_ok(d, "rev-parse", "--verify", "-q", base):
+            return None
+        n = int(fac.git(d, "rev-list", "--count", f"{base}..{ref}"))
+    except Exception as e:                                         # unreadable: the worst case, work
+        return f"its branch could not be read ({str(e)[:200]})"
+    return f"its branch has {n} commits main lacks" if n else None
 
 
 def close(gaps: dict, gid: str, end: str, why: str, of: str | None, by: str) -> None:
@@ -192,7 +216,7 @@ def context(cfg: dict, gaps: dict[str, dict]) -> str:
         where = str(f.get("definition") or "")
         text = brief.definition_text(cfg, where, fac.branch_of(g))[:1500] if where else ""
         rows.append(f"### {gid} ({g['state']}{', pinned at ' + str(f['rank_pin']) if f.get('rank_pin') else ''})\n\n"
-                    + json.dumps({k: f.get(k) for k in ("title", "branch", "source", "rank", "depends_on", *FIELDS)
+                    + json.dumps({k: f.get(k) for k in ("title", "branch", "continues", "source", "rank", "depends_on", *FIELDS)
                                   if f.get(k) not in (None, "", [])})
                     + f"\n\n{brief.gaps_entry(cfg, str(f.get('title') or ''))}\n\n{text}".rstrip())
     _, mods = knowledge.module_map(cfg)
@@ -202,6 +226,9 @@ def context(cfg: dict, gaps: dict[str, dict]) -> str:
 
 
 def groom(cfg: dict, gaps: dict[str, dict]) -> int:
+    if fac.draining(cfg):
+        print("groomer: a switch drains the runs under way: next turn", file=sys.stderr)
+        return 0
     d = fac.run_dir(cfg, "backlog")
     pending = d / "pending.json"
     if pending.is_file():
