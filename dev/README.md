@@ -141,8 +141,11 @@ gap/NAME` shows each round, its reviews, the context each session was given and 
 
 **The kill rule** is in `[gates]` (dev/factory.toml): `kill_after = 6` failed gates (fix verdicts, queue conflicts, real
 failures in the queue), `build_failures = 6` failed fast-suite runs of the implementor's, or `build_hours = 12` of
-building over its rounds, park a gap; within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make
-its failing fast suites pass.
+building over its rounds, park a gap. The three count over the gap's whole life (each a `sum` in the gap kind's fold:
+each failed build adds one to `build_failures`): a later successful build or a review round resets none of them, and a
+gap continued from a park (`manage.py continue`, `parks.py resume`) is a new item, under an id not yet in the record,
+that starts from zero. Within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make its failing fast
+suites pass.
 
 **Scratch files are refused by a program, not a review.** After each session, before the fast suites, implement.py
 lists the files the branch adds against main and refuses any with a path part matching `[gates] scratch_patterns`
