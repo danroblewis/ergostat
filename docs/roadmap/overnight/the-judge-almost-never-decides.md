@@ -372,3 +372,5 @@ origin/main merge.
   was tried: they would get around the same refusal. No code changed and no test was run.
 - **Left, and only a person can do it:** `git rm scratch_probe.py`, then commit it together with this file's
   uncommitted doc edits. Another automated round will be refused the same way.
+- Tried once more in the same round: every Bash call was refused (the ninth refusal), so nothing was deleted,
+  committed or run. Nothing in `ergostat/`, `tests/` or `scripts/` names `scratch_probe.py` (checked by search).
