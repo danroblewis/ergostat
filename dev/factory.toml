@@ -128,10 +128,12 @@ build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_
                                      # and the step runs the full unit suite, as before. The merge queue never reads
                                      # it: it always runs unit, browser and demo in full
 browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+browser_ready = "uv run --with playwright==1.63.0 python -c 'from playwright.sync_api import sync_playwright as s; p = s().start(); p.chromium.launch().close(); p.stop()'"
+                                     # before each implementor round (agents.browser_ready): no browser stops it
 demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
-rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
+rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -p no:randomly {tests}"
 check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
 queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the
                                      # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under
