@@ -268,9 +268,10 @@ or unreadable bookmark makes it read every gap again (and write only a changed t
   visit runs from the move into the state to the next move, in the record's order (the fold's moves, the lease's own
   `leased` and `dead` among them); the visit a gap is in now counts once it ends (`status.py` shows it apart).
 - `loop_rounds`, `loop_hours`, `loop_ended`: the build-review loop as one span, from the first time the gap is taken to
-  build (leased from ready or fix) to the first approval, park, close or dead letter after its last build; its rounds are its
-  builds. A queue send-back (a conflict, a denied push, a real failure) is part of the loop: it ends at the last
-  approval. While it still goes round, `loop_ended` is empty and its span runs to its latest move.
+  build (leased from ready or fix) to the first approval, park, close or dead letter after its last build and its last
+  send-back; its rounds are its builds. A queue send-back (a conflict, a denied push, a real failure) reopens the loop:
+  it ends at the approval after it, or at a park or close straight from fix. While it still goes round, `loop_ended` is
+  empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
   `build_hours`), `fast` (its ruff and unit suites, every try in a round, `fast_seconds`; a build recorded before it
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
@@ -282,7 +283,8 @@ there, so `time_in` and the loop are counted as before, but the events carrying 
 gates start from the snapshot's own (what the gap's last `gap.timed` before the roll-up said), and only the events
 after it are added, so a later event or a lost bookmark recounts them the same; a merge in the snapshot still waiting
 for its push is carried over from the snapshot's state. A gap rolled up before it was ever timed (the first run on an
-old record) has its gates unknown (`null`), counted in no gate's measure rather than as zero; gate events between its
+old record) has its gates unknown (`null`), counted in no gate's measure rather than as zero, and stays so even if
+it is built again (a sum of only its later rounds would be an undercount read as a whole); gate events between its
 last `gap.timed` and the roll-up (only if the timer was stopped that long) are not counted.
 
 The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, `loop-hours`, `loop-rounds` and

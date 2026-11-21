@@ -50,14 +50,16 @@ def visits(moves: list[dict]) -> dict:
 
 def loop(moves: list[dict]) -> dict:
     """The build-review loop: from the first time the gap is taken to build (leased from ready or fix, else started)
-    to the first approval, park, close or dead letter after its last build; its rounds are its builds. While it is still
-    going round, its span runs to its latest move and loop_ended is None."""
+    to the first approval, park, close or dead letter after its last build and its last send-back (a send-back after an
+    approval, by the queue or triage, reopens the loop); its rounds are its builds. While it is still going round, its
+    span runs to its latest move and loop_ended is None."""
     first = next((i for i, m in enumerate(moves) if m["to"] == "building"
                   or (m["to"] == "leased" and m.get("from") in ("ready", "fix"))), None)
     if first is None:
         return {"loop_rounds": 0, "loop_hours": None, "loop_ended": None}
     builds = [i for i, m in enumerate(moves) if m["to"] == "building" and i >= first]
-    end = next((m for m in moves[(builds or [first])[-1]:] if m["to"] in EXITS), None)
+    back = [i for i, m in enumerate(moves) if m["to"] == "fix" and i >= first]
+    end = next((m for m in moves[max(builds + back + [first]):] if m["to"] in EXITS), None)
     last = end or moves[-1]
     return {"loop_rounds": len(builds), "loop_hours": round((float(last["time"]) - float(moves[first]["time"])) / 3600, 4),
             "loop_ended": float(end["time"]) if end else None}
