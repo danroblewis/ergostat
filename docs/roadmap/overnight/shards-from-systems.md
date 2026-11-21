@@ -194,3 +194,19 @@ If a full run names a failing test, that test is the place to start.
 - Run: `tests/test_shards.py` (14 passed), `tests/test_spec_systems.py` with `tests/test_warm.py` (28 passed), and ruff
   (clean). Not run here: the full unit and browser suites, which the factory runs. Local `main` (7b39bc94) is already
   merged in.
+
+### After round 4: the factory's unit run
+
+The factory's `unit` run failed on one test, `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`
+(1 failed, 1956 passed). After `second.close()`, one item's lease still had a holder. This is unrelated to this branch:
+- the branch changes only `ergostat/spec/shards.py`, `tests/test_shards.py`, SPEC, GAPS and this file;
+- nothing in `ergostat/` imports `shards.py`, and `test_leases.py` reads no docs;
+- here the test passed alone (1 passed). In one run of `tests/test_leases.py` it failed the same way, and in the next
+  run of that file it passed (20 passed). So the failure depends on timing (lesson-10).
+
+A guess I have not checked: an item may be leased again just as the second engine stops (after the first lease
+expires). Closing the engine might then neither stop that run nor end its lease, so no `ended` event with "stopped with
+ergostat" is written. That would be a real race in the lease dispatcher's stop path (`ergostat/leases/dispatch.py`), not
+a fixed sleep in the test. The factory asked for a fix, but lesson-13 and this definition of done keep it out of this
+branch, so I left `ergostat/leases/` unchanged. That is the more reversible choice. It needs its own gap: on close,
+an engine gives back every lease it took, including one taken while it was stopping. No code changed this round.
