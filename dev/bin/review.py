@@ -23,6 +23,7 @@ sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
+import implement  # noqa: E402
 import parks  # noqa: E402
 import pools  # noqa: E402
 
@@ -147,7 +148,8 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
         diff = (fac.git(wt, "diff", "--stat", f"{base}...HEAD") + "\n\n(the diff is too long to give whole: read it"
                 f" with `git diff {base}...HEAD -- FILE`)")
     text, context = brief.assemble(
-        cfg, "reviewer", gap, wt, definition=definition, diff=f"```diff\n{diff}\n```", net_lines=net,
+        cfg, "reviewer", gap, wt, definition=definition, diff=f"```diff\n{diff}\n```", net_lines=net, unlisted="\n".join(
+            f"- `{p}`" for p in implement.unlisted(wt, base, "HEAD", definition)) or "(none)",
         gates="; ".join(blocking + [f"`ergostat check` finding allowed by the definition (judge its reason): {k}: {why}"
                                     for k, why in fac.allowances(definition).items()]) or "all passed")
     context["brief"] = brief.save(cfg, "reviewer", gap, text)
