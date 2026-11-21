@@ -255,7 +255,7 @@ items:
 
   knowledge:
     id: knowledge/*
-    description: one entry of dev/knowledge/ in the running version (a house rule, a review lesson, a decision) - what the briefs carry, kept by the collector knowledge-sync
+    description: one entry of dev/knowledge/ in the running version, of its file's declared kind (component, rule, lesson, finding, question, source; briefs carry the rules and lessons), kept by the collector knowledge-sync - the owner's decisions are ergostat.decision items instead
     states: [active, retired]
     on:
       knowledge.found: active        # knowledge-sync: an entry in the files (or back in them)
