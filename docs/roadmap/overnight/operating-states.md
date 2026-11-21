@@ -382,3 +382,13 @@ any worker that runs a backlog test before a spawning test fails this way. Neith
 (`git diff 512f08ef...HEAD --stat`), so main fails the same way. It belongs in its own gap (lesson-13), and no code
 changed here. The fix: `test_backlog.py` loads `dev/bin` modules without leaving the path changed (monkeypatch
 `sys.path`, or load them by file path as the other factory tests do).
+
+Round 8 (the fix round for review operating-states-5's one blocking finding, the stray `.tail` file). This
+session's shell was refused from its first command, `git rm` on that file included (twice), and the file tools
+cannot delete a file or commit. I did not try other ways around the refusal. So the file is still in the branch,
+nothing else changed, and this note is in the working tree, uncommitted. No code changed, so nothing was run this
+round (the round 7 runs stand: `tests/test_operating.py` 33 passed, `tests/test_cli_fallback.py` passing, ruff
+clean). What the coordinator has to do, two commands with no other effect:
+`git rm docs/roadmap/overnight/operating-states.md.tail`, then commit it with this note. Nothing else in the
+branch waits on it. The other findings of review operating-states-5 were answered in round 7 and are unchanged.
+No demo is touched, so `demo_check` is not needed.
