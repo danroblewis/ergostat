@@ -64,3 +64,10 @@ files this branch does not touch, so under lesson-13 (and review/relative-gain-a
 the same leak in passing) it stays unfixed here. The most reversible choice is to leave the code as it is. The leak
 needs its own gap: take `BIN` off `sys.path` in `tests/test_backlog.py` `intake()` and `tests/test_factory.py`'s import
 helper, as `tests/test_factory_knowledge.py` does.
+
+Round 5: the queue's finding "conflicts with main: dev/bin/queue.py" is answered by the merge already committed
+(e49455ff, main at a7cad540). `git merge-base --is-ancestor main HEAD` holds and `dev/bin/queue.py` has no conflict
+markers. Against main, the branch changes only `Waits`, its return in `settle()` and the one `nack` line in `take()`
+(+7/-2), plus `tests/test_factory.py` and this file. This clone has no `origin` remote, so only the local `main` was
+merged. Rerun on this tree: the three acceptance tests pass; `tests/test_factory.py` 119 passed, 2 skipped; ruff clean.
+No code changed in this round. The `sys.path` leak on main described above still needs its own gap.
