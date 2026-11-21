@@ -80,3 +80,16 @@ replaced, under -n 8. Run again alone, tests/test_warm.py passed (21 passed). Th
 ergostat/ and nothing that test reads: it builds its own project in tmp_path and never reads the repository's
 ergostat.yaml. So it is unrelated (lesson-13), a load flake for its own gap, and was left alone. tests/test_factory.py:
 94 passed, 2 skipped. No code was changed this round. The four browser files were not run here.
+
+Round 7: the merge of main (7c0e4a60) was already committed (a92ff3e4); `git status` was clean and HEAD holds main.
+The `unit` tail handed to this round again ends at 17 dots with no failing test and no summary, so the run was cut
+off from outside. Here, `unit` under suite_watch.py ran to the end with rc 1: 2235 passed, 69 skipped, 1 failed (peak
+311 threads, 1.5 GB, nothing killed). The failure was
+tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere, a 15 s wait on a `ttl: 1s` lease
+under -n 8. Run again alone, tests/test_leases.py passed (29 passed). That test writes its own ergostat.yaml in
+tmp_path, and this branch changes nothing under ergostat/. So it is unrelated (lesson-13), a load flake that belongs
+in its own gap, and was left alone. Round 6's unit failure was a different timing wait (test_warm).
+tests/test_factory.py: 94 passed, 2 skipped; ruff clean. No code was changed this round (the most reversible option).
+The four browser files were not run here. Refused this round: a compound `cat >> ... <<EOF; git add && git commit`
+that appended this note. It was not worked around in the shell; the note was added with the editor and committed with
+separate commands.
