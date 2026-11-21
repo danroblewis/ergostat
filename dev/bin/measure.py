@@ -22,6 +22,9 @@ own measures do).
   splits-clean        of sub-gaps merged, the share approved on their first review
   parks KIND          gaps whose last park was for KIND (parks.KINDS); resumes KIND: parks of KIND resumed (by the
                       program or by hand); parked-hours KIND: their mean hours parked, to the resume or now
+  in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes (each also with -p90)
+                      time in each state, the build-review loop and the gates, per gap, over every gap that left the
+                      state, ended the loop or passed the gate in the window, whatever its end (times.py)
 The last three, like first-pass-yield, have no value with nothing to measure."""
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import time
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import parks  # noqa: E402
+import times  # noqa: E402
 
 WINDOW = 14 * 86400
 
@@ -71,6 +75,8 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
                              for g in gaps))
         return round(statistics.mean([(float(g["resumed_at"]) if g.get("resumed_as") else now) - float(g["parked_at"])
                                       for g in mine]) / 3600, 2) if mine else 0.0
+    if name.removesuffix("-p90") in times.measures():
+        return times.reading(name, gaps, since)
     merged = [g["fields"] for g in recent(gaps, "merged_at", since) if g["state"] == "merged"]
     f = lambda k: [float(g.get(k) or 0) for g in merged]  # noqa: E731
     if name == "cycle-hours":
