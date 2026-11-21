@@ -2017,15 +2017,30 @@ def test_bisect_reruns_only_the_failing_tests(tmp_path):
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
     assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3
-    # all four red, naming test_b; then test_b alone on p, q (passed) and on p, q, r (failed): r. Then p, q, s merged
-    # again and run in full: green
-    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 2 and suite_runs(f) == 2
+    # all four red, naming test_b; test_b alone on all four (failed); then on p, q (passed) and on p, q, r (failed): r.
+    # Then p, q, s merged again and run in full: green
+    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 3 and suite_runs(f) == 2
     r = f.item("gap/r")["fields"]
     assert r["failed_suite"] == "unit" and r["failed_tests"] == ["tests/test_b.py::test_b"]
     assert r["suites_queue"]["named"]["tests"] == 1                            # found by the named run
     assert merges(f) == ["p", "q", "s"] and not (f.checkout / "bad.txt").exists()
-    assert git(f.checkout, "cat-file", "-t", r["pre"]) == "commit"            # r's pre: kept, though p, q merged again
-    assert git(f.checkout, "rev-parse", f"{r['pre']}^{{tree}}") == git(f.checkout, "rev-parse", "main~1^{tree}")
+    # p, q never landed as that commit: r's pre is main's head before the batch, which main still holds
+    assert subprocess.run(["git", "merge-base", "--is-ancestor", r["pre"], "main"], cwd=f.checkout).returncode == 0
+    assert git(f.checkout, "rev-parse", f"{r['pre']}^{{tree}}") == git(f.checkout, "rev-parse", "main~3^{tree}")
+
+
+def test_a_named_rerun_green_on_the_red_tree_bisects_in_full(tmp_path):
+    # test_b fails only in the full run (order, pollution, load): alone it passes even on the red tree, so the bisect
+    # runs every suite, and r (not the last merge, s) is blamed
+    (tmp_path / "pass.sh").write_text(f'echo "$*" >> {tmp_path}/reruns\nfor t in "$@"; do echo "PASSED $t"; done\n')
+    f = bisect_stand_ins(tmp_path, rerun=f"sh {tmp_path / 'pass.sh'}")
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+    assert len(reruns(f)) == 1 and suite_runs(f) == 4                          # the check on p..s, then in full
+    r = f.item("gap/r")["fields"]
+    assert r["failed_tests"] == ["tests/test_b.py::test_b"] and "named" not in r["suites_queue"]
+    assert f.item("gap/s")["state"] == "merged"
 
 
 def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
@@ -2042,7 +2057,7 @@ def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
     g = bisect_stand_ins(tmp_path / "g", rerun=f"sh {tmp_path / 'notfound.sh'}")
     approved_gaps(g, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     g.run("queue.py", "gap/p")
-    assert len(reruns(g)) == 2 and suite_runs(g) == 4 and merges(g) == ["p", "q", "s"]
+    assert len(reruns(g)) == 1 and suite_runs(g) == 4 and merges(g) == ["p", "q", "s"]   # (the check on p..s)
     assert g.item("gap/r")["state"] == "queue-failed"
 
 

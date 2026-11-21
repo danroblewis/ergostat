@@ -463,21 +463,26 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
     """Merge the batch onto main in turn and run the suites once. Green: every merge lands. Red: bisected (run again on
     the first half of the merges, then on half of what is left, ...) to the first merge whose prefix fails; that gap
     goes to flake triage with its failures and the commit it was merged onto (its `pre`). A red run that named failing
-    tests is bisected on those tests alone (named()); one naming none, with every suite. A prefix green on every suite
+    tests is bisected on those tests alone (named()) only when they fail alone on the whole red tree too; else (they
+    pass there, or it cannot tell), and when it named none, with every suite. A prefix green on every suite
     lands, and the merges after the failing one are merged again onto it and tried as a batch of their own; a prefix
     green on the named tests only lands nothing yet: it is merged again with those after the failing merge, and they
-    all land only on a full green run of that tree (its `pre` then a commit no longer on main). Each failing merge
-    found costs at most 1 + ceil(log2 m) runs (m: the merges left), so n <= pools.BATCH_MOST. Returns (each gap landing with its
+    all land only on a full green run of that tree (the failing gap's `pre` then main's head, `base`, as no commit of
+    that prefix lands). Each failing merge found costs at most 2 + 2 ceil(log2 m) runs (m: the merges left; the red
+    run, the named tests on its tree, and each step, two when a named run cannot tell). Returns (each gap landing with its
     timing, main's head), the checkout's main left at that head. Gaps sent on are said so here; those landing, by the
     caller, once main is settled."""
     base, todo, landed, runs, tag = pre, batch, [], [0], fac.run_tag(fac.branch_of(batch[0][0]), began)
     logs = fac.run_dir(cfg, "queue")
 
-    def run(failed: dict | None = None) -> dict:
+    def run(failed: dict | None = None, every: bool = True) -> dict | None:
         runs[0] += 1
         t = tag + (f"-{runs[0]}" if runs[0] > 1 else "")
-        return (named(cfg, repo, t, logs, failed) if failed and failed.get("tests") else None) \
-            or suites(cfg, repo, t, logs, pre)
+        got = named(cfg, repo, t, logs, failed) if failed and failed.get("tests") else None
+        if got is not None or not every:
+            return got
+        runs[0] += bool(failed and failed.get("tests"))   # (a named run that could not tell, then every suite: two)
+        return suites(cfg, repo, t, logs, pre)
 
     def timing(g: dict, got: dict) -> dict:
         return dict(queue_wait_hours=waited_hours(g, began), queue_minutes=round((time.time() - began) / 60, 1),
@@ -504,13 +509,17 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             landed += [(g, timing(g, red) | counted[g["id"]]) for g, _ in todo]
             base = heads[-1]
             break
-        lo, hi, green, full = 0, len(todo), {}, red  # the first lo merges ran green (or none); the first hi red
+        alone = run(red, every=False) if len(todo) > 1 and red.get("tests") else None   # on the whole red tree
+        full = alone if alone and alone.get("failed") else None  # they fail there alone: bisect on them; else in full
+        lo, hi, green = 0, len(todo), {}         # the first lo merges ran green (or none); the first hi red
         while hi - lo > 1:
             mid = (lo + hi) // 2
             fac.git(repo, "reset", "-q", "--keep", heads[mid - 1])
-            got = run(full)                      # only the tests the full red run named, when it named any
+            got = run(full)
             lo, hi, red, green = (lo, mid, got, green) if got.get("failed") else (mid, hi, red, got)
         g, onto = todo[hi - 1][0], heads[hi - 2] if hi > 1 else base
+        if "named" in green:                     # (that commit is merged again, never landed: main's own is told)
+            onto = base
         tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=onto,
                 findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
                 + ([f"the first failing merge of a batch of {len(todo)}, found by bisecting"] if len(todo) > 1 else []),

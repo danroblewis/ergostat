@@ -49,3 +49,27 @@ Size: about +35 net lines in `dev/bin/queue.py`, against 120.
 
 Not run here: the whole unit suite and the four browser files (the factory runs them under the watchdog). There is
 no `origin/main` ref in this clone, so main could not be merged in again (lesson-7). The merge queue must do it.
+
+Round 2, answering review/red-batch-fast-1 finding by finding:
+- (blocking) Named bisect assumed the tests fail alone. Before bisecting, the named tests are now rerun alone on the
+  whole red tree (`heads[-1]`). Only if one says FAILED/ERROR there does the bisect run on them (on the tests that
+  failed in that rerun). If they pass there, or the rerun cannot tell, the bisect runs every suite, as today. A batch
+  of one skips this rerun, since it has nothing to bisect. New test
+  `test_a_named_rerun_green_on_the_red_tree_bisects_in_full`: the rerun says PASSED for everything, and r (not the
+  last merge, s) is blamed. With the check undone (`full = red`), it failed: two `gap.queue-failed`, s blamed.
+- (wording) The run bound. A named step that falls back now counts as two runs in `batch_runs`. The docstring and
+  README say at most `2 + 2 ceil(log2 m)` runs per failing merge: the red run, the rerun on its tree, then each step.
+- (pre after a named-only green) The failing gap's `pre` is now `base`, main's head before that batch. No commit of
+  the named-green prefix lands, so pre is always a commit main holds. Its quarantine is main's, and garbage
+  collection cannot prune it. The price: triage then reruns the gap on main without its batch-mates. If the failure
+  needs a batch-mate, triage sees a pass and spends a flake retry. Nothing lands on that, because the gap goes back to
+  the queue, and that still needs a full green run. I chose this because it leaves triage.py alone (it is outside
+  the files to touch). `test_bisect_reruns_only_the_failing_tests` asserts that pre is an ancestor of main with the
+  pre-batch tree. With `onto = base` undone, it failed.
+- (not run by the reviewer) Run here, see below.
+
+Size: about +45 net lines in `dev/bin/queue.py` in all, against 120.
+
+Run here: `tests/test_factory.py` in full (102 passed, 2 skipped: the Docker tests, no Docker in this container);
+ruff clean. Not run here: the whole unit suite and the four browser files. There is still no `origin/main` ref, so
+main was not merged in again (lesson-7). The merge queue must do both.
