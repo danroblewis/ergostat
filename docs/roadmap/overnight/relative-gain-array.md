@@ -204,3 +204,12 @@ a module-scoped fixture that puts `sys.path` back after the file. `tests/test_fa
 uses `monkeypatch.syspath_prepend` in place of a bare insert. No bound or assertion changed. Before the fix, `test_backlog` then
 `test_index_files` in one process failed 4. After it, they pass (25 passed with the factory test). `test_backlog` then the
 `test_modelling_ai_cap` and `test_store_conformance` spawn tests pass too (19 passed). The change is easy to undo: two test files.
+
+Round 2: no review findings came back, so nothing was changed in the code. The factory merged main (a6a9ebdb) into the
+branch (09308037). After that merge I checked that `signature()`'s default `ALL` is still exactly
+`architecture.PARTS`'s five kinds, so the redesign signature is byte-for-byte what it was. Then I ran these files one at a time, and
+all passed: `test_rga` (35), `test_control` + `test_redesign` + `test_redesign_memory` + `test_spec_mcp_explain` +
+`test_architecture` (89), `test_backlog` + `test_index_files` + `test_redesign_bench` (33, in one process: the
+`sys.path` fix holds), `test_factory` (116, 2 skipped, as on main), and `test_unmoved` + `test_spec_schema` +
+`test_parity` + `test_inbox` (92). Ruff is clean. I did not run the whole unit suite or the browser files. They are
+left to the factory's watchdogged run.
