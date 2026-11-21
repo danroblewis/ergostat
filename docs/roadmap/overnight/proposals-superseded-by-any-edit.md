@@ -174,3 +174,12 @@ Not run here: the whole unit suite under `-n 8`, the four browser files and `dem
 brief leaves them to the factory. Run here, one invocation each: the seven named files (126 passed); 17 other files
 that use proposals, the judge or review (334 passed); test_spec_compile, test_item_systems and test_blockdiagram (100
 passed); ruff clean.
+
+**After the factory's unit run failed.** Its tail stopped at 32% with no failing test, no traceback and no summary
+line: the run was cut short from outside (the watchdog or a time limit), not failed by a test. Run again here as the
+factory runs it (`pytest -q -n 8 --dist worksteal`, with `faulthandler_timeout=200` to dump any test that hangs):
+1948 passed, 69 skipped, rc 0, in 6 min 24 s, with no hang dumped. I looked for a lock taken twice on one path
+(`make`, `refresh`, `dismiss`, `accept`, the judge, the control proposals) and found none. No code was changed for
+it. `scripts/suite_watch.py` could not be run in this session, so its peaks (threads, RSS) were not seen. If the
+factory's run fails the same way again, those peaks are the next thing to read. One cost is new on this branch:
+`files_now` compiles the model from its files on every supersede, judge pass and Accept.
