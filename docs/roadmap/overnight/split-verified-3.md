@@ -75,3 +75,13 @@ Built: everything above, the six acceptance tests passing. Notes for the review:
   the 70. The fix adds 13: the `family` walk and the wording that names who is left out (lesson-8).
 - **Run.** `tests/test_factory_join.py` (13 passed) and ruff (clean). Not run: the unit suite and the four browser
   files, which are left to the factory's suites. No origin remote here: main is the factory's merge above.
+- **The failed unit run after round 2.** Its tail ends in one line of dots: no `FAILED` line, no test named, no
+  summary. That reads as a run cut off (a time limit or the watchdog), not a failing test. I found nothing to fix. The
+  merge of main was already committed (e9a94511), with no conflict left. I ran, one batch at a time, every file that
+  reads what this branch changes (`measure.py`, the factory model, `knowledge.yaml`). `test_factory_join.py`: 13
+  passed. `test_spec_compile`, `test_local_settings`, `test_factory_resources`, `test_backlog` and
+  `test_factory_sessions`: 63 passed. `test_factory_knowledge` and `test_factory_manager`: 107 passed.
+  `test_factory.py`: 126 passed, 2 skipped. Ruff on `ergostat tests scripts` is clean. Not run: the whole unit suite
+  (left to the factory) and the four browser files. `test_factory_join.py` is slow (152 s alone, 7 of its 13 tests
+  from this gap), and it is marked `slow`, so it starts first. If the unit run was cut off for time, this may be the
+  cause. It is a cost of the acceptance tests the definition names, not a bug, so I left it as it is.
