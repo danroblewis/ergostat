@@ -1203,6 +1203,18 @@ def test_an_approved_lesson_is_applied_with_no_gap(tmp_path):
     assert f.item("lesson/add-shared-stash")["fields"]["lesson"] == "lesson-15"
     assert f.tool("lesson.py", "hours").stdout.strip() == "0.667"   # proposed to applied: an hour, an hour, ~0 (add)
     assert "knowledge_unread" not in block_in(f, BIN, "pipeline_manager", "lesson/add-shared-stash")
+    proposed(f, "lesson/seen-lesson-2-held", {**SEEN, "lesson": "lesson-2"})               # as the lease holds it:
+    f.tool("lesson.py", "request", "lesson/seen-lesson-2-held")                             # leased, back approved
+    assert f.drain() == ["lesson.approved"]
+    db = f.db()
+    db["items"]["lesson/seen-lesson-2-held"]["state"] = "leased"
+    f.record.write_text(json.dumps(db))
+    held = f.run("lesson.py", "lesson/seen-lesson-2-held", argv=("apply",), lease={"back": "approved"})[0]
+    assert held == ["lesson.applied"]
+    db = f.db()
+    db["items"]["lesson/seen-lesson-2-held"]["state"] = "leased"                          # leased from another state
+    f.record.write_text(json.dumps(db))
+    assert f.run("lesson.py", "lesson/seen-lesson-2-held", argv=("apply",), lease={"back": "applied"})[0] == []
 
 
 def test_the_next_brief_carries_an_applied_lesson(tmp_path):

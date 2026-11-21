@@ -49,3 +49,12 @@ so I took these choices, each the most reversible one:
 - lesson-1: the lease (pool 1, fenced) is the lock. The run also reads the item again and applies nothing unless it is
   still `approved`, which is tested.
 - knowledge-sync no longer sets `flow.lessons-added`; lesson-apply does, since one flow has one actuator.
+
+After the fast suites failed (the unit tail showed only uv's build lines, so it did not name the failing test): this
+session had no shell, so I could not run a test, see the failure, or commit. Reading the code, I found a real bug:
+under the block's lease the item is `leased` (its lease's `back` is `approved`), so `apply`'s re-read never saw
+`approved` and a live run applied nothing. The fake record never showed this. `apply` now also accepts `leased` with
+`back: approved`, and the first acceptance test covers both cases (leased from approved: applied; leased from another
+state: nothing). Neither this edit nor the test has been run or committed. Next: commit, then run
+`tests/test_factory_knowledge.py` and `tests/test_factory.py` one at a time to find the unit failure, if it is
+something else.

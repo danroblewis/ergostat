@@ -50,9 +50,9 @@ def apply(given: dict) -> int:
     """One approved lesson applied. The lease (pool 1, fenced) is the lock; the item is read again from the record and
     left as it is unless still approved, so a second run on one approval records nothing (lesson-1). A record that
     cannot be read raises: the lesson stays approved (lesson-3)."""
-    iid = given["item"]["id"]
+    iid, back = given["item"]["id"], (given.get("lease") or {}).get("back")
     it = json.loads(fac.ergostat("item", iid, "--json").stdout)
-    if it.get("state") != "approved":
+    if it.get("state") != "approved" and not (it.get("state") == "leased" and back == "approved"):   # (held: leased)
         print(f"{iid} is {it.get('state')}: nothing to apply", file=sys.stderr)
         return 0
     f, now, lessons = it["fields"], time.time(), fac.items("lesson")
