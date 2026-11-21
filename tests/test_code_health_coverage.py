@@ -206,17 +206,9 @@ def test_the_queue_keeps_the_last_reports_by_seq(tmp_path):
         d.mkdir(parents=True)
         (d / "coverage.json").write_text(json.dumps({"main": "x", "seq": seq, "modules": {}}))
     (top / "not-the-queues").mkdir()
-    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, queue; from pathlib import Path; "
-            "print(queue.coverage_kept(fac.config(), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4])))")
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")} | {"FACTORY_CONFIG": str(inst.config)}
-
-    def kept(name: str, rc: int, worker: str = "main", workers: int = 0) -> str:   # one queue run's unit suite
-        d = top / f"gap-{name}-20261102T000000Z"
-        worker_file(d, worker, {}, workers=workers)
-        r = subprocess.run([sys.executable, "-c", code, str(ROOT / "dev" / "bin"), str(ROOT), str(d), str(rc)],
-                           cwd=inst.model, env=env, capture_output=True, text=True, timeout=300)
-        assert r.returncode == 0, r.stderr
-        return r.stdout.strip()
+    (top / "gap-torn-20261101T000009Z").mkdir()
+    (top / "gap-torn-20261101T000009Z" / "coverage.json").write_text("{not json")     # unreadable: it would hold the
+    kept = Kept(inst)                                                                    # measure at no value
     assert kept("red", 1) == "not reported: the unit suite failed"
     got = kept("partial", 0, "gw0", workers=2)
     assert got.startswith("no report:") and "gw1" in got
@@ -225,6 +217,49 @@ def test_the_queue_keeps_the_last_reports_by_seq(tmp_path):
     assert sorted(d.name for d in top.iterdir()) == sorted(
         ["not-the-queues", green.name] + [f"gap-{'fedcba'[s - 1]}-20261101T00000{s}Z" for s in (3, 4, 5, 6)])
     assert json.loads((green / "coverage.json").read_text())["seq"] > 6
+
+
+class Kept:
+    """queue.coverage_kept for one queue run's unit suite, in a child (dev/bin's queue.py shadows the stdlib's)."""
+
+    CODE = ("import sys, subprocess; sys.path[:0] = [sys.argv[1]]; import fac, queue; from pathlib import Path\n"
+            "run = subprocess.run\n"
+            "def slow(cmd, *a, **k):\n"
+            "    if sys.argv[6] == 'slow' and cmd[0] == sys.executable: raise subprocess.TimeoutExpired(cmd, 600)\n"
+            "    return run(cmd, *a, **k)\n"
+            "subprocess.run = slow\n"
+            "print(queue.coverage_kept(fac.config(), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4]), sys.argv[5]))")
+
+    def __init__(self, inst: Instance, repo: Path = ROOT):
+        self.inst, self.repo = inst, repo
+
+    def __call__(self, name: str, rc: int, worker: str = "main", workers: int = 0, pre: str = "HEAD",
+                 slow: bool = False) -> str:
+        d = self.inst.model / "run" / "coverage" / f"gap-{name}-20261102T000000Z"
+        worker_file(d, worker, {}, workers=workers)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")} | {
+            "FACTORY_CONFIG": str(self.inst.config)}
+        r = subprocess.run([sys.executable, "-c", self.CODE, str(ROOT / "dev" / "bin"), str(self.repo), str(d), str(rc),
+                            pre, "slow" if slow else "-"], cwd=self.inst.model, env=env, capture_output=True, text=True,
+                           timeout=300)
+        assert r.returncode == 0, r.stderr
+        return r.stdout.strip()
+
+
+def test_the_queue_scores_with_mains_script_and_survives_a_timeout(tmp_path):
+    """review/code-health-coverage-1: the report is made by main's copy of the script (before the merge), never the
+    branch's; a report that times out is a "no report", not an error that undoes the merge."""
+    inst = Instance(tmp_path / "instance-side")
+    repo = repo_with(tmp_path, {"scripts/coverage_report.py": (ROOT / "scripts" / "coverage_report.py").read_text(),
+                                "ergostat/a.py": "x = 1\n"})
+    pre = git(repo, "rev-parse", "HEAD")
+    (repo / "scripts" / "coverage_report.py").write_text("raise SystemExit('the branch scores itself')\n")
+    git(repo, "commit", "-q", "-am", "a branch's own scoring")
+    kept = Kept(inst, repo)
+    assert kept("mains", 0, pre=pre) == "reported"
+    assert kept("branchs", 0, pre="HEAD") == "no report: the branch scores itself"
+    assert kept("slow", 0, pre=pre, slow=True) == "no report: timed out"
+    assert sorted(d.name for d in (inst.model / "run" / "coverage").iterdir()) == ["gap-mains-20261102T000000Z"]
 
 
 PROBE = """\
