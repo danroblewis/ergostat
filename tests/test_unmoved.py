@@ -270,7 +270,8 @@ def test_identical_means_exactly_equal(tmp_path, monkeypatch):
     pid = submit(p, k_to, made)
     jd.run(p, "judge", at=made + 24 * H)
     x = pr.stored(p)[pid]
-    assert "structure" not in str(x.get("undecided")) and "on" not in (x.get("verdict") or {}), x.get("undecided")
+    assert x["state"] == "testing" and "structural" not in str(x.get("undecided")), x.get("undecided")
+    assert "on" not in (x.get("verdict") or {}) and "within" in x["undecided"]   # by the bound: within the threshold so far
     p, made = world(tmp_path / "b", BASE)
     pid = submit(p, k_to, made)
     _same_after(monkeypatch, None)                               # the same change, its replay exactly the model's
