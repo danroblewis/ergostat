@@ -74,6 +74,7 @@ class Dispatcher:
         self.due = float("inf")                       # when the first item put off (not_before) may be taken
         self.due_now: set[str] = set()                # items put off that may be taken now (their daemon revived)
         self.overdue: dict[tuple, float] = {}         # (item, fence, expires) → when (monotonic) a pass first found it overdue
+        self.mine: dict[str, tuple] = {}              # run → (block, item, fence): the leases taken here, not yet ended
 
     @property
     def spec(self):
@@ -202,13 +203,29 @@ class Dispatcher:
         fence = int(lease.get("fence") or 0) + 1
         run = uuid.uuid4().hex
         cause = it.moves[-1]["event"] if it.moves else None      # what brought it to the state it is taken from
-        ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
-                               data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
-                                     "max": t["attempts"],
-                                     "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1})
-        now = its.one(self.p.events, self.spec, it.id)
-        got = held(now.fields) if now else None
-        if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+        key, ok = f"{b.name} {it.id}", False
+        with self.e.lock:              # the stop close() sets under this lock: checked, and the take counted, under it
+            if self.e.stop.is_set():
+                return None
+            self.e.running.add(key)                              # (close() waits for it from here)
+        try:
+            ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
+                                   data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
+                                         "max": t["attempts"], "back": it.state, "tier": t["tier"],
+                                         "attempt": int(lease.get("attempts") or 0) + 1})
+            now = its.one(self.p.events, self.spec, it.id)
+            got = held(now.fields) if now else None
+            if got and got.get("holder") == run:                  # (else someone else took it first: the fold refused it)
+                self.mine[run] = (b, it.id, fence)
+                with self.e.lock:
+                    ok = not self.e.stop.is_set()
+                if not ok:                                        # the stop came during the write: given back, no run
+                    self.finish(b, it.id, fence, run, {"stopped": True})
+        finally:
+            if not ok:
+                with self.e.lock:
+                    self.e.running.discard(key)
+        if not ok:
             return None
         self.resources(ev)
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence}
@@ -217,7 +234,6 @@ class Dispatcher:
         given = {"fence": fence, "ttl": t["ttl"], "expires": got.get("expires"), "attempt": int(lease.get("attempts") or 0) + 1,
                  "attempts": t["attempts"], "tier": t["tier"], "back": it.state}
         with self.e.lock:
-            self.e.running.add(f"{b.name} {it.id}")
             given["model"] = (self.e.spec, self.e.version)       # it runs to its end under the model it was taken under
         if inline:
             return b, item, given, run, ev["id"]
@@ -258,7 +274,21 @@ class Dispatcher:
         return moved
 
     def finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
-        """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired)."""
+        """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired). Read and
+        written under the lock, so close()'s give-back and the run's own end never both end it."""
+        with self.lock:
+            self._finish(b, item, fence, run, out)
+            self.mine.pop(run, None)
+
+    def give_back(self) -> None:
+        """Every lease this engine took and has not ended: given back uncounted (``close()``, before it stops)."""
+        for run, (b, item, fence) in list(self.mine.items()):
+            try:
+                self.finish(b, item, fence, run, {"stopped": True})
+            except Exception as e:                                 # the next engine's watchdog ends it
+                self.e.say(f"{b.name}: giving back {item}: {type(e).__name__}: {e}")
+
+    def _finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
         it = its.one(self.p.events, self.spec, item)
         lease = held(it.fields) if it else None
         if not lease or lease.get("fence") != fence or lease.get("holder") != run:

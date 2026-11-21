@@ -951,9 +951,11 @@ class Engine:
                     note = refused or f"could not start: {e}"
                 else:
                     old.LIVE.add(proc)
-                    with self.lock:
+                    with self.lock:                          # (close() sets its stop under this lock, then kill_all)
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
+                        if self.stop.is_set():               # this engine stopping: killed (in LIVE too late for it)
+                            old._kill(proc)
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                     try:
                         if stream.pump(proc, stdin, b.timeout, take):
@@ -972,7 +974,8 @@ class Engine:
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
                     elif code and not note:
-                        note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
+                        note = (old.STOPPED_WITH_US if old.STOPPING.is_set() or self.stop.is_set()
+                                else STOPPED_BY_OWNER if asked else f"exited {code}")
         if code == 0 and not note:                               # a bare number only from a run that finished well
             said.finish()
         if said.proposals:
@@ -1734,7 +1737,10 @@ class Engine:
                                                              "record": round(time.monotonic() - took, 3)}}
 
     def close(self) -> None:
+        got = self.lock.acquire(timeout=5)       # the lock a take and a spawn check the stop under (never forever)
         self.stop.set()
+        if got:
+            self.lock.release()
         self.wake.set()
         if self.calls is not None:
             self.calls.close()
@@ -1746,6 +1752,7 @@ class Engine:
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
             time.sleep(0.05)
+        self.dispatch.give_back()                # every lease still held here: given back uncounted
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 

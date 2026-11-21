@@ -3,12 +3,15 @@ events renew, that ends on ack or nack, or expires when it is silent past its TT
 dead letter; a run whose lease ended is refused (fencing); the fold is the truth, across a restart."""
 
 import json
+import os
 import textwrap
+import threading
 import time
 
 import pytest
 
 from ergostat import model as mdl
+from ergostat import runner as old
 from ergostat.leases import ENDED, EXPIRED, REDRIVEN, RENEWED, TAKEN
 from ergostat.leases.terms import terms
 from ergostat.spec import items as its
@@ -510,16 +513,17 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
     assert wait_for(lambda: item(p, "ticket/1").state == "leased", 5)
     first.dispatch.finish = lambda *a, **k: None             # it dies: no lease is ended
     first.stop.set()
-    from ergostat import runner as old
     old.kill_all()
     held = item(p, "ticket/1").fields["lease"]
     second = start(Project(mdl.load(tmp_path)))
-    try:
-        time.sleep(0.6)
-        assert item(p, "ticket/1").fields["lease"]["holder"] == held["holder"], "the new engine reads the lease, and keeps it"
-        assert item(p, "ticket/2").state == "ready", "the pool is full: the lease held counts"
-        assert wait_for(lambda: item(p, "ticket/1").fields["lease"]["history"][0].get("how") == "expired", 5), \
-            "expired on its TTL"
+    try:                                                     # (by the record's seq, not a fixed sleep: lesson-10)
+        assert wait_for(lambda: p.events.query(n=None, type=EXPIRED, item="ticket/1"), 10), "expired on its TTL"
+        expired = p.events.query(n=None, type=EXPIRED, item="ticket/1")[0]
+        assert expired["data"]["run"] == held["holder"], "the new engine reads the lease, and keeps it"
+        assert item(p, "ticket/1").fields["lease"]["history"][0].get("how") == "expired"
+        early = [t for t in p.events.query(n=None, type=TAKEN) if t["seq"] < expired["seq"]]
+        assert [t["data"]["run"] for t in early] == [held["holder"]], "the pool is full: the lease held counts"
+        assert not [x for x in p.events.query(n=None, type=ENDED) if x["seq"] < expired["seq"]]
         assert wait_for(lambda: item(p, "ticket/2").state == "leased" or item(p, "ticket/1").state == "leased", 5)
     finally:
         second.close()
@@ -529,6 +533,173 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
         assert lease["holder"] is None
     assert any(h.get("why") == "stopped with ergostat" and h["counted"] is False
                for i in (1, 2) for h in item(p, f"ticket/{i}").fields["lease"]["history"])
+
+
+# ---- the engine closing: no lease taken, and no run left, after its stop (SPEC §9.5)
+
+
+def ends(p, id):
+    return [x for x in p.events.query(n=None, type=ENDED) if x["item"] == id]
+
+
+def stopped_at(p) -> int:
+    return p.events.query(n=None, type="ergostat.stopped")[-1]["seq"]
+
+
+def given_back_once(p, id):
+    """The item's lease ended once, uncounted, stopped with ergostat, before the engine recorded its stop (by seq)."""
+    got = ends(p, id)
+    assert len(got) == 1, got
+    assert got[0]["data"]["how"] == "nack" and got[0]["data"]["why"] == "stopped with ergostat"
+    assert got[0]["data"]["count"] is False and got[0]["seq"] < stopped_at(p)
+    lease = item(p, id).fields["lease"]
+    assert lease["holder"] is None and lease["history"][-1]["counted"] is False
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.killpg(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def test_no_lease_is_taken_once_the_engine_is_stopping(tmp_path, monkeypatch):
+    p = project(tmp_path, model("sleep 30"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    real = e.command_of
+    monkeypatch.setattr(e, "command_of", lambda b: (e.close(), real(b))[1])   # (past the look's own stop check)
+    try:
+        e.dispatch.tick()
+        assert not p.events.query(n=None, type=TAKEN), "nothing taken once close() set the stop"
+        assert item(p, "ticket/0").state == "ready" and not e.running
+    finally:
+        old.kill_all()
+        old.STOPPING.clear()
+
+
+def test_a_take_racing_the_stop_is_given_back_uncounted(tmp_path, monkeypatch):
+    p = project(tmp_path, model("sleep 30"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    real = p.events.add
+
+    def add(type, *a, **k):                                  # close()'s stop, inside the take's write
+        if type == TAKEN:
+            with e.lock:
+                e.stop.set()
+            old.kill_all()
+        return real(type, *a, **k)
+    monkeypatch.setattr(p.events, "add", add)
+    try:
+        e.dispatch.tick()
+        e.close()
+    finally:
+        old.STOPPING.clear()
+    assert len(p.events.query(n=None, type=TAKEN)) == 1
+    given_back_once(p, "ticket/0")
+    assert not p.events.query(n=None, type="agent.started"), "no run started"
+    assert not e.running
+
+
+def spawning(monkeypatch, then):
+    """The spawn in ``run_block``, with ``then`` done just after each process starts; the processes started."""
+    from ergostat.spec import engine as em
+    procs, real = [], em.Measured
+
+    def spawn(*a, **k):
+        procs.append(real(*a, **k))
+        then()
+        return procs[-1]
+    monkeypatch.setattr(em, "Measured", spawn)
+    return procs
+
+
+def test_a_run_spawned_after_kill_all_is_killed(tmp_path, monkeypatch):
+    p = project(tmp_path, model("sleep 30"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+
+    def stop():                                              # close()'s stop and kill_all, before it is in LIVE
+        with e.lock:
+            e.stop.set()
+        old.kill_all()
+    procs = spawning(monkeypatch, stop)
+    e.start_all()
+    try:
+        assert wait_for(lambda: procs, 10)
+        assert wait_for(lambda: not alive(procs[0].pid), 5), "its process group is killed, not left to run"
+    finally:
+        e.close()
+        old.STOPPING.clear()
+    given_back_once(p, "ticket/0")
+
+
+def test_one_engine_closing_does_not_kill_another_engines_run(tmp_path, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    pa, pb = project(tmp_path / "a", KIND), project(tmp_path / "b", model("sleep 30"))
+    a = start(pa)
+    opened(pb, 1)
+    procs = spawning(monkeypatch, a.close)                  # (STOPPING set by the first engine's kill_all)
+    b = start(pb)
+    try:
+        assert wait_for(lambda: b.live, 10)
+        assert old.STOPPING.is_set() and a.stop.is_set() and not b.stop.is_set()
+        assert not wait_for(lambda: procs[0].poll() is not None, 1.0), "the other engine's run goes on"
+        assert alive(procs[0].pid) and item(pb, "ticket/0").fields["lease"]["holder"]
+    finally:
+        b.close()
+        old.STOPPING.clear()
+
+
+def stuck(tmp_path):
+    """An engine whose run ended but whose own end of the lease failed (so the lease stays held), and the calls made
+    to its ``finish``."""
+    p = project(tmp_path, model("true"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    real, calls = e.dispatch.finish, []
+
+    def finish(*a):
+        calls.append(a)
+        if len(calls) == 1:
+            raise OSError("the record was busy")
+        return real(*a)
+    e.dispatch.finish = finish
+    e.start_all()
+    assert wait_for(lambda: calls and not e.running, 10)
+    assert item(p, "ticket/0").fields["lease"]["holder"] == calls[0][3]
+    return p, e, calls
+
+
+def test_close_gives_back_every_lease_still_going(tmp_path):
+    p, e, _ = stuck(tmp_path)
+    try:
+        e.close()
+    finally:
+        old.STOPPING.clear()
+    given_back_once(p, "ticket/0")
+
+
+def test_a_runs_own_end_inside_close_s_give_back_ends_it_once(tmp_path):
+    p, e, calls = stuck(tmp_path)
+    real, late = e.dispatch.after, []
+
+    def after(*a, **k):                                      # between the give-back's read and its write
+        if not late:
+            late.append(threading.Thread(target=e.dispatch.finish, args=(*calls[0][:4], {})))
+            late[0].start()
+            late[0].join(0.5)
+        return real(*a, **k)
+    e.dispatch.after = after
+    try:
+        e.close()
+        late[0].join(5)
+    finally:
+        old.STOPPING.clear()
+    given_back_once(p, "ticket/0")
 
 
 # ---- measures, attention, the command line

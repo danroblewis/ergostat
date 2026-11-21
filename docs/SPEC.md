@@ -2177,7 +2177,14 @@ someone outside (a reviewer, CI) gives its ticket back this way, and is taken ag
 pushed; `after` is only the fallback re-check. An item put off is looked at again when it falls due, not at the
 dispatcher's next look. A run stopped with ergostat gives its item
 back uncounted, unless what it printed before had already moved the item on (its lines take effect as it prints
-them, section 9.1): that is an ack. A lease that expired is not ended again when its run ends.
+them, section 9.1): that is an ack. Once an engine has begun to stop, it takes no new lease; a lease whose taking
+raced its stop is given back uncounted at once, and no run starts on it. A process that a run of a block's own `run`
+starts while its engine stops is killed (its process group) before the engine exits; this keys on that engine's own
+stop, so another engine in the same process keeps a run it starts after the first one's kill (a run of another engine
+already going when one engine kills its runs is killed with them, and one that then exits non-zero is said to be
+stopped with ergostat). A daemon's item is stopped by the daemon's own close (section 9.7). Before the engine records
+`ergostat.stopped`, every lease it still holds is given back uncounted, each ended once. A lease that expired is not
+ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
