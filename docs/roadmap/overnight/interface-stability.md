@@ -185,3 +185,15 @@ architecture batch, plus the 15 acceptance tests and the reload and runner files
 platform skips (the macOS sandbox, remote and container tests). Ruff is clean. No code was changed, because no test
 fails and so nothing in this branch needs fixing. If the run is cut off again, the watchdog's own report (threads,
 memory, or one worker past 2 GB) will name the cause. That report is not in the tail given.
+
+**After the factory's third unit run failed.** Its tail stopped mid-line at 91%. It shows no FAILED or ERROR line,
+and no closing JSON line from `suite_watch.py`, which that script prints even when it kills a run. So something
+outside the watchdog killed the whole run, the same as the 77% run and the 30-dot run. The three runs stopped at
+different points. No code was changed, because no test was shown failing. The watched parallel run was refused again
+in this session (`uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal -p
+no:randomly`). Timing `note` on a generated 200-workflow model was refused too. Checked instead: `Spec.interface` is
+worked out once per spec and cached (`ir.py:951`), so the work `note` adds is one pass over the parts per load.
+The new test file starts no process or thread. These ran serially, rc 0: `tests/test_interface_stability.py` (15),
+then `tests/test_scale_caches.py`, `tests/test_runner_and_state.py` and `tests/test_reload_soak.py` together (79,
+144 s). The soak test takes 123 s by its own design, two minutes of edits. Ruff is clean. The cause of the kill
+(an outer timeout or the container's memory) is not in the tail, so it is left to the factory.
