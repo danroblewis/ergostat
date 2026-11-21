@@ -379,7 +379,8 @@ blocks:
     run: python3 dev/bin/drain.py
     every: 1m
     timeout: 5m
-    goal: drains-within-bound
+    in: goal.drains-within-bound     # read, not commanded: a goal: here would put a controller in front of it and take
+                                     # it off its schedule (only a drain sets the goal off, and only the switcher drains)
     out: [flow.switches-withdrawn, flow.drains-begun, flow.upgrades-switched]
   switch:
     type: external

@@ -43,7 +43,9 @@ lessons below; your plan is where they are prevented.
    in `depends-on` (by branch) and say under `## Relation to other work`, in one line each, how this plan relates to it
    (waits for it, builds on it, avoids its files).
 3. Decide whether it fits one branch: about 250 net lines of code outside `tests/`, `docs/` and `dev/` at most (see
-   "Keep it small"; 600 is only the lint's hard most), one reviewable idea. If not, split it into sub-gaps (at most 6), each one branch, in the order they must land.
+   "Keep it small"; 600 is only the lint's hard most), one reviewable idea. If not, split it into sub-gaps (at most
+   6), each one branch, in the order they must land. Each sub-gap's `## Size budget` must name at most 250 net lines:
+   over 250, or no number, sends the whole split back.
 4. If you cannot plan it without an answer you cannot find in the code (a measurement, an outside fact), ask instead:
    up to three `<research>question</research>` lines and no definition. The gap waits for the answers.
 
@@ -88,3 +90,13 @@ or, for a split, one per sub-gap (lowercase words and dashes, new names, never `
 <definition branch="NAME" title="A short title">
 ...
 </definition>
+
+and, with a split, exactly one coverage block: what `{branch}` must do, restated one point per `- ` line, each point
+ending with `(by: name, name)`, the sub-gaps that build it (their exact names). Every sub-gap is named by some point.
+A split with no block, two blocks, a point naming no sub-gap or a name that is not one of the split's, or a sub-gap
+no point names, is sent back. The block is kept as the parent's plan, and each sub-gap's plan review reads it.
+
+<coverage>
+- what the parent must do, one point (by: NAME)
+- another point (by: NAME, OTHER-NAME)
+</coverage>
