@@ -8,7 +8,8 @@ Code writes there are copied, the session token scrubbed from each (and asserted
 `session/<item>-<role>-<n>` names that file as its `transcript` (format `claude-session`, ergostat.yaml), so the page
 shows the conversation as it grows and ergostat records each line as a `claude.*` event about it (SPEC §5a).
 `session.started` says it began (its role, model, round, the gap, research or review it worked for); `session.ended`
-(or `session.errored`) its cost, turns, tools and time.
+(or `session.errored`) its cost, turns, tools and time, and the tool calls it was refused (`tool_denials`, `denied`;
+`tool_denials_unknown` when its result said nothing of them), which a gap's session also adds to the gap.
 
 `python3 dev/bin/status.py session GAP [ROLE] [N]` prints one from the same file."""
 
@@ -71,10 +72,15 @@ class Session:
                "seconds": round(time.time() - self.began), "lines": self.copy.lines,
                "truncated": self.copy.cut, "subtype": (out or {}).get("subtype"),
                **({"resources": out["resources"]} if (out or {}).get("resources") else {})}   # (its container's CPU, memory)
+        denied = denials(out)
+        refused = {"tool_denials": len(denied), "denied": denied} if denied is not None else {"tool_denials_unknown": 1}
+        rec.update(refused)
         bad = error or not out or out.get("is_error")
         if bad:
             rec["error"] = scrub(error or str((out or {}).get("result") or "no result"), self.copy.tok)[-600:]
         fac.say("session.errored" if bad else "session.ended", self.id, **rec)
+        if self.parent.startswith("gap/") and (denied is None or denied):    # (on its gap too, when not known none)
+            fac.say("gap.measured", self.parent, **refused)
         return rec
 
 
@@ -149,6 +155,15 @@ class Copy:
 
 def scrub(text: str, tok: str) -> str:
     return text.replace(tok, "[token]") if tok else text
+
+
+def denials(out: dict | None) -> list[str] | None:
+    """The tool calls Claude Code refused (its result's ``permission_denials``), each as its tool and what it was
+    given; None when the result has no such list (no result, or an older Claude Code): unknown, never none."""
+    got = (out or {}).get("permission_denials")
+    if not isinstance(got, list):
+        return None
+    return [f"{d.get('tool_name')}: {summary(d.get('tool_input'))}" if isinstance(d, dict) else str(d)[:160] for d in got]
 
 
 def standin(s: Session, brief: str, out: dict) -> None:

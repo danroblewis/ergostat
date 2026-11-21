@@ -14,6 +14,8 @@ own measures do).
   fix-rounds          mean rounds sent back to the implementor per merged gap
   flake-rate          flaky retries per queue run
   cost-per-merged     dollars of AI sessions per merged gap (every round, implementor and reviewer)
+  tool-denials        tool calls refused to the AI sessions (sessions.py), a session whose result said nothing of
+                      them counted as one
   interventions-trend the coordinator's interventions over the last 7 days less the 7 before
   lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
   first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
@@ -58,6 +60,9 @@ def reading(name: str, now: float | None = None) -> float:
         if not first:
             raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
+    if name == "tool-denials":                          # a session that said nothing of them counts as one refused
+        rows = [r["fields"] for r in recent(fac.items("session"), "started", since)]
+        return float(sum(int(r.get("tool_denials") or 0) + int(r.get("tool_denials_unknown") or 0) for r in rows))
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
     gaps = fac.items("gap")

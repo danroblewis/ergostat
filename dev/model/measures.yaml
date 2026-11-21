@@ -60,6 +60,11 @@ auxiliaries:
     description: dollars of AI sessions per merged gap, every round of the implementor and the reviewer
     driven-by: [+auxiliary.ai-spend]
     sensor: {run: python3 dev/bin/measure.py cost-per-merged, every: 10m, timeout: 1m, description: the factory's measures}
+  tool-denials:
+    unit: calls
+    description: tool calls refused to the AI sessions (a session whose result said nothing of them counts as one)
+    driven-by: [+stock.gaps-building]
+    sensor: {run: python3 dev/bin/measure.py tool-denials, every: 10m, timeout: 1m, description: the factory's measures}
 
 goals:
   first-pass-good:
@@ -92,6 +97,11 @@ goals:
     hold: "<= 25"
     tolerance: 5
     description: a merged gap costs at most $25 of AI sessions
+  no-tool-denials:
+    auxiliary: tool-denials
+    hold: "<= 0"
+    tolerance: 0
+    description: no AI session is refused a tool call (a missing permission shows the first time)
 
 blocks:
   factory-off:
@@ -106,7 +116,8 @@ blocks:
       cost: goal.merged-gap-cost.off
       deps: goal.dependencies-sound.off
       plans: goal.plans-agreed.off
-    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, plans)
+      denials: goal.no-tool-denials.off
+    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, plans, denials)
     out: block.improve-factory
   improve-factory:
     type: person

@@ -136,6 +136,9 @@ items:
       research: union
       research_waits: sum
       resources: append              # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
+      tool_denials: sum              # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a
+      tool_denials_unknown: sum      # session whose result said nothing of them counts in tool_denials_unknown
+      denied: append
     join:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}

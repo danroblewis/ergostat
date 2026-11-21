@@ -543,7 +543,8 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
             {"verdict": v, "blocking": [] if v == "merge" else ["the stand-in's blocking finding"],
              "non_blocking": ["a stand-in's note"], "where_it_stopped": "stopped by the stand-in"}) + "\n```"
     return {"type": "result", "subtype": "success", "is_error": False, "result": said, "total_cost_usd": 0.0,
-            "num_turns": 1, "usage": {"input_tokens": len(brief) // 4, "output_tokens": 50}}
+            "num_turns": 1, "usage": {"input_tokens": len(brief) // 4, "output_tokens": 50},
+            "permission_denials": []}                                    # (the stand-in refuses nothing)
 
 
 def last_attempt(given: dict) -> bool:
