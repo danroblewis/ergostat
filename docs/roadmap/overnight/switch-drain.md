@@ -138,3 +138,20 @@ round 1, but that is not proven.
 
 Left: the failing test's name, from the factory's full log or `suites_fast.tests` on the item. If it is in a file
 listed above, it is this branch's to fix. If it is not, it is main's and needs its own gap.
+
+## Where it stopped (round 2, second session)
+
+This session's brief again names no failed test and no review finding, so **no code was changed**.
+
+Checked again, on b8d25fb:
+- A search of `tests/` finds no test outside the files listed above that reads `dev/`, the root `ergostat.yaml`,
+  `dev/README.md` or `run/drain.json`. Every other test builds its model in `tmp_path` or reads `examples/`, which
+  this branch does not touch.
+- `tests/test_factory.py`: 45 passed, 2 skipped (Docker).
+- `test_factory_knowledge.py`, `test_factory_manager.py`, `test_factory_resources.py`, `test_factory_sessions.py` and
+  `test_daemon_docs.py` in one run: 82 passed.
+- `uv run ruff check ergostat tests scripts`: clean.
+- Not run: the whole unit suite and the browser files (this session's shell refused a loop over files, and the house
+  rules leave the full suite to the factory), and the merge of origin/main (this clone has no remote).
+
+Left: the same as above. The factory has to run the fast suites again and give the failing test's name.
