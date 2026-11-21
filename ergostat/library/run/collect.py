@@ -216,10 +216,11 @@ def mirrored(a, mem: dict, keep_fields) -> str | None:
             m["cursor"] = mi.parse(i)[2]
         m["said"] = []
         if missing:
-            last = p.events.query(n=1, type="sensor.refused,sensor.failed", item=log)
+            at = m.get("at") if isinstance(m.get("at"), int) else None    # only a reason given since it was said
+            last = p.events.query(n=1, type="sensor.refused,sensor.failed", item=log, after_seq=at)
             why = last[-1]["data"].get("why") if last else None
             return f"position {mi.parse(missing)[2]} of {log} was said but not recorded: {why or 'not in the record'}"
-        cursor = m["cursor"]
+        cursor, m["at"] = m["cursor"], p.events.last_seq()
         recs = source(a, mem, cursor)
         entries: dict = {}
         for r in recs:

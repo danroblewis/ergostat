@@ -200,7 +200,8 @@ text, so a text position must sort in log order: zero-padded, fixed-width times)
 with a `cite:` id only when the log it names is that sensor (`sensor.refused` otherwise), and nothing pushed may
 carry one (section 5c). Each poll, under the collector's lock: what it said last poll is looked for in the record,
 and the cursor moves to the last of it that was all recorded; when one is missing (refused, or lost to a timeout or a
-crash), the poll exits 1 naming it and why (the sensor's last `sensor.refused` or `sensor.failed`), and the next
+crash), the poll exits 1 naming it and why (the sensor's last `sensor.refused` or `sensor.failed` since that poll,
+else "not in the record"), and the next
 re-reads from the confirmed cursor. With its memory lost (`library/<name>/collect.json` gone or unreadable), the
 cursor is the greatest of the sensor's own cites in the record, its rolled-up items' snapshots included
 (`rollup.cites`); a record it cannot read fails the poll, never starting from the beginning. Every entry is checked
@@ -213,7 +214,8 @@ refused, and across lost memory while the record holds that sensor's cites (or t
 named in a cite records it. Not claimed: after the record forgets the log's entries (`keep`, prune) and the
 collector's memory is lost, they are mirrored again; and a restart is seen only when the source returns the entry at
 the cursor or nothing newer than it: a log that restarted and grew past the cursor read from after it (a Kafka
-offset in `{cursor}`) loses the new entries up to the cursor without a word.
+offset in `{cursor}`) loses the new entries up to the cursor without a word, and so does a restart that grew past the
+cursor once the cursor's own event is rolled up or pruned (there is then nothing recorded at the cursor to compare with).
 
 **What a template may declare.** `items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`,
 `blocks`, `agents` and `uses`, and the `workspaces` and gated `actions` its AI blocks use (section 12k): each named

@@ -241,3 +241,27 @@ process replaced": `starts` never reached 3 within 5 s). **No code changed in th
   anyway), belongs in its own gap about warm daemons, not here.
 - `.mut/mut.py` is still committed. This sandbox refused `git rm .mut/mut.py` again. It still needs
   `git rm .mut/mut.py && git commit` from the factory or the owner.
+
+## Where it stopped, round 5 (review 2 answered)
+
+All four findings of review/external-event-logs-2 are answered here (lesson-12):
+
+- **`.mut/mut.py` (blocking): still not removed.** This session's sandbox refused `git rm -q .mut/mut.py` in
+  don't-ask mode, the same as in rounds 2 to 4. I did not get around the refusal with another command (emptying the
+  file, `git update-index`), because that would go against what the refusal is for. **This is the only thing left
+  before review: `git rm .mut/mut.py && git commit`, run by someone whose sandbox allows it.** Without the file the
+  branch's code is within budget: 260 lines counted in round 1, plus 2 lines this round.
+- **A stale reason for a lost position: fixed.** When the collector says its entries, it now keeps the record's
+  `last_seq()` as `mirror.at` in memory. The reason for a missing position is read with `after_seq=at`, so only a
+  `sensor.refused` or `sensor.failed` recorded after those entries were said is given, else "not in the record".
+  Memory without `at` (written by an older poll) reads at any age, as before. New test:
+  `test_an_older_refusal_is_not_given_as_the_reason_for_a_later_loss`. I broke the guard (`after_seq=None`) and it
+  failed, then I put it back. `test_a_position_the_engine_would_refuse...` now compares only `type`, `cursor` and
+  `said` of the memory, since `at` was added to it.
+- **The restart check after compaction: the claim is narrowed.** SPEC §2's "Not claimed" now adds that a restart
+  that grew past the cursor also goes unseen once the cursor's own event is rolled up or pruned. GAPS already left
+  this open.
+- **The reviewer could not run test_mirror.py.** I ran it here: 30 passed.
+
+Ran: `tests/test_mirror.py` (30 passed), and ruff (clean). The whole unit suite and the browser files were not run by
+me. origin/main was not merged: this clone has no `origin`.

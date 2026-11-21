@@ -182,7 +182,8 @@ def test_a_position_the_engine_would_refuse_fails_the_poll_with_its_reason(m):
     m.source([{"id": "a", "n": 1}, {"id": "b", "n": 2}, {"id": "c", "n": 1.5}, {"id": "d", "n": 3}])
     rc, said, err = m.poll()
     assert rc == 1 and said == [] and "1.5" in err and "'c'" in err
-    assert json.loads(m.mem.read_text())["mirror"] == {"type": "i", "cursor": 2, "said": []}
+    kept = json.loads(m.mem.read_text())["mirror"]
+    assert {k: kept[k] for k in ("type", "cursor", "said")} == {"type": "i", "cursor": 2, "said": []}
     m.source([{"id": "d", "n": 3}, {"id": "e"}])
     rc, said, err = m.poll()
     assert rc == 1 and said == [] and "has no n" in err
@@ -212,6 +213,16 @@ def test_a_said_position_not_recorded_fails_the_next_poll_then_is_read_again(m, 
     assert rc == 0 and ns(said) == [1, 2] and m.cursor() == "", err
     rc, said, err = m.poll()
     assert rc == 0 and said == [] and m.cursor() == "2", err
+
+
+def test_an_older_refusal_is_not_given_as_the_reason_for_a_later_loss(m):
+    # Fails if the reason is read at any age (no after_seq of the poll that said them).
+    m.p.events.add("sensor.refused", item=SENSOR, source="ergostat", data={"why": "a refusal from long ago"})
+    m.source([{"id": "a", "n": 1}])
+    rc, said, _ = m.poll(record=False)
+    assert rc == 0 and ns(said) == [1]
+    rc, said, err = m.poll()
+    assert rc == 1 and "not in the record" in err and "long ago" not in err, err
 
 
 def test_a_partly_recorded_poll_moves_the_cursor_to_what_was_recorded(m):
