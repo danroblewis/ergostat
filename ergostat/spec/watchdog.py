@@ -216,16 +216,24 @@ def holders() -> str:
         if owner and owner in frames:
             out.append(f"the item index {ix.path.name}: its lock held by thread {names.get(owner, owner)}, at:")
             out += [x.rstrip() for x in traceback.format_stack(frames[owner])]
-        files = [str(p) for p in (ix.path, ix.path.with_name(ix.path.name + "-wal")) if p.exists()]
+    files = {os.path.realpath(p): ix.path.name for ix in open_   # (as lsof names them)
+             for p in (ix.path, ix.path.with_name(ix.path.name + "-wal")) if p.exists()}
+    if files:                                      # one lsof for them all: a dump's time does not grow with the cache
         try:
-            got = subprocess.run(["lsof", "-t", "--", *files], capture_output=True, text=True, timeout=5) if files \
-                else subprocess.CompletedProcess([], 0, "")
-            pids = sorted({int(x) for x in got.stdout.split()} - {os.getpid()})
-            for pid in pids:
-                cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
-                out.append(f"the item index {ix.path.name}: also open in process {pid}: {cmd.stdout.strip()[:200]}")
+            got = subprocess.run(["lsof", "-F", "pn", "--", *files], capture_output=True, text=True, timeout=5)
+            pid, seen, cmds = 0, set(), {}
+            for line in got.stdout.splitlines():
+                if line.startswith("p"):
+                    pid = int(line[1:])
+                elif line.startswith("n") and line[1:] in files and pid and pid != os.getpid():
+                    seen.add((files[line[1:]], pid))
+            for name, pid in sorted(seen):
+                if pid not in cmds:
+                    cmds[pid] = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True,
+                                               text=True, timeout=5).stdout.strip()[:200]
+                out.append(f"the item index {name}: also open in process {pid}: {cmds[pid]}")
         except (OSError, ValueError, subprocess.TimeoutExpired) as e:
-            out.append(f"the item index {ix.path.name}: other processes not looked for ({type(e).__name__})")
+            out.append(f"the item indexes: other processes not looked for ({type(e).__name__})")
     return "\n".join(out) or "no item index held"
 
 
