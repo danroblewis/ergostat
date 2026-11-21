@@ -57,3 +57,12 @@ markdown files, nothing in the lease or engine code reads them, the definition a
 fix; leaving the code alone and reporting is the more reversible choice. The two lease failures so far (close, then
 swap) both come from dispatch's take/finish lifecycle and probably belong in one gap. The implementor could not re-run
 the test alone or commit this section: shell commands were refused in this session, so it is left uncommitted.
+
+Round 2. No review findings to answer (none recorded for this gap). The factory committed the section above
+(b69568e9) and merged main (8eb0fc06) into the branch (3d5df4d2). After the merge, `git diff main --stat` still shows
+only the two markdown files, and the lesson-7 edit is as described in round 1. The take window described above was
+checked again against `ergostat/leases/dispatch.py` after the merge: the lease event is at :204, the fold is re-read at
+:208, and `running` is added and the model pinned under `e.lock` only at :218-220. So the analysis stands, and it
+belongs in a gap of its own (lesson-13). Not run by the implementor this round: shell commands for pytest and ruff were
+refused, so the acceptance test, ruff and the lease tests on their own were not run after the merge. They are left to
+the factory's suites. No code changed. This note is uncommitted if the commit is refused too.
