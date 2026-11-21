@@ -3,7 +3,7 @@
    Graph: the items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an
    epic) is a stadium its children hang off when nothing else they wait on is drawn; grouped by kind instead, each
    kind is a frame. A card's left bar is its state, in the kind's chart's shade; its border its status: active (the
-   accent, breathing), queued for a block's next step (the accent, dotted), ready (ink), blocked (dashed), done (faint,
+   accent, breathing), queued for a block's next step (the accent, dotted), unblocked (ink), blocked (dashed), paused (dotted on a fill), done (faint,
    ticked), a dead letter (bad). The critical path is
    drawn heavier, in the bad hue. Frontier: the unfinished items and what they wait on, however far back; collapse
    done: the finished vanish, and a chain through them is one dashed line, "via N done".
@@ -18,8 +18,8 @@
 "use strict";
 
 const RG = { W: 210, H: 46, HUB_W: 190, HUB_H: 40, NODES: 300, BARS: 200, ROW: 24, BAR: 12, LABEL: 250, AXIS: 26 };
-const RG_STATUS = ["active", "queued", "ready", "blocked", "dead", "done"];
-const RG_WORD = { active: "active", queued: "queued", ready: "ready", blocked: "waiting", dead: "dead letter", done: "done" };
+const RG_STATUS = ["active", "queued", "unblocked", "blocked", "paused", "dead", "done"];
+const RG_WORD = { active: "active", queued: "queued", unblocked: "unblocked", blocked: "waiting", paused: "paused", dead: "dead letter", done: "done" };
 
 /* a state's shade: its place in its kind's states, on the ramp its chart (the cumulative flow) uses */
 function rgShade(kinds, kind, state) {
@@ -44,6 +44,7 @@ function rgModel(d, o) {
   for (const id of [...scope]) { const g = byId[id].group; if (g && byId[g]) scope.add(g); }
   const q = (o.q || "").trim().toLowerCase();
   if (q) for (const id of [...scope]) { const x = byId[id]; if (![x.id, x.title, x.state, x.kind, x.status].join(" ").toLowerCase().includes(q)) scope.delete(id); }
+  if (o.status) for (const id of [...scope]) if (byId[id].status !== o.status) scope.delete(id);   // a status's count, clicked
   const kids = {};
   for (const id of scope) { const g = byId[id].group; if (g && scope.has(g)) (kids[g] ||= []).push(id); }
   const hub = (id) => o.group !== "kind" && !!kids[id];
@@ -391,11 +392,14 @@ function relTimeline(open) {
 }
 
 /* the legend: how many of each status, the critical path and when it is expected to end, any cycle */
-function relLegend(m, d) {
+function relLegend(m, d, pick = null, chosen = null) {
   const n = m.counts;
   const crit = d.critical.length;
   return h("div", { class: "rg-legend" },
-    ...RG_STATUS.filter((st) => n[st]).map((st) => h("span", { class: `rg-key rg-${st}`, key: st }, h("i", {}), `${n[st]} ${RG_WORD[st]}`)),
+    ...RG_STATUS.filter((st) => n[st]).map((st) => h(pick ? "button" : "span", {
+      class: `rg-key rg-${st}${pick ? " ghost" : ""}${chosen === st ? " on" : ""}`, key: st,
+      ...(pick ? { title: chosen === st ? "Show every status again" : `Show only the ${RG_WORD[st]}`, "aria-pressed": String(chosen === st), onclick: () => pick(st) } : {}) },
+      h("i", {}), `${n[st]} ${RG_WORD[st]}`)),
     crit ? h("span", { class: "rg-key rg-critkey", key: "crit", title: "The longest chain of unfinished work, by the kinds' median times: nothing on it can slip without moving the end" },
       h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}` + (d.eta ? "" : `, done in about ${dur(Math.max(0, d.end - d.now))}`)) : null,
     ...Object.entries(d.eta?.kinds || {}).map(([k, e]) => h("span", { class: "rg-key rg-eta", key: `eta:${k}`, title: `When the last open ${k} is done: the p50 and the p90 of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework; not modelled: a goal that switches a block off, a capacity no block declares`
