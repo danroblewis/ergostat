@@ -605,11 +605,6 @@ def test_g2_an_approval_after_a_denial_is_ignored_counted_as_denied_and_never_ru
     assert its.one(p.events, p.model.spec, aid).state == "ran despite denial", "and so on the action's own page"
 
 
-def test_g2_approver_ai_is_refused_by_check(tmp_path, monkeypatch):
-    with pytest.raises(mdl.ModelError, match="approver: ai: not yet: a sound allowlist guard is needed"):
-        project(tmp_path, monkeypatch, approver="ai")
-
-
 def test_g2_a_notification_of_a_repair_always_says_what_approving_does(tmp_path, monkeypatch):
     from ergostat.inbox import deliver, entries
     p, e = project(tmp_path, monkeypatch)

@@ -1,6 +1,7 @@
 """``python -m ergostat.repair fix`` (SPEC §12r), ``repair-fix``'s run on one leased failure: a clone of the project's
 repository (its own ``.git``), the AI's fix (no tools: it is given what ergostat read), the test in ``ergostat.sandbox``,
-the impact report, and ``apply-fix`` asked for, held for the person (the ladder's first rung). What to run
+the impact report, and ``apply-fix`` asked for, held for the person (the ladder's first rung) or, with ``--approver
+ai``, reviewed by ``approve.py`` behind the guard of ``allow.py`` (the second). What to run
 comes from the compiled model and the state directory; a failure's fields are ergostat's alone (a sealed kind)."""
 
 from __future__ import annotations
@@ -37,8 +38,8 @@ class Capped(Refused):
     """No AI call: the daily cap, or a ledger that cannot be read."""
 
 
-def record(p, what: str, fid: str, data: dict) -> None:
-    p.events.add(f"{FAILURE}.{what}", item=fid, source=os.environ.get("ERGOSTAT_BLOCK") or "ergostat",
+def record(p, what: str, fid: str, data: dict) -> dict:
+    return p.events.add(f"{FAILURE}.{what}", item=fid, source=os.environ.get("ERGOSTAT_BLOCK") or "ergostat",
                  causedby=os.environ.get("ERGOSTAT_RUN"), data=data)
 
 
@@ -225,12 +226,17 @@ def run(a) -> int:
         return 0
     rep = impact(p, fid, name, tests, fix)
     risk = str(((rep.get("fields") or {}).get("risk") or {}).get("level") or "high")
-    record(p, "passed", fid, {**data, "impact": {"said": rep.get("said")}, "risk": risk,
-                              "report": f"file:repair/{name}.impact.json"})
-    action = gate.request(p, spec, "apply-fix", {}, {"block": b.name, "run": os.environ.get("ERGOSTAT_RUN"), "item": fid},
-                          asker="program", key=f"{name}-{fix}")
+    from . import approve
+    with approve.held(p, name):                              # (the approver re-reads both under the same lock)
+        passed = record(p, "passed", fid, {**data, "impact": {"said": rep.get("said")}, "risk": risk, "approval": None,
+                                           "report": f"file:repair/{name}.impact.json"})
+        action = gate.request(p, spec, "apply-fix", {}, {"block": b.name, "run": os.environ.get("ERGOSTAT_RUN"),
+                                                         "item": fid}, asker="program", key=f"{name}-{fix}")
     if action["state"] == "denied":
         record(p, "dismissed", fid, {"why": "apply-fix is denied by its gate"})
+    elif a.approver == "ai" and action["state"] == "requested":
+        beside = sorted(x.name for x in (Path(c.work) / path).parent.iterdir())
+        approve.review(p, a, fid, name, path, files[path], got["program"], beside, passed, action)
     return 0
 
 
@@ -238,7 +244,7 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="ergostat.repair fix")
     for k, v in (("model", "haiku"), ("budget", 0.25), ("daily", 2.0), ("timeout", 300.0), ("test", None)):
         ap.add_argument(f"--{k}", default=v, type=type(v) if v is not None else str)
-    ap.add_argument("--approver", choices=["person"], default="person")      # (ai: not yet, SPEC §12r)
+    ap.add_argument("--approver", choices=["person", "ai"], default="person")      # (ai: approve.py, SPEC §12r)
     a = ap.parse_args(argv)
     try:
         return run(a)

@@ -907,9 +907,6 @@ class Compiler:
         from ..repair import BLOCKS, FAILURE, failure_kind
         if BLOCKS[0] in self.doc.sections.get("blocks", {}):
             spec.items[FAILURE] = failure_kind()             # built in, under use: repair: failing runs (SPEC §12r)
-            if "--approver ai" in str(self.doc.sections["blocks"][BLOCKS[0]].get("run")):
-                self.err("use: repair: approver: ai: not yet: a sound allowlist guard is needed (GAPS)",
-                         self.doc.defined[("blocks", BLOCKS[0])], "not-yet")
         if any(u.get("template") == "interventions" for u in d.uses.values()):
             from .ir import MODEL_REQUEST, model_request_kind
             spec.items[MODEL_REQUEST] = model_request_kind()  # built in, with the interventions loop (SPEC §12p)
