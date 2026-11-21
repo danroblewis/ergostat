@@ -392,7 +392,8 @@ def test_a_structural_change_waits_for_the_owner_even_passed(tmp_path):
     out = jd.run(p, "judge")
     x = pr.stored(p)[got["id"]]
     assert out["passed"] == 1 and out["accepted"] == 0 and x["state"] == "passed"
-    assert "answers 2 findings" in x["verdict"]["why"]                              # the fit cannot see it; check can
+    v = x["verdict"]                     # the fit cannot see it (its replay is the model's): the scorecard judges it
+    assert v["on"] == "structure" and v["scorecard"]["verdict"] == "better" and jd.owners(x), v["why"]
 
 
 def test_a_change_worse_on_the_record_held_out_fails_with_the_windows(tmp_path):
