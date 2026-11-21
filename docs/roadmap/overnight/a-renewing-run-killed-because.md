@@ -156,3 +156,13 @@ every shell command (no `git`, no `pytest`), so I could not read the full log, r
 no code: the branch's diff is still docs only, and the one failure known so far (the reload-safety test above) is
 outside this gap (lesson-13). To go on, the factory has to supply the failing test's name and output, from the full
 log or a rerun. This paragraph was written as an uncommitted edit, because the session could not run `git commit`.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:12).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 4: ack
+- attempt 5: nack exited 1
+- attempt 6: nack exited 1
+- attempt 7: nack exited 1
