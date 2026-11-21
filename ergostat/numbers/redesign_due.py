@@ -100,7 +100,7 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
     changes = changes if changes is not None else _changes(p)
     mine = sorted((x for x in changes.values() if x.get("kind") != rd.KIND and x.get("made_by") in REFINERS
                    and any(_in(spec, unit, t) for t in (x.get("parts") or x.get("touched") or []))
-                   and x["state"] not in pr.OPEN), key=lambda x: x.get("made") or x.get("created") or 0)[-STALL:]
+                   and x["state"] not in pr.OPEN and not _sent_back(x)), key=lambda x: x.get("made") or x.get("created") or 0)[-STALL:]
     if len(mine) >= STALL and all(x["state"] in TURNED for x in mine):
         why.append(f"refinement stalled: its last {STALL} changes were all turned away")
     ran = ran if ran is not None else _ran(p, now)
@@ -151,7 +151,7 @@ def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, chang
         if d.get("result") not in ("proposed", "started") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
             return f"resting: its last redesign was {d.get('result')}, and its parts have not changed since"
     for x in (changes if changes is not None else _changes(p)).values():
-        if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ENDED \
+        if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ENDED and not _sent_back(x) \
                 and now - float(x.get("decided") or x.get("made") or 0) <= COOL and x.get("unit_sig") == sig:
             return f"resting: its last redesign was {x['state']}"
     return None
@@ -173,6 +173,11 @@ def unfinished(p, ran: list, now: float) -> None:
             x = rq.stored(p).get(k)
             if x is not None and x["state"] in ("open", "proposed"):
                 rq.event(p, k, "answered", {"why": "its run never ended (it crashed, or its block timed out)"})
+
+
+def _sent_back(x: dict) -> bool:
+    """Sent back to its author by the reviewer: not turned away, and no rest (its author is asked again)."""
+    return x["state"] == "superseded" and (x.get("review") or {}).get("verdict") == "revise"
 
 
 def _changes(p) -> dict:

@@ -85,8 +85,8 @@ items:
   gap:
     id: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
-    states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, queue-failed, merged,
-             parked, closed]
+    states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, push-pending,
+             queue-failed, merged, parked, closed]
     on:
       gap.found: open                # intake: an entry of docs/GAPS.md
       gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
@@ -100,6 +100,7 @@ items:
       gap.approved: approved
       gap.sent-back: fix             # reviewer (fix), queue (a conflict) or triage (a real failure): its findings
       gap.queued: queued             # merge queue
+      gap.push-pending: push-pending # merge queue: its run's gap did not land; its outcome waits for its batch's push
       gap.queue-failed: queue-failed
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
@@ -107,7 +108,7 @@ items:
       gap.closed: closed             # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
                                      # manager's close, once the coordinator approved it)
     show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason,
-           loop_rounds, loop_hours]
+           parked_for, loop_rounds, loop_hours]
     # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended and gates (dev/bin/times.py)
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
@@ -141,6 +142,8 @@ items:
     lease: {attempts: 2}
     # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
     # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
+    # gap.need-met (no state): the coordinator or owner records a needs park's action done (need_met: what was done)
+    # gap.resumed (no state): a park resumed (resumed_as, resumed_for, resumed_by, cleared: the condition; parks.py)
 
   review:
     id: review/*
@@ -268,7 +271,8 @@ items:
       knowledge.found: active        # knowledge-sync: an entry in the files (or back in them)
       knowledge.changed: active      # knowledge-sync: its title, text, areas or how many briefs carried it changed
       knowledge.retired: retired     # knowledge-sync: no longer in the files
-    show: [kind, title, file, areas, carried, text]
+    about: about                     # its *About:* line: the parts of this model it bears on (explain, check, status)
+    show: [kind, title, file, areas, about, carried, text]
 
 messages:
   done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],

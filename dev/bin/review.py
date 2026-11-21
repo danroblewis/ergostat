@@ -23,6 +23,7 @@ sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
+import parks  # noqa: E402
 import pools  # noqa: E402
 
 VERDICT_EVENT = {"merge": "review.approved", "fix": "review.sent-back", "park": "review.parked"}
@@ -69,12 +70,16 @@ def verdict(said: str) -> dict:
         raise RuntimeError(f"the reviewer's verdict is not merge, fix or park: {v.get('verdict')!r}")
     return {"verdict": v["verdict"], "blocking": [str(x) for x in v.get("blocking") or []],
             "non_blocking": [str(x) for x in v.get("non_blocking") or []],
-            "where_it_stopped": str(v.get("where_it_stopped") or "")}
+            "where_it_stopped": str(v.get("where_it_stopped") or ""),
+            **(parks.of_verdict(v) if v["verdict"] == "park" else {})}
 
 
-def park(cfg: dict, gap: dict, why: str, by: str, where: str = "review") -> None:
+def park(cfg: dict, gap: dict, why: str, by: str, where: str = "review", kind: str = "defect",
+         until: dict | None = None) -> None:
     """Where it stopped, written into the definition file on the gap's branch (a commit this program makes in a clone
-    of its own, pushed to the drop), then the gap parked."""
+    of its own, pushed to the drop), then the gap parked: why as a kind (parks.KINDS) and, for the kinds a program
+    resumes, what would end it (``until``). A park clears the last one's resume and need met (the same id parked
+    again)."""
     branch, rel = fac.branch_of(gap), fac.definition_file(gap)
     d = agents.drop(cfg)
     if fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{fac.git_branch(branch)}"):
@@ -86,7 +91,8 @@ def park(cfg: dict, gap: dict, why: str, by: str, where: str = "review") -> None
             fac.git(work, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "-am",
                     f"{branch}: where it stopped\n\n{fac.TRAILER}")
             agents.publish(cfg, work, branch)
-    fac.say("gap.parked", gap["id"], parked_at=time.time(), where_it_stopped=why[:4000], parked_by=by, parked_in=where)
+    fac.say("gap.parked", gap["id"], parked_at=time.time(), where_it_stopped=why[:4000], parked_by=by, parked_in=where,
+            parked_for=kind, parked_until=until, resumed_as=None, resumed_at=None, need_met=None)
 
 
 def main() -> int:
@@ -100,7 +106,8 @@ def main() -> int:
         fac.nack(str(e), after="1h", count=False)
         return 0
     except Exception:  # noqa: BLE001 - parked on its last attempt, never a dead letter
-        return fac.guarded(given, began, "review_hours", lambda why: park(cfg, given["item"], why, "reviewer"))
+        return fac.guarded(given, began, "review_hours", lambda why: park(cfg, given["item"], why, "reviewer",
+                                                                          kind="kill-rule"))
 
 
 def next_review(branch: str) -> int:
@@ -167,7 +174,8 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
         why = v["where_it_stopped"] or f"Failed its gates {fac.kill_after(cfg)} times (the kill rule). Blocking findings:\n" + "\n".join(
             f"- {b}" for b in v["blocking"])
         fac.say("gap.measured", failed_gates=int(v["verdict"] == "fix"), findings=v["blocking"], **record)
-        park(cfg, gap, why, rid)
+        kind = (v["parked_for"], v["parked_until"]) if v["verdict"] == "park" else ("kill-rule", None)
+        park(cfg, gap, why, rid, kind=kind[0], until=kind[1])
     else:
         fac.say("gap.sent-back", sent_back_by="review", findings=v["blocking"], failed_gates=1, fix_rounds=1,
                 first_pass=False, **record)
