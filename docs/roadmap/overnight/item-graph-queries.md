@@ -235,3 +235,17 @@ Built, round 5. Every finding of the review (lesson-12):
 test_graph_cli_web and test_item_about: 103 passed. Ruff is clean. Not run: the whole unit suite and the four browser
 files, which the factory runs under the watchdog. This container has no network, so origin/main was not merged here.
 The coordinator should merge it and run the suites again (lesson-7).
+
+## Where it stopped, round 5 (the unit suite's failure)
+
+The factory's unit run after 5c608d8b stopped at 11%. As in rounds 3 and 4 (which stopped at 89%), its tail has no
+failing test, no error, no summary and no `suite_watch` line, so the run was killed or hung, and the tail does not say
+which. A stop at a different point each time looks more like the run being killed from outside than like a test of
+this branch hanging. This session was not allowed to run the whole suite, even one test at a time, so it ran the
+files that reach this branch's code (the item command, the API, the fallback) on 5c608d8b with
+`-o faulthandler_timeout=120`. Any test that hung would have dumped its stack: test_item_graph_queries (13 passed in
+1.6 s; its two API tests shut their servers down in `finally`), test_cli_fallback, test_item_search, test_item_about,
+test_relations, test_graph_cli_web (90 passed), test_items_page, test_inbox, test_messages, test_backlog (69 passed,
+1 skipped). Ruff is clean. No code changed, because there is no failing test to fix (lesson-10, lesson-13). Left: the
+factory should run the unit suite again with `-o faulthandler_timeout=120 -rfE` and keep the whole output, including
+the watchdog's closing JSON line, so that the output names the test that hangs or the reason the run was killed.
