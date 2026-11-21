@@ -82,3 +82,11 @@ command was refused this round:
 `git show --stat HEAD | head -20; cat .pytest_cache/v/cache/lastfailed ...; ls /tmp | head; grep ...` (the files were
 read with the file tools instead). Left: the factory's full `unit` log, to find out why the run stopped. If it shows a
 named failure outside this branch's files, it goes in a report against main (lesson 13).
+
+Round 5 (after main e1e778c1 was merged in, dc5fe73b): no code changed, and no review findings were given to answer.
+Run here on the merged tree, one file at a time: the acceptance tests (4 passed), tests/test_factory.py in full
+(130 passed, 2 skipped, 309 s), tests/test_review.py with tests/test_factory_resources.py (32 passed), and
+`ruff check ergostat tests scripts` (clean). The lesson-9 check was not repeated on the merged tree, because the
+command that would have put `after="5m"` back for one run and then restored it (`sed -i ... && pytest ... ; git
+checkout -- dev/bin/implement.py dev/bin/review.py`) was refused. Round 2's check on the same two lines stands. The
+whole unit suite is the factory's to run (lesson 7). The earlier unnamed `unit` failures are still unnamed.
