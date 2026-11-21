@@ -1743,15 +1743,19 @@ class Engine:
         return {**said, "version": self.version, "seconds": {"swap": round(worked, 3),
                                                              "record": round(time.monotonic() - took, 3)}}
 
-    def close(self) -> None:
-        # Set under the lock: a lease taken past this waits in ``running``. Never waited on for good (a lock held by
-        # something wedged, as the watchdog allows): a take needs the same lock to pass its check, so it sees the stop.
-        got = self.lock.acquire(timeout=self.lock_wait)
+    def shut(self, wait: float) -> None:
+        """Dispatch closed: the stop set under the lock a take checks it under, so a lease taken past this waits in
+        ``running``. Never waited on for good (at most ``wait``: a lock held by something wedged, as the watchdog
+        allows); a take past its check without it sees the stop again after its write, and gives the item back."""
+        got = self.lock.acquire(timeout=wait)
         try:
             self.stop.set()
         finally:
             if got:
                 self.lock.release()
+
+    def close(self) -> None:
+        self.shut(self.lock_wait)
         self.wake.set()
         if self.calls is not None:
             self.calls.close()
