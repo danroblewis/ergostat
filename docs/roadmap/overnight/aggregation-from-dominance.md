@@ -135,3 +135,12 @@ Answers to the plan review. Each was settled by taking the narrower option, the 
   leaves `named` true beside an unscored loop. It shows that the guard in `aggregation.py` holds on its own.
 - **Not covered**: loops longer than 30 parts are never found (the same limit as `dominance.py`). SPEC narrows the
   claim to "the loops of up to 30 parts that the loop search finds" instead of guarding against it.
+
+After the factory's unit run failed: its tail stops mid-line at 77% with no failing test named, which looks like a
+killed run rather than a test that failed. The one cost the branch added to a shared path was `causal.loops`, worked
+out again on every `/api/dominance` call with no cache. It now runs once: the candidates are kept with the dominance
+under its cache key (window, `live.mtime`, points). Run here one group of files at a time, none related to this branch
+fails. One test fails when run with others:
+`tests/test_store_conformance.py::test_a_second_instance_threads_and_processes_lose_nothing[sqlite]`. A spawned
+process finds main's `dev/bin/queue.py` in place of the standard `queue` once another test has put `dev/bin` on
+`sys.path`. It passes alone, this branch does not touch it, and it is left alone (lesson-13).

@@ -378,13 +378,15 @@ def loop_dominance(live, p, snap: dict, n: int = series.POINTS, loop: str | None
     if mr is None:
         return None
     key = ("dominance", snap["window"], snap["at"] if not snap.get("live", True) else round(snap["at"] / 5), live.mtime, n)
-    got = live.cached(key)
-    if got is None:
+    kept = live.cached(key)
+    if kept is None:                     # the candidates kept with it, under the same key: worked out once
         got = dm.dominance(spec_of(p), mr["data"])
-        live.keep(key, got)
+        groups = ag.candidates(spec_of(p), got) or {}
+        kept = (got, [{"system": k, **g} for k, gs in sorted(groups.items()) for g in gs])
+        live.keep(key, kept)
+    got, aggregate = kept
     mine = {s: x for s, x in got["stocks"].items() if loop is None or loop in x["loops"]}
-    groups = ag.candidates(spec_of(p), got) or {}
-    return {"aggregate": [{"system": k, **g} for k, gs in sorted(groups.items()) for g in gs],
+    return {"aggregate": aggregate,
             "times": [round(t, 3) for t in got["times"]], "since": mr["data"].grid.since, "until": mr["data"].grid.until,
             "loop": loop, "polarity": got["polarity"], "assumed": got["assumed"].get(loop, []) if loop else got["assumed"],
             "not_scored": got["not_scored"] if loop is None else {k: v for k, v in got["not_scored"].items() if k == loop},
