@@ -20,3 +20,17 @@ On 2026-11-21 the groomer proposed splitting `operating-states-continued` into t
 
 ## Size budget
 25 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built. Choices made alone (the most reversible):
+- `backlog.built` reads the drop through `agents.drop` (which makes it, or brings its main up to date, as the intake
+  does), not a new reader. No branch in a readable drop means no work. Anything that fails (the drop, its main,
+  `rev-list`) counts as work, and the split is refused with the error (lesson-3).
+- A ref that names a missing object looks the same as no branch to `rev-parse --verify`. Such a ref holds no work
+  that could be reached, so the split goes ahead.
+- The groomer's context now shows a gap's `continues` too (one word), so the prompt's rule can be followed.
+
+Size: dev/bin/backlog.py +28/-4 (24 net, with its docstring), dev/prompts/groomer.md +3/-1.
+Not run here: the unit suite and the four browser files (the factory runs them under the watchdog). There is no
+origin/main in this clone and the network is off, so main was not merged in again; the branch is on local main.
