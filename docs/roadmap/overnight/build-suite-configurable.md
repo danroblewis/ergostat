@@ -30,8 +30,8 @@ The owner (2026-11-21): "We only want to run a minimum set of specific tests dur
 
 ## Where it stopped
 
-Built, round 1. About 78 net lines outside `tests/` and `docs/` (`scripts/affected_tests.py` 61 with its docstring,
-`dev/bin/onmain.py` +8, `dev/factory.toml` +5, `dev/README.md` +4; `agents.py` and `implement.py` net 0).
+Built, round 1. 74 net lines outside `tests/` and `docs/` (`scripts/affected_tests.py` 58 with its docstring,
+`dev/bin/onmain.py` +8, `dev/factory.toml` +5, `dev/README.md` +3; `agents.py` and `implement.py` net 0).
 
 - `[suites] build` (dev/factory.toml) wraps the pytest command:
   `suite_watch.py -- affected_tests.py -- pytest -q -n 8 --dist worksteal`. The script adds the selected files, or
