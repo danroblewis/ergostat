@@ -223,6 +223,101 @@ blocks:
     assert "leases.robot: a tier of the ladder" in said
 
 
+def read_model(tmp_path, text: str):
+    from ergostat.spec import read
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text))
+    return read(tmp_path / "ergostat.yaml")
+
+
+def test_mode_advise_on_a_block_that_takes_is_refused(tmp_path):
+    """advise asks before a command or an event, never per item: with takes: it is refused, before the kind is checked
+    (a mistyped kind would otherwise drop takes: and hide it)."""
+    spec, problems = read_model(tmp_path, KIND + """
+blocks:
+  bot:
+    type: program
+    run: "true"
+    takes: {kind: ticket, at: ready}
+    mode: advise
+  dev:
+    type: ai
+    prompt: do it
+    takes: {kind: ticket, at: ready}
+    mode: advise
+  typo:
+    type: program
+    run: "true"
+    takes: {kind: tickets, at: ready}
+    mode: advise
+""")
+    for name in ("bot", "dev", "typo"):
+        got = [x for x in problems if x.code == "advise-with-takes" and f"block {name}." in x.message]
+        assert len(got) == 1, (name, [str(x) for x in problems])
+        assert got[0].level == "error" and got[0].where == spec.blocks[name].where
+        assert "goal:" in got[0].message and "in: block." in got[0].message, "it says to gate it instead"
+    assert len([x for x in problems if x.code == "advise-with-takes"]) == 3
+    assert [x for x in problems if x.code == "unknown-ref" and "block typo." in x.message], "its own error as well"
+
+
+def test_mode_advise_without_takes_and_takes_without_advise_compile(tmp_path):
+    from .test_triggers2 import MODEL as EVENTS
+    takers = KIND + """
+blocks:
+  plain:
+    type: program
+    run: "true"
+    takes: {kind: ticket, at: ready}
+  auto:
+    type: ai
+    prompt: do it
+    takes: {kind: ticket, at: ready}
+    mode: auto
+  c:
+    type: expr
+    in: {n: parameter.n}
+    expr: n
+  asked:
+    type: program
+    run: "true"
+    mode: advise
+    in: block.c
+parameters:
+  n: {value: 1}
+"""
+    advised = EVENTS.replace("    run: python3 triage.py", "    mode: advise\n    run: python3 triage.py")
+    assert "mode: advise" in advised
+    for i, text in enumerate((takers, advised)):
+        d = tmp_path / str(i)
+        d.mkdir()
+        spec, problems = read_model(d, text)
+        assert not [str(x) for x in problems if x.code == "advise-with-takes"]
+        assert spec.blocks["triage" if i else "asked"].mode == "advise", "what it would refuse is in the model"
+
+
+def test_a_block_that_takes_waits_while_what_commands_it_is_off(tmp_path):
+    """The gate the refusal points to: in: block.X from a block that is off, and its items wait (dispatch.py)."""
+    text = model('echo "{\\"event\\": \\"ticket.done\\"}"', extra="""
+  gate:
+    type: expr
+    in: {w: stock.waiting}
+    expr: "w >= 3"
+stocks:
+  waiting:
+    sensor: {items: ticket, state: ready, every: 0.2s}
+""").replace("    lease: {ttl: 1m}\n", "    lease: {ttl: 1m}\n    in: block.gate\n")
+    p = project(tmp_path, text)
+    opened(p, 2)
+    e = start(p)
+    try:
+        time.sleep(2)
+        assert all(item(p, f"ticket/{i}").state == "ready" for i in range(2)), "off: its items wait"
+        for i in range(2, 4):
+            p.events.add("ticket.opened", item=f"ticket/{i}", source="t")
+        assert wait_for(lambda: any(item(p, f"ticket/{i}").state == "done" for i in range(4)), 10), "on: it takes"
+    finally:
+        e.close()
+
+
 # ---- the engine: dispatch, the watchdog, fencing
 
 
