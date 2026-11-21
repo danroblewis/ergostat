@@ -86,6 +86,8 @@ changed or why it stays; a non-blocking finding left unanswered becomes blocking
 
 ## 13. Stay inside the gap: an unrelated failure is reported, not fixed in the branch
 Seen as: continue-branch: a lease-renewal test failed under load; the implementor wrote its own lease fix into the
-branch, and the review failed the gap on it.
+branch, and the review failed the gap on it; external-event-logs: a scratch mutation script that rewrites ergostat
+source (.mut/mut.py, 1e563e30), committed to the branch outside the gap and counted against the size limit (its 55
+lines the whole overrun), still committed when raised for the fifth round.
 **Check:** when a suite fails on something your change did not touch, name the test and why it is unrelated in your
 report and stop there; a fix outside the definition of done belongs in its own gap
