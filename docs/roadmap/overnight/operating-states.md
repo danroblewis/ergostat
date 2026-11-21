@@ -433,3 +433,14 @@ Tests run this round: `tests/test_operating.py`, `tests/test_cli_fallback.py` an
 passed); ruff clean. Local `main` has nothing the branch lacks, and there is no `origin` remote in this container.
 Not run by the implementor: the full unit suite and the four browser files (the factory runs them under the
 watchdog). No demo is touched, so `demo_check` is not needed.
+
+Round 9, after the fast suites again (`unit` cut off at 96%, with no `F`, no error and no summary). No code changed.
+The cause is still main's, and I reproduced it at this HEAD: `tests/test_backlog.py` then `tests/test_index_files.py`
+(`-p no:randomly -x`) gives 1 failed, 16 passed in 151 s. The index test's spawned children die with `ImportError:
+cannot import name 'Empty' from 'queue' (/work/dev/bin/queue.py)`, and the parent waits on them. Five places in the
+tests leave `dev/bin` on `sys.path` in-process: `tests/test_backlog.py:24`, `tests/test_factory.py:2998`,
+`tests/test_factory_knowledge.py:122` and `:707`, and `tests/test_factory_times.py:36`. None of those files, and
+nothing in `dev/bin/`, is in `git diff main...HEAD`. So main stalls the same way under `-n 8` wherever a worker
+reaches a spawning test after one of them. Per lesson-13 it is not fixed here. Its own gap should use
+`monkeypatch.syspath_prepend` in those five places (as `tests/test_factory.py:439` already does), or rename
+`dev/bin/queue.py`. Until then this branch's `unit` run can't pass, whatever the branch contains.
