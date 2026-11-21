@@ -21,12 +21,12 @@ auxiliaries:
     sensor: {run: python3 dev/bin/watch.py stuck, every: 5m, timeout: 2m, description: the gaps' time in their states}
   pipeline-broken-minutes:
     unit: minutes
-    description: how long the merge pipeline has been broken past [manager] broken_minutes - queue blocked, a push pending, no merge while approved gaps wait, a test failing on two main commits, the interlock holding the queue (0 while it flows)
+    description: minutes the merge pipeline has been broken past [manager] broken_minutes - queue blocked, a push pending, no merge while approved gaps wait, the interlock holding the queue; an unremedied test failing on two main commits counts from its start (0 while it flows)
     driven-by: [+stock.gaps-approved]
     sensor: {run: python3 dev/bin/watch.py broken, every: 5m, timeout: 2m, description: the merge pipeline's conditions}
   minutes-since-manager:
     unit: minutes
-    description: minutes since the last pipeline manager session - the schedule ([manager] every); none is raised when nothing changed
+    description: minutes since the last pipeline manager session - the schedule ([manager] every); a measure with no goal, as it rightly grows while nothing changes (none is raised then)
     driven-by: [-flow.situations-found]
     sensor: {run: python3 dev/bin/watch.py since, every: 5m, timeout: 1m, description: the manager's schedule}
   manager-triggers-per-session:
@@ -76,9 +76,9 @@ goals:
     description: no gap held in one state past its threshold without a reason
   merge-pipeline-flowing:
     auxiliary: pipeline-broken-minutes
-    hold: "<= 30"
+    hold: "<= 0"
     tolerance: 0
-    description: the merge pipeline never broken past [manager] broken_minutes
+    description: the merge pipeline never broken past [manager] broken_minutes (its reading is the minutes past that, so the goal follows the setting)
   situations-looked-at:
     stock: situations-raised
     hold: "<= 0"
@@ -125,6 +125,9 @@ blocks:
     run: python3 dev/bin/watch.py
     every: 5m
     timeout: 4m
+    in:                                # (read, not commanded: no block commands it, so it keeps its own schedule)
+      stuck: goal.no-stuck-gaps.off
+      broken: goal.merge-pipeline-flowing.off
     out: flow.situations-found
 
   manage-when:
@@ -132,11 +135,9 @@ blocks:
     description: look while a situation waits, managing is open, and the day's AI money is not spent
     in:
       waiting: goal.situations-looked-at.off
-      stuck: goal.no-stuck-gaps.off
-      broken: goal.merge-pipeline-flowing.off
       open: auxiliary.managing-open
       over: goal.ai-budget.off
-    expr: waiting * max(1, stuck, broken) * min(open, 1) * (1 - over)   # (the goals drawn: only a raised session runs)
+    expr: waiting * min(open, 1) * (1 - over)   # (stuck gaps and a broken pipeline reach it as a situation raised)
     out: block.pipeline-manager
   pipeline-manager:
     type: ai
@@ -144,7 +145,7 @@ blocks:
     description: one session sees the whole pipeline, in a read-only clone of main - acts on every trigger through manage.py, reviews the velocity record and proposes a change or asks the researcher; the gated acts are asked
     run: python3 dev/bin/manager.py
     prompt: dev/prompts/pipeline_manager.md
-    takes: {kind: situation, at: raised, to: [handled, failed]}
+    takes: {kind: situation, at: raised, to: [handled, failed, superseded]}
     pool: 1
     lease: {ttl: 60m, attempts: 2}
     timeout: 1h

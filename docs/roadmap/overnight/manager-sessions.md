@@ -92,3 +92,31 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
 - Drop the goal on `minutes-since-manager` and keep it as a measure: it rightly grows while nothing changes.
 - Make `manage-when` depend on what it claims to read, or remove the `max(1, ...)` and draw the triggers honestly. The hold on `merge-pipeline-flowing` follows `broken_minutes`.
 - This has run only on fixtures: say so in the report. Main has moved and `ergostat.yaml` changed on both sides, so keep both when merging.
+
+**The implementor, round 1 (2026-11-21): each decision, as built.**
+- *Unique ids:* a situation's id is `situation/<reason>-<UTC second>-<6 hex>` (`secrets.token_hex(3)`), so two raised in
+  one second are two items. Test: `test_each_situation_raised_has_its_own_id`. The flaky test is unchanged and passed
+  5 runs of 5 here (3 alone, 2 in the whole file).
+- *`main-twice`* reads only open `main-broken` interventions with no `remedy` or `remedied_at`.
+  `test_each_broken_condition` now has both open, then remedies one and sees the condition clear.
+- *Old situations:* an old one (`print`, no `prints`) that was handled or failed counts its `print` as looked at (the
+  fingerprints are the same function, `watch.sit`, so they match). One still `raised` is closed with the new event
+  `situation.superseded` (a new state `superseded` of the kind in `ergostat.yaml`, in its `done` list and the block's
+  `takes.to`) before any clone or session. Its trigger is not counted as handled, so if it still stands it goes to the
+  next session. Test: `test_situations_of_the_one_trigger_watch_are_read_and_an_old_raised_one_is_superseded`.
+- *No goal on `minutes-since-manager`:* left as a measure. Its description says why. Definition item 5's "with a goal at
+  `every`" is therefore not built, by the coordinator's decision. The model test asserts that no goal is on it.
+- *`manage-when`* now reads only what its expression uses: `waiting * min(open, 1) * (1 - over)`. The goals
+  `no-stuck-gaps` and `merge-pipeline-flowing` are now read by `pipeline-watch` (`in:`), which is honest because the
+  watch is what finds them. No block commands the watch, so the engine keeps it on its own `every: 5m` schedule
+  (`engine.due`: a block with `every` and no commander runs on its schedule), and it stays a plain block with no
+  `goal:`. The model test asserts that all three manager goals are still closed by a loop (`spec.loop(g).closes`).
+  This is the reversible choice, since the `in:` is drawing only. `ergostat check` itself was refused by this session's
+  shell and was not run.
+- *The hold follows `broken_minutes`:* `watch.py broken` now reads the minutes **past** `broken_minutes` (`main-twice`
+  from its start, as it counts at once), and `merge-pipeline-flowing` holds `<= 0`. Test:
+  `test_the_broken_reading_is_the_minutes_past_broken_minutes`, with `broken_minutes = 20`.
+- *Only on fixtures:* this round too ran only on fixtures with the stand-in AI. It never ran on the live instance, a
+  real session or the real load probe. Local `main` was already merged (4cabb2e). This clone has no `origin/main`, so
+  merging origin/main is left to the merge queue.
+- *Size:* 149 net lines in `dev/bin/` against main, within 450.

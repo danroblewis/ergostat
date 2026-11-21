@@ -62,6 +62,13 @@ def test_the_model_has_the_block_its_kind_triggers_and_gated_actions():
     assert {"manager-close", "manager-park", "manager-pool", "manager-change"} <= set(spec.actions)
     assert all(spec.actions[a].gate == "approve" for a in ("manager-close", "manager-park", "manager-pool", "manager-change"))
     assert "closed" in spec.items["gap"].states and "situation" in spec.items["session"].relations
+    for goal in ("no-stuck-gaps", "merge-pipeline-flowing", "situations-looked-at"):
+        assert spec.loop(goal).closes, goal
+    assert "minutes-since-manager" not in {g.of.name for g in spec.goals.values()}   # (a measure: it grows while idle)
+    when = spec.blocks["manage-when"]
+    assert set(when.inputs) == {"waiting", "open", "over"}      # it reads only what its expression uses
+    assert {"stuck", "broken"} <= set(spec.blocks["pipeline-watch"].inputs) and spec.blocks["pipeline-watch"].every
+    assert spec.goals["merge-pipeline-flowing"].hold.value == 0  # (minutes past [manager] broken_minutes)
 
 
 def test_a_wait_the_pipeline_explains_is_not_stuck(tmp_path):
@@ -145,6 +152,33 @@ def test_a_trigger_left_unanswered_or_a_failed_session_comes_back(tmp_path):
     assert subjects(f.watch()) == ["gap/b"]
 
 
+def test_situations_of_the_one_trigger_watch_are_read_and_an_old_raised_one_is_superseded(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/a", "parked", branch="a", parked_at=f.now - H)
+    f.put("gap/b", "parked", branch="b", parked_at=f.now - H)
+    prints = f.py("import watch\nprint(json.dumps({g: watch.sit('parked', g, '', t)['print'] "
+                  f"for g, t in (('gap/a', {f.now - H!r}), ('gap/b', {f.now - H!r}))}}))")
+    f.put("situation/parked-a-1234", "handled", ago=3 * H, trigger="parked", subject="gap/a", print=prints["gap/a"],
+          raised_at=f.now - 3 * H)
+    f.put("situation/parked-b-5678", "raised", ago=3 * H, trigger="parked", subject="gap/b", print=prints["gap/b"],
+          raised_at=f.now - 3 * H)
+    assert f.watch() is None                                   # the old raised one is first closed
+    said, _ = f.run("manager.py", "situation/parked-b-5678", FACTORY_STANDIN_PIPELINE_MANAGER="never asked")
+    f.drain()
+    assert said == ["situation.superseded"] and f.item("situation/parked-b-5678")["state"] == "superseded"
+    assert [i for i in f.db()["items"].values() if i["kind"] == "session"] == []      # never run
+    assert subjects(f.watch()) == ["gap/b"]                     # the old handled one is handled; the superseded is not
+
+
+def test_each_situation_raised_has_its_own_id(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/a", "parked", branch="a", parked_at=f.now - H)
+    code = ("import watch\ncfg = watch.fac.config()\nwatch.fac.items = lambda kind, *s: [] if kind == 'situation' else "
+            "ITEMS(kind, *s)\nids = [watch.raise_one(cfg, 1.8e9)['id'] for _ in range(2)]\nprint(json.dumps(ids))")
+    a, b = f.py("ITEMS = __import__('fac').items\n" + code)
+    assert a != b and a.startswith("situation/scheduled-")
+
+
 def test_nothing_changed_means_no_session(tmp_path):
     f = Pipe(tmp_path)
     f.put("gap/r", "ready", ago=60, branch="r")
@@ -210,7 +244,7 @@ def test_each_broken_condition(tmp_path):
     old = f.now - 2 * H
     f.put("gap/m", "merged", merged_at=old)
     f.put("gap/a", "approved", approved_at=old + 60)
-    f.put("intervention/main-1", "remedied", main="a" * 12, tests=["tests/t.py::x"], **{"class": "main-broken"})
+    f.put("intervention/main-1", "open", main="a" * 12, tests=["tests/t.py::x"], **{"class": "main-broken"})
     f.put("intervention/main-2", "open", main="b" * 12, tests=["tests/t.py::x", "tests/t.py::y"], **{"class": "main-broken"})
     queue_json(f, blocked={"why": "w", "intervention": "intervention/q", "at": old})
     code = ("import watch\nwatch.load.reading = lambda w: {'suites': 99}.get(w, 0)\ncfg = watch.fac.config()\n"
@@ -219,6 +253,17 @@ def test_each_broken_condition(tmp_path):
             "cfg, gaps, [], time.time() + 3600))))")
     got = f.py("import time\n" + code)
     assert got == ["blocked", "interlock", "main-twice", "no-merge"]   # (the interlock's own clock, an hour on)
+    f.put("intervention/main-1", "remedied", main="a" * 12, tests=["tests/t.py::x"], remedy="fixed in c0ffee",
+          **{"class": "main-broken"})
+    assert "main-twice" not in f.py("import time\n" + code)            # remedied: once on one main commit only
+
+
+def test_the_broken_reading_is_the_minutes_past_broken_minutes(tmp_path):
+    f = Pipe(tmp_path, manager="broken_minutes = 20\n")
+    queue_json(f, pending={"sha": "a" * 40, "gaps": ["gap/x"], "at": f.now - 50 * 60})
+    assert 29.5 <= float(f.tool("watch.py", "broken").stdout) <= 31             # 50 minutes broken, 20 of them allowed
+    queue_json(f, pending={"sha": "a" * 40, "gaps": ["gap/x"], "at": f.now - 10 * 60})
+    assert float(f.tool("watch.py", "broken").stdout) == 0                     # within broken_minutes: flowing
 
 
 def test_deferred_and_cancelled_parks_are_not_triggers(tmp_path):

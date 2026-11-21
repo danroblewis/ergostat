@@ -194,11 +194,12 @@ items:
   situation:
     id: situation/*
     description: one pipeline manager session - every standing trigger no earlier session handled (the queue blocked, gaps dead, parked or stuck, aging defects) and the merge pipeline's broken conditions, raised by pipeline-watch on its schedule or at once when the merge pipeline breaks (dev/bin/watch.py)
-    states: [raised, handled, failed]
+    states: [raised, handled, failed, superseded]
     on:
       situation.raised: raised       # reason: scheduled or broken; triggers, each with its fingerprint (prints)
       situation.handled: handled     # the session's calls run (manage.py), each with what it said; an answer per trigger
       situation.failed: failed
+      situation.superseded: superseded   # one raised by the one-trigger watch (no prints): closed, never run
     show: [reason, triggers_n, actions_n, summary, ai_cost_usd]
     relations:
       gap: gap                       # the gaps its triggers are about: each gap's page lists it
@@ -264,7 +265,7 @@ items:
     show: [kind, title, file, areas, carried, text]
 
 messages:
-  done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)

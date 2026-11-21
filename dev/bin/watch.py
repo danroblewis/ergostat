@@ -10,7 +10,7 @@ a gap dead or parked (not a deferred or cancelled park), a gap stuck in its stat
 and none when nothing changed since the last session (no new trigger, no new broken condition, the pipeline the same).
 
     watch.py           the block           watch.py stuck      the stuck gaps now (a sensor)
-    watch.py broken    minutes the merge pipeline has been broken (a sensor; 0 when it flows)
+    watch.py broken    minutes the merge pipeline has been broken past broken_minutes (a sensor; 0 when it flows)
     watch.py since     minutes since the last session (a sensor)       watch.py open    the switch managing-open"""
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import sys
 import time
 
@@ -169,8 +170,8 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
         out["no-merge"] = f"no merge for {(now - last) / 60:.0f} minutes while {len(waited)} approved gaps wait"
         starts["no-merge"] = max(last, min(float(g["fields"]["approved_at"]) for g in waited))
     seen: dict[str, set] = {}
-    for i in fac.items("intervention"):
-        if i["fields"].get("class") == "main-broken":
+    for i in fac.items("intervention", "open"):             # (unremedied only: a remedied one clears it)
+        if i["fields"].get("class") == "main-broken" and not (i["fields"].get("remedied_at") or i["fields"].get("remedy")):
             for t in i["fields"].get("tests") or []:
                 seen.setdefault(t, set()).add(i["fields"].get("main"))
     twice = sorted(t for t, mains in seen.items() if len(mains) >= 2)
@@ -218,6 +219,8 @@ def raise_one(cfg: dict, now: float | None = None) -> dict | None:
         return None
     st = state_now(cfg, now)
     handled = {p for x in known if x["state"] == "handled" for p in x["fields"].get("prints") or []}   # (answered)
+    handled |= {x["fields"]["print"] for x in known if "prints" not in x["fields"] and x["fields"].get("print")
+                and x["state"] in ("handled", "failed")}     # (the one-trigger watch's: each looked at, never raised again)
     new = [t for t in st["triggers"] if t["print"] not in handled]
     broke = {k: v for k, v in st["broken"].items() if f"broken-{k}-{v['since']:.0f}" not in handled}
     last = max(known, key=lambda x: float(x["fields"].get("raised_at") or 0), default=None)
@@ -226,7 +229,7 @@ def raise_one(cfg: dict, now: float | None = None) -> dict | None:
     why = "broken" if broke and since >= s["broken"] * 60 else "scheduled" if since >= s["every"] * 60 else None
     if not why or not changed:
         return None
-    sid = f"situation/{why}-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}"
+    sid = f"situation/{why}-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}-{secrets.token_hex(3)}"  # (never reused)
     prints = [t["print"] for t in new] + [f"broken-{k}-{v['since']:.0f}" for k, v in broke.items()]
     fac.say("situation.raised", sid, reason=why, triggers=new, broken=st["broken"], shape=st["shape"], prints=prints,
             raised_at=now, triggers_n=len(new), gap=sorted({t["subject"] for t in new if t["subject"].startswith("gap/")}))
@@ -241,8 +244,9 @@ def main(argv: list[str]) -> int:
     elif argv[:1] == ["stuck"]:
         print(len(stuck(cfg, {g["id"]: g for g in fac.items("gap")}, now)))
     elif argv[:1] == ["broken"]:
+        grace = settings(cfg)["broken"]                  # (minutes past broken_minutes: the goal holds at 0)
         st = state_now(cfg, now)["broken"]
-        print(round(max([(now - v["since"]) / 60 for v in st.values()] or [0]), 1))
+        print(round(max([(now - v["since"]) / 60 - (0 if k == "main-twice" else grace) for k, v in st.items()] + [0]), 1))
     elif argv[:1] == ["since"]:
         print(round((now - max([float(x["fields"].get("raised_at") or 0) for x in fac.items("situation")] or [now])) / 60, 1))
     else:

@@ -142,6 +142,10 @@ def answer(said: str) -> dict:
 
 
 def handle(cfg: dict, sit: dict) -> int:
+    if "prints" not in sit["fields"]:                # raised by the one-trigger watch: never run with no triggers
+        fac.say("situation.superseded", superseded_at=time.time(), summary="raised before sessions carried every "
+                "trigger: closed unrun; its trigger, if it still stands, is in the next session")
+        return 0
     manage.BY[0], manage.SITUATION[0] = watch.BY, sit["id"]
     most = watch.settings(cfg)["most"]
     record = velocity(cfg)

@@ -282,7 +282,10 @@ on a read-only clone of main, its conversation kept as a session item related to
 - on a schedule, `every` (2h): the routine review;
 - at once when the merge pipeline has been broken past `broken_minutes` (30): the queue blocked, a pending push that
   old, no merge in that long while approved gaps have waited as long, the interlock holding the queue that long, or the
-  same test failing on two main commits (at once). When each began is kept in `run/manager.json`; a new push or block
+  same test failing on two main commits (at once; only while those `main-broken` interventions are unremedied). The
+  sensor `pipeline-broken-minutes` reads the minutes past `broken_minutes`, so its goal holds at 0 and follows the
+  setting; `minutes-since-manager` is a measure with no goal, as it rightly grows while nothing changes. When each
+  began is kept in `run/manager.json`; a new push or block
   has its own clock. A break already looked at does not start another session, and a session that failed is tried again
   no sooner than `broken_minutes` later;
 - never when nothing changed since the last session (no new trigger, no new break, the pipeline the same).
@@ -295,6 +298,9 @@ else its moves), unless it waits on main, its dependencies, a full pool or a hel
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
 It answers per trigger what it did or why it left it; a trigger it did not answer comes back in the next session.
+Situations of the earlier one-trigger watch (a `print`, no `prints`) count as looked at once handled or failed; one
+still `raised` is closed `superseded`, never run, and its trigger, if it still stands, goes to the next session. Each
+situation's id ends in a random suffix, so two raised in one second are two items.
 
 **The tools** (`dev/bin/manage.py`, at most `most_actions` (8) calls a session, each through its own checks). Directly:
 `continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, and must fail there too),
