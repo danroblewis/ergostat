@@ -256,3 +256,33 @@ failed run above.
 Parked by the factory (review/kb-about-2, 2026-11-20 18:39).
 
 Done: the kb-about gap itself. The `about:` kind field (compile.py, ir.py, schema); @about links in the item index (VERSION 4, folded by replace, a remake clears them); spec/about.py with explain's line (5, 'and N more', 'unknown' on an unreadable index), check's ids and about-missing-part / about-unknown (run only in check_yaml and MCP check, after `late`), and status's off-loop ids (3, '+N'); knowledge.py *About:* lines synced and cleared; ergostat.yaml's knowledge kind declares it; SPEC §5a/§12, AGENT-GUIDE and knowledge README updated; acceptance tests and every plan-review note covered. Round 1's findings (lookup on every load, the assertion that couldn't fail, §12 wording) are fixed. Left: the branch is built on a base that contains the unmerged backlog merge 2b101c6, so landing it ships backlog too, and e7dad319 edits main's test_relations_asof.py for backlog's rename. The implementor can't rewrite history, so another fix round would not change this. To continue: either land backlog on main first (then e7dad319 becomes main's own and the diff shrinks to the gap's own lines), or rebuild factory/kb-about from origin/main and cherry-pick 183aaa15, 402a6936, b2f2a69f, 615f1a62, f2ed8964 and the Where-it-stopped commits. Leave out e7dad319, drop any backlog hunks that come with them (e.g. ergostat.yaml's gap kind, `paused` in compile.py/ir.py, order_unset in spec_cmds.py), then run the two acceptance files, the unit suite and the four browser files.
+
+## Where it stopped (resumed, round 1: main merged in, backlog now on main)
+
+Main (0ecf249c) is merged in. Backlog has landed on main, so the carried merge 2b101c6 and e7dad319 are main's own
+now and have dropped out of the diff, as the owner's rule for a carried merge says. History was not rewritten.
+`git diff 0ecf249c HEAD` is empty for `tests/test_relations_asof.py`, `leases/`, `numbers/`, `precedence.py` and
+`web/static/`. The parked finding (scope, lesson-7) is now answered by the base itself.
+
+How the conflicts were resolved:
+- `dev/bin/agents.py`: main's `TOOLS.update` is kept (main gives `plan_reviewer` the reviewer's read-only tools,
+  the branch gave it `["Read"]`). The branch adds nothing of its own there.
+- `ergostat.yaml`: main's wording of the `gap.closed` comment and of the `done:` line is kept. The two sides held
+  the same values. The knowledge kind's `about: about` (the branch) is unchanged.
+- `ergostat/spec/itemindex.py`: both imports are kept (`text_of` from main, `parts_named` from the branch).
+  Main's item-text-search had already taken `VERSION = 4` for the `items.text` column, and so had this branch
+  for the `@about` links. Keeping 4 would leave an index that main built at 4, with text but no `@about` rows,
+  being read as current, and it would say "none" (lesson-3). So `VERSION` is now 5. The file name hashes
+  VERSION, so main's files are not opened again and the index is folded once. Main's
+  `test_old_index_rebuilt_and_searchable` uses `VERSION - 1` and still holds. In
+  `test_an_index_built_before_the_about_links_is_rebuilt`, the literal 3 is now `VERSION - 1`. That test shows
+  that a layout mismatch is folded again. No test can show that 5 differs from the 4 main shipped, because main's
+  4 is not a value either side can see. That is checked by reading this line.
+
+Size, measured now with `git diff --numstat 0ecf249c HEAD` outside tests/, docs/ and dev/: +206/-14 = **192 net**,
+within the budget of 220 (`ergostat.yaml` adds another +2/-1). The size overrun of rounds 2 and 3 is gone.
+
+Tests run here, each file alone and serially (`-p no:randomly`): `test_item_about.py` 14 passed,
+`test_item_search.py` 8 passed, `test_item_index.py` 55 passed, `test_factory_knowledge.py` 36 passed,
+`test_relations_asof.py` + `test_relations.py` 27 passed, `test_factory.py` 57 passed and 2 skipped. Ruff is clean.
+Not run here: the whole unit suite and the four browser files. The factory runs them.
