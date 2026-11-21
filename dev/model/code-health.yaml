@@ -1,0 +1,80 @@
+# Code health (docs/roadmap/overnight/code-health-simplifier.md): every few days one module is picked by its evidence
+# (size, churn, duplicates, dead candidates, coverage: scripts/code_evidence.py) and a gap asked for that removes code
+# from it, built and reviewed as any other (dev/bin/simplify.py). Pool 1: at most one such gap open, held under a lock
+# in the program. Each merged simplification's `Removed:` trailers become removal items.
+defaults:
+  system: code-health
+
+systems:
+  code-health:
+    within: factory
+    description: the code kept small - one module picked by its evidence every few days and a gap asked for that removes code from it
+    show: [auxiliary.days-since-simplify, auxiliary.simplifications-in-flight, stock.removals-recorded]
+
+items:
+  removal:
+    id: removal/*
+    description: one removal a merged simplification made, from its commit's Removed trailer - class, path, name, lines
+    states: [recorded]
+    on:
+      removal.recorded: recorded
+    show: [class, path, name, lines, gap]
+    relations:
+      gap: gap
+
+stocks:
+  removals-recorded:
+    unit: removals
+    cumulative: true                   # every removal merged so far: a running total, never drained
+    description: removals merged by simplification gaps, by class (dead, duplicate, over-general, wrong-layer, speculative, unclassified)
+    sensor: {items: removal, state: recorded, every: 10m}
+
+auxiliaries:
+  days-since-simplify:
+    unit: days
+    description: days since the last simplification gap was asked for (9999 when none ever was)
+    driven-by: [-flow.simplifications-requested]
+    sensor: {run: python3 dev/bin/simplify.py age, every: 1h, timeout: 2m, description: the simplifier's record}
+  simplifications-in-flight:
+    unit: gaps
+    description: simplification gaps not merged, parked or closed (open, ready, building, in review, in fix, queued)
+    driven-by: [+flow.simplifications-requested]
+    sensor: {run: python3 dev/bin/simplify.py in-flight, every: 10m, timeout: 2m, description: the simplifier's record}
+
+flows:
+  simplifications-requested:
+    system: intake
+    to: gaps-open
+    description: a gap asked for by the simplifier - one module, its evidence and the rules of a simplification
+    sensor: {items: gap, entering: open, where: {source: simplifier}, over: 1d}
+  removals-merged:
+    to: removals-recorded
+    description: a simplification merged - one removal per Removed trailer of its commits
+    sensor: {items: removal, entering: recorded, over: 1d}
+
+blocks:
+  simplify-when:
+    type: expr
+    description: ask for a simplification every 3 days (or on a measure's drift), while none is in flight and the day's AI money is not spent
+    in:
+      days: auxiliary.days-since-simplify
+      inflight: auxiliary.simplifications-in-flight
+      over: goal.ai-budget.off
+    # the 0: the measures' drift flag, an input added by code-health-measures (point 5); until then it reads 0
+    expr: max(days >= 3, 0) * (inflight < 1) * (1 - over)
+    out: block.simplifier
+  simplifier:
+    type: program
+    description: picks one module by its evidence (skipping those under the coverage floor, touched by a gap in flight, or picked in 30 days) and asks for a gap that removes code from it - pool 1, under a lock
+    run: python3 dev/bin/simplify.py
+    every: 6h
+    timeout: 15m
+    in: block.simplify-when
+    out: flow.simplifications-requested
+  simplify-removals:
+    type: program
+    description: on each merged gap the simplifier asked for, each Removed trailer of its commits a removal item (a class off the allowlist recorded as unclassified)
+    run: python3 dev/bin/simplify.py removals
+    on: {event: gap.merged, emits: [removal.recorded]}
+    timeout: 5m
+    out: flow.removals-merged

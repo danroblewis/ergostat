@@ -94,3 +94,49 @@ wants a dedicated AI block, the same definition is handed to that block instead 
 
 250 net lines of code outside `tests/`, `docs/` and `dev/` (`scripts/code_evidence.py`). `dev/bin/simplify.py` and
 the model are factory code, kept under about 200 lines.
+
+## Where it stopped
+
+Built: points 1 to 7, with every acceptance test named above (and one more, `test_evidence_reads_this_repository`, the
+evidence run over this repository's own HEAD). Nothing is left to build. In practice the block picks nothing until
+`code-health-coverage` merges and its report exists: a missing report means no pick (lesson-3), which is the intended
+behaviour.
+
+Choices made without an answer, each the more reversible reading:
+
+- **The dependency is parked, not merged.** `code-health-coverage` stopped before its point 3, so main has no
+  coverage report. The evidence reads the report in the format that definition names
+  (`{module: {"statements", "covered", "share"}}`, or the same under a `"modules"` key) from
+  `[code_health] coverage = "run/coverage/coverage.json"`. That path is a setting, to be pointed at wherever the
+  coverage gap writes its report. Not checked: the report's main sha or seq against the checkout. A stale report
+  is read as it stands; the coverage gap's own measure already refuses stale reports.
+- **"Gaps in flight" for what they touch.** Every gap not merged, parked or closed that has a `definition` (or, before
+  that, a `plan` under `run/plans/`) is read for module paths (`ergostat/…`, `dev/bin/…`, `scripts/…`; a folder ending
+  in `/` touches all of it). A gap whose definition or plan cannot be read stops the pick. An open gap with neither
+  counts as touching nothing yet. Otherwise any open GAPS.md entry would stop every pick for as long as it waits, and
+  its plan will be written against the main that has the simplification on it.
+- **The pool count** is every state but merged, parked and closed (open, planned, ready, fix, building, built, in
+  review, approved, queued, queue-failed, dead). The cap is `POOL = 1` in `dev/bin/simplify.py`, not in config.
+- **Evidence from main, not the working files.** `code_evidence.py` reads files at `[git] base` with `git ls-tree` and
+  one `git cat-file --batch`, so a merge in progress in the queue's checkout cannot change what it sees.
+- **The score.** The size term is `max(0, lines / p75 - 1)` (a share over the 75th percentile, so it is on the scale
+  of the other terms). Weights default to size 1, churn 0.25 per commit, duplicates 1, dead candidates 0.5. Only
+  functions of 5 lines or more count as duplicates.
+- **The drift term** is the literal `0` in `simplify-when`'s expr until `code-health-measures` adds the flag. An input
+  that is never read would make the expr unknown, and the block would never fire.
+- **Pacing.** The simplifier block is `every: 6h` as well as commanded. A pick that finds nothing does not reset the
+  3 days, so without that pacing it would run again on every reading.
+- **Removals.** These come from the merged commits `pre..main_sha` of `gap.merged`, in topo order. A trailer that
+  does not parse is recorded as `unclassified` with its text in `trailer`. The `removal` item kind is declared in
+  `dev/model/code-health.yaml`, so the root `ergostat.yaml` is untouched.
+
+Size: `scripts/code_evidence.py` is 157 lines (budget 250). `dev/bin/simplify.py` (210 lines with its docstrings) and
+`dev/model/code-health.yaml` (80) come to 290 lines against "about 200". The extra is the sensors' subcommands (`age`,
+`in-flight`), the item kind and the system the model needed to pass `check`, and docstrings.
+
+Not run by the implementor: the full unit suite and the four browser files (left to the factory's watchdogged run).
+Run: this file's tests, `tests/test_factory.py`, `tests/test_factory_resources.py` and
+`tests/test_factory_knowledge.py`, each alone and all green, and ruff clean. Break checks, each failing its test: the
+flock removed (the race test requested two gaps); the date left out of the id (the same-module test merged the old
+fields); the allowlist bypassed (the removals test); `tests/` and `ergostat.yaml` left out of the naming pass (the
+evidence test).

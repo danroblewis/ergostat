@@ -81,6 +81,14 @@ suite_cpus = 4.0                     # one of its suites' (in a container of 4 C
 suite_memory_gb = 4.0
 session_keep_hours = 24              # session folders and installs younger than this are never cleaned up
 
+[code_health]                        # the simplifier's pick (dev/bin/simplify.py; its pool is 1, fixed in the code)
+coverage = "run/coverage/coverage.json"   # code-health-coverage's report; missing or unreadable, no pick
+floor = 0.6                          # a module whose coverage share is under this (or unknown) is never picked
+size = 1.0                           # the weights of a module's score: net lines over the 75th percentile (as a share
+churn = 0.25                         # of it), commits in the last 60 days, duplicate bodies, dead candidates
+duplicates = 1.0
+dead = 0.5
+
 [instance]
 port = 8798
 
