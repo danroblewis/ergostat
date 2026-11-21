@@ -300,3 +300,14 @@ Not done here: origin/main could not be merged. The clone has no `origin` remote
 network. Local `main` is already in the branch. The whole unit suite and the four browser files were not run here
 (the instructions leave them to the factory, under the watchdog). The test files touched and their neighbours were
 run, and pass.
+
+After the fast suites (round 1): the factory's `unit` run had one failure. Here, the whole unit suite with
+`tests/test_architecture_review.py` left out failed once on
+`tests/test_templates.py::test_a_trial_runs_a_copy_and_says_what_moved` ("nor its record": something wrote under the
+test's `ERGOSTAT_HOME`). The factory's tail does not name the test it failed, so it may not be the same one. The
+failing test passes alone, and passes in its own file under `-n 4`. A second run of the whole unit suite, this file
+included, passed: 2515 passed, 69 skipped, 1 xfailed, rc 0. Nothing in this branch reaches that test. It runs a
+`respond-to` template with no modelling block. The trial's child process has a home of its own (`author.trial`), and
+`modelling redesign --review` defaults to `off` outside the template. So it is an intermittent leak between tests on
+one xdist worker, unrelated to this gap (lesson-13): reported, not fixed here. No code was changed for it. A run of
+the suite on a clean export of `main`, to compare, was refused here.
