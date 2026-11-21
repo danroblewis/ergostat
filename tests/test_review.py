@@ -701,19 +701,20 @@ FIRST = "# g\n\n## Definition of done\n\nIt works.\n\n## Size budget\n\n30 net l
 
 
 @pytest.fixture
-def factory_review(monkeypatch):
+def factory_review():
+    """dev/bin/review.py with its neighbours importable as the factory runs it: dev/bin is appended to sys.path, as
+    tests/test_agents_drop.py does (prepended, its queue.py would shadow the standard library's queue for every later
+    import in the worker), and nothing is taken out of sys.modules after (other tests in the worker share them)."""
     import importlib.util
     import sys
     from pathlib import Path
     bin_ = Path(__file__).resolve().parent.parent / "dev" / "bin"
-    had = set(sys.modules)
-    monkeypatch.syspath_prepend(str(bin_))
+    if str(bin_) not in sys.path:
+        sys.path.append(str(bin_))
     spec = importlib.util.spec_from_file_location("factory_review_size", bin_ / "review.py")
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
-    yield m
-    for k in set(sys.modules) - had:                                            # (fac, agents, ... beside it)
-        sys.modules.pop(k, None)
+    return m
 
 
 def head_definition(tmp_path, text: str):
