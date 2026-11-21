@@ -243,22 +243,29 @@ def test_recording_refuses_when_the_remotes_version_cannot_be_read(tmp_path, mon
     _queue_readings(p, now)
     if case == "never-read":
         p.model.spec.remotes["incidents"]["version"] = None
-    real = rt.split
+    real, real_folder, seen = rt.split, rt.folder, {}
 
     def split(spec, found, window):
         got = real(spec, found, window)
         assert got[1], "the finder found a text to write"
-        f = _dir(p) / cache.MODEL
-        if case == "file-removed":
-            f.unlink()
-        elif case == "no-version":
-            _set_version(p, None)
-        elif case == "differs":
-            _set_version(p, "another")
+        seen["found"] = True
         return got
+
+    def folder(p_, spec, remote):                         # the step just before the record's lock: after the find
+        if seen.pop("found", None):
+            f = _dir(p) / cache.MODEL
+            if case == "file-removed":
+                f.unlink()
+            elif case == "no-version":
+                _set_version(p, None)
+            elif case == "differs":
+                _set_version(p, "another")
+            seen["changed"] = True
+        return real_folder(p_, spec, remote)
     monkeypatch.setattr(rt, "split", split)
+    monkeypatch.setattr(rt, "folder", folder)
     pr.make(p, _snap(now))
-    assert not p.events.query(n=None, type="ergostat.model-change.*")
+    assert seen.get("changed") and not p.events.query(n=None, type="ergostat.model-change.*")
 
 
 def test_a_name_lookup_miss_refuses_and_never_uses_the_local_name(tmp_path, monkeypatch):
@@ -549,6 +556,7 @@ def test_the_bench_adapter_accept_refuses_a_for_remote_proposal(tmp_path):
 
 
 def test_ergostat_sends_nothing_for_a_for_remote_proposal(tmp_path, monkeypatch, capsys):
+    import urllib.parse
     import urllib.request
     p, body = _project(tmp_path)
     d = p.model.path.parent
@@ -585,7 +593,7 @@ def test_ergostat_sends_nothing_for_a_for_remote_proposal(tmp_path, monkeypatch,
     assert main(["-C", str(d), "remote", "proposals"]) == 0
     assert asked
     for r in asked:
-        said = r.full_url + json.dumps(dict(r.header_items()))
+        said = urllib.parse.unquote_plus(r.full_url) + json.dumps(dict(r.header_items()))
         assert r.get_method() == "GET" and r.data is None and "/remote/v1/" in r.full_url
         assert x["text"] not in said and "review-time from" not in said
 
