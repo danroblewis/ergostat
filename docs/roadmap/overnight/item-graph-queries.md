@@ -249,3 +249,22 @@ test_relations, test_graph_cli_web (90 passed), test_items_page, test_inbox, tes
 1 skipped). Ruff is clean. No code changed, because there is no failing test to fix (lesson-10, lesson-13). Left: the
 factory should run the unit suite again with `-o faulthandler_timeout=120 -rfE` and keep the whole output, including
 the watchdog's closing JSON line, so that the output names the test that hangs or the reason the run was killed.
+
+## Where it stopped, round 5 (test_reload_safety failed the unit run)
+
+The factory's next unit run finished and failed one test, `tests/test_reload_safety.py::test_a_reading_is_never_left_under_way_when_writing_it_fails`
+(1 failed, 2419 passed). **It is unrelated to this branch (lesson-13), so no code was changed.** The evidence:
+- `ergostat/spec/engine.py`, `ergostat/store.py` and `tests/test_reload_safety.py` are the same as main's (a6a9ebdb,
+  checked with `git diff --quiet main`). The branch changes only `cli/__init__.py`, `cli/record.py`, `goodmodel.py`,
+  `spec/itemgraph.py` and `web/server.py`, and the engine's reading path calls none of them.
+- Run here on its own, the file passes (7 passed).
+- The traceback shows a race in the test's timing, not in the engine. The test's first `e._readings(False)` expects
+  only to hand the sensor to the pool. But `_take` drains `self.results` in the same call. When the pool thread
+  finishes its read before the main thread gets there (a thread switch under `-n 8` load), that first call collects
+  the result and calls the patched `add_many`, which raises outside the test's `pytest.raises`. The engine still lets
+  the reading go in `_take`'s `finally`, so it is not left under way. Only the test's assumption about which call
+  collects the result breaks.
+
+Left: a gap on main for this test (for example, make the pool's read wait on an event until the first `_readings`
+returns), then the unit suite run again on this branch. This session was not allowed to run the test in a loop to
+measure how often it flakes.
