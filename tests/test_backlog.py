@@ -9,6 +9,8 @@ import shutil
 import sys
 import time
 
+import pytest
+
 from ergostat import model as mdl
 from ergostat import precedence as pr
 from ergostat.store import Project
@@ -16,6 +18,15 @@ from tests.test_factory import BIN, ROOT, module
 from tests.test_factory_knowledge import Instance
 
 solve = module("solve")
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _bin_off_the_path_after():
+    """dev/bin goes back off sys.path after this file: its queue.py would hide the stdlib's from any process the same
+    worker spawns later (test_index_files, test_store_conformance, test_modelling_ai_cap)."""
+    with pytest.MonkeyPatch.context() as m:
+        m.setattr(sys, "path", list(sys.path))
+        yield
 
 
 def intake():

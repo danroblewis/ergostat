@@ -2661,12 +2661,11 @@ MERGED_GAPS = """\
 """
 
 
-def test_two_gaps_editing_gaps_md_merge_cleanly(tmp_path):
+def test_two_gaps_editing_gaps_md_merge_cleanly(tmp_path, monkeypatch):
     """Two gaps that each finish a different entry, moving it to the top of *Done recently*, merge without a conflict
     (they conflict without the union merge); two that edit entries side by side merge too, and the entries that
     leaves twice are the intake's to report (tests/test_backlog.py::test_a_duplicated_gaps_entry_is_reported)."""
-    if str(BIN) not in sys.path:
-        sys.path.insert(0, str(BIN))
+    monkeypatch.syspath_prepend(str(BIN))           # (taken off again after: dev/bin/queue.py hides the stdlib's)
     intake = module("intake")
     one = MERGED_GAPS.replace("- **Alpha** (open): a.\n", "").replace(
         "## Done recently\n\n", "## Done recently\n\n- **Alpha** (done, 2222222): a.\n")

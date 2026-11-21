@@ -197,3 +197,10 @@ cut short rather than failing an assertion. Nothing in this branch's code was ch
   same process then imports the factory's `queue.py` instead of the stdlib's. Run alone, those files pass (57 passed).
   This is on main and outside this gap (lesson 13). It can hit any xdist worker that runs `test_backlog` before a
   spawn test. The fix (restore `sys.path` after `test_backlog`'s import) belongs to its own gap.
+
+The fast suites after round 1, again: `unit` failed with one `F` at about 29%. The factory asked for a fix, so the
+cause above is fixed here, in tests only. It goes outside Files to touch, and that is said here. `tests/test_backlog.py` gets
+a module-scoped fixture that puts `sys.path` back after the file. `tests/test_factory.py::test_two_gaps_editing_gaps_md_merge_cleanly`
+uses `monkeypatch.syspath_prepend` in place of a bare insert. No bound or assertion changed. Before the fix, `test_backlog` then
+`test_index_files` in one process failed 4. After it, they pass (25 passed with the factory test). `test_backlog` then the
+`test_modelling_ai_cap` and `test_store_conformance` spawn tests pass too (19 passed). The change is easy to undo: two test files.
