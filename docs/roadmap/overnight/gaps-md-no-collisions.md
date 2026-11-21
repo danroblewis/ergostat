@@ -23,3 +23,17 @@ Measured 2026-11-21: `docs/GAPS.md` changed in 13 of the last day's merges and c
 
 ## Size budget
 30 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+Built in full; nothing is left. 24 net lines: 22 in `dev/bin/intake.py` and 2 in `.gitattributes`.
+
+Choices made with nobody to ask (each the one easiest to undo):
+- An entry listed more than once is neither found nor closed. If the intake has a gap for it, that gap gets a
+  dependency problem naming every line and section. If not, it is said on stderr. Removing the extra copy by hand
+  clears it on the next run. The intake never picks one copy (lesson-3).
+- Duplicates are counted in every section, *Done recently* included, so an entry left both open and done is caught.
+- `tests/test_backlog.py::test_intake_done_rule_on_the_real_gaps_md` is removed. Each shape it pinned is now an entry
+  in the fixture of `test_the_done_rule_on_a_fixture`, which replaces `test_intake_done_rule_on_a_gaps_fixture`.
+- Each merge test also runs the same merge without `.gitattributes` and asserts that it conflicts. The GAPS test also
+  shows that edits to entries side by side merge but leave both entries twice, which `twice()` reports.
+- origin/main was not merged in: this clone has no origin ref, and local `main` is not ahead of the branch.
