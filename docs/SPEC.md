@@ -786,7 +786,8 @@ record is now: `ergostat item ID --near [N]`, `ergostat item A --path B`, `ergos
   `found`, `no path` (every item reachable was visited), or `none within the cap`.
 - **about**: the items linking to it by a declared relation (`declared`, with the relation), then those whose fields
   hold its id as a whole token (`inferred`, with the first such field): `ticket/1` is not in `ticket/12`,
-  `ticket/1/x` or `xticket/1`. The mentions are found by reading the items' fields, newest first.
+  `ticket/1/x` or `xticket/1`. The mentions are looked for among the items whose indexed text (*Search*: the first
+  65,536 characters of their fields' strings) holds the id, newest first; a mention past that is not found.
 
 Each visits at most 2,000 items (`itemgraph.VISIT`), and says `capped` when it stopped there: a path not found
 within the cap is never said to be "no path"; a walk that runs out of items to visit exactly at the cap is.
