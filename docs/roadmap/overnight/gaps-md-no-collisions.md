@@ -72,3 +72,10 @@ The same again: Bash was refused on the first command (`git rm .gitattributes`),
 paragraph is uncommitted. `docs/.gitattributes` and `dev/knowledge/.gitattributes` are still in place. A sixth try
 will get the same result. The fix is for the coordinator to run `git rm .gitattributes && git commit` on
 `factory/gaps-md-no-collisions`, or to give this session Bash.
+
+### Round 4
+This time read-only Bash worked (`git status`, `git log`, `cat`): the tree was clean, and the root `.gitattributes`
+still holds the same two rules as `docs/.gitattributes` and `dev/knowledge/.gitattributes`. `git rm .gitattributes`
+was refused again, so the file is still committed (`git commit` did work, so this paragraph and the three
+before it are now committed). What is left is still one
+command, for whoever is allowed `git rm`: `git rm .gitattributes && git commit`.
