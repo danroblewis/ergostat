@@ -65,6 +65,24 @@ auxiliaries:
     description: tool calls refused to the AI sessions (a session whose result said nothing of them counts as one)
     driven-by: [+stock.gaps-building]
     sensor: {run: python3 dev/bin/measure.py tool-denials, every: 10m, timeout: 1m, description: the factory's measures}
+  size-accuracy:
+    unit: share
+    description: of merged gaps the planner sized, the share whose merged lines fell inside their size class (S/M/L/XL)
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py size-accuracy, every: 10m, timeout: 1m, description: the factory's measures}
+  size-accuracy-high:
+    unit: share
+    description: size-accuracy, of the gaps the planner sized with high confidence only
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py size-accuracy-high, every: 10m, timeout: 1m, description: the factory's measures}
+  coverage-below-floor:
+    unit: modules
+    description: >-
+      modules of ergostat/, dev/bin/ and scripts/ whose share of statements run in-process by main's unit suite is
+      under [code_health] coverage_floor (dev/README.md, Coverage; a subprocess-only module's share is a lower bound);
+      no value without a readable report at most 20 of main's merges old
+    driven-by: [-flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py coverage-below-floor, every: 30m, timeout: 1m, description: the factory's measures}
 
 goals:
   first-pass-good:

@@ -18,7 +18,7 @@ ALWAYS = {"implementor": ["CLAUDE.md", "NOTES.md"], "reviewer": ["CLAUDE.md", "N
 DOC = re.compile(r"\b((?:docs|examples|scripts|tests|ergostat)/[\w./-]+\.(?:md|py|yaml))\b")
 DIFF_MOST = 60_000           # characters of the diff a reviewer is given whole; past it, the stat and the files
 PATH = re.compile(r"^[\w.-]+(?:/[\w.-]+)+/?$|^[\w.-]+\.(?:py|md|yaml|yml|toml|sh|js|css|html|json)$")
-ACTIVE = ("fix", "building", "built", "in-review", "approved", "queued", "queue-failed")
+ACTIVE = ("fix", "building", "built", "in-review", "approved", "queued", "push-pending", "queue-failed")
 
 
 def definition_text(cfg: dict, where: str, branch: str) -> str:
