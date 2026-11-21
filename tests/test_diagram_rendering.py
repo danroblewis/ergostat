@@ -2426,6 +2426,140 @@ def test_flows_only_is_remembered(browser, tmp_path):
         pg.close()
 
 
+# software-factory with its systems closed (the view the page opens with): six lines cross between factory and product,
+# all drawn as connectors. Three carry a flow (the rate of deployed, driving fixes, regressions and shipped as a release
+# goes live); three carry information only (the stocks bugs-live, missing-ops and users, read by intake's flows)
+CLOSED_FLOW_LINKS = {"connector:flow:deployed->flow:fixes~", "connector:flow:deployed->flow:regressions~",
+                     "connector:flow:deployed->flow:shipped~"}
+CLOSED_INFO_LINKS = {"connector:stock:bugs-live->flow:filed-bugs~", "connector:stock:missing-ops->flow:filed-features~",
+                     "connector:stock:users->flow:filed-features~"}
+SEEN = "const seen = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 || r.height > 0; };"
+LINKS_SEEN = "() => { " + SEEN + """
+  return Object.fromEntries([...document.querySelectorAll('svg.canvas g.edge')].map((g) => {
+    const line = g.querySelector('path.info, path.pipe-out'); return [g.dataset.id, !!line && seen(line)]; })); }"""
+BOXES_SEEN = "() => { " + SEEN + " return [...document.querySelectorAll('svg.canvas g.node.k-system')].filter(seen).length; }"
+PORTS_SEEN = "() => { " + SEEN + """
+  return [...document.querySelectorAll('svg.canvas .sd-port-name')].filter(seen).map((t) => t.dataset.part).sort(); }"""
+NOTE_SEEN = "() => { " + SEEN + """
+  return [...document.querySelectorAll('svg.canvas #viewport .flows-none')].filter(seen).map((t) => t.textContent); }"""
+
+
+def test_flows_only_keeps_flows_between_closed_systems(browser, tmp_path):
+    """Systems closed: a line between two boxes that carries a flow stays, with the boxes; nothing says the level is
+    empty of flows; off, everything is as before."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        assert pg.evaluate("() => S.graph.kind") == "dynamics" and not pg.evaluate("() => S.graph.open?.length"), "closed"
+        before, boxes = pg.evaluate(LINKS_SEEN), pg.evaluate(BOXES_SEEN)
+        assert set(before) == CLOSED_FLOW_LINKS | CLOSED_INFO_LINKS and all(before.values()), before
+        assert boxes == 3, boxes
+        flows_menu(pg)
+        on = pg.evaluate(LINKS_SEEN)
+        assert all(on[i] for i in CLOSED_FLOW_LINKS), on
+        assert pg.evaluate(BOXES_SEEN) == boxes
+        assert pg.evaluate(NOTE_SEEN) == [], "flows cross here: no note"
+        flows_menu(pg)
+        assert pg.evaluate(LINKS_SEEN) == before, "off: as before"
+        pg.close()
+        assert not errors, errors
+
+
+def test_flows_only_hides_information_links_between_closed_systems(browser, tmp_path):
+    """Systems closed: a line that carries only information (a stock read across) is hidden, and only those; all six
+    are drawn alike, as connectors, so what decides is the model (the part at each line's tail), not the class."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        drawn(pg, url, "", 0)
+        kinds = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.edge')].map((g) => "
+                            "[g.dataset.id, g.classList.contains('connector') && !g.classList.contains('pipe')]))")
+        assert set(kinds) == CLOSED_FLOW_LINKS | CLOSED_INFO_LINKS and all(kinds.values()), kinds   # one drawing class
+        flows_menu(pg)
+        on = pg.evaluate(LINKS_SEEN)
+        assert {i for i, shown in on.items() if shown} == CLOSED_FLOW_LINKS, on
+        assert not any(on[i] for i in CLOSED_INFO_LINKS), on
+        pg.close()
+
+
+def test_flows_only_hides_ports_with_no_connection(browser, tmp_path):
+    """Systems closed: a box's port whose every line is hidden is hidden too; turned off, its row is back."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        drawn(pg, url, "", 0)
+        before = pg.evaluate(PORTS_SEEN)
+        assert set(before) >= {"stock:bugs-live", "stock:missing-ops", "stock:users", "flow:filed-bugs",
+                               "flow:filed-features", "flow:deployed", "flow:fixes", "flow:regressions", "flow:shipped"}, before
+        flows_menu(pg)
+        assert pg.evaluate(PORTS_SEEN) == ["flow:deployed", "flow:fixes", "flow:regressions", "flow:shipped"]
+        flows_menu(pg)
+        assert pg.evaluate(PORTS_SEEN) == before, "off: every row back"
+        pg.close()
+
+
+def without_flows_across(d: Path) -> None:
+    """software-factory with deployed no longer driving the product's flows: only stocks are read across."""
+    p = d / "product.yaml"
+    t = p.read_text()
+    t = t.replace(", {cause: +flow.deployed, instant: true}", "").replace("{cause: +flow.deployed, instant: true}, ", "")
+    t = re.sub(r"\n    equation: [^\n]*flow\.deployed[^\n]*", "", t)
+    assert "flow.deployed" not in t
+    p.write_text(t)
+
+
+def test_flows_only_says_when_a_level_has_no_flows(browser, tmp_path):
+    """Systems closed and nothing crossing as a flow: the drawing says so where it is, and names the way to see them
+    (open a system); off, it says nothing."""
+    with served("software-factory", tmp_path, without_flows_across) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        drawn(pg, url, "", 0)
+        assert pg.evaluate(NOTE_SEEN) == []
+        assert pg.evaluate(LINKS_SEEN) and all(pg.evaluate(LINKS_SEEN).values())
+        flows_menu(pg)
+        assert not any(pg.evaluate(LINKS_SEEN).values())
+        said = pg.evaluate(NOTE_SEEN)
+        assert len(said) == 1 and "No flows" in said[0] and "Open a system" in said[0], said
+        flows_menu(pg)
+        assert pg.evaluate(NOTE_SEEN) == []
+        pg.close()
+
+
+LEGEND = """() => {
+  const t = standaloneSvg(document.querySelector('svg.canvas'), ['software-factory', 'now']).text;
+  const d = new DOMParser().parseFromString(t, 'image/svg+xml').documentElement;
+  const g = [...d.children].find((c) => c.tagName === 'g' && (c.getAttribute('style') || '').includes('font-size:11px'));
+  return g ? [...g.children].filter((c) => c.tagName === 'text').map((c) => c.textContent) : null; }"""
+# each legend row, and what must be seen for it to be listed
+LEGEND_SHOWS = {"stock": "g.node.k-stock", "flow": ".edge.pipe .pipe-out", "biflow": ".edge.pipe .pipe-tail",
+                "source / sink": "g.node.k-cloud", "auxiliary": "g.node.k-auxiliary", "exogenous": "g.node.k-auxiliary",
+                "connector +": ".edge .polarity", "connector −": ".edge .polarity", "reinforcing": ".loop-markers",
+                "balancing": ".loop-markers"}
+
+
+def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
+    """The saved picture's legend, with Flows only, lists only what is drawn: no auxiliary, no loop, no connector sign
+    nothing shown carries. Product open, factory closed: <deployed>'s lines into product's flows are kept."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        assert pg.evaluate("() => S.graph.open") == ["product"]
+        off = pg.evaluate(LEGEND)
+        assert off and {"auxiliary", "reinforcing", "balancing", "connector +"} <= set(off), off   # all of it, off
+        flows_menu(pg)
+        on = pg.evaluate(LEGEND)
+        assert on and {"stock", "flow", "source / sink"} <= set(on), on
+        for row in on:
+            sel = LEGEND_SHOWS[row]
+            signs = pg.evaluate("(sel) => { " + SEEN + """ return [...document.querySelectorAll('svg.canvas ' + sel)]
+                                  .filter(seen).map((el) => el.textContent); }""", sel)
+            assert signs, (row, "listed, not shown")
+            if row.startswith("connector"):
+                assert row[-1] in signs, (row, signs)
+        assert not {"auxiliary", "exogenous", "reinforcing", "balancing"} & set(on), on
+        pg.close()
+
+
 def test_a_closed_systems_panel_charts_its_measures(browser, tmp_path):
     """What a closed system's box used to draw as sparklines is charted in its panel: its show: measures."""
     with served("image-squeeze", tmp_path) as url:
