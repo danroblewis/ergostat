@@ -154,3 +154,37 @@ An overrun needs a written reason in "Where it stopped".
 ## Notes from the plan review (answer each; not blocking)
 
 - test_a_complex_pair_ranks_a_cross_link_first_by_modulus cannot fail on its named break: for J=[[-1,2],[-1,-1]] the cross links lead by both |ε| (√6/6 vs √3/6) and Re ε (1/3 vs 1/6), so ranking by Re ε gives the identical order. Replace with a hand-computed matrix where the |ε| order and the Re ε order differ, and assert the |ε| order (lesson-9).
+
+## Where it stopped
+
+Built, round 1. Every acceptance test above is in `tests/test_modes.py` and passes, with three more:
+`test_a_complex_pair_ranks_by_modulus_not_by_real_part`, `test_equations_that_fault_only_when_a_stock_is_moved_say_which`
+and `test_an_eigenvector_not_found_is_said`. Code: 307 net lines outside tests and docs (budget 330).
+
+**The plan review's note.** The note is right: ranking by Re ε leaves the defined test green (it was tried). No 2×2
+matrix can do what the note asks while keeping the test's claim ("a cross link first by modulus"). For a complex pair,
+Re ε(own) = ad/2|λ|² for both own links and Re ε(cross) = −bc/2|λ|². |ε(cross)| > |ε(own a)| exactly when −bc > a²
+(and likewise for d). So a cross link first by |ε| but not by Re ε would need ad > −bc > max(a², d²), and
+ad ≤ max(a², d²) rules that out. The most reversible
+step: the defined test stays as written, since it still checks the display, the period, the single listing and the
+tie by name. A new test, `test_a_complex_pair_ranks_by_modulus_not_by_real_part`, uses J = [[−3, 2], [−2, −1]]
+(λ = −2 ± i√3). There ε(x own) = 3/14 + 5√3/14·i and |ε| = 3/√21 lead, while the cross links lead by Re ε (2/7 against
+3/14). It asserts the full |ε| order and fails when the ranking uses Re ε.
+
+**Choices made alone (each easy to undo).**
+- Ties in |ε| are taken to 9 decimals, then by name. Two links that are equal by hand differ in the last bits after
+  inverse iteration, and the name tie the complex test asserts would otherwise depend on rounding.
+- A fault seen only while a stock is moved by the difference step is said as "the equations fault when a stock is
+  moved a little from the start (the difference step): flow.X, each fault taken as 0". `jacobian()` returns the
+  equations' refs, not `faults()`'s words, as defined. A fault in the start evaluation itself is worded by
+  `_Stepper.faults()`.
+- `explain` turns any other exception from `at_start` into "Modes: not worked out: <type>: <message>", never into
+  "no modes".
+- When ‖J‖∞ = 0, or λ = 0, no eigenvectors are sought, so `most_in` is None for those modes.
+- Inverse iteration: the δ shift and the zero-pivot replacement each cover for the other. On the exact-eigenvalue
+  test, taking out either one alone leaves it passing; taking out both fails it with ZeroDivisionError.
+
+**Not run here.** The clone has no `origin` remote: local `main` (0216e0e5) is already in the branch, and nothing
+newer could be fetched (no network). The full unit suite, the four browser files and `demo_check` were not run by
+the implementor (no example is changed); the factory runs them. The touched and stepper-path files were run one at a
+time, all passing.
