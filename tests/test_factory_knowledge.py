@@ -438,6 +438,32 @@ def test_the_knowledge_model_loads():
     assert {"knowledge-entries", "gaps-planned", "lessons-proposed"} <= set(spec.stocks)
 
 
+def test_the_planner_never_takes_a_continued_gap(tmp_path):
+    from ergostat.spec import items as its
+    from ergostat.spec import read
+    from tests.test_factory import ROOT, behind_main, continues
+    where = read(ROOT / "ergostat.yaml")[0].blocks["planner"].takes.where
+    assert where == {"continues": None}
+    f = Factory(tmp_path)
+    f.fold([{"event": "gap.requested", "item": "gap/plain", "data": {"title": "Plain", "source": "request"}}], None)
+    gid = continues(f, name="no-such")                                  # a branch the checkout does not have
+    assert "continues 'no-such', which the checkout does not have: not taken" in f.stderr
+    [plain, cont] = [f.item(g) for g in ("gap/plain", gid)]
+    assert plain["state"] == cont["state"] == "open"
+    take = lambda g: its.matches(its.Item(g, "gap", "open", dict(f.item(g)["fields"])), where)  # noqa: E731
+    assert take("gap/plain") and not take(gid)                              # it waits for the intake, said, not planned
+    git(f.checkout, "checkout", "-q", "-b", "bare", "main")             # fetched, but no definition on it: said
+    git(f.checkout, "checkout", "-q", "main")
+    continues(f, name="bare", gid="gap/bare-again")
+    assert "gap/bare-again continues a branch with no definition of done on it: not taken" in f.stderr
+    behind_main(f)                                                      # a fetch that fails (factory/warm/x holds
+    drop = tmp_path / "live" / "drop.git"                               # the name): said, never silent
+    git(drop, "update-ref", "refs/heads/factory/warm/x", git(drop, "rev-parse", "main"))
+    continues(f, gid="gap/warm-again")
+    assert "gap/warm-again continues 'warm', which could not be fetched into the drop: not taken" in f.stderr
+    assert f.item("gap/warm-again")["state"] == "open"
+
+
 LONG = "A gap whose title runs on well past thirty-two characters"
 
 
