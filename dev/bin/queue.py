@@ -2,14 +2,16 @@
 queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two never run at once:
 
 1. wait for the lock and a quiet machine (no other suite running);
-2. take the batch: the run's gap and up to `batch` - 1 more approved gaps no run holds (the pool `batch` in
+2. fetch the remote and fast-forward the checkout's main to main as pushed (``--ff-only``); one that cannot is
+   nacked, not counted;
+3. take the batch: the run's gap and up to `batch` - 1 more approved gaps no run holds (the pool `batch` in
    run/pools.json, 1 to start, which is one gap a run; dev/bin/pools.py), in rank order. The others stay `approved`
    until the run settles them, and the run's start is kept in run/queue.json (`running`), so a run killed part way
    (SIGKILL, a crash) strands nothing: the next run puts main back where it began and takes them again;
-3. merge each into a clean main of the checkout in turn (`--no-ff`); a conflict is undone and sent back;
-4. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py, then
+4. merge each into a clean main of the checkout in turn (`--no-ff`); a conflict is undone and sent back;
+5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py, then
    demo_check, once for the batch; a browser test skipped counts as a failure;
-5. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
+6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    bisected to the first failing merge (land()), which goes on to flake triage with what failed (`queue-failed`) and
    the rest lands. On any error or stop, main is undone with `git reset --keep`.
@@ -42,6 +44,17 @@ def clean_main(cfg: dict, repo) -> str | None:
         return "the checkout has uncommitted changes"
     if (repo / ".git" / "MERGE_HEAD").exists():
         return "the checkout is in the middle of a merge"
+    return None
+
+
+def up_to_date(cfg: dict, repo) -> str | None:
+    """The checkout's main fast-forwarded to main as pushed (``<remote>/<base>``), once a run, before its first merge:
+    the batch merges onto that, never a stale checkout main (other queues push from elsewhere). Why not, or None."""
+    remote, base = cfg["git"].get("remote", "origin"), cfg["git"]["base"]
+    if not fac.git_ok(repo, "fetch", "-q", remote, base):
+        return f"the checkout cannot fetch {base} from {remote}"
+    if not fac.git_ok(repo, "merge", "-q", "--ff-only", f"{remote}/{base}"):
+        return f"the checkout's {base} cannot fast-forward to {remote}/{base} (unpushed commits?)"
     return None
 
 
@@ -306,7 +319,7 @@ def main() -> int:
     repo = fac.path(cfg, "checkout")
     fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
     with fac.queue_lock(cfg):
-        why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo)
+        why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
         if why:
             fac.nack(f"queue: {why}", after="10m", count=False)
             return 0
