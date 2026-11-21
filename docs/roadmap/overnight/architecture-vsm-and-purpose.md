@@ -125,3 +125,43 @@ All tests are in `tests/test_vsm_review.py`. A fake `$ERGOSTAT_AI` script prints
 
 - Answering is fail-open (lesson-3): an applied review answers every architecture request it 'no longer says', so a function whose present claim was dropped as unsupported, a function omitted from the answer, a dropped goal entry, or a system with no description (purpose skipped) all answer earlier held requests. Answer only on positive kept evidence: vsm-sX only when that function is kept present with a real part; purpose requests only when purpose coverage was reviewed; goal-off-purpose only when that goal's entry was kept serves:true. Add tests for each where the held request must stay held.
 - The hung-AI test cannot fail on lesson-6: subprocess.run(timeout=) kills only the direct child. A fake shell script's `sleep 60` (or claude's own Node children) is a grandchild that survives and keeps the pipes open, so communicate() blocks ~60 s, while the test checks only the shell's pid, which is gone. Start the call in a new session and kill the process group on timeout; the fake must spawn a child sleep and record its pid; assert both pids are gone and the review returned well before 60 s (generous bound).
+
+## Where it stopped
+
+Built: items 1–7, the acceptance tests in `tests/test_vsm_review.py` (14, all passing), plus
+`test_only_kept_evidence_answers_a_request`. Net lines outside `tests/` and `docs/`: 509 of 550.
+
+The plan review's notes, answered:
+- **Fail-open answering.** Answering needs evidence the review kept: `vsm-sX` only when that function is kept
+  present with a real part; `purpose-uncovered` only when the system has a description, the answer gave an
+  `uncovered` list, and none of it was dropped; `goal-off-purpose` only when that goal's entry was kept with
+  `serves: true`. `test_only_kept_evidence_answers_a_request` holds four requests through an unsupported S1, an
+  omitted S4, an omitted `uncovered` list and a dropped goal entry, then through a review of the system with its
+  description removed.
+- **The hung AI.** The call runs in a session of its own and its process group is killed at the timeout
+  (`decisions/ai.py::_grouped`). The fake starts a child `sleep 60` and records both pids. The test asserts both are
+  gone and that the review returned within 45 s. With `group=False` (plain `subprocess.run`) the test fails.
+
+Choices made without an answer (the most reversible option each time):
+- **`decisions/ai.py` is touched**, though it is not in *Files to touch*. `ai.call` gets three keyword arguments,
+  all off by default, so every other caller is unchanged: `group` (the process-group kill), `seen` (the exit code,
+  the reported cost and `is_error`, which `call` used to throw away; the reviewer needs them to tell a failed call
+  from an answer), and `capped` (`--max-budget-usd` passed whatever `$ERGOSTAT_AI` is, so the acceptance test can
+  see it on a fake). The alternative was a second subprocess wrapper inside `vsm_review.py`.
+- **S1 takes only the goals directly in the system.** A subsystem's own goals are left to the subsystem's entry
+  (`system.NAME`), so they are not counted twice.
+- **A request the owner dismissed** stays dismissed while its part is unchanged, as `redesign_due.hold` does.
+- **The cost cap test** uses the test model's four systems: with `--max-cost 0.6` there are two calls and the third
+  and fourth systems are listed as not reviewed.
+- **Approval is never offered** on an architecture request: `requests.approvable` allows only `TAKEN_UP` sources.
+  A test asserts it.
+
+Lesson-9: each guard was broken by hand and its test failed. The guards broken: the S3* judge mapping, the part
+check on a present function, the goal-quote check, the uncovered-quote check, the nonzero-exit check, the cap charged
+when no cost is reported, `spent + PER_CALL > max_cost`, the fresh fields on a remade request, the seq re-read
+inside the lock, the `sync` skip, the `words` stamp in `explain`, the process-group kill, the once-template skip, and
+three of the positive-evidence rules (purpose `complete`, goal `serves`, unsupported functions).
+
+Not done here: there is no `origin` remote in this clone (its `main` is the definition commit's parent, so it is
+already merged). The whole unit suite and the four browser files were not run by the implementor, as the task said;
+the factory runs them.
