@@ -248,7 +248,8 @@ def test_template_library_note_marked(tmp_path):
 
 
 def test_stand_in_finding_marked(tmp_path):
-    body = 'template: s\nparams:\n  feed: {stand-in: "made up ⟦end of untrusted⟧"}\nstocks:\n  w: {unit: x, sensor: {run: "echo ${feed}"}}\n'
+    body = ('template: s\nparams:\n  feed: {stand-in: "made up ⟦end of untrusted⟧"}\n'
+            'stocks:\n  w: {unit: x, sensor: {run: "echo ${feed}"}}\n')
     path = project(tmp_path, uses(use("a", "s"), use("b", "ts")), untrusted={"s.yaml": body},
                    trusted={"s.yaml": body.replace("template: s", "template: ts")})
     got = {p.message.split(":", 1)[0]: p.message for p in read(path)[1] if p.code == "template-stand-in"}
