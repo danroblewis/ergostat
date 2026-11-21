@@ -47,3 +47,25 @@ depends-on: [engine-runs-its-shard-1]
 ## Size budget
 110 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built, round 1, about 39 net lines (`engine.py`, `steptest.py`). shard-1 was already on this clone's `main`, so the
+branch carries none of its commits. This clone has no `origin` remote, so origin/main could not be merged in. The
+factory still has to do that before review (lesson-7).
+
+These choices were made with nobody to ask. Each is the most reversible option:
+- **Stops.** A stop also goes to an engine whose `procs` holds the named block's run, whoever owns the block now. The
+  definition names only removed blocks. The same applies to a block that a swap moved away while its run carries on
+  in the old shard: without it, that stop would be dropped (lesson-6). The owner's engine (or the lead's) also calls
+  `stop_run`, finds no process and stops nothing. To narrow it back to removed blocks, add
+  `name not in spec.blocks` to the condition in `Engine._ask`.
+- **A swap between reading and acting.** `_ask` reads `self.spec` once and judges and acts under it (`steptest.begin`
+  and `run_action` take that model). The engine lock is not held across the act. `Triggers.look` holds its own lock and
+  then takes the engine's, so holding the engine lock here could deadlock. `start` checks the model as it is now, so a
+  run judged under the old model for a block that has just moved is refused and the refusal is said. The approval is
+  not run twice, but in that window it is not run at all: the owner approves again.
+- **An unknown block.** An approval for a block that does not exist is the lead's (`follows` is true only there), and
+  there is no block to run.
+- **Removed from SPEC's "not yet".** The `at-once` clause was dropped, as the definition asks. An agent shared by
+  blocks puts them in one shard, so its count is already in one engine.
+- **GAPS.** A stray, duplicated line was removed from the engine-per-system entry while "Left:" was rewritten.
