@@ -276,3 +276,16 @@ merged cleanly: `reading()` dispatches to `times.reading` as on main, and `main`
 (59 passed, 2 skipped: its Docker tests), and `tests/test_factory_knowledge.py`, `test_daemon_docs.py` and
 `test_architecture.py` together (90 passed). `uv run ruff check ergostat tests scripts` is clean. This session did not
 run the unit suite or the four browser files. The factory runs them after it.
+
+### Continued, round 2, suite fix round (the factory's unit run after the merge of 24756e50)
+
+The merge of main was already committed (`241430c8`, noted in `d0b649ed`), and `git status` was clean, so nothing was
+left to resolve. The unit run's tail stops after 19 dots, just after xdist brought up its nodes. It has no `F`, no
+`FAILED` line, no summary and no closing `{"rc": ...}` from suite_watch, so no test failed in what it shows. The run
+was cut off from outside, as in the earlier suite fix rounds. **No code was changed**, because with no test named any
+change would be a guess (lesson-13). Run again here, one invocation at a time: `tests/test_code_health_coverage.py`
+(11 passed), `tests/test_factory.py` (59 passed, 2 skipped: its Docker tests), and `tests/test_factory_resources.py`,
+`test_architecture.py`, `test_daemon_docs.py`, `test_index_files.py`, `test_factory_sessions.py`,
+`test_ticket_factory_daemons.py`, `test_model.py` and `test_factory_times.py` together (94 passed).
+`uv run ruff check ergostat tests scripts` is clean. If the next unit run names a test, that test is the next thing to
+look at.
