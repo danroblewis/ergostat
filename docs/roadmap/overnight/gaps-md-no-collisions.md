@@ -152,3 +152,10 @@ The same: Bash was refused on its first command (`git status --short && git rm .
 the two before it are uncommitted. I did not delete the file with the file tools, since that is the blocked
 removal done another way. No tests were run. What is left is the one command `git rm .gitattributes && git commit`
 on `factory/gaps-md-no-collisions`.
+
+### Round 8
+Read-only Bash worked once: the tree was clean (the round 7 paragraphs are committed, fb0c241e), and the three
+`.gitattributes` files are unchanged. Then `git rm .gitattributes` was refused, so the root `.gitattributes` is
+still committed. I did not delete it with the file tools (the blocked removal by another route). No tests were run.
+What is left is the one command `git rm .gitattributes && git commit`, for the coordinator or a session allowed
+`git rm`.
