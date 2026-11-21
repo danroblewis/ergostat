@@ -98,11 +98,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
   `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a
   model-level `purpose:`; candidates to aggregate from loop dominance over the window, an `aggregate` row on a
-  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`). *Left*: the relative gain
-  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
-  proposal to aggregate, interface
-  stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
-  per-system redesign and daily larger-model review (after `redesign`).
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); a system's redesign shown
+  its architecture (its notes, size, interface and subsystems), and a daily architecture review on a larger model
+  (sonnet by default, `redesign.review`) whose findings are requests: a redesign taken first, a split or merge held
+  for the owner (`numbers/archreview.py`, on `architecture-per-system-redesign`). *Left*: the relative gain array
+  (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
+  proposal to aggregate, interface stability over the model's history, the Viable System Model checklist and
+  purpose coverage (the AI rung), and a merge of two systems redesigned as one change.
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
   STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
   move recorded as `ergostat.item.joined` caused by the child's, folded only forward and counted like any other;

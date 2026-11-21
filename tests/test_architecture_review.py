@@ -323,9 +323,11 @@ def test_the_reviews_cost_is_printed_as_a_result_line_and_recorded_with_its_mode
     p = four(tmp_path)
     call = said(("lab", "redesign", "x"), usd=0.042)
     monkeypatch.setattr(md, "call", call)
-    monkeypatch.setattr(rdr, "run", nothing([]))
+    seen = []
+    monkeypatch.setattr(rdr, "run", nothing(seen))
     block(monkeypatch, p)
     assert ml.redesign(["--when", "auto", "--review", "sonnet", "--daily", "5", "--timeout", "900", "--rounds", "2"]) == 0
+    assert seen[0]["system"] == "lab" and "the first run with use: modelling" in seen[0]["why"]   # its charges: no run
     assert call.calls[0][1] == "sonnet" and call.calls[0][2] == md.per_call(900, 3)
     lines = [json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith("{")]
     assert [x["total_cost_usd"] for x in lines if x.get("type") == "result"] == [pytest.approx(0.042)]

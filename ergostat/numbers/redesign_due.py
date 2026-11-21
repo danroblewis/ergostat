@@ -109,7 +109,7 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
         why.append(f"refinement stalled: its last {STALL} changes were all turned away")
     ran = ran if ran is not None else _ran(p, now)
     mine_ran = [e for e in ran if ((e.get("data") or {}).get("system") or "model") == unit]
-    if not (ever if ever is not None else bool(p.events.query(n=1, type=rd.RAN))):
+    if not (ever if ever is not None else _ever(p)):
         why.append("the first run with use: modelling")
     elif not mine_ran or now - max(e["time"] for e in mine_ran) >= DAILY:
         why.append("its daily review")
@@ -207,11 +207,16 @@ def _ran(p, now: float) -> list:
             if (e.get("data") or {}).get("result") != "call"]
 
 
+def _ever(p) -> bool:
+    """A redesigner run was ever recorded (a call charged alone, as the architecture review's, is no run)."""
+    from . import redesign as rd
+    return any((e.get("data") or {}).get("result") != "call" for e in p.events.query(n=50, type=rd.RAN))
+
+
 def next_due(p, now: float | None = None) -> dict:
     """The unit to redesign now, ``{"system", "why", "trigger", "unit_sig"}``, or ``{"system": None, "why"}``; units
     too large are held for the owner as requests (``too-large``) on the way. Among units equally due, the one reviewed
     longest ago (or never) comes first: they take turns."""
-    from . import redesign as rd
     from . import requests as rq
     spec = p.model.spec
     now = now or time.time()
@@ -220,7 +225,7 @@ def next_due(p, now: float | None = None) -> dict:
         hold(p, u, "too-large", f"system {u} is too large to redesign in one pass (more than {MOST_PARTS} parts, and no "
              f"subsystems to take one at a time): split it into systems", owner=True)
     ran, reqs, changes = _ran(p, now), rq.stored(p), _changes(p)      # read once for every unit
-    ever = bool(ran) or bool(p.events.query(n=1, type=rd.RAN))
+    ever = bool(ran) or _ever(p)
     unfinished(p, ran, now)
     fit = _fit(p, spec)
     skipped, due = [], []

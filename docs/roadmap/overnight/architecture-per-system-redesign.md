@@ -263,3 +263,40 @@ that was made and that it failed.
 - Add tests: _in is true for every ref when the unit is model, and a note on a subsystem appears in the parent system's prompt.
 - Clamp min(budget, daily - spent) at 0 and assert the redesigner makes no call with it.
 - SPEC must not carry the '(fails closed)' heading as a guarantee. Say the bound is the estimated most (modeller.unsaid).
+
+## Where it stopped
+
+Built, round 1: A, B and C as defined (346 net lines of code outside tests and docs, against 450). Nobody could be
+asked, so these choices were taken, each the most reversible one:
+
+- **`modelling redesign --review` defaults to `off`** when the flag is not given. The template passes
+  `--review ${redesign.review|sonnet}`, so the template's default stays sonnet (and `redesign.settings` says
+  sonnet). A run by hand, or an older caller, starts no larger-model call unless asked to.
+- **The due window** (plan review): every `architecture-reviewed` result but `capped` counts as the day's review.
+  `started` is written inside the lock before the call and counts, so a run killed mid-call is not called again
+  that day. The killed-call test shows a following run makes no call.
+- **An answer with no JSON line at all** is `failed` (lesson-3), and lets nothing go. An answer with JSON but no
+  `{"review": ...}` line (the guide's `{"none": ...}`) is a review that found nothing, and lets go what it no longer
+  says.
+- **A `proposed` review request that is said again** is left as it is, waiting on its change (`hold(..., keep=)`).
+  Reopening it would drop its link to the change that answers it.
+- **The review's call charges** are `redesign-ran` `call` events under the system name `(architecture review)`,
+  which no system can have. So an owner's ask is never read as taken up by them. Since they are `redesign-ran`
+  events, "the first run" now ignores call-only events (`redesign_due._ever`).
+- **The mark after a redesign** when `redesign.lock` is held by another run: it leaves the request unmarked and says
+  so (`test_a_mark_under_another_runs_lock_leaves_the_request`). A failed redesigner call (`error`) leaves it open.
+- **The budget clamp**: `max(0, min(budget, left))`. If what is left after the review is 0 or less, the run stops
+  before planning, as the cap check before the review does. So a unit never rests for want of money.
+- **The review's cap check** is against the whole `daily`, as defined (`redesign.spent + unsaid > daily`). It does
+  not keep the model-reviewer's reserve (`reviewer.RESERVE`) the way the redesigner's `room()` does.
+
+The plan review's notes are each answered above or in the tests: the due window; the `started` event; the mark
+under a held lock; the competing review injected from `redesigner.run`, between the plan's stamp read and the
+mark, outside the lock; `_in` for `model` and a subsystem's note in its parent's prompt
+(`test_a_subsystems_note_is_in_its_parents_redesign_prompt`); the clamp, with the redesigner shown to make no
+call; and SPEC giving the bound as the estimated most.
+
+Not done here: origin/main could not be merged. The clone has no `origin` remote ref, and fetching would reach the
+network. Local `main` is already in the branch. The whole unit suite and the four browser files were not run here
+(the instructions leave them to the factory, under the watchdog). The test files touched and their neighbours were
+run, and pass.
