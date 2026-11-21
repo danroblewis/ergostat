@@ -29,7 +29,7 @@ ABOUT = re.compile(r"^\*About:\*\s*(.+)$", re.M)      # the parts of the root mo
 FILES = re.compile(r"\b((?:ergostat|dev|scripts|tests|docs|examples)/[\w./-]+\.(?:py|md|yaml|toml|sh))\b")
 MORE = {"implementor": ("decisions", "related", "findings", "modules"),   # beyond the rules and the lessons, in order
         "reviewer": ("decisions", "findings", "related", "modules"), "planner": ("decisions", "related", "findings",
-        "modules"), "researcher": ("decisions", "modules")}
+        "modules"), "researcher": ("decisions", "modules"), "pipeline_manager": ("decisions",)}
 HEADS = {"decisions": "The owner's decisions this gap touches", "related": "Related gaps", "findings": "Past review "
          "findings on the files this gap touches", "modules": "The module map (main; the packages it touches in full)"}
 
