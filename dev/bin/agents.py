@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shlex
 import stat
 import subprocess
@@ -38,17 +39,20 @@ TOOLS = {
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
                     "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
-                    "Bash(mkdir:*)"],
+                    "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
+                    "Bash(uv run python scripts/suite_watch.py:*)"],   # (its own clone, in a container of its own;
+                                                    # the suites under the watchdog, the browser files with Playwright)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
-            "plan_reviewer": 1200, "researcher": 3600, "librarian": 600, "groomer": 3000,
+            "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "librarian": 600, "groomer": 3000,
             "pipeline_manager": 2400}   # seconds, each below its block's
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
+SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
 TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
-             pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
+             join_judge=TOOLS["reviewer"], pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
              researcher=TOOLS["reviewer"] + ["WebSearch"])      # all read-only: only the implementor writes; WebSearch is
                                                                  # run by the API itself
 
@@ -129,7 +133,7 @@ def run_args(cfg: dict, role: str, work: Path, name: str, keep=None) -> list[str
     """`docker run` for a session: the token by name only (its value is in the docker client's environment alone).
     ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id."""
     proxy = f"http://{PROXY}:{PORT}"
-    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS,
+    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS, *SHOTS,
             "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work",
             *(["-v", f"{keep.raw}:{keep.HOME}"] if keep else []),
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
@@ -222,18 +226,34 @@ def scrub(text: str, tok: str) -> str:
 
 def drop(cfg: dict) -> Path:
     """The factory's own bare repository: what sessions return lands here, never in the owner's. Its main is the
-    checkout's ``refs/remotes/<remote>/<base>`` (main as pushed), never the checkout's own main."""
+    checkout's ``refs/remotes/<remote>/<base>`` (main as pushed), never the checkout's own main. Under
+    <live>/drop.git.lock (sessions starting together fetched at once and failed on git's ref lock); a fetch that still
+    fails on a ref lock is tried again, at most DROP_TRIES times in all; any other error raises at once."""
+    import fcntl
     d = fac.path(cfg, "live") / "drop.git"
-    if not (d / "HEAD").exists():
-        d.parent.mkdir(parents=True, exist_ok=True)
-        fac.git(d.parent, "init", "-q", "--bare", str(d))
-    base = cfg["git"]["base"]
-    fac.git(d, "symbolic-ref", "HEAD", f"refs/heads/{base}")
-    # main as pushed (the checkout's <remote>/<base>), never the checkout's own main, where the queue merges before
-    # testing: branches forked from that carried merges that later failed and were undone (operator, 2026-11-20)
-    remote = cfg["git"].get("remote", "origin")
-    fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")), f"+refs/remotes/{remote}/{base}:refs/heads/{base}")
+    d.parent.mkdir(parents=True, exist_ok=True)
+    with open(d.parent / "drop.git.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)              # (released when the file closes, on any way out)
+        if not (d / "HEAD").exists():
+            fac.git(d.parent, "init", "-q", "--bare", str(d))
+        base = cfg["git"]["base"]
+        fac.git(d, "symbolic-ref", "HEAD", f"refs/heads/{base}")
+        # main as pushed (the checkout's <remote>/<base>), never the checkout's own main, where the queue merges
+        # before testing: branches forked from that carried merges that later failed and were undone (2026-11-20)
+        remote = cfg["git"].get("remote", "origin")
+        for tried in range(1, DROP_TRIES + 1):
+            try:
+                fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")),
+                        f"+refs/remotes/{remote}/{base}:refs/heads/{base}")
+                break
+            except RuntimeError as e:
+                if "cannot lock ref" not in str(e) or tried == DROP_TRIES:
+                    raise
+                time.sleep(0.2 * tried)
     return d
+
+
+DROP_TRIES = 3                           # a hard ceiling (lesson-4): fetches of the drop's main, in all
 
 
 def scratch(cfg: dict, branch: str, role: str) -> Path:
@@ -337,8 +357,11 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             if name:
                 killed(name)
         out[n] = {"rc": rc, "seconds": round(secs)} | ({"resources": use} if use else {})
-        if rc:
-            text = log.read_text()
+        text = log.read_text()
+        skipped = max([len(re.findall(r"^SKIPPED", text, re.M))] + [int(k) for k in re.findall(  # (-rs's lines, or
+            r"\b(\d+) skipped\b", text)]) if n in ("browser", "rerun") else 0   # pytest's summary; a skip fails, as
+        if rc or skipped:                                                                   # in the queue)
+            out[n] |= {"skipped": skipped} if skipped else {}
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
     if "unit" in out:                                  # the quarantined tests beside it, never blocking
@@ -347,11 +370,24 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
     return out
 
 
+def browser_ready(cfg: dict, home: Path, logs: Path, tag: str) -> None:
+    """Playwright and its Chromium launched once, in a suite container of the implementor's image on the session's
+    work, in the suite slot, before the round: missing (or no [suites] browser_ready to say how), the round stops here
+    (Refused, uncounted), never a browser file skipped later."""
+    if not str(cfg["suites"].get("browser_ready") or "").strip():
+        raise Refused("no [suites] browser_ready in the factory's settings: the round cannot know the browser is there")
+    got = suites(cfg, home, ("browser_ready",), logs, tag)
+    if got.get("failed"):
+        raise Refused(f"no browser: Playwright's Chromium does not launch in {settings(cfg)['image']} (the browser files "
+                      f"would skip); rebuild the dev image, then `docker build -t {settings(cfg)['image']} dev/agent`. "
+                      f"It said: {got['tail'][-400:]}")
+
+
 def contained(cfg: dict, cmd: str, work: Path) -> tuple[str, str]:
     """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network)."""
     name = container("suite")
-    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS, "-v", f"{work}:/work",
-                           "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
+    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS, *SHOTS,
+                           "-v", f"{work}:/work", "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
 
 
 def suite_containers() -> int:

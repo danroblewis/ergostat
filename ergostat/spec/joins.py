@@ -98,8 +98,8 @@ class Joins:
 
     def look(self) -> None:
         spec = self.e.spec
-        if not any(k.join for k in spec.items.values()):
-            return
+        if not any(k.join and self.e.own(f"kind.{k.name}", spec) for k in spec.items.values()):
+            return                                      # (no join of its shard's: none looked at)
         top = self.e.p.events.last_seq()
         if top == self.top:
             return
@@ -121,7 +121,7 @@ class Joins:
         if ix is not self.ix or epoch != self.epoch:   # (a new index, or one made again: every parent once)
             self.ix, self.epoch, self.mv = ix, epoch, None
         top = db.execute("select coalesce(max(rowid), 0) from moves").fetchone()[0]
-        kinds = {k.name: k for k in spec.items.values() if k.join}
+        kinds = {k.name: k for k in spec.items.values() if k.join and self.e.own(f"kind.{k.name}", spec)}   # (SPEC §9.8)
         if self.mv is None:
             parents = [i.id for kn in kinds for i in ix.items(kn, moves=False)]
         else:                                           # the parents of the children that moved since

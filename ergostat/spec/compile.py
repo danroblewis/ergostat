@@ -509,7 +509,7 @@ class Compiler:
                              f"with @POOL, or ergostat.cost.usd (or tokens, cpu, memory, runs), over the last day or with "
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
                              f"oldest, asked), or ergostat.interventions.waiting (or per-day, trend, standing, chattering, "
-                             f"blocked-hours, top-share)",
+                             f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files)",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -1484,7 +1484,7 @@ class Compiler:
             self.err(f"{what}: a {t} block needs in: (the signal it works on)", m.where, "missing-key")
         from ..leases import compile as leases
         from . import triggers
-        lease_keys = {"takes": leases.takes(self, m, what), "pool": leases.pool(self, m, what),
+        lease_keys = {"takes": leases.takes(self, m, what), **dict(zip(("pool", "pool_now"), leases.pool(self, m, what), strict=True)),
                       "lease": leases.terms(self, m, "lease", what), "on": triggers.compile_on(self, m, what)} \
             if t in MACHINE else {}
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
