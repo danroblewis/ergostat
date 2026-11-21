@@ -21,3 +21,16 @@ From:
 ## Size budget
 
 0 net lines of code (knowledge only).
+
+## Where it stopped
+
+The edit is built (37c80c63): lesson-12's "Seen as:" line in `dev/knowledge/review-lessons.md` gains the
+redesign-rescored-as-the-record-moves shape, and that is the only file it changes besides this one.
+`tests/test_factory_knowledge.py` passes (34 passed, run alone), and it is the only test file that reads
+`dev/knowledge/`.
+
+The factory's `unit` suite was reported failed, but the tail it gave holds no failing test, error or traceback: it stops
+partway through a line of passing dots, so it reads like a run that was killed or cut off, not a test that failed. This
+branch changes no code and no tests, so no code here could have caused it. Following lesson-13, I changed nothing to
+"fix" it. The reversible option is to run `unit` again under the watchdog. If it fails again, the failing test's name
+belongs in its own gap.
