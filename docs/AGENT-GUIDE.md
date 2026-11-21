@@ -77,7 +77,8 @@ Work through these steps in order. Ask the person only what you cannot infer.
    when its children do (an epic shipped once every ticket is done) is a rule on its kind, never a block:
    `join: {children: parent, all: done, to: shipped}` (`any:` for the first child to start).
 5. **One block per step that does the work**, taking items in its state:
-   `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
+   `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once: a number, or
+   `{now: stock.NAME, most: N}` when a controller steps a measured stock to set it) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
    ergostat retries a run that fails or goes silent, and parks an item that keeps failing as a dead
    letter. A program may **print events as it goes**: each line is taken when it is printed, not
