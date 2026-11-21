@@ -182,3 +182,15 @@ failed. The branch still adds only a module that nothing imports, its test file 
 
 ruff is clean. No test failed, so there was nothing to fix and no code changed. This sandbox refuses the whole suite.
 If a full run names a failing test, that test is the place to start.
+
+### Round 4: the size finding, already answered
+
+- **Size (blocking): within budget, unchanged since round 3.** The finding says 218 net lines. That was the count
+  before round 3 (f784e4c3). The gate counts with `fac.net_lines` (`git diff --numstat BASE...HEAD`, outside `tests/`,
+  `docs/`, `dev/` and `ergostat.yaml`), and that gives **199** against the budget of 200. It also gives 199 against
+  the older base `8eb0fc06`, so a stale `origin/main` in the reviewer's clone would not change it. The only core file
+  is `ergostat/spec/shards.py`. No reason is needed under budget, so I made no change to code. That is the most
+  reversible choice.
+- Run: `tests/test_shards.py` (14 passed), `tests/test_spec_systems.py` with `tests/test_warm.py` (28 passed), and ruff
+  (clean). Not run here: the full unit and browser suites, which the factory runs. Local `main` (7b39bc94) is already
+  merged in.
