@@ -93,3 +93,18 @@ Round 2: every finding of review/flake-quarantine-min-1 answered; nothing of the
   Most likely an outside stop: the suite container's 12 GB memory limit, which also counts its 2 GB `/tmp` tmpfs,
   or the resource sampler. The next step is to read that run's `gap.*` resources and exit code, and to run the
   unit suite again on a quiet machine (lesson-10). Per lesson-13 this is reported, not fixed here.
+
+Round 3: main a1d1b941 merged (0433a64c), with conflicts in `dev/bin/queue.py` and `dev/bin/triage.py` resolved so
+that both sides' changes are kept.
+
+- **queue.py `suites`**: main's coverage run (`[suites] queue_coverage`, `pre="HEAD"` default) plus the branch's
+  quarantine read at `pre`. The coverage run passes its own `command`, which `fac.suite` does not deselect, so that
+  command is put through `fac.deselected` with main's list. Without this, a traced unit run would block on the
+  quarantined tests. No test covers that case yet (the coverage tests do not quarantine anything).
+- **triage.py**: main's change is kept, so the rerun no longer holds the queue's lock (only `fac.wait_quiet`). The
+  branch's rule is kept too: when only quarantined tests failed, there is no `flake.seen` and no retry is spent.
+- Round 2's review findings were not reopened in this round. The brief listed only the conflicts. Still open from
+  review/flake-quarantine-min-2: a ref that cannot be read releases every mark in `beside`; triage's release at an
+  older `pre` can flip-flop the marks; and the implementor's own lines are deselected and never run.
+- Run: `tests/test_factory.py` (74 passed, 2 skipped), `tests/test_code_health_coverage.py` (11 passed), ruff clean.
+  Not run: the whole unit suite and the four browser files (the factory runs them).
