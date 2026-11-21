@@ -2064,7 +2064,7 @@ def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
     code = ("import sys, json, time; sys.path[:0] = [sys.argv[1]]; import fac, queue; cfg = fac.config(); "
             "repo = fac.path(cfg, 'checkout'); pre = fac.git(repo, 'rev-parse', 'HEAD'); "
             "own = next(g for g in fac.items('gap', 'approved') if g['id'] == 'gap/a'); "
-            "batch, dried = queue.picks(cfg, repo, own, 2, pre); out = {'moved': fac.git(repo, 'rev-parse', 'HEAD') != pre}; "
+            "batch, dried, _ = queue.picks(cfg, repo, own, 2, pre); out = {'moved': fac.git(repo, 'rev-parse', 'HEAD') != pre}; "
             "alone = queue.dry(repo, pre, batch[0][1], 'a alone')[0]\n"
             "try:\n queue.land(cfg, repo, batch, pre, time.time(), 0, alone)\n"
             "except RuntimeError as e:\n out['raised'] = str(e)\n"

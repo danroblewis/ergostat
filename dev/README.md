@@ -424,6 +424,13 @@ bisecting, or one where the dry merge was clean) is undone and sent back as a fa
 suites, so what is tested is still what lands. If git cannot make a dry merge at all, the run fails there: gaps
 already sent back stay sent back, the rest stay `approved`.
 
+A batch that comes back empty says why, and picks() gives the reason from its walk. Either the own gap was sent back
+(its findings name what for, a conflict naming no file among them), and that is its outcome, or its dry merge failed
+only with batch-mates on both walks. In that second case the gap is given back with the reason (uncounted, taken again
+after 10 minutes), and the count is kept on the gap as `empty_batches`, per reviewed commit. The third such run on
+the same commit (`EMPTY_MOST` in queue.py) sends the gap back instead, as a failed gate, with the reason as its finding,
+so it is never taken forever.
+
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
 `run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
