@@ -349,3 +349,22 @@ Round 7 (the fix round for review operating-states-5). Round 6's working tree wa
 Size: unchanged, 453 net lines (3 over the budget, for the reason given in round 6). Not run by the implementor: the
 full unit suite and the four browser files (the factory runs them under the watchdog). No demo is touched, so
 `demo_check` is not needed.
+
+Round 7, after the fast suites: `unit` was reported failed. Its tail stops at about 2191 of about 2204 results (the
+99% line), with no `F`, no `E`, no traceback, no pytest summary and no `suite_watch` JSON line (the watchdog prints
+one whenever it kills a run or the run ends). The run was cut off from outside, as in round 4 (45%, then 49%).
+I found no failing test to fix, so no code changed:
+
+- This session could not run the unit command itself. `suite_watch.py … pytest -n 8` was refused, and so was a
+  multi-file run with `--durations`. It could run single commands: `tests/test_operating.py` (33 passed, 2.9 s),
+  `tests/test_leases.py` + `tests/test_cli_fallback.py` + `tests/test_rollup.py` (88 passed, 75 s), and ruff
+  (clean). The collection holds 2121 tests in `tests/`.
+- The slowest tests in those files belong to main, not this gap. `test_leases.py::test_a_lease_held_by_a_run_survives_a_model_edit`
+  takes 14 s, by its own design (two runs one after the other, each ten CLI calls with a 0.5 s sleep). The
+  model it uses has no `operating:`, so this gap's code is never read there (invariant 12, and
+  `test_compile_example_and_kind_only_when_declared`).
+- What is needed next: the watchdog's JSON line, or the run's wall time against the slot's limit. If the slot
+  stops the run at its time limit, the suite needs more time or fewer tests, not a fix in this gap (lesson-13).
+
+The stray `.tail` file: `git rm` was refused once more this round. The coordinator has to run
+`git rm docs/roadmap/overnight/operating-states.md.tail`.
