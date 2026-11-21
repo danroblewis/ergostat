@@ -186,3 +186,14 @@ measured: whether main pays it too (no main checkout could be made here). The ga
 `test_simplify_when_fires_on_age_and_not_in_flight`, now reads the model with `extremes=False`. Those findings are
 never errors, so what it asserts is unchanged, and this file runs in 13 s instead of 67 s. Run: this file (10 passed)
 and ruff clean. The factory's unit run is the check.
+
+### Round 3
+
+No review findings to answer, and the branch already has main (505a93e9, still main's head) merged in. No code
+changed in this round. Run on the merged tree, one command at a time: this file (10 passed in 7 s),
+`tests/test_factory.py` (112 passed, 2 skipped), and in one process this file followed by
+`tests/test_code_health_coverage.py`, `tests/test_factory_resources.py`, `tests/test_factory_manager.py`,
+`tests/test_factory_sessions.py` and `tests/test_factory_knowledge.py` (129 passed), so the `simp` fixture's clean-up
+of `sys.modules` holds against the files that run after it. Ruff clean. Not run: `ergostat check` on the root model
+(the shell refused it; `test_the_factory_model_loads` and the gate test read the same model and passed), the full unit
+suite and the four browser files (left to the factory's watchdogged run).
