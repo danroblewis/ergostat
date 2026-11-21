@@ -522,7 +522,7 @@ function drawSystem(n, w, hgt) {
   (n.measures || []).forEach((m, i) => {
     const y = 52 + i * MEAS_ROW;
     const mt = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[m.status] || "var(--unknown)";
-    const row = s("g", { class: "measure-row", transform: `translate(0,${y})`, "data-act": "measure",
+    const row = s("g", { class: m.stale ? "measure-row measure-stale" : "measure-row", transform: `translate(0,${y})`, "data-act": "measure",
                          onclick: (ev) => { ev.stopPropagation(); openNode({ id: m.part, kind: m.part.startsWith("flow:") ? "disturbance" : "stock", label: m.label, flow: m.label }); } },
       s("rect", { x: 8, y: 0, width: w - 16, height: MEAS_ROW - 3, rx: 5, class: "measure-bg" }),
       m.goal ? s("circle", { cx: 18, cy: 10.5, r: 4, fill: mt, class: "live" }) : null,
@@ -734,6 +734,11 @@ function drawGraph(svg, g, lay) {
   }
   const edgesG = s("g");
   S.sdSigns = [];                                         // (the polarities placed so far: dynamics.js)
+  const flowLinks = sd ? sdFlowLinks(g) : new Set();      // what Flows only keeps, by the model (dynamics.js)
+  const flowEnds = new Set(g.edges.filter((e) => flowLinks.has(e.id)).flatMap((e) => [e.source, e.target]));
+  if (sd && !flowLinks.size)                              // (shown with Flows only: a level with nothing it keeps says so)
+    vp.append(s("text", { class: "flows-none t-sub", x: (lay.ox || 0) + lay.width / 2, y: (lay.oy || 0) - 14, "text-anchor": "middle" },
+      "No flows at this level: what crosses between these systems is information only. Open a system to see its flows."));
   for (const le of lay.edges) {
     const e = edgeById[le.id];
     const pts = edgePoints(le);
@@ -742,7 +747,7 @@ function drawGraph(svg, g, lay) {
     const flowN = byId[e.kind === "pipe" ? (byId[e.source]?.kind === "valve" || byId[e.source]?.kind === "disturbance" ? e.source : e.target) : ""];
     const dist = flowN && flowN.kind === "disturbance";
     const loopSt = (e.loops || []).map((k) => g.loops[k]?.status).find(Boolean);
-    const cls = ["edge", e.kind, dist ? "dist" : "", loopSt ? "loop-" + loopSt : ""].join(" ");
+    const cls = ["edge", e.kind, dist ? "dist" : "", loopSt ? "loop-" + loopSt : "", sd && flowLinks.has(e.id) ? "flow-link" : ""].join(" ");
     const eg = s("g", { class: cls, "data-id": e.id, "data-loops": (e.loops || []).join(" "), "data-nodes": `${e.source} ${e.target}`,
                         "data-link": linkKey(e),
                         onpointerenter: () => { if (!S.dragging) hoverEdge(e); }, onpointerleave: () => hoverEdge(null) });
@@ -790,7 +795,7 @@ function drawGraph(svg, g, lay) {
   const nodesG = s("g"), pinsG = s("g", { class: "pins" });   // pins on top of everything: always there to click
   for (const ln of lay.children) {
     const n = byId[ln.id];
-    const ng = s("g", { class: `node k-${n.kind}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
+    const ng = s("g", { class: `node k-${n.kind}${n.kind === "terminal" && flowEnds.has(n.id) ? " flow-end" : ""}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
                         "data-turn": ln.turn ? `${ln.turn.flow} ${ln.turn.stem}` : null,
                         // pressed and let go over the same part, even if it was drawn again in between, is a click
                         onpointerdown: (ev) => {      // pressed and let go over the same part, even if drawn again between, is a click
@@ -1313,12 +1318,14 @@ function inboxAnswer(a) {
   if (SNAP || S.at) return null;
   const said = h("span", { class: "note", "aria-live": "polite" });
   const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
+  const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": "Why" }) : null;
   const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async () => {
     for (const b of row.querySelectorAll("button")) b.disabled = true;
-    try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, n?.value ? { n: n.value } : {})).said}`; refreshHeader(); }
+    const q = { ...(n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
+    try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
     catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
   } }, { approve: "Approve", deny: "Deny", done: "Done" }[verb]);
-  const row = h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), said);
+  const row = h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), why, said);
   return row;
 }
 

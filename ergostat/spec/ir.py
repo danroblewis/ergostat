@@ -104,7 +104,7 @@ MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refu
                        "inconclusive"]            # the record held out could not tell it from the model as it is
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
 MODELLING_REQUEST = "ergostat.modelling-request"   # the built-in item kind: work for modelling, raised from what check finds
-MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered"]
+MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered", "dismissed"]
 CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
@@ -279,7 +279,8 @@ def once_made(spec, x) -> bool:
 
 def modelling_request_kind() -> ItemKind:
     on = {f"{MODELLING_REQUEST}.raised": "open", f"{MODELLING_REQUEST}.reopened": "open", f"{MODELLING_REQUEST}.proposed": "proposed",
-          f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered"}
+          f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered",
+          f"{MODELLING_REQUEST}.dismissed": "dismissed"}
     return ItemKind(MODELLING_REQUEST, f"{MODELLING_REQUEST}/*", list(MODELLING_REQUEST_STATES), on,
                     ["code", "about", "source", "tier", "change"], {}, None,
                     "work for the modelling subsystem: a finding, a chain finding, a coherence mismatch or a craft note "
@@ -644,7 +645,8 @@ class Block:
     implied: bool = False      # put in by ergostat (a machine block's goal:), not written
     signs: dict[str, int] = field(default_factory=dict)         # port → +1 or -1, for an input written with a sign (+stock.x)
     takes: Takes | None = None   # the items it works, one run per item, each leased (SPEC §9.5)
-    pool: int = 1                # the most runs of it at once, when it takes items
+    pool: int = 1                # the most runs of it at once, when it takes items (``pool: N``, or ``most:``)
+    pool_now: Ref | None = None  # ``pool: {now: stock.S}``: the pool read from S at each dispatch, at most ``pool``
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)

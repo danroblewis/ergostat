@@ -3,8 +3,9 @@
 - **Dispatch.** For each block that takes items: while nothing commands it, or what commands it is on, every item of
   its kind in one of its ``at`` states, not held, not put off (``not_before``), and matching its ``where``, is leased
   to a run of its own, oldest first, while the block's runs in flight (its leases held, from the fold, and the runs
-  going here) are fewer than its ``pool``. An item put off (``not_before``) is looked at again when it falls due. It
-  looks whenever the record has something new (an item reaching its
+  going here) are fewer than its pool now (``poolnow.py``: its ``pool:``, or its stock's level as the engine last read
+  it, at most its ``most``, read in the same hold of the lock as the count and the take). An item put off
+  (``not_before``) is looked at again when it falls due. It looks whenever the record has something new (an item reaching its
   state starts a run at once; the lease is caused by that event), woken by the write itself (``notify.py``; another
   process's write by the kernel's file notification, else at its next check, every quarter second), and every second
   besides.
@@ -33,7 +34,7 @@ import uuid
 
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, RENEWED, TAKEN
+from . import ENDED, EXPIRED, RENEWED, TAKEN, poolnow
 from .fold import held
 from .kill import kill
 from .ready import Ready, ordered, unblocked
@@ -65,7 +66,8 @@ def terminal(spec, kind: str | None, state: str | None) -> bool:
 class Dispatcher:
     def __init__(self, eng):
         self.e, self.p = eng, eng.p
-        self.going: dict[str, dict[str, dict]] = {}   # block → item → {run, fence}: the runs going here
+        self.going: dict[str, dict[str, dict]] = {}   # block → item → {run, fence, block}: the runs going here
+        self.ours: set[str] = set()                   # the runs this engine took whose leases have not ended
         self.holding = False                          # whether the last watch found a lease held (one outlives its block)
         self.lock = threading.RLock()
         self.seq = 0
@@ -74,6 +76,7 @@ class Dispatcher:
         self.due = float("inf")                       # when the first item put off (not_before) may be taken
         self.due_now: set[str] = set()                # items put off that may be taken now (their daemon revived)
         self.overdue: dict[tuple, float] = {}         # (item, fence, expires) → when (monotonic) a pass first found it overdue
+        self.unread: set[str] = set()                 # blocks whose pool's stock has no reading, said once
 
     @property
     def spec(self):
@@ -160,7 +163,7 @@ class Dispatcher:
             with self.lock:
                 every, ix = self.items_of(b.takes.kind)
                 mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-                room = b.pool - len(mine | set(self.going.get(b.name, {})))
+                room = self.pool_now(b) - len(mine | set(self.going.get(b.name, {})))
                 if b.params.get("daemon"):           # the daemon's room, shared by every block it serves (SPEC §9.7)
                     room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
                 if room <= 0:
@@ -168,6 +171,21 @@ class Dispatcher:
                 for it in ordered(b, unblocked(self, b, self.ready(b, every, now)))[:room]:
                     self.stale = True
                     self.take(b, self.whole(ix, it))
+
+    def pool_now(self, b) -> int:
+        """The block's pool now: its ``pool:``, or its stock's level as the engine last read it (a stored value: no
+        sensor runs here), at most its ``most``. Unread: 0, said once until it is read again (not said before the
+        engine's first pass has loaded the readings: still 0 then)."""
+        if b.pool_now is None:
+            return b.pool
+        v = self.e.get(b.pool_now)
+        if poolnow.unread(v) and self.e.measured:
+            if b.name not in self.unread:
+                self.unread.add(b.name)
+                self.e.say(f"{b.name}: its pool ({b.pool_now}) has no reading: it takes nothing new")
+        else:
+            self.unread.discard(b.name)
+        return poolnow.now(b, v)
 
     def ready(self, b, every, now: float) -> list:
         """The items a block may take now, in the order it takes them: oldest in its first state first."""
@@ -207,6 +225,7 @@ class Dispatcher:
             if self.e.stop.is_set():
                 return None                                       # ergostat is stopping: nothing more is taken
             self.e.running.add(key)
+            self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
         try:
             ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
                                    data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
@@ -219,6 +238,7 @@ class Dispatcher:
                 self.e.running.discard(key)
             raise
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+            self.ours.discard(run)
             with self.e.lock:
                 self.e.running.discard(key)
             return None
@@ -301,6 +321,7 @@ class Dispatcher:
         it = its.one(self.p.events, self.spec, item)
         lease = held(it.fields) if it else None
         if not lease or lease.get("fence") != fence or lease.get("holder") != run:
+            self.ours.discard(run)                       # (ended already: expired, or given back from outside)
             return
         data = {"run": run, "fence": fence, "exit": out.get("exit"), **({"note": out["note"]} if out.get("note") else {})}
         nack = out.get("nack")
@@ -317,6 +338,7 @@ class Dispatcher:
         data.update(self.after(it, lease, data["how"] == "nack" and data.get("count", True) is not False,
                                it.state if data["how"] == "ack" else None))
         self.resources(self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data))
+        self.ours.discard(run)
         if data["how"] == "nack":
             after = its.one(self.p.events, self.spec, item)
             dead = after is not None and after.state == DEAD
@@ -386,17 +408,19 @@ class Dispatcher:
 
     def expire(self, it, lease: dict, now: float, ttl: float) -> None:
         """The lease expires, unless the fold refuses it (renewed since it was judged): then nothing else is done. Its
-        run, when this engine started it, is killed."""
+        run, when this engine started it, is killed. Held by a run this engine did not take (a previous engine
+        process's, its finish never recorded: a hard restart, a crash), its attempt is not counted."""
         fresh = its.one(self.p.events, self.spec, it.id)              # (the record now, not the look's index)
         now_held = held(fresh.fields) if fresh else None
         if (not now_held or now_held.get("fence") != lease["fence"]
                 or float(now_held.get("expires") or 0) > float(lease.get("expires") or 0)):
             return                                                    # renewed, or ended, since the look: nothing written
         silent = now - float(lease.get("renewed") or lease.get("taken") or now)
+        counted = lease["holder"] in self.ours
         ev = self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
                                data={"run": lease["holder"], "fence": lease["fence"], "block": lease.get("block"),
                                      "silent": round(silent, 1), "ttl": ttl, "expires": lease.get("expires"),
-                                     **self.after(it, lease, True)})
+                                     **({} if counted else {"count": False}), **self.after(it, lease, counted)})
         after = its.one(self.p.events, self.spec, it.id)
         if after is None or any(r["event"] == ev["id"] for r in after.refused):    # (renewed meanwhile: it holds on)
             return
