@@ -2181,7 +2181,12 @@ someone outside (a reviewer, CI) gives its ticket back this way, and is taken ag
 pushed; `after` is only the fallback re-check. An item put off is looked at again when it falls due, not at the
 dispatcher's next look. A run stopped with ergostat gives its item
 back uncounted, unless what it printed before had already moved the item on (its lines take effect as it prints
-them, section 9.1): that is an ack. A lease that expired is not ended again when its run ends.
+them, section 9.1): that is an ack. Once ergostat has begun stopping it takes no lease; a take that raced the stop is
+given back uncounted before its run starts, and a run still going when ergostat has waited its last for it has its
+lease given back uncounted as ergostat exits. A lease that could not be given back (the write failed, or ergostat was
+killed) is expired by the next engine's watchdog on its TTL, so after a restart no item stays leased by a run that
+never ran. A
+lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
