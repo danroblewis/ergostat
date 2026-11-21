@@ -126,7 +126,7 @@ def test_knowledge_files_parse():
     assert [i for i in ids if i.startswith("lesson-")] == [f"lesson-{n}" for n in range(1, 14)]
     assert not [e for e in es if e["kind"] == "decision" or e["id"].startswith("decision-")]
     ds = knowledge.decisions()
-    assert len(ds) == 9 and all(d["scope"] for d in ds.values())             # each says the areas it is about
+    assert len(ds) == 11 and all(d["scope"] for d in ds.values())             # each says the areas it is about
     assert knowledge.STOP == STOP                                             # the id is ergostat's own (lesson-5)
     for iid, d in ds.items():
         assert iid == item_id(DECISION, d["decision"]) and acts.check_proposal(DECISION, d, "knowledge-sync")
