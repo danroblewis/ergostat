@@ -33,6 +33,21 @@ SECTIONS = ("Definition of done", "Files to touch", "Risks", "Acceptance tests",
 TEST = re.compile(r"\btests/[\w/.-]+\.py::\w+")
 TAG = re.compile(r'<definition branch="([^"]*)"(?: title="([^"]*)")?>\n?(.*?)</definition>', re.S)
 DEPS = re.compile(r"^depends-on:\s*\[([^\]]*)\]", re.M)
+SIZE = re.compile(r"\bsize:\s*([A-Za-z]+)\s*\(confidence:\s*([A-Za-z]+)\s*\)")
+CLASSES, CONFIDENCES = ("S", "M", "L", "XL"), ("low", "medium", "high")
+
+
+def size_of(body: str) -> dict | str:
+    """The size line of a definition's `## Size budget`: {planned_size, size_confidence}, or why it cannot be taken
+    (never a default class: a guess would be scored as the planner's). Never `size`: that is the groomer's field
+    (backlog.py), on its own scale, and the solver ranks by it."""
+    m = re.search(r"^## Size budget.*?$(.*?)(?=^## |\Z)", body, re.M | re.S)
+    got = SIZE.search(m.group(1)) if m else None
+    if not got:
+        return "no size line `size: S|M|L|XL (confidence: low|medium|high)` in its ## Size budget"
+    if got[1] not in CLASSES or got[2] not in CONFIDENCES:
+        return f"size {got[1]!r} (confidence {got[2]!r}): the class is one of S, M, L, XL, the confidence low, medium, high"
+    return {"planned_size": got[1], "size_confidence": got[2]}
 
 
 def send_back(cfg: dict, gap: dict, why: list[str], **record) -> int:
@@ -43,7 +58,7 @@ def send_back(cfg: dict, gap: dict, why: list[str], **record) -> int:
         import review
         fac.say("gap.measured", gap["id"], plan_findings=why, **record)
         review.park(cfg, gap, f"Its plan failed the lint {n} times:\n" + "\n".join(f"- {w}" for w in why),
-                    "plan-lint", where="plan")
+                    "plan-lint", where="plan", kind="kill-rule")
     else:
         fac.say("gap.plan-sent-back", gap["id"], plan_findings=why, plan_sent_back_by="lint", plan_lint_failures=n,
                 **record)
@@ -67,8 +82,9 @@ def define(cfg: dict, gid: str, branch: str, body: str, by: str, notes: list[str
     try:
         with target.open("x") as fh:
             fh.write(text)
-    except FileExistsError:
+    except FileExistsError:                              # the coordinator's definition: not the planner's size
         by = "coordinator"
+        data |= {"planned_size": None, "size_confidence": None} if "planned_size" in data else {}
     fac.say("gap.defined", gid, definition=fac.rel(target), ready_at=time.time(), branch=branch, defined_by=by,
             plan_sha=sha(body), risks=sorted(set(re.findall(r"\blesson-\d+\b", body))),
             plan_review="wanted" if by != "coordinator" and review_wanted(cfg, gid) else None, **data)
@@ -124,9 +140,10 @@ def deps_of(body: str) -> list[str]:
 def problems(defs: list[tuple[str, str, str]], branch: str, known: set[str]) -> list[str]:
     """What makes a planner's definitions unusable: none, too many, one not for the gap, a sub-gap named as the gap or
     as a gap that exists (its id reused would merge old fields in), a name that is not lowercase words and dashes, or
-    a dependency on a later sub-gap or on no gap."""
+    a dependency on a later sub-gap or on no gap, or a size line missing or not understood."""
+    sizes = [f"{name!r}: {why}" for name, _, body in defs if isinstance(why := size_of(body), str)]
     if len(defs) == 1:
-        return [] if defs[0][0] == branch else [f"a single definition must be for {branch}, not {defs[0][0]!r}"]
+        return sizes + ([] if defs[0][0] == branch else [f"a single definition must be for {branch}, not {defs[0][0]!r}"])
     names = [d[0] for d in defs]
     out = [] if defs else ["the planner wrote no <definition>"]
     out += [f"a split into {len(defs)} sub-gaps: at most {MOST_SPLIT}"] if len(defs) > MOST_SPLIT else []
@@ -135,7 +152,7 @@ def problems(defs: list[tuple[str, str, str]], branch: str, known: set[str]) -> 
             out.append(f"sub-gap {name!r}: not a new name of lowercase words and dashes")
         out += [f"sub-gap {name!r} depends on {d}, neither an earlier sub-gap nor a gap" for d in deps_of(body)
                 if d[4:] not in names[:i] and d not in known]
-    return out
+    return out + sizes
 
 
 def planner(cfg: dict, gap: dict) -> int:
@@ -183,14 +200,17 @@ def planner(cfg: dict, gap: dict) -> int:
     if wrong := problems(defs, branch, known) or linted(cfg, defs):
         return send_back(cfg, gap, wrong, **record)
     for name, title, body in defs:
+        sized = dict(size_of(body), merged_lines=None, merged_lines_error=None)  # never scored on old lines
         if name != branch:
             fac.say("gap.requested", f"gap/{name}", title=title or name, source="plan", branch=name,
                     parent=[gap["id"]], depends_on=deps_of(body), requested_at=now)
-            define(cfg, f"gap/{name}", name, body, "plan-split", planned_at=now)
+            define(cfg, f"gap/{name}", name, body, "plan-split", planned_at=now, **sized)
         else:
-            define(cfg, gap["id"], name, body, "plan", planned_at=now, replanned=gap["state"] == "replan", **record)
-    if defs[0][0] != branch:
-        fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, **record)
+            define(cfg, gap["id"], name, body, "plan", planned_at=now, replanned=gap["state"] == "replan", **sized,
+                   **record)
+    if defs[0][0] != branch:                             # a split parent merges nothing: no size of its own
+        fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, planned_size=None,
+                size_confidence=None, **record)
     return 0
 
 
@@ -204,7 +224,8 @@ def splits(cfg: dict) -> int:
         if stopped:
             review.park(cfg, g, "Its sub-gaps stopped:\n" + "\n".join(
                 f"- {c['id']} ({c['state']}): {str(c['fields'].get('where_it_stopped') or '').strip()[:600]}"
-                for c in stopped), "split-watch", where="split")
+                for c in stopped), "split-watch", where="split", kind="split",
+                until={"gaps": sorted(c["id"] for c in stopped)})
     return 0
 
 
@@ -230,4 +251,5 @@ if __name__ == "__main__":
     fac.stop_on_term()
     if sys.argv[1:] in (["splits"], ["lint"]):
         sys.exit((splits if sys.argv[1] == "splits" else sweep)(fac.config()))
-    sys.exit(planner(fac.config(), fac.read_input()["item"]))
+    cfg, item = fac.config(), fac.read_input()["item"]
+    sys.exit(0 if fac.drain_holds(cfg) else planner(cfg, item))

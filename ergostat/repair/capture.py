@@ -7,6 +7,7 @@ import hashlib
 import re
 from pathlib import Path
 
+from ..spec import runrecord
 from . import BLOCKS, FAILURE
 
 TAIL = 8000
@@ -78,7 +79,7 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
     tb = traceback_of(stderr, spec.root)
     program = program_of(spec, b) if b.type in ("program", "ai") else None
     code, note = data.get("exit"), str(data.get("note") or "")
-    how = "signal" if isinstance(code, int) and code < 0 else note.split(":")[0].split(" after")[0] or f"exited {code}"
+    how = "signal" if runrecord.by_signal(code) else note.split(":")[0].split(" after")[0] or f"exited {code}"
     sig = hashlib.sha1(repr((b.name, program, tb["type"], tb["file"], tb["function"]) if tb else
                             (b.name, program, how)).encode()).hexdigest()[:8]
     name = f"{b.name}-{sig}"

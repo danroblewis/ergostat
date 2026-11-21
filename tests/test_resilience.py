@@ -460,6 +460,165 @@ def test_compact_projects_lists_and_deletes_only_folders_whose_repo_is_gone(tmp_
     assert len(before - left) == 1 and "no-note" in left and len([n for n in left if n.startswith("rz-")]) == 2
 
 
+# ---- 6. the engine's own hard restart (cli.running._restart_hard): one run of an item at a time, no attempt spent
+
+TAKES = """
+name: rz
+items:
+  job:
+    id: job/*
+    states: [new, done]
+    on:
+      job.end: done
+  ticket:
+    id: ticket/*
+    states: [ready, done]
+blocks:
+  doer:
+    type: program
+    takes: {kind: job, at: new}
+    pool: 2
+    run: 'echo "$ERGOSTAT_ITEM $$" >> runs.log; exec sleep 600'
+    lease: {ttl: 1m, attempts: 1}
+"""
+DEAF_BLOCK = """
+  deaf:
+    type: program
+    takes: {kind: ticket, at: ready}
+    pool: 1
+    lease: {ttl: 1m}
+    daemon: {run: python3 deaf.py a}
+"""
+
+
+class _Exec(Exception):
+    """The patched ``os.execv``: ergostat would have started its process again here."""
+
+
+@pytest.fixture
+def hard(monkeypatch):
+    """``_restart_hard`` on a real engine, its exec patched to record the runs alive at that moment; whatever the test
+    started, and the process-wide flags the restart sets, put back."""
+    from types import SimpleNamespace
+
+    from ergostat import runner
+    from ergostat.cli import running
+    from ergostat.daemons import proc
+
+    from .test_daemons_restart import dead
+    from .test_leases import wait_for
+    monkeypatch.setattr(runner, "keep_lock_across_exec", lambda: {})
+    seen: dict = {"pids": []}
+
+    def runs(d):
+        f = d / "runs.log"
+        return [(x.split()[0], int(x.split()[1])) for x in f.read_text().splitlines()] if f.exists() else []
+
+    def execv(path, argv):                        # (a KILL just sent lands within a moment: polled for at most 1 s)
+        seen["alive"] = [(i, pid) for i, pid in runs(seen["d"]) if not wait_for(lambda pid=pid: dead(pid), 1.0)]
+        raise _Exec()
+    monkeypatch.setattr(running.os, "execv", execv)
+
+    def restart(p, e):
+        seen["d"] = p.repo
+        with pytest.raises(_Exec):
+            running._restart_hard(p, SimpleNamespace(no_web=True, port=None), "test", e)
+        return seen
+    yield SimpleNamespace(restart=restart, runs=runs, seen=seen)
+    import os
+    import signal
+    for _, pid in runs(seen["d"]) if "d" in seen else []:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    with proc.GROUPS_LOCK:
+        proc.CLOSING = False
+
+
+def test_a_hard_restart_never_leaves_two_runs_of_one_item(tmp_path, hard, monkeypatch):
+    """A job made while the restart waits on a daemon deaf to SIGTERM (end_all's whole 3 s): fails when the hard path
+    leaves dispatch open (a run of it is alive at the exec, outliving the process; the next engine, finding its lease
+    expired, would start a second); the run going before the restart must be dead at the exec too."""
+    import time
+
+    from ergostat.daemons import supervise
+    from ergostat.leases import TAKEN
+
+    from .test_daemons_restart import DEAF, dead, pids
+    from .test_leases import item, start, wait_for
+    d = _repo(tmp_path, TAKES + DEAF_BLOCK)
+    (d / "deaf.py").write_text(DEAF)
+    p = Project(mdl.load(d))
+    e = start(p)
+    try:
+        deaf = pids(d, "a")                                                # (its group: ended by end_all, KILL at 3 s)
+        p.events.add("job.made", item="job/1", source="t")
+        assert wait_for(lambda: hard.runs(d), 10), "the run before the restart never started"
+        end_all, window = supervise.end_all, {}
+
+        def made_in_the_window(wait):
+            p.events.add("job.made", item="job/2", source="t")
+            t0 = time.monotonic()
+            got = end_all(wait)
+            window["seconds"] = time.monotonic() - t0
+            return got
+        monkeypatch.setattr(supervise, "end_all", made_in_the_window)
+        seen = hard.restart(p, e)
+        assert window["seconds"] > 2, "the deaf daemon did not hold end_all open: no window was tested"
+        assert seen["alive"] == [], f"runs alive at the exec (they outlive it): {seen['alive']}"
+        assert not p.events.query(n=None, type=TAKEN, item="job/2"), "a lease was taken once stopping had begun"
+        assert item(p, "job/2").state == "new"
+        assert all(wait_for(lambda x=x: dead(x), 2) for x in deaf), "the deaf daemon outlived the restart"
+    finally:
+        e.close()
+
+
+def test_a_hard_restart_spends_no_attempt(tmp_path, hard):
+    """A job held by a run when the engine restarts hard (wedged: its run's end never recorded), with one attempt
+    allowed: the next engine expires the lease uncounted and it waits to be taken again. Fails, a dead letter, when
+    an expiry of a previous engine's run is counted; the next engine's own run's expiry still counts."""
+    from ergostat.leases import EXPIRED
+    from ergostat.leases.terms import grace
+    from ergostat.spec.engine import Engine
+
+    from .test_leases import item, start, wait_for
+    d = _repo(tmp_path, TAKES)
+    p = Project(mdl.load(d))
+    e = start(p)
+    try:
+        p.events.add("job.made", item="job/1", source="t")
+        assert wait_for(lambda: hard.runs(d) and item(p, "job/1").state == "leased", 10)
+        e.dispatch.finish = lambda *a, **k: None                           # wedged: nothing it does is recorded
+        e.dispatch.give_back = lambda *a, **k: None
+        assert hard.restart(p, e)["alive"] == []
+    finally:
+        e.close()
+    lease = item(p, "job/1").fields["lease"]
+    assert lease["holder"] and lease["max"] == 1, "the lease is left held, as by an engine that was exec'd"
+    after = Engine(Project(mdl.load(d)), say=lambda s: None)                 # the next process's engine
+    try:
+        late = float(lease["expires"]) + float(lease["ttl"]) + 10          # (no fixed sleep: two looks, a grace apart)
+        after.dispatch.watch(now=late, mono=100.0)
+        after.dispatch.watch(now=late, mono=101.0 + grace(float(lease["ttl"])))
+        it = item(p, "job/1")
+        (ev,) = p.events.query(n=None, type=EXPIRED, item="job/1")
+        assert it.state == "new", f"an attempt spent by the restart: {it.state}"
+        assert it.fields["lease"]["attempts"] == 0 and it.fields["lease"]["history"][-1]["counted"] is False
+        assert ev["data"].get("count") is False and ev["data"]["state"] == "new"
+        assert [i.id for i in after.dispatch.ready(after.spec.blocks["doer"], [it], late)] == ["job/1"], "taken again"
+        # its own run's lease, silent past its TTL: counted (a dead letter, with one attempt)
+        after.dispatch.ours.add("mine")
+        p.events.add("ergostat.lease.taken", item="job/1", source="ergostat",
+                     data={"run": "mine", "block": "doer", "fence": lease["fence"] + 1, "ttl": 1.0, "max": 1, "back": "new"})
+        late = float(item(p, "job/1").fields["lease"]["expires"]) + 10
+        after.dispatch.watch(now=late, mono=200.0)
+        after.dispatch.watch(now=late, mono=202.0)
+        assert item(p, "job/1").state == "dead"
+    finally:
+        after.close()
+
+
 def test_compact_projects_skips_a_folder_an_engine_runs_in(tmp_path, home, monkeypatch):
     import shutil
 
@@ -469,3 +628,216 @@ def test_compact_projects_skips_a_folder_an_engine_runs_in(tmp_path, home, monke
     shutil.rmtree(gone)
     monkeypatch.setattr("ergostat.runner.running_pid", lambda project, wait=True: 123 if project.dir == p.dir else None)
     assert projects.orphans() == []
+
+
+# ---- 6. a run no longer depends on the engine that started it (docs/roadmap/overnight/rs-detach.md)
+
+def _blocked(tmp_path, run: str, extra: str = ""):
+    return Project(mdl.load(_repo(tmp_path, MODEL + textwrap.dedent(f"""
+        blocks:
+          worker:
+            type: program
+            run: {json.dumps(run)}
+            every: 1h
+        """) + extra)))
+
+
+def _until(cond, seconds: float = 15.0):
+    import time
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        got = cond()
+        if got:
+            return got
+        time.sleep(0.02)
+    return cond()
+
+
+def test_a_run_keeps_going_when_its_engine_is_killed(tmp_path):
+    import os
+    import signal
+    import subprocess
+    import sys
+
+    from ergostat.spec import runrecord
+    marker = tmp_path / "finished"
+    p = _blocked(tmp_path, f"echo begun; sleep 1; echo still here; echo done > {marker}")
+    engine = subprocess.Popen([sys.executable, "-c", textwrap.dedent("""
+        import sys
+        from pathlib import Path
+        from ergostat import model as mdl
+        from ergostat.spec.engine import Engine
+        from ergostat.store import Project
+        p = Project(mdl.load(Path(sys.argv[1])))
+        Engine(p, say=lambda s: None).run_block(p.model.spec.blocks["worker"], "schedule")
+        """), str(tmp_path / "rz")])
+    rec, pid = None, None
+    try:
+        found = _until(lambda: [f for f in (p.dir / "runs").glob("*.json")] if (p.dir / "runs").is_dir() else [])
+        assert found, "no run record written"
+        rec = json.loads(found[0].read_text())
+        pid = rec["pid"]
+        assert rec["block"] == "worker" and rec["run"] == found[0].stem and rec["lease"] is None and rec["start"]
+        assert runrecord.alive(rec) and os.getsid(pid) == pid                    # its own session
+        assert _until(lambda: b"begun" in found[0].with_suffix(".out").read_bytes())
+        engine.send_signal(signal.SIGKILL)                                      # the engine dies mid-run
+        engine.wait(10)
+        assert _until(marker.exists), "the run died with its engine"
+        assert _until(lambda: found[0].with_suffix(".exit").exists())
+        assert found[0].with_suffix(".exit").read_text() == "0\n"               # its exit, written by no engine
+        assert found[0].with_suffix(".out").read_text() == "begun\nstill here\n"
+        assert _until(lambda: not runrecord.alive(rec))
+    finally:
+        engine.kill()
+        engine.wait()
+        if pid and rec and runrecord.alive(rec):
+            os.killpg(pid, signal.SIGKILL)
+
+
+def test_a_detached_runs_output_and_exit_are_recorded_once(tmp_path, monkeypatch):
+    from ergostat import runner as old
+    from ergostat.spec import runrecord
+    from ergostat.spec.engine import Engine
+    run = ("printf 'half'; sleep 0.3; echo ' whole'; i=0; while [ $i -lt 1200 ]; do i=$((i+1)); echo line $i; done; "
+           "printf 'no newline at the end'; exit 3")
+    p = _blocked(tmp_path, run)
+    exits = []
+    real = runrecord.remove
+    monkeypatch.setattr(runrecord, "remove",
+                        lambda f: exits.append(f["exit"].read_text() if f["exit"].exists() else None) or real(f))
+    e = Engine(p, say=lambda s: None)
+    try:
+        e.run_block(p.model.spec.blocks["worker"], "schedule")
+    finally:
+        e.close()
+    logged = old.log_path(p, "worker").read_text().splitlines()
+    assert logged.count("half whole") == 1                                     # a partial line waits for its rest
+    assert [x for x in logged if x.startswith("line ")] == [f"line {i}" for i in range(1, 1201)]   # each once, in order
+    assert logged.count("no newline at the end") == 1
+    ended = p.events.query(n=None, type="agent.*", item="worker")
+    assert [x["type"] for x in ended] == ["agent.started", "agent.failed"]
+    assert ended[-1]["data"]["exit"] == 3 and ended[-1]["data"]["note"] == "exited 3"
+    assert exits == ["3\n"]                                                    # the wrapper's own record of its exit
+    assert not list((p.dir / "runs").iterdir())                                # nothing left to take again
+
+
+def test_a_runs_timeout_and_stop_still_end_it(tmp_path):
+    import threading
+    import time
+
+    from ergostat.spec.engine import STOPPED_BY_OWNER, Engine
+    p = _blocked(tmp_path, "echo first; sleep 30; echo never", "    timeout: 1s\n")
+    e = Engine(p, say=lambda s: None)
+    try:
+        t0 = time.monotonic()
+        e.run_block(p.model.spec.blocks["worker"], "schedule")
+        assert time.monotonic() - t0 < 10
+        ended = p.events.query(n=1, type="agent.failed", item="worker")[-1]["data"]
+        assert ended["note"] == "stopped after its timeout of 1s"
+        e.spec.blocks["worker"].timeout = None
+        t = threading.Thread(target=e.run_block, args=(e.spec.blocks["worker"], "schedule"))
+        t.start()
+        assert _until(lambda: "worker" in e.procs)
+        assert e.stop_run("worker")
+        t.join(10)
+        assert not t.is_alive()
+        assert p.events.query(n=1, type="agent.ran", item="worker")[-1]["data"]["note"] == STOPPED_BY_OWNER
+    finally:
+        e.close()
+
+
+def test_a_run_record_detects_a_reused_pid(tmp_path):
+    import os
+    import subprocess
+
+    from ergostat.spec import runrecord
+    proc = subprocess.Popen(["sleep", "30"])
+    try:
+        rec = {"pid": proc.pid, "start": runrecord.start_time(proc.pid)}
+        assert rec["start"] and runrecord.alive(rec)
+        reused = {"pid": os.getpid(), "start": rec["start"]}                  # its pid now another process's
+        assert runrecord.start_time(os.getpid()) and not runrecord.alive(reused)
+        assert not runrecord.alive({"pid": proc.pid, "start": None})          # its start unread: not taken as it
+    finally:
+        proc.kill()
+        proc.wait()
+    assert not runrecord.alive(rec)                                           # ended
+
+
+@pytest.mark.parametrize("program, state", [
+    ("import os, resource, signal\nresource.setrlimit(resource.RLIMIT_CORE, (0, 0))\n"
+     "os.kill(os.getpid(), signal.SIGSEGV)\n", "noted"),                       # as `kill -SEGV $$`, no core left
+    ("import sys\nsys.exit(7)\n", "open")])                                   # a plain failing exit: the code's to fix
+def test_a_run_killed_by_a_core_dumping_signal_is_triaged_as_a_signal(tmp_path, program, state):
+    import sys
+
+    from ergostat.repair import FAILURE
+    from ergostat.runner import STOPPING
+    from ergostat.spec import items as its
+    from ergostat.spec.engine import Engine
+    d = tmp_path / "rz"
+    d.mkdir()
+    (d / "crash.py").write_text(program)
+    (d / "ergostat.yaml").write_text(textwrap.dedent(f"""\
+        name: crash
+        blocks:
+          crasher: {{type: program, run: {sys.executable} crash.py, every: 1h}}
+        uses:
+          repair: {{use: repair, with: {{count-every: 1h, approver: person}}}}
+        """))
+    m = mdl.load(d)
+    assert not [x for x in m.problems if x.level == "error"], [str(x) for x in m.problems]
+    p = Project(m)
+    STOPPING.clear()
+    e = Engine(p, say=lambda s: None)
+    try:
+        e.run_block(p.model.spec.blocks["crasher"], "test")
+    finally:
+        e.close()
+        STOPPING.clear()
+    got = its.project(p.events, p.model.spec, FAILURE)
+    assert len(got) == 1 and got[0].fields["program"] == "crash.py", got
+    assert got[0].fields["exit"] == (128 + 11 if state == "noted" else 7)     # SEGV: the wrapper's 128+N (SPEC §9.1)
+    assert got[0].state == state                                              # a signal is never opened (SPEC §12)
+
+
+@pytest.mark.parametrize("shell", ["sh", "bash", "dash"])
+def test_the_run_wrapper_records_the_exit_under_each_shell(tmp_path, shell):
+    import shutil
+    import subprocess
+
+    from ergostat.spec import runrecord
+    path = shutil.which(shell)
+    if path is None:
+        pytest.skip(f"no {shell} here")
+    f = runrecord.files(tmp_path, "r1")
+    got = subprocess.run([path, *runrecord.command("echo said; exit 5", f)[1:]], capture_output=True, text=True)
+    assert (got.returncode, got.stdout, f["exit"].read_text()) == (5, "said\n", "5\n")
+    got = subprocess.run([path, *runrecord.command("exit 0", f)[1:]])
+    assert got.returncode == 0 and f["exit"].read_text() == "0\n"
+    got = subprocess.run([path, *runrecord.command("kill -TERM $$", f)[1:]])
+    assert got.returncode == -15 and f["exit"].read_text() == "143\n"          # ended by a signal: as without it
+    import os
+    import signal
+    tstp = 128 + signal.SIGTSTP                                                # a stop signal's code: never stops the wrapper
+    got = subprocess.run([path, *runrecord.command(f"exit {tstp}", f)[1:]], timeout=10, start_new_session=True)
+    assert got.returncode == tstp and f["exit"].read_text() == f"{tstp}\n"
+    for code in (128 + signal.SIGABRT, 128 + signal.SIGSEGV):                 # a core-dumping signal's code: no crash
+        got = subprocess.run([path, *runrecord.command(f"exit {code}", f)[1:]], timeout=10, start_new_session=True)
+        assert got.returncode == code and f["exit"].read_text() == f"{code}\n"
+        assert runrecord.by_signal(got.returncode)                             # and still filed as a signal's end
+    segv = 128 + signal.SIGSEGV                                                # really killed by one: the same code
+    got = subprocess.run([path, *runrecord.command("ulimit -c 0; kill -SEGV $$", f)[1:]], timeout=10,
+                         start_new_session=True, cwd=tmp_path)
+    assert got.returncode == segv and f["exit"].read_text() == f"{segv}\n" and runrecord.by_signal(segv)
+    assert not runrecord.by_signal(5) and not runrecord.by_signal(128 + signal.SIGTSTP) and runrecord.by_signal(-15)
+    import sys
+    import time
+    deaf = f"{sys.executable} -c \"import signal, time; signal.signal(15, signal.SIG_IGN); time.sleep(1); print('late')\""
+    with open(f["out"], "wb") as out:
+        proc = subprocess.Popen([path, *runrecord.command(deaf, f)[1:]], stdout=out, start_new_session=True)
+    time.sleep(0.3)
+    os.killpg(proc.pid, signal.SIGTERM)                                       # the group told to stop: as a lease's kill
+    proc.wait(10)
+    assert f["exit"].exists()                                                  # the wrapper lived to write its exit
+    assert _until(lambda: f["out"].read_text() == "late\n", 10)               # and the command carried on

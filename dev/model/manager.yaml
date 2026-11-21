@@ -24,6 +24,17 @@ auxiliaries:
     exogenous: true
     description: 1 while the pipeline manager may run ([manager] open in the settings, 1 by default; 0 in factory.local.toml pauses it)
     sensor: {run: python3 dev/bin/watch.py open, every: 5m, timeout: 30s, description: the settings}
+  # Parks by kind (parked_for, dev/bin/parks.py): parks and resumes over 14 days, and the mean hours parked (to the
+  # resume, or now) - for the kinds a program resumes (waits_on, needs) and the manager's (defect, kill-rule);
+  # `measure.py parks|resumes|parked-hours KIND` reads any kind.
+  parks-waits-on: {unit: gaps, description: "gaps parked waiting on a gap or commits, 14 days", sensor: {run: python3 dev/bin/measure.py parks waits_on, every: 10m, timeout: 1m, description: the factory's measures}}
+  parks-needs: {unit: gaps, description: "gaps parked needing an action named for someone, 14 days", sensor: {run: python3 dev/bin/measure.py parks needs, every: 10m, timeout: 1m, description: the factory's measures}}
+  parks-defect: {unit: gaps, description: "gaps parked for their own work's findings, 14 days", sensor: {run: python3 dev/bin/measure.py parks defect, every: 10m, timeout: 1m, description: the factory's measures}}
+  parks-kill-rule: {unit: gaps, description: "gaps parked by the kill rule (rounds, hours or attempts ran out), 14 days", sensor: {run: python3 dev/bin/measure.py parks kill-rule, every: 10m, timeout: 1m, description: the factory's measures}}
+  resumes-waits-on: {unit: gaps, description: "waits_on parks resumed, 14 days", driven-by: [+auxiliary.parks-waits-on], sensor: {run: python3 dev/bin/measure.py resumes waits_on, every: 10m, timeout: 1m, description: the factory's measures}}
+  resumes-needs: {unit: gaps, description: "needs parks resumed, 14 days", driven-by: [+auxiliary.parks-needs], sensor: {run: python3 dev/bin/measure.py resumes needs, every: 10m, timeout: 1m, description: the factory's measures}}
+  parked-hours-waits-on: {unit: hours, description: "mean hours a waits_on park stayed parked (to its resume, or now)", driven-by: [+auxiliary.parks-waits-on, -auxiliary.resumes-waits-on], sensor: {run: python3 dev/bin/measure.py parked-hours waits_on, every: 10m, timeout: 1m, description: the factory's measures}}
+  parked-hours-needs: {unit: hours, description: "mean hours a needs park stayed parked (to its resume, or now)", driven-by: [+auxiliary.parks-needs, -auxiliary.resumes-needs], sensor: {run: python3 dev/bin/measure.py parked-hours needs, every: 10m, timeout: 1m, description: the factory's measures}}
 
 flows:
   situations-found:
@@ -94,13 +105,20 @@ actions:
     description: A change the pipeline manager may not make itself, asked of the coordinator, who makes it once approved
 
 blocks:
+  park-resume:
+    type: program
+    description: resumes each park whose condition cleared, for whoever parked it (no AI) - waits_on once the gap merged or the commits are on main, needs once the action is recorded done, split once its stopped sub-gaps are resumed or closed; never a defect or the kill rule
+    run: python3 dev/bin/parks.py resume
+    every: 5m
+    timeout: 4m
+    out: [auxiliary.resumes-waits-on, auxiliary.resumes-needs]
   pipeline-watch:
     type: program
     description: raises the first standing trigger not raised before as a situation, one at a time, while managing is open
     run: python3 dev/bin/watch.py
     every: 5m
     timeout: 4m
-    goal: no-stuck-gaps
+    in: goal.no-stuck-gaps           # read, not commanded: a goal: here would take it off its schedule (schedule-removed)
     out: flow.situations-found
 
   manage-when:

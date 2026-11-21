@@ -200,7 +200,7 @@ def test_the_redesigner_and_the_ai_tier_print_result_lines(tmp_path, monkeypatch
         on_call(one)
         return {"proposals": [], "cannot": [], "cost": cost, "tried": []}
     monkeypatch.setattr(md, "answer", answer)
-    assert ml.ai(["--model", "haiku"]) == 0
+    assert ml.ai(["--model", "haiku", "--daily", "1"]) == 0
     got = _results(capsys.readouterr().out)
     assert len(got) == 1 and got[0]["total_cost_usd"] == pytest.approx(0.012)
 
@@ -340,7 +340,8 @@ def test_a_held_modelling_request_is_in_the_inbox(tmp_path):
     r = next(r for r in rq.current(p, ("open",)))
     rq.mark(p, r, "held", "no tier has a change for it")
     got = [e for e in en.entries(p) if e["kind"] == "request"]
-    assert {e["id"] for e in got} == {f"request/{x}" for x in held | {r["id"]}} and got[0]["verbs"] == []
+    assert {e["id"] for e in got} == {f"request/{x}" for x in held | {r["id"]}}
+    assert {e["id"]: e["verbs"] for e in got} == {f"request/{x}": ["deny"] for x in held} | {f"request/{r['id']}": ["approve", "deny"]}
     assert f"/item/ergostat.modelling-request/{r['id']}" in {e["link"] for e in got}
 
 
