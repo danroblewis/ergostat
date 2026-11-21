@@ -3699,7 +3699,7 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   refused, dismissed or superseded, one that made nothing, or a run that never ended (its request closed, saying so),
   the system rests 6 hours unless its own parts changed since (a hash of them, not the model's version); the cap is
   checked before anything is planned; the runs stop for the day once they have spent `daily` dollars,
-  each call charged as it is spent (one that never says its cost charged the most it could have). And when the owner
+  each call charged as it is spent (one that never says its cost charged its estimated most, `modeller.unsaid`). And when the owner
   asks (`ergostat improve --redesign [SYSTEM]`, or the Model page's Redesign button), recorded as
   `ergostat.model.redesign-asked` and taken up first; `when: ask` takes only those, `off` none. Each run is recorded
   (`ergostat.model.redesign-ran`: started, each call's cost, then what it made), and its trigger and result are held as
@@ -3772,12 +3772,14 @@ their own changes (each on the version as it stands), with the findings, so they
 reviewer's pass; one that waits for the owner reaches the inbox only after it. The owner may still accept it from the
 review queue at any time (the owner asks; the review queue shows the reviewer's verdict beside the judge's).
 **Cost:** each call is recorded (`ergostat.model.review-ran`, its dollars) and counted with the redesigner's against the
-template's one daily cap (`redesign.daily`): neither the reviewer nor the redesigner starts a call that could cost more
-than is left of its share (each priced at the most it could cost: its prompt, claude's own system prompt and the most
-it could write), and what waits for a review stays unwritten. What is left is read again before each call, and the
-call's most is held against the cap while it runs (`ergostat.model.ai-held`, checked and held under one lock, let go
-once its real cost is charged, kept for the day if the call fails), so the two running at once never both spend one
-remainder. A quarter of the cap is kept for the reviewer: the redesigner stops at three quarters of it.
+template's one daily cap (`redesign.daily`): neither the reviewer nor the redesigner starts a call whose estimated most
+is more than is left of its share, and what waits for a review stays unwritten. The estimate (`modeller.unsaid`) is
+its prompt at a token for three characters, claude's own system prompt (20,000 tokens) and 16,000 tokens written, at
+the model's price. It is an estimate, not a bound: `claude -p` is given no limit on what it writes, so a call that
+writes more can cost more than its estimate, and the day can end a little past the cap. What is left is read again
+before each call, and the call's estimate is held against the cap while it runs (`ergostat.model.ai-held`, checked and
+held under one lock, let go once its real cost is charged, kept for the day if the call fails), so the two running at
+once do not both start calls on one remainder. A quarter of the cap is kept for the reviewer: the redesigner stops at three quarters of it.
 **Measured:** `ergostat.model.reviews-passed`, `-revised`, `-rejected` and `review-misses` (changes it passed, in the
 version that was written, that the prediction check later flagged for revert, §12f); the template's flow `changes-sent-back` counts what it rejected or
 sent back from the passed changes. The template's parameter: `review: {when: auto|off, model: haiku, kinds: structure

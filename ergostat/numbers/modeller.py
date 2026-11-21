@@ -164,8 +164,8 @@ SYSTEM_IN = 20000           # input tokens of claude's own system prompt, read o
 
 def unsaid(text: str, model: str) -> dict:
     """The cost charged for a call that never said its own (killed, timed out, or answered no JSON): its prompt read
-    (with claude's own system prompt) and the most it could have written, at the model's price; dear rather than free,
-    so a cap fails closed."""
+    (with claude's own system prompt) and ``MOST_OUT`` written, at the model's price; dear rather than free. An
+    estimate, not a bound: ``claude -p`` is given no output limit, so a call can cost more."""
     from ..costs import prices
     tin = len(text) // 3 + 1 + SYSTEM_IN
     usd = prices.estimate(model, {"input": tin, "output": MOST_OUT})

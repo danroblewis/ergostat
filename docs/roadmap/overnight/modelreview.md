@@ -118,3 +118,21 @@ Parked by the factory (review/modelreview-3, 2026-11-20 12:48).
 Failed its gates 3 times (the kill rule). Blocking findings:
 - docs/ADDING.md:237 (lesson-12): still says 'the `reviewer` block' although the block is `model-reviewer` (renamed in 38757b6). This was a review/modelreview-2 finding, and round 3's notes ('answering every finding of review/modelreview-1 and -2 still open') neither fix nor mention it. Name the block `model-reviewer`.
 - docs/SPEC.md:3718-3720 and docs/GAPS.md:136-139 (lesson-8, lesson-12): they still say neither block 'starts a call that could cost more than is left', priced at 'the most it could write', 'worst-case cost', 'never pass it'. The figure is md.unsaid's estimate (prompt/3 + SYSTEM_IN 20,000 tokens in, MOST_OUT 16,000 out; ergostat/numbers/modeller.py:161-172), and md.call (modeller.py:144-158) sets no output-token or cost limit on claude, so a call can cost more than it and the cap can be passed. This is review/modelreview-2's finding, unanswered and unmentioned in round 3. Either say 'its estimated most' and drop 'never', or cap the call's output so the bound really holds, with a test.
+
+Continued (gap/modelreview-resumed, round 1, 2026-11-21), answering both findings of review/modelreview-3 (it listed
+no non-blocking ones):
+- ADDING.md's Review paragraph now names the `model-reviewer` block. No other doc outside the roadmap calls it the
+  `reviewer` block (searched).
+- The cost claim is narrowed, not made true: SPEC §12e *Cost* now says neither block starts a call whose **estimated
+  most** (`modeller.unsaid`: prompt/3 + 20,000 system tokens in, 16,000 out, at the model's price) is more than is
+  left. It says the estimate is not a bound (`claude -p` is given no output limit), so the day can end a little past
+  the cap, and the two blocks "do not both start calls on one remainder" (no longer "never both spend"). SPEC's
+  redesign *runs stop* sentence, the GAPS entry (with that limit listed as Open) and the docstrings and comments of
+  `modeller.unsaid`, `redesign.charge`, `redesign.held`, `reviewer.run` and `redesigner` say the same. I chose this
+  over capping the output because it is the most reversible option: the docs change, the behaviour does not. A real
+  cap would need a flag the stand-in AI understands, and `--max-budget-usd` in claude is checked between turns, so it
+  does not bound a single turn either. A cap that actually holds is left for its own gap.
+- Size: comments and docstrings only, so the net lines are unchanged (450).
+- Tests: tests/test_modelreview.py (21 passed), tests/test_redesign.py (19 passed), ruff clean. No new test: the
+  change only narrows the docs. The unit suite and the four browser files have not been run here; the factory runs
+  them under suite_watch.py.

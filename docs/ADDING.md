@@ -234,7 +234,7 @@ uses:
   a scratch copy within `budget` dollars a run and `daily` dollars a day, judged as a whole by a scorecard. **It is
   never written without the owner's approval** (the review queue and the inbox) unless `accept: {redesign: auto}`, and
   even then not one that takes a part away, rewires a chain or changes control.
-- **Review:** with `ai: true`, the `reviewer` block reads each change of `review.kinds` (structure and redesign; add
+- **Review:** with `ai: true`, the `model-reviewer` block reads each change of `review.kinds` (structure and redesign; add
   `equation` if you like) after the judge passes it, as a deliberately disagreeable senior modeller, through the review
   checklists of `docs/MODELLING-WELL.md` (the causal story, units and boundary, fitting noise, one coherent change, the
   behaviour it predicts). It passes it, sends it back to its author with its findings (`revise`: the author's next

@@ -348,7 +348,7 @@ DAY = 24 * 3600.0
 
 def charge(p, system: str, got: dict) -> None:
     """One of the redesigner's calls charged as it is spent (``result: call``); a call that never said its cost is
-    charged the most it could have cost (``modeller.unsaid``)."""
+    charged its estimated most (``modeller.unsaid``)."""
     ran(p, system, {"result": "call", "cost": {"usd": float(got.get("usd") or 0.0)},
                     **({"estimated": True} if got.get("estimated") else {})})
 
@@ -367,7 +367,7 @@ def spent(p, now: float | None = None, reviewer: bool = True) -> float:
 @contextmanager
 def held(p, usd: float, room=None, by: str = "redesigner"):
     """A call's dearest (``usd``) checked against what is left of the day (``room()``, read again now) and held against
-    the cap under one lock, so the reviewer and the redesigner running at once never both spend one remainder. Yields
+    the cap under one lock, so the reviewer and the redesigner running at once do not both start calls on one remainder. Yields
     whether it fits; the hold is let go once the call is over and charged, and kept for the day if the call raises
     (failing closed). Without ``room`` nothing is held."""
     if room is None:
