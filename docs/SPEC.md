@@ -675,6 +675,7 @@ items:
 | `fold` | map of field → rule | `replace` | How the plain `data` of its events folds into each field (the rules below) |
 | `relations` | map of name → kind(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
 | `join` | a rule, or a list | none | When its children move it on (*Join*, below) |
+| `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `system`, `description` | | | |
 
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
@@ -803,6 +804,41 @@ for:
   completion estimates are worked out, from a levelled run of their simulation instead (below).
 - **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
   (`ergostat`, the page's side panel), and is left out of the projection.
+
+**About.** An item may say which parts of the model it bears on: a lesson about a goal, a note about a stock. A kind
+opts in by naming the field that holds them, `about: FIELD`; the field holds one name or a list, each in the text
+form a claim's `about` uses: `goal.x`, `stock.x`, `flow.x`, `auxiliary.x`, `block.x`. ergostat declares no such
+kind of its own, and a model none of whose kinds declares `about:` looks nothing up.
+
+```yaml
+items:
+  note:
+    id: note/*
+    states: [open, retired]
+    about: about                            # "data": {"about": ["goal.inbox-short", "stock.inbox"]}
+messages:
+  done: {note: [retired]}
+```
+
+The field folds by `replace` (any other `fold:` for it, or a relation's name, is an error, `bad-about`): an event
+that sets it replaces the whole list, so a part dropped from an item, or an item made again under the same id with
+a new list, no longer points at the old part. The item index keeps each item→part link beside its relations' links,
+as they stand now, so the items about a part are one indexed lookup, never a read of every item (an index built
+before these links is built again). They are read in three places, each listing only the **open** items about the
+part (not in a state its kind counts as finished, `messages: done:`, else as the item index says; a kind without
+states, always open), the latest first:
+
+- `ergostat explain PART` (and MCP's `explain`), with a project, ends with a line `Open items about goal.x: ID
+  (title), ...`: each item's id, then its `title`, else its first field with a value; **at most 5**, then `and N
+  more`. `none.` when there are none; `unknown` (with why) when the item index cannot be read, never `none`.
+- `ergostat check`: a finding whose part has open items about it carries their ids (`items` in `--json`, and said
+  in its message, at most 5 named); an open item naming something that is not a part of the model (`goal.gone`,
+  `foo.x`, `goal.`, `stock.x.main`) is a finding, `about-missing-part` (section 12). Finished items are not checked.
+- `ergostat` (the status): a loop that is off names the open items about its goal or the value it measures
+  (`goal.x`, or its `stock.y` / `flow.y` / `auxiliary.y`), on its attention line (`· items about it: a, b, c +2`)
+  and in its row of the loops table, **at most 3**, then `+N`; `unknown` when the index cannot be read. A loop that
+  is not off names none. Under `--at` (a past snapshot) no items are named: the items open now are not the ones
+  that were open then.
 
 **Join.** A parent moved on by its children (fork-join) is a rule on the parent's kind, over the relation its children
 name it by, not a block that lists and matches items:
@@ -1289,6 +1325,7 @@ it measured). These are recorded as events from the sensor (`benchmark-score.mai
 the items like any other. An observation records what was seen, never a command: it must name an
 item (an id with a `/`), may not use ergostat's own types, and a sensor has no outputs. A measured
 value is shown as measured by its sensor; an auxiliary a block sets is shown as set by that block.
+A sensor read by a daemon may print the same lines tagged with `"sensor": "STOCK.SENSOR"` (section 9.7).
 
 ## 7. Flows
 
@@ -2374,17 +2411,33 @@ Out, on its standard output, every line tagged with what it is for:
 | `{"done": EXIT, "run": ID}` | The run ended with that exit code. Exactly these two keys, `EXIT` a whole number (never `true`, never `1.0`) |
 | `{"reading": V, "request": ID}` | The answer to a reading (`{"error": WHY, "request": ID}`: none) |
 | `{"reading": V, "sensor": "STOCK.SENSOR"}` | A reading it sends by itself, for a sensor with `push: true` |
+| `{"event": T, "item": I, "data": {...}, "sensor": "STOCK.SENSOR"}`, `{"message": {...}, "sensor": "STOCK.SENSOR"}` | What one of its sensors observed (section 6), or a message it relays: checked and recorded as a `run` sensor's are, from that sensor (a refused one is a `sensor.refused`). No `reading` beside it |
 | `{"heartbeat": true}` | It lives (any line says so) |
 
 A line that is not a JSON object, tags nothing, or names a run or request the daemon does not hold, is written to its
-log and dropped: never taken as another run's. The `env` of an item travels in its line and never in the process's
-environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
+log and dropped: never taken as another run's. So is an observation that also carries a `reading`, that names a
+sensor this daemon does not serve (a warm daemon serves none), or that a `run` sensor's would neither take nor
+refuse (`{"message": "text"}`): it is never recorded from another source, and never counted. A sensor's
+observations are taken at most 50 a second (accepted and refused alike, in one-second windows from the first); more
+are dropped and counted, not recorded, and each window's count is said once, as a `sensor.refused` with
+`{"why": "N observations dropped: more than 50 a second", "dropped": N}`, at the first of: its sensor's next
+observation after the window closes, the supervisor's next look once the window is a second old (every 0.2 s), or
+ergostat stopping (after its daemons have ended, or a second after they were killed; a line read later than that is
+written to the log and dropped, not counted). The lines of one read are judged at the time it was read. A line over
+1 MiB is dropped (said once in the log), up to its newline, and never held. Lines are read as UTF-8, what is not
+UTF-8 replaced. A run's `done` is taken after its earlier lines; should taking a run's batch of lines fail as a
+whole, each line of it is said dropped in the log. The `env` of an item travels in its line and never in the
+process's environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
 `ERGOSTAT_SOCKET`): a daemon passes an item's `env` to what it starts for that item, and never writes it into its own.
 
 **Each item is still a run**: `agent.started`, `agent.ran` or `agent.failed` (with `daemon`: its name), its lease
-and fencing, its lines taking effect as printed. Its time is its wall time only: a process serving many items at
-once cannot say which CPU second was whose, so a daemon's CPU and memory are its own, sampled every 30 s (and exact
-from its wait status when it ends: on `ergostat.daemon.restarted`), shown on the Agents page, and no run claims them.
+and fencing, its lines taking effect in the order it printed them (a run's line may be taken after lines of the
+same read that are no run's, such as requests, readings and observations, printed after it). Its time is its wall
+time only: a process serving many items at once cannot say which CPU second was whose, so a daemon's CPU and memory
+are its own, sampled about 1 s after it
+starts, then at doubling gaps up to every 30 s (never two samples within 1 s), and exact from its wait status when it
+ends (on `ergostat.daemon.restarted`), shown on the Agents page, and no run claims them. Lines that arrive together
+are taken together, per run, up to 500 at once, in the order printed.
 A sensor read by a daemon starts no process and holds none of the sensor pool's threads while it waits.
 
 **Supervision** (`ergostat/daemons/supervise.py`: a thread of its own, never the engine's loop). Everything written
@@ -2578,7 +2631,18 @@ where the error is 0.
 - **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
   (section 12e);
 - **template-library**: a template in a `library:` folder that does not read, or one used in place of
-  ergostat's own.
+  ergostat's own;
+- **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
+  is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
+  (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
+  message, all in `items`). Finished items are not checked. When the item index cannot be read, **about-unknown**
+  says so instead, and nothing is said to be missing or not.
+
+A finding of `check` (CLI or MCP) about a part (`about`: `goal.x`) that has open items about it carries their ids:
+`items` in `check --json` and MCP's `check`, and `(open items about it: a, b)` at the end of its message, at most 5
+named there. This is done last, after the calibration and extreme-conditions findings, so those carry them too; the
+coherence report (section 12l) is apart and does not. These two findings and the ids are `check`'s alone: loading the
+model (any other command, the engine, a proposal's trial) does not open the item index for them.
 
 **Structure** (findings, the tests system dynamics makes of a model's structure before its
 behaviour: Sterman, *Business Dynamics*, ch. 21, structure assessment, dimensional consistency and
@@ -3594,8 +3658,7 @@ worse than the threshold that answers findings without making any; or one no wor
 parameters and terms) where the record replays what it touches. It **fails** one whose bound's high end is below no
 change and whose estimate is worse by the threshold, near it, elsewhere or on a goal's stock, and one no better that
 makes new findings. One the bound holds within the threshold both ways is **inconclusive** once it has three times
-the record it needs (the record tells it from the model as it is by less than the threshold), and one whose replay is
-the same as the model's on all the record waits for record in which what it touches moves. One the bound cannot
+the record it needs (the record tells it from the model as it is by less than the threshold). One the bound cannot
 decide yet stays under test and says **about how much more record it needs** (the bound narrows as one over the root
 of the record; on its testing event and in the judge's waiting list), looked at again each time the record it needs,
 or a quarter more, has come; after seven times the record it needs (a day at least) it is inconclusive, saying how
@@ -3604,10 +3667,43 @@ exercised (above: it does not vouch for a quiet part's rate). Measured (docs/roa
 queue drained over a day, filled at random and read every 15 minutes, the judge before this passed a change a fifth
 worse in 6 of 20 records and failed one a fifth better in 11 of 20; now it passes none of the worse, and a change
 halving a wrong drain within five days of record.
+
+**A change the replay cannot tell** (`numbers/unmoved.py`). A change whose replay is exactly the model's (both
+replays follow the same stocks, and every reading of each is equal as a float over all the record held out: no
+tolerance, and a NaN is never equal) is judged by structure, once it has the record it needs (to within the same
+second of grace the looks give, so a look due at the record it needs is not put off) and that record
+exercised what it touches: a stock of its neighbourhood the record reads at least 12 times and does not find quiet
+(`exercised.py`). A stock with no readings, or a change touching no stock, is never taken as exercised (a deliberate
+narrowing of the design's "any stock both replay" for a change whose neighbourhood holds no stock: a busy stock
+elsewhere says nothing of it, so it fails closed); such a change
+waits, as one any record replays the same, for record in which what it touches moves, and is inconclusive at the
+horizon. A change that moves any stock by any amount is judged by the record, through the bound, as above.
+Judged by structure, the model it leaves is compiled with what `check` finds; any error fails it ("the model it
+leaves no longer compiles"), with no scorecard. Otherwise the redesign scorecard (*Redesign*, below) is worked out for
+the model as read from disk and the model with the change, with the fit counting only against it: a fit made
+measurable or better never counts for it; worse, or behaviour lost, counts against it. Coherence that cannot be
+compared on a side (an error reading the record, or no kind compared) is marked unmeasurable, with why, and never
+counts for the change (no coherence gain counts then); a kind compared before and not after counts against it.
+Unmeasurable on the before side only, it never makes the change better, but mismatches the after side shows still
+count against it. **Better** (findings resolved, chains
+joined, coherence mismatches fewer or coherence up, craft notes closed, and nothing worse) is passed; mixed, or no
+better with anything worse, is failed. Nothing moving, with every measure measured, is inconclusive at once ("no
+structural measure moves, and the record cannot tell it from the model as it is"); nothing moving with coherence or
+the fit unmeasurable stays under test, its `undecided` naming which and why, worked out again at each look, until the
+horizon, then inconclusive, naming the same. The verdict carries `on: structure`, its `scorecard` and the `version`
+of the model the scorecard read, all inside `verdict` (replaced whole by every verdict, so a change made again under
+its id keeps none of them). It is judged inside the proposals' lock, which Accept takes too, so nothing ergostat
+writes comes between the scorecard's read and the verdict; a hand edit takes no lock, so a version read that is not
+the change's own records no verdict (the next pass, on the model read again, carries the change to it and judges it
+again, or supersedes it, as any change made against another version; until then it takes one of the pass's looks, as
+any judged change does), and a hand edit after the read leaves a verdict stamped with the version read, which Accept
+then refuses ("the model has changed"). An edit that cannot be tried on the model there (a `TrialError`) leaves the
+change under test, its `undecided` naming the error. A pass on structure
+alone is the owner's to write, whatever `accept` says, and waits in the review queue with its scorecard beside it.
 Each verdict keeps its windows (each one's span, and the scaled error
 before and after), its pooled estimate and bound, as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
 passed change's kind, it writes the oldest, one a pass, so each is measured alone (never one that removes
-structure: that waits for the owner, whatever the policy): Accept's way (section 12b), the
+structure, nor one passed on structure alone: those wait for the owner, whatever the policy): Accept's way (section 12b), the
 smallest edit, refused and put back if `check` would then find an error, recorded as `.accepted` from the judge
 with its policy named, and `ergostat.model.changed`. Accepting writes the YAML at once; ergostat never commits it:
 the owner does.
@@ -3685,7 +3781,9 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   measured on the same record: `check`'s findings resolved and introduced (a finding about a renamed part is the same
   finding); each kind's state stocks in pieces no flow joins; the coherence score per kind and the mismatches (§12l),
   run again over the record as it is (what Blocks ↔ Process says of a block the change adds, or of a flow only such
-  blocks move, is left out and said as unseen: the record holds none of their runs, and cannot); the craft notes closed and opened; the fit, not worse beyond 10% over the stocks
+  blocks move, is left out and said as unseen: the record holds none of their runs, and cannot; coherence that cannot
+  be compared on a side, an error reading the record or no kind compared, is unmeasurable, says why, and never counts
+  for the change); the craft notes closed and opened; the fit, not worse beyond 10% over the stocks
   both replay where it can be worked out (made measurable counts for it); and **behaviour kept**: a stock whose replay
   followed the record (scaled error at most 0.5), or an equation that explained its flow (R² at least 0.5), is still
   there, or renamed, and no worse beyond the tolerance. The verdict is **better** when findings, chains and coherence
