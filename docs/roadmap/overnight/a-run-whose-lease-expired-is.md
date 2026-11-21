@@ -100,3 +100,13 @@ Not run: the whole unit suite and the four browser files. The instructions leave
 after this one. origin/main: this clone has no `origin` remote and there is no network, so it could not be fetched.
 The branch is made from the local `main` and contains it. The factory's run should merge origin/main and run the
 suites again (lesson-7).
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:11).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 6: ack
+- attempt 7: nack exited 1
+- attempt 8: nack exited 1
+- attempt 9: nack exited 1
