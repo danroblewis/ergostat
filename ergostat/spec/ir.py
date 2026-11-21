@@ -417,7 +417,8 @@ class Action:
     ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``; ``cls``: the class it is counted in (its name, else);
     ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
     ``in_``: where it runs (else the session's working directory); ``fenced``: False for an action that runs once
-    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs)."""
+    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs);
+    ``severity`` (1 to 5; None: no ``risk:``) and ``threshold``: its act-risk (``actions/risk.py``)."""
     name: str
     run: str
     gate: str = "approve"
@@ -429,6 +430,8 @@ class Action:
     description: str = ""
     where: Where | None = None
     fenced: bool = True
+    severity: int | None = None
+    threshold: float = 8.0
 
 
 @dataclass
