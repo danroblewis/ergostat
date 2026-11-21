@@ -118,6 +118,8 @@ def cmd_run(args) -> int:
         server, url = serve(Project(p.model, p.dir), args.port)   # its own Project: the page never hands the runner a model
         print(f"web: {url}", flush=True)
         print(f"push: POST {url}/api/events (token: {p.dir / 'intake.token'})", flush=True)
+        if server.mtls_said:                            # web: mtls: where it listens, or why it does not
+            print(server.mtls_said, flush=True)
     say = lambda s: print(time.strftime("%H:%M:%S"), s, flush=True)       # noqa: E731
     if getattr(p.model, "spec", None) is not None:      # the YAML model: ergostat closes its loops itself
         from ..spec.engine import Engine
@@ -320,6 +322,8 @@ def cmd_web(args) -> int:
     from ..remote import refresh as remote_refresh
     remote_refresh.start(server.RequestHandlerClass.live.get)    # remotes' models kept current (SPEC §4c)
     print(f"web: {url}  (Ctrl-C stops it)", flush=True)
+    if server.mtls_said:
+        print(server.mtls_said, flush=True)
     try:
         while True:
             time.sleep(1)
