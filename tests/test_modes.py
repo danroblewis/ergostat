@@ -181,6 +181,19 @@ def test_equations_that_fault_at_the_start_say_which(tmp_path):
     assert "flow.out" in ms.why and "divided by 0" in ms.why and ms.modes == []
 
 
+def test_equations_that_fault_only_when_a_stock_is_moved_say_which(tmp_path):
+    spec = _spec(tmp_path, """
+        name: edge
+        stocks:
+          x: {unit: litres, initial: 10, sensor: {manual: true}}
+        flows:
+          out: {from: x, equation: SQRT(10.0005 - stock.x), driven-by: [-stock.x]}
+        """)
+    ms = md.at_start(spec)                                          # fine at 10; the step (10 + 0.001) takes the root of < 0
+    assert ms.why.startswith("the equations fault when a stock is moved a little from the start") and "flow.out" in ms.why
+    assert ms.modes == []
+
+
 PAIR = """
 name: pair
 parameters:
@@ -306,8 +319,19 @@ def test_the_diagonal_is_exactly_what_time_constants_used(tmp_path, monkeypatch)
     assert J[("slow", "slow")] != -0.1                              # the nonlinear drain: 2·10/2h, plus the step's share
 
 
+GROWS = """
+name: grows
+parameters:
+  hour: {value: 1h}
+stocks:
+  x: {unit: litres, initial: 10, sensor: {manual: true}}
+flows:
+  more: {to: x, equation: stock.x / hour, driven-by: [+stock.x]}
+"""
+
+
 def test_rates_is_unchanged_by_the_shared_jacobian(tmp_path):
-    for text in (PAIR, NONLINEAR):
+    for text in (PAIR, NONLINEAR, GROWS):                           # GROWS: an own link above 0, its drain 0
         spec = _spec(tmp_path, text, text.split()[1])
         pl = sim.plan(spec)
         st, state = ex._at_start(spec, pl, ex.Condition("usual", "as usual", usual=True), None)
@@ -315,22 +339,14 @@ def test_rates_is_unchanged_by_the_shared_jacobian(tmp_path):
         J, faulted = st.jacobian(state)
         bound = st.rates(state)
         live = list(state)
-        assert not faulted
-        assert bound == max(abs(J[(i, live[0])]) + abs(J[(i, live[1])]) for i in live)
+        assert not faulted and set(J) == {(i, j) for i in live for j in live}
+        assert bound == max(sum(abs(J[(i, j)]) for j in live) for i in live)
         assert st.diag == {i: max(0.0, -J[(i, i)]) for i in live}
-        assert st.coupling == max(abs(J[(i, j)]) for i in live for j in live if i != j)
+        assert st.coupling == max((sum(abs(J[(i, j)]) for j in live if j != i) for i in live), default=0.0)
 
 
 def test_a_growing_mode_is_said_to_grow(tmp_path):
-    spec = _spec(tmp_path, """
-        name: grows
-        parameters:
-          hour: {value: 1h}
-        stocks:
-          x: {unit: litres, initial: 10, sensor: {manual: true}}
-        flows:
-          more: {to: x, equation: stock.x / hour, driven-by: [+stock.x]}
-        """)
+    spec = _spec(tmp_path, GROWS)
     (m,) = md.at_start(spec).modes
     assert m.value == pytest.approx(1.0, rel=1e-6) and m.links[("stock.x", "stock.x")] == pytest.approx(1.0, rel=1e-6)
     assert "λ 1/h (grows, e-folding every 1h): stock.x (its own) ε 1.00; most in stock.x" in explain(spec)
