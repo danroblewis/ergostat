@@ -389,12 +389,13 @@ def stop_suites() -> None:
 
 
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
-          **fmt) -> tuple[int, float]:
+          quarantined: list[str] = (), **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
     shell, as the coordinator does, inside [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is
-    False (the queue: its lock is its slot). The suite's whole process group is killed if this one is stopped."""
+    False (the queue: its lock is its slot); ``quarantined``: deselected from unit and browser. The suite's whole
+    process group is killed if this one is stopped."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
-    cmd = command or deselected(name, cfg["suites"][name].format(**quoted), cwd)
+    cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
     if slot and cfg["suites"].get("slot") and name != "ruff":
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began = time.time()
@@ -450,18 +451,17 @@ def failed_tests(text: str) -> list[str]:
 
 # ---- the quarantine (tests/quarantine.txt): tests deselected from the suites and run beside them, never blocking
 
-def quarantine(tree: Path) -> list[str]:
-    """The tests quarantined in the tree under test: the id before the first `|` of each line of its
-    tests/quarantine.txt (`#` comments). No list, none: every test blocks."""
-    p = tree / "tests" / "quarantine.txt"
-    lines = p.read_text().splitlines() if p.is_file() else []
+def quarantine(repo: Path, ref: str) -> list[str]:
+    """The tests quarantined at ``ref``: the base a run merges onto, never the branch under test, so a branch's own
+    line in tests/quarantine.txt quarantines nothing until it is on main. The id before the first `|` of each line
+    (`#` comments). No list at ``ref``, or a ref that cannot be read: none, and every test blocks."""
+    lines = git(repo, "show", f"{ref}:tests/quarantine.txt", check=False).splitlines()
     return [x.split("|")[0].strip() for x in lines if x.strip() and not x.lstrip().startswith("#")]
 
 
-def deselected(name: str, cmd: str, tree: Path) -> str:
-    """The unit or browser suite's command with each quarantined test deselected (any other suite's as it is)."""
-    return " ".join([cmd, *(f"--deselect {shlex.quote(t)}" for t in quarantine(tree))]) if name in ("unit",
-                                                                                                    "browser") else cmd
+def deselected(name: str, cmd: str, tests: list[str]) -> str:
+    """The unit or browser suite's command with each of ``tests`` deselected (any other suite's as it is)."""
+    return " ".join([cmd, *(f"--deselect {shlex.quote(t)}" for t in tests)]) if name in ("unit", "browser") else cmd
 
 
 OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR) (\S+::\S+)", re.M)
@@ -476,10 +476,16 @@ def outcomes(text: str, tests: list[str]) -> dict[str, str]:
     return {t: said.get(t, "unknown") for t in tests}
 
 
-def beside(tree: Path, log: Path, run) -> dict[str, str]:
-    """The quarantined tests run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each result
-    said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown."""
-    tests = quarantine(tree)
+def beside(tests: list[str], log: Path, run) -> dict[str, str]:
+    """The quarantined ``tests`` run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each
+    result said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown. A
+    flake item still marked quarantined whose test is no longer listed is marked released (`quarantined: false`)."""
+    try:
+        for it in items("flake"):
+            if it["fields"].get("quarantined") and it["fields"].get("test") not in tests:
+                say("flake.measured", it["id"], quarantined=False)
+    except Exception:  # noqa: BLE001 - a record that cannot be read leaves the marks as they were, never the suite
+        pass
     if not tests:
         return {}
     try:

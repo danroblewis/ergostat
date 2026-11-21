@@ -320,11 +320,12 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
     ``tests``: the test ids a suite's `{tests}` names (each shell-quoted)."""
     import resources
     out: dict = {}
+    held = fac.quarantine(fac.path(cfg, "live") / "drop.git", cfg["git"]["base"])    # main's list, not the work's
     for n in names:
         cmd, name = cfg["suites"][n], None
         if tests is not None:
             cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
-        cmd = fac.deselected(n, cmd, home / "work")
+        cmd = fac.deselected(n, cmd, held)
         if cfg["ai"]["mode"] != "standin":
             name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"
@@ -340,7 +341,7 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
     if "unit" in out:                                  # the quarantined tests beside it, never blocking
-        fac.beside(home / "work", logs / f"{tag}-quarantined-alone.txt",
+        fac.beside(held, logs / f"{tag}-quarantined-alone.txt",
                    lambda ts: suites(cfg, home, ("alone",), logs, f"{tag}-quarantined", tests=ts))
     return out
 

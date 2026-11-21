@@ -47,3 +47,27 @@ Round 1: built; nothing of the definition is left. Choices made alone (each the 
   event in the record), and no answer to the parked branch's triage-skip-count finding.
 - **origin/main**: this clone has no `origin/main` ref and no network. The branch is on `main` 24756e50 (its base),
   so no other merge could be made or run.
+
+Round 2: every finding of review/flake-quarantine-min-1 answered; nothing of the definition is left.
+
+- **Blocking: the list is read from main, not the tree under test** (replaces round 1's second choice above).
+  `fac.quarantine(repo, ref)` reads `git show <ref>:tests/quarantine.txt`: the queue's and triage's `pre` (main before
+  the batch's merges; each bisecting run too), and for the implementor the drop's main (`live/drop.git`, the base its
+  work was cloned from). A branch's own line quarantines nothing until it is on main, and a branch that deletes a line
+  releases nothing in its own run. No list at the ref, or a ref that cannot be read, means none: every test blocks
+  (lesson-3, failing closed). Test: `test_a_branch_cannot_quarantine_its_own_failing_test`, where a branch adds its
+  own failing test to the list and the queue still records `gap.queue-failed` naming it. With the queue reading
+  `HEAD` instead of `pre`, that test fails (checked).
+- **Triage, only quarantined tests failed**: no `flake.seen`, and `gap.retried` with `retries: 0` (a sum, so no retry
+  of `RETRIES` is spent). The gap goes back to the queue. The result of the run beside the suite is still recorded.
+  Asserted in `test_a_quarantined_failure_is_recorded`; with `retries=1` restored, that test fails (checked). With
+  main's list this case needs the list to change between a queue run and its triage, so it is rare.
+- **lesson-5, a stale `quarantined: true`**: each run beside a suite first marks `quarantined: false` on every flake
+  item still marked quarantined whose test is not on main's list. If the record cannot be read, the marks stay as
+  they were and the suite goes on. Asserted in the new test; with the release removed, that test fails (checked).
+- **Scope (non-blocking)**: `dev/bin/agents.py` (now 5 lines) and `dev/README.md` stay outside "Files to touch",
+  for round 1's reasons. The README paragraph now says where the list is read from, and that a release is a change
+  to main's list.
+- Not distinguished by a test: the implementor reading the drop's main rather than its work. In the test factory both
+  hold the same list, because the work is cloned from main. Net code outside tests and docs: 74 lines (budget 80).
+- **origin/main**: still no `origin/main` ref and no network here. The branch was last merged with main 31cffd8f.
