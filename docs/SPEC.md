@@ -743,6 +743,7 @@ items:
       relates_to: {kind: ticket, precedence: false}
 messages:
   done: {ticket: [done], epic: [shipped]}   # what each kind counts as finished (else as the item index says)
+  paused: {ticket: [on-hold]}               # states an item waits in, held by hand: not finished, not moving
 ```
 
 | Key | Type | Default | Meaning |
@@ -766,8 +767,11 @@ for:
 - **Each item's status**, derived: *done* (in a state its kind counts as finished, `messages: done:`, else as the
   item index says; never its first state, a state a block takes from, `leased` or `dead`); *active* (leased, or in a
   working state: past its first, not one a block takes from, not finished); *queued* (started, and waiting in a later
-  state a block takes from, such as review); *blocked* (a precedence relation names an item not finished); *ready*
-  (in its first state, nothing it waits on unfinished); *dead* (a dead letter).
+  state a block takes from, such as review); *blocked* (a precedence relation names an item not finished, a paused
+  one too: it is named as what the item waits on); *unblocked* (in its first state, nothing it waits on unfinished;
+  not "ready", which is often a state's name); *paused* (in a state its kind declares paused, `messages: paused:`:
+  not finished, not active, kept out of the critical path, and held where it is by the completion estimates, "paused:
+  continued by hand", with no projected bar); *dead* (a dead letter).
 - **Durations**: each kind's time per state, the median of the stays its latest 2,000 items made in it (`leased`, a
   run's hold, counted as the work it is), weighted by how often a finished item visits the state (a rework state,
   seldom). An item's expected duration is that of its states after its first that are not finished (the wait in
@@ -837,7 +841,13 @@ stand now):
   kind's.
 - **A state a block takes from** is a wait and a run: the item queues at the block in its `takes:` order (the states
   of `at` in order, then by when it came back to the state, so a nack's return goes to the back; with
-  `unblocked: true`, those more items wait on first), at most the block's capacity at once: its `pool`, its agent's
+  `unblocked: true`, those more items wait on first; with `order:`, by its fields before all of these: the
+  dispatcher's comparator for the order fields and the states, so the projection takes them in the order the block
+  will; among equals the dispatcher takes the least slack and the longest path ahead first, the projection those
+  more items wait on, which agree on a chain but may differ between items of unequal durations). An item waiting in a state
+  whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
+  the engine would from the newest readings) is projected not to move: no bar, its reason "waits for B, which is
+  switched off now (by C)", at most the block's capacity at once: its `pool`, its agent's
   `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
   them), and its `workspace:` pool (§12k): a workspace taken at the item's first run of such a block is held by the
   item across every state until it finishes, so a pool of three keeps at most three items between that take and their
@@ -891,7 +901,8 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 
 | View | What it shows |
 |---|---|
-| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; ready: ink; blocked: dashed, with how many it waits on; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status and says when the critical path is expected to end (until the completion estimates are worked out); a click opens the item |
+| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
+`status=` in the address) and says when the critical path is expected to end (until the completion estimates are worked out); a click opens the item |
 | **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the forward pass), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend says when each kind's last open item is done (p50, p90). Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier by default, the finished kept as what happened |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
@@ -2080,7 +2091,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -2097,7 +2108,14 @@ matching `where`, is leased to a new run, oldest first (by when it entered its s
 leases its runs hold are fewer than its `pool`. With `unblocked: true`, an item a precedence relation says waits on
 an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
 slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
-precedence relation. ergostat looks whenever the record has something new,
+precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
+fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
+it), then the states of `at` in order, then the order above (the critical first, or the oldest): `takes: {kind: gap,
+at: ready, unblocked: true, order: rank}` takes the groomed backlog's next unblocked gap, `order: [-priority]` a
+ticket queue's most urgent. The dispatcher and the completion estimates (section 5a) sort by one comparator
+(`leases/ready.py`'s `take_key`: the order fields, then the states of `at`), so the Timeline's projected runs are in
+the order the block will take them; only the critical tiebreak among equals is measured differently (section 5a). `check`
+notes an order field no item in the record holds yet (`takes-order-unset`). ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. A kind taken by a block gains two states, when
 it does not list them: `leased`, after the first `at` state, and `dead`, last.
