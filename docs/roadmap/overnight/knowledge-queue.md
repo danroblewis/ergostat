@@ -31,3 +31,21 @@ Today an approved lesson makes a `gap/knowledge-*` (`dev/bin/lesson.py request`)
 
 ## Size budget
 150 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1: every point of the definition, with the six acceptance tests passing. The net count outside `tests/`
+and `docs/` is 153: 94 lines of Python, 38 of model YAML and 20 of README prose. The code alone is inside the budget,
+and the queue's own core count (which leaves out `dev/` and the root model) is 0. No headless reviewer was there to ask,
+so I took these choices, each the most reversible one:
+- The action keeps its command, `lesson.py request {lesson}`, so an action held from before still runs. It now records
+  `lesson.approved` with the exact text (`entry`) and never makes a gap.
+- The migration runs inside `lesson.py settle` (block lesson-settle, every 10m), idempotent, rather than as a one-off
+  command. A `gap/knowledge-*` in flight (building to queue-failed) is left for a later run, never closed under a
+  running session. Its gap is closed with `end: superseded`.
+- A new lesson from the librarian has no check: its text says the check is "not yet written". The coordinator
+  retires it and `add`s it again with one. Numbers go past the seed's and every applied one's, so a later seed lesson
+  numbered the same would collide. No gap writes the seed any more, so I left that unhandled.
+- lesson-1: the lease (pool 1, fenced) is the lock. The run also reads the item again and applies nothing unless it is
+  still `approved`, which is tested.
+- knowledge-sync no longer sets `flow.lessons-added`; lesson-apply does, since one flow has one actuator.
