@@ -16,9 +16,10 @@
 4. `gap.built`, with its head, net lines, budget, suites, cost and the context it was given.
 
 The kill rule ([gates]): fast suites that fail on `build_failures` runs of it, or building past `build_hours`, park the
-gap with where it stopped. A failure whose every test fails on main too is not counted: the gap waits for main to move
-(`waits_on_main`). Within the day's dollar cap only (fails closed): over it, the gap is given back for an hour,
-uncounted."""
+gap with where it stopped. Each failed run adds one to `build_failures` (summed by the gap kind's fold), over the gap's
+life: a later successful build does not reset it; a continued gap is a new item and starts from none. A failure
+whose every test fails on main too is not counted: the gap waits for main to move (`waits_on_main`). Within the day's
+dollar cap only (fails closed): over it, the gap is given back for an hour, uncounted."""
 
 from __future__ import annotations
 
