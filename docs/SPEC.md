@@ -941,7 +941,10 @@ stand now):
   more items wait on, which agree on a chain but may differ between items of unequal durations). An item waiting in a state
   whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
   the engine would from the newest readings) is projected not to move: no bar, its reason "waits for B, which is
-  switched off now (by C)", at most the block's capacity at once: its `pool`, its agent's
+  switched off now (by C)", at most the block's capacity at once: its pool now (its `pool:` number, or its stock's
+  newest reading at or before the moment estimated, at most its `most`; a pool read as 0 or not read at all is
+  estimated at 1, and each item waiting there says so: "its pool (stock.S) is 0 now: estimated at 1 run at once";
+  the what-if `block.NAME.pool` overrides it), its agent's
   `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
   them), and its `workspace:` pool (§12k): a workspace taken at the item's first run of such a block is held by the
   item across every state until it finishes, so a pool of three keeps at most three items between that take and their
@@ -2214,12 +2217,17 @@ blocks:
     lease: {ttl: 45m, attempts: 2}     # optional: this block's terms
     goal: backlog-short                # optional: it takes items only while its command is on
     run: $ERGOSTAT_CMD session developer --model sonnet
+  reviewer:
+    type: ai
+    takes: {kind: ticket, at: review, to: [done, ready]}
+    pool: {now: stock.reviewers, most: 4}   # as many at once as the stock (measured) reads now, never more than 4
+    run: $ERGOSTAT_CMD session reviewer --model sonnet
 ```
 
 | Key | On | Meaning |
 |---|---|---|
 | `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
-| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped |
+| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
 
@@ -2232,8 +2240,16 @@ changed in the model reaches the next lease.
 **Dispatch.** While nothing commands the block, or what commands it is on (a `goal:` on it gates
 it, as on any machine block), every item of its kind in a state of `at`, not held, not put off, and
 matching `where`, is leased to a new run, oldest first (by when it entered its state), while the
-leases its runs hold are fewer than its `pool`. With `unblocked: true`, an item a precedence relation says waits on
-an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
+leases its runs hold are fewer than its pool now. A pool written `{now: stock.NAME, most: N}` is read at each look,
+with the dispatcher's lock held, in the same hold as the count of the leases and the take: the stock's level as the
+engine last read it (its newest reading, whatever its age; no sensor runs at dispatch), rounded down, at most `N`, and
+0 when it has no reading (also before the engine's first pass has loaded the readings, when it is not said). A raised
+stock starts more runs at the next look, with no reload; a lowered one drains (no new lease until fewer than the pool
+now are held; nothing running is stopped). The lock is this engine's: a lease another engine takes after the count is
+counted at the next look; on the same item the fold refuses the second lease, on another item both stand, as for a
+`pool:` number. The pool's stock is not one of the block's reads, so its `on-stale` (section 9.6) does not watch it.
+`ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says
+waits on an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
 slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
@@ -2297,7 +2313,13 @@ lease that expired is not ended again when its run ends.
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
 to run on, and the item was back in the queue meanwhile): when its lease expires, the engine that started it sends
-SIGTERM to its process group and every process it started (in whatever group or session), and SIGKILL after a grace
+SIGTERM to its process group and every process it started (in whatever group or session; one whose parent has
+exited too, as the run's watch saw it: the run's processes are looked at after each sample of the runs' resource
+sampler, about once a second, so one started and left between two looks is not seen; a pid the watch saw is
+signalled only while its start time is still the one it saw, so a pid used again by another process is left alone
+(start times are read to the second: a pid freed and taken again within the same second as its first start is not
+told apart); the run itself and its group are signalled while it is not yet waited on, even when the processes
+cannot be listed), and SIGKILL after a grace
 (`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records
 `ergostat.run.killed` (about its block; `run`, `item`, `fence`, `why`, `signal`: TERM or KILL, or `cancel` with no
 `pids` for a run a daemon holds, which is sent `cancel` instead: section 9.7, *Cancel*; `pids`, `grace`). The run
@@ -2590,7 +2612,8 @@ it never writes its own environment, and it reaps what it starts before `done`.
 
 A model can be divided into **shards**, each to be run by an engine of its own. The division is worked out from the
 model's graph, never written in it (invariant 8): `ergostat/spec/shards.py`'s `plan(spec, most=16)` reads the compiled
-model and changes nothing. Nothing on the running path uses it yet.
+model and changes nothing. `ergostat run` does not use it yet: it runs one engine for the whole model, and no shard
+runs as a process of its own.
 
 - **Seeds.** Each top-level system (the outermost system a part is within) starts a shard, named after the system,
   lowercased. A name that is not `^[a-z0-9][a-z0-9-]{0,63}$` becomes `s-` and the first 12 hex digits of the system
@@ -2601,11 +2624,14 @@ model and changes nothing. Nothing on the running path uses it yet.
   sensor is in its part's shard, an agent in the shard of the blocks that run on it, a kind in the shard of the
   blocks that take it, else in its system's, else in the lead. `Plan.of(ref)` names a part's shard and raises
   `KeyError` for one not in the model; it has no default. A stock's estimate or uncertainty is in the stock's shard.
+  A daemon (`daemon.NAME`) is in the shard of the blocks and sensors it serves, else in the lead; it is in
+  `Plan.where`, not in a shard's `parts`.
 - **Merges.** Two shards are merged when blocks in each run on the same agent (its `at-once` is counted in one
-  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon. Kinds
-  tied by a join (a parent kind and the kinds whose relation names it) count as one kind here. Nothing else merges
-  shards; in particular, reading a signal across them does not. Each merge is recorded in `Plan.why`: the shard that
-  joined, the rule (`agent`, `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
+  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon (a
+  block's `daemon:` or a sensor's: it is one process, started by one engine). Kinds tied by a join (a parent kind
+  and the kinds whose relation names it) count as one kind here. Nothing else merges shards; in particular, reading a
+  signal across them does not. Each merge is recorded in `Plan.why`: the shard that joined, the rule (`agent`,
+  `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
 - **Wires.** `Plan.wires` lists, sorted, each value a part in one shard reads from a part in another that exists only
   in memory, with the shard it comes from and the one that reads it: a goal's setpoint, error or off (`goal`), a
   block's output read by another block (`cascade`), a block's output to a goal's setpoint (`setpoint`) or to a block,
@@ -2618,6 +2644,23 @@ model and changes nothing. Nothing on the running path uses it yet.
 - **Ceiling.** `most` is clipped to 1 to 16. While there are more shards than that, the two smallest (counted in
   parts, ties broken by name) are merged (`ceiling`). With `most` 1 there is one shard, the lead, with every part.
 - **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
+- **An engine of one shard.** `Engine(project, shard=NAME)` works only on what `Plan.of` puts in that shard; with
+  `shard=None` (what `ergostat run` uses) it works on everything, as before. A name the plan does not have is a
+  `ValueError` when the engine is made. Its own are: the built-ins, the machine blocks and the goals a pass works out;
+  the clock's timed sensors, sensor crons, timed and cron blocks and judges, and the item-count sensors read when the
+  record moves; the blocks the dispatcher takes items for and the kinds whose leases it watches; the blocks an event
+  starts and the kinds whose joins move a parent; the daemons `Supervisor.sync` starts, with the sensors they serve;
+  and the stocks the observer estimates. A pass reads the newest measurements of its own stocks, flows and auxiliaries
+  and of those in other shards its parts read (a goal's part, a block's inputs, an equation's references, an estimated
+  stock's flows), and no others; an estimate read from another shard is a wire and is not carried yet. The shards of
+  one plan divide each of these between them: none twice, none left out. The plan is worked out once per model, so
+  whatever reads a model reads that model's plan. `swap` works out the new model's plan under the engine's lock; a
+  plan without the engine's shard is refused, and the last model keeps running. A part that moved to another shard
+  leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
+  readings, estimate and observer track, and its daemon (drained). Not yet by shard: the owner's asks (approvals,
+  stops, restarts, step tests, actions) are followed by every engine as before; a run a block's moving a flow asks
+  for reads that flow's stocks' sensors wherever they are; the lead's one-time duties (the start event, the
+  messages' sweep) are done by each; and an agent's `at-once` is counted in each engine.
 
 ## 10. Agents
 
@@ -3021,7 +3064,7 @@ slowest time constant the replay met, within a twentieth and a quarter of the wi
 
   | The block | Its identified model | Identified from |
   |---|---|---|
-  | takes items (`takes:`, §9.5) | *servers*, a multi-server queue: success × min(waiting, servers) / the time a server is held (a run's median time; its lease's TTL for an attempt that expired) | its runs' times, the share that ended well, the expiries; its pool and lease terms |
+  | takes items (`takes:`, §9.5) | *servers*, a multi-server queue: success × min(waiting, servers) / the time a server is held (a run's median time; its lease's TTL for an attempt that expired) | its runs' times, the share that ended well, the expiries; its pool now (at the end of the record: 1 when its stock reads 0 or nothing, said in its basis) and lease terms |
   | moves a flow with an equation | the equation, while commanded, at most its servers over their time | the model; its runs for the cap |
   | reads the goal on the stock it fills (a dispatcher reading its work-in-progress limit) | *fill*: at most the 95th percentile of its rate, never past that goal's setpoint, a run every `every` | the flow's record while commanded |
   | drains a stock | *drain*: min(the 95th percentile of its rate, waiting / residence time) while commanded | the residence time (time in system) by Little's law over the buckets it was commanded, mean level over mean outflow |
@@ -3917,7 +3960,22 @@ block of the template, answer them, the cheapest first:
   is its settled cost, or its whole reservation until settled (a run killed mid-call), dated by its reservation; a
   ledger that cannot be read means no call. A run the cap stops leaves its requests as they were (no try counted), and
   the status line says `the AI tier has spent $X of its $Y today` once a call was refused for the cap that day or the
-  spend is within the latest reservation of it. The lock covers the AI tier's own calls only, not the redesigner's or
+  spend is within the latest reservation of it. **A failed call** (`modeller.call`: it timed out, exited non-zero,
+  said `is_error`, or said no cost that is a finite number of dollars, 0 or more) is an `error` with what it said
+  (its result, or its standard error), charged its reservation, or what it said if more. The AI tier does not try again
+  in that run; when its first call fails, its requests keep their tries and state, are charged their share, and say the
+  error (`why`, `error`), so the next run gives them to it again, within the cap. When only its second (go-back) call
+  fails, its first answer was a real one, so the requests it did not answer use their try as before, held saying the
+  second call failed. Failed calls are counted apart from tries (`failed`) and bounded, since some fail the same way
+  every time (a prompt too long): a request that failed before is never in a call with others. While any request with
+  no failed call waits, the call takes only those; after that, the one that failed least goes alone in its call. After
+  `modeller.FAILS` (3) failed calls a request is held for the owner, saying the error. They are failed calls in a
+  row: a first call that answers sets the count back to 0, and so does the owner's approval (with its `error`
+  cleared), so an approved request is called again; raised again after a dismissal, it starts with none. The reviewer counts no failed
+  call toward its tries and stops its pass there; the changes that failed least are read first, and one with
+  `FAILS` failed calls is `undecided`, the owner's. A redesigner run whose calls failed ends `error` (with the
+  error), not `nothing proposed`; its request stays open saying so, and the unit takes no rest for it until `FAILS`
+  runs in a row have failed, when it rests as after a run that made nothing. The lock covers the AI tier's own calls only, not the redesigner's or
   repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
@@ -4763,6 +4821,7 @@ actions:
     wait: 15m                      # how long the session waits for the owner before going on (default 5m)
     timeout: 2m                    # how long it may run (default 2m)
     # fenced: false                # run once approved even after a later lease took the item (default true)
+    risk: {severity: 3, threshold: 8}   # one step stricter when this act is riskier than its class (below)
 blocks:
   developer:
     type: ai
@@ -4794,11 +4853,50 @@ where, and the block, run, session and work item), and then by its gate:
   input, with the actions still held. Each result given is `.delivered` (how: `session` or `context`). An action runs
   once: the first to take its lock runs it.
 
+**Act-risk.** An action may declare `risk: {severity: S, threshold: T}` (`ergostat/actions/risk.py`, plain
+arithmetic). Each request for it is then scored, and its gate moves one step stricter when the score reaches T:
+
+    act_risk = S × (1 + 4c) × (1 + n)        step  ⇔  act_risk ≥ T
+
+A step goes from `auto` to `approve` (held for the owner) or from `approve` to `deny`, never the other way; `deny`
+stays `deny`. An action without `risk:` is gated by its `gate:` alone. `S` is a whole number from 1 to 5 (not `true`);
+`T` a number above 1 and at most 50 (not NaN or infinite), default 8. Anything else is `bad-value`, said where it was
+written. Scores run from 1 to 50, and T is absolute, not a multiple of S, so severity alone can change the outcome.
+
+- `c` is the asking block's contradicted share of its checked claims over the last week (as
+  `ergostat.trust.contradicted` counts them). Each case where it cannot be read counts as the worst, c = 1, its reason
+  recorded: `claims record unreadable`, `no asking block`, `no claims on record`, `claims made, none checked`. A share
+  that is not a finite number counts as 1; any other is held to [0, 1]. A request that names no block (one the owner
+  makes) always has c = 1, so an owner's own `auto` request with S ≥ 2 is held for that owner: intended, since no
+  record vouches for it.
+- `n` is novelty: 0 only when the record holds another action of the same name that reached `ran` (exit 0) within the
+  last 90 days, else 1. One that only `failed` does not count; neither does an unreadable record (`action record
+  unreadable`, n = 1). It is keyed by the action's name: an action whose command was changed under the same name
+  counts as known, so "novel" never means "this command never ran".
+- The staleness of the state the act was planned on is **not** part of the score.
+
+The score is worked out before `requested` is written and recorded on it, `risk: {score, severity, threshold, c,
+c_why, n, n_why, gate}`, `gate` being the stepped gate, which then decides as `gate:` does. A stepped gate says so in
+its denied or held note ("act-risk 12 ≥ 8: its gate auto stepped to approve"), and the session is told it.
+
+**At the act**, for every action, inside its run lock, after the fence check and before the command starts, the
+model is read again (an in-memory model with no file: the one given). Unreadable, the action is **held again**: a
+`requested` event with `held_by: act-risk`, its note, and `approved_by` cleared, written before the lock this run
+took (`<short id>.run`) is removed by its name, so a sweep finds it held and the owner's later approval runs it.
+Gone from the model, it is `denied` by `gate`. Otherwise its gate and `risk:` as they are now are scored on the
+record as it is now, and the **effective gate** is the stricter of that and the request's stepped gate (the first
+`requested`'s `risk.gate`, which a re-hold never replaces; its `gate` without `risk:`): `deny` is denied, even when
+the owner approved it; `approve` runs if a person approved it and is held again if only `gate` did; `auto` runs. The
+act's reading is recorded on the event that ends it (`ran`, `failed`, `denied` or the re-held `requested`) as
+`risk_at_act`. So a gate is never looser than its `gate:`, at the request and at the act. A claim verdict, or the
+owner's edit, recorded between the request and the act is seen at the act; one recorded after the act's re-check, in
+the moment before the command starts, is not.
+
 Actions are counted by class: `ergostat actions` lists them and, per class, how many were held, approved by the
 owner, let through by the gate (auto), denied, ran and failed this week; a class the owner has approved five times or
 more and never denied is said to be ready for `gate: auto`. **Promoting** a class is the owner's edit to the model
-(`gate: auto`), never ergostat's, and takes effect at the next request: the refactor path (invariant 5) from a person
-approving to a rule.
+(`gate: auto`), never ergostat's, and takes effect at the next request; a gate made stricter takes effect at the act
+too, for what was approved before it (above): the refactor path (invariant 5) from a person approving to a rule.
 
 | Measure | What it is |
 |---|---|
