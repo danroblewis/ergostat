@@ -29,7 +29,7 @@ stocks:
   knowledge-entries:
     system: knowledge
     unit: entries
-    description: the entries of dev/knowledge/ (house rules, review lessons, decisions) the briefs carry, in the running version
+    description: the entries of dev/knowledge/ in the running version, each of a declared kind (component, rule, lesson, finding, question, source); the owner's decisions are ergostat.decision items, not entries
     sensor: {items: knowledge, state: active, every: 1m}
   plan-reviews:
     system: knowledge
@@ -419,7 +419,7 @@ blocks:
   knowledge-sync:
     type: program
     system: knowledge
-    description: the collector - each entry of the running version's dev/knowledge/ an item (knowledge.found, .changed, .retired), with how many briefs carried it
+    description: the collector - each entry of the running version's dev/knowledge/ an item (knowledge.found, .changed, .retired), with how many briefs carried it; each decision of decisions.md whose ergostat.decision is in no state proposed; a file it cannot read stops it with nothing recorded
     run: python3 dev/bin/knowledge.py sync
     every: 10m
     timeout: 2m
