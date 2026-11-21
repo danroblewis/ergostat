@@ -1862,17 +1862,24 @@ def test_refused_tool_calls_are_recorded_on_the_session(tmp_path, monkeypatch, c
     cfg = {"paths": {"run": str(tmp_path / "run"), "live": str(tmp_path / "live")},
            "ai": {"mode": "container", "implementor_model": "opus", "implementor_session_usd": 5.0}}
     fake = type(sys)("agents")
-    fake.token = lambda cfg: "tok"
+    tok = "s3cr3t-" + "x" * 200                                                  # (longer than a summary's cut)
+    fake.token = lambda cfg: tok
     answers = [{"permission_denials": [{"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": "rm x.py"}},
                                        {"tool_name": "Bash", "tool_input": {"command": "uv run python scripts/a.py"}}]},
                {},                                                              # a result with no denials field
-               {"permission_denials": []}]
-    fake.session = lambda cfg, role, brief, work, keep=None: {
-        "type": "result", "subtype": "success", "is_error": False, "result": "Done", "total_cost_usd": 0.1,
-        "num_turns": 1, **answers.pop(0)}
+               {"permission_denials": []},
+               {"permission_denials": [{"tool_name": "Bash", "tool_input": {"command": f"curl -H 'X: {tok}' h"}},
+                                       {"tool_name": "Edit", "tool_input": {"old_string": "a" * 120 + tok}},   # (cut at 160)
+                                       f"odd {tok}"]}]
+
+    def session(cfg, role, brief, work, keep=None):
+        keep.copy.tok = tok                                                      # (as agents.session does)
+        return {"type": "result", "subtype": "success", "is_error": False, "result": "Done", "total_cost_usd": 0.1,
+                "num_turns": 1, **answers.pop(0)}
+    fake.session = session
     monkeypatch.setitem(sys.modules, "agents", fake)
     lines = []
-    for _ in range(3):
+    for _ in range(4):
         fac.session(cfg, "implementor", "brief", tmp_path)
         lines.append([json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith('{"event"')])
     end = [next(x["data"] for x in got if x["event"] == "session.ended") for got in lines]
@@ -1882,6 +1889,10 @@ def test_refused_tool_calls_are_recorded_on_the_session(tmp_path, monkeypatch, c
     assert end[1]["tool_denials_unknown"] == 1 and "tool_denials" not in end[1]          # unknown, never 0
     assert on_gap[1] == [("gap/alpha-thing", {"tool_denials_unknown": 1})]
     assert end[2]["tool_denials"] == 0 and end[2]["denied"] == [] and on_gap[2] == []  # none: nothing more on the gap
+    assert end[3]["tool_denials"] == 3 and end[3]["denied"][0] == "Bash: curl -H 'X: [token]' h"
+    said = json.dumps(lines[3])                                                  # the token, nor a prefix of it, kept
+    assert "s3cr3t" not in said and all("[token]" in d for d in end[3]["denied"]), end[3]["denied"]
+    lines.pop()                                                                  # (the folds below count the first three)
 
     (tmp_path / "f").mkdir()
     f = Factory(tmp_path / "f")                                                  # the gap and sessions, by the model's folds

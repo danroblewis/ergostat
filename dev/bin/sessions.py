@@ -72,7 +72,7 @@ class Session:
                "seconds": round(time.time() - self.began), "lines": self.copy.lines,
                "truncated": self.copy.cut, "subtype": (out or {}).get("subtype"),
                **({"resources": out["resources"]} if (out or {}).get("resources") else {})}   # (its container's CPU, memory)
-        denied = denials(out)
+        denied = denials(out, self.copy.tok)
         refused = {"tool_denials": len(denied), "denied": denied} if denied is not None else {"tool_denials_unknown": 1}
         rec.update(refused)
         bad = error or not out or out.get("is_error")
@@ -157,13 +157,15 @@ def scrub(text: str, tok: str) -> str:
     return text.replace(tok, "[token]") if tok else text
 
 
-def denials(out: dict | None) -> list[str] | None:
+def denials(out: dict | None, tok: str = "") -> list[str] | None:
     """The tool calls Claude Code refused (its result's ``permission_denials``), each as its tool and what it was
-    given; None when the result has no such list (no result, or an older Claude Code): unknown, never none."""
+    given, the token scrubbed before it is cut; None when the result has no such list (no result, or an older Claude
+    Code): unknown, never none."""
     got = (out or {}).get("permission_denials")
     if not isinstance(got, list):
         return None
-    return [f"{d.get('tool_name')}: {summary(d.get('tool_input'))}" if isinstance(d, dict) else str(d)[:160] for d in got]
+    return [scrub(f"{d.get('tool_name')}: {summary(d.get('tool_input'), tok)}" if isinstance(d, dict) else
+                  scrub(str(d), tok)[:160], tok) for d in got]
 
 
 def standin(s: Session, brief: str, out: dict) -> None:
@@ -196,12 +198,12 @@ def find(cfg: dict, item: str, role: str | None = None, n: int | None = None) ->
     return sorted(got, key=lambda p: (p.stat().st_mtime, p.name))
 
 
-def summary(inp) -> str:
+def summary(inp, tok: str = "") -> str:
     if not isinstance(inp, dict):
-        return str(inp)[:160]
+        return scrub(str(inp), tok)[:160]
     head = next((inp[k] for k in ("command", "file_path", "pattern", "path", "url", "query", "description") if inp.get(k)),
                 None)
-    return " ".join(str(head if head is not None else json.dumps(inp, default=str)).split())[:160]
+    return " ".join(scrub(str(head if head is not None else json.dumps(inp, default=str)), tok).split())[:160]
 
 
 def readable(path: Path, most: int = 600) -> str:
