@@ -67,3 +67,10 @@ Round 1, built. One thing is not run here: the first real use, the 30 loaded run
 - **Not run here.** The real 30 loaded `-n 8 tests/test_leases.py` runs, and any real load (the definition asks for
   stand-ins only). Neither the unit suite nor the browser files were run in parallel: the factory runs those. This
   clone has no origin remote, and local `main` has nothing the branch lacks, so there was nothing to merge in.
+- **After the fast suites (round 1).** The factory's `unit` run ended at 66% with no failing test named and no
+  closing line from the watchdog. That looks like the run or its container was killed, not like a failing test. The
+  five tests of tests/test_factory_measure_runs.py pass alone (5 passed, 90 s). Reading the code found one defect, in
+  `runs.loaded`: after the SIGTERM wait reaped the load's leader, the code still sent SIGKILL to that group id, which
+  could by then belong to another process (lesson-6). It is fixed: SIGKILL now goes only to a group whose leader is
+  still unreaped. I could not show that this defect caused the cut-off, because the watched parallel run of the new
+  file was refused here. The factory's next unit run is the check.
