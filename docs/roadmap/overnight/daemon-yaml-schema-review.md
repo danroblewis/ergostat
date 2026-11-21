@@ -194,3 +194,13 @@ Built, round 1. Nothing is left in the definition except the suites, which the f
   Either is a real shutdown race in the engine, and it needs a gap of its own with a test that holds `finish` back
   until after `close`. As in the first run, this session refused shell commands, so I could not run the test alone,
   and I could not commit this note. It is in the working tree, left for the factory to commit.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:12).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 5: ack
+- attempt 6: nack exited 1
+- attempt 7: nack exited 1
+- attempt 8: nack exited 1
