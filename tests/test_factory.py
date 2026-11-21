@@ -826,7 +826,7 @@ def test_a_merge_again_whose_count_fails_keeps_no_old_count(tmp_path):
     add_lines(f, {"dev/bin/extra.py": 40})
     f.run("review.py", gid)
     f.run("queue.py", gid)
-    f.fold([{"event": "gap.measured", "item": gid, "data": {"size": "S", "size_confidence": "high"}}], None)
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"planned_size": "S", "size_confidence": "high"}}], None)
     assert f.item(gid)["fields"]["merged_lines"] == 40
     assert merge_again(f, gid, {"dev/bin/extra.py": 5}, BOOM)[:2] == ["gap.queued", "gap.merged"]
     gap = f.item(gid)["fields"]

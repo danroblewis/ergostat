@@ -321,12 +321,16 @@ def test_planned_gap_records_size_and_confidence(tmp_path):
     gid = f.opened()
     assert f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: M (confidence: low)"))[0] == [
         "gap.planned"]
-    assert {k: f.item(gid)["fields"][k] for k in ("size", "size_confidence")} == {"size": "M", "size_confidence": "low"}
+    assert {k: f.item(gid)["fields"][k] for k in ("size", "planned_size", "size_confidence")} == {
+        "size": "M", "planned_size": "M", "size_confidence": "low"}
     split = sized("beta-one", "size: XL (confidence: high)") + sized("beta-two", "`size: S (confidence: medium)`")
     assert f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=split)[0][-1] == "gap.split"
     one, two = f.item("gap/beta-one")["fields"], f.item("gap/beta-two")["fields"]
-    assert (one["size"], one["size_confidence"], two["size"], two["size_confidence"]) == ("XL", "high", "S", "medium")
-    assert f.item("gap/delta")["fields"].get("size") is None             # the split parent merges nothing: no size
+    assert (one["planned_size"], one["size_confidence"], two["planned_size"], two["size_confidence"]) == (
+        "XL", "high", "S", "medium")
+    assert (one["size"], two["size"]) == ("XL", "S")
+    parent = f.item("gap/delta")["fields"]                                # the split parent merges nothing: no size
+    assert parent.get("size") is None and parent.get("planned_size") is None
 
 
 @pytest.mark.parametrize("line", ["", "size: XXL (confidence: high)", "size: M (confidence: sure)"])
@@ -356,7 +360,7 @@ def test_replan_replaces_size(tmp_path):
     f.fold([{"event": "gap.measured", "item": gid, "data": {"merged_lines": 40}}], None)   # an earlier merge's count
     said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=sized("alpha-thing", "size: L (confidence: low)"))
     g = f.item(gid)["fields"]
-    assert said == ["gap.planned"] and (g["size"], g["size_confidence"]) == ("L", "low")
+    assert said == ["gap.planned"] and (g["size"], g["planned_size"], g["size_confidence"]) == ("L", "L", "low")
     assert g["merged_lines"] is None                                      # never scored on the old branch's lines
 
 
@@ -375,12 +379,14 @@ def size_measure(f: Instance, name: str) -> subprocess.CompletedProcess:
 def test_size_accuracy_counts_hits_over_measured(tmp_path):
     f = Instance(tmp_path)
     now = time.time()
-    merged_gap(f, "gap/s", now - DAY, size="S", size_confidence="high", merged_lines=40)       # a hit
-    merged_gap(f, "gap/m", now - DAY, size="M", size_confidence="low", merged_lines=300)       # a miss
-    merged_gap(f, "gap/xl", now - DAY, size="XL", size_confidence="medium", merged_lines=900)  # a hit
-    merged_gap(f, "gap/l", now - DAY, size="L", size_confidence="high")                        # no count: left out
-    merged_gap(f, "gap/old", now - 20 * DAY, size="S", size_confidence="high", merged_lines=999)  # outside the window
-    merged_gap(f, "gap/groomed", now - DAY, size="S", merged_lines=999)  # the groomer's size: no confidence
+    merged_gap(f, "gap/s", now - DAY, planned_size="S", size_confidence="high", merged_lines=40)       # a hit
+    merged_gap(f, "gap/m", now - DAY, planned_size="M", size_confidence="low", merged_lines=300)       # a miss
+    merged_gap(f, "gap/xl", now - DAY, planned_size="XL", size_confidence="medium", merged_lines=900)  # a hit
+    merged_gap(f, "gap/l", now - DAY, planned_size="L", size_confidence="high")                        # no count: left out
+    merged_gap(f, "gap/old", now - 20 * DAY, planned_size="S", size_confidence="high", merged_lines=999)  # outside the window
+    merged_gap(f, "gap/groomed", now - DAY, size="S", size_confidence="high", merged_lines=40)  # no planned_size
+    # the groomer regrades `size` on its own scale: the planner's planned_size is still what is scored
+    f.fold([{"event": "gap.groomed", "item": "gap/s", "data": {"size": "L"}}], None)
     r = size_measure(f, "size-accuracy")
     assert r.returncode == 0 and r.stdout.strip() == "0.667"
     assert "gap/l" in r.stderr and "gap/s" not in r.stderr
@@ -399,14 +405,14 @@ def test_size_accuracy_high_only_and_no_value(tmp_path):
     for name in ("size-accuracy", "size-accuracy-high"):            # nothing measurable at all
         r = size_measure(f, name)
         assert r.returncode == 1 and "no value yet" in r.stderr
-    merged_gap(f, "gap/low", now - DAY, size="S", size_confidence="low", merged_lines=10)
-    merged_gap(f, "gap/high-unmeasured", now - DAY, size="M", size_confidence="high", merged_lines=None,
+    merged_gap(f, "gap/low", now - DAY, planned_size="S", size_confidence="low", merged_lines=10)
+    merged_gap(f, "gap/high-unmeasured", now - DAY, planned_size="M", size_confidence="high", merged_lines=None,
                merged_lines_error="git diff failed")
     assert size_measure(f, "size-accuracy").stdout.strip() == "1.0"
     r = size_measure(f, "size-accuracy-high")                        # low ones measurable, no high one: no value
     assert r.returncode == 1 and "no value yet" in r.stderr and "gap/high-unmeasured" in r.stderr
-    merged_gap(f, "gap/high", now - DAY, size="S", size_confidence="high", merged_lines=200)
-    merged_gap(f, "gap/medium", now - DAY, size="L", size_confidence="medium", merged_lines=200)
+    merged_gap(f, "gap/high", now - DAY, planned_size="S", size_confidence="high", merged_lines=200)
+    merged_gap(f, "gap/medium", now - DAY, planned_size="L", size_confidence="medium", merged_lines=200)
     assert size_measure(f, "size-accuracy-high").stdout.strip() == "0.0"    # only the high one, a miss
     assert size_measure(f, "size-accuracy").stdout.strip() == "0.667"
 
