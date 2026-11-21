@@ -176,7 +176,7 @@ def test_purpose_quotes_must_be_the_owner_s_words(proj):
     assert _req(proj, "goal-off-purpose", "goal.shallow")["state"] == "held"
 
 
-def test_a_failed_answer_reviews_nothing_and_answers_nothing(proj):
+def test_a_failed_answer_reviews_nothing_and_answers_nothing(proj, monkeypatch):
     spec = proj.model.spec
     _answer(proj, missing=("S4",))
     vr.review(proj, spec, "ops")
@@ -196,6 +196,16 @@ def test_a_failed_answer_reviews_nothing_and_answers_nothing(proj):
     assert [e["data"]["cost"] for e in bad] == ["charged", "reported", "charged"]
     assert "no readable answer" in bad[0]["data"]["why"] and "is_error" in bad[1]["data"]["why"]
     assert "exit 3" in bad[2]["data"]["why"] and len(_events(proj)) == 1
+    (proj.fake / "rc").write_text("0")
+    _answer(proj, raw=json.dumps({"functions": [{"s": ["S4"], "present": True, "parts": ["stock.queue"]},
+                                                {"s": {}, "present": True}]}))
+    r = vr.review(proj, spec, "ops")                  # an unhashable `s` is dropped, never a traceback
+    assert r["reviewed"] and r["dropped"] == 2 and r["present"] == [] and _req(proj, "vsm-s4")["state"] == "held"
+    monkeypatch.setattr(vr, "checked", lambda *a: 1 / 0)
+    _answer(proj, cost=0.02)
+    r = vr.review(proj, spec, "ops")                  # an answer that cannot be checked is unreviewed at its cost
+    assert not r["reviewed"] and "ZeroDivisionError" in r["why"] and r["cost_usd"] == 0.02
+    assert _events(proj, vr.UNREVIEWED)[-1]["data"]["cost_usd"] == 0.02 and _req(proj, "vsm-s4")["state"] == "held"
 
 
 def test_only_kept_evidence_answers_a_request(proj, tmp_path):

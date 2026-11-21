@@ -174,3 +174,16 @@ first review's. Lesson-9, broken by hand and seen to fail: `_latest` keyed on `a
 (`assert (True is False)` on `applied`), and the re-read inside the lock replaced by the seq read before the call
 (same failure). Both breaks were reverted. The factory has since merged main (`d33212e6`), and the clone has no
 `origin` branch other than its local `main`. Only the test changed in this round, so the net lines are still 509.
+
+Round 3. The review's one finding: an answer entry with an unhashable `s` (`["S1"]`, `{}`) raised TypeError in
+`checked()`, after the paid call and outside `review()`'s try. Nothing was recorded, the cost was lost, and the CLI
+printed a traceback. Fixed in two places. `checked()` drops an entry whose `s` is not a string (counted in
+`dropped`). Reading and checking the answer now run inside a try, so anything else they raise is recorded as
+`unreviewed` with the call's cost and changes no request. `test_a_failed_answer_reviews_nothing_and_answers_nothing`
+gains both cases: an answer whose only entries have `s: ["S4"]` and `s: {}` is reviewed with `dropped: 2`, nothing
+present and the held `vsm-s4` still held. With `checked` monkeypatched to raise, the review is unreviewed at its
+reported cost (0.02) and `vsm-s4` stays held. Lesson-9, broken by hand and seen to fail: the `isinstance(s, str)`
+check removed (the try then records it as unreviewed, so the `reviewed` assertion fails), and the try narrowed to
+`KeyError` (the ZeroDivisionError escapes). Both breaks were reverted. Net lines outside `tests/` and `docs/`: 512
+of 550. A correction to round 1's count: `tests/test_vsm_review.py` has 14 tests in all, and
+`test_only_kept_evidence_answers_a_request` is one of them.

@@ -115,7 +115,7 @@ def checked(spec: Spec, system: str, d: dict) -> dict:
     fns, unsupported, dropped = {}, [], 0
     for e in d.get("functions") or []:
         s = e.get("s") if isinstance(e, dict) else None
-        if s not in CODES or s in fns or s in unsupported or not isinstance(e.get("present"), bool):
+        if not isinstance(s, str) or s not in CODES or s in fns or s in unsupported or not isinstance(e.get("present"), bool):
             dropped += 1
             continue
         why = str(e.get("why") or "")[:500]
@@ -183,14 +183,17 @@ def review(p, spec: Spec, system: str, model: str = "haiku", cap: float = PER_CA
     ok = isinstance(c, int | float) and not isinstance(c, bool) and math.isfinite(c) and c >= 0
     cost = {"cost_usd": round(float(c), 6) if ok else cap, "cost": "reported" if ok else "charged",
             "tokens": spent.tokens_in + spent.tokens_out}
-    d = _answer(text) if not why else None
+    try:                                         # an answer that cannot be read is unreviewed, at its cost
+        d = _answer(text) if not why else None
+        got = checked(spec, system, d) if d is not None else None
+    except Exception as e:
+        d, why = None, why or f"unreadable answer: {type(e).__name__}: {e}"[:300]
     why = why or seen.get("error") or (f"exit {seen['rc']}" if seen.get("rc") else None) or \
         ("is_error: " + "; ".join(spent.notes)[:300] if seen.get("is_error") else None) or \
         (None if d is not None else "no readable answer line")
     if why:
         p.events.add(UNREVIEWED, item=p.model.name, source="architecture", data={**stamp, **cost, "why": why})
         return {"system": system, "reviewed": False, "why": why, **cost}
-    got = checked(spec, system, d)
     from . import proposals as pr
     with pr.locked(p, "architecture"):          # read again inside: a review recorded since wins
         now = _latest(p, system)
