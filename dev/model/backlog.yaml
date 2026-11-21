@@ -1,0 +1,51 @@
+# The backlog groomed (docs/roadmap/overnight/backlog.md; the owner, 2026-11-20: "we currently don't have a gap task
+# queue that is ordered or orderable in the way that a backlog of tickets should be groomed and prioritized"). Each
+# gap has a rank, and the planner and the implementor take the unblocked in rank order (takes: order: rank). The
+# groomer (an AI session) proposes links, value, size and risk, closes and splits; the solver (dev/bin/solve.py) ranks;
+# the coordinator approves the whole as one gated action. dev/bin/backlog.py is the coordinator's by hand.
+defaults:
+  system: intake
+
+auxiliaries:
+  grooming-open:
+    unit: switch
+    exogenous: true
+    description: 1 while the coordinator lets the groomer propose a groomed backlog, 0 (or never read) while it is paused
+    sensor: {manual: true}
+
+flows:
+  gaps-closed:
+    from: gaps-open
+    description: gaps groomed out of the backlog - done on main already (GAPS.md, or the groomer), or a duplicate
+    sensor: {items: gap, entering: closed, over: 1d}
+
+actions:
+  groom-backlog:
+    run: python3 dev/bin/backlog.py apply {proposal}
+    in: .
+    gate: approve
+    class: backlog
+    args: {proposal: the proposal's file (run/backlog/), summary: its diff in one line - the whole beside it in a .md}
+    timeout: 5m
+    description: The groomer's proposal - links added and removed, value, size and risk, rank changes, closes and splits - the coordinator approves
+
+blocks:
+  groom-when:
+    type: expr
+    description: groom while grooming is open and the day's AI money is not spent (the groomer itself waits for new gaps, its period or an answer)
+    in:
+      open: auxiliary.grooming-open
+      over: goal.ai-budget.off
+    expr: min(open, 1) * (1 - over)
+    out: block.groomer
+  groomer:
+    type: ai
+    agent: opus
+    description: a session in a read-only clone of main over the open gaps - dependencies, value, size and risk, closes and splits - then the solver's order, asked as groom-backlog
+    run: python3 dev/bin/backlog.py groom
+    prompt: dev/prompts/groomer.md
+    every: 30m
+    timeout: 1h
+    actions: [groom-backlog]
+    in: block.groom-when
+    out: flow.gaps-closed

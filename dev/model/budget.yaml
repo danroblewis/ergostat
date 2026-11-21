@@ -16,7 +16,7 @@ auxiliaries:
 goals:
   ai-budget:
     auxiliary: ai-spend
-    hold: "<= 300"
+    hold: "<= 3000"
     tolerance: 0
     on-stale: "off"                    # a spend not read is counted as over: the gates close
-    description: the factory's AI sessions (the implementor, the reviewer, the planner, the pipeline manager...) spend at most $300 a day (change it here)
+    description: the factory's AI sessions (the implementor, the reviewer, the planner, the pipeline manager...) spend at most $3000 a day (change it here)

@@ -1,14 +1,17 @@
 """The factory's knowledge in its briefs (dev/knowledge/README.md), put together by priority within a size budget
-([knowledge] in dev/factory.toml): the house rules and the review lessons always; then, as they fit, the decisions whose
-areas the gap's text names, related gaps, past review findings on the files it touches, and the module map of main.
-Each brief records the ids it carried and dropped, so the model can relate what a brief carried to how its gap did.
+([knowledge] in dev/factory.toml): the house rules and the review lessons always; then, as they fit, the owner's
+decisions (ergostat.decision items, confirmed or proposed) whose scope the gap's text names, related gaps, past review
+findings on the files it touches, and the module map of main. Each brief records the ids it carried and dropped, so
+the model can relate what a brief carried to how its gap did.
 
     knowledge.py count | map     how many entries | the module map (cached by main's sha in run/modules/)
-    knowledge.py sync            the collector: each entry an item knowledge/<id> (knowledge.found, .changed, .retired)"""
+    knowledge.py sync            the collector: each entry an item knowledge/<id> (knowledge.found, .changed, .retired),
+                                 and each decision of decisions.md not yet an item proposed (ergostat.decision.proposed)"""
 
 from __future__ import annotations
 
 import ast
+import hashlib
 import io
 import json
 import re
@@ -21,10 +24,10 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
-PATTERNS = {"house-rules": (r"^\*\*(\w+).*?\*\*\n(.*?)(?=^\*\*|\Z)", "rules"),
-            "review-lessons": (r"^## (\d+)\. (.+?)\n(.*?)(?=^## |\Z)", "lesson"),
-            "decisions": (r"^- \*\*(.+?)\*\*(.*?)(?=^- |\Z)", "decision")}
-KINDS = {"rules": "rule", "lesson": "lesson", "decision": "decision"}
+KINDS = ("component", "rule", "lesson", "finding", "question", "source")   # the allowlist of a file's `kind:`
+DECISION = "ergostat.decision"       # the one other kind, and only decisions.md's: read as the owner's decisions
+STOP = set("a an the and or but of to in on for with at by from is are be it this that we i you our my as so "
+           "not no do does don't dont never always should must".split())      # ergostat.decisions.kinds.STOP
 FILES = re.compile(r"\b((?:ergostat|dev|scripts|tests|docs|examples)/[\w./-]+\.(?:py|md|yaml|toml|sh))\b")
 MORE = {"implementor": ("decisions", "related", "findings", "modules"),   # beyond the rules and the lessons, in order
         "reviewer": ("decisions", "findings", "related", "modules"), "planner": ("decisions", "related", "findings",
@@ -33,18 +36,92 @@ HEADS = {"decisions": "The owner's decisions this gap touches", "related": "Rela
          "findings on the files this gap touches", "modules": "The module map (main; the packages it touches in full)"}
 
 
-def entries() -> list[dict]:
-    """Every entry of dev/knowledge/: {id (rules-process, lesson-3, decision-<slug>), title, kind (rule, lesson,
-    decision), file, text, areas}."""
+class Refused(ValueError):
+    """A knowledge file that cannot be read as it must be, or decisions that cannot all be read: the collector
+    records nothing and a brief is not built (lesson-3: never read as "no entries" or "no decisions")."""
+
+
+def read(path: Path) -> tuple[str, str]:
+    """(its declared kind, the text after its front matter). Its kind must be one of KINDS, or, for decisions.md and
+    only there, ergostat.decision; anything else, or no front matter, is refused."""
+    text = path.read_text()
+    m = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    kind = re.search(r"^kind:[ \t]*(\S+)[ \t]*$", m[1], re.M) if m else None
+    allowed = (DECISION,) if path.name == "decisions.md" else KINDS
+    if not kind or kind[1] not in allowed:
+        raise Refused(f"{path.name}: kind {kind[1] if kind else '(none: no front matter kind:)'}, not one of "
+                      f"{', '.join(allowed)}")
+    return kind[1], text[m.end():]
+
+
+def sections(path: Path) -> list[tuple[str, str, str, list[str]]]:
+    """The file's kind, and its entries: each `## ` heading with its body, and its closing *Areas:* list."""
+    kind, body = read(path)
     out = []
-    for stem, (rx, kind) in PATTERNS.items():
-        for m in re.finditer(rx, (fac.HERE / "knowledge" / f"{stem}.md").read_text().split("\n---\n", 1)[-1], re.M | re.S):
-            areas = re.search(r"\*Areas:\s+(.+?)\.\*", m[0], re.S)
-            out.append({"id": f"{kind}-{m[1].lower() if kind != 'decision' else fac.slug(m[1], 32)}", "text": m[0].strip(),
-                        "title": m[2] if kind == "lesson" else m[1], "kind": KINDS[kind],
-                        "file": f"dev/knowledge/{stem}.md",
-                        "areas": [a.strip() for a in " ".join(areas[1].split()).split(",")] if areas else []})
+    for m in re.finditer(r"^## (.+?)\n(.*?)(?=^## |\Z)", body, re.M | re.S):
+        areas = re.search(r"\*Areas:\s+(.+?)\.\*", m[2], re.S)
+        out.append((kind, m[1].strip(), m[0].strip(), [a.strip() for a in " ".join(areas[1].split()).split(",")]
+                    if areas else []))
     return out
+
+
+def entries() -> list[dict]:
+    """Every entry of dev/knowledge/ but decisions.md: {id (rules-process, lesson-3, <kind>-<slug of its heading>),
+    title, kind (the file's), file, text, areas}. Refused: a file whose kind is missing or not allowed, a lesson not
+    headed `## N. Title`, two entries with one id."""
+    out, ids = [], set()
+    for p in sorted(p for p in (fac.HERE / "knowledge").glob("*.md") if p.name not in ("README.md", "decisions.md")):
+        for kind, head, text, areas in sections(p):
+            n = re.fullmatch(r"(\d+)\. (.+)", head) if kind == "lesson" else None
+            if kind == "lesson" and not n:
+                raise Refused(f"{p.name}: a lesson is headed ## N. Title, not {head!r}")
+            first = re.match(r"\w*", head)[0].lower()                  # the house rules keep their ids
+            eid = f"lesson-{n[1]}" if n else f"rules-{first}" if kind == "rule" else f"{kind}-{fac.slug(head, 32)}"
+            if eid in ids or eid.endswith("-"):
+                raise Refused(f"{p.name}: {head!r} gives the id {eid!r}, empty or already another entry's")
+            ids.add(eid)
+            out.append({"id": eid, "text": text, "title": n[2] if n else head, "kind": kind,
+                        "file": f"dev/knowledge/{p.name}", "areas": areas})
+    return out
+
+
+def decision_id(text: str) -> str:
+    """ergostat's own id of a decision (ergostat.decisions.kinds.item_id): the same sentence, the same item."""
+    ws = re.findall(r"[a-z0-9]+", text.lower())
+    tail = "-".join([w for w in ws if w not in STOP][:6] or ["untitled"])[:48].strip("-")
+    return f"{DECISION}/{tail}-{hashlib.sha1(' '.join(ws).encode()).hexdigest()[:4]}"
+
+
+def decisions() -> dict[str, dict]:
+    """decisions.md as proposals, by ergostat.decision id: its heading the decision, its body the owner's words, its
+    *Areas* the scope. Refused like entries(), and two headings of one id too."""
+    out = {}
+    for _, head, text, areas in sections(fac.HERE / "knowledge" / "decisions.md"):
+        iid = decision_id(head)
+        if iid in out:
+            raise Refused(f"decisions.md: {head!r} is the same decision as {out[iid]['decision']!r}")
+        words = " ".join(re.sub(r"\*Areas:.*?\.\*", "", text.split("\n", 1)[-1], flags=re.S).split())
+        out[iid] = {"decision": head, "scope": areas, "proposed_by": "knowledge-sync",
+                    "words": [{"text": words or head, "file": "dev/knowledge/decisions.md"}]}
+    return out
+
+
+def held() -> list[dict]:
+    """Every ergostat.decision item, in any state. A failed lookup raises, and one that did not give them all is
+    refused: never taken as "none"."""
+    got = json.loads(fac.ergostat("item", "--kind", DECISION, "--json").stdout)
+    if got["total"] != len(got["items"]):
+        raise Refused(f"the record gave {len(got['items'])} of {got['total']} {DECISION} items")
+    return got["items"]
+
+
+def shown(d: dict) -> str:
+    """A decision item in a brief: the decision, the owner's first words, its scope and id; a proposed one marked."""
+    f = d["fields"]
+    words = str(((f.get("words") or [{}])[0]).get("text") or "")
+    return (f"- **{f.get('decision')}**" + (" (proposed: not yet confirmed by the owner)" if d["state"] == "proposed"
+                                            else "") + (f" {words}" if words != f.get("decision") else "")
+            + f" *Areas: {', '.join(f.get('scope') or [])}.* ({d['id']})")
 
 
 def first_line(src: str) -> str:
@@ -126,16 +203,18 @@ def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
     budget, es = int(k.get(f"{role}_chars") or k.get("chars") or 24000), entries()
     touched = sorted(set(FILES.findall(text)))
     words = set(re.findall(r"[a-z]+", f"{text} {gap['fields'].get('title', '')}".lower()))
-    rules = [e for e in es if e["id"].startswith("rules-") and role != "plan_reviewer"]
-    lessons = [e for e in es if e["id"].startswith("lesson-")]
-    parts = ["## The house rules\n\n" + "\n".join(e["text"] for e in rules)] if rules else []
+    rules = [e for e in es if e["kind"] == "rule" and role != "plan_reviewer"]
+    lessons = [e for e in es if e["kind"] == "lesson"]
+    parts = ["## The house rules\n\n" + "\n".join(e["text"].replace("## ", "**", 1).replace("\n", "**\n", 1)
+                                                  for e in rules)] if rules else []
     parts.append("## What reviews keep finding (the review lessons, by id)\n\n" + "\n\n".join(
         e["text"].replace(f"## {e['id'][7:]}.", f"### {e['id']}:", 1) for e in lessons))
     ids, dropped, used = [e["id"] for e in rules + lessons], [], sum(map(len, parts))
     for name in MORE.get(role, ()):
         if name == "decisions":
-            got = [(e["id"], e["text"]) for e in es if e["id"].startswith("decision-")
-                   and any(a in words or a + "s" in words for a in e["areas"])]
+            ds = sorted((d for d in held() if d["state"] in ("confirmed", "proposed") and any(
+                a in words or a + "s" in words for a in d["fields"].get("scope") or [])), key=lambda d: d["state"])
+            got = [(d["id"], shown(d)) for d in ds]                      # the confirmed first
         elif name == "modules":
             sha, mods = module_map(cfg)
             got = [(f"modules@{sha[:12]}", render_map(mods, touched, budget - used - 80))] if budget - used > 500 \
@@ -172,43 +251,48 @@ def carried() -> dict[str, int]:
     return out
 
 
-def sync() -> tuple[int, int, int]:
+def sync() -> tuple[int, ...]:
     """The collector: each entry of the running version's dev/knowledge/ as an item knowledge/<id>. A new entry (or one
     back after it was retired) is knowledge.found, one whose fields differ from its item's is knowledge.changed with
     only those fields, and an active item no file holds any more is knowledge.retired; nothing else is said, so a
-    second run says nothing. (found, changed, retired)"""
+    second run says nothing. Each decision of decisions.md whose ergostat.decision id is in no state (never proposed,
+    so never dismissed or superseded either) is proposed (ergostat.decision.proposed). All or nothing: everything is
+    read first, and a file refused or decisions not read raise before a line is printed. Two overlapping runs that
+    both propose one decision record it once: ergostat records the proposal under its own event id, checked inside
+    the record's write lock, and adds words only when they differ (acts.propose). (found, changed, retired, proposed)"""
+    es, ds, have = entries(), decisions(), {d["id"] for d in held()}
     known, counts, now = {i["id"]: i for i in fac.items("knowledge")}, carried(), time.time()
-    found = changed = retired = 0
-    seen = set()
-    for e in entries():
+    said: list[tuple[str, str, dict]] = []
+    for e in es:
         iid = f"knowledge/{e['id']}"
-        seen.add(iid)
         want = {"title": e["title"], "kind": e["kind"], "file": e["file"], "text": short(e["text"]),
                 "carried": counts.get(e["id"], 0), **({"areas": e["areas"]} if e["areas"] else {})}
         it = known.get(iid)
         if it is None or it["state"] != "active":
-            fac.say("knowledge.found", iid, **want, found_at=now)
-            found += 1
+            said.append(("knowledge.found", iid, {**want, "found_at": now}))
             continue
-        have = it["fields"]
-        diff = {k: v for k, v in want.items() if have.get(k) != v}
-        if have.get("areas") and not e["areas"]:
+        diff = {k: v for k, v in want.items() if it["fields"].get(k) != v}
+        if it["fields"].get("areas") and not e["areas"]:
             diff["areas"] = []
         if diff:
-            fac.say("knowledge.changed", iid, **diff, changed_at=now)
-            changed += 1
-    for iid, it in known.items():
-        if it["state"] == "active" and iid not in seen:
-            fac.say("knowledge.retired", iid, retired_at=now)
-            retired += 1
-    return found, changed, retired
+            said.append(("knowledge.changed", iid, {**diff, "changed_at": now}))
+    held_ids = {f"knowledge/{e['id']}" for e in es}
+    said += [("knowledge.retired", iid, {"retired_at": now}) for iid, it in known.items()
+             if it["state"] == "active" and iid not in held_ids]
+    said += [(f"{DECISION}.proposed", iid, d) for iid, d in ds.items() if iid not in have]
+    for event, iid, data in said:
+        fac.say(event, iid, **data)
+    return tuple(sum(e.endswith(x) for e, _, _ in said) for x in (".found", ".changed", ".retired", ".proposed"))
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["count"]:
         print(len(entries()))
     elif sys.argv[1:] == ["sync"]:
-        print("knowledge: {} found, {} changed, {} retired".format(*sync()), file=sys.stderr)
+        try:
+            print("knowledge: {} found, {} changed, {} retired, {} decisions proposed".format(*sync()), file=sys.stderr)
+        except Refused as e:
+            raise SystemExit(f"knowledge: refused, nothing recorded: {e}") from None
     elif sys.argv[1:] == ["map"]:
         print(render_map(module_map(fac.config())[1], [], 10**9))
     else:
