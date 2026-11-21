@@ -593,6 +593,58 @@ def test_a_snapshot_draws_the_graph_and_timeline(browser, tmp_path):
     pg.close()
 
 
+SNAP_IDS = """() => [...document.querySelectorAll('.page table td:first-child')].map((t) => t.textContent.trim())
+  .filter((t) => t.startsWith('ticket/'))"""
+
+
+def snapshot_page(browser, tmp_path):
+    from ergostat.web.snapshot import build
+    from tests.test_snapshot_sets import sets_project
+    (tmp_path / "m").mkdir(exist_ok=True)
+    f = tmp_path / "snapshot.html"
+    f.write_text(build(sets_project(tmp_path / "m")))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f.as_uri() + "#/diagram?view=dynamics")
+    pg.wait_for_function("() => S.graph && document.querySelectorAll('.node').length > 0", timeout=60000)
+    return pg, errors
+
+
+def test_a_snapshot_lists_a_parts_items_and_opens_its_set(browser, tmp_path):
+    """From the file (snapshot_sets.py): the stock's panel (where area is flags or billing: two values) and the flow's
+    list their items, and each one's Items page link shows those very items; nothing says "not in this snapshot"."""
+    pg, errors = snapshot_page(browser, tmp_path)
+    for node, ids in (("n.label === 'awaiting' && n.kind === 'stock'", ["ticket/2", "ticket/4"]),
+                      ("(n.flow || n.label) === 'completed' && n.kind !== 'stock'", ["ticket/1", "ticket/3"])):
+        pg.goto(pg.url.split("#")[0] + "#/diagram?view=dynamics")
+        pg.wait_for_function("() => S.graph && document.querySelectorAll('.node').length > 0", timeout=60000)
+        pg.evaluate(f"() => openNode(S.graph.nodes.find((n) => {node}))")
+        pg.wait_for_selector("#detail .item-set table.item-list")
+        listed = pg.locator("#detail .item-set table.item-list a").all_inner_texts()
+        assert sorted(listed) == ids, (node, listed)
+        assert "not in this snapshot" not in pg.locator("#detail").inner_text()
+        pg.locator("#detail .item-set a[href^='#/items?']").first.click()
+        pg.wait_for_selector(".set-chip", timeout=20000)
+        pg.wait_for_function(f"() => ({SNAP_IDS})().length >= {len(ids)}", timeout=20000)
+        assert sorted(pg.evaluate(SNAP_IDS)) == ids
+        assert "not in this snapshot" not in pg.locator(".page").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_set_left_out_of_a_snapshot_says_so(browser, tmp_path, monkeypatch):
+    """A set past the maximum is not held: its panel says so, as before, and nothing breaks."""
+    from ergostat.web import snapshot_sets
+    monkeypatch.setattr(snapshot_sets, "MOST", 0)
+    pg, errors = snapshot_page(browser, tmp_path)
+    pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.label === 'awaiting' && n.kind === 'stock'))")
+    pg.wait_for_function("() => /not in this snapshot/.test(document.querySelector('#detail .item-set')?.textContent || '')",
+                         timeout=20000)
+    assert not errors, errors
+    pg.close()
+
+
 # ---- a report upstream's page (SPEC §12m): the text to paste, a Copy button, the link to a new issue, the scrub log
 
 def seed_report(d: Path, home: Path) -> str:

@@ -122,6 +122,9 @@ def test_each_process_map_set_is_held(p):
             assert k in data, k
             assert data[k] == live_answer(p, q), k
             assert data[k]["total"] >= 1, k
+    ids = lambda w: sorted(i["id"] for i in data[snap_key({**w, **span})]["items"])   # noqa: E731
+    assert ids(next(w for w in want if "caused" in w)) == ["ticket/1", "ticket/2"]          # caused by the epic's start
+    assert ids({"kind": "ticket", "through": "awaiting"}) == [f"ticket/{i}" for i in range(1, 7)]
 
 
 def test_the_sets_held_stop_at_the_maximum(p, monkeypatch):

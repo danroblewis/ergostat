@@ -47,3 +47,39 @@ For each test, the report says which break was made to the code and that the tes
 - Browser coverage: DoD 3 names a flow's panel and a process node's panel, but only a stock and a line get a browser test. Add a node (and a flow) to one of the browser tests, or explain why the Python key tests are enough for them.
 - Left-out set: add one test that a set dropped for BadSet, or past the maximum, still shows 'not in this snapshot' and does not cause a page error, as DoD 4 promises.
 - Size budget: 120 net lines for the code, a new test file with three tests, two browser tests and three docs looks tight. If it runs over, say so in the report rather than cutting the tests.
+
+## Where it stopped
+
+Round 1. Built: `ergostat/web/snapshot_sets.py` (new, 75 lines) and two lines in `snapshot.py`, 77 net lines out
+of the 120 budgeted. The docs (SPEC §5a, GAPS, cli-rounds) and the tests are written. **Not run: the three browser
+tests**, because this container has no Playwright and `uv run --with playwright==1.63.0` was refused. They are
+`tests/test_items_page.py::test_a_snapshot_lists_a_parts_items_and_opens_its_set`,
+`::test_a_set_left_out_of_a_snapshot_says_so` and
+`tests/test_diagram_rendering.py::test_a_snapshot_lists_a_process_lines_items`. No break was made against them
+either. Still to do: run them with the browser suite, and make their lesson-9 breaks (e.g. `MOST = 0` must fail
+the first and the third). The unit suite and `origin/main` were not run or merged here: this clone has no `origin`,
+and its local `main` is the branch's own base.
+
+Answers to the plan review:
+- **Duplicates**: a set is keyed by the page's key of its Items request. It is held once and counted once against
+  the maximum. The ceiling test's model has two stocks with the same sensor (`awaiting`, `awaiting-too`), plus each
+  stock's sensor part, so a double count fails it. Shown by a break: with dedup removed, it fails.
+- **Fixed order** (named in the module's docstring and in SPEC): parts as `_requests` asks them (the tables'
+  order). Then each held map's nodes as the map answer lists them, maps in request order. Then all the maps' lines
+  together by count, most first; a stable sort keeps equal counts in the order the maps list them. The ceiling
+  test takes the map's first node as the third set.
+- **Fail-open**: only `BadSet` drops a set. Any other exception, or an answer of None, stops the build
+  (`test_a_set_that_is_not_one_is_left_out_and_any_other_failure_stops_the_snapshot`; broken by catching
+  `Exception`, it fails).
+- **Browser coverage**: the parts test opens a stock and a flow, a disturbance in this model. The process test
+  opens a node, a caused line and a follows line, then follows the follows line's link.
+- **Left-out set**: `test_a_set_left_out_of_a_snapshot_says_so` (browser, `MOST = 0`), and in Python the `BadSet`
+  half of the fail-open test.
+- **Size**: within budget.
+
+Choices made alone (the most reversible): the set's key joins a list with commas, as JavaScript's `String` does.
+`snapshot.key` is not changed; `snapshot_sets.flat` does the join. Times are written as `pmStamp` writes them,
+truncated to the second. A `BadSet` set still counts against the 400. The leased-items link in a flow's panel is
+not held: the DoD names only `items.set`, and GAPS lists it as left. Lesson-9 note: a related line's set is its
+first end's node set, which is always held, so swapping its end passes `test_each_process_map_set_is_held`. The
+breaks that make that test fail are a skipped `caused` line and times written `+00:00`.

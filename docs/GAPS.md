@@ -112,6 +112,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **A kind chosen in a snapshot** (open; found on `relations-as-of`): a snapshot holds the Items page's list with no
   kind chosen only (`items`, not `items?kind=K`), so choosing a kind in it says "not in this snapshot", and the
   Graph of one kind it holds (`items-graph?kinds=K`) is not reached from the page.
+- **A set chosen in a snapshot** (partly done on `a-set-chosen-in-a-snapshot`; found on `a-kind-chosen-in-a-snapshot`):
+  a set's parameters are free (any field, any span), so they cannot all be taken ahead. A snapshot now holds the sets
+  its panels link to: each part's side-panel set and each process map node's and line's, as the panel lists it and
+  as the Items page shows it, up to 400 sets (SPEC §5a). *Left*: a set typed into the address by hand; the process
+  map's other `by` (states or events, whichever the map was not drawn by); the leased items a flow's panel links to;
+  item pages past the 40 held. And: a kind with more than 500 items is held as its first 500, and the page's "All N"
+  link then shows the same 300 (a kind's own list, held by *A kind chosen in a snapshot*, which is not on main).
 - **Resource levelling and completion estimates** (done, on `eta`; SPEC §5a, *Completion estimates*): the
   projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
   block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
