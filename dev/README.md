@@ -306,6 +306,21 @@ If you deny the push, the queue undoes that merge (`git reset --keep`) and sends
 **The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
 its pages drew nothing); the first failure in that order is the one reported.
 
+**The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
+triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
+queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a branch that adds
+its own failing test to the list is still red in the queue, and its line takes effect only once it is on main. (The
+implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch that adds the list,
+or a line to it, is not held up on its own machine by a test it quarantines; the queue still runs it.) After each unit run
+(and each triage rerun) the quarantined tests run once more, with `-rA` (the queue and implementor: `[suites] alone`;
+triage: `rerun`), never blocking. Each result is said on `flake/<test>` (`flake.measured`: `quarantined`, `last_run`,
+`last_run_log`), read from that run's whole log: `pass` only on the test's own PASSED line with no FAILED or ERROR
+line, `fail` on either, `unknown` otherwise (skipped, not collected, a run that never started or left no log). A
+skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
+released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
+sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
+a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.
+
 **Batches.** The queue merges up to `batch` approved gaps onto main in turn (in rank order) and runs the suites once.
 The batch is 1 to start (`[pools] batch = 1`: one gap a run, the queue as it always was). A green batch asks for one
 push, of its last merge, so one approval lands the batch, and a denial sends every gap of it back. A red batch is

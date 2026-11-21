@@ -729,6 +729,112 @@ def test_no_reruns_past_the_building_hours(tmp_path):
     assert len(runs(tmp_path)) == 1 and "no building hours" in f.item(gid)["fields"]["suites_fast"]["not_checked"]
 
 
+def quarantined(tmp: Path, says: str, rc: int = 0, on_main: bool = True) -> Factory:
+    """A factory whose main quarantines T (``on_main``; else main has no list and T fails only where a
+    tests/quarantine.txt is in the tree): the unit suite fails T unless it is deselected, and the run of the
+    quarantined tests (`alone`, and triage's `rerun`) prints ``says`` and exits ``rc``."""
+    unit, alone = tmp / "unit.sh", tmp / "alone.sh"
+    guard = "" if on_main else '[ -f tests/quarantine.txt ] || { echo "1 passed"; exit 0; }\n'
+    unit.write_text(f'#!/bin/sh\necho "unit $*" >> {tmp}/runs.log\n{guard}case "$*" in *"--deselect {T}"*) echo'
+                    f' "1 passed"; exit 0;; esac\necho "FAILED {T} - boom"; exit 1\n')
+    (tmp / "alone.out").write_text(says)
+    alone.write_text(f'#!/bin/sh\necho "alone $*" >> {tmp}/runs.log\ncat {tmp}/alone.out\nexit {rc}\n')
+    for sh in (unit, alone):
+        sh.chmod(0o755)
+    f = Factory(tmp, unit=str(unit), alone=str(alone))
+    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"', f'rerun = "{alone} {{tests}}"'))
+    if not on_main:
+        return f
+    (f.checkout / "tests").mkdir()
+    (f.checkout / "tests" / "quarantine.txt").write_text(f"# test | who | when | why\n{T} | t | 2026-11-21 | flaky\n")
+    git(f.checkout, "add", "tests")
+    git(f.checkout, "commit", "-q", "-m", "quarantine T")
+    git(f.checkout, "push", "-q", "origin", "main")
+    return f
+
+
+def last_runs(lines: list[dict]) -> list[str]:
+    return [x["data"]["last_run"] for x in lines if x.get("event") == "flake.measured" and "last_run" in x["data"]]
+
+
+def test_a_quarantined_test_does_not_block_the_queue(tmp_path):
+    f = quarantined(tmp_path, f"FAILED {T} - boom\n", rc=1)            # T fails every run
+    gid = ready(f)
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "flake.measured", "gap.built"]
+    f.run("review.py", gid)
+    said, lines = f.run("queue.py", gid)
+    assert said == ["gap.queued", "flake.measured", "gap.merged", "gap.push-asked"] and last_runs(lines) == ["fail"]
+    unit = [r for r in runs(tmp_path) if r.startswith("unit ")]
+    assert len(unit) == 2 and all(r.endswith(f"--deselect {T}") for r in unit)     # deselected from both suites
+    assert [r for r in runs(tmp_path) if r.startswith("alone ")] == [f"alone {T} -rA"] * 2   # run beside each
+
+
+def test_a_skipped_quarantined_test_is_not_a_pass(tmp_path, monkeypatch):
+    f = quarantined(tmp_path, f"SKIPPED [1] {T.split('::')[0]}:3: no port\n1 skipped\n")    # exits 0
+    gid = ready(f)
+    said, lines = f.run("implement.py", gid)
+    assert "gap.built" in said and last_runs(lines) == ["unknown"]
+    flake = f.item("flake/tests-test-x-py-test-y")["fields"]
+    assert flake["last_run"] == "unknown" and flake["quarantined"] is True
+    fac = fac_module(tmp_path, monkeypatch)
+    assert fac.outcomes(f"PASSED {T}\n", [T]) == {T: "pass"}                        # (what a pass looks like)
+    assert fac.outcomes(f"PASSED {T}\nERROR {T} - teardown\n", [T]) == {T: "fail"}  # passed, then errored
+    assert fac.outcomes("", [T]) == {T: "unknown"}                                  # an empty log
+    def gone(_):
+        raise FileNotFoundError("no suite")
+    assert fac.quarantine(f.checkout, "main") == [T] and fac.quarantine(f.checkout, "nowhere") == []
+    assert fac.beside([T], tmp_path / "never.txt", gone) == {T: "unknown"}          # a run that never ran
+
+
+def test_a_quarantined_failure_is_recorded(tmp_path):
+    f = quarantined(tmp_path, f"FAILED {T} - boom\n", rc=1)
+    gid = ready(f)
+    said, lines = f.run("implement.py", gid)
+    flake = f.item("flake/tests-test-x-py-test-y")["fields"]
+    assert last_runs(lines) == ["fail"] and flake["last_run"] == "fail" and flake["test"] == T
+    assert f"FAILED {T}" in Path(flake["last_run_log"]).read_text()                 # read from the run's whole log
+    f.run("review.py", gid)
+    git(f.checkout, "fetch", "-q", str(tmp_path / "live" / "drop.git"), "factory/alpha-thing")  # (as the queue does)
+    pre = git(f.checkout, "rev-parse", "main")                                      # a queue failure naming T (a run
+    f.fold([{"event": "gap.queue-failed", "item": gid, "data": {"failed_suite": "unit", "failed_tests": [T],  # from
+                                                                 "pre": pre}}], None)                # before the list)
+    said, lines = f.run("triage.py", gid)
+    assert said == ["flake.measured", "gap.retried"] and last_runs(lines) == ["fail"]   # no flake seen for it,
+    assert f.item(gid)["state"] == "approved" and not f.item(gid)["fields"].get("retries")   # and no retry spent
+    assert [r for r in runs(tmp_path) if r.startswith("alone ")][-1] == f"alone {T} -rA"   # never rerun as blocking
+
+
+def test_a_branch_cannot_quarantine_its_own_failing_test(tmp_path):
+    f = quarantined(tmp_path, f"PASSED {T}\n", on_main=False)          # main lists nothing; T fails beside a list
+    f.fold([{"event": "flake.measured", "item": "flake/old", "data": {"test": "tests/old.py::test_z",  # released by
+                                                                       "quarantined": True}}], None)   # hand on main
+    gid = ready(f)
+    f.run("implement.py", gid)
+    assert f.item("flake/old")["fields"]["quarantined"] is False                  # no longer listed: released
+    work = tmp_path / "home" / "work"                                               # the branch quarantines T itself
+    git(tmp_path, "clone", "-q", "-b", "factory/alpha-thing", str(tmp_path / "live" / "drop.git"), str(work))
+    (work / "tests").mkdir()
+    (work / "tests" / "quarantine.txt").write_text(f"{T} | me | 2026-11-21 | in my way\n")
+    git(work, "add", "tests")
+    git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "quarantine my test")
+    git(work, "push", "-q", "origin", "factory/alpha-thing")
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"head": git(work, "rev-parse", "HEAD")}}], None)
+    f.run("review.py", gid)
+    assert f.item(gid)["fields"]["reviewed_head"] == git(work, "rev-parse", "HEAD")
+    said, _ = f.run("queue.py", gid)
+    assert said[:2] == ["gap.queued", "gap.queue-failed"] and f.item(gid)["fields"]["failed_tests"] == [T]  # red
+    unit = [r for r in runs(tmp_path) if r.startswith("unit ")]
+    assert "--deselect" not in unit[-1] and not [r for r in runs(tmp_path) if r.startswith("alone ")]
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, agents; from pathlib import Path; "
+            "h = Path(sys.argv[2]); print(json.dumps(agents.suites(fac.config(), h, ('unit',), h, 'own')))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(work.parent)], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert json.loads(r.stdout.strip().splitlines()[-1])["unit"]["rc"] == 0       # the implementor's own run: held
+    assert f"--deselect {T}" in runs(tmp_path)[-1] and not runs(tmp_path)[-1].startswith("alone ")   # back, unrun
+
+
 def test_upgrades_follow_the_pushed_main(tmp_path):
     f = Factory(tmp_path)
     said, lines = f.run("upgrade.py", argv=["watch"])
