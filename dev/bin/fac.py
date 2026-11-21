@@ -258,6 +258,32 @@ def budget_of(definition: str, default: int = 600) -> int:
     return int(nums[0].replace(",", "")) if nums else default
 
 
+def allowances(definition: str) -> dict[str, str]:
+    """The definition's `allows-findings: [code part: why, ...]`: each `ergostat check` finding it allows ("code part",
+    or the code alone for one about no part), with its reason (no comma in it); one with no reason allows nothing."""
+    m = re.search(r"^allows-findings:\s*\[(.*)\]\s*$", definition, re.M)
+    return {f"{c} {p}" if p else c: why.strip() for c, p, why in re.findall(
+        r"([\w.-]+)(?: ([^\s:,\]]+))?:([^,\]]*)", m[1] if m else "") if why.strip()}
+
+
+RECORD_FINDINGS = r"calibration-.*|fit-.*|takes-order-unset"   # (codes of findings of the record, not the change)
+UNFINISHED = {"extremes-running", "extremes-skipped"}   # notes: check's extreme-conditions tests did not all finish
+
+
+def findings(text: str, record: str) -> set[str] | None:
+    """The findings in `ergostat check --json`'s output (in a log), each "code part" (the code alone about no part), but
+    those whose code matches the regex `record`; None when no output there says (the check could not run)."""
+    for m in re.finditer(r"^\{", text, re.M):
+        try:
+            got = json.JSONDecoder().raw_decode(text[m.start():])[0]
+        except ValueError:
+            continue
+        if isinstance(got, dict) and isinstance(got.get("found"), list):
+            keys = [(str(x.get("code") or x.get("level")), x.get("about")) for x in got["found"] if isinstance(x, dict)]
+            return {f"{c} {a}" if a else c for c, a in keys if not re.fullmatch(record, c)}
+    return None
+
+
 # ---- the daily cap, which fails closed
 
 CAP = re.compile(r"^\s*ai-budget:\s*$.*?^\s*hold:\s*\"<=\s*([\d.]+)\"", re.M | re.S)
@@ -390,12 +416,13 @@ def stop_suites() -> None:
 
 
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
-          **fmt) -> tuple[int, float]:
+          quarantined: list[str] = (), **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
     shell, as the coordinator does, inside [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is
-    False (the queue: its lock is its slot). The suite's whole process group is killed if this one is stopped."""
+    False (the queue: its lock is its slot); ``quarantined``: deselected from unit and browser. The suite's whole
+    process group is killed if this one is stopped."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
-    cmd = command or cfg["suites"][name].format(**quoted)
+    cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
     if slot and cfg["suites"].get("slot") and name != "ruff":
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began = time.time()
@@ -447,6 +474,57 @@ FAILED = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.M)
 
 def failed_tests(text: str) -> list[str]:
     return sorted(set(FAILED.findall(text)))
+
+
+# ---- the quarantine (tests/quarantine.txt): tests deselected from the suites and run beside them, never blocking
+
+def quarantine(repo: Path, ref: str) -> list[str]:
+    """The tests quarantined at ``ref``: the base a run merges onto, never the branch under test, so a branch's own
+    line in tests/quarantine.txt quarantines nothing until it is on main. The id before the first `|` of each line
+    (`#` comments). No list at ``ref``, or a ref that cannot be read: none, and every test blocks."""
+    lines = git(repo, "show", f"{ref}:tests/quarantine.txt", check=False).splitlines()
+    return [x.split("|")[0].strip() for x in lines if x.strip() and not x.lstrip().startswith("#")]
+
+
+def deselected(name: str, cmd: str, tests: list[str]) -> str:
+    """The unit or browser suite's command with each of ``tests`` deselected (any other suite's as it is)."""
+    return " ".join([cmd, *(f"--deselect {shlex.quote(t)}" for t in tests)]) if name in ("unit", "browser") else cmd
+
+
+OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR) (\S+::\S+)", re.M)
+
+
+def outcomes(text: str, tests: list[str]) -> dict[str, str]:
+    """Each test's result from the whole log of a `-rA` run: pass only on its own PASSED line and no FAILED or ERROR
+    one; fail on either; anything else (skipped, not collected, a run killed or unreadable) unknown, never a pass."""
+    said: dict[str, str] = {}
+    for word, t in OUTCOME.findall(text):
+        said[t] = "fail" if word != "PASSED" or said.get(t) == "fail" else "pass"
+    return {t: said.get(t, "unknown") for t in tests}
+
+
+def beside(tests: list[str], log: Path, run) -> dict[str, str]:
+    """The quarantined ``tests`` run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each
+    result said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown. A
+    flake item still marked quarantined whose test is no longer listed is marked released (`quarantined: false`)."""
+    try:
+        for it in items("flake"):
+            if it["fields"].get("quarantined") and it["fields"].get("test") not in tests:
+                say("flake.measured", it["id"], quarantined=False)
+    except Exception:  # noqa: BLE001 - a record that cannot be read leaves the marks as they were, never the suite
+        pass
+    if not tests:
+        return {}
+    try:
+        run([*tests, "-rA"])
+        text = log.read_text()
+    except Exception as e:  # noqa: BLE001 - the quarantine never fails the suite it runs beside
+        text = f"not run: {type(e).__name__}: {e}"
+    got = outcomes(text, tests)
+    for t, r in got.items():
+        say("flake.measured", f"flake/{slug(t, 80)}", test=t, quarantined=True, last_run=r, last_run_at=time.time(),
+            last_run_log=str(log))
+    return got
 
 
 # ---- an AI session
@@ -532,9 +610,10 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
         with note.open("a") as f:
             f.write(f"worked by the stand-in ({len(brief)} characters of brief)\n")
         said = f"wrote {note.relative_to(cwd)}"
+        refused = re.search(r"^# (Scratch files refused|New `ergostat check` findings)", brief, re.M)
         for p in filter(None, os.environ.get("FACTORY_STANDIN_WRITES", "").split(",")):   # (the tests' scratch files:
-            if "# Scratch files refused" in brief:                                       # removed once refused)
-                git(cwd, "rm", "-q", "--", p)
+            if refused and (refused[1][0] == "S" or f"`{Path(p).name.replace('@', ' ')}`" in brief):   # removed once
+                git(cwd, "rm", "-q", "--", p)                    # refused; a check finding's, once the brief lists it)
             else:
                 (cwd / p).parent.mkdir(parents=True, exist_ok=True)
                 (cwd / p).write_text("a scratch file\n")
