@@ -2316,8 +2316,9 @@ decision and the write. Each trip `(state, goal)` has a current **spell**, read 
   sensor was never read, its clock starts at the trip's `ergostat.operating.watching` event (about `goal.<name>`,
   data `{state}`), written once by the first look that finds a sensor never read, and its spell is
   `unread:<sensor>:never`. The engine's start time is never used, so a restart neither resets nor restarts the
-  clock, and time asleep counts. A sensor added to a part later and never read starts from that trip's first
-  watching event, so it may trip at once.
+  clock, and time asleep counts. A sensor added to a part later and never read starts from that trip's watching
+  event if one was written earlier, so it may trip at once; if every sensor had been read until then, the first
+  look that finds it unread writes the watching event, and its clock starts there.
 
 The events of `ergostat.operating.*` (entries, leaves, watching) are never rolled up into a snapshot nor forgotten
 past `keep` (§4b), so a spell the owner left stays answered and a watching clock is never restarted, however old.

@@ -227,3 +227,33 @@ the budget. Tests run this round, one file at a time: `test_operating.py` (33 in
 full unit suite and the four browser files (the factory runs them under the watchdog). No demo is touched, so
 `demo_check` is not needed. A stray empty file, `docs/roadmap/overnight/operating-states.md.tail`, was created by
 mistake in this round and is untracked. It is not committed, and it can be deleted.
+
+Round 4 (the fix round for round 3's review). Each finding, and what changed:
+
+1. **The stray `operating-states.md.tail`** (blocking). The round 3 note above was wrong: commit 4f9f2f9d ("work
+   the session left uncommitted") committed it. I could not delete it: this session's environment refused `git rm`
+   and `rm` on it, and I did not try other ways around that refusal. It is still in the branch, one line ('x'), and
+   nothing reads it. The coordinator should delete it (`git rm docs/roadmap/overnight/operating-states.md.tail`)
+   or drop it in the recut below.
+2. **The branch base** (blocking, the coordinator's). Still not resolved. Local `main` here is 7b39bc94 and
+   `git merge-base --is-ancestor dc0d5ac6 main` fails, so the diff still lands the backlog feature and its
+   `dev/model/` edits. I tried to recut the gap on `main` in a side branch (cherry-picking ee2ced77, e94c6a20,
+   0848a040 and 543c7060), but this environment refused making the branch. The recut is the coordinator's: those
+   four commits on `main`, without dc0d5ac6, the merge fix 293f937d (it edits main's `test_relations_asof.py` only
+   to fit the backlog), and 4f9f2f9d (the `.tail` file). One thing to check during that recut: the gap's own
+   `dispatch.py` hunks sit beside the backlog's `ready.ordered` calls in `tick` and `once`, so they may need
+   resolving by hand there.
+3. **The watching event note** (lines 146-148 above, non-blocking). It was wrong. `trips._spells` writes the
+   watching event only when some sensor of the part is unread at that look, not on every `unknown-after` trip's
+   first check. So a sensor added later starts from an earlier watching event if one exists, and may trip at once.
+   If every sensor had been read until then, it starts from a fresh watching event written by the first look that
+   finds it unread. SPEC §9.5 already said "written once by the first look that finds a sensor never read". Its
+   last sentence about added sensors assumed an earlier event, so I made it state both cases. No code changed.
+4. **Not run by the round 3 reviewer** (a note, not a finding). This round ran `tests/test_operating.py`: 32 passed
+   (3.1 s). Round 3's "33" was a miscount. The collection lists 32, counting both parametrised cases of the roll-up
+   test and the eight bad-state cases.
+
+Size: unchanged, 450 net lines of the gap's own code (no code changed this round). Tests run this round:
+`tests/test_operating.py` (32 passed), `tests/test_cli_fallback.py` (17 passed, unchanged), ruff clean. Not run:
+the full unit suite and the four browser files (the factory runs them under the watchdog). No demo is touched, so
+`demo_check` is not needed.
