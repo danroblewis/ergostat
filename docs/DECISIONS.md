@@ -77,6 +77,8 @@ A block, or any program, may also print a proposal itself:
 
 It is checked like any proposal (the sentence, the owner's words with where they were said) and refused with
 why when it does not hold. A block may never confirm, dismiss, supersede or retire: those are the owner's.
+ergostat's own factory seeds its decisions this way: its collector `knowledge-sync` proposes each heading of
+`dev/knowledge/decisions.md` (its *Areas* the scope) once, only while no decision of that id exists in any state.
 
 **By hand.** `ergostat decisions propose "SENTENCE" [--words W --session S --line N] [--reason R]
 [--rejected "OPTION: WHY"] [--scope X] [--supersedes ID]`, and `ergostat corrections propose "SENTENCE"

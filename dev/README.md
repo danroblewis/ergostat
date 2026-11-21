@@ -234,7 +234,10 @@ ergostat inbox                                  # the push and the switch wait h
 ergostat inbox action/<id> --approve --as coordinator
 ```
 
-One merge waits for its push at a time. If you deny the push, the queue undoes that merge (`git reset --keep`) and
+One merge waits for its push at a time, and while it waits the queue takes no gap (`push-waiting`, read from
+`run/queue.json`). The push is asked under the lease of the run's own gap, and an approval is fenced out once that
+gap is leased again; so when the run's own gap does not land (sent back, queue-failed) and others do, its outcome is
+said only once the push settles: it stays `queued` until then. If you deny the push, the queue undoes that merge (`git reset --keep`) and
 sends the gap back.
 
 **The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load

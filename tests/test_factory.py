@@ -1422,6 +1422,36 @@ def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
     assert "running" not in json.loads((f.model / "run" / "queue.json").read_text())
 
 
+def waiting(f: Factory) -> str:
+    r = subprocess.run([sys.executable, str(BIN / "queue.py"), "waiting"], cwd=f.model, env=f.env, capture_output=True,
+                       text=True)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+def test_a_held_push_survives_later_runs(tmp_path):
+    # the run's own gap (a) fails and b lands: the push is asked under a's lease, so a must not be taken again (by
+    # flake triage, the implementor) before the approval runs the push, or the push is fenced out
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.merged", "gap.measured", "gap.push-asked"]   # a's queue-failed kept back
+    assert f.item("gap/a")["state"] == "queued" and f.item("gap/b")["state"] == "merged"
+    assert [e["event"] for e in json.loads((f.model / "run" / "queue.json").read_text())["pending"]["then"]] == [
+        "gap.queue-failed"]
+    assert waiting(f) == "1"                                                   # the queue's gate: it takes no gap
+    approved_gaps(f, {"c": 3})
+    said, lines = f.run("queue.py", "gap/c")                                  # a run attempted all the same
+    assert said == ["gap.queued"] and "is held" in next(x["nack"]["why"] for x in lines if "nack" in x)
+    assert f.item("gap/a")["state"] == "queued"                                # still nothing takes a
+    set_action(f, "ran")                                                       # the approval runs the push
+    assert waiting(f) == "0"
+    said, _ = settle(f)
+    assert said == ["gap.pushed", "gap.queue-failed"] and f.item("gap/a")["state"] == "queue-failed"
+    assert f.item("gap/a")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())
+
+
 def test_a_killed_batch_strands_nothing(tmp_path):
     # SIGKILL mid-batch, during the suites (no finally runs): main holds both merges, b is still approved
     once = tmp_path / "killed"
