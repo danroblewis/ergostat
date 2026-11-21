@@ -251,3 +251,25 @@ Every finding of the review, blocking and not (lesson-12):
    for the after side (the plan review's case); for the before side it is "never for", as this item says.
 
 No code changed in this round, so the size stays at 108 net lines.
+
+### After round 2: the factory's `unit` run failed
+
+The factory reported `unit` failed. The tail it gave stops at 32% with no failing test, no error and no summary
+line, which is what a run that was stopped looks like (a kill by the watchdog or the slot), not a test that failed.
+What this session could check:
+
+- The whole unit suite, run serially here (`uv run python -m pytest -q -x -p no:randomly`; this session's
+  permissions refused `scripts/suite_watch.py`, and the house rules forbid running it in parallel by hand):
+  **1948 passed, 69 skipped, 0 failed, in 22 min 53 s**. The slowest test is `test_reload_soak.py` (124 s);
+  this branch's `test_measured_on_the_slow_world` takes 9.4 s alone, under the `slow` mark's 10 s.
+- `uv run ruff check ergostat tests scripts`: clean.
+
+So no failing test was found, and no code changed. Not known: why the parallel run stopped. The watchdog's JSON
+line (peaks, and whether it killed the run) was not in the tail. If it was a kill on threads or memory, this
+branch's tests start no threads or servers. They hold more than 60 small worlds in one test, which is memory and
+not threads. Run under the watchdog, its peaks would say. **Left:** the factory should run `unit` again under
+`suite_watch.py` and read its last line. If a test fails there, it should be named here.
+
+`scratch_probe.py` is still committed. This session's permissions refused `git rm scratch_probe.py` again, run on
+its own, so the round-2 blocking finding is still open. Whoever can delete files must run `git rm scratch_probe.py`
+and commit it before the merge.
