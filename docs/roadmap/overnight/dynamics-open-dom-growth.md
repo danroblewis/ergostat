@@ -86,3 +86,18 @@ page name the tests use exists in the page code: `S.drawN` (`diagram.js:645`), `
 `POLLS` (`util.js:401`). No code was changed. Item 1 (the measurement), lesson-9 (break `drawGraph`, watch both
 tests fail) and the suite runs are still left, as listed in round 1. They need a round where the shell works and
 Playwright with Chromium is there.
+
+After the factory's third unit failure (round 2): its tail reads `1 skipped in 0.68s` and suite_watch `"rc": 5`. That is
+pytest's exit 5, *no tests collected*, not a failing test: the run collected one module, and it skipped at collection.
+The one module this branch changes, `tests/test_page_polling.py`, skips at collection without Playwright (its
+`pytest.importorskip` on line 25). In this worktree the `[suites] unit` command of `dev/factory.toml`
+(`pytest -q -n 8 --dist worksteal`, `testpaths = ["tests"]`) collects 2595 tests (`pytest --collect-only -q`, run
+here). So the factory's run must have picked the tests from the branch's diff, and that left only this file. The
+worktree has no such selection: `affected` is not found under `dev/`. The factory follows its own copy of
+`dev/factory.toml` on main, but this round could not read main (`git log --oneline -3 origin/main; git show
+origin/main:dev/factory.toml | ...` was refused, and so was `git fetch -q`), so this is not confirmed. No code was
+changed for it. The only fix inside this branch would be to skip each test on its own instead of the whole module, so
+that something is collected. That would make a unit run with no Playwright "pass" a browser file it never ran
+(lesson-3), so it was not done (most reversible: no change). Left: the factory should treat rc 5 from a test selection
+of browser files only as "nothing to run" (its own gap), or run this branch's unit suite whole. Then items 1, 3 and 4
+of round 1's list are still left, unchanged.
