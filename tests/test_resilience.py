@@ -732,6 +732,42 @@ def test_a_lease_kill_still_stops_the_run_when_ps_fails(tmp_path, monkeypatch):
             os.kill(kid, signal.SIGKILL)
 
 
+def test_a_run_whose_watch_cannot_start_still_ends_as_a_run(tmp_path, monkeypatch):
+    """``Watch()`` failing after the spawn (no thread to spare) leaves nothing behind (lesson-6): the run is read to
+    its end, waited on, taken off the engine's lists, and its end recorded."""
+    from ergostat import runner as old
+    from ergostat.library import reap
+    from ergostat.spec.engine import Engine
+
+    def no_thread(pid):
+        raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(reap, "Watch", no_thread)
+    p = _blocked(tmp_path, "echo said; exit 4")
+    e = Engine(p, say=lambda s: None)
+    try:
+        e.run_block(p.model.spec.blocks["worker"], "schedule")
+        assert "worker" not in e.procs and not e.live and not [x for x in old.LIVE if x.poll() is None]
+    finally:
+        e.close()
+    assert [x["type"] for x in p.events.query(n=None, type="agent.*", item="worker")] == ["agent.started",
+                                                                                          "agent.failed"]
+    assert "said" in old.log_path(p, "worker").read_text()
+
+
+def test_a_watch_knows_a_pid_its_run_took_again(monkeypatch):
+    """A pid the run had, dead and taken again by another child of the same run, is stamped anew while under it, so
+    once that child is detached it is still the run's (review lease-kill-detached-2); the run's own pid keeps its
+    first stamp."""
+    from ergostat.library import reap
+    monkeypatch.setattr(reap, "_looker", lambda w: None)               # (no shared looks: only those given here)
+    w = reap.Watch(100)
+    w.look({100: (1, 100), 101: (100, 100)}, {100: "T0", 101: "T1"})
+    w.look({100: (1, 100), 101: (100, 100)}, {100: "T9", 101: "T2"})   # 101 died; its pid another child's of the run
+    assert w.started == {100: "T0", 101: "T2"}
+    w.look({100: (1, 100), 101: (1, 101)}, {100: "T0", 101: "T2"})      # detached since: kept as last seen under it
+    assert w.started[101] == "T2"
+
+
 # ---- 6. a run no longer depends on the engine that started it (docs/roadmap/overnight/rs-detach.md)
 
 def _blocked(tmp_path, run: str, extra: str = ""):

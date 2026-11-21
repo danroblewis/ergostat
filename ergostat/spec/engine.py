@@ -971,14 +971,19 @@ class Engine:
                         self.live[begun["id"]] = proc
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                     from ..library.reap import Watch
-                    proc.watch = Watch(proc.pid)                 # what it starts, kept for a lease kill (leases/kill.py)
+                    proc.watch = None
                     try:
+                        try:                                     # what it starts, kept for a lease kill (leases/kill.py)
+                            proc.watch = Watch(proc.pid)
+                        except RuntimeError:                     # (no thread to spare: the kill stops its own tree)
+                            pass
                         if stream.follow(proc, files["out"], b.timeout, take):
                             note = f"stopped after its timeout of {b.timeout:g}s"
                     finally:
                         runrecord.remove(files)                      # read to its end: nothing left to take again
                         resources = SAMPLER.finish(tracked)
-                        proc.watch.close(look=False)             # (its run is over: no last ps)
+                        if proc.watch is not None:
+                            proc.watch.close(look=False)         # (its run is over: no last ps)
                         old.LIVE.discard(proc)
                         with self.lock:
                             if self.procs.get(b.name) is proc:

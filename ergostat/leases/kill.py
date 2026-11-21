@@ -1,9 +1,9 @@
 """A run whose lease expired is stopped (SPEC §9.5, *Fencing*; the owner, 2026-11-18): its item is back in the queue,
 so nothing it still does is wanted. Its process group and every descendant get SIGTERM, then SIGKILL after the grace
 (``ERGOSTAT_KILL_GRACE``, seconds) for whatever is left (``library/reap.py``): those its ``Watch`` saw too (one
-detached, its parent gone), each only while it is still the process seen (a pid used again is left alone), and
-``ergostat.run.killed`` is
-recorded. Only a run this engine started is signalled (one left behind by an engine that stopped is not its to
+detached, its parent gone), each only while it is still the process seen (a pid used again is left alone, unless
+taken again within the second of its first start: ``ps`` reads start times to the second), and
+``ergostat.run.killed`` is recorded. Only a run this engine started is signalled (one left behind by an engine that stopped is not its to
 kill). The run then ends as any run does: ``agent.failed``, its note why, its resources and cost measured."""
 
 from __future__ import annotations
