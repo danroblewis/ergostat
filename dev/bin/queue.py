@@ -267,8 +267,8 @@ def dry(repo, onto: str, sha: str, msg: str) -> tuple[str | None, list[str]]:
     m = re.match(r"([0-9a-f]{40,64})[\0\n]", r.stdout)
     if r.returncode not in (0, 1) or not m:
         raise RuntimeError(f"git merge-tree {onto[:12]} {sha[:12]}: {r.stderr.strip()[-400:]}")
-    if r.returncode:
-        return None, sorted({p for p in r.stdout[m.end():].split("\0") if p})
+    if r.returncode:                                      # (a conflict always names something: the exit code decides)
+        return None, sorted({p for p in r.stdout[m.end():].split("\0") if p}) or ["(git named no file)"]
     return fac.git(repo, "commit-tree", m.group(1), "-p", onto, "-p", sha, "-m", msg), []
 
 
@@ -282,7 +282,8 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
     merge. A gap that conflicts with main (`pre`) is sent back at once, a failed gate, and takes no slot; one that
     conflicts only with a batch-mate stays `approved`, no gate failed. The run's own gap is in its batch unless it is
     sent back: the last slot is kept for it, and if it conflicts only with batch-mates the walk is made again with it
-    first, so its lease, which the batch's push is asked under, is never given back while others land. The others
+    first, so its lease, which the batch's push is asked under, is never given back while others land; if it is sent
+    back, the walk is made again in rank order, so the gaps passed over for its slot can fill the batch. The others
     stay `approved` until the run settles them (merged, sent back, queue-failed): a run killed part way leaves them to
     be taken again, and the queue's pool is 1, so no other run takes them meanwhile. A dry merge git cannot make
     (RuntimeError) fails the run after some gaps may have been sent back: those stand, the rest stay `approved`."""
@@ -318,7 +319,10 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
                 return None                               # only with batch-mates: walked again, the own gap first
         return batch, head
     order = sorted([gap, *others], key=key)
-    return walk(order) or walk([gap, *[g for g in order if g is not gap]]) or ([], pre)
+    got = walk(order) or walk([gap, *[g for g in order if g is not gap]]) or ([], pre)
+    if gap["id"] in shas and not shas[gap["id"]] and len(got[0]) < n:
+        got = walk(order)                                 # own gap sent back: the gaps passed over for its slot too
+    return got
 
 
 def waited_hours(g: dict, began: float) -> float:

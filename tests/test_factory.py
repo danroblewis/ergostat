@@ -1587,6 +1587,30 @@ def test_batch_keeps_rank_order_among_mergeable_gaps(tmp_path):
     assert r["state"] == "approved" and "failed_gates" not in r["fields"]
 
 
+def test_gaps_passed_over_for_the_own_gap_fill_its_slot_once_it_is_sent_back(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"c": "app.py"})
+    main_moves(f, "app.py")                                                    # the run's own c conflicts with main
+    f.run("queue.py", "gap/c")
+    assert merges(f) == ["main changes app.py", "a", "b"] and suite_runs(f) == 1   # b, passed over, fills the batch
+    assert f.item("gap/a")["state"] == f.item("gap/b")["state"] == "merged"
+    assert f.item("gap/c")["state"] == "push-pending"                          # its sending back waits for the push
+    then = json.loads((f.model / "run" / "queue.json").read_text())["pending"]["then"]
+    assert [(e["event"], e["data"]["failed_gates"]) for e in then] == [("gap.sent-back", 1)]
+
+
+def test_a_conflict_naming_no_file_is_still_a_conflict_with_main(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    code = ("import sys, json, subprocess; sys.path[:0] = [sys.argv[1]]; import queue\n"
+            "queue.subprocess = type('S', (), {'run': staticmethod(lambda *a, **k: subprocess.CompletedProcess("
+            "a, 1, '0' * 40 + '\\0', ''))})\n"
+            "print(json.dumps(queue.dry('.', 'x', 'y', 'm')))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    made, files = json.loads(r.stdout.splitlines()[-1])
+    assert made is None and files                                              # never read as "only a batch-mate"
+
+
 def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
     f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
     approved_gaps(f, {"a": 1, "b": 2}, edits={"a": "app.py"})
