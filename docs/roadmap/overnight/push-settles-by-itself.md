@@ -34,3 +34,9 @@ Round 2: built; nothing in the definition is left. Decisions taken with nobody t
   overrun comes from the review's findings (the sensor and its auxiliary, the unread retries, saving before saying), each
   of them required to meet the definition or answer a finding. None of it goes outside the files to touch, except the
   README paragraph that describes the change.
+- After round 2 the factory's `unit` suite showed one `F` at about 21%; its tail was cut before the summary, so the
+  test was not named. It could not be reproduced on this branch: tests/test_factory.py alone (96 passed, 2 skipped),
+  tests/test_factory_manager.py (18 passed), and every other unit test file in chunks at -n 4 and -n 8 (the range
+  around 21% of the collection twice) all passed, with no F. No code was changed for it: without a named test there
+  is nothing to fix, and a guessed change could hide a real race (lesson-10). If the queue's run fails again, its
+  summary line names the test; that test is the next step.
