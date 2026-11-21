@@ -317,7 +317,7 @@ def test_removals_recorded_by_class(simp, repo, monkeypatch, capsys):
 
 @pytest.mark.slow                                                                 # (the model's checks: about 20 s)
 def test_simplify_when_fires_on_age_and_not_in_flight():
-    spec, problems = read(ROOT / "ergostat.yaml")
+    spec, problems = read(ROOT / "ergostat.yaml", extremes=False)   # (those findings are never errors, and run 60 s)
     assert not [p for p in problems if p.level == "error"], [p for p in problems if p.level == "error"]
     assert {"simplify-when", "simplifier", "simplify-removals"} <= set(spec.blocks) and "removal" in spec.items
     b = spec.blocks["simplify-when"]

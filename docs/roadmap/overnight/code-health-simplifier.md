@@ -175,3 +175,14 @@ that it brought into `sys.modules`. Run: this file (10 passed), and in one proce
 `tests/test_factory_resources.py`, `tests/test_factory_manager.py` and `tests/test_factory_sessions.py` (43 passed),
 and ruff clean. Not shown: that the old fixture fails that same combination (the run was refused). The two failing
 tests are therefore not confirmed, and the factory's unit run is the check.
+
+### After the second unit run
+
+The second unit run's log stops after 22 dots, with no failure, no summary and no `suite_watch` line. The run was
+stopped from outside rather than failing a test. One cost found here: reading the root model with its
+extreme-conditions tests takes 60 s in a fresh process. It runs to `extremes_cache.BOUND`, and `faulthandler` shows the
+time spent in `extremes.failures`. `test_the_factory_model_loads` in `tests/test_factory.py` pays the same 60 s. Not
+measured: whether main pays it too (no main checkout could be made here). The gate test,
+`test_simplify_when_fires_on_age_and_not_in_flight`, now reads the model with `extremes=False`. Those findings are
+never errors, so what it asserts is unchanged, and this file runs in 13 s instead of 67 s. Run: this file (10 passed)
+and ruff clean. The factory's unit run is the check.
