@@ -55,3 +55,13 @@ removed (a clean stop) it waits `GONE` = 10 s at most for the socket to come bac
 behind, so its run gets the whole bound. This is my own call and the most reversible one: a restart (close, then exec)
 that takes more than 10 s to listen again falls back as with no engine, as it does today. `test_a_call_past_the_bound_fails`
 covers both rules and fails with either one removed (checked). Net lines outside tests and docs: about 74 of 100.
+
+Round 2 (no review findings were handed over; main already merged in): a daemon's environment drops every
+`ERGOSTAT_` variable not in `daemons/proc.py`'s `SHARED`, so the setting never reached a daemon's calls. It is now in
+that list (one line, outside the files named; `test_a_call_past_the_bound_fails` asserts it). The suite's `home`
+fixture now sets `ERGOSTAT_CALL_RETRY=5`, so a run or daemon that outlives its test's engine gives up after 5 s
+instead of 2 minutes. That was the likely cause of the stalled unit runs. The retry tests give their own bound, and
+on main the value was in effect 0. Not run here: the whole unit suite and the browser files. These were run one
+file at a time and pass: `test_calls`, `test_warm`, `test_daemons`, `test_daemons_restart`,
+`test_ticket_factory_daemons`, `test_leases`, `test_lease_kill`, `test_resilience`, `test_gated_actions`,
+`test_program_actions`, `test_spec_engine`. Net lines outside tests and docs: about 75 of 100.

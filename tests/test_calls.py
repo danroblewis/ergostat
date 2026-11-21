@@ -362,6 +362,8 @@ def test_a_call_past_the_bound_fails(tmp_path, monkeypatch):
     for said, bound in (("x", 120), ("1e9", 3600), ("nan", 120), ("-5", 0), ("0.4", 0.4)):
         monkeypatch.setenv("ERGOSTAT_CALL_RETRY", said)
         assert client.bound() == bound
+    from ergostat.daemons.proc import SHARED
+    assert "ERGOSTAT_CALL_RETRY" in SHARED, "a daemon's calls keep the setting (its other ERGOSTAT_ are dropped)"
     p = project(tmp_path, f"{PY} -c pass")
     monkeypatch.chdir(tmp_path)
     began = time.monotonic()
