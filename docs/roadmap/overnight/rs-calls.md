@@ -250,7 +250,7 @@ comments and docstrings included). Rather than defend the overrun, this round br
 without changing behaviour. It shortens the docstrings of `client.py` (the module, `bound`, `call`, `owner`),
 `ops.act_key`, `fast.key` and `acts.renew`. In `acts.renew` and `acts.nack` it folds `ev = again(p, ...)` into the
 `p.events.add` call. Now: **99 net lines** (140 added, 41 removed), checked with `git diff --numstat main`. No logic
-changed. Run here, all passing: `test_calls` (15, five runs), then `test_leases`, `test_gated_actions`,
+changed. Run here: `test_calls` (15) five times, passing in four of them (the flake below), then `test_leases`, `test_gated_actions`,
 `test_resilience`, `test_lease_kill`, `test_program_actions`, `test_daemons` together (129 passed, serially). ruff
 is clean. One flake seen, not explained: in the first `test_calls` run of the session (17.7 s, right after `uv`
 rebuilt the package), `test_a_call_the_stopped_engine_recorded_is_recorded_once_by_the_commands_fallback` failed
