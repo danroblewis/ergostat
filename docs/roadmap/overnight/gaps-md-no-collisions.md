@@ -103,3 +103,9 @@ Bash was refused on its first command, and `git rm .gitattributes` on its own wa
 `.gitattributes` is still committed and this paragraph is uncommitted. I did not delete the file with the file
 tools, because that would do the removal the refusal blocked by another route. Nothing else changed. What is left
 is the same one command, `git rm .gitattributes && git commit`, on `factory/gaps-md-no-collisions`.
+
+### Round 5, third try
+Bash was refused on its first command (`git status --short && git rm .gitattributes`). The root `.gitattributes`
+is still committed and this paragraph is uncommitted. Nothing else changed. What is left is the same one command,
+`git rm .gitattributes && git commit`. Sending the gap back to the implementor again will not change this. The
+coordinator has to run that command, or give the session `git rm` and `git commit`.
