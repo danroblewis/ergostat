@@ -4,10 +4,12 @@ itself, for its ``named``, ``keys``, ``err`` and ``duration``."""
 
 from __future__ import annotations
 
+import re
+
 from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Spec, Takes, own_kind
 
 TERMS_KEYS = {"ttl", "attempts"}
-TAKES_KEYS = {"kind", "at", "to", "where", "unblocked"}
+TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order"}
 
 
 def terms(c, m, key: str, what: str) -> LeaseTerms:
@@ -76,10 +78,16 @@ def takes(c, m, what: str) -> Takes | None:
         c.err(f"{what}.takes.unblocked: true or false (true: only items whose precedence relations name only finished "
               f"items, the critical first)", raw.at("unblocked"), "bad-takes")
         unblocked = False
+    order = raw.get("order") or []
+    order = [order] if isinstance(order, str) else order
+    if not isinstance(order, list) or not all(isinstance(f, str) and re.fullmatch(r"-?[^\s-]\S*", f) for f in order):
+        c.err(f"{what}.takes.order: a field's name, or a list of them (lowest first; -FIELD: highest first; the items "
+              f"without it after those with it)", raw.at("order"), "bad-takes")
+        order = []
     where = dict(where)
     if where:
         c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
-    return Takes(kind, list(states), list(to), where, unblocked)
+    return Takes(kind, list(states), list(to), where, unblocked, order)
 
 
 def pool(c, m, what: str) -> int:
