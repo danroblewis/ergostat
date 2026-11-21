@@ -207,3 +207,23 @@ process, this file with `tests/test_code_health_coverage.py`, `tests/test_factor
 `tests/test_factory_manager.py`, `tests/test_factory_sessions.py` and `tests/test_factory_knowledge.py` (129 passed),
 and this file followed by `tests/test_factory.py` (122 passed, 2 skipped). Ruff clean. No code changed. Not run: the
 full unit suite under xdist and the four browser files. The factory's run is the check.
+
+### After the fourth unit run
+
+The fourth unit run got to its summary: 2 failed, 2373 passed, 69 skipped, at a peak of 402 threads and 165
+processes. Both failures are timing tests of the engine. This branch changes nothing they run, so no code was changed
+for them (lesson-13):
+
+- `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`: the lease, `ttl: 1s`,
+  expired once before its ack (`['expired', 'ack']`). That is the lease watchdog in `ergostat/leases/` against a
+  1 s ttl, under load.
+- `tests/test_daemons.py::test_a_short_lived_daemon_is_sampled_before_it_ends`: the daemon was not sampled within
+  3 s of its start. That is the engine's daemon sampler, under load.
+
+Why they are unrelated: the branch's diff against main (505a93e9, still main's head) touches only `dev/`,
+`scripts/code_evidence.py`, `docs/` and `tests/test_code_health_simplifier.py`, and nothing in `ergostat/`. Both tests
+build their own project in `tmp_path` from an inline model, and neither reads `dev/`, `dev/factory.toml` or
+`dev/model/code-health.yaml` (searched). The simplifier's tests start no engine, daemon or lease. Both look like load
+flakes of the engine (lesson-10), to be run again on clean main. A fix for either belongs in its own gap. Not run here:
+the two tests alone, on this branch or on main (the shell refused pytest in this session), so "they pass alone" is not
+shown. No code changed in this round. Not committed by the implementor either, if the shell also refused `git commit`.
