@@ -226,12 +226,17 @@ class Sampler:
         """Seconds until the next sample: the soonest run due, never sooner than ``floor`` after the last sample.
         None while nothing is tracked (nothing to wait for but a wake)."""
         with self.lock:
-            due = min((t.due for t in self.runs.values()), default=None)
+            return self._wait(now)
+
+    def _wait(self, now: float) -> float | None:   # (its caller holds the lock)
+        due = min((t.due for t in self.runs.values()), default=None)
         return None if due is None else max(0.0, max(self.last + self.floor, due) - now)
 
     def finish(self, t: Tracker) -> dict:
         with self.lock:                # (not while a sample is being taken: it has the lock)
             self.runs.pop(t.root, None)
+            if not self.runs:
+                self.wake.set()        # (the thread looks again, sees nothing tracked, and ends)
             return t.result()
 
     def stats(self) -> dict:
@@ -240,12 +245,12 @@ class Sampler:
 
     def _loop(self) -> None:
         while True:
-            with self.lock:
+            with self.lock:            # (one look: never a wait computed after the last run left, with no end)
                 if not self.runs:
                     self.thread = None
                     return
-            wait = self.wait(time.monotonic())
-            if wait is None or wait > 0:           # (a wake looks again; it never samples by itself)
+                wait = self._wait(time.monotonic())
+            if wait > 0:                           # (a wake looks again; it never samples by itself)
                 self.wake.wait(wait)
                 self.wake.clear()
                 continue
