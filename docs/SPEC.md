@@ -3735,8 +3735,10 @@ while its unit is as it was (its own parts, hashed), and is held again once the 
 
 Every write of a request's state (the owner's answer, the collector's moves, a tier's word, the redesigner's holds and
 its run's end) is made under one lock (`requests.lock` in the project's state), the request read again inside it. A
-tier that read a request before calling its model writes its word only if the request is still in the state it read:
-an answer the owner gave meanwhile stands. The redesigner's run writes its end only on a request still open (or
+tier that read a request before calling its model writes its word only if the request has not moved since it read it
+(the record's seq of its last move, an event that changed its state or reopened it, is the one it read; the state alone
+is not enough, because held then approved is open again): an answer the owner gave meanwhile stands. A tier's own
+word in the same state (its tries and cost) and a refreshed wording from check are not moves. The redesigner's run writes its end only on a request still open (or
 answered as never ended), never over a dismissal.
 
 The **request collector** (`modelling requests`, the sensor of the template's `requests-raised`) reads check, raises

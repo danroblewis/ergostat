@@ -347,3 +347,31 @@ code in this round, and I want to say plainly why.**
 
 If the coordinator would rather have the fix in this branch after all, despite lesson-13, the revert above is the
 whole change (about 20 net lines, about 165 in all, within 250).
+
+## Where it stopped
+
+Continued (gap/inbox-dismiss-continued), round 3. The one finding the queue lists (lesson-2, lesson-12, lesson-8):
+`mark` checked only the state the tier read, so held then approved (open again) let a stale tier write `held` over the
+owner's approval.
+
+- `requests.stored` now gives each request `moved`: the record's seq of its last move. A move is an event that put
+  the request in another state, or any `reopened`. `move(..., moved=)` compares that seq, read again under
+  `requests.locked`, as well as the state. `mark` always passes the seq it read. A dict with no `moved` field is
+  refused, so the check fails closed (lesson-3). Every caller passes a dict read from `stored`.
+- **The choice made with nobody to ask:** a write in the same state is not a move. That covers a tier's own tries
+  and cost, and a refreshed `says`/`where`/`fix` from `sync`. If every event counted, a refreshed wording would refuse
+  the tier's word, and its try would go uncounted (an unbounded retry against lesson-4). If any same-state write
+  should count as well, comparing the last event's seq in `_moved_at` is a one-line change.
+- Test: `tests/test_inbox.py::test_an_approval_made_while_the_ai_tier_works_stands_though_the_state_is_as_it_read`
+  follows the review's sequence: approved, read open, held, approved again, then the tier's stale `held` and its
+  same-state tries are both refused. A fresh read is then heard. With the seq comparison disabled it fails on the
+  first refused mark (lesson-9, seen here).
+- SPEC §12e's lock paragraph now says that the seq of the last move is compared, not the state, and which writes are
+  not moves.
+
+Main: `git merge-base HEAD main` is main's tip (39d47bf), so there was nothing new to merge in this container. Budget:
+about 17 net lines more in ergostat/, so about 162 in all, within 250. Run here, each file alone: `test_inbox.py`
+(30), `test_modelling_core.py`, `test_modelling_core2.py`, `test_redesign.py`, `test_modelling_template.py` and
+`test_self_improve.py`. All pass, and ruff is clean. Not run: the whole unit suite and the browser files. The
+engine-shutdown race (`test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`) still needs its own gap,
+as the round above says.
