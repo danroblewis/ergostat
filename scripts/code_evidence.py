@@ -84,43 +84,48 @@ class _Blank(ast.NodeTransformer):
 
 
 def body_hash(fn: ast.AST) -> str:
-    body = ast.Module(body=[_Blank().visit(ast.parse(ast.unparse(s))) for s in fn.body], type_ignores=[])
+    """(Blanks the body in place: the module's tree is read once and dropped.)"""
+    body = ast.Module(body=[_Blank().visit(s) for s in fn.body], type_ignores=[])
     return hashlib.sha256(ast.dump(body).encode()).hexdigest()
 
 
-def functions(mod: ast.Module):
-    for node in ast.walk(mod):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            yield node
+def summary(name: str, text: str) -> tuple[list, list[str]]:
+    """A module's functions, (name, lines, body hash or None when too short), and its top-level names. Only these are
+    kept, never the tree, so the whole repository's trees are not held at once."""
+    try:
+        mod = ast.parse(text)
+    except SyntaxError as e:
+        raise Missing(f"{name} does not parse: {e}") from e
+    top = [s.name for s in mod.body if isinstance(s, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)]
+    nodes = [f for f in ast.walk(mod) if isinstance(f, ast.FunctionDef | ast.AsyncFunctionDef)]
+    # inner functions first (deeper), so blanking an outer body in place never touches one not yet hashed
+    hashes = {id(f): body_hash(f) for f in sorted(nodes, key=lambda f: -f.col_offset)
+              if f.end_lineno - f.lineno + 1 >= DUP_LINES}
+    return [(f.name, f.end_lineno - f.lineno + 1, hashes.get(id(f))) for f in nodes], top
 
 
 def evidence(root: Path, ref: str, coverage: dict) -> list[dict]:
     files = tree(root, ref)
-    mods = {n: t for n, t in files.items() if n.startswith(MODULES) and n.endswith(".py")}
+    mods = sorted(n for n in files if n.startswith(MODULES) and n.endswith(".py"))
     if not mods:
         raise Missing(f"no modules under {', '.join(MODULES)} at {ref}")
     changed = churn(root, ref)
-    words = Counter(w for t in files.values() for w in WORD.findall(t))
-    parsed, hashes = {}, Counter()
-    for n, t in mods.items():
-        try:
-            parsed[n] = ast.parse(t)
-        except SyntaxError as e:
-            raise Missing(f"{n} does not parse: {e}") from e
-        for fn in functions(parsed[n]):
-            if fn.end_lineno - fn.lineno + 1 >= DUP_LINES:
-                hashes[body_hash(fn)] += 1
+    words = Counter()
+    for t in files.values():
+        words.update(WORD.findall(t))
+    seen = {n: (net_lines(files[n]), *summary(n, files[n])) for n in mods}
+    del files
+    hashes = Counter(h for _, fns, _ in seen.values() for _, _, h in fns if h)
     rows = []
-    for n, mod in sorted(parsed.items()):
-        fns = list(functions(mod))
-        top = [s.name for s in mod.body if isinstance(s, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)]
+    for n in mods:
+        lines, fns, top = seen[n]
         cov = coverage.get(n)
         rows.append({
             "module": n,
-            "lines": net_lines(mods[n]),
-            "long_functions": [f.name for f in fns if f.end_lineno - f.lineno + 1 > LONG],
+            "lines": lines,
+            "long_functions": [f for f, size, _ in fns if size > LONG],
             "churn": changed.get(n, 0),
-            "duplicates": [f.name for f in fns if f.end_lineno - f.lineno + 1 >= DUP_LINES and hashes[body_hash(f)] > 1],
+            "duplicates": [f for f, _, h in fns if h and hashes[h] > 1],
             "dead_candidates": [name for name in top if words[name] <= 1 and not name.startswith("__")],
             "coverage": cov.get("share") if isinstance(cov, dict) else None})
     return rows
