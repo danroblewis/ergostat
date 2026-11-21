@@ -3160,3 +3160,52 @@ def test_show_on_diagram_chooses_a_proposals_parts_in_both_views(browser, tmp_pa
         assert set(pane.evaluate("() => [...S.sel]")) == want
         assert not errors, errors
         pg.close()
+
+
+def test_a_remote_boxs_panel_dims_a_stale_measure_and_shows_its_age(browser, tmp_path, monkeypatch):
+    """A closed remote module's panel lists its measures under the remote note (SPEC §4c): a fresh one with its number,
+    a stale one dimmed with its age (never the bare number), one it does not serve as not served, never charted."""
+    from ergostat import model as mdl
+    from ergostat.remote import cache, serve
+    from ergostat.store import Project
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # as served() runs the page
+
+    def edit(d):
+        y = d / "ergostat.yaml"
+        y.write_text(y.read_text().replace("    every: 10s\n", "    every: 10s\n    show: [stock.open, flow.resolved, stock.waiting]\n"))
+        shutil.copytree(ROOT / "examples" / "remote-pair" / "incidents", tmp_path / "incidents-src")
+        body, now = serve.model(tmp_path / "incidents-src" / "ergostat.yaml"), time.time()
+        c = cache.folder("support", d, "incidents")
+        (c / cache.MODEL).write_text(json.dumps({**body, "fetched": now}))
+        (c / cache.STATUS).write_text(json.dumps({"checked": now, "ok": True, "version": body["version"], "answered": now,
+                                                  "read": now, "read_ok": True, "next": now + 3600}))
+        p = Project(mdl.load(d))
+        p.measurements.add("sensor/incidents-open.main", 4.0, at=now - 5)               # fresh
+        p.measurements.add("sensor/incidents-resolved.remote", 2.5, at=now - 3600)      # an hour old
+    with served("remote-pair/support", tmp_path, edit) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        asked: list[str] = []
+        pg.on("request", lambda r: asked.append(r.url) if "/api/series" in r.url else None)
+        drawn(pg, url, "", 0)                                  # the default view: the remote a closed module
+        rows = pg.evaluate("""async () => {
+          const n = S.graph.nodes.find((x) => x.kind === "system" && x.label === "incidents");
+          await openNode(n);
+          await new Promise((r) => setTimeout(r, 1500));
+          const note = document.querySelector("#detail .remote-note");
+          const t = document.querySelector("#detail .remote-measures");
+          return { after: !!(note && t && (note.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING)),
+                   rows: [...(t ? t.querySelectorAll("tr") : [])].map((r) => ({ stale: r.classList.contains("measure-stale"),
+                     label: r.cells[0].textContent, value: r.cells[1].textContent })) };
+        }""")
+        assert rows["after"], rows                             # listed under the remote note
+        got = {r["label"]: r for r in rows["rows"]}
+        assert set(got) == {"incidents-open", "incidents-resolved", "incidents-waiting"}, got
+        fresh, old, gone = got["incidents-open"], got["incidents-resolved"], got["incidents-waiting"]
+        assert not fresh["stale"] and fresh["value"].startswith("4") and "old" not in fresh["value"], fresh
+        assert old["stale"] and old["value"].startswith("last ") and old["value"].endswith(" · 1h old"), old
+        assert gone["stale"] and gone["value"] == "not served", gone
+        assert asked and not [u for u in asked if "incidents-waiting" in urllib.parse.unquote(u)], asked
+        assert not errors, errors
+        pg.close()

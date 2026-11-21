@@ -278,6 +278,30 @@ def test_a_fresh_remote_measure_is_not_stale_and_an_old_or_missing_reading_is(tm
     assert got["stock:incidents-open"]["stale"] is False, got
 
 
+def test_the_remote_pairs_box_as_its_panel_reads_it(tmp_path):
+    """What the panel of test_diagram_rendering.py's remote box is drawn from, on the remote-pair example: the fresh,
+    the hour-old and the not-served measure in the dynamics view's ``charted``."""
+    import shutil
+    from pathlib import Path
+
+    from ergostat.remote import serve
+    pair = Path(__file__).resolve().parent.parent / "examples" / "remote-pair"
+    d = tmp_path / "support"
+    shutil.copytree(pair / "support", d)
+    y = d / "ergostat.yaml"
+    y.write_text(y.read_text().replace("    every: 10s\n", "    every: 10s\n    show: [stock.open, flow.resolved, stock.waiting]\n"))
+    body, now = serve.model(pair / "incidents" / "ergostat.yaml"), time.time()
+    c = cache.folder("support", d, "incidents")
+    (c / cache.MODEL).write_text(json.dumps({**body, "fetched": now}))
+    status(d, checked=now, ok=True, version=body["version"], answered=now, read=now, read_ok=True, next=now + 3600)
+    got = by_part(graph(d, "?view=dynamics", [("sensor/incidents-open.main", 4.0, 5),
+                                              ("sensor/incidents-resolved.remote", 2.5, 3600)]))
+    assert list(got) == ["stock:incidents-open", "flow:incidents-resolved", "stock:incidents-waiting"], got
+    assert got["stock:incidents-open"]["stale"] is False and got["stock:incidents-open"]["value"].startswith("4")
+    assert got["flow:incidents-resolved"]["stale"] and got["flow:incidents-resolved"]["value"].endswith(" · 1h old")
+    assert got["stock:incidents-waiting"]["missing"] and got["stock:incidents-waiting"]["value"] == "not served"
+
+
 def test_a_sensor_with_no_every_is_bounded_by_the_least(tmp_path):
     """A sensor whose ``every`` is missing or 0 is held to ``readings.STALE_LEAST``: never fresh with no bound."""
     local = local_model(tmp_path, extra="    show: [stock.open]")
