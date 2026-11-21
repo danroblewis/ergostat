@@ -382,3 +382,34 @@ holds the backlog merge (round 7).
 Parked by the factory (review/upkeep-index-files-3, 2026-11-20 18:56).
 
 Done, by reading: the gap's own work, about 236 core lines. That is the upkeep template, upkeep tidy, the ergostat.upkeep.* measures, _tidy with keep, the name allowlist, the resolve-under-items check and the age re-check under the lock, the engine standing down under use: upkeep, the SPEC, agent guide and GAPS text, and tests/test_upkeep_template.py. Left: the branch must be rebuilt on origin/main without the backlog merge 2b101c6, following round 7's steps in the definition file: (1) the definition as first committed in 8919bac; (2) the gap's tree with backlog's diff (`git diff 2b101c6^1 2b101c6`) reversed, tests/test_relations_asof.py as on main, and the engine.py change of 6afe19d6/10364633 left out and filed as its own gap. Then run test_upkeep_template, test_index_files, test_templates, test_relations_asof and the unit suite with -rf and its full log. Why stop: after eight rounds the blocking findings come from the base, not the code. The implementor's session cannot create branches, so another round inside this branch changes nothing. Only the rebuild can clear them.
+
+### Continued, round 1 (after the factory merged main, a1d1b94)
+
+- **The base is cleared without a rebuild.** Main now holds the backlog merge (`git merge-base --is-ancestor 2b101c6
+  a1d1b94` succeeds), so the branch no longer carries anything of the backlog's that main lacks.
+  `tests/test_relations_asof.py` is now the same as on main, so the `unblocked` merge fix is main's own. Against
+  a1d1b94, `git diff --numstat` over `ergostat/` and `ergostat.yaml` gives +259 −27, **net 232** (budget 300). It
+  is this gap's own work and nothing else.
+- **The merge's conflicts.** `library/templates.py`, `library/expand.py` and SPEC §2a, *Writing one*: main added
+  `min:` and `max:` on number and integer parameters. They do what this branch's `least:`/`most:` did, so main's
+  are kept and the branch's are dropped. The upkeep template now says `min: 1`, `max: 64`, and the load error
+  now uses main's wording, which names the bound (`... at least 1 (min: 1; not 0)`). It still names the use and
+  the parameter, which `test_keep_out_of_range_is_refused_at_load_and_at_run` checks.
+  `ergostat.yaml`: main's `gap.closed` comment, `show:` (with `parked_for`, `loop_rounds`, `loop_hours`) and
+  `lesson: [requested, denied, retired]`. `dev/bin/agents.py`: main's `TOOLS.update` (the plan reviewer gets the
+  reviewer's read-only tools). The agent guide keeps main's reviewer paragraph and adds the `use: upkeep`
+  sentence after it.
+- **The engine change is taken out (lesson-13).** Round 5's check in `Engine.run_block` (the `closing` kill and its
+  note, 6afe19d/1036463) is outside this gap. As the park note asks, it is removed, so `spec/engine.py` is
+  main's again. It belongs in a gap of its own: *a run spawned while the engine is closing outlives it*.
+  `agent.started` is written before the child joins `runner.LIVE`, so a `close()` whose `kill_all()` falls in
+  that window misses the child. Fix it with one check once the run is in `LIVE`, and note the kill as
+  `stopped with ergostat`. Without the change,
+  `tests/test_reload_in_place.py::test_a_removed_blocks_run_still_takes_messages_while_it_goes` passed alone here
+  (0.32 s, warm) and with its file (11 passed). Round 5 saw it fail on a cold first run, so it may still flake
+  under load on main. If it does, that is main's failure, not this gap's.
+
+Run after the merge: `tests/test_upkeep_template.py` (13), `tests/test_index_files.py` (8), `tests/test_templates.py`
+(35), `tests/test_reload_in_place.py` (11), `tests/test_relations_asof.py` with `tests/test_program_actions.py` (19):
+all passed. Ruff clean. The full unit suite and the four browser files were not run here; they are the factory's
+to run under the watchdog.

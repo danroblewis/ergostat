@@ -961,9 +961,6 @@ class Engine:
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
-                    closing = self.stop.is_set()                     # closed while it was starting: kill_all missed it
-                    if closing:
-                        old._kill(proc)
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                     try:
                         if stream.pump(proc, stdin, b.timeout, take):
@@ -982,7 +979,7 @@ class Engine:
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
                     elif code and not note:
-                        note = old.STOPPED_WITH_US if closing or old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
+                        note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
         if code == 0 and not note:                               # a bare number only from a run that finished well
             said.finish()
         if said.proposals:
