@@ -165,8 +165,8 @@ def around_steps(h: float, t: list, u: list, y: list, ins: dict[str, list], nois
         drops.append(drop)
         if not exps and any("has no readings" in x for _, x in drop):
             return _nothing(t, [x for _, x in drop])
-        short = [x for k, x in drop if k in used and "covers" in x]    # the kept pass fitted a step its process says is
-        if short:                                                       # too short: not trusted from there either
+        short = [x for k, x in drop if k in used and "covers" in x and x not in kept["why"]]
+        if short:              # the kept pass fitted a step its process says is too short: not trusted from there either
             kept = {**kept, "why": kept["why"] + short, "proposable": False}
         if not exps:
             passes.append("not run: no step left whose record covers what its process needs to settle")
