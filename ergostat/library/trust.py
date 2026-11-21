@@ -18,6 +18,8 @@ checked themselves). A map is a table of its own keys; ``each(T)`` a map of name
 
 from __future__ import annotations
 
+from ..spec.ir import Ref
+
 S, L, M, D, A, NO = "one value", "values", "map of values", "data", "anything", "refused"
 CLAIMS = ("inferred", "formerly")       # invariant 11: a library never claims ergostat inferred a part
 
@@ -102,7 +104,8 @@ USE = {"use": (S, "the nested template, whose parts are checked here too"), "wit
        "description": (S, "words shown with it"),
        "with": (A, "its values reach only the nested template's parts, checked themselves once expanded")}
 BLOCK = {**COMMON, "type": (S, "one of the types below; any other is refused"), "in": (one_of(L, M), "what it reads"),
-         "out": (L, "the signal it writes: a setpoint or another block's input, never a command"),
+         "out": (L, "the signal it writes; only to a part the held chain made itself (see OUT_TO): "
+                    "another block's input commands that block, and a goal's is its setpoint"),
          "role": (S, "how it is drawn"),
          "on-stale": (NO, "changes what the engine does when an input is stale")}
 BLOCK_TYPES = {      # computed by ergostat itself from its inputs: none runs, calls out, notifies or starts an action
@@ -180,8 +183,23 @@ def _match(spec, v, path: str) -> str | None:
     return path                                     # a shape not known here: refused
 
 
-def refused(section: str, name: str, entry) -> str | None:
-    """The first path in this part a held chain may not make (``blocks.x-fetch.run``), or None."""
+OUT_TO = {"block": "blocks", "goal": "goals", "flow": "flows", "auxiliary": "auxiliaries"}
+
+
+def _out(entry: dict, path: str, made: set) -> str | None:
+    """A block's ``out:`` that names a part the held chain did not make (the owner's program block, which it would
+    command; the owner's setpoint), or that is not a reference: refused."""
+    v = entry.get("out")
+    for i, x in enumerate(v if isinstance(v, list) else [] if v is None else [v]):
+        r = Ref.parse(x)
+        if r is None or (OUT_TO.get(r.kind), r.name) not in made:
+            return f"{path}.out" + (f".{i}" if isinstance(v, list) else "")
+    return None
+
+
+def refused(section: str, name: str, entry, made: set = frozenset()) -> str | None:
+    """The first path in this part a held chain may not make (``blocks.x-fetch.run``), or None. ``made``: the
+    (section, name) of every part the held chain makes, the only parts its blocks' ``out:`` may name."""
     path = f"{section}.{name}"
     table = ALLOWED.get(section)
     if table is None:
@@ -191,4 +209,5 @@ def refused(section: str, name: str, entry) -> str | None:
         if not isinstance(t, str) or t not in BLOCK_TYPES:
             return f"{path}.type"
         table = {**table, **BLOCK_TYPES[t]}
+        return _match(table, entry, path) or _out(entry, path, made)
     return _match(table, entry, path)

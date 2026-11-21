@@ -217,6 +217,41 @@ def test_untrusted_refused_at_use_line(tmp_path, case):
     assert f"makes {where}," in msg and "template bad" in msg and str((tmp_path / "lib").resolve()) in msg
 
 
+OWNER_PARTS = """
+blocks:
+  deploy: {type: program, run: echo deploying}
+stocks:
+  queue: {unit: items}
+goals:
+  short: {stock: queue, hold: "<= 5"}
+"""
+
+
+@pytest.mark.parametrize("out, where", [("block.deploy", "blocks.u-x.out"), ("goal.short", "blocks.u-x.out"),
+                                        ("[block.gate, block.deploy]", "blocks.u-x.out.1"),
+                                        ("auxiliary.nowhere", "blocks.u-x.out"), ("'not a ref'", "blocks.u-x.out")])
+def test_untrusted_out_to_a_part_it_did_not_make_refused(tmp_path, out, where):
+    """An allowed block's out: commands the block it names (the owner's program block would run on the library's
+    timer) and sets the goal it names: a held chain's out: may name only parts the chain made."""
+    body = ("blocks:\n  gate: {type: compare, above: 1, in: stock.s}\n"
+            f"  x: {{type: timer, after: 1h, in: stock.s, out: {out}}}\n")
+    path = write(tmp_path, MAIN + OWNER_PARTS, {"lib": {"bad": BASE + body}})
+    msg = refused_once(path)
+    assert f"makes {where}," in msg, msg
+    spec, _ = read(path)
+    assert "deploy" in spec.blocks and not [c for c in spec.commanders_of("deploy")]
+
+
+def test_untrusted_out_to_its_own_part_compiles(tmp_path):
+    body = ("goals:\n  g: {stock: s, hold: '<= 3'}\n"
+            "blocks:\n  gate: {type: onoff, in: stock.s, goal: g}\n"
+            "  x: {type: timer, after: 1h, in: stock.s, out: [block.gate, goal.g]}\n")
+    path = write(tmp_path, MAIN + OWNER_PARTS, {"lib": {"bad": BASE + body}})
+    spec, ps = read(path)
+    assert not [p for p in ps if p.level == "error"], ps
+    assert {str(r) for r in spec.blocks["u-x"].outputs["out"]} == {"block.u-gate", "goal.u-g"}
+
+
 def test_untrusted_unknown_key_refused(tmp_path):
     path = write(tmp_path, MAIN, {"lib": {"bad": BASE + "blocks:\n  x: {type: onoff, goal: g, zzz: 1}\n"}})
     assert "blocks.u-x.zzz" in refused_once(path)

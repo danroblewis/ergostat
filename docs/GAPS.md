@@ -34,7 +34,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   only to hosts the owner lists. **Built** (`library-trust-folders`): a `library:` entry `{folder: PATH}` is untrusted
   unless it says `trust: owner`; its templates never shadow a trusted one; a use whose chain holds one may make only
   structure on an allowlist (`ergostat/library/trust.py`: no command, query, daemon, timer, machine block, agent,
-  workspace, action or lease), or the whole chain is refused at the owner's `use:` line, with a refusal that suggests
+  workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
+  blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
+  refused at the owner's `use:` line, with a refusal that suggests
   no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). *Still needed:* a gate on **provenance**,
   so an untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
   substitution of a `type: command` parameter, the marks kept through nested uses); a library's `example:` and

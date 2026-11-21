@@ -218,9 +218,11 @@ built-in templates it uses included), as expanded with every parameter's value i
 in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`,
 `goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
 `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
-`alarm`; sensors only counting items (`items:`) or reading a stock's changes (`changes:`), with no `every` or `cron`.
+`alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
+names); sensors only counting items (`items:`) or reading a stock's changes (`changes:`), with no `every` or `cron`.
 Anything else is refused: any other section, block type or key (a sensor's `run`, `query` or `daemon`, a block's
-`on-stale`, a kind's `lease`, a goal's `owner`, `inferred` or `formerly` anywhere). One refused part refuses the whole
+`on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
+anywhere). One refused part refuses the whole
 use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
 nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
 *Libraries you did not write*).

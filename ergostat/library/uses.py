@@ -55,8 +55,9 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
     """One owner's entry: its whole chain planned; held and making anything trust.py refuses, none of it is put."""
     chain = Chain()
     plan(doc, chain, inst, entry, w, defaults, depth, within, None)
+    held = {(s, n) for _, s, n, _ in chain.checks}
     for u, section, name, made in chain.checks:
-        path = trust.refused(section, name, made)
+        path = trust.refused(section, name, made, held)
         if path is None:
             continue
         for key in chain.names[1:]:

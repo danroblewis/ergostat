@@ -107,6 +107,11 @@ is refused, including commands, queries, daemons and timers on sensors, `program
 `judge` blocks, `on-stale`, an item kind's `lease`, a goal's `owner`, and `inferred` or `formerly` anywhere. A test
 holds this list to trust.py's tables (`tests/test_library_trust.py`).
 
+A block's `out:` commands the block it names, and sets the goal it names. So a held chain's blocks may name in `out:`
+only parts the chain made itself: an `out:` to one of your blocks (a `program` block that deploys, run on the
+library's timer) or to your goal's setpoint is refused like any other part (`library-untrusted`), and so is an `out:`
+that is not a reference.
+
 What this does **not** stop:
 
 - **Its words reaching agents.** An untrusted template's descriptions, `example:` and `reading:` are still shown to
@@ -115,9 +120,11 @@ What this does **not** stop:
   anything, and may take the place of ergostat's own. Read a folder before you mark it so.
 - **An agent that can write the main file.** It can mark a folder trusted, as you can. The agent guide tells agents
   never to, but nothing enforces it.
-- **What its allowed parts touch.** An allowed block's `out:` or a part's `within:` may name your own parts, so an
-  untrusted block can feed a value into one of your goals or blocks; a raised `alarm` shows on the page and counts as
-  an intervention, as any alarm does.
+- **What its allowed parts name.** Its parts may still name yours in every other place: a block's `in:` or `goal:`, a
+  flow's `from:` and `to:`, a goal's `stock:`, a `driven-by`, a part's `within:`. So it can read your parts, add a
+  flow to your stock, and put its parts in your systems. If one of *your* machine blocks reads one of its blocks
+  (`in: block.x`), that block commands yours, by your wiring. A raised `alarm` shows on the page and counts as an
+  intervention, as any alarm does.
 
 ## The page from elsewhere
 

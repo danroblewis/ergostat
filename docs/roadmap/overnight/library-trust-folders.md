@@ -136,3 +136,28 @@ map form stands and `test_library_map_entry_bad_key_or_trust_is_an_error` is as 
     `test_trust_follows_a_reload`;
   - no-shadow removed: both `test_untrusted_never_shadows_builtin_or_owner` cases failed;
   - the put moved back before the check: the same 27 failed as for the first break.
+
+### Round 2
+
+The review's two findings, answered:
+- **`out:` commands the owner's machine blocks (lesson-8).** Taken the narrower way: a held chain's block `out:` may
+  name only parts the chain made itself (`trust._out`, `trust.OUT_TO`; the set of parts is everything checked from the
+  first untrusted template down, so a trusted parent's blocks don't count either). An `out:` to the owner's program
+  block, to the owner's goal, to a part that exists nowhere, or one that is not a reference is `library-untrusted` at
+  the `use:` line (`test_untrusted_out_to_a_part_it_did_not_make_refused`, 5 cases, which also asserts the owner's
+  `deploy` block has no commanders). `test_untrusted_out_to_its_own_part_compiles` shows the chain's own `out:` to its
+  own block and goal still compiles. The false reason in trust.py is replaced. SECURITY now says this, and its
+  "does not stop" item is narrowed to what is true: the chain's parts may still *name* the owner's (`in:`, `goal:`,
+  a flow's `from:`/`to:`, `driven-by`, `within:`), and an owner's machine block that reads a library block is
+  commanded by it, by the owner's wiring. GAPS and SPEC §2a say the same. Break-once: with `_out` removed from
+  `refused`, all 5 `out:` cases failed, and the other 41 passed. Restored, all 46 pass.
+- **origin/main not merged (lesson-7).** The merge is the branch's commit 6a5ee51d. It merges `main` at 7b39bc94,
+  which holds the 7 pipeline-manager/plan-review commits. This clone still has no `origin` remote, so I could not
+  check that 7b39bc94 is the review's 3adf48a. If origin/main has moved past it, the factory merges again.
+
+Run here, after the merge: `tests/test_library_trust.py`, `tests/test_templates.py` and
+`tests/test_modelling_template.py` (86 passed), and ruff is clean. **Not run here:** the whole unit suite and the four
+browser files. The brief leaves them to the factory, under the watchdog, so their result after the merge is not
+known yet.
+Size: 286 net lines outside tests and docs (budget 330): trust.py 213, uses.py 48, templates.py 16, load.py 8,
+author.py 1.
