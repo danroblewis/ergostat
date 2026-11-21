@@ -725,18 +725,34 @@ def head_definition(tmp_path, text: str):
 
 
 def test_an_overrun_reason_in_where_it_stopped_is_seen(tmp_path, factory_review):
-    wt = head_definition(tmp_path, FIRST + "\n## Where it stopped\n\nOver budget by 12 lines; the reason: the lock.\n")
     first = FIRST.strip()                                                       # (as fac.git returns it)
-    assert factory_review.size_gate(42, 30, first, wt, DEF_REL) == []
-    assert factory_review.size_gate(30, 30, first, wt, DEF_REL) == []           # within budget: no reason needed
+    for line in ("Overrun reason: 12 lines over, for the lock.", "- **Overrun reason:** 12 lines over, for the lock."):
+        wt = head_definition(tmp_path, FIRST + f"\n## Where it stopped\n\nAll built.\n{line}\n")
+        assert factory_review.size_gate(42, 30, first, wt, DEF_REL) == []
+    assert factory_review.size_gate(30, 30, first, tmp_path / "none", DEF_REL) == []  # within budget: none needed
+    parked = FIRST + "\n## Where it stopped\n\nParked by the factory (review, 2026-11-21 10:00).\n\nTwo reviews.\n"
+    wt = head_definition(tmp_path, parked + "\n## Where it stopped\n\nOverrun reason: the lock needs 12 lines.\n")
+    assert factory_review.size_gate(42, 30, first, wt, DEF_REL) == []           # the branch's own, after a park
 
 
 def test_an_overrun_with_no_reason_appended_still_blocks(tmp_path, factory_review):
     first = FIRST.strip()
-    for text in (FIRST, FIRST + "\n## Where it stopped\n\nAll built.\n"):
-        got = factory_review.size_gate(42, 30, first, head_definition(tmp_path, text), DEF_REL)
-        assert len(got) == 1 and "no reason written" in got[0]
+    finding = factory_review.size_gate(42, 30, first, head_definition(tmp_path, FIRST), DEF_REL)[0]
+    wis = "\n## Where it stopped\n\n"
+    for said in ("All built.",
+                 f"The review said: {finding}",                                 # quoting the size finding
+                 f"> {finding}\n\n{finding}",
+                 "However, the lock moved; the reason is in the diff.",         # prose with 'however ... reason'
+                 "Moreover, to recover the overnight run there was a reason.\nThe overrun is 12 lines over budget.",
+                 "Overrun reason:",                                             # the label with nothing after it
+                 "The overrun reason: the lock.",                               # not a line of its own form
+                 "Parked by the factory (review, 2026-11-21 10:00).\n\nsize: over budget.\nOverrun reason: the lock "
+                 "takes 12 lines."):                                            # the factory's own park text
+        got = factory_review.size_gate(42, 30, first, head_definition(tmp_path, FIRST + wis + said + "\n"), DEF_REL)
+        assert len(got) == 1 and "no reason written" in got[0], said
         assert DEF_REL in got[0] and "Where it stopped" in got[0]               # says where it was looked for
+    outside = FIRST + "\n## Notes\n\nOverrun reason: the lock takes 12 lines.\n"
+    assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, outside), DEF_REL)  # not in that section
     missing = tmp_path / "elsewhere"                                            # a HEAD file that cannot be read
     assert factory_review.size_gate(42, 30, first, missing, DEF_REL)            # counts as no reason (lesson-3)
     (missing / DEF_REL).mkdir(parents=True)
@@ -745,10 +761,11 @@ def test_an_overrun_with_no_reason_appended_still_blocks(tmp_path, factory_revie
 
 def test_a_reason_in_an_edited_definition_does_not_count(tmp_path, factory_review):
     first = FIRST.strip()
-    edited = FIRST.replace("It works.", "It works. Over budget, for a reason.")
-    wt = head_definition(tmp_path, edited + "\n## Where it stopped\n\nOver budget: the reason is above.\n")
+    reason = "\n## Where it stopped\n\nOverrun reason: the lock takes 12 lines.\n"
+    edited = FIRST.replace("It works.", "It works.\n\nOverrun reason: allowed, for the lock.")
+    wt = head_definition(tmp_path, edited + reason)
     assert factory_review.appended(wt, DEF_REL, first) == ""
     assert factory_review.size_gate(42, 30, first, wt, DEF_REL)                 # the edit gains it nothing
-    budget = FIRST.replace("30 net lines", "300 net lines") + "\n## Where it stopped\n\nOver: reason.\n"
+    budget = FIRST.replace("30 net lines", "300 net lines") + reason
     assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, budget), DEF_REL)
-    assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, FIRST + "\nreason: over\n"), DEF_REL) == []
+    assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, FIRST + reason), DEF_REL) == []

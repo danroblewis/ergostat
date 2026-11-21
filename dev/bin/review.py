@@ -73,16 +73,29 @@ def appended(wt: Path, rel: str, first: str) -> str:
     return now.lstrip()[len(first):] if first and now.lstrip().startswith(first) else ""
 
 
-OVER_REASON = re.compile(r"over.*reason|reason.*over", re.I | re.S)
+# An overrun's reason as the gate reads it: a line of its own that starts 'Overrun reason:' and says something after
+# it. An allowlisted form, not words found anywhere, so free prose ('however ... reason'), a quoted size finding (the
+# phrase falls mid-line there) and the factory's own park text do not pass for one.
+OVER_REASON = re.compile(r"^(?:[-*][ \t]+)?(?:\*\*)?overrun reason:(?:\*\*)?[ \t]*\w[^\n]{8,}", re.I | re.M)
+
+
+def stopped(text: str) -> str:
+    """The 'Where it stopped' sections of ``text`` that the branch wrote: anything outside such a section, and the
+    factory's own (park() writes 'Parked by the factory' first), are left out."""
+    parts = re.split(r"^## ", text, flags=re.M)[1:]
+    return "\n".join(p for p in parts if p.startswith("Where it stopped")
+                     and not p.partition("\n")[2].lstrip().startswith("Parked by the factory"))
 
 
 def size_gate(net: int, budget: int, first: str, wt: Path, rel: str) -> list[str]:
-    """The size gate: an overrun blocks unless a reason for it is written in the definition as first committed
-    (``first``, which also gave the budget) or in what the branch's HEAD appended to it (appended())."""
-    if net <= budget or OVER_REASON.search(first) or OVER_REASON.search(appended(wt, rel, first)):
+    """The size gate: an overrun blocks unless a reason for it (OVER_REASON) is written in the definition as first
+    committed (``first``, which also gave the budget) or in a 'Where it stopped' section the branch's HEAD appended
+    to it (appended(), stopped())."""
+    if net <= budget or OVER_REASON.search(first) or OVER_REASON.search(stopped(appended(wt, rel, first))):
         return []
     return [f"size: {net} net lines of core code against a budget of {budget}, with no reason written (looked for in "
-            f"{rel} as first committed and in what its HEAD appends to that, the 'Where it stopped' section)"]
+            f"{rel} as first committed and in a 'Where it stopped' section its HEAD appends to that, as a line that "
+            "starts 'Overrun reason:')"]
 
 
 def verdict(said: str) -> dict:

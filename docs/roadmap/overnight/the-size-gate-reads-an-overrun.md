@@ -18,3 +18,24 @@ depends-on: []
 ## Size budget
 
 30 net lines
+
+## Where it stopped
+
+Built (round 2). In round 1 the gate searched appended prose with the loose `over.*reason` pattern, which failed
+open. Now the gate reads an overrun's reason only in an allowlisted form: a line of its own that starts
+`Overrun reason:` and has something after it, inside a `## Where it stopped` section the branch appended
+(dev/bin/review.py, OVER_REASON and stopped()). Sections the factory's park() wrote ("Parked by the factory") and
+text outside such a section do not count. The finding names the form, and dev/prompts/implementor.md tells
+implementors to use it.
+
+Choices made with nobody to ask (the most reversible ones):
+- An allowlisted line form instead of round 1's suggestion (word boundaries near "reason"). Under that suggestion a
+  quoted finding such as "the overrun ... with no reason written" would still have matched. Going back to it means
+  changing one regex.
+- The first-committed text is checked for the same form. Before, it was searched with the loose pattern, so a
+  definition that only mentions an overrun and a reason ("every overrun with a written reason loops", as this one
+  does) passed. A planner who wants to allow an overrun up front writes the same line.
+- The gate no longer sees reasons written as free prose on other branches. It never saw them before round 1 either;
+  such a branch needs to add one `Overrun reason:` line.
+
+All changes are under dev/ and tests/, so 0 net lines count against the 30-line budget.
