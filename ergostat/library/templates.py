@@ -51,10 +51,11 @@ class Template:
     once: bool = False                  # used at most once a model; its parts keep the names written in it, unprefixed
     params: dict[str, Param] = field(default_factory=dict)
     body: dict = field(default_factory=dict)
+    trust: str = "untrusted"            # ergostat, owner or untrusted (SPEC §2a): anything not known counts as untrusted
 
     def summary(self) -> dict:
         return {"template": self.name, "description": self.description, **({"once": True} if self.once else {}),
-                "from": "ergostat" if self.builtin else str(self.path),
+                "from": "ergostat" if self.builtin else str(self.path), "trust": self.trust,
                 "params": {n: {k: v for k, v in (("type", p.type), ("description", p.description),
                                                 ("default", p.default if p.has_default else None),
                                                 ("stand-in", p.standin), ("required", p.required or None),
@@ -72,7 +73,12 @@ _Loader.add_implicit_resolver("tag:yaml.org,2002:bool", __import__("re").compile
                               list("tTfF"))
 
 
-def read(path: Path, builtin: bool) -> Template:
+def trusted(t: Template) -> bool:
+    """Ergostat's own, or from a folder the owner wrote as a path or marked ``trust: owner``; nothing else is."""
+    return getattr(t, "trust", None) in ("ergostat", "owner")
+
+
+def read(path: Path, builtin: bool, trust: str = "untrusted") -> Template:
     try:
         data = yaml.load(files.read_text(path), Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
     except (OSError, yaml.YAMLError) as e:
@@ -95,6 +101,7 @@ def read(path: Path, builtin: bool) -> Template:
                                  spec.get("stand-in"), bool(spec.get("required")), "default" in spec,
                                  spec.get("choices"))
     t.body = {k: data[k] for k in BODY if data.get(k) is not None}
+    t.trust = "ergostat" if builtin else trust
     return t
 
 
@@ -107,11 +114,13 @@ def folders(extra: list[Path] | None = None) -> list[Path]:
     return [*out, HERE]
 
 
-def find_all(extra: list[Path] | None = None) -> tuple[dict[str, Template], list[str]]:
+def find_all(extra: list[Path] | None = None, untrusted=()) -> tuple[dict[str, Template], list[str]]:
     """Every template, by name: an owner's template shadows ergostat's own of the same name (said in the notes),
-    and the first folder wins between the owner's own. Also what could not be read, and what was shadowed."""
+    and the first folder wins between the owner's own. A template from a folder in ``untrusted`` never shadows a
+    trusted one, wherever its folder is listed (SPEC §2a). Also what could not be read, and what was shadowed."""
     got: dict[str, Template] = {}
     notes: list[str] = []
+    untrusted = {Path(u).resolve() for u in untrusted}
     for d in folders(extra):
         if not files.is_dir(d):
             if d != HERE:
@@ -119,9 +128,16 @@ def find_all(extra: list[Path] | None = None) -> tuple[dict[str, Template], list
             continue
         for f in sorted([*files.glob(d, "*.yaml"), *files.glob(d, "*.yml"), *files.glob(d, "*/template.yaml")]):
             try:
-                t = read(f, d == HERE)
+                t = read(f, d == HERE, "untrusted" if Path(d).resolve() in untrusted else "owner")
             except TemplateError as e:
                 notes.append(str(e))
+                continue
+            was = got.get(t.name)
+            if was is not None and trusted(was) != trusted(t):          # the trusted one, whichever came first
+                kept, skipped = (was, t) if trusted(was) else (t, was)
+                notes.append(f"template {t.name}: {skipped.path} (from a folder not marked trusted) is not used; "
+                             f"{"ergostat's own" if kept.builtin else kept.path} is")
+                got[t.name] = kept
                 continue
             if t.name in got:
                 if t.builtin and not got[t.name].builtin:

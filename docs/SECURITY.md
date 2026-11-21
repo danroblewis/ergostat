@@ -82,6 +82,43 @@ Each of these is tested by an attack (`tests/test_sandbox_attacks.py`), with fak
 - **What happens after you approve.** Once a fix is approved and merged, it runs as your code always does, with your
   permissions. The sandbox protects the time before anyone has looked.
 
+## Libraries you did not write
+
+A folder of templates someone else wrote can be listed in the main file as `library: [{folder: PATH}]` (SPEC §2a).
+A map entry is **untrusted** unless it says `trust: owner`; a plain path, and `$ERGOSTAT_LIBRARY`, are yours and
+trusted. A map entry written wrong (another key, no `folder:`, a `trust:` other than `owner` or `untrusted`) is an
+error and its folder is not read at all.
+
+An untrusted template never takes the place of ergostat's own template or one of yours of the same name, whatever order
+the folders are listed in; the check says which one it skipped. A use whose chain holds an untrusted template anywhere
+(it, or a template it uses, at any depth) is **held**: everything made from the first untrusted template down,
+including trusted and built-in templates it uses, is checked against an allowlist (`ergostat/library/trust.py`), as
+expanded, with every parameter's value put in. If any part is not on it, the whole use is refused at your `use:` line
+(`library-untrusted`), and nothing of it is in the model. What a held chain may make:
+
+- **Sections:** `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`, `blocks`, `uses`.
+- **Block types:** `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`,
+  `timer`, `counter`, `alarm`: computed by ergostat from their inputs.
+- **Sensor keys:** `items`, `state`, `entering`, `leaving`, `where`, `over`, `measure`, `sum`, `changes`, `unit`,
+  `description`: sensors that count items or read a stock's changes from the record ergostat keeps.
+
+Each section's keys are listed in trust.py, each with its reason; any other section, key, block type or shape of value
+is refused, including commands, queries, daemons and timers on sensors, `program`, `ai`, `person`, `external` and
+`judge` blocks, `on-stale`, an item kind's `lease`, a goal's `owner`, and `inferred` or `formerly` anywhere. A test
+holds this list to trust.py's tables (`tests/test_library_trust.py`).
+
+What this does **not** stop:
+
+- **Its words reaching agents.** An untrusted template's descriptions, `example:` and `reading:` are still shown to
+  the AI agents that use the authoring tools, and may try to steer them (gap library-untrusted-text).
+- **What you trusted.** A path entry, or a map entry with `trust: owner`, is trusted wholesale: its templates may make
+  anything, and may take the place of ergostat's own. Read a folder before you mark it so.
+- **An agent that can write the main file.** It can mark a folder trusted, as you can. The agent guide tells agents
+  never to, but nothing enforces it.
+- **What its allowed parts touch.** An allowed block's `out:` or a part's `within:` may name your own parts, so an
+  untrusted block can feed a value into one of your goals or blocks; a raised `alarm` shows on the page and counts as
+  an intervention, as any alarm does.
+
 ## The page from elsewhere
 
 The page answers only requests addressed to `127.0.0.1:PORT` on this machine. Behind a cloudflared tunnel it answers a
