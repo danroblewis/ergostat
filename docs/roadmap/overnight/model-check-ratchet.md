@@ -22,3 +22,15 @@ One reviewed, green gap (`state-times`) added 137 `ergostat check` findings to t
 
 ## Size budget
 70 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+- **The factory's unit run after round 1.** Its tail shows no test output: it stops just after `uv` installed the
+  package, with no progress line, no pytest summary and no closing line from `suite_watch.py`. So no assertion stopped
+  it; it was stopped from outside, or it never started its tests. I could not tie that to this branch. These files were
+  re-run one at a time and all pass: test_factory (62 passed, 2 skipped), test_factory_knowledge (52 passed), and
+  test_factory_sessions with test_factory_manager (23 passed). The whole suite collects (2,127 tests) and ruff is
+  clean. No code was changed for it. The whole suite was not run here, because the brief forbids running it in
+  parallel.
+- Beyond the files to touch, `dev/bin/review.py` (the reviewer is shown each allowance) and `dev/factory.toml` (the
+  `check` command) were changed. The definition asks for both, and the named files alone cannot do it.
