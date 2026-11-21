@@ -48,6 +48,11 @@ auxiliaries:
     description: how far the drain under way has gone past its bound ([upgrade] drain_minutes; 0 within it)
     driven-by: [+auxiliary.drain-minutes]
     sensor: {run: python3 dev/bin/drain.py overrun, every: 1m, timeout: 1m, description: the switcher}
+  push-waiting:
+    unit: switch
+    description: 1 while the merge queue can take no gap - its last batch's push waits for approval, or the queue is blocked (run/queue.json)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/queue.py waiting, every: 1m, timeout: 1m, description: the merge queue's state}
 
 flows:
   gaps-approved:
@@ -290,13 +295,14 @@ actions:
 blocks:
   queue-when:
     type: expr
-    description: land while approved gaps wait and no suite runs on the machine (the load interlock)
+    description: land while approved gaps wait, no suite runs on the machine (the load interlock) and no push waits for approval (a run would only give its gap back)
     in:
       waiting: goal.approved-gaps-landed.off
       busy: goal.machine-quiet.off
       threads: goal.suite-threads-within.off
       memory: goal.suite-memory-within.off
-    expr: waiting * (1 - max(busy, threads, memory))
+      pushing: auxiliary.push-waiting
+    expr: waiting * (1 - max(busy, threads, memory, pushing))
     out: block.merge-queue
   merge-queue:
     type: program
