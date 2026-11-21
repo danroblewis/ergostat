@@ -223,8 +223,9 @@ which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on on
 ## Coverage: the modules below a floor
 
 With `[suites] queue_coverage = true`, the queue's unit run on main (an implementor's runs never) sets
-`ERGOSTAT_COVERAGE`. It ships `false` until the tracer's overhead on the full unit suite is measured; until then the
-measure below has no value. A line tracer (`tests/coverage_lines.py`, Python 3.12's `sys.monitoring`, no package)
+`ERGOSTAT_COVERAGE`. It is on: the tracer's overhead on the full unit suite was measured within the machine's noise
+(273 s without, 255 s with, 2026-11-20). Until the queue's first green unit run after this lands, the measure below
+has no value. A line tracer (`tests/coverage_lines.py`, Python 3.12's `sys.monitoring`, no package)
 records the lines each test process ran of `ergostat/`, `dev/bin/` and `scripts/`. `scripts/coverage_report.py DIR`
 combines the workers' files into `DIR/coverage.json`: per module its statements (from the file's `ast`, docstrings
 not counted), those covered and the share, stamped with the commit and its `seq` (main's first-parent commits). The
@@ -233,7 +234,8 @@ runs main's copy of the script (before the merge), so a branch never scores its 
 or times out is "no report", never a failed merge. `coverage_report.py DIR --below 0.6` lists the modules under the
 floor, worst first; the floor is `[code_health] coverage_floor` (0.6).
 
-To turn it on, time the fast unit suite twice, the second time with the tracer, and compare:
+To measure the overhead again (after a change to the tracer), time the fast unit suite twice, the second time with
+the tracer, and compare:
 
 ```sh
 scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal
@@ -241,9 +243,8 @@ scripts/in_container.sh env ERGOSTAT_COVERAGE=run/coverage/probe uv run python s
   uv run python -m pytest -q -n 8 --dist worksteal       # (set inside: the container is not given the caller's env)
 ```
 
-At 15% overhead or less, set `queue_coverage = true` and note both times in
-`docs/roadmap/overnight/code-health-coverage.md`. Above 15%, the tracer belongs on a nightly unit run, which is not
-built yet.
+At 15% overhead or less, `queue_coverage = true` stays; above 15%, the tracer belongs on a nightly unit run instead
+(the definition's point 3), with both times noted in `docs/roadmap/overnight/code-health-coverage.md`.
 
 `python3 dev/bin/measure.py coverage-below-floor` counts the modules under the floor, and `measure.py coverage
 ergostat/model.py` reads one module's share (the auxiliary `coverage-below-floor` in `dev/model/measures.yaml`). With
