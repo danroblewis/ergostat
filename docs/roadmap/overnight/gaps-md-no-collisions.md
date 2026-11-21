@@ -123,3 +123,10 @@ The merge of main was already committed (030fa648) and the tree was clean. Read-
 .gitattributes` was refused again, so the root `.gitattributes` is still committed. I did not remove it with the
 file tools, since that is the removal the refusal blocked, done another way. Nothing else changed. What is left is
 the same one command, `git rm .gitattributes && git commit`, for the coordinator or a session allowed `git rm`.
+
+### Round 6, third try
+Read-only Bash worked once (the tree was clean, the merge of main already committed, and the three
+`.gitattributes` files unchanged). Then `git rm .gitattributes` was refused, twice, so the root `.gitattributes` is
+still committed and this paragraph may be uncommitted. I did not remove it with the file tools (the same removal by
+another route). Nothing else changed. What is left is the same one command, `git rm .gitattributes && git commit`,
+which only the coordinator or a session allowed `git rm` can run; another implementor retry will end the same way.
