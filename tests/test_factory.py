@@ -2313,6 +2313,69 @@ def test_no_gap_is_leased_while_a_push_is_pending(tmp_path):
     assert f.run("queue.py", "gap/c")[0] == [] and waiting(f) == "1"
 
 
+def queue_when(pushing: float) -> float:
+    """block.queue-when of the factory's own model, as the engine computes it: gaps approved, the machine quiet."""
+    from ergostat.spec.blocks import Expr
+    spec, _ = read(ROOT / "ergostat.yaml")
+    b = spec.blocks["queue-when"]
+    vals = {"auxiliary.push-waiting": pushing, "goal.approved-gaps-landed.off": 1.0}
+    return Expr(b, spec).compute(lambda r: vals.get(str(r), 0.0), time.time())
+
+
+def nacked(lines: list[dict]) -> dict:
+    return next(x["nack"] for x in lines if "nack" in x)
+
+
+def test_a_waiting_push_puts_gaps_off_for_a_minute(tmp_path):
+    from ergostat.spec.engine import nack_of
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")                                                # a and b landed, their push asked
+    approved_gaps(f, {"c": 3}, batch=2)
+    for now in ("held", "requested", "approved"):                            # leased before the sensor saw the push
+        set_action(f, now)
+        said, lines = f.run("queue.py", "gap/c")
+        nack = nacked(lines)
+        assert said == [] and f"is {now}" in nack["why"]
+        assert nack["after"] == "1m" and nack["count"] is False                # a minute, and not an attempt
+        assert nack_of(nack)["after"] == 60
+        assert waiting(f) == "1" and queue_when(1.0) == 0                     # meanwhile the sensor holds it shut: no spin
+    assert f.item("gap/c")["state"] == "approved" and len(f.db()["acts"]) == 1
+
+
+def test_a_blocked_queue_still_puts_gaps_off_for_ten_minutes(tmp_path):
+    f = Factory(tmp_path)
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")
+    approved_gaps(f, {"c": 3}, batch=2)
+    set_action(f, "failed")                                                  # the push failed: the queue blocked
+    said, lines = f.run("queue.py", "gap/c")
+    assert "intervention.recorded" in said and nacked(lines)["after"] == "10m" and nacked(lines)["count"] is False
+    said, lines = f.run("queue.py", "gap/c")                                 # blocked, read again
+    assert said == [] and "blocked until" in nacked(lines)["why"] and nacked(lines)["after"] == "10m"
+    q = f.model / "run" / "queue.json"
+    q.write_text("{not json")                                                # any other reason: ten minutes too
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == [] and "cannot be read" in nacked(lines)["why"] and nacked(lines)["after"] == "10m"
+
+
+def test_the_next_batch_starts_once_the_push_has_run(tmp_path):
+    from ergostat.spec.engine import nack_of
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")
+    approved_gaps(f, {"c": 3, "d": 4}, batch=2)                             # approved while the push waits
+    set_action(f, "requested")
+    _, lines = f.run("queue.py", "gap/c")
+    put_off = nack_of(nacked(lines))["after"]
+    set_action(f, "ran")                                                     # the approval runs the push
+    assert waiting(f) == "0" and queue_when(0.0) == 1                       # the sensor (every 1m) opens the block
+    assert put_off + 60 <= 120                                               # due again, and seen, within 2 minutes
+    said, lines = f.run("queue.py", "gap/c")                                 # no gap newly approved
+    assert not [x for x in lines if "nack" in x] and "gap.queued" in said
+    assert f.item("gap/c")["state"] == f.item("gap/d")["state"] == "merged"
+
+
 def test_a_gap_that_did_not_land_waits_for_the_push(tmp_path):
     from types import SimpleNamespace
 
