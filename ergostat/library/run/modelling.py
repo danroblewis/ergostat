@@ -105,8 +105,7 @@ def ai(argv: list[str]) -> int:
     p = project()
     def fails(r) -> int:                          # its failed calls: counted apart from its tries, and bounded
         return int((r.get("failed") or {}).get("ai") or 0)
-    mine = [r for r in rq.waiting(p, ("open", "held")) if r.get("tier") == "ai" and not r.get("owner")
-            and int((r.get("tried") or {}).get("ai") or 0) < a.tries and fails(r) < md.FAILS]
+    mine = [r for r in rq.for_ai(p, a.tries) if fails(r) < md.FAILS]
     if not mine:
         note("modeller: no request waiting for the ai tier")
         return 0
@@ -128,17 +127,16 @@ def ai(argv: list[str]) -> int:
         for r in group:                          # past FAILS failed calls it is held for the owner
             n = fails(r) + 1
             gone = f" {n} times; it waits for the owner" if n >= md.FAILS else ""
-            rq.event(p, r["id"], "held" if gone else r["state"],
-                     {"why": f"the ai tier's call failed{gone}: {c['error']}"[:500], "error": c["error"][:500],
-                      "failed": {**(r.get("failed") or {}), "ai": n}, "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
+            rq.mark(p, r, "held" if gone else r["state"], f"the ai tier's call failed{gone}: {c['error']}"[:500],
+                    error=c["error"][:500], failed={**(r.get("failed") or {}), "ai": n},
+                    cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
         note(f"modeller ({a.model}): {c['error']}; ${c['usd']:.4f} charged, no try used for {len(group)} requests{said}")
         return 0
     for r in group:
         tried = {**(r.get("tried") or {}), "ai": int((r.get("tried") or {}).get("ai") or 0) + 1}
         if rq.evidence_of(r) in answered:
-            rq.event(p, r["id"], r["state"], {"tried": tried, "error": None,
-                                              "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
-            continue
+            rq.mark(p, r, r["state"], tried=tried, error=None, cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
+            continue                                     # (each mark refused if the owner answered it meanwhile)
         why = cannot.get(r["id"]) or (f"its second call failed: {c['error']}"[:500] if c.get("error")
                                       else "the ai tier proposed nothing that would be proposed")
         rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried, error=c.get("error"),
@@ -208,12 +206,14 @@ def redesign(argv: list[str]) -> int:
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"], "unit_sig": sig,
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
     from ...numbers import requests as rq
+    run = ("open", "answered")                     # (as it was opened, or answered as never ended meanwhile)
     if out.get("result") == "proposed":
-        rq.event(p, req, "proposed", {"change": out.get("id"), "why": None})
+        rq.move(p, req, "proposed", {"change": out.get("id"), "why": None}, run)
     elif out.get("result") == "error":           # its call failed: the request stays open, saying so
-        rq.event(p, req, "open", {"why": f"the redesigner's call failed: {out['why_not']}"[:500]})
+        rq.move(p, req, "open", {"why": f"the redesigner's call failed: {out['why_not']}"[:500]}, run)
     else:
-        rq.event(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")})
+        rq.move(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")},
+                run)
     for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner
         print(json.dumps({"report": r}), flush=True)
     c = out["cost"]
