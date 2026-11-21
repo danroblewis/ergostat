@@ -55,3 +55,34 @@ The report says, for each new test, which part of the fix was disabled to watch 
 - test_a_take_racing_the_stop_is_given_back_uncounted: once a take is counted in running before its write, a patched events.add that calls the real close() makes close() wait its whole 5s deadline on that same take (engine.py:1746-1748), and ergostat.stopped lands before the give-back. Have the patch set the stop (under the engine lock) and call kill_all(), then check that the give-back comes before any later close() writes ergostat.stopped, by seq.
 - The 80 net lines are tight: the parked fix is 53 lines, plus five new window tests and the SPEC and GAPS lines. Check early whether tests count against the budget. If they do, share one fixture for the two-engine and spawn-window tests rather than cutting the window tests.
 - The daemon path (engine.py:938-940, daemons.run_item) is not covered by the spawn-side kill. Say in SPEC §9.5 that a daemon's item is stopped by daemons.close(), or narrow 'a run started while the engine stops is killed' to processes run_block spawns itself.
+
+## Where it stopped
+
+Built, round 1. Nothing in the definition is left undone. Here are the choices made, with nobody to ask (each the more reversible one):
+
+- **The parked fix was not lifted.** `factory/lease-shutdown-race` is not in this clone, so the fix was written fresh. It is 37 net lines of code outside `tests/` and `docs/` (`dispatch.py` +30, `engine.py` +7), within the 80-line budget.
+- **Done item 2 is narrowed, not widened** (plan review note 1). `close()` still calls `runner.kill_all()`. So a second engine's run that is **already in `runner.LIVE`** when the first engine kills its runs is killed with them, on main and here alike. What this branch guarantees is the spawn side: a process `run_block` starts once **this** engine's `stop` is set is killed. The check is made under `Engine.lock`, where `close()` sets the stop, and keys on that stop. A run another engine starts after the first engine's `kill_all()` goes on. Making `close()` kill only its own `self.live` would change what the process-wide kill covers for every other user of `LIVE` (the `Runner`), so that change is left to its own gap. `STOPPING` stays set after one engine closes. A surviving engine's run that then exits non-zero is still labelled `stopped with ergostat` (`engine.py`, the `note =` line). SPEC §9.5 says both.
+- **Done item 3, ended once** (plan review note 2). `Dispatcher.finish` reads the record and writes `lease.ended` under `Dispatcher.lock`. `close()`'s `give_back()` goes through the same `finish`. `Dispatcher.mine` (run → block, item, fence) holds the leases this engine took and has not ended; `finish` drops an entry once it has ended its lease or found it already ended. There is one more test than the definition lists: `test_a_runs_own_end_inside_close_s_give_back_ends_it_once`. It starts the run's own `finish` in the gap between the give-back's read and its write.
+- **The racing-take test** (note 3) sets the stop under `Engine.lock` and calls `kill_all()` inside the patched `lease.taken` write. It does not call `close()` there. Only afterwards does it call the real `close()`, and it checks by `seq` that the give-back comes before `ergostat.stopped`.
+- **"Finish stubbed out"** (test 5) is a `finish` that raises on its first call (the run's own end), which `_work` logs as "the watchdog ends it later". It cannot be a stub that does nothing on every call, because `close()` ends the lease through that same `finish`.
+- **The daemon path** (note 5): SPEC §9.5 says a daemon's item is stopped by the daemon's own close (§9.7). The spawn-side kill covers only the processes `run_block` starts itself.
+- **`close()` takes `Engine.lock` with a 5 s timeout** to set the stop. If the lock is not free by then, it sets the stop anyway, so it never blocks forever. A take and a spawn hold the lock only for a set operation, never across a write.
+- **The restart test** no longer sleeps for a fixed 0.6 s. It waits for the expiry record, then checks by `seq` that before the expiry only the first engine's take exists and no lease ended.
+- **GAPS.md**: on main the entry was in the open list, under *Engine*, not only in the brief. It was moved to *Done recently*.
+
+How each new test was watched failing, with one part of the fix disabled at a time:
+- `test_no_lease_is_taken_once_the_engine_is_stopping`: the take's stop check disabled. A `lease.taken` was written.
+- `test_a_take_racing_the_stop_is_given_back_uncounted`: the re-check after the write disabled. An `agent.started` was recorded, so a run started.
+- `test_a_run_spawned_after_kill_all_is_killed`: the spawn-side kill disabled. The `sleep 30` group was still alive after 5 s.
+- `test_one_engine_closing_does_not_kill_another_engines_run`: the spawn-side kill keyed on `runner.STOPPING`. The other engine's run died.
+- `test_close_gives_back_every_lease_still_going`: `give_back()` removed from `close()`. No `lease.ended` was recorded.
+- `test_a_runs_own_end_inside_close_s_give_back_ends_it_once`: `finish`'s lock replaced by a fresh lock. Two `lease.ended` were recorded.
+
+Tests run (one file group at a time, not under the factory's watchdog):
+- `tests/test_leases.py`: 29 passed.
+- `test_lease_kill`, `test_lease_refused_cost`, `test_leased_workspaces`: 14 passed.
+- `test_daemons`, `test_daemons_restart`, `test_warm`: 53 passed.
+- `test_spec_engine`, `test_runner_and_state`, `test_ticket_factory_daemons`, `test_workspaces`: 68 passed.
+- ruff: clean.
+
+Not run here: the whole unit suite and the four browser files. The factory runs those under its watchdog. There is no `origin` remote in this clone; local `main` is already merged in.
