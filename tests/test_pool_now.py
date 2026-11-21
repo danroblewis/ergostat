@@ -226,7 +226,7 @@ def test_a_lowered_pool_drains_and_stops_nothing(tmp_path):
         assert taken(p) == 3 and held(p) == 3 and not p.events.query(n=None, type=ENDED), "nothing running is stopped"
         for k, x in enumerate(sorted(first)):
             (tmp_path / f"release-{x.split('/')[1]}").write_text("")       # each ends on its own signal
-            assert wait_for(lambda: its.one(p.events, p.model.spec, x).state == "done")
+            assert wait_for(lambda x=x: its.one(p.events, p.model.spec, x).state == "done")
             if k < 2:
                 ticks.wait(5)
                 assert taken(p) == 3, "no new lease while as many as the pool now are held"
