@@ -310,3 +310,18 @@ nothing was run, removed or committed here. The edits below are in the working t
 Left for the factory: `git rm tests/test_zz_scratch.py`; commit this round's two edits; run
 `tests/test_outside_experiments.py`, `tests/test_churn.py`, ruff, the unit suite, the four browser files and
 `demo_check`.
+
+**Round 5, answering the queue's finding.**
+- *`tests/test_zz_scratch.py` still committed* (blocking, rounds 2–4). **Done.** `git rm` was allowed in this session,
+  and the file is removed in this round's commit.
+- *Round 4's untested `why` line* (round 4 left it with no test). The round-4 edits were already committed by the
+  factory, and they now pass. New test `test_a_later_pass_left_with_no_readings_says_the_earlier_process_is_not_used`
+  asserts the line, `found: False`, `proposable: False` and `dropped`. Every window starts at `k − P`, and rule 6 drops
+  a step only when an input has no reading anywhere in its window. So a later pass can find no readings only where its
+  window is shorter than the earlier pass's. The test makes that happen by monkeypatching `settling` to one bucket.
+  With the line removed from `experiments.py`, the test fails (checked), and it passes with the line put back.
+- origin/main was not merged again: this clone has no remote. The branch already merges main at a1d1b941.
+
+Run in round 5, green: `tests/test_outside_experiments.py`, `tests/test_churn.py` and `tests/test_control.py` (71
+passed, 1 xfailed), and `ruff check ergostat tests scripts`. Not run here: the whole unit suite, the four browser
+files and `demo_check` (the factory runs them under the watchdog).
