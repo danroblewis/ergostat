@@ -134,6 +134,7 @@ class Factory:
             implementor_max = 4
             reviewer_max = 2
             streak = 3
+            batch_max = 4
             [instance]
             port = 0
             [load]
@@ -176,7 +177,7 @@ class Factory:
             iid = line.get("item") or about
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
             assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
-                                                                                ".dependencies", ".push-settled")), line
+                                                                                ".dependencies", ".push-settled", ".groomed")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
                 rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
@@ -369,7 +370,7 @@ def test_flake_retried(tmp_path):
     f.run("review.py", gid)
     (tmp_path / "failed-once").unlink()                # the queue's unit run fails once
     said, _ = f.run("queue.py", gid)
-    assert said == ["gap.queued", "gap.queue-failed"] and f.item(gid)["fields"]["failed_tests"] == [
+    assert said == ["gap.queued", "gap.queue-failed", "gap.measured"] and f.item(gid)["fields"]["failed_tests"] == [
         "tests/test_x.py::test_y"]
     assert git(f.checkout, "log", "-1", "--format=%s", "main") == "start"     # the merge undone
     said, _ = f.run("triage.py", gid)
@@ -965,7 +966,8 @@ def test_a_gap_is_taken_only_once_its_dependencies_merged_the_critical_first(tmp
     got = [i.id for i in pr.order_ready(ev, spec, "gap", takeable, t + 13)]
     assert "gap/top" not in got and "gap/other" in got                         # a parked dependency still holds it
     from ergostat.spec.itemindex import index_for
-    assert "parked" in pr.Kinds(spec, index_for(ev, spec, False))["gap"]["finished"]   # never open in the estimates
+    info = pr.Kinds(spec, index_for(ev, spec, False))["gap"]
+    assert info["paused"] == ["parked"] and "parked" not in info["finished"]   # paused, not done: never projected on
 
 
 def test_a_push_without_an_action_id_never_stalls_silently(tmp_path):
@@ -1284,6 +1286,207 @@ def test_a_continued_branch_already_reviewed_gets_reviews_and_logs_of_its_own(tm
     assert new["fields"].get("where_it_stopped") != "x" and new["fields"]["verdict"] == "merge"
     assert f.item("review/warm-1")["fields"] == {"verdict": "fix", "classes": ["lesson-5"]}
     assert f.item("review/warm-2")["fields"] == {"verdict": "park", "where_it_stopped": "x"}
+
+
+# ---- the merge queue's batches (docs/roadmap/overnight/merge-batching.md)
+
+RED = "echo run >> {runs}; if [ -e bad.txt ]; then echo 'FAILED tests/test_b.py::test_b - boom'; exit 1; fi"
+
+
+def approved_gaps(f: Factory, ranks: dict[str, int], bad: str = "", batch: int | None = None) -> dict[str, str]:
+    """Gaps approved on branches of their own in the drop (each adds NAME.txt; ``bad`` adds bad.txt too, which fails the
+    unit suite), ranked as given; the queue's batch set when ``batch``. {name: its reviewed commit}."""
+    drop = f.tmp / "live" / "drop.git"
+    if not drop.exists():
+        subprocess.run(["git", "init", "-q", "--bare", str(drop)], check=True)
+    out = {}
+    for name, rank in ranks.items():
+        git(f.checkout, "checkout", "-q", "-b", name, "main")
+        (f.checkout / f"{name}.txt").write_text(name)
+        if name == bad:
+            (f.checkout / "bad.txt").write_text("breaks the suite")
+        git(f.checkout, "add", "-A")
+        git(f.checkout, "commit", "-q", "-m", name)
+        out[name] = git(f.checkout, "rev-parse", "HEAD")
+        git(f.checkout, "push", "-q", str(drop), f"{name}:refs/heads/factory/{name}")
+        git(f.checkout, "checkout", "-q", "main")
+        git(f.checkout, "branch", "-q", "-D", name)
+        f.fold([{"event": "gap.approved", "item": f"gap/{name}",
+                 "data": {"branch": name, "reviewed_head": out[name], "approved_at": time.time() - 3600, "rank": rank}}],
+               None)
+    if batch:
+        (f.model / "run").mkdir(exist_ok=True)
+        (f.model / "run" / "pools.json").write_text(json.dumps({"batch": batch}))
+    return out
+
+
+def suite_runs(f: Factory) -> int:
+    p = f.tmp / "runs"
+    return len(p.read_text().splitlines()) if p.exists() else 0
+
+
+def merges(f: Factory) -> list[str]:
+    """main's merges, oldest first, by the branch each merged."""
+    return [s.removeprefix("Merge branch 'factory/").rstrip("'") for s in
+            git(f.checkout, "log", "--first-parent", "--reverse", "--format=%s", "main").splitlines()[1:]]
+
+
+def test_a_green_batch_lands_every_gap(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 3, "b": 1, "c": 2, "d": 4, "e": 0}, batch=3)
+    db = f.db()
+    db["items"]["gap/e"]["fields"]["lease"] = {"holder": "run-x", "block": "flake-triage"}   # held by another run
+    f.record.write_text(json.dumps(db))
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued"] + ["gap.merged"] * 3 + ["gap.push-asked"] * 3    # the others never left approved
+    assert suite_runs(f) == 1                                                        # the suites once, for the batch
+    assert merges(f) == ["b", "c", "a"]                                        # in rank order (not d: the batch is 3)
+    head = git(f.checkout, "rev-parse", "main")
+    for g in ("a", "b", "c"):
+        it = f.item(f"gap/{g}")
+        assert it["state"] == "merged" and it["fields"]["main_sha"] == head and it["fields"]["batch_size"] == 3
+        assert it["fields"]["queue_attempts"] == 1 and len(it["fields"]["queue_runs"]) == 1
+    assert f.item("gap/d")["state"] == "approved" and f.item("gap/e")["state"] == "approved"
+    acts = f.db()["acts"]
+    assert len(acts) == 1 and acts[0][:2] == ["act", "push-main"] and f"sha={head}" in acts[0]   # one approval
+    pending = json.loads((f.model / "run" / "queue.json").read_text())["pending"]
+    assert pending["gaps"] == ["gap/b", "gap/c", "gap/a"]
+    set_action(f, "ran")
+    said, why = settle(f)
+    assert said == ["gap.pushed"] * 3 and why is None                          # the one push lands all three
+
+
+def test_a_red_batch_is_bisected_to_the_failing_merge(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3 and "gap.queued" not in said[1:]
+    # all four red; p, q green; p, q, r red: r. Then s merged again onto p, q and run alone: green.
+    assert suite_runs(f) == 4
+    r = f.item("gap/r")
+    assert r["state"] == "queue-failed" and r["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert merges(f) == ["p", "q", "s"] and not (f.checkout / "bad.txt").exists()
+    onto = r["fields"]["pre"]                                                  # what r was merged onto: main with p, q
+    assert git(f.checkout, "log", "--first-parent", "--format=%s", "-1", onto) == "Merge branch 'factory/q'"
+    assert git(f.checkout, "rev-parse", "main~1") == onto                      # and the rest landed on it
+    assert all(f.item(f"gap/{g}")["state"] == "merged" for g in "pqs")
+    assert len(f.db()["acts"]) == 1
+    run = {g: f.item(f"gap/{g}")["fields"]["queue_runs"] for g in "pqrs"}
+    assert all(v == run["p"] for v in run.values()) and len(run["p"]) == 1     # the one run, on all four
+    db = f.db()
+    db["items"]["gap/p"]["fields"]["queue_runs"][0]["minutes"] = 40            # (a run this fast reads 0 minutes)
+    for g in "qrs":
+        db["items"][f"gap/{g}"]["fields"]["queue_runs"] = db["items"]["gap/p"]["fields"]["queue_runs"]
+    db["items"]["gap/old"] = {"id": "gap/old", "kind": "gap", "state": "queue-failed",   # a run that landed nothing
+                              "fields": {"queue_runs": [{"run": "y", "minutes": 20, "at": time.time()}]}}
+    f.record.write_text(json.dumps(db))
+    r = subprocess.run([sys.executable, str(BIN / "measure.py"), "merges-per-hour"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True)
+    assert r.returncode == 0 and float(r.stdout) == 3.0, r.stderr                 # 3 merged in an hour of running
+    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"',
+                                                     f'rerun = "{RED.format(runs=tmp_path / "reruns")}"'))
+    said, _ = f.run("triage.py", "gap/r")                                     # flake triage, on r's own merge
+    assert said == ["gap.sent-back"] and f.item("gap/r")["fields"]["sent_back_by"] == "triage"
+
+
+def test_batch_of_one_is_todays_queue(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 2, "b": 1}, bad="a")                                # no batch set: 1
+    start = git(f.checkout, "rev-parse", "main")
+    said, lines = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.queue-failed", "gap.measured"] and suite_runs(f) == 1   # as before: no bisecting
+    assert f.item("gap/a")["fields"]["pre"] == start and git(f.checkout, "rev-parse", "main") == start
+    assert f.item("gap/b")["state"] == "approved"                              # b ranks higher, but is not this run's
+    said, _ = f.run("queue.py", "gap/b")
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and merges(f) == ["b"]
+    assert {x.get("item") for x in lines if "event" in x} <= {None, "gap/a"}
+
+
+def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
+    # the run stopped during its suites: only ever the queue's own process (never whatever else $PPID could be)
+    f = Factory(tmp_path, unit="ps -o command= -p $PPID | grep -q dev/bin/queue.py && kill -TERM $PPID; sleep 30")
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    start = git(f.checkout, "rev-parse", "main")
+    said, _ = f.run("queue.py", "gap/a", fails=True)
+    assert said == ["gap.queued"] and f.item("gap/b")["state"] == "approved"    # b never left approved
+    assert git(f.checkout, "rev-parse", "main") == start                       # main as it was
+    assert "running" not in json.loads((f.model / "run" / "queue.json").read_text())
+
+
+def test_a_killed_batch_strands_nothing(tmp_path):
+    # SIGKILL mid-batch, during the suites (no finally runs): main holds both merges, b is still approved
+    once = tmp_path / "killed"
+    f = Factory(tmp_path, unit=f"if [ ! -e {once} ]; then touch {once}; ps -o command= -p $PPID | grep -q "
+                              "dev/bin/queue.py && kill -KILL $PPID; sleep 1; exit 1; fi; echo run >> "
+                              f"{tmp_path / 'runs'}")
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    start = git(f.checkout, "rev-parse", "main")
+    said, _ = f.run("queue.py", "gap/a", fails=True)
+    assert said == ["gap.queued"] and f.item("gap/b")["state"] == "approved"
+    assert merges(f) == ["a", "b"]                                             # left behind on the checkout's main
+    assert json.loads((f.model / "run" / "queue.json").read_text())["running"]["pre"] == start
+    said, _ = f.run("queue.py", "gap/a")                                       # a's lease gave it back; the next run
+    assert said == ["gap.queued", "gap.merged", "gap.merged", "gap.push-asked", "gap.push-asked"]
+    assert merges(f) == ["a", "b"] and suite_runs(f) == 1                            # main put back first: each merged once
+    assert git(f.checkout, "rev-parse", "main~2") == start
+    assert f.item("gap/a")["state"] == f.item("gap/b")["state"] == "merged"
+    assert "running" not in json.loads((f.model / "run" / "queue.json").read_text())
+
+
+def test_a_run_killed_while_landing_blocks_the_queue(tmp_path):
+    f = Factory(tmp_path)
+    approved_gaps(f, {"a": 1})
+    (f.model / "run").mkdir(exist_ok=True)
+    (f.model / "run" / "queue.json").write_text(json.dumps({"running": {
+        "pre": git(f.checkout, "rev-parse", "main"), "gaps": ["gap/a"], "landing": ["gap/a"]}}))
+    said, lines = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "intervention.recorded"] and f.item("gap/a")["state"] == "queued"
+    assert "saying gap/a merged" in next(x["nack"]["why"] for x in lines if "nack" in x)
+    said, lines = f.run("queue.py", "gap/a")                                   # blocked once, not again each run
+    assert said == ["gap.queued"] and "blocked until intervention/queue-" in next(x["nack"]["why"] for x in lines if "nack" in x)
+
+
+def test_the_queue_runs_unit_and_browser_at_once_and_reports_the_first_failure(tmp_path):
+    t = tmp_path / "t"
+    f = Factory(tmp_path, unit=f"echo unit-start >> {t}; sleep 1; echo unit-end >> {t}; echo 'FAILED tests/test_u.py::test_u'; exit 1")
+    f.config.write_text(f.config.read_text().replace(
+        'browser = "true"', f'browser = "echo browser-start >> {t}; sleep 1; echo browser-end >> {t}; exit 1"').replace(
+        'demo = "true"', f'demo = "echo demo >> {t}"'))
+    approved_gaps(f, {"a": 1})
+    said, _ = f.run("queue.py", "gap/a")
+    got = t.read_text().split()
+    assert sorted(got[:2]) == ["browser-start", "unit-start"] and "demo" not in got    # together; demo not after red
+    fields = f.item("gap/a")["fields"]
+    assert said[1] == "gap.queue-failed" and fields["failed_suite"] == "unit"           # the first, in order
+    assert fields["failed_tests"] == ["tests/test_u.py::test_u"]
+    assert fields["suites_queue"]["browser"]["rc"] == 1 and fields["suites_queue"]["unit"]["rc"] == 1
+    f.config.write_text(f.config.read_text().replace("exit 1", "exit 0"))
+    t.unlink()
+    approved_gaps(f, {"b": 1})
+    said, _ = f.run("queue.py", "gap/b")
+    got = t.read_text().split()
+    assert said[1] == "gap.merged" and got[-1] == "demo" and {"unit-end", "browser-end"} <= set(got[:-1])  # demo after
+
+
+def test_the_tuner_asks_for_a_bigger_batch_while_the_queue_waits(tmp_path):
+    f = Factory(tmp_path)
+    now = time.time()
+    f.fold([{"event": "gap.merged", "item": "gap/slow", "data": {"merged_at": now, "queue_wait_hours": 5, "queue_runs": [
+        {"run": "x", "minutes": 30, "at": now}]}}], None)
+    pools = lambda: subprocess.run([sys.executable, str(BIN / "pools.py"), "tune"], cwd=f.model, env=f.env,  # noqa: E731
+                                   capture_output=True, text=True)
+    r = pools()
+    assert r.returncode == 0, r.stderr
+    act = next(a for a in f.db()["acts"] if "role=batch" in a)
+    assert act[:2] == ["act", "raise-pool"] and "to=2" in act
+    got = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    measured = next(x for x in got if x.get("item") == "pool/batch" and x["event"] == "pool.measured")
+    assert measured["data"]["merges_per_hour"] == 2.0 and measured["data"]["pool"] == 1
+    db = f.db()
+    db["items"]["gap/slow"]["fields"]["queue_wait_hours"] = 1                   # (the record sums it, per attempt)
+    db["acts"] = []
+    f.record.write_text(json.dumps(db))
+    assert pools().returncode == 0 and not [a for a in f.db().get("acts", []) if "role=batch" in a]   # in its goal
 
 
 def test_a_dead_letter_on_main_broken_tests_says_so(monkeypatch):
