@@ -48,6 +48,10 @@ systems:
     within: oversight
     description: the load interlock - the suites running on the machine, their threads and memory
     show: [auxiliary.suites-running, auxiliary.suite-threads, auxiliary.suite-memory]
+  resources:
+    within: oversight
+    description: the machine's CPU, memory, disk and threads, the Docker VM's, and how many more sessions fit
+    show: [auxiliary.cpu-utilisation, auxiliary.memory-utilisation, auxiliary.disk-free, auxiliary.session-headroom]
   measures:
     within: oversight
     description: how well the factory works - cycle time, first-pass yield, fix rounds, the queue, flakes, cost
@@ -64,6 +68,10 @@ systems:
     within: factory
     description: questions from the coordinator or a planner, answered with a report and its sources
     show: [stock.research-asked]
+  managing:
+    within: oversight
+    description: the pipeline manager - an AI session per situation (a gap stuck, parked or dead, the queue blocked, an intervention left), acting through manage.py and recording each act as an intervention
+    show: [stock.situations-raised, auxiliary.stuck-gaps]
   knowledge:
     within: factory
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
@@ -92,11 +100,13 @@ items:
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-      gap.closed: closed             # groomed out of the backlog: done on main already, or a duplicate (backlog.py)
+      gap.closed: closed             # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
+                                     # manager's close, once the coordinator approved it)
     show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
-                                     # one waiting on a parked gap is held by its field waits_on_parked (takes: where)
+                                     # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
+                                     # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
       duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
     fold:
@@ -118,6 +128,7 @@ items:
       plan_reviews: append
       research: union
       research_waits: sum
+      resources: append              # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
     join:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}
@@ -146,10 +157,12 @@ items:
       session.ended: done
       session.errored: failed        # no result, an error result, a timeout or a crash
     show: [role, round, gap, model, cost, turns, seconds, transcript]
+    # resources (no fold: one container's): its CPU and memory, peak and mean (dev/bin/resources.py)
     relations:
       gap: gap                       # the gap it worked on: the gap's page lists its sessions
       research: research
       review: review                 # (the librarian's step on a review)
+      situation: situation           # (the pipeline manager's)
     formats:
       transcript: claude-session     # Claude Code's own session file, the token scrubbed: shown as the conversation,
                                      # each line recorded as a claude.* event about the session (SPEC 5a)
@@ -158,12 +171,13 @@ items:
 
   flake:
     id: flake/*
-    description: a test that failed in the merge queue and passed alone - counted each time, until fixed
-    states: [seen, fixed]
+    description: a test that failed in a suite and passed alone (seen) - counted each time, until fixed; or one that fails on main too (main-broken, the implementor's triage, dev/bin/onmain.py)
+    states: [seen, main-broken, fixed]
     on:
       flake.seen: seen
+      flake.main-broken: main-broken   # failed on a branch and on clean main: main's, not the gap's
       flake.fixed: fixed
-    show: [test, times]
+    show: [test, times, main]
     fold: {times: sum, gaps: union}
 
   intervention:
@@ -173,7 +187,21 @@ items:
     on:
       intervention.recorded: open
       intervention.remedied: remedied
-    show: [reason, class, remedy]
+    show: [reason, class, by, remedy]
+    fold: {tests: union, gaps: union}  # (class main-broken: one per main commit, every gap held by it)
+
+  situation:
+    id: situation/*
+    description: one thing the pipeline manager is asked to look at - the queue blocked, a gap dead, parked or stuck, an intervention unremedied, or its heartbeat - raised one at a time by pipeline-watch (dev/bin/watch.py)
+    states: [raised, handled, failed]
+    on:
+      situation.raised: raised
+      situation.handled: handled     # the session's calls run (manage.py), each with what it said
+      situation.failed: failed
+    show: [trigger, subject, why, summary, ai_cost_usd]
+    relations:
+      gap: gap                       # the gap it is about: the gap's page lists it
+    lease: {attempts: 2}
 
   pool:
     id: pool/*
@@ -231,7 +259,7 @@ items:
     show: [kind, title, file, areas, carried, text]
 
 messages:
-  done: {gap: [merged, closed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)

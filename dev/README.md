@@ -134,8 +134,24 @@ the critical first. A name that is no gap, or a link that would close a cycle, i
 draw the tree; `python3 dev/bin/deps.py` prints it as mermaid.
 
 Then: the implementor commits the definition first and builds; the reviewer approves, sends it back (`fix`, with its
-findings) or parks it; the third failed gate (`[gates] kill_after`) parks it with where it stopped; the queue lands it. `ergostat item
+findings) or parks it; the sixth failed gate (`[gates] kill_after`) parks it with where it stopped; the queue lands it. `ergostat item
 gap/NAME` shows each round, its reviews, the context each session was given and what it cost.
+
+**The kill rule** is in `[gates]` (dev/factory.toml): `kill_after = 6` failed gates (fix verdicts, queue conflicts, real
+failures in the queue), `build_failures = 6` failed fast-suite runs of the implementor's, or `build_hours = 12` of
+building over its rounds, park a gap; within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make
+its failing fast suites pass.
+
+**A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
+runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
+suite slot). Passing alone, they are flakes (`flake.seen`) and the fast suites run once more, uncounted. Still failing,
+they run once on clean main (the commit the branch merged, `built_main`). A test that fails there too becomes
+`flake/<test>` in the state `main-broken` and the intervention `intervention/main-broken-<sha12>` (class `main-broken`,
+with the tests and the gaps it holds), which `interventions-trend` counts; fix it on main in a gap of its own (review
+lesson 13). If every failing test fails on main, the failure is not counted and no fix session is spent on it: the gap
+is given back with `waits_on_main`, the implementor skips it, and the intake releases it once main is another commit.
+At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
+failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
 
 ## The backlog: ranked, groomed
 
@@ -184,6 +200,19 @@ lowers the pools by one at once. Say a merge was reverted on main with
 `ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
 
+## The machine's resources: a cap on the pools
+
+The machine is measured every 30 s (`dev/bin/resources.py`, `dev/model/resources.yaml`): the host's CPU, memory,
+disk and threads, the Docker VM's limits and use, and each factory container's CPU and memory, kept on its gap
+(`resources`: each session's and suite's peak and mean) and in `run/resources/sessions.jsonl`. The setpoints are the
+goals in `dev/model/resources.yaml` (change them there). `session-headroom` is how many more sessions fit, from the
+measured use of a session and its suite. **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
+the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
+(`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
+new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous) older
+than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
+which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
+
 ## Approve the push
 
 A green merge asks for `push-main` (exactly that commit to origin's main), held for you:
@@ -220,6 +249,42 @@ ergostat event --add intervention.recorded --item intervention/2026-11-20-unstic
   --data '{"reason": "the worktree was left mid-rebase", "class": "worktree", "recorded_at": 1795160000}'
 ergostat event --add intervention.remedied --item intervention/2026-11-20-unstick-alpha --data '{"remedy": "gap/..."}'
 ```
+
+## The pipeline manager
+
+What the coordinator did by hand and recorded as interventions (a gap parked on main's own failures continued, a gap
+re-approved after an environmental queue failure, the queue unblocked, a missing gap filed) is the pipeline manager's:
+an AI block (`pipeline-manager`, `dev/model/manager.yaml`; `[ai] pipeline_manager_model`, Opus, and its own
+`pipeline_manager_session_usd`; pool 1; within the daily cap) that looks at one **situation** at a time, in a container
+on a read-only clone of main like the other sessions, its conversation kept as a session item related to the situation.
+
+**The triggers** (`dev/bin/watch.py`, the block `pipeline-watch`, every 5 minutes; `[manager]` in the settings), in
+order: the queue blocked (`run/queue.json`, or an open intervention of class `queue`); a gap dead past half an hour, or
+parked within `parked_within_hours` (48) unless another gap carries its branch on; a gap in one state past
+`[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
+lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
+queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes
+`operator-decision` and `factory-tuning`, or `factory: false`) past `intervention_hours` (12), at most
+`interventions_per_hour` (3) an hour; a heartbeat every
+`heartbeat_minutes` (30), only when the pipeline changed. One situation at a time, and never one whose fingerprint (its
+subject and the visit, park or change it is about) was raised before. `python3 dev/bin/watch.py stuck` counts the
+stuck gaps (the goal `no-stuck-gaps`). Pause it with `[manager] open = 0` in `factory.local.toml`.
+
+**The brief** (`dev/bin/manager.py`): the situation, its gap's fields, moves, reviews, sessions and log tails, the
+queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity, and the knowledge.
+
+**The tools** (`dev/bin/manage.py`): the session answers with its calls in a fenced JSON block, each run through
+manage.py's own checks; refused calls are said on the situation. Directly: `continue GAP`, `reapprove GAP --why` (the
+failed tests are run again on main where they failed, the checkout for the queue's or a container for the fast
+suites', and must fail there too: back to approved, or to built), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a
+queue one only once main is clean and pushed). Asked in the inbox: `close GAP` (a new state, closed), `park GAP`,
+`pool ROLE N`, `change --what` (dev/model, the settings, anything touching origin). Every call is an
+`intervention.recorded` with a class and `by: pipeline-manager`, open like the coordinator's, so the interventions still
+count what the factory lacks. By hand (as the coordinator): `python3 dev/bin/manage.py continue gap/NAME --why ...`.
+
+**The velocity watch**: each heartbeat reads queue wait, suite minutes, cycle hours and each waiting state's time; when
+`queue-wait-short` or `suites-in-time` is off it files a gap (merge batching with bisection; faster suites), at most
+one of its own open at a time, and never one whose branch exists.
 
 ## Upgrade and revert
 

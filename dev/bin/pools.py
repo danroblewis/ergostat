@@ -152,12 +152,15 @@ def set_pool(cfg: dict, role: str, n: int, why: str) -> int:
 
 def my_turn(cfg: dict, role: str, block: str, item: str) -> bool:
     """Whether this run's item is within the role's pool: the items its block's runs hold, by when their leases were
-    taken, and this one among the first `pool` of them (so two runs taken at once never both go on)."""
+    taken, and this one among the first `pool` of them (so two runs taken at once never both go on). The pool is the
+    risk target held to what the machine fits: min(pool, the role's sessions running + the headroom)."""
     held = [g for g in fac.items("gap") if (g["fields"].get("lease") or {}).get("block") == block
             and (g["fields"].get("lease") or {}).get("holder")]
     order = sorted((float(g["fields"]["lease"].get("taken") or 0), g["id"]) for g in held)
     ids = [i for _, i in order]
-    return item not in ids or ids.index(item) < state(cfg)[role]
+    import resources
+    fits = resources.room(cfg, role)
+    return item not in ids or ids.index(item) < min(state(cfg)[role], fits if fits is not None else 10**6)
 
 
 def main(argv: list[str]) -> int:
