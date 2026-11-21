@@ -32,7 +32,7 @@ auxiliaries:
     sensor: {run: python3 dev/bin/measure.py queue-minutes, every: 10m, timeout: 1m, description: the factory's measures}
   merges-per-hour:
     unit: gaps/hour
-    description: gaps merged per hour of the queue's runs (a batch's run counted once) - what a bigger batch buys
+    description: gaps merged over the hours of every queue run (each run's whole length once, landing anything or not) - what a bigger batch buys
     driven-by: [+stock.queue-batch, -auxiliary.queue-minutes]
     sensor: {run: python3 dev/bin/measure.py merges-per-hour, every: 10m, timeout: 1m, description: the factory's measures}
   suite-minutes:

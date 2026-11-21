@@ -121,6 +121,7 @@ items:
       build_hours: sum
       review_hours: sum
       queue_wait_hours: sum
+      queue_runs: append             # each queue run it was in: its id, whole minutes, end (merges-per-hour)
       reviews: append
       contexts: append
       flakes: union

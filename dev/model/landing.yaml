@@ -241,7 +241,7 @@ blocks:
     out: block.merge-queue
   merge-queue:
     type: program
-    description: one run at a time, under the coordinator's queue lock - merge a batch (stock.queue-batch) into a clean main, ruff, unit, browser, demo_check once; push if green (gated, one approval a batch), else bisect to the first failing merge, send it to triage and land the rest
+    description: one run at a time, under the coordinator's queue lock - merge a batch (stock.queue-batch) into a clean main, ruff, unit and browser at once, demo_check, once a batch; push if green (gated, one approval a batch), else bisect to the first failing merge, send it to triage and land the rest
     run: python3 dev/bin/queue.py
     takes: {kind: gap, at: approved, to: [merged, fix, queue-failed]}
     pool: 1

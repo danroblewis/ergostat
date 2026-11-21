@@ -361,6 +361,18 @@ def queue_lock(cfg: dict):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
+SUITES: set[int] = set()                                # the process groups of the suites running now (suite())
+
+
+def stop_suites() -> None:
+    """Every running suite's process group stopped: a run stopped while suites run in threads of its own (queue.py)."""
+    for pid in list(SUITES):
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
           **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
@@ -375,6 +387,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
+        SUITES.add(p.pid)
         try:
             while p.poll() is None:
                 renew()
@@ -389,6 +402,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     os.killpg(p.pid, signal.SIGKILL)
+            SUITES.discard(p.pid)
     return p.returncode, time.time() - began
 
 

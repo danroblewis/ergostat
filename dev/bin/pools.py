@@ -27,7 +27,8 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
 ROLES = ("implementor", "reviewer")
-BATCH_MOST = 4         # a batch of 4 with every merge failing is at most 8 suite runs (about 2 h), inside the queue's 3 h
+BATCH_MOST = 4         # a batch of 4 with every merge failing is at most 8 suite runs (~1.5 h; the 3 h timeout
+                       # also covers the lock and quiet-machine waits)
 
 
 def state(cfg: dict) -> dict:
