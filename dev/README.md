@@ -428,7 +428,9 @@ merge queue in the model); unhealthy, it goes back to the previous version by it
 no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
 never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
 runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
-`drain-minutes` stops counting once the switch begins. The groomer and the plan review start no session while
+`drain-minutes` stops counting once the switch begins. The switcher reads the goal (`in:`) rather than naming it
+(`goal:`): a goal named would command it, and a commanded block leaves its `every:` (`ergostat check` says
+`schedule-removed`); the pipeline watch reads `no-stuck-gaps` the same way. The groomer and the plan review start no session while
 `run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh

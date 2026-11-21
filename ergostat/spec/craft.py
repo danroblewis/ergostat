@@ -12,6 +12,8 @@ professional in its discipline would have drawn it, beyond being correct. ``chec
 - ``event-names-mixed``: an item kind whose events are not all ``KIND.verb-past``;
 - ``queue-goal-tolerance``: a goal served by a block that takes the items its stock counts, with a tolerance (or a
   setpoint above 0) that lets items wait unseen, since the block runs only while the goal is off;
+- ``schedule-removed``: a block with ``every:`` or ``cron:`` and a ``goal:``: the goal's implied controller commands
+  it, so the clock never starts it (the engine's ``_plan``): it runs only while the goal is off;
 - ``process-not-identified``: a goal whose ``process:`` has no ``identified:``, a claim nobody measured.
 
 Parts a template made are left out: they are changed only through the instance's ``with:`` or the template."""
@@ -24,7 +26,7 @@ from .ir import Spec
 from .ir import template_made as _made
 
 CODES = ("no-description", "no-unit", "no-equation", "collector-undescribed", "event-names-mixed",
-         "queue-goal-tolerance", "process-not-identified")
+         "queue-goal-tolerance", "schedule-removed", "process-not-identified")
 IRREGULAR = {"done", "sent", "made", "taken", "begun", "written", "given", "run", "set", "put", "read", "seen", "found",
              "held", "kept", "left", "lost", "met", "paid", "sold", "told", "won", "built", "bought", "brought", "caught",
              "chosen", "drawn", "driven", "fallen", "frozen", "got", "gotten", "grown", "hidden", "known", "led", "lit",
@@ -111,6 +113,14 @@ def notes(spec: Spec, say) -> None:
             said = ", ".join(f"{e} → {c}" for e, _, c in odd[:6]) + ("…" if len(odd) > 6 else "")
             say("event-names-mixed", f"items {kind}: {len(odd)} of its {len(k.on)} event types are not {kind}.verb-past "
                 f"(the kind, then what happened): {said}", k.where, f"items.{kind}")
+    for n, b in spec.blocks.items():
+        by = [c.name for c in spec.commanders_of(n) if c.implied]
+        if _made(b) or not (b.every or b.cron) or not b.machine or not by or b.takes or b.on:
+            continue
+        say("schedule-removed", f"block {n}: its {'every: ' + format(b.every, 'g') + 's' if b.every else 'cron:'} is "
+            f"no schedule: its goal: {b.goal} puts {by[0]} in front of it, and the clock never starts a commanded block, "
+            f"so it runs only while {b.goal} is off. To run it on its clock whatever the goal reads, read the goal "
+            f"instead (in: goal.{b.goal})", b.where, f"block.{n}")
     for n, g in spec.goals.items():
         if _made(g):
             continue
