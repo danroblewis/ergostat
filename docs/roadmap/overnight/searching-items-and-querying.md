@@ -56,3 +56,64 @@ True when done:
 
 ## Size budget
 90 net lines
+
+## Where it stopped
+
+**The parked branch was not available.** This clone holds only `main` and this branch: there is no
+`origin/factory/item-text-search` (no remote ref, and no commit of it reachable by `git log --all`), and the network is
+out of reach. So its four commits were not carried over. The search was **built again on current main from this
+definition's own restatement of the parked one** (point 1's list). It was not checked against the parked file or its
+review notes. For the same reason:
+- **Point 5 is not met.** `docs/roadmap/overnight/item-text-search.md` is not on this branch. Writing it from memory
+  would not be "unchanged", so it was left out. The factory, which has the ref, should copy it in from
+  `origin/factory/item-text-search` unchanged (`git checkout origin/factory/item-text-search -- docs/roadmap/overnight/item-text-search.md`).
+- **Why the earlier runs failed ("nack exited 1", attempts 4–6): not found.** Their logs and branch were not here to read.
+- **Point 3:** there was no merge to resolve. Main's `itemindex.py`, `items.py`, `cli/record.py` and `web/server.py` are
+  this branch's base, and each change is an addition next to them. The one change to main's own behaviour is
+  `VERSION` 3 → 4: every index file is built again once, from the record.
+
+**Done (commit a291d592):**
+- `items.text_of`: an item's field values (nested dicts and lists too; numbers and booleans as JSON, null left out),
+  one per line, the first `TEXT_MOST` = 65,536 characters, casefolded. It is stored as `items.text` on the index row,
+  and every insert or update of the row writes it (each fold, a same-id `set`, a snapshot). A prune's reconcile deletes
+  the row.
+- `VERSION` 4. An index file without the `text` column gets it added on open. Its old version stamp then resets it.
+- A search that finds any row with NULL text first rebuilds the whole index (`Index._rebuild`: version cleared, folded
+  again). It never answers "no match" for that row.
+- `_where(words=)`: one `instr(text, ?) > 0` per word, joined with AND. The listing's late items (the API's `until`)
+  are matched in Python on the same text.
+- `items.words_of`: casefolded, split on whitespace, 1 to `WORDS_MOST` = 8 words, otherwise `BadSearch`. In the CLI
+  that is exit 2; in the API it is 400. The server reads `search=` with blanks kept, because `parse_qs` drops a blank
+  `search=`, which would otherwise list everything.
+- CLI `item --search`: refused with `--at` (exit 2, with a message); `-n` clamped to 1..`items.LISTED`; `search` added
+  to `goodmodel.READ_FLAGS`.
+- API: `listing(search=)` gives the listing's usual shape. `per_kind` padding is skipped while searching.
+- Docs: SPEC §5a *Search*, the AGENT-GUIDE's tools, the `--search` help, and the GAPS entry.
+- 78 net lines of code (107 added, 29 removed), within the 90 budget.
+
+**Choices made without anyone to ask (the most reversible):**
+- Field **keys** are not searched, only values.
+- `search=` combined with a set's filters (`where`, `moved`, `alone`) is refused with 400, so neither filter is
+  silently dropped.
+- `ergostat item NAME --search ...` shows the item, as before. Search applies only to the listing.
+- The GAPS entry says done "on `factory/searching-items-and-querying`". The merge commit is not known until the factory
+  merges.
+
+**Tests run:**
+- `tests/test_item_search.py`: 8 passed.
+- `test_cli_fallback`, `test_item_index`, `test_item_sets`, `test_graph_cli_web`, `test_spec_items`,
+  `test_item_systems`, `test_web_access`, `test_daemon_docs`: all passed, run file by file and not under the watchdog.
+- `ruff check ergostat tests scripts`: clean.
+- Breaks seen to fail (lesson-9). Each was made, its test was watched fail, then it was undone:
+  - no NULL rebuild → the NULL-text test failed;
+  - `text=coalesce(text, ?)` on update → the changed-field test failed;
+  - no cap → the cap test failed;
+  - blank `search=` dropped → the CLI/API test failed;
+  - no `alter table` → the old-index test failed;
+  - no `--at` check → the `--at` test failed.
+
+**Left, for the factory:**
+1. Copy in the parked definition file (point 5).
+2. Run the unit suite and the four browser files under `scripts/suite_watch.py` after merging origin/main (point 6).
+   Neither was run here. No `origin` exists in this clone, and the brief leaves the full suites to the factory.
+3. Correct the graph's wrong "merged" status for gap/item-text-search.
