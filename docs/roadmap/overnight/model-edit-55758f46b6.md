@@ -95,3 +95,10 @@ Run: tests/test_factory_manager.py (18 passed), tests/test_factory.py (97 passed
 `ergostat check` (the shell refused it). The model is read with no errors in
 `test_the_model_has_the_block_its_kind_triggers_and_gated_actions`. The rest of the unit suite and the browser files,
 and a merge with origin/main, are left to the queue.
+
+After the fast suites: `unit` was reported failed, but its tail ends mid-run at 81% with no `F`, no error and no failure
+summary. That looks like the run was cut off (a timeout or a kill), not a test failing. No failing test was named, so no
+code was changed. On the branch again: tests/test_factory_manager.py 18 passed, tests/test_factory.py 97 passed and 2
+skipped, ruff clean. The branch changes only `dev/bin/watch.py` (one condition), its test and a README sentence. Nothing
+outside tests/test_factory_manager.py exercises them. Running `unit` again under the watchdog should show whether a real
+failure exists. If it names one, that failure is the thing to fix.
