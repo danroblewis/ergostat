@@ -70,6 +70,9 @@ def _in(spec: Spec, unit: str, ref: str | None) -> bool:
         return False
     if unit == "model":
         return True
+    if ref.startswith("system."):                 # a note about a system: this unit's, or one within it
+        s = ref.split(".", 1)[1]
+        return s in spec.systems and unit in spec.chain(s)
     from ..spec import architecture as ar
     return unit in (ar._chains(spec).get(".".join(ref.split(".")[:2])) or [])
 
@@ -81,14 +84,15 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
     from . import redesign as rd
     from . import requests as rq
     from . import structural as stc
-    why = []
+    reqs = reqs if reqs is not None else rq.stored(p)
+    said = review_of(reqs, unit)
+    why = [f"the architecture review: {said['says']}"] if said else []   # (not routine: it sorts first)
     fit = fit if fit is not None else _fit(p, spec)
     if (fit.get("span") or 0.0) >= SUSTAINED:
         worse = [r for r, s in (fit.get("stocks") or {}).items()
                  if _in(spec, unit, r) and (s or {}).get("nmse") is not None and s["nmse"] > 1.0]
         if worse:
             why.append(f"its replay is worse than its mean ({', '.join(sorted(worse)[:3])}: scaled error over 1)")
-    reqs = reqs if reqs is not None else rq.stored(p)
     for r in reqs.values():
         if r["state"] not in rq.OPEN or r.get("source") == "redesign" or not _in(spec, unit, r.get("about")):
             continue
@@ -110,6 +114,13 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
     elif not mine_ran or now - max(e["time"] for e in mine_ran) >= DAILY:
         why.append("its daily review")
     return why
+
+
+def review_of(reqs: dict, unit: str) -> dict | None:
+    """The open request the daily architecture review raised to redesign this unit (``archreview.py``), if any."""
+    about = f"system.{unit}" if unit != "model" else "model"
+    return next((r for r in reqs.values() if r.get("source") == "redesign" and r.get("code") == "review-redesign"
+                 and r["state"] == "open" and r.get("about") == about), None)
 
 
 def signature(spec: Spec, unit: str) -> str:
@@ -222,7 +233,9 @@ def next_due(p, now: float | None = None) -> dict:
             skipped.append(f"{u}: {rest}")
             continue
         seen = max((e["time"] for e in ran if ((e.get("data") or {}).get("system") or "model") == u), default=0.0)
-        due.append({"system": u, "why": why, "trigger": why[0], "unit_sig": signature(spec, u), "_seen": seen})
+        said = review_of(reqs, u)                                    # the review's stamp, as this plan read it
+        due.append({"system": u, "why": why, "trigger": why[0], "unit_sig": signature(spec, u), "_seen": seen,
+                    **({"review": {"id": said["id"], "stamp": said.get("review")}} if said else {})})
     routine = ("the first run with use: modelling", "its daily review")
     due.sort(key=lambda d: (all(w in routine for w in d["why"]), d["_seen"]))   # what is wrong first; then turns
     if not due:
@@ -230,26 +243,32 @@ def next_due(p, now: float | None = None) -> dict:
     return {k: v for k, v in due[0].items() if k != "_seen"}
 
 
-def hold(p, unit: str, code: str, says: str, owner: bool = False, state: str = "held") -> str:
+def hold(p, unit: str, code: str, says: str, owner: bool = False, state: str = "held", more: dict | None = None,
+         keep: tuple = ()) -> str:
     """A redesign's trigger or result, held as a modelling request about the unit (visible on the Items tab, in the
     inbox when held, and in ``ergostat status``). Read and written under the requests' lock: one the owner dismissed
-    stays dismissed while its unit is as it was (``version.part``), and is raised again, a new finding, once it is not."""
+    stays dismissed while its unit is as it was (``version.part``), and is raised again, a new finding, once it is not.
+    ``more``: fields it carries (the review's stamp); one said again with other fields or words is written again, its
+    old ``change`` cleared. One in a state of ``keep`` is left as it is."""
     from . import requests as rq
     from . import version as ver
     k = rq.rid("redesign", code, unit)
     about = f"system.{unit}" if unit != "model" else "model"
     data = {"source": "redesign", "code": code, "about": about, "says": says,
-            "tier": "redesigner", "level": "finding", "why": says, **({"owner": True} if owner else {})}
+            "tier": "redesigner", "level": "finding", "why": says, **({"owner": True} if owner else {}), **(more or {})}
     with rq.locked(p):
         x = rq.stored(p).get(k)
+        if x is not None and x["state"] in keep:
+            return k
+        new = more is not None and x is not None and any(x.get(f) != data[f] for f in ("says", "why", *more))
         gone = x is not None and x["state"] == "dismissed"
         if gone and x.get("part") == ver.part(p.model.spec, about):
             return k
         if x is None:
             rq.event(p, k, "raised", {**data, "raised": time.time(), "since": time.time()})
-        elif gone or (state == "open" and x.get("state") != "open"):
+        elif gone or (state == "open" and (x.get("state") != "open" or new)):
             rq.event(p, k, "reopened", {**data, "since": time.time(), "change": None, **(rq.fresh() if gone else {})})
-        if state != "open" and (x is None or x.get("state") != state or x.get("why") != says):
+        if state != "open" and (x is None or x.get("state") != state or x.get("why") != says or new):
             rq.event(p, k, state, data)
     return k
 

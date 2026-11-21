@@ -31,8 +31,9 @@ HELD = "ergostat.model.ai-held"         # a call's dearest, held against the dai
 
 def settings(spec: Spec) -> dict:
     """The redesigner's settings, as the model's ``use: modelling`` gave them (``redesign: {when, model, budget, rounds,
-    daily}``), else the defaults."""
-    out = {"when": "auto", "model": "haiku", "budget": 0.5, "rounds": 3, "daily": 2.0}
+    daily, review}``), else the defaults. ``review``: the daily architecture review's model, or ``off``
+    (``archreview.py``)."""
+    out = {"when": "auto", "model": "haiku", "budget": 0.5, "rounds": 3, "daily": 2.0, "review": "sonnet"}
     for u in (spec.uses or {}).values():
         got = (u.get("values") or {}).get("redesign") if u.get("template") == "modelling" else None
         if isinstance(got, dict):
