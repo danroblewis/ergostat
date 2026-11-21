@@ -112,12 +112,17 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
     return why
 
 
-def signature(spec: Spec, unit: str) -> str:
-    """The unit's own parts as written (what they are and connect, not their words): what a rest is keyed on, so a
-    change elsewhere in the model does not end it, and one to its parts does."""
+ALL = ("stock", "flow", "auxiliary", "goal", "block")
+
+
+def signature(spec: Spec, unit: str, kinds: tuple[str, ...] = ALL) -> str:
+    """The unit's own parts of ``kinds`` as written (what they are and connect, not their words), with the parameters
+    their equations use: what a rest is keyed on, so a change elsewhere in the model does not end it, and one to its
+    parts does."""
     from ..spec import architecture as ar
     from . import version as ver
-    refs = sorted(r for r, ch in ar._chains(spec).items() if unit == "model" or unit in ch)
+    refs = sorted(r for r, ch in ar._chains(spec).items()
+                  if (unit == "model" or unit in ch) and r.split(".")[0] in kinds)
     tables = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries, "goal": spec.goals,
               "block": spec.blocks}
     used = set()

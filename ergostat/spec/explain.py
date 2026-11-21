@@ -403,6 +403,14 @@ class Explainer:
         if self.p is not None and goals:
             st = [self.status.get(g.name, "unknown") for g in goals]
             lines.append("  Now: " + ", ".join(f"{st.count(k)} {k}" for k in ("holding", "off", "unknown") if st.count(k)) + ".")
+        if self.p is not None:
+            from ..control import rga
+            try:
+                said = rga.line(rga.of(self.p, s, name))
+            except Exception as e:                      # explain says the rest whatever this does
+                said = f"Relative gain array: not computed: {type(e).__name__}: {e}."
+            if said:
+                lines.append(f"  {said}")
         return "\n".join(lines)
 
     def ref(self, text: str) -> str:
