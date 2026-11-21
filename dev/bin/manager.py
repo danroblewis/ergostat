@@ -151,6 +151,8 @@ def main() -> int:
     fac.stop_on_term()
     cfg = fac.config()
     given = fac.read_input()
+    if fac.drain_holds(cfg):
+        return 0
     try:
         return handle(cfg, given["item"])
     except agents.Refused as e:
