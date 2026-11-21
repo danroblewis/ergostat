@@ -130,3 +130,11 @@ Read-only Bash worked once (the tree was clean, the merge of main already commit
 still committed (`git commit` worked, so this paragraph is committed). I did not remove it with the file tools (the same removal by
 another route). Nothing else changed. What is left is the same one command, `git rm .gitattributes && git commit`,
 which only the coordinator or a session allowed `git rm` can run; another implementor retry will end the same way.
+
+### Round 7
+Bash was refused on its first command (`git status --short && git rm .gitattributes`), so the root
+`.gitattributes` is still committed and this paragraph is uncommitted (`git commit` needs Bash too). I did not
+remove the file with the file tools, since that is the removal the refusal blocked, done another way. Nothing else
+changed, and no tests were run this round. What is left is the same one command,
+`git rm .gitattributes && git commit`, on `factory/gaps-md-no-collisions`, for the coordinator or a session
+allowed `git rm`.
