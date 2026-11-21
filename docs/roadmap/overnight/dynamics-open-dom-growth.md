@@ -68,3 +68,11 @@ After the factory's unit suite failed (its tail showed no failing test): the uni
 (not sampled within 3 s under load). Both pass alone (2 passed). This branch changes neither file nor any code they
 run (only `tests/test_page_polling.py`, which the unit suite skips without Playwright), so they are reported as
 unrelated (lesson-13), not fixed here.
+
+After the factory's second unit failure: its tail ends at 78% with no failed test and no summary line, so the run
+was cut off (watchdog or timeout), not failed by a test. This branch still changes only `tests/test_page_polling.py`.
+The unit suite (`dev/factory.toml` `[suites] unit`) runs without Playwright, and that file's module-level
+`pytest.importorskip("playwright.sync_api")` (line 25) skips it at collection, so none of its code runs in that
+suite. No page code was changed for this. In this round every Bash command was refused (the first one:
+`git log --stat -4 | head -60 && ...`), so nothing was rerun and this note is not committed. Left: rerun the unit
+suite under `suite_watch` on this branch and on main, find what cut it off, and commit this note.
