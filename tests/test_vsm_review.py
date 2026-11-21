@@ -137,7 +137,7 @@ def test_a_review_raises_a_held_request_for_each_missing_function_and_records_it
     assert r["reviewed"] and r["applied"] and r["missing"] == ["S4"] and r["raised"] == 1
     x = _req(proj, "vsm-s4")
     assert x["state"] == "held" and x["owner"] is True and x["tier"] == "owner" and x["source"] == "architecture"
-    assert _req(proj, "vsm-s1") is None
+    assert _req(proj, "vsm-s1") is None and not rq.approvable(spec, x)     # no tier takes a judgement up
     (e,) = _events(proj)
     d = e["data"]
     assert d["model"] == "haiku" and d["cost_usd"] == 0.0123 and d["cost"] == "reported" and d["tokens"] == 120
