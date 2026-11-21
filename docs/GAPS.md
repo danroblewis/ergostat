@@ -291,6 +291,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
+- **A lease taken while the engine closes outlives the close** (open; found by
+  `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, which fails now and then on main).
+  `Dispatcher.take` (`ergostat/leases/dispatch.py`) writes `lease.taken` and folds it before adding the run to
+  `Engine.running`, so `Engine.close()` can find `running` empty and return while a lease is being taken. And
+  `runner.kill_all()` kills only what is already in `runner.LIVE`: a run spawned just after it is not killed, so its
+  process outlives `close()` and its lease stays held. A fix must not key on the process-wide `runner.STOPPING`
+  (one engine closing would kill another engine's new run in the same process), and needs its own test of the
+  `run_block` half.
 
 ## Interface
 
