@@ -142,3 +142,21 @@ was made, and that the test then failed.
 - signature() must raise on a port missing dir/kind/part/peers (no .get defaults, lesson-3), and at least one test must use ports from a real Spec.interface, not only hand-built dicts, so the assumed field names are checked.
 - status --since must skip baseline events through history.changes or an explicit check; the status test's baseline event must differ in parts from the event before it, so a status that only compares parts would wrongly list it and the test would fail.
 - Fix the '1 changes' wording (singular/plural) and assert the exact string.
+
+## Where it stopped
+
+Built in round 1; nothing left. These choices were made alone and are the most reversible ones:
+
+- **Wording.** "1 change" / "C changes", and "1 recorded version" / "V recorded versions", as the plan review
+  asked. The test asserts the exact `"); 1 change."` ending, so item 5's "C changes" applies to every C except 1.
+- **`interfaces_changed`** is written on any YAML `model.changed` (a parts change too) whose previous event has a
+  readable `interfaces` dict (a dict of strings), and only when the list is not empty. When the previous event has
+  none, it is left out and no system is listed as appeared
+  (`test_a_parts_change_after_an_old_record_lists_no_interface_change`, an extra test).
+- **Baseline.** It is written when the previous event's `interfaces` is missing *or* unreadable, and parts and
+  version are the same. A malformed record is read the same way as one from before this branch.
+- **Upgrades.** The plan review's first note is answered in the docs: an interface-only change, with parts and
+  version unchanged, comes from how ergostat works out interfaces. SPEC §4a and the `model.changed` description say
+  so. It is not handled any other way.
+- **The explain test's crossing.** `wa` (in `a`) reads `stock.outside`, which is in no system. Only `a`'s ports
+  change, so `b` reads "2 of 2".
