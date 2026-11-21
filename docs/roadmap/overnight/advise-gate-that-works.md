@@ -19,3 +19,15 @@ The message and SPEC name the working form and say it opens for all items, not p
 
 ## Size budget
 25 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+Built, round 1. Changes to the plan, each the most reversible choice, made with nobody to ask:
+- The `advise-with-takes` message and the lease checks live in `ergostat/leases/compile.py::check`, not
+  `ergostat/spec/compile.py`; the change is there (about 11 net lines of code). `spec/compile.py` is untouched.
+- The message, SPEC §9.5 and the agent guide no longer offer `goal:` as a person's gate. A goal is held by
+  a controller, not by a person, so it was not the form a person can open. The older
+  `test_mode_advise_on_a_block_that_takes_is_refused` now asserts the new form instead of `goal:`.
+- The new refusal is `person-gate`: a `type: person` block wired to command a block that takes, written on either end
+  (`in: block.P` on the taker, or `out: block.TAKER` on the person). It is direct only: a person block that feeds
+  an expr gate is not followed.
+- docs/GAPS.md's entry for the earlier gap (mode-advise-on-a-block-that) is left as the record of what that gap did.
