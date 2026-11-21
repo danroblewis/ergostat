@@ -2356,6 +2356,70 @@ def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
         pg.close()
 
 
+FLOWS_SEEN = """() => {
+  const seen = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 || r.height > 0; };
+  const of = (sel) => [...document.querySelectorAll('svg.canvas ' + sel)].filter(seen).length;
+  const where = (sel) => [...document.querySelectorAll('svg.canvas ' + sel)].map((el) => el.getAttribute('transform'));
+  return { info: of('.edge .info'), aux: of('g.node.k-auxiliary'), goals: of('g.node.k-auxiliary[data-id^="desired:"]'),
+           markers: of('.loop-markers'), stocks: of('g.node.k-stock'), valves: of('g.node.k-valve'),
+           pipes: of('.edge.pipe .pipe-out, .edge.pipe .sd-pipe-out, .edge.pipe path:not(.edge-hit)'),
+           places: where('g.node.k-stock').join('|') };
+}"""
+
+
+def flows_menu(pg) -> None:
+    pg.get_by_title("More: wrap, open or close every system, unpin").click()
+    pg.get_by_text("Flows only").click()
+
+
+def test_flows_only_hides_links_and_non_flow_parts(browser, tmp_path):
+    """The ⋯ menu's Flows only: the pipes, their valves, stocks and clouds stay where they are; the rest is hidden."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        assert pg.evaluate("() => S.graph.kind") == "dynamics"
+        before = pg.evaluate(FLOWS_SEEN)
+        assert before["info"] and before["aux"] and before["markers"] and before["stocks"] and before["pipes"], before
+        flows_menu(pg)
+        on = pg.evaluate(FLOWS_SEEN)
+        assert pg.evaluate("() => document.body.classList.contains('flows-only')")
+        assert on["info"] == on["aux"] == on["goals"] == on["markers"] == 0, on
+        assert (on["stocks"], on["valves"], on["pipes"]) == (before["stocks"], before["valves"], before["pipes"]), (before, on)
+        assert on["places"] == before["places"], "the parts keep their places"
+        flows_menu(pg)
+        assert pg.evaluate(FLOWS_SEEN) == before, "off: as before"
+        exported = "() => standaloneSvg(document.querySelector('svg.canvas'), '').text"
+        aux = pg.evaluate("""() => [...document.querySelectorAll('svg.canvas g.node.k-auxiliary text')].map((t) => t.textContent)
+                               .find((t) => t.length > 3 && document.querySelector('svg.canvas').textContent.split(t).length === 2)""")
+        assert aux and f">{aux}<" in pg.evaluate(exported), aux
+        flows_menu(pg)
+        svg = pg.evaluate(exported)                   # the export is what is shown: flows only
+        assert f">{aux}<" not in svg and "<path" in svg, aux
+        flows_menu(pg)
+        assert pg.evaluate(FLOWS_SEEN) == before, "off: as before"
+        pg.close()
+        assert not errors, errors
+
+
+def test_flows_only_is_remembered(browser, tmp_path):
+    """Flows only is kept per browser: a reload keeps it; turned off, a reload keeps it off."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+        drawn(pg, url, "open=*", 0)
+        flows_menu(pg)
+        assert pg.evaluate("() => localStorage.getItem('ergostat.flowsOnly')") == "1"
+        drawn(pg, url, "open=*", 1)
+        assert pg.evaluate("() => document.body.classList.contains('flows-only')"), "on after a reload"
+        assert pg.evaluate(FLOWS_SEEN)["info"] == 0
+        flows_menu(pg)
+        drawn(pg, url, "open=*", 2)
+        got = pg.evaluate(FLOWS_SEEN)
+        assert not pg.evaluate("() => document.body.classList.contains('flows-only')") and got["info"] and got["aux"], got
+        pg.close()
+
+
 def test_a_closed_systems_panel_charts_its_measures(browser, tmp_path):
     """What a closed system's box used to draw as sparklines is charted in its panel: its show: measures."""
     with served("image-squeeze", tmp_path) as url:

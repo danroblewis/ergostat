@@ -1058,6 +1058,9 @@ async function pageDiagram(main, q) {
     view === "dynamics" ? { label: "Show loop markers", checked: loopsOn(), hint: "R and B, inside each loop",
       onclick: () => { const on = !loopsOn(); document.body.classList.toggle("no-loops", !on);
                        try { localStorage.setItem("ergostat.loops", on ? "1" : "0"); } catch (e) { /* not remembered */ } } } : null,
+    view === "dynamics" ? { label: "Flows only", checked: document.body.classList.contains("flows-only"), hint: "the pipes, their stocks and clouds",
+      onclick: () => { const on = document.body.classList.toggle("flows-only");     // a class, not a re-layout: nothing moves
+                       try { localStorage.setItem("ergostat.flowsOnly", on ? "1" : "0"); } catch (e) { /* not remembered */ } } } : null,
     view !== "process" ? { label: "Colour by correspondence", checked: CORR.on, hint: "or hold C",
       onclick: () => corrSet(!CORR.on) } : null,
     ...(view === "process" ? [...pmKindItems(), { sep: true }, unpinAll] : [
@@ -1396,3 +1399,4 @@ function renderSide(side, g, view) {
 }
 
 try { if (localStorage.getItem("ergostat.loops") === "0") document.body.classList.add("no-loops"); } catch (e) { /* shown */ }
+try { if (localStorage.getItem("ergostat.flowsOnly") === "1") document.body.classList.add("flows-only"); } catch (e) { /* all shown */ }

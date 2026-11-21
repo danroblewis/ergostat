@@ -26,3 +26,20 @@ that is not a connector."
 ## Size budget
 
 40 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1, built: 5 net lines of code (3 in `diagram.js`: the menu item and the read on load; 3 in `style.css`: the rule).
+
+- The rule is an allowlist scoped to `svg.sd` (so only the Dynamics drawing): every `.edge` that is not a `.pipe`, the
+  loop markers, and every `.node` that is not a stock, valve, disturbance (an outside flow, drawn as a valve), cloud or
+  closed system, get `display: none`. The export already drops what is `display: none` (`export.js:15`), so a
+  flows-only export is flows-only.
+- A choice made alone (the most reversible one): closed systems' boxes stay shown. A pipe can end on a closed module's
+  port (`dynamics.py` turns only terminals into clouds), so hiding the box would leave the pipe hanging in the air.
+  Leaving it out of the allowlist is a one-word change if the owner wants them hidden. Open systems' outlines (hulls)
+  are backdrop and stay too.
+- Not run here: the two acceptance tests and the browser files. Playwright isn't installed in this container and
+  there's no network, so `test_diagram_rendering.py` skips. They rest on the factory's browser gate. I never broke the
+  rule and watched them fail, but each assertion names what would break: `info`/`aux`/`markers` counts go to 0
+  only when the rule applies, and the export's check uses an auxiliary's label text, because the export strips classes.
