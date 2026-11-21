@@ -79,9 +79,11 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
 def fenced(p, spec, a: dict) -> str | None:
     """Why an action asked for under a lease (SPEC §9.5) may no longer run: the lease it was asked under expired, or a
     later lease was taken on its item (the fencing number moved on). An action asked for under a lease that ended
-    (ack or nack) and was not taken again still runs once approved: its work waits for review."""
+    (ack or nack) and was not taken again still runs once approved: its work waits for review. An action the model
+    says is not fenced (``fenced: false``) is never fenced out: its own command is what keeps it safe."""
     fence, item = a.get("fence") or a.get("lease"), a.get("item")   # fence: the lease it was asked again under
-    if fence is None or not item:
+    act = spec.actions.get(a.get("action") or "")
+    if fence is None or not item or (act is not None and not act.fenced):
         return None
     from ..spec import items as its
     it = its.one(p.events, spec, item)

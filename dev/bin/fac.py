@@ -73,6 +73,21 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def draining(cfg: dict) -> bool:
+    """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
+    review) waits for its next turn instead of starting."""
+    return (run_dir(cfg) / "drain.json").exists()
+
+
+def drain_holds(cfg: dict) -> bool:
+    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), an AI run takes no new
+    item: it gives it back uncounted, to be taken again after the switch."""
+    if not draining(cfg):
+        return False
+    nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
+    return True
+
+
 def ergostat(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """$ERGOSTAT_CMD (this ergostat, on this model). Absent outside a run: a FileNotFoundError says so."""
     cmd = os.environ.get("ERGOSTAT_CMD")
@@ -224,11 +239,12 @@ def run_tag(branch: str, began: float) -> str:
     return f"{branch}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(began))}"
 
 
-def net_lines(repo: Path, base: str, head: str) -> int:
-    """Net lines of ergostat's core changed: outside tests/, docs/, dev/ and the root model."""
+def net_lines(repo: Path, base: str, head: str, core: bool = True) -> int:
+    """Net lines changed outside tests/ and docs/: of ergostat's core (dev/ and the root model left out too), or, with
+    core=False, with dev/ and the root model counted (a merge's lines, scored against its planned size class)."""
     add = rem = 0
     out = git(repo, "diff", "--numstat", f"{base}...{head}", "--", ".", ":(exclude)tests", ":(exclude)docs",
-              ":(exclude)dev", ":(exclude)ergostat.yaml")
+              *((":(exclude)dev", ":(exclude)ergostat.yaml") if core else ()))
     for line in out.splitlines():
         a, d, _ = line.split("\t", 2)
         if a != "-":
@@ -240,6 +256,32 @@ def budget_of(definition: str, default: int = 600) -> int:
     m = re.search(r"^## Size budget.*?$(.*?)(?=^## |\Z)", definition, re.M | re.S)
     nums = re.findall(r"(\d[\d,]*)\s*(?:net )?lines", m.group(1)) if m else []
     return int(nums[0].replace(",", "")) if nums else default
+
+
+def allowances(definition: str) -> dict[str, str]:
+    """The definition's `allows-findings: [code part: why, ...]`: each `ergostat check` finding it allows ("code part",
+    or the code alone for one about no part), with its reason (no comma in it); one with no reason allows nothing."""
+    m = re.search(r"^allows-findings:\s*\[(.*)\]\s*$", definition, re.M)
+    return {f"{c} {p}" if p else c: why.strip() for c, p, why in re.findall(
+        r"([\w.-]+)(?: ([^\s:,\]]+))?:([^,\]]*)", m[1] if m else "") if why.strip()}
+
+
+RECORD_FINDINGS = r"calibration-.*|fit-.*|takes-order-unset"   # (codes of findings of the record, not the change)
+UNFINISHED = {"extremes-running", "extremes-skipped"}   # notes: check's extreme-conditions tests did not all finish
+
+
+def findings(text: str, record: str) -> set[str] | None:
+    """The findings in `ergostat check --json`'s output (in a log), each "code part" (the code alone about no part), but
+    those whose code matches the regex `record`; None when no output there says (the check could not run)."""
+    for m in re.finditer(r"^\{", text, re.M):
+        try:
+            got = json.JSONDecoder().raw_decode(text[m.start():])[0]
+        except ValueError:
+            continue
+        if isinstance(got, dict) and isinstance(got.get("found"), list):
+            keys = [(str(x.get("code") or x.get("level")), x.get("about")) for x in got["found"] if isinstance(x, dict)]
+            return {f"{c} {a}" if a else c for c, a in keys if not re.fullmatch(record, c)}
+    return None
 
 
 # ---- the daily cap, which fails closed
@@ -361,13 +403,26 @@ def queue_lock(cfg: dict):
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
+SUITES: set[int] = set()                                # the process groups of the suites running now (suite())
+
+
+def stop_suites() -> None:
+    """Every running suite's process group stopped: a run stopped while suites run in threads of its own (queue.py)."""
+    for pid in list(SUITES):
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
-          **fmt) -> tuple[int, float]:
+          quarantined: list[str] = (), **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
     shell, as the coordinator does, inside [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is
-    False (the queue: its lock is its slot). The suite's whole process group is killed if this one is stopped."""
+    False (the queue: its lock is its slot); ``quarantined``: deselected from unit and browser. The suite's whole
+    process group is killed if this one is stopped."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
-    cmd = command or cfg["suites"][name].format(**quoted)
+    cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
     if slot and cfg["suites"].get("slot") and name != "ruff":
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began = time.time()
@@ -375,6 +430,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
+        SUITES.add(p.pid)
         try:
             while p.poll() is None:
                 renew()
@@ -389,12 +445,22 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     os.killpg(p.pid, signal.SIGKILL)
+            SUITES.discard(p.pid)
     return p.returncode, time.time() - began
+
+
+GATES = {"kill_after": 6, "build_failures": 6, "build_hours": 12.0}   # the kill rule's defaults ([gates])
+
+
+def gate(cfg: dict, key: str) -> float:
+    """One of the kill rule's numbers: [gates] kill_after (failed gates: reviews, conflicts, real failures in the
+    queue), build_failures (the implementor's failed fast suites), build_hours (the implementor's hours, every round)."""
+    return float(cfg.get("gates", {}).get(key, GATES[key]))
 
 
 def kill_after(cfg: dict) -> int:
     """The failed gates that park a gap (the kill rule): [gates] kill_after."""
-    return int(cfg.get("gates", {}).get("kill_after", 3))
+    return int(gate(cfg, "kill_after"))
 
 
 def stop_on_term() -> None:
@@ -410,23 +476,87 @@ def failed_tests(text: str) -> list[str]:
     return sorted(set(FAILED.findall(text)))
 
 
+# ---- the quarantine (tests/quarantine.txt): tests deselected from the suites and run beside them, never blocking
+
+def quarantine(repo: Path, ref: str) -> list[str]:
+    """The tests quarantined at ``ref``: the base a run merges onto, never the branch under test, so a branch's own
+    line in tests/quarantine.txt quarantines nothing until it is on main. The id before the first `|` of each line
+    (`#` comments). No list at ``ref``, or a ref that cannot be read: none, and every test blocks."""
+    lines = git(repo, "show", f"{ref}:tests/quarantine.txt", check=False).splitlines()
+    return [x.split("|")[0].strip() for x in lines if x.strip() and not x.lstrip().startswith("#")]
+
+
+def deselected(name: str, cmd: str, tests: list[str]) -> str:
+    """The unit or browser suite's command with each of ``tests`` deselected (any other suite's as it is)."""
+    return " ".join([cmd, *(f"--deselect {shlex.quote(t)}" for t in tests)]) if name in ("unit", "browser") else cmd
+
+
+OUTCOME = re.compile(r"^(PASSED|FAILED|ERROR) (\S+::\S+)", re.M)
+
+
+def outcomes(text: str, tests: list[str]) -> dict[str, str]:
+    """Each test's result from the whole log of a `-rA` run: pass only on its own PASSED line and no FAILED or ERROR
+    one; fail on either; anything else (skipped, not collected, a run killed or unreadable) unknown, never a pass."""
+    said: dict[str, str] = {}
+    for word, t in OUTCOME.findall(text):
+        said[t] = "fail" if word != "PASSED" or said.get(t) == "fail" else "pass"
+    return {t: said.get(t, "unknown") for t in tests}
+
+
+def beside(tests: list[str], log: Path, run) -> dict[str, str]:
+    """The quarantined ``tests`` run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each
+    result said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown. A
+    flake item still marked quarantined whose test is no longer listed is marked released (`quarantined: false`)."""
+    try:
+        for it in items("flake"):
+            if it["fields"].get("quarantined") and it["fields"].get("test") not in tests:
+                say("flake.measured", it["id"], quarantined=False)
+    except Exception:  # noqa: BLE001 - a record that cannot be read leaves the marks as they were, never the suite
+        pass
+    if not tests:
+        return {}
+    try:
+        run([*tests, "-rA"])
+        text = log.read_text()
+    except Exception as e:  # noqa: BLE001 - the quarantine never fails the suite it runs beside
+        text = f"not run: {type(e).__name__}: {e}"
+    got = outcomes(text, tests)
+    for t, r in got.items():
+        say("flake.measured", f"flake/{slug(t, 80)}", test=t, quarantined=True, last_run=r, last_run_at=time.time(),
+            last_run_log=str(log))
+    return got
+
+
 # ---- an AI session
 
-def session(cfg: dict, role: str, brief: str, work: Path) -> dict:
+def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = None) -> dict:
     """One session on the brief, on a work folder: in its own container (agents.py), or the free stand-in. Its most
     (--max-budget-usd) is reserved first and what it did not spend given back once its cost is known; a session that
-    fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged."""
+    fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged.
+    Its conversation is kept as the item session/<item>-<role>-<n> (sessions.py; ``item``: the gap, research or
+    review it works for, else the run's own)."""
+    import sessions
     model, usd = cfg["ai"][f"{role}_model"], float(cfg["ai"][f"{role}_session_usd"])
     who = dict(role=role, model=model, item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
     if cfg["ai"]["mode"] != "standin":
         import agents
         agents.token(cfg)                                # no token, no session (and nothing charged)
     at = reserve(cfg, usd, **who)
-    if cfg["ai"]["mode"] == "standin":
-        out = standin(role, brief, work)
-    else:
-        with renewing():
-            out = agents.session(cfg, role, brief, work)
+    kept = sessions.Session(cfg, role, item)
+    kept.started(model)
+    out, error = None, None
+    try:
+        if cfg["ai"]["mode"] == "standin":
+            out = standin(role, brief, work)
+            sessions.standin(kept, brief, out)
+        else:
+            with renewing():
+                out = agents.session(cfg, role, brief, work, keep=kept)
+    except BaseException as e:
+        error = f"{type(e).__name__}: {e}"
+        raise
+    finally:
+        kept.ended(out, error)
     if out.get("total_cost_usd") is not None:
         settle(cfg, usd, float(out["total_cost_usd"]), at, **who)
     print(json.dumps({k: v for k, v in out.items() if k != "result"} | {"type": "result"}), flush=True)
@@ -449,17 +579,20 @@ def attempt(cfg: dict, role: str, brief: str, work: Path) -> dict | None:
 
 STANDIN = {
     "planner": '<definition branch="{b}">\n# {b}: planned by the stand-in\n\ndepends-on: []\n\n## Definition of done\n\n'
-               'It works.\n\n## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
-               '100 net lines.\n</definition>',
+               'It works.\n\n## Files to touch\n\n- `x.py` (new)\n- `standin/work.txt` (new)\n\n## Risks\n\n- none.\n\n'
+               '## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
+               'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
-    "librarian": "```json\n[]\n```"}
+    "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
+    "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}
 
 
 def standin(role: str, brief: str, cwd: Path) -> dict:
     """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor finishes a merge
     it was handed (main's side of each conflict; or aborts it, when FACTORY_STANDIN_MERGE=abort) and writes a note
-    into the work; the planner, researcher and
+    into the work, and each of FACTORY_STANDIN_WRITES (comma-separated paths; `git rm`ed once its brief says they
+    were refused); the planner, researcher and
     librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
     b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
     said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
@@ -477,6 +610,13 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
         with note.open("a") as f:
             f.write(f"worked by the stand-in ({len(brief)} characters of brief)\n")
         said = f"wrote {note.relative_to(cwd)}"
+        refused = re.search(r"^# (Scratch files refused|New `ergostat check` findings)", brief, re.M)
+        for p in filter(None, os.environ.get("FACTORY_STANDIN_WRITES", "").split(",")):   # (the tests' scratch files:
+            if refused and (refused[1][0] == "S" or f"`{Path(p).name.replace('@', ' ')}`" in brief):   # removed once
+                git(cwd, "rm", "-q", "--", p)                    # refused; a check finding's, once the brief lists it)
+            else:
+                (cwd / p).parent.mkdir(parents=True, exist_ok=True)
+                (cwd / p).write_text("a scratch file\n")
     else:
         v = os.environ.get("FACTORY_STANDIN_VERDICT", "merge")
         said = "The stand-in read the diff.\n```json\n" + json.dumps(

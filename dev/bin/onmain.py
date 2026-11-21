@@ -1,0 +1,79 @@
+"""main-broken: the implementor's own triage of its fast suites (implement.py), before a failure counts against the gap.
+
+The tests that failed are run again alone on the branch: passing, they are flakes (`flake.seen`), and the fast suites
+are run once more, uncounted, once per run. Those still failing are run once on clean main (the commit the branch
+merged), in a clone of the drop at it. Each run is in the same kind of suite container as the fast suites, in the
+suite slot. A test that fails on main too is main's, not the gap's (lesson 13: reported, not fixed): an item
+`flake/<test>` in the state `main-broken`, and one intervention per main commit (class `main-broken`). When every test
+still failing is main's, the gap waits for main to move (`waits_on_main`, cleared by the intake) instead of counting.
+
+Bounded: one alone run and one main run per failure (a test found failing on main in this run is not run on main
+again), and none when the gap's building hours left under the kill rule are fewer than the unit suite took."""
+
+from __future__ import annotations
+
+import shutil
+import time
+from pathlib import Path
+
+import agents
+import fac
+
+LEAST = 60.0          # seconds a rerun is assumed to take at the least (a container started, the tests collected)
+
+
+def room(suites: dict, deadline: float) -> bool:
+    """Whether a rerun fits before the kill rule's building hours run out."""
+    return time.time() + max(LEAST, float((suites.get("unit") or {}).get("seconds") or 0)) < deadline
+
+
+def failing(cfg: dict, branch: str, main: str, tests: list[str], logs: Path, tag: str) -> dict:
+    """The tests alone on clean ``main``, in a clone of the drop at it, in a suite container (what agents.suites
+    said: `failed` and the `tests` that failed, when any did). Also the pipeline manager's reapprove (manage.py)."""
+    mhome, _ = agents.clone(cfg, branch, "main", at=main)
+    try:
+        return agents.suites(cfg, mhome, ("alone",), logs, tag, tests=tests)
+    finally:
+        shutil.rmtree(mhome, ignore_errors=True)
+
+
+def check(cfg: dict, gap: str, home: Path, branch: str, main: str, logs: Path, tag: str, deadline: float,
+          seen: dict[str, bool], retried: bool) -> tuple[dict, bool]:
+    """The fast suites on the session's work, triaged; (what they said, whether the flake retry is spent). On a unit
+    failure that names tests, what they said gains `flakes` (passed alone), `on_main` (failing on main too, at
+    `main_checked`), `main_broken` (every test still failing is main's), or `not_checked` (why no rerun). ``seen``: each
+    test run on main in this run, and whether it failed there."""
+    out = agents.suites(cfg, home, ("ruff", "unit"), logs, tag)
+    tests = list(out.get("tests") or [])
+    if out.get("failed") != "unit" or not tests:
+        return out, retried                                  # (ruff, or a watchdog kill: nothing to run alone)
+    if not room(out, deadline):
+        return {**out, "not_checked": "no building hours left under the kill rule for a rerun"}, retried
+    alone = agents.suites(cfg, home, ("alone",), logs, f"{tag}-alone", tests=tests)
+    if not alone.get("failed"):
+        if retried:
+            return {**out, "flakes": tests, "not_checked": "passed alone, and the run's one flake retry is spent"}, True
+        for t in tests:
+            fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=[gap], times=1, seen_at=time.time())
+        again = agents.suites(cfg, home, ("ruff", "unit"), logs, f"{tag}-retry")
+        return {**again, "flakes": tests}, True
+    still = list(alone.get("tests") or tests)
+    ask = [t for t in still if t not in seen]
+    if ask and not room(out, deadline):
+        return {**out, "not_checked": "no building hours left under the kill rule for a run on main"}, retried
+    if ask:
+        bad = set(failing(cfg, branch, main, ask, logs, f"{tag}-main").get("tests") or [])  # (a failure that names no
+        seen.update({t: t in bad for t in ask})                                              # test blames nothing)
+    on_main = [t for t in still if seen.get(t)]
+    return {**out, "main_checked": main, "on_main": on_main, "main_broken": len(on_main) == len(still)}, retried
+
+
+def record(gap: str, main: str, tests: list[str]) -> None:
+    """Each test that fails on main too, as an item in the state main-broken, and the intervention of that main commit
+    (what the coordinator sees, and interventions-trend counts)."""
+    now = time.time()
+    for t in tests:
+        fac.say("flake.main-broken", f"flake/{fac.slug(t, 80)}", test=t, main=main, gaps=[gap], main_broken_at=now)
+    fac.say("intervention.recorded", f"intervention/main-broken-{main[:12]}", recorded_at=now, main=main, tests=tests,
+            gaps=[gap], reason=f"main {main[:12]} fails its own tests ({', '.join(tests[:5])}): {gap} waits for main to "
+                               "move; fix them on main in a gap of their own", **{"class": "main-broken"})

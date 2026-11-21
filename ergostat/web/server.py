@@ -528,10 +528,11 @@ def _answer(live: Live, path: str, q: dict, project=None):
             from ..runner import log_path
             log = log_path(p, name)
             from ..costs import record as costs
+            from ..daemons.supervise import of_daemon
             b = m.spec.blocks.get(name) if getattr(m, "spec", None) else None
             dn = b.params.get("daemon") if b is not None else None
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
-                    **({"daemon": {"name": dn, **snap.get("daemons", {}).get(dn, {})}} if dn else {}),
+                    **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
@@ -567,6 +568,15 @@ def _answer(live: Live, path: str, q: dict, project=None):
             return d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
+        if "search" in q:                         # the items whose fields hold every word, as now (SPEC §5a, Search)
+            if one("at"):
+                raise BadSet("search: answers as of now; leave out at")
+            if item_sets.asked(q) or one("alone"):           # never a filter silently dropped
+                raise BadSet("search: narrows by kind and one state only; leave out where, moved, through, followed, "
+                             "caused, alone and a list of states")
+            got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), n=n, offset=offset,
+                              search=one("search"))
+            return _as_listed(got, None, 0, bool(one("shown")))
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
         if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
@@ -939,7 +949,9 @@ def handler(project):
                 return None
             if u.path.startswith("/api/"):
                 try:
-                    data = api(live, u.path.removeprefix("/api/"), parse_qs(u.query))
+                    q = parse_qs(u.query)                   # (a blank search kept, to be refused: never "list all")
+                    q.update({"search": [""]} if "search" not in q and "search" in parse_qs(u.query, True) else {})
+                    data = api(live, u.path.removeprefix("/api/"), q)
                 except BadSet as e:                     # an Items filter that is not one: said, as the asker's
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except Exception as e:                  # a broken request never takes the page down

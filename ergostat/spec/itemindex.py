@@ -12,9 +12,12 @@ folds only what is newer than it.
   items reads only its window, and a count of items in a state reads only that state.
 - ``left`` and ``reached``: each kind's states some item has left, and has reached, so what a kind
   counts as finished is known without reading every move.
+- ``items.text``: its searchable text (``items.text_of``: its fields' strings, casefolded, capped), on its own row, so
+  written and replaced with it: an item has no text row to lose.
 - ``links``: every item's relations to other items (SPEC §5a, *Relations*), one row per link (the item, the
   relation, the id it names), indexed both ways, so an item's links and the links to it (the inverse: ``blocks``,
-  ``children``) are both one lookup.
+  ``children``) are both one lookup. A kind that declares ``about:`` keeps there too, as relation ``@about``, each
+  part of the model its items name (``goal.x``), as its field now holds them: "the items about goal.x" is one lookup.
 
 In memory, only items still open are kept folded (their fold state, a few thousand at most, the
 latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
@@ -50,10 +53,12 @@ from pathlib import Path
 
 from ..store import damaged
 from . import codec
-from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of
+from .about import parts_named
+from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 3                 # of the index's layout: a different one is rebuilt
+VERSION = 5                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links)
+ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
 IDLE = 86400.0              # an item with no event for this long is not kept in memory (storage: items: idle)
@@ -68,10 +73,11 @@ create table if not exists names (id integer primary key, name text unique not n
 create table if not exists items (
     rid integer primary key, id text unique not null, kind integer, state integer,
     first real, last real, newest real, entered real, n integer, latest integer,
-    arrived real, raw integer, raw_first real, body blob);
+    arrived real, raw integer, raw_first real, body blob, text text);
 create index if not exists items_kind_state_last on items(kind, state, last);
 create index if not exists items_kind_last on items(kind, last);
 create index if not exists items_last on items(last);
+create index if not exists items_textless on items(rid) where text is null;
 create index if not exists items_newest on items(newest);
 create table if not exists moves (rid integer, kind integer, t real, frm integer, dst integer, event text, type integer);
 create index if not exists moves_rid on moves(rid);
@@ -91,7 +97,7 @@ def kinds_key(spec) -> tuple:
     """What a fold depends on in the model: its item kinds (a change being tried shares the index
     when it leaves them as they are)."""
     return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())),
-                  tuple(sorted(getattr(k, "relations", None) or {})))
+                  tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 
@@ -252,7 +258,7 @@ class Index:
                 c.execute("pragma synchronous=normal")
                 c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
                 c.execute("pragma temp_store=memory")
-                c.executescript(SCHEMA)
+                c.executescript(SCHEMA)        # (an older layout is another file: its name holds VERSION)
             except BaseException:
                 c.close()
                 raise
@@ -442,18 +448,19 @@ class Index:
             if (restored or arrived is None) and it.moves:
                 arrived = it.moves[0]["time"]
             values = (self.nid(it.kind), self.nid(it.state), it.first, it.last, newest, it.entered, it.n,
-                      self.nid(it.latest), arrived, raw, raw_first, codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled}))
+                      self.nid(it.latest), arrived, raw, raw_first, codec.pack({"f": it.fields, "r": it.refused, "o": it.rolled}),
+                      text_of(it.fields))
             if rid is None:
                 rid = self.db.execute("insert into items(id, kind, state, first, last, newest, entered, n, latest, arrived, "
-                                      "raw, raw_first, body) values (?,?,?,?,?,?,?,?,?,?,?,?,?)", (id, *values)).lastrowid
+                                      "raw, raw_first, body, text) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (id, *values)).lastrowid
             else:
                 self.db.execute("update items set kind=?, state=?, first=?, last=?, newest=?, entered=?, n=?, latest=?, "
-                                "arrived=?, raw=?, raw_first=?, body=? where rid=?", (*values, rid))
+                                "arrived=?, raw=?, raw_first=?, body=?, text=? where rid=?", (*values, rid))
             if restored:
                 self.db.execute("delete from moves where rid = ?", (rid,))
-            if k is not None and k.relations:                  # its links, as its fields now hold them
+            if k is not None and (k.relations or k.about):     # its links, as its fields now hold them
                 self.db.execute("delete from links where rid = ?", (rid,))
-                got = links_of(k, it.fields)
+                got = links_of(k, it.fields) + [(ABOUT, t) for t in parts_named(it.fields.get(k.about) if k.about else None)]
                 if got:
                     self.db.executemany("insert into links(rid, rel, dst) values (?,?,?)",
                                         [(rid, self.nid(r), t) for r, t in got])
@@ -521,9 +528,18 @@ class Index:
         """Whether any item has an event after ``t`` (else nothing need be left out as of then)."""
         return t is not None and self.db.execute("select 1 from items where newest > ? limit 1", (t,)).fetchone() is not None
 
-    def _where(self, kind: str | None, states=None, until: float | None = None) -> tuple[str, list]:
-        """``kind`` (None: any; ``""``: items of no kind), in ``states`` (None: any; ``""`` among them: no state)."""
+    def _where(self, kind: str | None, states=None, until: float | None = None, words=()) -> tuple[str, list]:
+        """``kind`` (None: any; ``""``: items of no kind), in ``states`` (None: any; ``""`` among them: no state), whose
+        text holds every one of ``words`` (casefolded: ``items.words``)."""
         sql, args = [], []
+        if words and self.db.execute("select 1 from items where text is null limit 1").fetchone():
+            self._set_meta(version=0)                       # a row without its text (items_textless: one lookup) is
+            #                                                 never read as no match: rebuilt
+            self.seq = -1
+            self.catch_up.__wrapped__(self, self._events)
+        for w in words:
+            sql.append("instr(text, ?) > 0")                # a plain substring: no wildcard to escape
+            args.append(w)
         if kind == "":
             sql.append("kind is null")
         elif kind is not None:
@@ -564,16 +580,16 @@ class Index:
         return out
 
     @_healing
-    def count(self, kind: str | None, states=None, until: float | None = None) -> int:
-        w, a = self._where(kind, states, until)
+    def count(self, kind: str | None, states=None, until: float | None = None, words=()) -> int:
+        w, a = self._where(kind, states, until, words)
         return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]
 
     @_healing
     def items(self, kind: str | None = None, states=None, until: float | None = None, n: int | None = None,
-              offset: int = 0, moves: bool = True, ids=None, has: str | None = None) -> list[Item]:
+              offset: int = 0, moves: bool = True, ids=None, has: str | None = None, words=()) -> list[Item]:
         """Items, the latest first (by their last event): ``n`` of them from ``offset``, with their moves;
-        among ``ids``, or with ``has`` in their id, when given."""
-        w, a = self._where(kind, states, until)
+        among ``ids``, with ``has`` in their id, or holding every one of ``words``, when given."""
+        w, a = self._where(kind, states, until, words)
         if has is not None:
             w = (w + " and " if w else " where ") + "instr(id, ?) > 0"
             a = [*a, has]
@@ -698,13 +714,13 @@ class Index:
 
     @_healing
     def links_from(self, ids) -> list[tuple[str, str, str]]:
-        """(item, relation, the id it names) of each link the items ``ids`` hold."""
+        """(item, relation, the id it names) of each link the items ``ids`` hold (the ``@about`` links are not to items)."""
         ids, out = list(ids), []
         for i in range(0, len(ids), 500):
             part = ids[i:i + 500]
             out += [(a, self.name(r), d) for a, r, d in self.db.execute(
                 f"select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid where i.id in ({','.join('?' * len(part))})",
-                part)]
+                part) if self.name(r) != ABOUT]
         return out
 
     @_healing
@@ -715,7 +731,23 @@ class Index:
             part = ids[i:i + 500]
             out += [(a, self.name(r), d) for a, r, d in self.db.execute(
                 f"select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid where l.dst in ({','.join('?' * len(part))})",
-                part)]
+                part) if self.name(r) != ABOUT]
+        return out
+
+    @_healing
+    def about(self, parts=None) -> list[tuple[str, str]]:
+        """(item, part) for each item that names one of the model's ``parts`` (None: any) in its kind's ``about:`` field:
+        the link rows only, by the index on the part named."""
+        rel = self.known(ABOUT)
+        if rel == -1:
+            return []
+        sql, args = "select i.id, l.dst from links l join items i on i.rid = l.rid where l.rel = ?", [rel]
+        if parts is None:
+            return [tuple(r) for r in self.db.execute(sql, args)]
+        parts, out = list(parts), []
+        for i in range(0, len(parts), 500):
+            part = parts[i:i + 500]
+            out += [tuple(r) for r in self.db.execute(f"{sql} and l.dst in ({','.join('?' * len(part))})", (*args, *part))]
         return out
 
     @_healing
@@ -733,28 +765,41 @@ class Index:
         return [(a, self.name(r), d) for a, r, d in self.db.execute(sql, args)]
 
     @_healing
-    def stays(self, kind: str, most: int = 2000, finished=()) -> tuple[dict[str, list[float]], dict[str, int], int]:
+    def stays(self, kind: str, most: int = 2000, finished=(), until: float | None = None
+              ) -> tuple[dict[str, list[float]], dict[str, int], int]:
         """How long ``kind``'s items stayed in each state they left (a lease's hold, ``leased``, is a state of its own
         here: the work), over the moves of its ``most`` latest items; and, of those now in a ``finished`` state, how
-        many stays each state had and how many such items there are (how often an item visits each state)."""
+        many stays each state had and how many such items there are (how often an item visits each state). With
+        ``until``: as of then, only the moves at or before it, the ``most`` items whose latest such move is latest, and
+        finished meaning their last move by then was into a finished state."""
         k = self.known(kind)
         if k == -1:
             return {}, {}, 0
         fin = {x for x in (self.known(f) for f in finished) if x != -1}
+        if until is None:
+            rows = self.db.execute(
+                "select m.rid, m.t, m.dst, i.state from moves m join items i on i.rid = m.rid where m.kind = ? and m.rid in "
+                "(select rid from items where kind = ? order by last desc limit ?) order by m.rid, m.rowid", (k, k, int(most)))
+        else:
+            rows = self.db.execute(
+                "select rid, t, dst, null from moves where kind = ? and t <= ? and rid in (select rid from moves where "
+                "kind = ? and t <= ? group by rid order by max(t) desc limit ?) order by rid, rowid", (k, until, k, until, int(most)))
+        by: dict[int, list[tuple]] = {}
+        for rid, t, d, now in rows:
+            by.setdefault(rid, []).append((t, d, now))
         out: dict[str, list[float]] = {}
         visits: dict[str, int] = {}
         done: set[int] = set()
-        rid0, t0, st0 = None, None, None
-        for rid, t, d, now in self.db.execute(
-                "select m.rid, m.t, m.dst, i.state from moves m join items i on i.rid = m.rid where m.kind = ? and m.rid in "
-                "(select rid from items where kind = ? order by last desc limit ?) order by m.rid, m.rowid", (k, k, int(most))):
-            if rid == rid0 and st0 is not None:
+        for rid, ms in by.items():
+            now = ms[-1][1] if until is not None else ms[-1][2]        # its state now, or its last move's by then
+            for (t0, st0, _), (t, _, _) in zip(ms, ms[1:], strict=False):
+                if st0 is None:
+                    continue
                 name = self.name(st0)
                 out.setdefault(name, []).append(max(0.0, t - t0))
                 if now in fin:
                     visits[name] = visits.get(name, 0) + 1
                     done.add(rid)
-            rid0, t0, st0 = rid, t, d
         return out, visits, len(done)
 
     @_healing
