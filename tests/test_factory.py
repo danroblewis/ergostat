@@ -2816,6 +2816,110 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
             drain.settings({"upgrade": bad})
 
 
+ALLOWED = ["Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
+           "Bash(uv run python scripts/suite_watch.py:*)"]
+IMPLEMENTOR = {"ai": {"implementor_model": "opus", "implementor_session_usd": 1.0}}
+
+
+def agents_module():
+    sys.modules.setdefault("fac", module("fac"))                                 # (agents.py imports fac beside it)
+    return module("agents")
+
+
+def test_the_implementor_may_remove_files_and_run_the_watched_suite():
+    agents = agents_module()
+    args = agents.claude_args(IMPLEMENTOR, "implementor")
+    allowed = args[args.index("--allowedTools") + 1].split(",")
+    assert set(ALLOWED) <= set(agents.TOOLS["implementor"]) and set(ALLOWED) <= set(allowed)
+    for role in ("reviewer", "planner", "librarian", "researcher"):              # only the implementor writes
+        assert not set(ALLOWED) & set(agents.TOOLS[role]), role
+    prompt = (BIN.parent / "prompts" / "implementor.md").read_text()
+    assert "under `/tmp`" in prompt and "If a command is refused, say which one" in prompt
+
+
+def test_the_deny_list_still_holds():
+    agents = agents_module()
+    assert agents.DENY == ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)",
+                           "Bash(curl:*)", "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
+    args = agents.claude_args(IMPLEMENTOR, "implementor")
+    assert args[args.index("--disallowedTools") + 1].split(",") == agents.DENY   # every one still refused to it
+    words = lambda t: t.removeprefix("Bash(").removesuffix(":*)")  # noqa: E731   (a tool, or a command's words)
+    denied = tuple(words(d) for d in agents.DENY)
+    assert not [t for t in agents.TOOLS["implementor"] if words(t).startswith(denied)]   # nor a narrower form of one
+
+
+def test_refused_tool_calls_are_recorded_on_the_session(tmp_path, monkeypatch, capsys):
+    import yaml
+    monkeypatch.chdir(tmp_path)
+    fac = module("fac")
+    monkeypatch.setitem(sys.modules, "fac", fac)
+    monkeypatch.setitem(sys.modules, "sessions", module("sessions"))
+    monkeypatch.setenv("ERGOSTAT_ITEM", "gap/alpha-thing")
+    cfg = {"paths": {"run": str(tmp_path / "run"), "live": str(tmp_path / "live")},
+           "ai": {"mode": "container", "implementor_model": "opus", "implementor_session_usd": 5.0}}
+    fake = type(sys)("agents")
+    tok = "s3cr3t-" + "x" * 200                                                  # (longer than a summary's cut)
+    fake.token = lambda cfg: tok
+    answers = [{"permission_denials": [{"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": "rm x.py"}},
+                                       {"tool_name": "Bash", "tool_input": {"command": "uv run python scripts/a.py"}}]},
+               {},                                                              # a result with no denials field
+               {"permission_denials": []},
+               {"permission_denials": [{"tool_name": "Bash", "tool_input": {"command": f"curl -H 'X: {tok}' h"}},
+                                       {"tool_name": "Edit", "tool_input": {"old_string": "a" * 120 + tok}},   # (cut at 160)
+                                       f"odd {tok}"]},
+               None]                                                            # a timeout: no result at all (out=None)
+
+    def session(cfg, role, brief, work, keep=None):
+        keep.copy.tok = tok                                                      # (as agents.session does)
+        answer = answers.pop(0)
+        if answer is None:
+            raise RuntimeError("the implementor session ran past 5400s and was killed")   # (as agents.py does)
+        return {"type": "result", "subtype": "success", "is_error": False, "result": "Done", "total_cost_usd": 0.1,
+                "num_turns": 1, **answer}
+    fake.session = session
+    monkeypatch.setitem(sys.modules, "agents", fake)
+    lines = []
+    for _ in range(5):
+        try:
+            fac.session(cfg, "implementor", "brief", tmp_path)
+        except RuntimeError:
+            pass
+        lines.append([json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith('{"event"')])
+    timed_out = lines.pop()
+    err = next(x["data"] for x in timed_out if x["event"] == "session.errored")
+    assert err["tool_denials_unknown"] == 1 and "tool_denials" not in err and "ran past" in err["error"]
+    end = [next(x["data"] for x in got if x["event"] == "session.ended") for got in lines]
+    on_gap = [[(x["item"], x["data"]) for x in got if x["event"] == "gap.measured"] for got in lines]
+    assert end[0]["tool_denials"] == 2 and end[0]["denied"] == ["Bash: rm x.py", "Bash: uv run python scripts/a.py"]
+    assert on_gap[0] == [("gap/alpha-thing", {"tool_denials": 2, "denied": end[0]["denied"]})]
+    assert end[1]["tool_denials_unknown"] == 1 and "tool_denials" not in end[1]          # unknown, never 0
+    assert on_gap[1] == [("gap/alpha-thing", {"tool_denials_unknown": 1})]
+    assert end[2]["tool_denials"] == 0 and end[2]["denied"] == [] and on_gap[2] == []  # none: nothing more on the gap
+    assert end[3]["tool_denials"] == 3 and end[3]["denied"][0] == "Bash: curl -H 'X: [token]' h"
+    said = json.dumps(lines[3])                                                  # the token, nor a prefix of it, kept
+    assert "s3cr3t" not in said and all("[token]" in d for d in end[3]["denied"]), end[3]["denied"]
+    lines.pop()                                                       # (the folds below count the first three, the timeout)
+    lines.append(timed_out)
+
+    (tmp_path / "f").mkdir()
+    f = Factory(tmp_path / "f")                                                  # the gap and sessions, by the model's folds
+    measure = lambda name: subprocess.run([sys.executable, str(BIN / "measure.py"), name], cwd=f.model,  # noqa: E731
+                                          env=f.env, capture_output=True, text=True)
+    f.fold([x for x in lines[1] + lines[3]], None)                     # only sessions whose refusals are unknown
+    r = measure("tool-denials")
+    assert r.returncode != 0 and "no value" in r.stderr and not r.stdout.strip()    # unknown, never 0
+    f.fold([x for got in (lines[0], lines[2]) for x in got], None)
+    g = f.item("gap/alpha-thing")["fields"]
+    assert g["tool_denials"] == 2 and g["tool_denials_unknown"] == 2 and len(g["denied"]) == 2
+    r = measure("tool-denials")
+    assert r.returncode == 0 and float(r.stdout) == 2.0, r.stderr     # the 2 refused; the timeout and the silent one
+    assert "2 session(s) whose refusals are unknown" in r.stderr              # left out, said, not counted as refused
+    r = measure("tool-denials-unknown")
+    assert r.returncode == 0 and float(r.stdout) == 2.0, r.stderr
+    goal = yaml.safe_load((BIN.parent / "model" / "measures.yaml").read_text())["goals"]["no-tool-denials"]
+    assert (goal["auxiliary"], goal["hold"], goal["tolerance"]) == ("tool-denials", "<= 0", 0)
+
+
 # ---- switcher-actually-runs (docs/roadmap/overnight/switcher-actually-runs.md): the timed blocks on the engine's clock
 
 def instance_engine(f: Factory):
