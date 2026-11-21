@@ -5,7 +5,7 @@ it), not left to wait for record that can never tell it from the model as it is.
 
 Called from ``judge.run`` under ``proposals.locked``, which Accept takes too: nothing ergostat writes comes between the
 scorecard's read of the model and its verdict. A hand edit takes no lock, so the verdict carries the version of the
-model the scorecard read from disk; one that is not the change's own records nothing (the next pass supersedes it)."""
+model the scorecard read from disk; one that is not the change's own records nothing (the next pass carries or supersedes it)."""
 
 from __future__ import annotations
 
