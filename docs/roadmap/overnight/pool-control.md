@@ -323,3 +323,16 @@ Continued, round 1, after the factory's next fast-suite run: the merge of main 3
 main's code (lesson-10, lesson-13): not fixed here. `test_my_turn_respects_headroom`, this branch's fault last round,
 passed in this full run. No code changed in this round. Ruff clean (`ergostat tests scripts dev/bin`). Not run here:
 the four browser files.
+
+## Where it stopped
+
+Continued, round 2: main 979c53ca is merged in (fe9a4711; main an ancestor of HEAD, no conflict markers left). There
+were no review findings to answer. No code changed this round: the only failures since round 1 were main's
+load-dependent tests (`tests/test_warm.py`, `tests/test_leases.py`), and nothing names a fault in this branch.
+Here, on fe9a4711: ruff clean (`ergostat tests scripts dev/bin`); `tests/test_factory.py`,
+`tests/test_factory_knowledge.py` and `tests/test_factory_resources.py` 193 passed, 2 skipped; `tests/test_backlog.py`
+16 passed; `tests/test_factory_times.py` 7 passed; `tests/test_factory_sessions.py` 5 passed (the mount test that
+failed in round 6 passes now). Size: 329 net lines outside `tests/` and `docs/` (within 350). This session refused the
+whole-suite run (`suite_watch.py`, `-n 8 --dist worksteal`), so the factory has to run it, along with the four browser
+files, on this tree. If it fails only on main's lease or warm-runner timing tests, that belongs outside this gap
+(lesson-10, lesson-13).
