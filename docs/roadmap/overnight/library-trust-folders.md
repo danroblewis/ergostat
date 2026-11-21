@@ -191,3 +191,20 @@ only place a `Template` is made, so no caller gets the `untrusted` default by ac
 
 **Left:** run the unit suite and the four browser files again under the watchdog, keeping the full output, so that
 any failure can be named.
+
+### Round 3
+
+Both of the earlier review's blocking findings were answered in round 2 (above). This round, no code changed:
+- **The merge (lesson-7).** The factory merged main at d7ae7a01 into the branch (5372045e). `main` is now an ancestor
+  of HEAD, and `git diff main...HEAD` is only this gap's 11 files (trust.py, templates.py, uses.py, author.py,
+  load.py, the four docs, the definition and `tests/test_library_trust.py`), so the branch carries nothing else
+  onto main. Main still has no other untrusted marker for libraries (nothing under `ergostat/` names one), so
+  point 1's map form stands. This clone has no `origin` remote, so I could not check that d7ae7a01 is origin/main's head.
+- **Run here, after the merge:** `tests/test_library_trust.py` (46 passed), `tests/test_templates.py` and
+  `tests/test_modelling_template.py` (40 passed, unchanged), `tests/test_modelling_core.py` (24) and
+  `tests/test_cli_fallback.py` (17). Ruff is clean. Running more files was not permitted in this worktree.
+- **Not run here:** the whole unit suite and the four browser files. The brief leaves them to the factory, under the
+  watchdog. The second run after round 2 was cut off at 77% and named no failure. The first run's one failure was
+  `test_warm`, which is outside this gap (see above).
+
+**Left:** the unit suite and the four browser files, run under the watchdog with the full output kept.
