@@ -373,6 +373,66 @@ def test_librarian_proposes_from_a_finding(tmp_path):
     assert f.item("lesson/new-stale-cache")["fields"]["times"] == 2
 
 
+def deny(f: Instance, aid: str, lid: str, by: str = "coordinator", note: str = "too narrow") -> None:
+    """The coordinator's answer to a lesson's knowledge-change, as the record keeps it."""
+    f.fold([{"event": "ergostat.action.requested", "item": aid, "data": {"action": "knowledge-change",
+                                                                          "args": {"lesson": lid}, "gate": "approve"}},
+            {"event": "ergostat.action.denied", "item": aid, "data": {"denied_by": by, "note": note}}], None)
+
+
+def test_a_denied_lesson_is_settled_and_stops_counting(tmp_path):
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    f = Instance(tmp_path)
+    for lid in ("lesson/seen-lesson-1-aaa", "lesson/seen-lesson-2-bbb", "lesson/seen-lesson-3-ccc"):
+        f.fold([{"event": "lesson.proposed", "item": lid, "data": {"kind": "seen", "text": "x"}}], None)
+    deny(f, "ergostat.action/a1", "lesson/seen-lesson-1-aaa")                  # denied before this existed
+    deny(f, "ergostat.action/a2", "lesson/seen-lesson-2-bbb", by="gate", note="fenced: its lease is over")
+    deny(f, "ergostat.action/a3", "lesson/elsewhere")                         # no proposal of that id
+    f.fake.write_text(FAKE_MORE.replace('args = sys.argv[1:]\n', 'args = sys.argv[1:]\nif "ergostat.action" in args '
+                                        'and db.get("actions_fail"):\n    sys.exit("the record is busy")\n', 1))
+    db = f.db()
+    f.record.write_text(json.dumps({**db, "actions_fail": True}))
+    f.tool("lesson.py", "settle", ok=False)                                   # unreadable: stops, nothing settled
+    assert f.drain() == [] and f.item("lesson/seen-lesson-1-aaa")["state"] == "proposed"
+    f.record.write_text(json.dumps(db))
+    f.tool("lesson.py", "settle")
+    assert f.drain() == ["lesson.denied"]
+    it = f.item("lesson/seen-lesson-1-aaa")
+    assert it["state"] == "denied" and it["fields"]["denied_by"] == "coordinator"
+    assert it["fields"]["why"] == "too narrow" and it["fields"]["action"] == "ergostat.action/a1"
+    assert f.item("lesson/seen-lesson-2-bbb")["state"] == "proposed"         # the gate's fencing decided nothing
+    assert "lesson/elsewhere" not in f.db()["items"]
+    f.tool("lesson.py", "settle")
+    assert f.drain() == []                                                    # settled once
+    f.tool("lesson.py", "request", "lesson/seen-lesson-1-aaa", ok=False)      # never made a gap
+    spec, _ = read(ROOT / "ergostat.yaml")
+    assert spec.goals["lessons-decided"].of.name == "lessons-proposed"
+    counted = [s.items for s in spec.stocks["lessons-proposed"].sensors.values()][0]
+    assert counted["state"] == ["proposed"] and "denied" in spec.items["lesson"].states
+    assert sorted(i["id"] for i in f.db()["items"].values() if i["kind"] == counted["kind"] and
+                  i["state"] in counted["state"]) == ["lesson/seen-lesson-2-bbb", "lesson/seen-lesson-3-ccc"]
+
+
+def test_a_denied_shape_is_not_proposed_again(tmp_path):
+    f = Instance(tmp_path)
+    shape = {"finding": 1, "class": "lesson-1", "shape": "a pool slot taken after its check", "new_shape": True}
+    new = {"finding": 1, "class": "new", "name": "Stale cache", "shape": "a cache read after the merge"}
+    assert librarian(f, "review/a-1", ["checks then takes"], [shape]) == ["lesson.proposed", "review.measured"]
+    librarian(f, "review/b-1", ["cached"], [new])
+    assert "lesson.proposed" in librarian(f, "review/c-1", ["cached"], [new])
+    seen = next(i for i in f.db()["items"] if i.startswith("lesson/seen-lesson-1-"))
+    deny(f, "ergostat.action/d1", seen)
+    deny(f, "ergostat.action/d2", "lesson/new-stale-cache", note="not a class")
+    f.tool("lesson.py", "settle")
+    assert f.drain() == ["lesson.denied", "lesson.denied"]
+    asked = len(f.db()["acts"])
+    assert librarian(f, "review/a-2", ["checks then takes"], [shape]) == ["review.measured"]
+    assert "lesson.proposed" not in librarian(f, "review/d-1", ["cached"], [new])
+    assert len(f.db()["acts"]) == asked
+    assert f.item(seen)["state"] == f.item("lesson/new-stale-cache")["state"] == "denied"
+
+
 def test_cli_tools_on_a_fixture_instance(tmp_path):
     f = Instance(tmp_path)
     f.opened()
