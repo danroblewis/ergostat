@@ -156,8 +156,9 @@ on them, and `check` lists the instances still on stand-ins (**template-stand-in
 
 **Writing one.** A template file is YAML: `template:` (its name), `description:`, `reading:` (what it is in
 control theory and in system dynamics), `params:` (each with `type`, `description`, and `default`,
-`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; type `any` takes a
-value as given, checked where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
+`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; `min:` and `max:` on a
+`number` or `integer`, a value outside them an error naming the bound; type `any` takes a value as given, checked
+where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
 (above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
 `goals`, `blocks`, `agents`, `uses`). In them:
 
@@ -3579,7 +3580,20 @@ block of the template, answer them, the cheapest first:
   author skill and the modelling guides made short (`library/templates/modelling/modeller.md`). It proposes
   descriptions, units, equations, structure, loops and collectors as ordinary changes; each is tried first as
   `try_change` tries it, and what would be turned away is given back once with why. Its cost is recorded on the
-  requests it was given (`cost_usd`), and a request it has tried twice waits for the owner.
+  requests it was given (`cost_usd`), and a request it has tried twice waits for the owner. Its parameters: `ai-model`
+  (haiku), `ai-every` (10m), `ai-most` (requests in one call, 8, from 1 to 16) and `ai-daily` (dollars a day, 1, from
+  0 to 20), passed as `modelling ai --most` (1 to 16), `--tries` (1 to 3) and `--daily` (0 to 20, required), each
+  refused outside its bounds at expansion and again by the run. **Its daily cap** (`ergostat/numbers/modeller_spend.py`,
+  `<p.dir>/modelling/ai-spend.jsonl` under an `fcntl` lock): each call, the go-back too, reserves the most its prompt
+  and longest answer could cost (`unsaid`), which also goes to claude as `--max-budget-usd`. A call starts only when the
+  day's spend plus its reservation stays within `ai-daily`; one call at a time (the lock is held from the check through
+  the call to its charge); a call that reports more than its reservation is charged what it reported, so the day can end
+  above `ai-daily` by that one call's overrun, and none starts after it until the day's spend is back under. A charge
+  is its settled cost, or its whole reservation until settled (a run killed mid-call), dated by its reservation; a
+  ledger that cannot be read means no call. A run the cap stops leaves its requests as they were (no try counted), and
+  the status line says `the AI tier has spent $X of its $Y today` once a call was refused for the cap that day or the
+  spend is within the latest reservation of it. The lock covers the AI tier's own calls only, not the redesigner's or
+  repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
 "parameters", "name": "t", "set": {...}}` besides `replace` and hunks.
