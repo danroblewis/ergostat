@@ -289,3 +289,15 @@ change would be a guess (lesson-13). Run again here, one invocation at a time: `
 `test_ticket_factory_daemons.py`, `test_model.py` and `test_factory_times.py` together (94 passed).
 `uv run ruff check ergostat tests scripts` is clean. If the next unit run names a test, that test is the next thing to
 look at.
+
+### Continued, round 3, by the implementor (the merge of main 278666f7)
+
+The merge conflicted only in `dev/bin/measure.py`'s `__main__`. Main now passes a second argument to `reading()` as
+`kind=` (the `parks`, `resumes` and `parked-hours KIND` measures, parks.py). The branch sends `coverage` and
+`coverage-below-floor` to `coverage_reading` with the rest of the arguments. Both are kept: the two coverage names go
+to `coverage_reading`, and every other name goes to `reading(name, kind=...)` as on main. The docstring had merged
+cleanly and holds both sides. Nothing else changed. Run here, one invocation at a time:
+`tests/test_code_health_coverage.py` (11 passed), `tests/test_factory.py` (66 passed, 2 skipped: its Docker tests), and
+`tests/test_factory_knowledge.py`, `test_factory_times.py`, `test_daemon_docs.py` and `test_architecture.py` together
+(97 passed). `uv run ruff check ergostat tests scripts dev/bin` is clean. This session did not run the unit suite or
+the four browser files. The factory runs them after it.
