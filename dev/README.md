@@ -366,6 +366,20 @@ flake triage with its failures, the merges before it land, and those after it ar
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
 
+The batch is filled with gaps that merge. The queue walks the approved gaps in rank order and dry-merges each onto the
+batch so far (`git merge-tree --write-tree`, which leaves the checkout alone) until the batch is full. A gap that
+conflicts with main is sent back at once, as a failed gate, and takes no slot. A gap that conflicts only with a
+batch-mate stays `approved`, with no gate failed, and waits for a later run. The run's own gap is always in its batch
+unless it is sent back: the last slot is kept for it, however low it ranks, and when it conflicts only with a
+batch-mate the walk is made again with the own gap first, so the batch-mate is the one left `approved`. Its lease is
+never given back while others land, since the batch's push is asked under it. When the own gap is sent back, the walk
+is made again in rank order, so gaps passed over for its slot fill the batch. Whether a gap conflicts is git's exit
+code, not the files it names. The real merges then make the batch's first run: when they all succeed, their tree must
+be the dry-merged one, or the run stops before any suite. A real merge that conflicts (one merged again after
+bisecting, or one where the dry merge was clean) is undone and sent back as a failed gate, and the rest go on to the
+suites, so what is tested is still what lands. If git cannot make a dry merge at all, the run fails there: gaps
+already sent back stay sent back, the rest stay `approved`.
+
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
 `run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
