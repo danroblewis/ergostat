@@ -17,7 +17,8 @@ The item's field ``lease`` (ergostat's own: an event's data never replaces it):
   stays where the work moved it); nack, given back: to ``back``, its attempt counted unless ``count`` is false, and not
   taken again before ``after`` seconds, or, with ``news``, before the first event about it its own runs did not cause
   (a webhook's: the review it waits for);
-- ``expired`` (run, fence, silent, expires): silent past its TTL: to ``back``, its attempt counted. Refused when the
+- ``expired`` (run, fence, silent, expires, count): silent past its TTL: to ``back``, its attempt counted unless
+  ``count`` is false (its holder a previous engine process's run). Refused when the
   lease was renewed after the watchdog judged it (its ``expires`` now later than the one the event names): a renewal
   recorded between the watchdog's look and its write wins;
 - ``redriven`` (to, why): a dead letter given another go: to ``to`` (else ``back``), its attempts from nothing.
@@ -90,7 +91,7 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
             lease["expires"] = lease["renewed"] + float(cur.get("ttl") or 0)
         else:
             how = "expired" if t == EXPIRED else ("ack" if d.get("how") == "ack" else "nack")
-            counted = how == "expired" or (how == "nack" and d.get("count", True) is not False)
+            counted = how in ("expired", "nack") and d.get("count", True) is not False
             last = lease["history"][-1] if lease["history"] else {}
             last.update({"ended": now, "how": how, "renewed": cur.get("renewed"), "counted": counted,
                          **{k: d[k] for k in ("why", "exit", "note", "silent") if d.get(k) is not None}})

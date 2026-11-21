@@ -60,6 +60,16 @@ auxiliaries:
     description: dollars of AI sessions per merged gap, every round of the implementor and the reviewer
     driven-by: [+auxiliary.ai-spend]
     sensor: {run: python3 dev/bin/measure.py cost-per-merged, every: 10m, timeout: 1m, description: the factory's measures}
+  size-accuracy:
+    unit: share
+    description: of merged gaps the planner sized, the share whose merged lines fell inside their size class (S/M/L/XL)
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py size-accuracy, every: 10m, timeout: 1m, description: the factory's measures}
+  size-accuracy-high:
+    unit: share
+    description: size-accuracy, of the gaps the planner sized with high confidence only
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py size-accuracy-high, every: 10m, timeout: 1m, description: the factory's measures}
   coverage-below-floor:
     unit: modules
     description: >-

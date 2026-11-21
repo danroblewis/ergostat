@@ -734,6 +734,11 @@ function drawGraph(svg, g, lay) {
   }
   const edgesG = s("g");
   S.sdSigns = [];                                         // (the polarities placed so far: dynamics.js)
+  const flowLinks = sd ? sdFlowLinks(g) : new Set();      // what Flows only keeps, by the model (dynamics.js)
+  const flowEnds = new Set(g.edges.filter((e) => flowLinks.has(e.id)).flatMap((e) => [e.source, e.target]));
+  if (sd && !flowLinks.size)                              // (shown with Flows only: a level with nothing it keeps says so)
+    vp.append(s("text", { class: "flows-none t-sub", x: (lay.ox || 0) + lay.width / 2, y: (lay.oy || 0) - 14, "text-anchor": "middle" },
+      "No flows at this level: what crosses between these systems is information only. Open a system to see its flows."));
   for (const le of lay.edges) {
     const e = edgeById[le.id];
     const pts = edgePoints(le);
@@ -742,7 +747,7 @@ function drawGraph(svg, g, lay) {
     const flowN = byId[e.kind === "pipe" ? (byId[e.source]?.kind === "valve" || byId[e.source]?.kind === "disturbance" ? e.source : e.target) : ""];
     const dist = flowN && flowN.kind === "disturbance";
     const loopSt = (e.loops || []).map((k) => g.loops[k]?.status).find(Boolean);
-    const cls = ["edge", e.kind, dist ? "dist" : "", loopSt ? "loop-" + loopSt : ""].join(" ");
+    const cls = ["edge", e.kind, dist ? "dist" : "", loopSt ? "loop-" + loopSt : "", sd && flowLinks.has(e.id) ? "flow-link" : ""].join(" ");
     const eg = s("g", { class: cls, "data-id": e.id, "data-loops": (e.loops || []).join(" "), "data-nodes": `${e.source} ${e.target}`,
                         "data-link": linkKey(e),
                         onpointerenter: () => { if (!S.dragging) hoverEdge(e); }, onpointerleave: () => hoverEdge(null) });
@@ -790,7 +795,7 @@ function drawGraph(svg, g, lay) {
   const nodesG = s("g"), pinsG = s("g", { class: "pins" });   // pins on top of everything: always there to click
   for (const ln of lay.children) {
     const n = byId[ln.id];
-    const ng = s("g", { class: `node k-${n.kind}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
+    const ng = s("g", { class: `node k-${n.kind}${n.kind === "terminal" && flowEnds.has(n.id) ? " flow-end" : ""}`, transform: `translate(${ln.x},${ln.y})`, "data-id": n.id,
                         "data-turn": ln.turn ? `${ln.turn.flow} ${ln.turn.stem}` : null,
                         // pressed and let go over the same part, even if it was drawn again in between, is a click
                         onpointerdown: (ev) => {      // pressed and let go over the same part, even if drawn again between, is a click
