@@ -80,3 +80,16 @@ Round 2: every finding of review/flake-quarantine-min-1 answered; nothing of the
   still read only `pre`, so a branch that quarantines its own test is still red there.
   `test_a_branch_cannot_quarantine_its_own_failing_test` now asserts both; with the work's lines dropped, it fails
   (checked). Until this branch is on main, the queue run for this branch itself still runs the two tests, blocking.
+- **After fd6bf38e, `unit` failed the same way again**: the tail stops at 80% partway through a line, with no FAILED
+  line, no pytest summary and no `suite_watch` JSON line. So the whole container was stopped from outside the
+  run (not by a test failing, and not by the watchdog, which always prints its line). Both quarantined tests were
+  deselected in that run, so this time they are not the cause. No cause was found in this branch, and no code was
+  changed for it. Run here one file at a time, everything passes: `tests/test_factory.py` (63 passed, 2 skipped),
+  `tests/test_leases.py` (29), `tests/test_reload_in_place.py` (11), `tests/test_factory_knowledge.py` with
+  `tests/test_factory_manager.py` (70), and `tests/test_modelreview.py` with `tests/test_redesign.py` (40, both new
+  from main's merge 31cffd8f). None of the code this branch adds kills processes or containers (`fac.beside` only
+  calls `fac.suite`, which kills only its own process group). Not run: the whole unit suite (forbidden to the
+  implementor), and the docker exit code and resource readings of that run, which are not visible from here.
+  Most likely an outside stop: the suite container's 12 GB memory limit, which also counts its 2 GB `/tmp` tmpfs,
+  or the resource sampler. The next step is to read that run's `gap.*` resources and exit code, and to run the
+  unit suite again on a quiet machine (lesson-10). Per lesson-13 this is reported, not fixed here.
