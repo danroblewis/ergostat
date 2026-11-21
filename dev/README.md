@@ -515,8 +515,9 @@ never begun again. A drain never switches in the step that began it, and no requ
 runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
 `drain-minutes` stops counting once the switch begins. The switcher reads the goal (`in:`) rather than naming it
 (`goal:`): a goal named would command it, and a commanded block leaves its `every:` (`ergostat check` says
-`schedule-removed`); the pipeline watch reads `no-stuck-gaps` the same way. The groomer and the plan review start no session while
-`run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
+`schedule-removed`); the pipeline watch reads `no-stuck-gaps` and `merge-pipeline-flowing` the same way. The `in:`
+is drawing only: neither program reads the goal's value, as each finds what the goal measures itself. The groomer and
+the plan review start no session while `run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
 python3 dev/bin/live.py switch <sha>           # the same, in the foreground

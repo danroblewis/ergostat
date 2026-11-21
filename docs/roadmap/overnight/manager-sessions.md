@@ -253,3 +253,27 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   `test_factory.py`, `test_factory_times.py` and `test_factory_knowledge.py` together 159 passed, 2 skipped. Ruff is
   clean. The whole unit suite and the four browser files were not run here. The factory runs them under suite_watch.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 9 (2026-11-21): the merge of main e8d3e33 and review/manager-sessions-5.**
+- *Merge of main e8d3e33* (456d8d18): one conflict, in `pipeline-watch`'s `in:` in `dev/model/manager.yaml`. Main reads
+  `goal.no-stuck-gaps` plainly (switcher-actually-runs). The branch read both goals by `.off` port. Both are kept in
+  main's form: `in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]`. Main's
+  `test_check_reports_a_schedule_a_goal_removes` rewrote the literal `in: goal.no-stuck-gaps` to rebuild main's old
+  model. Its replace string now matches the merged line, so it still checks the same thing. The branch's model test now
+  checks which goals the watch reads, not the inputs' names.
+- *Decisions in the brief (finding 3):* new test `test_the_brief_carries_the_owners_decisions_on_continuing_and_deferring`
+  seeds both decisions with their Areas from decisions.md. It **failed** on the code as it was. "Deferred areas stay
+  deferred" was missing, because decisions were matched only against the situation's text, and a plain park names none
+  of `deferred, park, rebuild, continue, re-plan`. Now `manager.py` matches against the prompt plus the situation, so
+  the prompt's "decisions.md, below" is true. A side effect: other decisions whose Areas words appear in the prompt are
+  carried too, within the knowledge budget.
+- *A `manager-` typo (finding 4, lesson-3):* `measure.py` now names its two manager measures exactly. Any other name is
+  refused (`no measure`). With the prefix match put back, `test_the_sessions_are_measured` failed.
+- *origin/main moved (finding 2):* main e8d3e33 is merged here. The merge queue merges anything newer.
+- *Not run (finding 1):* these ran here, one command at a time: `tests/test_factory_manager.py` 31 passed;
+  `test_factory.py`, `test_factory_times.py` and `test_factory_knowledge.py` 172 passed, 2 skipped;
+  `test_interventions.py`, `test_gated_actions.py`, `test_leases.py` and `test_backlog.py` 65 passed. Ruff is clean.
+  The whole unit suite and the four browser files were not run here.
+- *README:* the line on the watch's `in:` names both goals, says the `in:` is drawing only (switcher-actually-runs-2),
+  and is rewrapped.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.

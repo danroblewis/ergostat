@@ -67,7 +67,9 @@ def test_the_model_has_the_block_its_kind_triggers_and_gated_actions():
     assert "minutes-since-manager" not in {g.of.name for g in spec.goals.values()}   # (a measure: it grows while idle)
     when = spec.blocks["manage-when"]
     assert set(when.inputs) == {"waiting", "open", "over"}      # it reads only what its expression uses
-    assert {"stuck", "broken"} <= set(spec.blocks["pipeline-watch"].inputs) and spec.blocks["pipeline-watch"].every
+    watch = spec.blocks["pipeline-watch"]
+    assert {"no-stuck-gaps", "merge-pipeline-flowing"} <= {r.name for r in watch.reads() if r.kind == "goal"}
+    assert watch.every
     assert spec.goals["merge-pipeline-flowing"].hold.value == 0  # (minutes past [manager] broken_minutes)
 
 
@@ -128,6 +130,24 @@ def test_one_session_carries_every_standing_trigger_and_answers_each(tmp_path):
     f.record.write_text(json.dumps(db))
     f.put("gap/new-park", "parked", branch="new-park", parked_at=f.now - 60)
     assert subjects(f.watch()) == ["gap/new-park"]             # what was answered is not carried again
+
+
+def test_the_brief_carries_the_owners_decisions_on_continuing_and_deferring(tmp_path):
+    from tests.test_factory_knowledge import decide, knowledge_module
+    f = Pipe(tmp_path)
+    mine = {d["decision"]: d["scope"] for d in knowledge_module().decisions().values()}   # (as decisions.md has them)
+    heads = ["A branch carrying another gap's merge is continued once that merge lands", "Deferred areas stay deferred"]
+    for head in heads:
+        decide(f, head, mine[head], "confirmed")
+    f.put("gap/p", "parked", title="P", branch="p", parked_at=f.now - H, where_it_stopped="main's own lease race")
+    sit = f.watch()
+    answer = {"calls": [], "answers": {sit["triggers"][0]["print"]: "left"}, "summary": "left"}
+    said, _ = f.run("manager.py", sit["id"], FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(answer) + "\n```")
+    assert said == ["situation.handled"]
+    s = f.item(sit["id"])
+    text = (f.model / s["fields"]["context"]["brief"].removeprefix("file:")).read_text()
+    for head in heads:
+        assert f"**{head}**" in text, head
 
 
 def test_a_trigger_left_unanswered_or_a_failed_session_comes_back(tmp_path):
@@ -428,6 +448,9 @@ def test_the_sessions_are_measured(tmp_path):
         f.put(f"situation/s{n}", "handled", handled_at=f.now - H, triggers_n=t, actions_n=a)
     assert f.py("import measure\nprint(measure.reading('manager-triggers-per-session'))") == 3.0
     assert f.py("import measure\nprint(measure.reading('manager-actions-per-session'))") == 1.0
+    said = f.py("import measure\ntry:\n    measure.reading('manager-action-per-session')\n"   # (a typo: refused,
+                "except SystemExit as e:\n    print(json.dumps(str(e)))")                    # never read as a number)
+    assert "no measure" in said
 
 
 def test_continue_asks_for_a_gap_on_the_parked_branch_once(tmp_path):

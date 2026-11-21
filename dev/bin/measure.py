@@ -75,9 +75,9 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         if not first:
             raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
-    if name.startswith("manager-"):
+    if name in ("manager-triggers-per-session", "manager-actions-per-session"):   # (allowlist: a typo is refused)
         done = [r["fields"] for r in recent(fac.items("situation"), "handled_at", since)]
-        field = "triggers_n" if "triggers" in name else "actions_n"
+        field = "triggers_n" if name == "manager-triggers-per-session" else "actions_n"
         return round(statistics.mean(float(r.get(field) or 0) for r in done), 2) if done else 0.0
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)

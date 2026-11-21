@@ -143,9 +143,7 @@ blocks:
     run: python3 dev/bin/watch.py
     every: 5m
     timeout: 4m
-    in:                                # read, not commanded: a goal: here would take it off its schedule (schedule-removed)
-      stuck: goal.no-stuck-gaps.off
-      broken: goal.merge-pipeline-flowing.off
+    in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]   # read, not commanded: a goal: here would take it off its schedule (schedule-removed)
     out: flow.situations-found
 
   manage-when:

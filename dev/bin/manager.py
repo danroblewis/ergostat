@@ -164,8 +164,9 @@ def handle(cfg: dict, sit: dict) -> int:
     record = velocity(cfg)
     _, work = agents.clone(cfg, "pipeline-manager", ROLE, at=f"origin/{cfg['git']['base']}")
     text = brief_text(cfg, sit, record)
-    know, carried = knowledge.block(cfg, ROLE, {"id": sit["id"], "fields": {"title": "the merge pipeline"}}, text)
     prompt = (fac.HERE / "prompts" / f"{ROLE}.md").read_text().replace("{most}", str(most))
+    know, carried = knowledge.block(cfg, ROLE, {"id": sit["id"], "fields": {"title": "the merge pipeline"}},
+                                    f"{prompt}\n{text}")    # (the decisions the prompt names are matched by its words)
     full = prompt.replace("{situation}", text).replace("{knowledge}", know).replace("{tools}", manage.__doc__)
     context = {"role": ROLE, "brief_chars": len(full), "model": cfg["ai"][f"{ROLE}_model"], **carried,
                "brief": brief.save(cfg, ROLE, {"id": sit["id"], "fields": {"branch": sit["id"].split("/")[1][:60]}}, full)}

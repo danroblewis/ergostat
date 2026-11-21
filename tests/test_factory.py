@@ -2540,7 +2540,8 @@ def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
     (old / "dev" / "model").mkdir()
     for x in (ROOT / "dev" / "model").iterdir():
         (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.drains-within-bound", "goal: drains-"
-                                                    "within-bound").replace("in: goal.no-stuck-gaps", "goal: no-stuck-gaps"))
+                                                    "within-bound").replace("in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]",
+                                                                            "goal: no-stuck-gaps"))
     (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
 
     def noted(path: Path) -> set[str]:      # (a craft note, not an extremes finding: a second model's extremes, ~60 s
