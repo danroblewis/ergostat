@@ -19,13 +19,15 @@ from .. import runner as old
 from ..costs.sampler import Sampler
 from ..leases.kill import grace
 from .config import WARM_ALL
+from .observe import Observed
 from .proc import Process
 from .work import Hands
 
 SOURCE = "ergostat"
 TICK = 0.2
 WRITE_EVERY = 2.0
-SAMPLER = Sampler(30.0, "ergostat-daemon-sampler")   # the daemons' CPU and memory, every 30 s: one ps for all
+SAMPLER = Sampler(30.0, "ergostat-daemon-sampler", floor=1.0)   # the daemons' CPU and memory: about 1 s after a
+                                                                # start, then at doubling gaps to every 30 s; one ps
 
 
 class Slot:
@@ -65,6 +67,8 @@ class Supervisor(Hands):
         self.dying: list[Process] = []               # (warm) restarted, its group being killed: counted until it ends
         self.push: dict[tuple[str, str], object] = {}
         self.pushed_at: dict[str, float] = {}
+        self.observers: dict[tuple[str, str], object] = {}   # (daemon, STOCK.SENSOR) → a sensor it serves
+        self.observed = Observed()
         self.put_off: dict[str, str] = {}                # item → the daemon given up that gave it back, put off
         self.thread: threading.Thread | None = None
         self.written = 0.0
@@ -96,6 +100,7 @@ class Supervisor(Hands):
                 slot.spawning = True                 # claimed before the loop runs: spawned here, never by its tick
                 start.append(slot)
             self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon and s.push}
+            self.observers = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon}
             if self.slots and (self.thread is None or not self.thread.is_alive()):
                 self.thread = threading.Thread(target=self._loop, name="ergostat-daemons", daemon=True)
                 self.thread.start()
@@ -193,6 +198,7 @@ class Supervisor(Hands):
             self._kill(p)                            # (what it started, left in its group)
         for slot, why in todo:
             self._start(slot) if why is None else self._restart(slot, *why)
+        self.flush_observed()                        # (a burst's drops said within about a second, nothing after it)
         if now - self.written >= WRITE_EVERY:
             self.write()
 
@@ -240,7 +246,8 @@ class Supervisor(Hands):
         from ..spec.engine import callback_env
         try:
             p = Process(slot.d, self.e.spec.root, callback_env(self.e.spec, self.e.p.dir, self.e.socket), log,
-                        lambda s, v, n=slot.d.name: self._pushed(n, s, v))
+                        lambda s, v, n=slot.d.name: self._pushed(n, s, v),
+                        lambda s, o, n=slot.d.name: self._observed(n, s, o))
         except OSError as err:
             log.close()
             self._restart(slot, f"could not start: {err}", False)
@@ -365,6 +372,7 @@ class Supervisor(Hands):
         for p in procs:
             p.fail_all(old.STOPPED_WITH_US, True)
             killpg(p.pid, 1.0)                       # (ended or not: what it started goes too)
+        self.flush_observed(every=True)              # (each window's drops said, open or not, before ergostat stops)
         if self.slots or self.draining:
             self.write(final=True)
 

@@ -609,3 +609,54 @@ def test_the_pid_recorded_is_the_programs_and_a_kill_reaches_it_through_a_shell(
     p.wait(5)
     assert wait_for(lambda: not alive(pid), 5), "the program in the shell's group is killed with it"
 
+
+def test_a_short_lived_daemon_is_sampled_before_it_ends(tmp_path):
+    (tmp_path / "short.py").write_text("import time\ntime.sleep(4)\n")
+    p = project(tmp_path, "name: s\nstocks:\n  q:\n    unit: things\n    sensor: {daemon: {run: python3 short.py}, push: true}\n")
+    e = start(p)
+    try:
+        assert wait_for(lambda: events(p, "ergostat.daemon.started"), 5)
+        slot = next(iter(e.daemons.slots.values()))
+        seen = []
+
+        def sampled():
+            t, proc = slot.tracked, slot.proc
+            if t is not None and proc is not None and t.samples >= 1:
+                seen.append(proc.proc.poll() is None)        # (alive at the moment its count is read)
+                return True
+            return False
+        assert wait_for(sampled, 3), "sampled within 3 s of its start, not only every 30 s"
+        assert seen[-1], "while it was still running"
+    finally:
+        e.close()
+
+
+MANY = r'''
+import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if m["op"] == "item":
+        r = m["run"]
+        sys.stdout.write("".join(json.dumps({"event": "x.seen", "item": m["item"], "data": {"i": n}, "run": r}) + "\n"
+                                 for n in range(1200)) + json.dumps({"done": 0, "run": r}) + "\n")
+        sys.stdout.flush()
+    elif m["op"] == "stop":
+        break
+'''
+
+
+def test_a_daemon_runs_1200_lines_are_all_recorded_in_order(tmp_path):
+    (tmp_path / "many.py").write_text(MANY)
+    p = project(tmp_path, block("{run: python3 many.py}"))
+    p.events.add("ticket.opened", item="ticket/1", source="t")
+    e = start(p)
+    try:
+        assert wait_for(lambda: events(p, "agent.ran"), 20)
+    finally:
+        e.close()
+    assert events(p, "agent.ran")[0]["data"]["exit"] == 0
+    started = events(p, "agent.started")
+    seen = events(p, "x.seen")
+    assert [x["data"]["i"] for x in seen] == list(range(1200)), "every line, in the order printed"
+    assert {x["causedby"] for x in seen} == {started[0]["id"]} and {x["item"] for x in seen} == {"ticket/1"}
+

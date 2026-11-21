@@ -1,4 +1,5 @@
-"""What is handed to the daemons (SPEC §9.7): runs, readings, cancels; and push readings taken from them. A mixin of
+"""What is handed to the daemons (SPEC §9.7): runs, readings, cancels; and push readings and observations taken from
+them. A mixin of
 the supervisor (``supervise.py``), whose ``slots``, ``draining`` and ``lock`` it reads.
 
 A run is handed over only to the daemon running now under its name, checked and held under the supervisor's lock, so
@@ -8,10 +9,12 @@ off, and the dispatcher hands its block nothing until it is revived."""
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 
 from ..leases.kill import grace
+from .observe import why
 from .proc import Handle, Process
 
 FAILED_AFTER = 60.0            # seconds a run's item given back by a daemon given up is put off
@@ -147,3 +150,26 @@ class Hands:
             self.e.results.put((s, float(value), "", time.time(), None))
             self.e.wake.set()
         return True
+
+    def _observed(self, daemon: str, sensor, obj: dict) -> bool:
+        """An observation line of a sensor this daemon serves, recorded as that sensor's (as a ``run:`` sensor's
+        output is), within the cap (``observe.py``); False for any other sensor: never recorded under another."""
+        with self.lock:
+            s = self.observers.get((daemon, sensor)) if isinstance(sensor, str) else None
+        if s is None:
+            return False
+        ok, closed = self.observed.admit(sensor)     # (counted only once routed: the windows are the sensors')
+        if closed:
+            self._dropped(sensor, closed)
+        if ok:
+            from ..spec.engine import observations
+            self.e._observer(sensor)(*observations(json.dumps({k: v for k, v in obj.items() if k != "sensor"})))
+        return True
+
+    def _dropped(self, sensor: str, n: int) -> None:
+        self.e.p.events.add("sensor.refused", item=sensor, source="ergostat", data={"why": why(n), "dropped": n})
+        self.e.say(f"sensor {sensor}: {why(n)}")
+
+    def flush_observed(self, every: bool = False) -> None:
+        for sensor, n in self.observed.flush(every=every):
+            self._dropped(sensor, n)
