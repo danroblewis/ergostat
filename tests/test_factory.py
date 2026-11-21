@@ -265,6 +265,15 @@ def test_the_factory_model_loads():
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
 
 
+def test_the_factory_blocks_take_their_pools_from_the_pool_stocks():
+    from ergostat.spec.ir import Ref
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    imp, rev = spec.blocks["implementor"], spec.blocks["reviewer"]
+    assert imp.pool_now == Ref("stock", "implementor-pool") and imp.pool == 9   # main's operator: was 4
+    assert rev.pool_now == Ref("stock", "reviewer-pool") and rev.pool == 6     # main's operator: was 2
+
+
 def test_intake_reads_gaps_and_requests(tmp_path):
     f = Factory(tmp_path)
     said, lines = f.run("intake.py")

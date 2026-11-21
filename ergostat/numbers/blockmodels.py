@@ -5,7 +5,8 @@ its uncertainty). The forms, by what the model and the record say of the block:
 
 - **servers** (a block that takes items, SPEC §9.5): a multi-server queue, ``success × min(waiting, servers) / the
   time a server is held``, the time a server is held being a run's median time, or its lease's TTL for an attempt
-  that expired;
+  that expired; its servers its pool now, at the end of the record (``poolnow.py``; 1 when its stock reads 0 or
+  nothing, said in its basis);
 - **equation**: its flow's own equation, while the block is commanded, at most its servers over their time;
 - **fill**: a block reading the goal on the stock it fills (a dispatcher reading its work-in-progress limit) moves at
   most the 95th percentile of its rate, and never past that goal's setpoint;
@@ -206,7 +207,7 @@ def _gate(p, spec: Spec, block: str, since: float, times: list[float]) -> list[b
 def identify(p, spec: Spec, data: ob.Data | None = None) -> dict[str, BlockModel]:
     """Each flow a machine block moves → its identified model, from the record on ``data``'s grid (the reference window
     when none is given)."""
-    from ..leases import EXPIRED
+    from ..leases import EXPIRED, poolnow
     from ..leases.fold import refused_expiries
     from ..leases.terms import terms
     data = data or ob.measured(p, ob.reference(p))
@@ -240,7 +241,8 @@ def identify(p, spec: Spec, data: ob.Data | None = None) -> dict[str, BlockModel
         m.basis = f"{span} of record ({len(rates)} buckets{', ' + str(len(runs)) + ' runs' if runs else ''})"
         if b.takes:
             t = terms(spec, b)
-            m.form, m.servers, m.ttl = "servers", b.pool, t["ttl"] / 3600.0
+            level = poolnow.read_at(p, spec, b, g.until) if b.pool_now else None
+            m.form, m.servers, m.ttl = "servers", max(1, poolnow.now(b, level)), t["ttl"] / 3600.0
             took = [r for r in runs if (r.get("data") or {}).get("item")]
             if len(took) >= MIN_RUNS:
                 secs = [float((r.get("data") or {}).get("seconds") or 0.0) for r in took]
@@ -257,6 +259,8 @@ def identify(p, spec: Spec, data: ob.Data | None = None) -> dict[str, BlockModel
             else:
                 m.service, m.success = (b.every or min(t["ttl"] / 4.0, 600.0)) / 3600.0, 1.0
                 m.assumed = f"only {len(took)} runs on record (at least {MIN_RUNS}), a run taken as {_dur(m.service)}"
+            if poolnow.said(b, level):                       # (0 or unread: it would never serve; held at 1, said)
+                m.basis += f"; {poolnow.said(b, level)}"
         if f.equation is not None:
             m.form, m.equation = "equation", f.equation.text
         elif b.takes:

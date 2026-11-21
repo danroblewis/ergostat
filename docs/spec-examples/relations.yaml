@@ -22,6 +22,9 @@ stocks:
   todo:
     unit: tickets
     sensor: {items: ticket, state: todo, every: 5s}
+  reviewers:
+    unit: people
+    sensor: {manual: true}                          # how many reviewers are free: the reviewer's pool now
 flows:
   started:
     from: todo
@@ -38,3 +41,8 @@ blocks:
     takes: {kind: ticket, at: todo, to: [review], unblocked: true}   # only unblocked tickets, the critical first
     pool: 2
     out: flow.started
+  reviewer:
+    type: program
+    run: ./review.sh
+    takes: {kind: ticket, at: review, to: [done, todo]}
+    pool: {now: stock.reviewers, most: 3}          # (SPEC section 9.5) the stock read at each dispatch, never above 3
