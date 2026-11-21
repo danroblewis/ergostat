@@ -161,3 +161,14 @@ browser files. The brief leaves them to the factory, under the watchdog, so thei
 known yet.
 Size: 286 net lines outside tests and docs (budget 330): trust.py 213, uses.py 48, templates.py 16, load.py 8,
 author.py 1.
+
+### The factory's unit run after round 2
+
+1 failed, 1988 passed, 69 skipped: `tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped`
+(its 5 s wait for the stopped run's warm process to be replaced ran out). Not fixed here (lesson-13): this branch
+changes nothing in `ergostat/daemons/`, `ergostat/leases/`, the engine or `tests/test_warm.py` (`git diff main...HEAD
+--stat` on them is empty). Its code is only `ergostat/library/` and `ergostat/spec/load.py`, and no warm test model
+has a `library:` or `uses:` line. Run alone here, `tests/test_warm.py` passes, 21 of 21. It failed under `-n 8` with
+the whole suite running (287 threads), so it looks like a load-dependent timing in how the warm daemon replaces a
+cancelled run's process (lesson-10). That belongs in its own gap: either replacing the process really is slow under
+load, or the test's wait is fixed. The suite should be run again. If it fails on main too, it is not this branch's.
