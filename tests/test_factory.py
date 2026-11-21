@@ -1824,12 +1824,13 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
 
 
 def merge_two(tmp: Path, rel: str, base: str, one: str, two: str, attributes: bool = True) -> tuple[int, str]:
-    """``base`` committed at ``rel`` on main with the repository's own .gitattributes (or none), ``one`` on a branch,
-    ``two`` on main, and the branch merged in: (git merge's return code, the file after it)."""
+    """``base`` committed at ``rel`` on main with its folder's .gitattributes from this repository (or none), ``one`` on
+    a branch, ``two`` on main, and the branch merged in: (git merge's return code, the file after it)."""
     (tmp / rel).parent.mkdir(parents=True)
     git(tmp, "init", "-q", "-b", "main")
-    if attributes:
-        (tmp / ".gitattributes").write_text((ROOT / ".gitattributes").read_text())
+    if attributes:          # docs/.gitattributes, dev/knowledge/.gitattributes: each beside the file it merges
+        attrs = Path(rel).parent / ".gitattributes"
+        (tmp / attrs).write_text((ROOT / attrs).read_text())
     (tmp / rel).write_text(base)
     git(tmp, "add", "-A")
     git(tmp, "commit", "-qm", "base")

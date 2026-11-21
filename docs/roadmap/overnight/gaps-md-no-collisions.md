@@ -37,3 +37,14 @@ Choices made with nobody to ask (each the one easiest to undo):
 - Each merge test also runs the same merge without `.gitattributes` and asserts that it conflicts. The GAPS test also
   shows that edits to entries side by side merge but leave both entries twice, which `twice()` reports.
 - origin/main was not merged in: this clone has no origin ref, and local `main` is not ahead of the branch.
+
+### After the scratch-files gate (same round)
+The gate refused the new top-level `.gitattributes`, though Files to touch names it. Git reads a `.gitattributes`
+in any folder, so each rule now sits beside the file it merges, in a folder main already has:
+`docs/.gitattributes` (`GAPS.md merge=union`) and `dev/knowledge/.gitattributes` (`review-lessons.md merge=union`).
+`merge_two` in `tests/test_factory.py` copies the folder's file, not the root one, so the two merge tests show that
+the folder files work on their own (both pass; each still conflicts without them).
+
+**Left:** the top-level `.gitattributes` is still committed. Removing it needs `git rm .gitattributes`, and this
+session's tools refuse `git rm` (it is not among the implementor's allowed commands here). Its two rules duplicate
+the folder files, so removing it changes no behaviour. Whoever has `git rm` should run it and commit.
