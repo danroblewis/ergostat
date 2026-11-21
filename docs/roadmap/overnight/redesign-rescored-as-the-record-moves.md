@@ -362,3 +362,23 @@ Failed its gates 6 times (the kill rule). Blocking findings:
 - *Not run here:* the whole unit suite and the four browser files. The house rules leave those to the factory's
   watchdogged slot. This clone has no origin remote, so the queue still merges origin/main and runs both suites
   again (lesson-7).
+
+### Continued, round 2 (the unit suite after the merge)
+
+- *The merge and the scratch file:* already done in 5e70f469 and 0f92734c. `git status` was clean. No conflict
+  markers are left in the tree, and `tests/test_probe_tmp.py` is gone.
+- *The unit suite "failed".* Its tail ends right after `Installed 1 package`, before pytest wrote any output: no dot,
+  no failing test, no summary. pytest prints a summary whenever it ends, so something outside pytest stopped the run
+  before any test reported. This is the fifth such cut (53%, 49%, 99%, 75%, now about 0%). Round 5 ran the same
+  code through to the end, and the docs-only branch `knowledge-seen-lesson-12-943ced70` was cut the same way. So the
+  stop is in the suite's runner, not in this branch (lesson-10, lesson-13). It needs its own gap, which the
+  runner's exit code and the watchdog's log will point to.
+- *Checked by reading, after the merge:* `judge.run` takes `pr.locked` once. Nothing it calls inside that hold
+  takes the lock again: `rd.judged`, `pr.event`, `rr.read`, `pr.files_now` and `pr._accept` take none, and
+  `pr.supersede` is called before the hold. Every name the merged code and the new test file import exists
+  (`rr.read`, `rr.Unreadable`, `rr.due_for_rescore`, `ir.once_made`, `pr.files_now`, `pr._accept`). I found no
+  collection-time or lock hang.
+- *Not done:* after one `git status` / `git log` call, every Bash call in this session was refused ("don't ask"
+  mode). So no test or ruff was run, no code was changed, and this section is **not committed**. The factory must commit it
+  (`git add docs/roadmap/overnight/redesign-rescored-as-the-record-moves.md && git commit`) and run the unit suite
+  again.
