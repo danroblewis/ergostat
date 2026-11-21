@@ -175,3 +175,13 @@ that. On the merged head these were run one at a time, each rc 0: `tests/test_in
 `tests/test_architecture.py`, `tests/test_graph_cli_web.py`, `tests/test_spec_systems.py` and
 `tests/test_spec_engine.py` (57). Ruff is clean. The full unit suite and the four browser files are left to the
 factory's watched run. Net code is 77 lines, inside the budget of 130.
+
+**After the factory's second unit run failed.** Its tail stopped after 30 dots, before any percentage, with no
+FAILED or ERROR line. The run was cut off; no test failed it. The tail does not show why, and this session cannot
+find out: both the watched parallel run (`suite_watch.py ... -n 8`) and a watched serial run were refused here. So
+every unit file (all but the four browser files) was run serially on 940c4627, in batches, and none failed: 435,
+384, 336, 364 (1 xfailed), 290, 245 and 212 passed. On top of those, 134 passed in the explain, status and
+architecture batch, plus the 15 acceptance tests and the reload and runner files (11, 1 and 43). The skips are
+platform skips (the macOS sandbox, remote and container tests). Ruff is clean. No code was changed, because no test
+fails and so nothing in this branch needs fixing. If the run is cut off again, the watchdog's own report (threads,
+memory, or one worker past 2 GB) will name the cause. That report is not in the tail given.
