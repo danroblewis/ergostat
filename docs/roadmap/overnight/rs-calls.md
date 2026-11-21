@@ -118,3 +118,14 @@ to be the stall's cause. No test puts the close in that gap yet. Budget: about 3
 belongs in the call handler and nothing smaller closes the gap. Still open: a connection accepted around the close
 and queued behind the workers' stop markers is never answered or closed. That predates this branch and is not
 fixed here.
+
+Round 4 (the finding handed over is review rs-calls-1's blocking one, answered in round 3: the command makes the key
+once and its fallback records under it; nothing new beyond it). The previous session's uncommitted `Server._park`
+change had been committed by the factory (`7e7554f0`). This round adds the test it lacked:
+`test_a_gated_action_parked_while_the_engine_stops_is_asked_again` patches `program.settled` so the engine closes while
+the parked-call thread is partway through a pass. It asserts the call is not put back on the stopped engine, then that
+its caller asks the new engine, is parked there, is asked of the owner once, and runs once approved. With `_park`'s
+`self.sock is not None` check removed, it fails (seen: the call left in `parked` of the closed engine). No code
+changed this round. Run here, one file at a time, all passing: `test_calls` (14), `test_gated_actions`, `test_leases`,
+`test_resilience`, `test_program_actions`, `test_daemons`, `test_lease_kill`; ruff is clean. Not run here: the whole
+unit suite and the browser files. Budget unchanged: about 3 net lines over 100, for the reason given above.

@@ -297,6 +297,40 @@ def test_a_gated_action_in_flight_at_the_stop_is_asked_once(tmp_path):
     assert len(rec.stored(p)) == 1
 
 
+def test_a_gated_action_parked_while_the_engine_stops_is_asked_again(tmp_path, monkeypatch):
+    """The stop lands while the parked-call thread is partway through a pass (the call taken out of ``parked``): the
+    call is not put back on the closed engine, its connection is closed, so its caller asks the new engine."""
+    from ergostat.actions import program
+    p = project(tmp_path, f"{PY} -c pass")
+    cfg = tmp_path / "actions.json"
+    cfg.write_text(json.dumps({"block": "probe", "run": "r1", "actions": ["noop", "ask"], "runner": "ergostat"}))
+    e = started(p)
+    settled, stopped = program.settled, threading.Event()
+
+    def settling(*a, **k):
+        out = settled(*a, **k)
+        if threading.current_thread().name == "ergostat-socket-parked" and not stopped.is_set():
+            stopped.set()
+            e.close()                                             # the stop, in the middle of the pass
+        return out
+    monkeypatch.setattr(program, "settled", settling)
+    t, got = asking(lambda: client.call("act", path=e.socket, retry=30, name="ask", args={}, wait=20.0,
+                                        env={"ERGOSTAT_ACTIONS": str(cfg)}))
+    assert wait_for(stopped.is_set)
+    assert not e.calls.parked, "not put back on the stopped engine"
+    monkeypatch.setattr(program, "settled", settled)
+    e = started(p)
+    try:
+        assert wait_for(lambda: e.calls.parked), "its caller saw the stop and asked the new engine"
+        held = list(rec.stored(p).values())
+        assert len(held) == 1 and held[0]["state"] == "requested"
+        gate.approve(p, p.model.spec, held[0]["id"], by="owner")
+        t.join(15)
+        assert got.get("out", got)["full"]["state"] == "ran"
+    finally:
+        e.close()
+
+
 TWICE = """
 import json, os
 from ergostat.calls.client import call
