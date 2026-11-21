@@ -336,3 +336,12 @@ failed in round 6 passes now). Size: 329 net lines outside `tests/` and `docs/` 
 whole-suite run (`suite_watch.py`, `-n 8 --dist worksteal`), so the factory has to run it, along with the four browser
 files, on this tree. If it fails only on main's lease or warm-runner timing tests, that belongs outside this gap
 (lesson-10, lesson-13).
+
+Continued, round 2, after the factory's fast suites: the `unit` tail given ends at about 99% (only dots, skips and
+the one known `x`), with no `F` or `E`, no pytest summary and no `suite_watch` JSON line. So the run was cut off from
+outside before it finished. No test failed it. Run here in full as the factory runs it (`suite_watch.py`, `-n 8
+--dist worksteal`, on 24dc5dda): 2339 passed, 69 skipped, 1 xfailed in 524.7 s, rc 0, killed null, 0 left behind.
+The suite has grown to about 2,400 tests, and its wall time here (525 s) is about twice the 255 to 266 s of the
+earlier runs. If the factory's `unit` slot has a time limit near that, the limit stops the run, not this branch.
+That limit (or the suite's length) belongs to its own gap (lesson-13). No code changed. Ruff clean (`ergostat tests
+scripts dev/bin`). Not run here: the four browser files.
