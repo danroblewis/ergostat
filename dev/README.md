@@ -301,7 +301,12 @@ the lease of the run's own gap but is not fenced by it (`fenced: false` in `dev/
 runs whatever became of that lease, safe because it pushes only that commit and only as a fast-forward of the remote's
 main (a stale one is refused by git). When the run's own gap does not land (sent back, queue-failed) and others do, it
 waits at `push-pending` (its lease ends there, not back at `approved`) and its outcome is said once the push settles.
-If you deny the push, the queue undoes that merge (`git reset --keep`) and sends the gap back.
+If you deny the push, the queue undoes that merge (`git reset --keep`) and sends the gap back. A push that ran, failed
+or was denied is settled within minutes even with no gap approved to start a run: the block `push-settler`
+(`queue.py settle`, every 2 minutes) settles it under the queue's lock when no run holds it (a run holding it settles
+the push itself, so the outcome is said once); a failed push says the held outcome at once and blocks the queue. The
+watch counts a `push-pending` gap as explained only while its push is held, requested or approved, and one that no
+pending push carries as stuck at once.
 
 **The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
 its pages drew nothing); the first failure in that order is the one reported.

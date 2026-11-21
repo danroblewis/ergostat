@@ -25,10 +25,12 @@ takes no gap: it gives its lease back, uncounted, and says nothing of it.
 It merges exactly the commit the reviewer approved, fetched from the drop (never the branch's name), and refuses a
 branch that moved since. A conflict is a failed gate (the second parks).
 
-`queue.py push SHA` is the action's command: it pushes exactly that commit to the remote's main, never anything else."""
+`queue.py push SHA` is the action's command: it pushes exactly that commit to the remote's main, never anything else.
+`queue.py settle` (the block push-settler) settles a push that ran, failed or was denied with no run started."""
 
 from __future__ import annotations
 
+import fcntl
 import json
 import re
 import shlex
@@ -252,7 +254,7 @@ def settle(cfg: dict, repo) -> str | None:
     """Before a merge: what became of the last merge's push. None when the queue may go on; else why it waits.
     Pushed: done. Held: wait (one unpushed merge at a time, so a denial undoes only its own). Denied: the merge undone
     (`reset --keep` to before it) and its gap sent back. Failed, or an undo that fails: the queue blocked, with an
-    intervention, until the coordinator records it remedied."""
+    intervention, until the coordinator records it remedied (a failed push's held outcome is said at once)."""
     st = state(cfg)
     if st.get("blocked"):
         iid = st["blocked"]["intervention"]
@@ -292,7 +294,28 @@ def settle(cfg: dict, repo) -> str | None:
         return None
     if now in ("held", "requested", "approved"):
         return f"the push of {p['sha'][:12]} ({p['gap']}) is {now}"
+    release(p)                                         # failed: the held outcome said now, not once it is remedied
+    p["then"] = []
     return block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
+
+
+def settle_alone(cfg: dict) -> str | None:
+    """`queue.py settle` (the block push-settler, every few minutes): a push that ran, failed or was denied is settled
+    with no gap approved to start a run. Under the queue's lock, taken only if free: a run holding it settles the push
+    itself (take()), and each re-reads run/queue.json inside the lock, so the outcome is applied once. Why it did
+    nothing, or None."""
+    lock = fac.path(cfg, "queue_lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock, "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return "a run holds the queue's lock"
+        try:
+            repo = fac.path(cfg, "checkout")
+            return recover(cfg, repo) or settle(cfg, repo)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def reviewed(cfg: dict, repo, gap: dict) -> tuple[str | None, str]:
@@ -540,5 +563,8 @@ def push(sha: str) -> int:
 if __name__ == "__main__":
     if sys.argv[1:2] == ["waiting"]:                   # the sensor push-waiting: 1 while the queue can take no gap
         print(1 if waits(fac.config()) else 0)
+        sys.exit(0)
+    if sys.argv[1:2] == ["settle"]:                    # the block push-settler (unreadable: raised, a failed run)
+        print(f"settle: {settle_alone(fac.config()) or 'nothing waits'}", file=sys.stderr)
         sys.exit(0)
     sys.exit(push(sys.argv[2]) if sys.argv[1:2] == ["push"] else main())
