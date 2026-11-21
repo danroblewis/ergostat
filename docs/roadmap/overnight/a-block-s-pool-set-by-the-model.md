@@ -1,0 +1,178 @@
+# a-block-s-pool-set-by-the-model: `pool: {now: stock.NAME, most: N}`, a block's pool read from a stock at each dispatch, capped by its most
+depends-on: []
+
+## Definition of done
+
+1. **The model language.** A block that takes items may write `pool:` as a whole number (unchanged) or as
+   `pool: {now: stock.NAME, most: N}`. In the second form, `most` is the hard ceiling. It is required and must be a
+   whole number of 1 or more (a bool is refused). `now` must be a `stock.` reference to a stock of the model that has
+   at least one sensor. Each mistake is a compile error with where it was written:
+   - `most` missing or not a whole number of 1 or more: code `bad-number`.
+   - `now` not a reference, or a reference to another kind: `bad-ref` or `wrong-kind`, through `Compiler.ref`.
+   - a stock that does not exist: `unknown-ref`, with a suggestion.
+   - a stock with no sensor: a new code `pool-unmeasured` ("nothing reads its level").
+   - an unknown key in the mapping: `unknown-key`.
+
+   The existing `pool-without-takes` check also fires for the mapping form on a block that takes nothing.
+   In `ergostat/spec/ir.py`, `Block.pool` stays an `int` and is the most (the number, or `most`). A new field
+   `pool_now: Ref | None` names the stock (None for the number form). Code that reads only `b.pool` still sees a
+   correct ceiling.
+2. **One function says what the pool is now:** `ergostat/leases/poolnow.py::now(b, value) -> int`. With no
+   `pool_now`, it returns `b.pool`. Otherwise it maps `value` (the stock's level) to `floor(value)` clamped to
+   `[0, b.pool]`. A `None`, NaN, infinite or non-numeric value gives 0. The same module has
+   `read_at(p, spec, b, at) -> float | None`: the stock's newest reading at or before `at`, over all its sensors'
+   series, as `engine.measure` picks it (`p.measurements.latest(series, before=at)`).
+3. **Dispatch reads the pool now at every tick.** In `leases/dispatch.py::tick`,
+   `room = poolnow.now(b, self.e.get(b.pool_now)) - in flight`. The read happens inside the same `with self.lock:`
+   that counts the leases held and takes the new ones, after `items_of`.
+   - A raised stock starts more runs at the next tick, with no model reload.
+   - A lowered stock drains: no new lease until fewer than the pool now are held. Nothing running is stopped,
+     exactly as a lowered `pool:` number behaves (SPEC §9.5).
+   - A stock with no reading (or a non-numeric one) gives a pool of 0. No new lease is taken, and the engine says
+     once per block, until it is read again: "BLOCK: its pool (stock.S) has no reading: it takes nothing new".
+   - `once` (`block NAME --now`) is unchanged: it runs whatever the pool is.
+   - The daemon's room still caps it: `min(room, daemon free − handing)`.
+4. **The completion estimates read the pool now.** `numbers/etamodel.py::read` gives each `BlockIn` the pool now at
+   `at` (`poolnow.now(b, poolnow.read_at(p, spec, b, at))`), not the most.
+   - At a pool now of 0 or no reading, the simulation already holds capacity at 1 or more. `eta.reasons` must then
+     say so on the items waiting at that block, so the estimate is never silent about it: "its pool (stock.S) is 0
+     now / has no reading: estimated at 1 run at once".
+   - The owner's what-if `block.NAME.pool=N` still overrides the pool now.
+5. **The Blocks view reads the pool now.** `numbers/blockmodels.py` sets `m.servers` from the pool now at the end of
+   the record it identifies on, with the same reason text in `m.basis` when the pool is 0 or unread (servers then 1).
+   So the what-if field that `numbers_api` serves (`"pool"`) starts at the pool now. In `blockdiagram.py::block_fn`,
+   the box of a block that takes items gets a row `["pool", ...]`:
+   - the stock form: `"N now, at most M (stock.S)"`, with the stock's value from the snapshot, or `"no reading, at most M (stock.S)"`;
+   - the number form: `"M"`.
+
+   No new page, panel or UI element.
+6. **The factory uses it.** In `dev/model/building.yaml`, the implementor is `pool: {now: stock.implementor-pool,
+   most: 4}` and the reviewer is `pool: {now: stock.reviewer-pool, most: 2}`. The comments "the most: the pool now
+   is …" are replaced by what is now true. `dev/model/pools.yaml`'s header comment and `dev/bin/pools.py`'s docstring
+   now say that the engine holds the blocks to the pool now. The gates' `pool:` inputs and `my_turn` (which also
+   holds the machine's headroom) stay as they are.
+7. **Docs are current:**
+   - SPEC §9.5: the `pool` row of the key table, the example, and the Dispatch paragraph give the stock form: read at
+     each dispatch, clamped to its most, no reading takes nothing new, lowering drains.
+   - SPEC's estimates paragraph (~l.840) and its Blocks-view sentence say "the pool now".
+   - `ergostat/help/blocks.md`, and the agent guide's line on pools if it has one, give the stock form.
+   - In `docs/GAPS.md`, the entry is marked done.
+8. **The house checks pass:** the unit suite and the four browser files pass with rc 0 (no page test skipped for
+   want of a port), ruff is clean, and `demo_check` passes on any example touched (none is planned). Then origin/main
+   is merged in and the suites run again.
+
+## Files to touch
+
+- `ergostat/spec/ir.py` (`Block.pool_now`)
+- `ergostat/leases/compile.py` (`pool()` returns the most and the ref; the checks above)
+- `ergostat/spec/compile.py` (passes `pool_now` into `Block`)
+- `ergostat/leases/poolnow.py` (new: `now`, `read_at`)
+- `ergostat/leases/dispatch.py`
+- `ergostat/numbers/etamodel.py`, `ergostat/numbers/eta.py` (the reason line)
+- `ergostat/numbers/blockmodels.py`
+- `ergostat/blockdiagram.py`
+- `dev/model/building.yaml`, `dev/model/pools.yaml` (comment), `dev/bin/pools.py` (docstring)
+- `docs/SPEC.md`, `ergostat/help/blocks.md`, `docs/AGENT-GUIDE.md` (only if it describes `pool:`), `docs/GAPS.md`
+- `tests/test_pool_now.py` (new), `tests/test_factory.py`
+
+## Risks
+
+- **lesson-1 (check, then write, without the lock).** The dispatcher could read the stock, then count the leases and
+  take them under the lock: a decision on a pool read before the leases it counts. The read must happen inside
+  `self.lock` after `items_of`, in the same block as the count and the take. A change of the stock between ticks is
+  only seen at the next tick, by design (it drains; it never revokes).
+- **lesson-3 (failing open).** The stock may be missing a reading, have a stale one, hold a NaN or a string, or name
+  a stock with no sensor. Each of these must not read as the most:
+  - dispatch: 0, nothing new taken;
+  - compile: a sensorless stock is refused;
+  - estimates and Blocks view: 1, said in the reason.
+
+  The estimates are a projection, not an act. Reading 0 there would make the simulation never finish, so they read 1
+  and say why (honest numbers), while the dispatcher, which acts, fails closed.
+- **lesson-4 (a floor and no ceiling).** A controller stepping the stock up without bound would spawn sessions
+  without bound. `most` is required at config time, and the read is clamped to it at run time. In-flight counting
+  includes held leases from any engine, as now. (The integer form's lack of a global maximum is not changed here; it
+  is outside this gap.)
+- **lesson-6 (work that keeps running after it was cancelled).** Lowering is a drain, not a cancel. The claim is
+  "nothing running is stopped, nothing new taken". A test shows both halves, so the docs claim no more than that.
+- **lesson-7 (merged branches conflict).** `dispatch.py` and `building.yaml` are busy files (main-broken, resources).
+  Merge origin/main and run the suites again before saying built.
+- **lesson-8 (claims wider than the code).** "Read at each dispatch", "never above its most", "drains when lowered",
+  "no reading takes nothing new" and "the estimates and the Blocks view read the pool now" each have a named test
+  below. SPEC says nothing that is not tested.
+- **lesson-9 (a test that can't fail).** Each test below asserts a number that differs between the most and the pool
+  now (most 4, pool now 1 or 2), so reading `b.pool` instead fails it. The implementor breaks each guarded line in
+  turn and reports that the test failed:
+  - the read moved outside the lock;
+  - the clamp removed;
+  - `None` mapped to the most;
+  - `b.pool` used in etamodel, blockmodels and dispatch.
+- **lesson-10 (load flakes).** The dispatch tests wait on conditions (poll the record with a deadline), never on
+  fixed sleeps, and run under `-n 8`.
+
+## Acceptance tests
+
+In `tests/test_pool_now.py` unless said otherwise:
+
+- `test_pool_from_a_stock_compiles_with_its_most`: `pool: {now: stock.p, most: 4}` gives `b.pool == 4` and
+  `b.pool_now == Ref("stock", "p")`. `pool: 3` gives `pool_now is None`.
+- `test_pool_from_a_stock_refuses_what_it_cannot_hold` (parametrized), each by its error code:
+  - no `most`;
+  - `most: 0`, `most: true`, `most: 2.5`;
+  - `now: flow.x` (`wrong-kind`);
+  - `now: stock.nope` (`unknown-ref`);
+  - a stock with no sensor (`pool-unmeasured`);
+  - an extra key;
+  - the mapping on a block without `takes:` (`pool-without-takes`).
+- `test_pool_now_clamps_and_fails_closed`: `poolnow.now` maps None, NaN, inf, `"x"` and -2 to 0, 2.7 to 2, and 9 to
+  4 (most 4). For a block with no `pool_now` it returns `b.pool` whatever the value. (lesson-3, lesson-4)
+- `test_dispatch_reads_the_pool_now_at_each_tick`: 6 ready items, a stock read from a file at 1 and most 4. At most
+  1 run is going at once. The file is written to 3 with no reload, and then 3 are going at once, never 4.
+- `test_a_lowered_pool_drains_and_stops_nothing`: 3 runs held, the stock lowered to 1. None of the 3 runs is killed,
+  and they all end on their own signal. No new lease is taken until fewer than 1 are held, then exactly 1. (lesson-6,
+  lesson-8)
+- `test_the_pool_now_never_passes_its_most`: stock 50, most 2. Never more than 2 held at once over 6 items. (lesson-4)
+- `test_an_unread_pool_takes_nothing_new`: a sensor that fails. No lease is taken and the engine says "has no
+  reading" once. When the sensor reads 1, exactly 1 lease is taken. (lesson-3)
+- `test_the_pool_is_read_under_the_dispatch_lock`: monkeypatch the engine's `get` to record whether
+  `dispatcher.lock` is held when the pool's stock is read, and write a held lease of another engine into the record
+  in that moment. The read happens with the lock held, and the take counts the competing lease (the pool is not
+  passed). (lesson-1)
+- `test_estimates_read_the_pool_now`: a record where the stock reads 1 until t1 and 3 after, most 4.
+  `etamodel.read(..., at=before t1)` gives the block's `BlockIn.pool == 1`, and `at` after t1 gives 3.
+  With no reading, it gives 1 and the reason says "has no reading". `block.NAME.pool=2` still overrides.
+- `test_the_blocks_view_servers_are_the_pool_now`: `blockmodels.identify` gives the block `servers == 2` for a stock
+  at 2 with most 4. The numbers API's block `"pool"` is 2.
+- `test_the_block_box_shows_the_pool_now_and_its_most`: the `block_fn` rows of that block include
+  `["pool", "2 now, at most 4 (stock.p)"]`, and `"no reading, at most 4 (stock.p)"` when it is unread. A number-form
+  block shows `["pool", "3"]`.
+- `tests/test_factory.py::test_the_factory_blocks_take_their_pools_from_the_pool_stocks`: the compiled factory model
+  has implementor `pool_now == stock.implementor-pool`, `pool == 4`, and reviewer `pool_now == stock.reviewer-pool`,
+  `pool == 2`.
+- Existing tests that must still pass unchanged: `tests/test_leases.py::test_one_run_per_item_bounded_by_the_pool`
+  and `tests/test_eta.py::test_whatif_pool_and_failure_change_the_estimates`.
+
+## Size budget
+
+180 net lines of code outside `tests/` and `docs/`:
+
+| Part | Lines (about) |
+|---|---|
+| compile | 35 |
+| `poolnow.py` | 35 |
+| dispatch | 10 |
+| etamodel and eta | 20 |
+| blockmodels | 12 |
+| blockdiagram | 10 |
+| ir | 2 |
+| `dev/` YAML and docstrings | 10 |
+
+## Notes from the plan review (answer each)
+
+- Stale readings: Risks says a stale reading must not read as the most, but nothing defines or tests staleness; read_at and e.get take the newest reading of any age. Add an age limit with a test, or drop 'stale' from the claim and the docs (lesson-8).
+- e.get under self.lock must return the engine's stored value and never run a sensor, or a slow or hung sensor stalls every dispatch; say which it does, and include a hanging sensor in test_an_unread_pool_takes_nothing_new.
+- Call e.get only when pool_now is set; for the number form do not pass None to the engine.
+- poolnow.now must refuse a bool reading (True is a number in Python and would give 1); add it to test_pool_now_clamps_and_fails_closed.
+- most has a floor and no upper limit at config time (most: 5000 compiles); add an upper limit for the mapping form or state plainly why not (lesson-4).
+- read_at picks the newest reading across several sensors by timestamp; confirm it decides exactly as engine.measure does, including equal stamps (lesson-2), and test two sensors that disagree.
+- The lock test shows the read happens under this engine's lock; another engine's lease is counted because of the record, not this lock. The docs should claim no more than that.
