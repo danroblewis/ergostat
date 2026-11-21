@@ -66,3 +66,13 @@ checked again against `ergostat/leases/dispatch.py` after the merge: the lease e
 belongs in a gap of its own (lesson-13). Not run by the implementor this round: shell commands for pytest and ruff were
 refused, so the acceptance test, ruff and the lease tests on their own were not run after the merge. They are left to
 the factory's suites. No code changed. This note is uncommitted if the commit is refused too.
+
+After the fast suites, round 2: `unit` was reported failed, but the tail it came with names no failing test and no
+error. It stops at about 3% of the run (`........ [  3%]` and one partial line of dots), after the slot was taken and the
+package built. So the run looks like it was cut off (killed, timed out, or the output was truncated), not failed on an
+assertion; nothing in the tail points at code this branch could fix. The branch still changes only the two markdown
+files, and `dev/knowledge/review-lessons.md:54-55` still holds the lesson-7 "Seen as:" line and nothing else. No code
+was changed: the definition allows 0 lines and says "nothing else changed", and there is no named failure to fix
+(lesson-13). This is the more reversible choice. Left: the factory should re-run `unit` and look at its full output,
+and any lease failure there goes in its own gap (see the two above). Not run by the implementor: shell commands were
+refused again this session, so pytest, ruff and the commit were not run; this section is left uncommitted.
