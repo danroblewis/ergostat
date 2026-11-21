@@ -729,7 +729,9 @@ order, casefolded (Python's `str.casefold`, as the words are: `STRASSE` finds `s
 not in it. A word matches as a plain substring (`alpha` finds `alphabet`; `%` and `_` are only themselves): there is no
 ranking and no fuzzy match. Only the first 65,536 characters of an item's text are kept (`items.TEXT_MOST`): a word
 past them is not found. A search is 1 to 8 words; an empty one, or more, is refused (exit 2, HTTP 400), never answered
-with every item. It answers as of now: with `--at` (or `at=`) it is refused. The text is kept in the item index,
+with every item. It answers as of now: with `--at` (or `at=`) it is refused. It narrows by kind and one state only:
+`/api/items?search=` with a set's filters (`where`, `moved`, `through`, `followed`, `caused`, `alone`, a list of
+states) is refused (HTTP 400), never answered with the filter dropped. The text is kept in the item index,
 on the item's own row, written with it and replaced each time the item is folded again (a changed field, a `set`, a
 snapshot), and gone when the item is; an index from before it is rebuilt from the record, and a row without its text
 has the index rebuilt before a search reads it. The Items page's own search box is apart from this.

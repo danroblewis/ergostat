@@ -74,6 +74,7 @@ create table if not exists items (
 create index if not exists items_kind_state_last on items(kind, state, last);
 create index if not exists items_kind_last on items(kind, last);
 create index if not exists items_last on items(last);
+create index if not exists items_textless on items(rid) where text is null;
 create index if not exists items_newest on items(newest);
 create table if not exists moves (rid integer, kind integer, t real, frm integer, dst integer, event text, type integer);
 create index if not exists moves_rid on moves(rid);
@@ -254,9 +255,7 @@ class Index:
                 c.execute("pragma synchronous=normal")
                 c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
                 c.execute("pragma temp_store=memory")
-                c.executescript(SCHEMA)
-                if "text" not in {r[1] for r in c.execute("pragma table_info(items)")}:
-                    c.execute("alter table items add column text text")   # an older layout: its VERSION has it rebuilt
+                c.executescript(SCHEMA)        # (an older layout is another file: its name holds VERSION)
             except BaseException:
                 c.close()
                 raise
@@ -531,7 +530,8 @@ class Index:
         text holds every one of ``words`` (casefolded: ``items.words``)."""
         sql, args = [], []
         if words and self.db.execute("select 1 from items where text is null limit 1").fetchone():
-            self._set_meta(version=0)                       # a row without its text is never read as no match: rebuilt
+            self._set_meta(version=0)                       # a row without its text (items_textless: one lookup) is
+            #                                                 never read as no match: rebuilt
             self.seq = -1
             self.catch_up.__wrapped__(self, self._events)
         for w in words:
