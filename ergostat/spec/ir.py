@@ -415,7 +415,8 @@ class Action:
     (``{name}`` filled with an argument, shell-quoted, or with ``{item}``, ``{branch}``, ``{workdir}``, ``{block}``,
     ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``; ``cls``: the class it is counted in (its name, else);
     ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
-    ``in_``: where it runs (else the session's working directory)."""
+    ``in_``: where it runs (else the session's working directory); ``fenced``: False for an action that runs once
+    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs)."""
     name: str
     run: str
     gate: str = "approve"
@@ -426,6 +427,7 @@ class Action:
     in_: str | None = None
     description: str = ""
     where: Where | None = None
+    fenced: bool = True
 
 
 @dataclass

@@ -15,8 +15,12 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    bisected to the first failing merge (land()), which goes on to flake triage with what failed (`queue-failed`) and
    the rest lands. On any error or stop, main is undone with `git reset --keep`. The push is asked under the run's
-   own gap's lease: when that gap does not land, its outcome waits for the push to settle (tell()), so no later lease
-   on it fences the approval out.
+   own gap's lease, and is not fenced by it (`fenced: false`: it pushes only that commit, only as a fast-forward), so
+   it runs once approved whatever became of that lease. When that gap does not land, it waits at `push-pending` and
+   its outcome is said once the push settles (tell()), never back at `approved` meanwhile.
+
+While a push waits (run/queue.json, read under the queue's lock before a gap is taken; unreadable, the same), a run
+takes no gap: it gives its lease back, uncounted, and says nothing of it.
 
 It merges exactly the commit the reviewer approved, fetched from the drop (never the branch's name), and refuses a
 branch that moved since. A conflict is a failed gate (the second parks).
@@ -109,9 +113,19 @@ def suites(cfg: dict, repo, tag: str, logs) -> dict:
 
 # ---- the queue's own state: the merge whose push is not settled yet, and a block the coordinator must lift
 
+class Unreadable(Exception):
+    """run/queue.json is there and cannot be read: the queue takes no gap (it cannot tell whether a push waits)."""
+
+
 def state(cfg: dict) -> dict:
     p = fac.run_dir(cfg) / "queue.json"
-    return json.loads(p.read_text()) if p.exists() else {}
+    try:
+        st = json.loads(p.read_text()) if p.exists() else {}
+    except (OSError, ValueError) as e:
+        raise Unreadable(f"run/queue.json cannot be read ({type(e).__name__})") from None
+    if not isinstance(st, dict):
+        raise Unreadable("run/queue.json is not a map")
+    return st
 
 
 def save(cfg: dict, st: dict) -> None:
@@ -147,9 +161,9 @@ HELD: dict = {"own": None, "said": []}    # the run's own gap's outcome, kept ba
 
 
 def tell(event: str, gid: str, **data) -> None:
-    """A gap's outcome said, but the run's own gap's kept back: the push is asked under that gap's lease, which must
-    not be taken again (by the implementor, flake triage) before the push is approved, or the push is fenced out. Said
-    at the run's end, or once its push settles (``then`` in the pending record, release())."""
+    """A gap's outcome said, but the run's own gap's kept back: a batch that lands without it asks its push under that
+    gap's lease, and the gap waits at `push-pending` until the push settles, not taken by the implementor or flake
+    triage meanwhile. Said at the run's end, or once its push settles (``then`` in the pending record, release())."""
     if gid == HELD["own"]:
         HELD["said"].append({"event": event, "item": gid, "data": data})
     else:
@@ -163,8 +177,12 @@ def release(p: dict | None) -> None:
 
 def waits(cfg: dict) -> str | None:
     """Why the queue can take no gap now, read only: a push held for approval, or the queue blocked. Its sensor
-    (`queue.py waiting`) keeps the merge queue from leasing gaps only to give them back."""
-    st = state(cfg)
+    (`queue.py waiting`) keeps the merge queue from leasing gaps only to give them back; a run decides again from the
+    file itself, under the queue's lock (take())."""
+    try:
+        st = state(cfg)
+    except Unreadable as e:
+        return str(e)
     if st.get("blocked"):
         return None if action_state(st["blocked"]["intervention"]) == "remedied" else "blocked"
     p = st.get("pending")
@@ -350,7 +368,6 @@ def main() -> int:
     cfg = fac.config()
     gap = fac.read_input()["item"]
     repo = fac.path(cfg, "checkout")
-    fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
     HELD["own"] = gap["id"]
     try:
         return take(cfg, gap, repo)
@@ -359,11 +376,17 @@ def main() -> int:
 
 
 def take(cfg: dict, gap: dict, repo) -> int:
+    """Under the queue's lock throughout: whether a push waits is read from run/queue.json, the gap is taken
+    (`gap.queued`), and a push asked for is written there, in one hold, so no run between them takes a gap."""
     with fac.queue_lock(cfg):
-        why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
+        try:
+            why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
+        except Unreadable as e:                        # (it cannot tell whether a push waits: no gap is taken)
+            why = str(e)
         if why:
             fac.nack(f"queue: {why}", after="10m", count=False)
             return 0
+        fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
         batch = []
         for g in picks(cfg, gap, min(pools.state(cfg)["batch"], pools.BATCH_MOST)):   # (the ceiling again, at run time)
             sha, why = reviewed(cfg, repo, g)
@@ -405,9 +428,16 @@ def take(cfg: dict, gap: dict, repo) -> int:
                 st = state(cfg)
                 st.pop("running", None)
                 save(cfg, st)
-    if not landed:
-        return 0
-    try:                                                  # one gated push for the batch: its last merge holds them all
+        if landed:
+            ask(cfg, repo, gap, landed, merged, pre)
+    return 0
+
+
+def ask(cfg: dict, repo, gap: dict, landed: list, merged: str, pre: str) -> None:
+    """One gated push for the batch (its last merge holds them all), asked and written as pending under the queue's
+    lock. The run's own gap, when it did not land, waits for it (`gap.push-pending`): its lease ends there, not back
+    at approved, and its outcome is said once the push settles (release())."""
+    try:
         rc, said = fac.act("push-main", key=merged, sha=merged)
         push = {0: "pushed", 1: "failed", 3: "held", 4: "denied"}.get(rc, f"refused ({rc})")
     except FileNotFoundError:
@@ -421,13 +451,14 @@ def take(cfg: dict, gap: dict, repo) -> int:
         save(cfg, {**state(cfg), "pending": {"sha": merged, "pre": pre, "gap": gids[0], "gaps": gids,
                                              "action": m.group(0) if m else "", "known": push.split(" ")[0],
                                              "said": said[-600:], "at": time.time(), "then": then}})
-        with fac.queue_lock(cfg):
-            settle(cfg, repo)                             # a push denied or failed at once is handled now
-    return 0
+        if then:
+            fac.say("gap.push-pending", gap["id"], push_pending=merged)
+        settle(cfg, repo)                                 # a push denied or failed at once is handled now
 
 
 def push(sha: str) -> int:
-    """The action push-main: that commit, and nothing else, to the remote's main (a fast-forward, or refused)."""
+    """The action push-main: that commit, and nothing else, to the remote's main (a fast-forward, or refused: never
+    forced, so the remote moves only from the main it had, which an approval that came late cannot rewind)."""
     cfg = fac.config()
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise SystemExit(f"not a full commit id: {sha!r}")
