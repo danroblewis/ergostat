@@ -382,6 +382,43 @@ def test_stalled_connections_time_out_and_a_new_client_is_served(lst, certs, mon
             s.close()
 
 
+def test_a_handshake_trickled_a_byte_at_a_time_loses_its_slot_at_the_deadline(lst, certs, monkeypatch):  # noqa: F811
+    """HANDSHAKE bounds the handshake as a whole, not each wait for a byte: a real ClientHello sent one byte every
+    0.2 s (so no single wait comes near the limit) is cut off once HANDSHAKE has passed since the accept."""
+    monkeypatch.setattr(listen, "HANDSHAKE", 1.5)
+    srv = lst()
+    ctx = ssl.create_default_context(cafile=str(certs["ca"]))
+    inc, out = ssl.MemoryBIO(), ssl.MemoryBIO()
+    obj = ctx.wrap_bio(inc, out, server_hostname="127.0.0.1")
+    with pytest.raises(ssl.SSLWantReadError):
+        obj.do_handshake()
+    hello = out.read()
+    assert len(hello) > 100                                      # a hello long enough to outlast the deadline
+    s = raw(srv.port)
+    t0 = time.monotonic()
+    cut = None
+    try:
+        assert until(lambda: srv.lst.held() == 1, 5.0)
+        for b in hello:
+            if time.monotonic() - t0 > 6.0:
+                break
+            try:
+                s.sendall(bytes([b]))
+            except OSError:
+                cut = time.monotonic() - t0
+                break
+            time.sleep(0.2)
+            if srv.lst.held() == 0:
+                cut = time.monotonic() - t0
+                break
+        assert cut is not None, "a trickled handshake kept its slot past HANDSHAKE"
+        assert 1.4 <= cut < 1.5 + 3.0                            # at the deadline, not when the hello ran out
+        assert eof(s, 5.0)
+        assert until(lambda: srv.lst.held() == 0, 5.0)
+    finally:
+        s.close()
+
+
 def test_slots_come_back_after_failed_handshakes_and_handler_errors(lst, certs, monkeypatch):  # noqa: F811
     srv = lst()
     url = f"https://127.0.0.1:{srv.port}"

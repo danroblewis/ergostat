@@ -1,8 +1,10 @@
 """The remote API over mutual TLS (SPEC §4c, ``web: mtls:``): a listener of its own beside the loopback page, sharing
 its ``Live``, bounded by hard constants (never config). A connection takes a slot without waiting, or is closed at
-once; its handshake runs in its own thread under ``HANDSHAKE``, and after it the socket times out at ``IDLE``. The
-handler serves ``GET /remote/v1/<endpoint>...`` only, on decoded path segments; anything else is 404 (or 405) without
-reaching the page's routes. Stopping closes every open connection and joins its thread."""
+once; its handshake runs in its own thread and must be done within ``HANDSHAKE`` in all, however slowly the peer's
+bytes come (``ssl`` takes a socket's timeout as the handshake's total since 3.5); after it, the socket times out
+when ``IDLE`` passes without a byte (a peer with a certificate from ``client-ca`` that keeps sending a byte now and
+then keeps its slot). The handler serves ``GET /remote/v1/<endpoint>...`` only, on decoded path segments; anything
+else is 404 (or 405) without reaching the page's routes. Stopping closes every open connection and joins its thread."""
 
 from __future__ import annotations
 
@@ -113,7 +115,7 @@ class Listener(socketserver.TCPServer):
     def _serve(self, raw, addr):
         sock = raw
         try:
-            raw.settimeout(HANDSHAKE)
+            raw.settimeout(HANDSHAKE)    # the handshake's total time, not each wait (ssl docs: do_handshake, 3.5)
             sock = self.ctx.wrap_socket(raw, server_side=True, do_handshake_on_connect=False)
             if not self._swap(raw, sock):
                 return

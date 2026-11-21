@@ -655,7 +655,9 @@ web.mtls.cert PATH: why` (else `remote API over mutual TLS: https://BIND:PORT`).
 listener's and a remote's `tls:`, are set to TLS 1.2 at least; the listener requires a client certificate
 and trusts `client-ca` alone (never the system's trust); a remote's checks the host name. Its limits are
 fixed, not settings: 16 connections at once (one more is closed at once, never queued), 10 s for a
-handshake and 10 s quiet after it or between requests, then the connection is closed. Only `GET` (any
+handshake in all (however slowly its bytes come), then 10 s without a byte after it or between requests;
+past either the connection is closed. A client holding a certificate from `client-ca` that sends a byte
+now and then keeps its slot: only the handshake has a total bound. Only `GET` (any
 other method 405) of `/remote/v1/status`, `model`, `events`, `items`, `counts`, `readings`, `series` or
 `process` and below, read on decoded path segments (none `.`, `..`, empty or holding a slash); any other
 path is 404 and never reaches the page. The token is still needed, as on the page (its 10 a second, and

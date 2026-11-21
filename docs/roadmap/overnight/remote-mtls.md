@@ -233,3 +233,31 @@ Not done here:
 - The unit suite and the four browser files were not run whole. This session ran the touched files
   one at a time (the factory runs the suites under the watchdog). The browser run with Playwright was not
   permitted here.
+
+### Round 2
+
+The one finding (listen.py:116-121, `HANDSHAKE` applied per wait, so a trickled hello holds a slot) was
+tested, not taken on trust. The new test,
+`test_a_handshake_trickled_a_byte_at_a_time_loses_its_slot_at_the_deadline`, sends a real ClientHello
+(about 1.5 kB, made through `ssl.MemoryBIO`) one byte every 0.2 s, with `HANDSHAKE` patched to 1.5 s.
+Against round 1's code, unchanged, the server cuts it at 1.67 s. CPython's `ssl` already takes a socket's
+timeout as the total time of `do_handshake()`, not the time of each wait. Python's ssl docs say so under
+`SSLSocket.do_handshake` ("Changed in version 3.5: the socket timeout is now the maximum total duration
+of the handshake"). So the code was kept as it was: one wrong reading of the code, nothing to fix in it.
+For a short while round 2 ran the handshake non-blocking against its own deadline. That was taken out
+again because it changed nothing and added lines. What changed:
+
+- The new test asserts that the cut comes between 1.4 s and 4.5 s, while the hello still has bytes left.
+  Break made: `raw.settimeout(None)` for the handshake. The test then failed (the slot was still held after
+  6 s of trickling).
+- A comment at the `settimeout(HANDSHAKE)` line and the module docstring cite that ssl behaviour.
+- The claim was narrowed where the review's point does hold. `IDLE` bounds each wait for a byte after the
+  handshake, not the connection as a whole. A client holding a certificate from `client-ca` that sends a byte now
+  and then keeps its slot. SPEC §4c and the module docstring now say so: "10 s for a handshake in all,
+  then 10 s without a byte". A total bound after the handshake is not in this definition. It would be a gap
+  of its own.
+
+Code lines changed this round: comments and the docstring only (about +2 net, still under 400).
+Tests run in round 2: `tests/test_remote_mtls.py` (23 passed) and `tests/test_remote.py` (12 passed), one file at a
+time; ruff clean. Still not done here, as in round 1: the merge of origin/main (there is no `origin` in this clone)
+and the whole unit and browser suites, which the factory runs under the watchdog.
