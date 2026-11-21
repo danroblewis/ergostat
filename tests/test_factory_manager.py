@@ -86,6 +86,8 @@ def test_dead_and_parked_gaps_are_raised_but_not_old_or_carried_on_ones(tmp_path
     f.put("gap/old-park", "parked", parked_at=f.now - 72 * H, branch="old-park")
     f.put("gap/carried", "parked", parked_at=f.now - H, branch="carried")
     f.put("gap/carried-on", "open", continues="carried")
+    f.put("gap/deferred", "parked", parked_at=f.now - H, branch="deferred", deferred=True)   # the coordinator's, by field
+    f.put("gap/cancelled", "parked", parked_at=f.now - H, branch="cancelled", cancelled=True)
     f.put("gap/long-dead", "dead", entered=2 * H, branch="long-dead", last_error="RuntimeError: lost")
     got = f.watch()
     assert (got["trigger"], got["subject"], got["gap"]) == ("dead", "gap/long-dead", "gap/long-dead")

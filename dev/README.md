@@ -119,8 +119,11 @@ the intake says so on stderr and takes it once the other stops (of two requests 
 read is taken, the other waits). Each run fetches its session's work to a side ref of its own
 (`refs/incoming/<run>/factory/NAME`). Before each implementor run on a branch behind main, implement.py merges main in
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
-(it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
-the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
+(it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
+`uv run python scripts/suite_watch.py`; its refused calls are kept as `tool_denials`, and a session with no result or
+a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
+`tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
+merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
 after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
@@ -195,7 +198,13 @@ python3 dev/bin/backlog.py pin GAP 1              # or: pin GAP --off
 python3 dev/bin/backlog.py dep add GAP ON         # or: dep rm GAP ON (kept: GAPS.md does not add it again)
 python3 dev/bin/backlog.py close GAP --done --why "landed in abc1234"   # or --duplicate-of OTHER
 python3 dev/bin/backlog.py propose                # the solver's order and why, writing nothing
+python3 dev/bin/backlog.py propose FILE           # a proposal as the program checks it, writing nothing
+python3 dev/bin/backlog.py refuse-link GAP ON --why "its definition names no need of ON"
 ```
+
+A refused link (run/backlog/refused-links.jsonl) is dropped from every later grooming proposal, shown among its
+refusals with the reason; `dep add` of the same pair adds it and clears the refusal. An unreadable file refuses
+nothing and says so in the proposal.
 
 A GAPS.md entry whose head (its opening parenthetical, or the clause after its colon) begins with "done" or
 "superseded by" is never found as open, and one the record holds not yet started is closed.
@@ -217,7 +226,14 @@ at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a si
 `- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
 sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
 made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
-file).
+file). Once every sub-gap is merged the join moves the parent to `joined`, never to `merged`, and the **join judge**
+(`plan.py join`, the plan reviewer's model and session cap, `[ai] join_judge_*`) reads, in a read-only clone of main,
+the parent's entry, its coverage, and each sub-gap's definition and last review (anything unreadable shown as
+`(missing: why)`). `covered` merges the parent, its verdict, reasons and `judged_at` recorded. `short` requests a new
+sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points not built), adds those points to the
+coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
+most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
+cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -347,10 +363,19 @@ the lease of the run's own gap but is not fenced by it (`fenced: false` in `dev/
 runs whatever became of that lease, safe because it pushes only that commit and only as a fast-forward of the remote's
 main (a stale one is refused by git). When the run's own gap does not land (sent back, queue-failed) and others do, it
 waits at `push-pending` (its lease ends there, not back at `approved`) and its outcome is said once the push settles.
-If you deny the push, the queue undoes that merge (`git reset --keep`) and sends the gap back.
+If you deny the push, the queue undoes that merge (`git reset --keep`) and sends the gap back. A push that ran, failed
+or was denied is settled within minutes even with no gap approved to start a run: the block `push-settler`
+(`queue.py settle`, at most every 2 minutes) is commanded by the sensor `push-settleable` (`queue.py settleable`, every
+minute), 1 while a pending push ran, was denied, failed or cannot be read, or a block was remedied. It settles under the
+queue's lock when no run holds it (a run holding it settles the push itself), and saves `run/queue.json` before it says
+anything, so a run killed part way says an outcome at most once (one killed between the two leaves its gap at `push-pending`
+with no push carrying it, which the watch raises as stuck at once). A failed push says the held outcome at once and blocks
+the queue; an action that cannot be read is read again on the next two runs before it counts as failed. The watch counts a `push-pending` gap as explained only while its push is held, requested or approved, and one that no
+pending push carries as stuck at once.
 
 **The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
-its pages drew nothing); the first failure in that order is the one reported.
+its pages drew nothing). The first of them to fail is the one reported, and it stops the rest: a unit failure kills
+the browser run still going (and the other way round), which is recorded `stopped_by` it, its own result not judged.
 
 **The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
 triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
@@ -371,7 +396,17 @@ a change to main's list (which a reviewer reads in the diff); nothing in this co
 The batch is 1 to start (`[pools] batch = 1`: one gap a run, the queue as it always was). A green batch asks for one
 push, of its last merge, so one approval lands the batch, and a denial sends every gap of it back. A red batch is
 bisected (the suites again on the first half of the merges, and so on) to the first merge that fails; that gap goes to
-flake triage with its failures, the merges before it land, and those after it are merged again and run once more. A
+flake triage with its failures, the merges before it land, and those after it are merged again and run once more.
+When the red run named its failing tests (`FAILED`/`ERROR` lines), those are first run alone, serially
+(`[suites] rerun`, `-rA`), on the whole red tree. Only if one fails there too does each bisecting step run only those:
+red when one of them fails, green only when the run passes and each says PASSED; a step that cannot tell (a test not
+found on that prefix, a run that never started) runs every suite instead. A failure that shows only in the full run
+(order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a
+killed run) are bisected with every suite, as before. A green on the named tests alone never lands anything: the
+merges before the failing one are merged again with those after it, and the lot lands only on a full green run of
+that very tree; the failing gap's `pre` is then main's head before them, so its triage runs it on main alone. Each
+failing merge costs at most `2 + 2 ceil(log2 m)` runs (the red run, the rerun on its tree, and each step, two when a
+named run cannot tell), most of them its failing tests rather than the suites. A
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
 
@@ -467,7 +502,7 @@ on a read-only clone of main like the other sessions, its conversation kept as a
 **The triggers** (`dev/bin/watch.py`, the block `pipeline-watch`, every 5 minutes; `[manager]` in the settings), in
 order: the queue blocked (`run/queue.json`, or an open intervention of class `queue`); a gap dead past half an hour, or
 parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or none said) unless
-another gap carries its branch on; a `waits_on` or `needs` park not cleared in `park_wait_hours` (24); a gap in one state past
+another gap carries its branch on or the coordinator marked it `deferred: true` or `cancelled: true`; a `waits_on` or `needs` park not cleared in `park_wait_hours` (24); a gap in one state past
 `[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
 lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
 queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes
