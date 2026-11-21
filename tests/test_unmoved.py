@@ -362,6 +362,53 @@ def test_a_pass_on_structure_is_never_written_by_auto(tmp_path):
     assert pr.stored(p)[pid]["state"] == "passed" and "shipped" not in p.model.path.read_text()
 
 
+def _week(p, made: float, pid: str, step_h: float = 6.0) -> tuple[str | None, float | None]:
+    """The judge every ``step_h`` hours of a week of record after the change: its verdict and the hours it came at."""
+    for j in range(1, int(WEEK / step_h) + 1):
+        jd.run(p, "judge", at=made + j * step_h * H)
+        x = pr.changes(p).get(pid)
+        if x and x[0] not in ("checked", "testing"):
+            return x[0], j * step_h
+    return None, None
+
+
+@pytest.mark.slow
+def test_measured_on_the_slow_world(tmp_path, monkeypatch):
+    """The measurement (docs/roadmap/overnight/the-judge-almost-never-decides.md): unmoved structural changes on the slow
+    queue, a week of record each, before (the structural path off: the judge as on main) and after; and the table's
+    no-difference case (k 0.05 → 0.0501), which moves the replay and so is judged by the bound as before."""
+    cases = {"answers a finding": (DONE, LEAVE), "makes a finding": (BASE, INTO), "moves nothing": (BASE, STILL),
+             "answers one, opens a note": (DONE, SHIP)}
+    seeds, rows = range(5), {}
+    for side in ("before", "after"):
+        with monkeypatch.context() as m:
+            if side == "before":
+                m.setattr(un, "exercised_now", lambda *a, **k: [])
+            for name, (text, raw) in cases.items():
+                got = []
+                for s in seeds:
+                    p, made = world(tmp_path / f"{side}-{name[:5]}-{s}", text, hours=WEEK, seed=s)
+                    got.append(_week(p, made, submit(p, raw, made)))
+                rows[(side, name)] = got
+    for (side, name), got in rows.items():
+        vs = [v for v, _ in got]
+        print(f"MEASURED {side:6} {name:26} passed {vs.count('passed')} failed {vs.count('failed')} inconclusive "
+              f"{vs.count('inconclusive')} undecided {vs.count(None)}; hours {sorted(h for _, h in got if h)}")
+    after = {n: [v for v, _ in rows[("after", n)]] for n in cases}
+    assert after["answers a finding"] == ["passed"] * 5 and after["makes a finding"] == ["failed"] * 5
+    assert after["moves nothing"].count("passed") == 0
+    nodiff = []
+    for s in range(20):
+        p, made = slow_world(tmp_path / f"k{s}", s, 0.05, 0.05)
+        raw = {"kind": "parameter", "parts": ["parameter.k"], "title": "k is 0.0501",
+               "edit": {"file": "ergostat.yaml", "replace": K_LINE, "with": K_LINE.replace("0.05 ", "0.0501 ", 1)},
+               "reasons": [{"says": "the replay of queue drifts", "evidence": "fit:stock.queue.um"}], "confidence": 0.5}
+        got = im.submit(p, "tester", raw, at=made)
+        nodiff.append(_week(p, made, got["id"], step_h=1.0)[0] if got["status"] == "proposed" else "not proposed")
+    print("MEASURED no difference (k 0.05 -> 0.0501):", {v: nodiff.count(v) for v in set(nodiff)})
+    assert nodiff == ["inconclusive"] * 20, nodiff
+
+
 def test_a_remade_change_keeps_no_structural_pass(tmp_path, monkeypatch):
     p, made = world(tmp_path / "w", BASE.replace("    hold-out: 1h\n", "    hold-out: 1h\n" + AUTO))
     k_to = {"kind": "parameter", "parts": ["parameter.k"], "title": "k is 0.04",

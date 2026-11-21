@@ -166,10 +166,18 @@ review into *Done recently*). Newest decisions from the owner first within each 
   about how much more record it needs and stays under test up to seven times the record it needs (a day at least); a
   change whose replay is the same as the model's waits for record in which it moves, rather than three hold-outs.
   Measured after (20 records each, a week of record): no worse change passed (0 of 60), 3 better changes failed in
-  80, a drain twice off decided within a week, most changes a fifth off still undecided after one. *Left*: on a
+  80, a drain twice off decided within a week, most changes a fifth off still undecided after one. *Done* too (on
+  `the-judge-almost-never-decides`, docs/roadmap/overnight/the-judge-almost-never-decides.md): a change whose replay
+  is exactly the model's, on a record that exercised a stock it touches, is judged by structural measures (the
+  redesign scorecard: findings, chains, coherence, craft notes, the fit only against it; `numbers/unmoved.py`),
+  a pass on structure written only by the owner. Measured on the slow queue (5 records each, a week, the judge every 6 hours), before
+  and after: a change answering a finding passed 5 of 5 at 24 hours both ways (before by "answers a finding" on the
+  record, now on structure, and no longer written by `auto`), one making a finding failed 5 of 5 at 24 hours both
+  ways, one moving no measure undecided after a week both ways (that model has no items, so coherence cannot be
+  measured, and it stays under test to the horizon); the share decided did not change there (10 of 20 each way),
+  what it is decided on did. The no-difference case (k 0.05 → 0.0501) is still 0/0/20 inconclusive. *Left*: on a
   record as slow as the information allows (a fifth off a day-long drain) most changes still need more
-  than a week; a change that cannot move the replay (structure, wiring, descriptions) should be judged by structural
-  measures (as redesign's scorecard does); and a change should carry over edits elsewhere (above).
+  than a week; and a change should carry over edits elsewhere (above).
 - **A cause for a scheduled run's events** (done, e4800ea, on `causes-join`; SPEC §5b): the run is the cause its
   events cite (no `ergostat.schedule.fired` event per firing); the Process view draws each scheduled block in a
   **schedules** frame with its fan-out. *Left*: an event line still cannot name a cause of its own (`causedby`).

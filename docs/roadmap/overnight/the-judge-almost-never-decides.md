@@ -103,3 +103,121 @@ All in `tests/test_unmoved.py` unless named otherwise, on a small model with a f
 - Point 2: define nd['stocks'] for a flow-only structure change. The fallback 'any stock both replay' can count unrelated busy stocks as exercised, so narrow it or justify it.
 - test_a_fit_only_improvement_is_inconclusive should assert inconclusive, not only 'not passed'.
 - Say whether the scorecard under test is recomputed every pass until the horizon or cached by version.
+
+## Where it stopped
+
+Built, round 1: points 1-8, every acceptance test named above, the two the plan review added, and the measurement.
+108 net lines of code outside `tests/` and `docs/` (`unmoved.py` 70, `judge.py` +21, `scorecard.py` +17), within
+the 200 budget.
+
+**What runs.** `judge.compare` returns `same` (both replays follow the same set of stocks, the same buckets of each,
+every reading equal by float `==`; empty replays are never `same`; a NaN is never equal). `judge.run` routes to
+`unmoved.judged` when `same`, `held + 1 s >= needs` (the same second of grace `due` gives) and
+`unmoved.exercised_now` names a stock; otherwise `decide` runs as before. `unmoved.judged` reads the model from disk
+(`_read`), stamps `ver.version` of what it read and records nothing when that is not `x["version"]`; compiles the
+model it leaves with findings (an error fails it, no scorecard); scores with `fit_counts=False`; maps better to
+passed, anything else that moved to failed, nothing moved and all measured to inconclusive, nothing moved with
+coherence or the fit unmeasurable to under test (inconclusive at `horizon(needs)`). The verdict holds `on`,
+`scorecard` and `version`, inside `verdict` only. `owners` is true for `verdict.on == "structure"`.
+
+**Choices made alone (the most reversible, each one line to change):**
+- *Point 2's fallback is narrowed* (the review's note): only `nd["stocks"]` counts. A change whose neighbourhood holds
+  no stock is never taken as exercised and waits as today; "any stock both replay" would let a busy stock elsewhere
+  vouch for it. For a flow-only structure change `nd["stocks"]` is `gate.stocks_of` of the flow in the model as it is
+  and with the change: the flow's own stocks, one link on (in the tests, a flow out of an unread stock is exercised
+  only through `stock.queue`, named in its `parts`). A stock read fewer than 12 times in the record held out is not
+  exercised (`exercised.quiet` leaves such a stock out, which would otherwise read as exercised: lesson-3).
+- *A one-sided loss counts against* (the review's first note). Coherence unmeasurable on either side
+  (`coherence()` error, or no kind compared) is `measurable: False` with `says`, and no coherence gain (mismatches
+  fewer, coherence up) counts; a kind compared before and not after is still "coherence down", so a change that
+  resolves a finding and loses coherence is mixed, so failed. The fit measurable before and not after was already
+  "the fit worse". Only unmeasurable on both sides (or on the before side alone) counts neither way. For the fit's
+  "measured" in the inconclusive/under-test choice, both sides must be measurable: a fit made measurable alone keeps
+  the change under test, it never passes it.
+- *The scorecard under test is worked out again at each due look* (the review's last note), not cached: the looks are
+  `due`'s (the record it needs, then a quarter more each time), bounded by `MOST` a pass, and the record and
+  coherence change between looks.
+- *Two existing tests named the old path* and were updated (not in "Files to touch"; the slowjudge branch did the
+  same): `test_improve.py::test_a_structural_change_waits_for_the_owner_even_passed` (was "answers 2 findings", now
+  passed on structure, better, and `owners`) and `test_gate.py::test_a_simpler_change_no_worse_passes` (was "simpler,
+  and no worse", now passed on structure, better, a part removed). Both changes still pass and still wait for the
+  owner.
+
+**The plan review's notes, answered:**
+1. One-sided unmeasurable: counts against (above); `test_coherence_lost_after_the_change_blocks_a_pass` and
+   `test_the_fit_lost_after_the_change_blocks_a_pass`.
+2. NaN: makes `same` false, stated in `compare`'s docstring and SPEC, tested in `test_identical_means_exactly_equal`.
+3. The break of `test_a_verdict_carries_the_version_the_scorecard_read` was run as "re-read `ver.version()` at event
+   write".
+4. `nd["stocks"]` for a flow-only change: defined, and the fallback narrowed (above).
+5. `test_a_fit_only_improvement_is_inconclusive` asserts inconclusive through the judge, and directly that the same
+   card is "better" with `fit_counts=True` and "no better" with it off.
+6. Recomputed at each due look, not cached (above).
+
+**Lesson-9, each guarded line broken and the test seen failing** (each break reverted; `git diff` empty after):
+- `same` routed back to the wait (`if False and ev["same"]`): 14 of 16 failed, among them
+  `test_an_unmoved_change_that_answers_a_finding_is_passed_on_structure` (no `verdict.on`).
+- mixed or worse mapped to inconclusive: `test_an_unmoved_change_that_is_structurally_worse_is_failed` and the two
+  one-sided-loss tests failed.
+- unchanged and measured returned under test: `test_measured_and_unchanged_is_inconclusive`,
+  `test_a_fit_only_improvement_is_inconclusive`.
+- the `fit_counts` guard removed in `verdict`: `test_a_fit_only_improvement_is_inconclusive` (the direct check).
+- the coherence `measurable` check dropped in `verdict`: `test_coherence_that_cannot_be_compared_never_makes_it_better`
+  (b) read "2 coherence mismatches fewer".
+- a one-sided coherence error treated as neutral (`coh_down` cleared too): `test_coherence_lost_after_the_change_blocks_a_pass`
+  passed the change. The fit measurable before and not after taken as not worse: `test_the_fit_lost_after_the_change_blocks_a_pass`.
+- the fit taken as measured when it is not: `test_a_fit_unmeasurable_before_and_after_never_makes_it_better`,
+  `test_an_unmeasurable_scorecard_stays_under_test_and_says_why`. Inconclusive at once instead of at the horizon:
+  the same two.
+- the compile check skipped: `test_a_change_leaving_the_model_uncompilable_is_failed`.
+- `math.isclose` in `same`: `test_identical_means_exactly_equal`, both through the judge (the 1e-9 change took the
+  structural path) and directly. (Its first version caught it only directly: its "structure" assertion could not see
+  "structural"; tightened, and seen failing through the judge too.)
+- the exercised check dropped: `test_a_record_that_did_not_exercise_it_still_waits`.
+- `ver.version(spec)` of the pass start stamped: `test_a_model_edited_before_the_scorecard_reads_gets_no_verdict`.
+- `ver.version()` re-read at event write: `test_a_verdict_carries_the_version_the_scorecard_read`.
+- the `verdict.on` check removed in `owners`: `test_a_pass_on_structure_is_never_written_by_auto` (and the two
+  version/remade tests, written by `auto`).
+- `on` and the scorecard stored top-level with `owners` reading them there: `test_a_remade_change_keeps_no_structural_pass`
+  (the remade change was not written).
+
+**Measured** (`tests/test_unmoved.py::test_measured_on_the_slow_world`: the slow queue of `test_slowjudge.py`, 5
+records each, a week of record after each change, the judge every 6 hours; "before" is this branch with the
+structural path switched off, which leaves main's path exactly):
+
+| change (its replay the model's) | before: passed / failed / inconclusive / undecided | after |
+|---|---|---|
+| answers a finding (`served` no longer fills an undrained stock) | 5 / 0 / 0 / 0, at 24 h, by "answers a finding" on the record | 5 / 0 / 0 / 0, at 24 h, on structure |
+| makes a finding (`served` fills a stock nothing drains) | 0 / 5 / 0 / 0, at 24 h, by "makes a new finding" | 0 / 5 / 0 / 0, at 24 h, on structure |
+| moves no measure (a described stock and its outflow) | 0 / 0 / 0 / 5 | 0 / 0 / 0 / 5 |
+| answers a finding, opens a note, removes nothing | 5 / 0 / 0 / 0, at 24 h | 5 / 0 / 0 / 0, at 24 h, on structure |
+| no difference, k 0.05 → 0.0501 (moves the replay; 20 records, hourly) | | 0 / 0 / 20 inconclusive |
+
+So on this record the share of unmoved structural changes decided within a week did not change: 10 of 20 both ways.
+What changed is what they are decided on and who writes them. Before, a change whose replay is the model's was
+passed by the record's "no worse, and it answers a finding" (a bound of zero width, since nothing moved), so under
+`accept: {structure: auto}` main's `owners` would not have held the fourth row's change back from being written
+(read from the code; the measurement ran with the default `owner` policy). Now it is passed on the
+scorecard and waits for the owner. The definition's "it fails on main, which leaves the change testing and then
+inconclusive" is not what main does with a change that answers a finding: main passes it. The test still fails on
+main, on its `verdict.on` assertion. A change that moves no measure stays undecided after a week both ways here:
+this model has no items, so coherence is never measurable, and the last look in a week (150 h) comes before the
+horizon (168 h). The path that decides such a change at once (every measure measured: inconclusive) is shown only
+with coherence and the fit measured by monkeypatch (`test_measured_and_unchanged_is_inconclusive`), not on a real
+record.
+
+**The window left (point 6).** In the same pass the judge's model is the one it loaded, so the protection against a
+hand edit between the scorecard's read and the event is `owners` (point 7): the judge never writes a pass on
+structure. The owner's Accept, on the model read again, refuses it ("the model has changed"), and the next pass
+supersedes it. Both are tested.
+
+**Not run, or not clean:**
+- The whole unit suite and the four browser files were not run here: the run instructions leave the fast suites to
+  the factory, and this session's permissions refused `scripts/suite_watch.py`. Run here, one file set at a time:
+  `tests/test_unmoved.py` (17 passed), `test_slowjudge.py`, `test_redesign.py`, `test_improve.py`, `test_gate.py`,
+  `test_bench.py` (all), and every other file that runs the judge or the scorecard (`test_churn`, `test_exercised`,
+  `test_extremes_closed`, `test_intent`, `test_modelling_core`, `test_modelling_core2`, `test_parity`,
+  `test_redesign_bench`, `test_redesign_memory`, `test_self_improve`): 171 passed, 0 failed.
+- `demo_check`: no example touched.
+- An untracked `scratch_probe.py` is left at the worktree's root (a probe that could not be run; this session could
+  not delete it). It is not committed; delete it.

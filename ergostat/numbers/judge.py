@@ -32,7 +32,17 @@ or that is simpler (fewer parts, parameters and terms: Occam) where the record r
 one whose bound's high end is below no change and that is worse by the threshold, near it, elsewhere or on a goal's
 stock. One the bound holds within the threshold both ways is said **inconclusive** once it has three times the record
 it needs: the record tells it from the model as it is by less than that. One whose replay is the same as the model's
-waits for record in which what it touches moves. One the bound cannot decide yet says **about how much more record it
+(``compare``'s ``same``: both follow the same stocks and every reading is equal as a float, no tolerance; a NaN never
+is) is **judged by structure** (``unmoved.py``) once it has the record it needs and that record exercised a stock it
+touches (read, and not quiet: ``exercised.py``; a stock with no readings, or a change touching none, never counts):
+the redesign scorecard of the model read from disk against the model it leaves, the fit counting only against it
+(``fit_counts`` off), and coherence that cannot be compared on a side never for it. Better is passed, mixed or worse
+failed, a model that no longer compiles failed; nothing moving, every measure measured, inconclusive at once; nothing
+moving with coherence or the fit unmeasurable, under test (saying which) until the horizon, then inconclusive. The
+verdict says ``on: structure``, its scorecard and the version of the model it read (one read that is not the change's
+own, a hand edit first, records nothing: it is superseded on the next pass); a pass on structure alone is the owner's
+to write (``owners``). Otherwise it waits, as a change any record replays the same: for record in which what it touches
+moves. One the bound cannot decide yet says **about how much more record it
 needs** (the bound narrows as one over the root of the record), and stays under test until seven times the record it
 needs, a day at least (``horizon``), then is inconclusive, saying how much more. The verdict keeps the record whole,
 in halves and in quarters (``windows``), sliced from the same replay, for its reader.
@@ -46,8 +56,8 @@ the review queue, its verdict beside it; ``auto`` writes it, as Accept does (the
 pass, recorded as ``ergostat.model-change.accepted`` from the judge, naming the policy, and
 ``ergostat.model.changed``), one a pass. Only a value, an equation or the structure is judged or written so: a
 change to a goal, a block or a sensor waits for the owner, and so does any change that removes structure
-(``removes``) or chains a kind's state stocks (``rewires``: a flow re-pointed or added between them), whatever the
-policy. The owner commits what was written.
+(``removes``) or chains a kind's state stocks (``rewires``: a flow re-pointed or added between them), or that was
+passed on structure alone, whatever the policy. The owner commits what was written.
 
 It is cheap when there is nothing new to judge: a change is looked at again only once its next look is due
 (``due``: the record it needs, or a quarter more, past the last look) and what it touches has been read since (a
