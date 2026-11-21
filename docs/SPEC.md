@@ -3526,6 +3526,7 @@ blocks:
 | `warm-up` | duration | `6h` | The longest before each window its replay starts, so the window is scored with its stocks and delays as the record left them, not started cold with every delay in equilibrium (section 12f): three time constants of what the change touches, and never more than the record held before the window |
 | `threshold` | share (`2%`, `0.02`) | `2%` | The least fall in scaled error that counts as better (its estimate; the bound must also exclude no change), and the most rise that counts as no worse |
 | `accept` | `owner` or `auto`, or a map of kind (`parameter`, `equation`, `structure`, `description`, `unit`, `rename`, `redesign`) to either | `owner` for every kind | Who writes a change it passed. *Decided:* nothing automatic by default; with no judge, nothing is judged. `accept: auto` promotes `parameter`, `equation`, `structure`, `description` and `unit`; a rename and a redesign are written only when named (`rename: auto`, `redesign: auto`), never by `accept: auto`. Whatever the policy, the judge never writes a change that removes structure or rewires a kind's chain, a redesign that changes control, or any change to who decides (the judge's policy, a block's `accept`, a template instance's `with:`: refused when proposed); those are the owner's. How each is judged differs (the exemptions from the replay): parameter, equation and structure by the replay on the record after the change; description, unit and rename by `check` alone (they change no replay); a redesign by its scorecard on the record it has when the judge takes it up, its fit allowed 10% worse; control and measurement not at all (the owner's). Changes of words are written as many a pass as have passed; the rest one a pass. A change written moves the lines of the others waiting (their hunks shifted, `proposals.rebase`), and a change waiting is carried to the new version rather than superseded when its edit still applies (`proposals.supersede`: ergostat's own when their subject is unchanged; a description, a unit or a redesign whoever made it) |
+| `reviewed` | a list of kinds (`structure`, `redesign`, ...) | none | The kinds written only after the reviewer's pass (*The reviewer*, below): the judge's policy writes none of them before it, and the inbox offers none to the owner before it (the review queue still shows each, and the owner may accept one there). The modelling template sets it with `ai: true` |
 | `out` | map of `testing`, `passed`, `failed`, `accepted`, `inconclusive` to flows | none | What it moved on each pass, recorded as each flow's valve opening |
 | `in`, `every` | | | What it reads (signed, as a machine block's), for the diagram; how often it passes |
 
@@ -3735,7 +3736,7 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   refused, dismissed or superseded, one that made nothing, or a run that never ended (its request closed, saying so),
   the system rests 6 hours unless its own parts changed since (a hash of them, not the model's version); the cap is
   checked before anything is planned; the runs stop for the day once they have spent `daily` dollars,
-  each call charged as it is spent (one that never says its cost charged the most it could have). And when the owner
+  each call charged as it is spent (one that never says its cost charged its estimated most, `modeller.unsaid`). And when the owner
   asks (`ergostat improve --redesign [SYSTEM]`, or the Model page's Redesign button), recorded as
   `ergostat.model.redesign-asked` and taken up first; `when: ask` takes only those, `off` none. Each run is recorded
   (`ergostat.model.redesign-ran`: started, each call's cost, then what it made), and its trigger and result are held as
@@ -3774,6 +3775,52 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
 
 The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` (and
 `redesign-every`, 10m).
+
+### The reviewer: a senior modeller reads what the judge passed
+
+The judge reads a change by the numbers only (the replay on record its author never saw, a redesign's scorecard). A
+change can fit better and still be wrong. **The reviewer** (`ergostat/numbers/reviewer.py`; the template's block
+`model-reviewer`, so as not to clash with a model's own `reviewer`; an `ai` block, there with `ai: true` unless `review: {when: off}`, on haiku by default) reads each change of
+the kinds the judge's `reviewed:` names (the template's `review.kinds`: `structure` and `redesign`, `equation` when
+named) once the judge has passed it, and before it is written or offered to the owner. Its prompt
+(`library/templates/modelling/reviewer.md`) is deliberately disagreeable and carries the review checklists of
+`docs/MODELLING-WELL.md` (section 5, *Reviewing a change* first: the causal story, units and boundary, fitting noise,
+one coherent change, the behaviour it predicts), the change (its reasons, the judge's verdict, a redesign's edits with
+their whys), its diff and the model near it.
+
+| Verdict | Recorded | What happens |
+|---|---|---|
+| `pass` | `ergostat.model-change.reviewed` (from `reviewer`, no move of state): `review: {verdict, findings, summary, round, author, cost_usd, read}` | the judge's policy may write it; the inbox offers it to the owner |
+| `revise` | the same, then `.superseded` ("sent back to AUTHOR by the reviewer: ...") | back to its author (a block of rung `ai` or `person`): its next proposal on the same parts (a redesign: of the same system, asked for again at once) carries `revising`, `review_round: 2` and `review_asked`, the findings, and is read as the second round. A second revise is a **reject**, and every revise on those parts in the last day counts (a second round the judge failed is still the second round); after two, the author's proposals on them are held back for the day. A change no author can revise (ergostat's finders, a program, the owner's what-if) stays passed and goes to the inbox with the findings, for the owner; the judge never writes it, and a redesign so left holds no lines |
+| `reject` | the same, then `.failed` (the verdict "the reviewer rejected it: ...") | it leaves the queue, and the memory (*Turned away, remembered*) holds the same target back |
+
+Each verdict needs a specific finding (`{"check", "says"}`) unless it is a pass; an answer without one records nothing,
+and the change is read again on the next run, at most 3 times on the change as it stands (each call is stamped with
+what it read, and calls on an earlier version do not count): then it is recorded `undecided` ("the reviewer could not
+decide") and goes to the inbox for the owner, and the reviewer moves on. A review holds for the change as the judge last
+passed it: each is stamped with what it read (`read`: the judge's verdict and the edit, fingerprinted), and one made
+again under the same id, revised or carried and judged again has another stamp and is read again. The verdict is
+recorded under the changes' lock and only if the change is still the one it read; one that moved on during the call
+records nothing and is read again. **The authors remember:** the improver's input (`reviewer`), and the
+modeller's and the redesigner's prompts ("The reviewer on your recent proposals") carry its latest five verdicts on
+their own changes (each on the version as it stands), with the findings, so they stop repeating what it rejected and answer what it sent back.
+
+**With the accept policy.** With the reviewer on, a change of a reviewed kind that the policy would write waits for the
+reviewer's pass; one that waits for the owner reaches the inbox only after it. The owner may still accept it from the
+review queue at any time (the owner asks; the review queue shows the reviewer's verdict beside the judge's).
+**Cost:** each call is recorded (`ergostat.model.review-ran`, its dollars) and counted with the redesigner's against the
+template's one daily cap (`redesign.daily`): neither the reviewer nor the redesigner starts a call whose estimated most
+is more than is left of its share, and what waits for a review stays unwritten. The estimate (`modeller.unsaid`) is
+its prompt at a token for three characters, claude's own system prompt (20,000 tokens) and 16,000 tokens written, at
+the model's price. It is an estimate, not a bound: `claude -p` is given no limit on what it writes, so a call that
+writes more can cost more than its estimate, and the day can end a little past the cap. What is left is read again
+before each call, and the call's estimate is held against the cap while it runs (`ergostat.model.ai-held`, checked and
+held under one lock, let go once its real cost is charged, kept for the day if the call fails), so the two running at
+once do not both start calls on one remainder. A quarter of the cap is kept for the reviewer: the redesigner stops at three quarters of it.
+**Measured:** `ergostat.model.reviews-passed`, `-revised`, `-rejected` and `review-misses` (changes it passed, in the
+version that was written, that the prediction check later flagged for revert, §12f); the template's flow `changes-sent-back` counts what it rejected or
+sent back from the passed changes. The template's parameter: `review: {when: auto|off, model: haiku, kinds: structure
+redesign, most: 3}` (and `review-every`, 2m).
 
 ### The loop, in the model
 
@@ -3885,6 +3932,8 @@ accepted).
 | `ergostat.model.verified-share` | Of the changes checked, the share whose forecasts held (none until one is) |
 | `ergostat.model.fit-gained` | What the changes written lowered the scaled error by, together (each one's fit before minus after, as Accept measured it) |
 | `ergostat.model.cost-per-accepted` | The `cost_usd` the blocks that make changes recorded, over the changes written |
+| `ergostat.model.reviews-passed`, `.reviews-revised`, `.reviews-rejected` | The reviewer's verdicts (§12e, *The reviewer*) |
+| `ergostat.model.review-misses` | Changes the reviewer passed that the prediction check later flagged for revert (`regressed`) |
 
 They are built-in measures like the model's own of section 12e (`MODEL_MEASURES`): read by a sensor
 (`builtin: ergostat.model.accepted-per-day`), or printed by `ergostat measure`.
