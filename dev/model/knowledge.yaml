@@ -338,7 +338,7 @@ blocks:
     description: a session per gap in a read-only clone of main - its definition of done (acceptance tests, budget, risks from the lessons, files), a split into sub-gaps, or research questions first
     run: python3 dev/bin/plan.py
     prompt: dev/prompts/planner.md
-    takes: {kind: gap, at: [open, replan], to: [split, ready, replan, parked]}
+    takes: {kind: gap, at: [open, replan], to: [split, ready, replan, parked], unblocked: true, order: rank}
     pool: 1
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h
