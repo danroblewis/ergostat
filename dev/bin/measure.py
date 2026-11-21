@@ -1,6 +1,6 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
-when nothing in the window to measure, but for first-pass-yield, which has no value then (it exits 1, as ergostat's
-own measures do).
+when nothing in the window to measure, but for the six named at the end, which have no value then
+(they exit 1, as ergostat's own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
   build-hours         median hours the implementor's runs took per merged gap (every round)
@@ -14,6 +14,10 @@ own measures do).
   fix-rounds          mean rounds sent back to the implementor per merged gap
   flake-rate          flaky retries per queue run
   cost-per-merged     dollars of AI sessions per merged gap (every round, implementor and reviewer)
+  tool-denials        tool calls refused to the AI sessions (sessions.py), over the sessions that said; one with no
+                      result (a timeout, a crash) or a result silent on them is left out and counted on stderr, and
+                      with none that said there is no value (exit 1)
+  tool-denials-unknown  the sessions left out of tool-denials
   interventions-trend the coordinator's interventions over the last 7 days less the 7 before
   lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
   first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
@@ -25,7 +29,13 @@ own measures do).
   in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes (each also with -p90)
                       time in each state, the build-review loop and the gates, per gap, over every gap that left the
                       state, ended the loop or passed the gate in the window, whatever its end (times.py)
-The last three, like first-pass-yield, have no value with nothing to measure.
+  size-accuracy       of merged gaps the planner sized (planned_size and its confidence), the share whose
+                      merged_lines fall inside their class: S <= 50 (a net removal too), M 51-150, L 151-400,
+                      XL > 400. The window is on the latest merge (merged_at). A gap whose latest merge has no
+                      merged_lines is left out of the share, never a hit, and named on stderr.
+  size-accuracy-high  the same, of the gaps sized with high confidence only
+First-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean and the two size measures have no value with
+nothing to measure.
 
   coverage-below-floor  the modules whose share of statements the unit suite on main ran is under [code_health]
                       coverage_floor, from the latest coverage report (scripts/coverage_report.py, under run/coverage/)
@@ -68,8 +78,20 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         if not first:
             raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
+    if name in ("tool-denials", "tool-denials-unknown"):   # unknown: a timeout, a crash, a result silent on them
+        rows = [r["fields"] for r in recent(fac.items("session"), "started", since)]
+        unknown = [r for r in rows if "tool_denials" not in r]
+        if name == "tool-denials-unknown":
+            return float(len(unknown))
+        if unknown:
+            print(f"tool-denials: left out, {len(unknown)} session(s) whose refusals are unknown", file=sys.stderr)
+            if len(unknown) == len(rows):
+                raise SystemExit("tool-denials: no value (no session in the window said what it was refused)")
+        return float(sum(int(r["tool_denials"] or 0) for r in rows if "tool_denials" in r))
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
+    if name in ("size-accuracy", "size-accuracy-high"):
+        return size_accuracy(name, since)
     gaps = fac.items("gap")
     if name in ("parks", "resumes", "parked-hours"):                   # by kind (parks.py): its last park, per gap
         if kind not in parks.KINDS:
@@ -119,6 +141,22 @@ def share(xs: list[bool], name: str) -> float:
     if not xs:
         raise SystemExit(f"{name}: no value yet (nothing to measure in the window)")
     return round(sum(xs) / len(xs), 3)
+
+
+def size_class(lines: int) -> str:
+    return "S" if lines <= 50 else "M" if lines <= 150 else "L" if lines <= 400 else "XL"
+
+
+def size_accuracy(name: str, since: float) -> float:
+    """The planner's planned_size, never `size`: the groomer (gap.groomed) regrades `size` on its own scale."""
+    sized = [g for g in recent(fac.items("gap"), "merged_at", since) if g["state"] == "merged"
+             and g["fields"].get("planned_size") and g["fields"].get("size_confidence") in (
+                 ("high",) if name == "size-accuracy-high" else ("low", "medium", "high"))]
+    counted = lambda f: type(f.get("merged_lines")) is int and not f.get("merged_lines_error")  # noqa: E731
+    if left := [g["id"] for g in sized if not counted(g["fields"])]:
+        print(f"{name}: left out, no merged_lines: {', '.join(left)}", file=sys.stderr)
+    return share([size_class(g["fields"]["merged_lines"]) == g["fields"]["planned_size"] for g in sized
+                  if counted(g["fields"])], name)
 
 
 def knowledge_reading(name: str, since: float) -> float:

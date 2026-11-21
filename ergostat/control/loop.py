@@ -14,7 +14,7 @@ import time
 
 from ..durations import human as dur
 from ..spec.ir import Spec
-from . import ident, lti, monitor, record, tuning
+from . import experiments, ident, lti, monitor, record, tuning
 
 DECIMATE = 240              # points of a series sent to the page
 LAW = ("gain", "integral-time", "deadband", "resolution", "limits")
@@ -196,19 +196,22 @@ def identify(p, sig: record.Signals, at: float | None = None) -> tuple[dict, dic
     got = around_step(p, sig, d, noise)
     if got is not None:
         found.append(got)
-    best = max(found, key=lambda r: (bool(r.get("proposable")), bool(r.get("told_apart")), -ident.precision(r)))
+    best = max(found, key=experiments.rank)
     other = next((r for r in found if r is not best), None)
     if other is not None and other.get("found"):
-        best["instead_of"] = {"from": "the step tests" if other.get("test") else "an outside step" if other.get("outside_step")
+        o = other.get("outside_step")
+        best["instead_of"] = {"from": "the step tests" if other.get("test") else
+                              ("outside steps" if len(o.get("steps") or []) > 1 else "an outside step") if o
                               else "the loop working",
                               **{k: other.get(k) for k in ("K", "tau", "theta", "fit_val", "why", "se")}}
     return best, best.pop("record")
 
 
 def around_step(p, sig: record.Signals, d: dict, noise: float | None) -> dict | None:
-    """The process identified from the record around the largest outside step (a burst of arrivals at the goal's stock,
-    a jump of a measured input beside the path), that input fitted beside u: the step excites the loop from outside,
-    so the estimate leans less toward the controller's inverse than one from the loop working (Ljung §13.4)."""
+    """The process identified from the record around the outside steps (bursts of arrivals at the goal's stock, jumps of
+    a measured input beside the path), fitted together as experiments (``experiments``), those inputs fitted beside u: a
+    step excites the loop from outside, so the estimate leans less toward the controller's inverse than one from the loop
+    working (Ljung §13.4)."""
     spec = p.model.spec
     kind, _, name = sig.y.partition(".")
     from .. import series
@@ -216,15 +219,17 @@ def around_step(p, sig: record.Signals, d: dict, noise: float | None) -> dict | 
            for f in (spec.flows_of(name) if kind == "stock" else []) if f.target == name and f.sensors
            and f"flow.{f.name}" not in (sig.u, *sig.path)}
     ins = {**{r: (v or [None])[0] for r, v in ins.items() if v and any(x is not None for x in v[0])}, **d["others"]}
-    steps = sorted(((abs(j), r, k) for r, xs in ins.items() for k, j in ident.outside_steps(xs)), reverse=True)
-    if not steps:
+    r = experiments.identify_around(d["h"], d["t"], d["u"], d["y"], ins, noise)
+    if r is None:
         return None
-    _, ref, k = steps[0]
-    r = ident.around(d["h"], d["t"], d["u"], d["y"], ins, k, noise)
-    r["outside_step"]["input"] = ref
-    w = slice(d["t"].index(r["outside_step"]["since"]), d["t"].index(r["outside_step"]["until"]) + 1)
-    r["record"] = {**d, **{x: d[x][w] for x in ("t", "u", "y", "e")}, "others": {o: xs[w] for o, xs in d["others"].items()},
-                   "since": r["outside_step"]["since"], "until": r["outside_step"]["until"]}
+    o = r["outside_step"]
+    ws = [e["buckets"] for e in o["experiments"]] or [[0, len(d["t"])]]
+
+    def cut(xs):                                   # the experiments one after another, as _test_windows reads them
+        return [x for a, b in ws for x in xs[a:b]]
+    r["record"] = {**d, **{x: cut(d[x]) for x in ("t", "u", "y", "e")}, "others": {k: cut(xs) for k, xs in d["others"].items()},
+                   "since": o["since"], "until": o["until"],     # drawn: the held-out experiment, as for step tests
+                   "last": (sum(b - a for a, b in ws[:-1]), sum(b - a for a, b in ws))}
     return r
 
 

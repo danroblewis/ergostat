@@ -334,7 +334,8 @@ def finish(g: dict) -> dict:
         e["causal"] = [k for k, ps in pairs.items() if (a, b) in ps or (e["kind"] == "pipe" and (b, a) in ps)]
     for n in g["nodes"]:
         if n["kind"] == "system":
-            n["charted"] = [{"part": x["part"], "label": x["label"]} for x in n.get("measures") or []]   # its panel charts them
+            n["charted"] = [{"part": x["part"], "label": x["label"], **{k: x[k] for k in ("value", "stale", "missing",
+                            "unchecked") if k in x}} for x in n.get("measures") or []]   # its panel charts them
             n["measures"] = []                         # a module box draws no measures: SD draws structure
             n["status"] = None
             n["loops"] = {}

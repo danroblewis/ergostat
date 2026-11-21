@@ -99,8 +99,10 @@ def cmd_run(args) -> int:
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
     from ..spec.watchdog import heartbeat, startup
     heartbeat(p.dir, time.time())                       # this process's, before its slow start
+    eng: list = []                                      # the engine, once made: its dispatch closed by a hard restart
+    hard = lambda why: _restart_hard(p, args, why, *eng)                  # noqa: E731
     started = startup(p.dir, lambda s: print(time.strftime("%H:%M:%S"), s, flush=True),
-                      lambda why: _restart_hard(p, args, why))   # a start that hangs (a lock held elsewhere): restarted
+                      hard)                             # a start that hangs (a lock held elsewhere): restarted
     from ..storage import rotate, trim
     rotate(p.dir / "run.log", p.storage.logs["run"])    # (storage: logs:) on every start, in the background or not
     trim(p.dir / "threads.txt", p.storage.logs["threads"])
@@ -120,7 +122,8 @@ def cmd_run(args) -> int:
     if getattr(p.model, "spec", None) is not None:      # the YAML model: ergostat closes its loops itself
         from ..spec.engine import Engine
         r = Engine(p, say=say)
-        r.restart_hard = lambda why: _restart_hard(p, args, why)
+        eng.append(r)
+        r.restart_hard = hard
         r.start_all()
         sp = p.model.spec
         print(f"running {len(sp.sensors())} sensors, {len(r.builtins)} built-in blocks, {len(r.machines)} machine blocks",
@@ -199,7 +202,7 @@ def cmd_run(args) -> int:
     except KeyboardInterrupt:
         pass
     if reload and getattr(r, "wedged", None) and not stopping:
-        _restart_hard(p, args, r.wedged)                # (closing may wait on what is wedged)
+        hard(r.wedged)                                  # (closing may wait on what is wedged)
     r.close()
     if server:
         server.shutdown()
@@ -281,12 +284,16 @@ def _restart(p, args) -> None:
         raise
 
 
-def _restart_hard(p, args, why) -> None:
-    """The watchdog's restart when the run loop could not do it: its runs killed, its daemons' groups ended (by
-    ``_restart``: TERM, KILL within 3 s, never ``stop`` nor drained), nothing else waited on (what is wedged may be
-    what closing would wait for: no supervisor's lock, no event recorded)."""
+def _restart_hard(p, args, why, eng=None) -> None:
+    """The watchdog's restart when the run loop could not do it: the engine's dispatch closed first (its stop set,
+    waiting at most 1 s for its lock), so no lease is taken while the daemons' groups end and a run spawned from now
+    kills itself; its runs killed, its daemons' groups ended (by ``_restart``: TERM, KILL within 3 s, never ``stop``
+    nor drained), nothing else waited on (what is wedged may be what closing would wait for: no supervisor's lock, no
+    event recorded)."""
     from .. import runner
     print(f"restarting the engine's process at once ({why})", flush=True)
+    if eng is not None:
+        eng.shut(min(eng.lock_wait, 1.0))
     runner.kill_all()
     _restart(p, args)
 

@@ -19,12 +19,12 @@ import threading
 import time
 
 from ..durations import human
+from . import entries as en
 
 SENT = "ergostat.notify.sent"
 HOUR = 3600.0
 WORDS = {"action": "approval", "person": "request", "advise": "advised command", "steptest": "step test",
-         "change": "model change"}
-VERBS = {"approve": "--approve", "deny": "--deny", "done": "--done N"}
+         "change": "model change", "request": "modelling request", "breaker": "tripped block"}
 _SENDING = threading.Lock()
 
 
@@ -49,7 +49,7 @@ def message(n, es: list[dict], late: bool, base: str, scrub=None) -> tuple[str, 
              + (f"\n  {e['warn']}" if e.get("warn") else "")              # (whatever the detail: SPEC §12r)
              + (f"\n  {scrub(e['summary'])}" + (f"\n  why: {scrub(e['why'])}" if e.get("why") else "") if scrub else "")
              + (f"\n  {base}{e['link']}" if base else "")
-             + f"\n  ergostat inbox {e['id']} " + " | ".join(VERBS[v] for v in e["verbs"]) for e in es[:10]]
+             + (f"\n  {en.command(e)}" if e["verbs"] else "") for e in es[:10]]
     if len(es) > 10:
         lines.append(f"... and {len(es) - 10} more: ergostat inbox")
     return subject, "\n".join(lines)
@@ -86,7 +86,6 @@ def sweep(p, spec, now: float | None = None) -> int:
     if n is None or not n.channels or quiet(n, now):
         return 0
     from ..runner import web_url
-    from . import entries as en
     es = [e for e in en.entries(p, spec, None if live else now) if not str(e.get("action") or "").startswith("notify.")]
     if not es:
         return 0

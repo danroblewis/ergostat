@@ -39,20 +39,20 @@ TOOLS = {
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
                     "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
-                    "Bash(mkdir:*)",                # the suites under the watchdog, the browser files with Playwright:
-                    "Bash(uv run python scripts/suite_watch.py -- uv run python -m pytest:*)",
-                    "Bash(uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest:*)"],
+                    "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
+                    "Bash(uv run python scripts/suite_watch.py:*)"],   # (its own clone, in a container of its own;
+                                                    # the suites under the watchdog, the browser files with Playwright)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
-            "plan_reviewer": 1200, "researcher": 3600, "librarian": 600, "groomer": 3000,
+            "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "librarian": 600, "groomer": 3000,
             "pipeline_manager": 2400}   # seconds, each below its block's
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
 SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
 TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
-             pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
+             join_judge=TOOLS["reviewer"], pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
              researcher=TOOLS["reviewer"] + ["WebSearch"])      # all read-only: only the implementor writes; WebSearch is
                                                                  # run by the API itself
 
@@ -324,10 +324,13 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
     ``tests``: the test ids a suite's `{tests}` names (each shell-quoted)."""
     import resources
     out: dict = {}
-    for n in names:
+    held = fac.quarantine(fac.path(cfg, "live") / "drop.git", cfg["git"]["base"])    # main's list: run beside
+    own = [t for t in fac.quarantine(home / "work", "HEAD") if t not in held]   # the work's own lines: deselected
+    for n in names:                                    # here only (this run lands nothing; the queue reads main's)
         cmd, name = cfg["suites"][n], None
         if tests is not None:
             cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
+        cmd = fac.deselected(n, cmd, held + own)
         if cfg["ai"]["mode"] != "standin":
             name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"
@@ -345,6 +348,9 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             out[n] |= {"skipped": skipped} if skipped else {}
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
+    if "unit" in out:                                  # the quarantined tests beside it, never blocking
+        fac.beside(held, logs / f"{tag}-quarantined-alone.txt",
+                   lambda ts: suites(cfg, home, ("alone",), logs, f"{tag}-quarantined", tests=ts))
     return out
 
 

@@ -79,13 +79,13 @@ systems:
   knowledge:
     within: factory
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
-    show: [stock.knowledge-entries, stock.lessons-proposed, auxiliary.first-pass-with-lessons]
+    show: [stock.knowledge-entries, stock.lessons-proposed, stock.lessons-to-apply, auxiliary.first-pass-with-lessons]
 
 items:
   gap:
     id: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
-    states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, push-pending,
+    states: [open, replan, planned, split, joined, ready, fix, building, built, in-review, approved, queued, push-pending,
              queue-failed, merged, parked, closed]
     on:
       gap.found: open                # intake: an entry of docs/GAPS.md
@@ -93,6 +93,7 @@ items:
       gap.planned: planned           # planner: its definition of done written (run/plans/)
       gap.plan-sent-back: replan             # plan review: sent back to the planner with its findings
       gap.split: split               # planner: split into sub-gaps, each naming it as parent; joined once all merged
+                                     # (or the join judge: short, a new sub-gap requested first)
       gap.defined: ready             # intake, or the plan review: its definition of done exists
       gap.started: building          # implementor
       gap.built: built
@@ -126,6 +127,7 @@ items:
       sessions: sum
       ai_cost_usd: sum
       build_hours: sum
+      build_failures: sum            # one per failed build, over the gap's life: the kill rule (dev/README.md)
       review_hours: sum
       queue_wait_hours: sum
       queue_runs: append             # each queue run it was in: its id, whole minutes, end (merges-per-hour)
@@ -136,9 +138,14 @@ items:
       plan_reviews: append
       research: union
       research_waits: sum
+      join_verdicts: append          # each judgment of the join judge: covered or short, the points not built
       resources: append              # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
+      tool_denials: sum              # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a
+      tool_denials_unknown: sum      # session whose result said nothing of them counts in tool_denials_unknown
+      denied: append
     join:
-      - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
+      - {children: parent, all: merged, to: joined}   # a split gap waits for the join judge once every sub-gap is
+                                                       # merged (plan.py join: merged, split again, or parked)
     lease: {attempts: 2}
     # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
     # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
@@ -252,15 +259,17 @@ items:
 
   lesson:
     id: lesson/*
-    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, denied by the coordinator, or retired
-    states: [seen, proposed, requested, denied, retired]
+    description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
+    states: [seen, proposed, requested, approved, applied, denied, retired]
     on:
       lesson.seen: seen              # librarian: a class not listed, found in one review
       lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
-      lesson.requested: requested    # knowledge-change approved: a gap with the exact edit (lesson.py)
+      lesson.requested: requested    # before the knowledge queue: a gap with the exact edit (migrated by lesson.py settle)
+      lesson.approved: approved      # knowledge-change approved, or lesson.py add / retire
+      lesson.applied: applied        # lesson-apply: carried by the briefs from the record
       lesson.denied: denied          # knowledge-change denied: settled, never proposed again (lesson.py settle)
-      lesson.retired: retired        # lesson.py retire
-    show: [kind, lesson, name, text, times, gap, denied_by, why]
+      lesson.retired: retired        # lesson-apply, for lesson.py retire: no longer carried
+    show: [kind, lesson, name, entry, text, times, gap, denied_by, why]
     fold: {times: sum, reviews: union, findings: append}
 
   knowledge:
@@ -276,7 +285,7 @@ items:
 
 messages:
   done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
+         lesson: [requested, applied, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 
