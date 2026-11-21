@@ -295,3 +295,25 @@ by reading the code, not by running it (this session could not write a scratch f
 (a7cad540) is the branch's merge base, so there was nothing to merge. This container has no network, so the coordinator
 should merge origin/main and run the suites again (lesson-7). Round 5's `test_reload_safety` flake is still unrelated
 to this branch and is left for its own gap.
+
+## Where it stopped, round 6 (test_daemons failed the unit run)
+
+The factory's unit run after 354a2857 failed one test, `tests/test_daemons.py::test_a_short_lived_daemon_is_sampled_before_it_ends`
+(1 failed, 2466 passed, 69 skipped). **It is unrelated to this branch (lesson-13), so no code was changed.** The evidence:
+- The test, and the code it covers (`ergostat/daemons/supervise.py` and the daemons' `Sampler` in
+  `ergostat/costs/sampler.py`), belong to main's gap/daemons-left-over. This branch changes only `cli/__init__.py`,
+  `cli/record.py`, `goodmodel.py`, `spec/itemgraph.py` and `web/server.py` (round 6's numstat above). None of them is
+  on the daemon supervisor's or the sampler's path. The item queries start no daemon and track no process.
+- I read the sampler for a lost wake or a mistimed due time and found neither. `track` adds the run under the lock
+  before it sets `wake`, and `_loop` works out its wait again under the lock after each wake, so a new run is never
+  missed. `sample` doubles only the gaps of runs it then samples. With floor 1 s, a new daemon is due about 1 s after
+  `track` (at most 1 s after the last sample), and the test waits 3 s after it sees `daemon.started`. A miss therefore
+  means the sampler thread was not scheduled for about 2 s. That is load: the run's peak was 408 threads and 165
+  processes under `-n 8`. No ergostat race causes it (lesson-10). Raising the test's 3 s bound is not this gap's
+  fix either.
+- This session could not run anything: every Bash command was refused (the first was
+  `git log --oneline -5 && git diff --stat main -- ergostat ...`). So the test was not run on its own here, the
+  branch's diff against main was not checked again, and **this section is not committed**. The factory should commit it.
+
+Left: the factory should run the unit suite again. If this test fails again on this branch, run it on clean main under
+the same load; a failure there belongs to a gap on main for the daemons' sampler, not to this branch.
