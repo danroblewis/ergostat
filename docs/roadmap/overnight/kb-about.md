@@ -233,3 +233,20 @@ What reverses cleanly is one of these, and either is the coordinator's call:
   becomes main's own;
 - or rebuild this branch from main and cherry-pick the gap's commits (then the `unblocked` edit in
   `tests/test_relations_asof.py`, e7dad319, is dropped, as review/gap-size-3 says it must be on a correct base).
+
+After the factory's fourth `unit` run failed: its output stops at 46% with no failure, no pytest summary and no
+`suite_watch` JSON line. `suite_watch.py` prints that line on every way out it handles, its own kills included
+(past the limits, a worker past its memory, interrupted). So the whole process group was stopped from outside
+(`fac.suite` kills the group with SIGTERM when its caller stops, and the container can end), not by a test failing.
+No test is named, so there is nothing to fix, and no code is changed (lesson-13). This is the same as the first
+failed run above.
+- Checked again here: `tests/test_item_about.py` and `tests/test_factory_knowledge.py`, serially, 38 passed in 63 s.
+  The slowest test is `test_brief_carries_knowledge_within_budget` (34-44 s). It runs against the fixture's fake
+  ergostat (`FAKE_MORE`), so none of the branch's `ergostat/` code is on its path. Its only change from main on that
+  path is the *About:* regex in `knowledge.entries()`, one search per entry. It could not be timed on main here (a
+  second worktree was refused).
+- Read through again for a hang that would only show under xdist: the new index code takes no lock of its own and
+  waits on nothing. `Index.about` is one SELECT. `off_about` and `explain_line` look things up only when a kind
+  declares `about:`.
+- If the next run fails like this, the cause of the stop is needed (the implementor's log, or the container's exit),
+  and so is the output past 46%.
