@@ -66,3 +66,39 @@ Checked and ruled out:
 
 Left: the factory's full unit run, with its output past 81% (or `-o faulthandler_timeout=240` to name a test that
 hangs), and the fix if a test is named.
+
+### Round 2: failed calls bounded per item
+
+Answering review/ai-call-failures-are-failures-1, every finding:
+
+- lesson-4 (blocking), a failed call never counted, so one that fails the same way every time was called without end
+  and starved the queue behind it. Failed calls now have their own count and a bound, `modeller.FAILS = 3`, a
+  constant (not config), shared by the three callers:
+  - The AI tier (`library/run/modelling.py`): each request keeps `failed: {ai: n}`. Requests are taken with the ones
+    that failed least first. A request that has failed before goes alone in its call, so one bad request does not
+    keep sinking a group. At `FAILS` it is held for the owner ("the ai tier's call failed 3 times; it waits for the
+    owner: <error>") and is no longer given to the tier. Its tries are still unused.
+  - The reviewer (`numbers/reviewer.py`): `tries(p, x, failed=True)` counts a change's failed calls, on the version
+    it read. The queue is read with the changes that failed least first. At `FAILS` the change is `undecided`, so the
+    owner gets it with the error in its summary.
+  - The redesigner (`numbers/redesign_due.py`): a unit whose last `FAILS` runs all ended `error` within `COOL` rests
+    as after a run that made nothing. Units already take turns, oldest review first, so a failing unit never starved
+    the others.
+  - During an outage this hands requests and changes to the owner after 3 failed calls each. I chose that because it
+    can be undone: the owner can reopen what was handed over, while unbounded calls cannot be taken back. It is said
+    in SPEC §12e.
+  - Tests: `test_a_request_whose_calls_keep_failing_does_not_starve_the_others` (a second request gets its call while
+    the first keeps failing, and the first gets exactly `FAILS` calls before it is held),
+    `test_the_reviewer_gives_a_change_whose_calls_keep_failing_to_the_owner_and_reads_the_next`, and the rest cases
+    added to `test_the_redesigner_says_a_failed_call_not_nothing_proposed`. The reviewer test from round 1 now stops
+    at `FAILS - 1` failures. I broke each guard once and saw its test fail: the bound in the tier's filter, the
+    alone-and-behind ordering, the reviewer's ordering, the reviewer's `FAILS` hand-over, and the redesigner's rest.
+- A failed go-back call still uses a try. This is on purpose: the first call gave a real answer. SPEC §12e now says so.
+- The round-1 unit run cut off at 81%: the cause is still unknown. This session was not permitted to run the whole
+  unit suite either, so nothing new is known about it.
+
+Size: 47 net lines outside `tests/` and `docs/` against `main` (69 added, 22 removed), within the 50 budget.
+Run here, one file at a time or a few together: `test_modeller` (15), `test_modelling_ai_cap`, `test_modelreview`,
+`test_redesign`, `test_redesign_memory` (82 together), `test_modelling_core`, `test_modelling_core2`,
+`test_redesign_bench`, `test_sd_review`, `test_inbox`, `test_improve` (104 together), all passing. Ruff is clean.
+Not run: the whole unit suite, the browser files, the merge of origin/main (this clone has no `origin`).
