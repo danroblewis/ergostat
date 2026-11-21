@@ -735,12 +735,12 @@ def factory_review():
 
 
 def test_the_size_gate_tests_leave_no_factory_module_behind():
-    before = set(sys.modules)
+    before, path = set(sys.modules), list(sys.path)       # (other tests in the worker may have put dev/bin there)
     with factory_review_module() as m:
         assert m.size_gate and str(FACTORY_BIN) in sys.path and "fac" in sys.modules
     left = [n for n in set(sys.modules) - before if Path(getattr(sys.modules[n], "__file__", None) or "/").parent
             == FACTORY_BIN]
-    assert left == [] and str(FACTORY_BIN) not in sys.path
+    assert left == [] and sys.path == path
 
 
 def head_definition(tmp_path, text: str):
