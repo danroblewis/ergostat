@@ -5,7 +5,10 @@
    program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
    left for the session, its files in the brief); then published to the drop;
 2. a session in a container of its own (or the stand-in) on a brief assembled from dev/prompts/implementor.md;
-3. what it left uncommitted committed and bundled back to the drop (in a container with no network); the fast suites
+3. what it left uncommitted committed and bundled back to the drop (in a container with no network); before the
+   suites, a branch adding scratch files (`strays`: [gates] scratch_patterns, or a new top-level file or folder the
+   definition's Files to touch does not name) is refused, back to the session's next round with the list (uncounted;
+   still there after the last, a failed build); the fast suites
    (ruff, then the unit suite under the watchdog) in a container with no network, in a machine-wide slot; a failure
    that names tests is triaged first (onmain.py: run alone on the branch, a flake retried once; run on clean main, a
    test failing there too is main's), and a failure of the gap's is given back to a session to fix, `suite_fix_rounds`
@@ -19,6 +22,7 @@ uncounted."""
 
 from __future__ import annotations
 
+import fnmatch
 import sys
 import time
 from pathlib import Path
@@ -65,6 +69,33 @@ def merge_main(work: Path, main: str) -> list[str]:
     return conflicts
 
 
+SCRATCH = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej"]  # [gates] scratch_patterns
+
+
+def strays(cfg: dict, repo: Path, base: str, head: str, definition: str) -> list[str]:
+    """The files the branch adds or changes against main (`base`) that look like a session's scratch: one with a path
+    part matching a [gates] scratch_patterns glob, or under a new top-level file or folder the definition's "Files to
+    touch" does not name (when it has that section). A file already on main is never one."""
+    pats = cfg.get("gates", {}).get("scratch_patterns", SCRATCH)
+    if not isinstance(pats, list) or not all(isinstance(p, str) for p in pats):
+        raise ValueError(f"[gates] scratch_patterns must be a list of globs, not {pats!r}")
+    on_main = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", base).splitlines())
+    tops = {p.split("/", 1)[0] for p in on_main} | {p.split("/", 1)[0] for p, _ in brief.files_of(definition)}
+    listed = brief.section(definition, "Files to touch") is not None
+    changed = fac.git(repo, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "--diff-filter=d",
+                      f"{base}...{head}").splitlines()
+    return [p for p in changed if p not in on_main and (
+        any(fnmatch.fnmatchcase(part, pat) for part in p.split("/") for pat in pats)
+        or listed and p.split("/", 1)[0] not in tops)]
+
+
+def stray_brief(text: str, stray: list[str]) -> str:
+    return (f"{text}\n\n# Scratch files refused\n\nThe factory refused your build before the suites: the branch adds "
+            "files that look like scratch ([gates] scratch_patterns), or a new top-level file or folder the definition's "
+            "Files to touch does not name:\n\n" + "\n".join(f"- `{p}`" for p in stray) + "\n\nRemove each (`git rm`), "
+            "or move what belongs to the gap under a folder main has, commit, and stop.\n")
+
+
 def conflict_brief(main: str, conflicts: list[str]) -> str:
     return ("\n\n# First: finish the merge of main\n\nThe factory merged main (" + main + ") into your branch, and it "
             "conflicted in:\n\n" + "\n".join(f"- `{c}`" for c in conflicts) + "\n\nResolve each (keep what main changed "
@@ -95,6 +126,8 @@ def main() -> int:
 def build(cfg: dict, given: dict, began: float) -> int:
     gap = given["item"]
     f = gap["fields"]
+    if fac.drain_holds(cfg):
+        return 0
     refused = fac.may_spend(cfg, float(cfg["ai"]["implementor_session_usd"]))
     if refused:
         fac.nack(f"budget: {refused}", after="1h", count=False)
@@ -123,10 +156,11 @@ def build(cfg: dict, given: dict, began: float) -> int:
     cost, sessions, used = 0.0, 0, []
     logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
+    fast_seconds = 0.0                                  # every try's ruff and unit (times.py's gate `fast`)
     seen: dict[str, bool] = {}                                  # tests run on main in this run: failed there?
     retried, deadline = False, began + (hours - float(f.get("build_hours") or 0)) * 3600
     for i in range(1 + int(cfg["ai"]["suite_fix_rounds"])):
-        prompt = text if i == 0 else (
+        prompt = text if i == 0 else stray_brief(text, suites["stray"]) if suites.get("stray") else (
             f"{text}\n\n# The fast suites failed after your work\n\n`{suites['failed']}` failed"
             f" ({', '.join(suites['tests']) or 'see the tail'}). Fix the code (not the tests' bounds), commit, and"
             f" stop. The tail of its output:\n\n```\n{suites['tail']}\n```\n")
@@ -138,15 +172,21 @@ def build(cfg: dict, given: dict, began: float) -> int:
         cost, sessions = cost + float(got.get("total_cost_usd") or 0), sessions + 1
         used += [got["resources"]] if got.get("resources") else []
         head = was = agents.finish(cfg, home, branch, base_sha, held, base_sha, was=was)   # (main merged in, and
-        fac.wait_quiet(cfg)                                     # the branch where it was given: refused when not)
+        stray = strays(cfg, agents.drop(cfg), base_sha, head, definition)    # the branch where it was given:
+        if stray:                                               # refused when not); scratch refused before the suites
+            suites = {"failed": "scratch files", "tests": stray, "stray": stray, "tail": "\n".join(stray)}
+            continue
+        fac.wait_quiet(cfg)
         suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
                                        deadline, seen, retried)
+        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in ("ruff", "unit"))
         used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
         if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
             break
     net = fac.net_lines(agents.drop(cfg), cfg["git"]["base"], head)
     record = dict(rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
                   net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
+                  fast_seconds=round(fast_seconds, 1),
                   build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:],
                   resources=used)
     if suites.get("flakes"):
@@ -163,7 +203,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
     if suites.get("failed"):
         fails = int(f.get("build_failures") or 0) + 1
         fac.say("gap.measured", build_failures=1, **record)
-        why = f"the fast suites failed ({suites['failed']}: {', '.join(suites['tests'][:5])})"
+        why = f"the fast suites failed ({suites['failed']}: {', '.join(suites['tests'][:5])})" if not suites.get(
+            "stray") else f"refused before the suites, its scratch files still on the branch: {', '.join(suites['stray'])}"
         if fails >= fac.gate(cfg, "build_failures"):
             park(cfg, gap, f"Its fast suites failed {fails} times (the kill rule); the last: {why}.\n\n"
                            f"```\n{suites['tail'][-1500:]}\n```")

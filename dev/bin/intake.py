@@ -1,7 +1,9 @@
 """intake: the factory's collector, the sensor of the whole workflow. Every few minutes it reads the gaps:
 
 - each top-level entry of docs/GAPS.md on the checkout's main, outside *Done recently* and not itself done, that the
-  record does not hold yet: `gap.found` (open);
+  record does not hold yet: `gap.found` (open); one GAPS.md marks done or superseded (`head`: the first clause of its
+  opening parenthetical, or after its colon, begins with "done" or "superseded by") that the record holds not yet
+  started: `gap.closed` (end done or duplicate);
 - requests submitted as events (`ergostat event --add gap.requested --item gap/NAME --data '{"title": ...}'`) are in
   the record already, open;
 - each open gap with a definition of done: `gap.defined` (ready). A definition is the gap's `definition` field (a
@@ -28,27 +30,66 @@ import brief  # noqa: E402
 import deps  # noqa: E402
 import fac  # noqa: E402
 
-ENTRY = re.compile(r"^- \*\*(.+?)\*\*\s*(\((?:[^()]|\([^()]*\))*\))?")
+ENTRY = re.compile(r"^- \*\*(.+?)\*\*(.*)$")
+BACKLOG = ("open", "replan", "planned", "ready")      # not started: a gap GAPS.md marks done is closed from these
+
+
+def head(rest: str) -> str:
+    """An entry's head (the text after its bold title, over its continuation lines, emphasis stripped): the first
+    clause (up to the first `;`, `,` or `)`, lower case) of the parenthetical that opens it (balanced), or else of
+    the text after its colon."""
+    t = " ".join(rest.replace("*", "").split()).lstrip(":. ")
+    paren = ""
+    if t.startswith("("):
+        depth = 0
+        for n, c in enumerate(t):
+            depth += {"(": 1, ")": -1}.get(c, 0)
+            if depth == 0:
+                paren = t[1:n]
+                break
+        else:
+            paren = t[1:]
+    return re.split(r"[;,)]", paren or t, maxsplit=1)[0].strip().lower()
 
 
 def gaps_md(text: str) -> list[dict]:
-    """The entries of GAPS.md still to do: title, section, what it says of itself, the branches it names."""
-    out, section = [], ""
-    for line in text.splitlines():
+    """Every entry of GAPS.md outside *Done recently*: title, section, its line, what it says of itself (gaps_says:
+    done when its head's first clause begins with the word done, superseded when with "superseded by"; else parked,
+    in progress or open, from that clause)."""
+    out, section, cur = [], "", None
+    for n, line in enumerate(text.splitlines(), 1):
+        m = ENTRY.match(line)
+        if cur is not None and not m and line.startswith("  "):
+            cur["rest"] += " " + line
+            continue
+        cur = None
         if line.startswith("## "):
             section = line[3:].strip()
-            continue
-        m = ENTRY.match(line)
-        if not m or section.lower().startswith("done"):
-            continue
-        paren = (m.group(2) or "").lower()
-        if paren.startswith("(done"):
-            continue
-        title = m.group(1).rstrip(":").strip()
-        out.append({"id": f"gap/{fac.slug(title, 60)}", "title": title, "section": section,
-                    "gaps_says": "parked" if ("parked" in paren or "stopped" in paren) else
-                    "in progress" if "in progress" in paren else "open"})
+        elif m and not section.lower().startswith("done"):
+            cur = {"title": m.group(1).rstrip(":").strip(), "section": section, "line": n, "rest": m.group(2)}
+            out.append(cur)
+    for e in out:
+        first = head(e.pop("rest"))
+        e["id"] = f"gap/{fac.slug(e['title'], 60)}"
+        e["gaps_says"] = ("done" if re.match(r"done\b", first) else "superseded" if first.startswith("superseded by")
+                          else "parked" if "parked" in first else
+                          "in progress" if any(w in first for w in ("in progress", "landing", "awaiting")) else "open")
+        e["head"] = first[:160]
     return out
+
+
+def closed_by_gaps(known: dict[str, dict], entries: list[dict]) -> int:
+    """A gap the record holds not yet started whose entry GAPS.md now marks done (or superseded): closed, saying so."""
+    n = 0
+    for e in entries:
+        g = known.get(e["id"])
+        if e["gaps_says"] in ("done", "superseded") and g and g["state"] in BACKLOG:
+            fac.say("gap.closed", e["id"], end="done" if e["gaps_says"] == "done" else "duplicate",
+                    closed_reason=f"GAPS.md:{e['line']} marks it {e['gaps_says']}: {e['head']}", closed_by="intake",
+                    closed_at=time.time())
+            g["state"] = "closed"
+            n += 1
+    return n
 
 
 def definition(cfg: dict, gap: dict) -> str | None:
@@ -99,7 +140,10 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
     if not fac.git_ok(repo, "rev-parse", "--verify", "-q", f"refs/heads/{name}"):
         print(f"intake: {gap['id']} continues {name!r}, which the checkout does not have: not taken", file=sys.stderr)
         return False
-    return fac.git_ok(d, "fetch", "-q", str(repo), f"refs/heads/{name}:refs/heads/{ref}")
+    if fac.git_ok(d, "fetch", "-q", str(repo), f"refs/heads/{name}:refs/heads/{ref}"):
+        return True
+    print(f"intake: {gap['id']} continues {name!r}, which could not be fetched into the drop: not taken", file=sys.stderr)
+    return False
 
 
 def dependencies(cfg: dict, known: dict[str, dict], text: str) -> int:
@@ -140,9 +184,12 @@ def main() -> int:
     now = time.time()
     found = 0
     text = fac.git(repo, "show", f"{cfg['git']['base']}:docs/GAPS.md")
-    for e in gaps_md(text):
-        if e["id"] not in known:
+    entries = gaps_md(text)
+    closed = closed_by_gaps(known, entries)
+    for e in entries:
+        if e["id"] not in known and e["gaps_says"] not in ("done", "superseded"):
             gid = e.pop("id")
+            del e["line"], e["head"]
             fac.say("gap.found", gid, **e, source="gaps", branch=fac.slug(gid.split("/", 1)[1], 32), open_at=now)
             known[gid] = {"id": gid, "state": "open", "fields": {**e, "branch": fac.slug(gid.split("/", 1)[1], 32)}}
             found += 1
@@ -156,10 +203,12 @@ def main() -> int:
                     defined_by="coordinator")
             g["fields"]["definition"], g["state"] = where, "ready"
             defined += 1
+        elif g["fields"].get("continues"):                     # the planner never takes it: said, never waiting silently
+            print(f"intake: {g['id']} continues a branch with no definition of done on it: not taken", file=sys.stderr)
     linked = dependencies(cfg, known, text)
     released = main_moved(cfg, known)
-    print(f"intake: {found} found, {defined} defined, {linked} with their dependencies changed, {released} released "
-          "by main moving", file=sys.stderr)
+    print(f"intake: {found} found, {closed} closed (GAPS.md marks them done), {defined} defined, {linked} with their "
+          f"dependencies changed, {released} released by main moving", file=sys.stderr)
     return 0
 
 
