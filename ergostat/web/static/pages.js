@@ -179,8 +179,10 @@ function formatOf(path, declared) {                      // how a file is shown:
   return IMAGE.test(path) ? "image" : ext === "md" ? "markdown" : ext === "json" ? "json" : CODE[ext] ? "code" : "text";
 }
 const LIST_SHOWN = 40;      // a long list (a session's messages) shows its latest; the API and the CLI give all of it
-function fieldView(v, small = false, depth = 0, declared = null) {
+function fieldView(v, small = false, depth = 0, declared = null, there = "") {
   if (v == null || v === "") return h("span", { class: "muted" }, "–");
+  // a remote's file: is a file in its own project, never ours: text, never fetched from our /file/ (SPEC §4c)
+  if (there && typeof v === "string" && v.startsWith("file:")) return h("span", { class: "mono remote-file", title: `a file at remote ${there}, not read here` }, v);
   if (typeof v === "string" && v.startsWith("file:")) {
     const path = v.slice(5), name = path.split("/").pop(), fmt = formatOf(path, declared);
     if (SNAP) return h("span", { class: "mono muted", title: path }, name);
@@ -198,11 +200,11 @@ function fieldView(v, small = false, depth = 0, declared = null) {
       const shown = v.slice(-LIST_SHOWN), cols = [...new Set(shown.flatMap((x) => Object.keys(x)))];
       return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
         h("table", { class: "sub" }, h("tr", {}, cols.map((c) => h("th", {}, c))),
-          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1)))))));
+          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1, null, there)))))));
     }
-    return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1)]) : h("span", { class: "muted" }, "none");
+    return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1, null, there)]) : h("span", { class: "muted" }, "none");
   }
-  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1)))));
+  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1, null, there)))));
 }
 
 /* a file's contents, shown as what they are: one view of each file, kept across refreshes and asked for again
@@ -897,7 +899,7 @@ async function pageRemoteItem(main, id, name) {
     patch(body, remoteSaid(name, d), h("div", { class: "meta" }, pair("Remote", name), pair("Kind", it.kind_of?.name || it.kind || "–"),
       pair("State", stateWord(it.state)), pair("Events", String(it.events ?? evs.length))),
       h("h2", {}, "Fields"), Object.keys(f).length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, Object.keys(f).sort().map((k) =>
-        h("tr", { key: k }, h("th", {}, k), h("td", {}, fieldView(f[k], false)))))) : h("p", { class: "muted" }, "No fields."),
+        h("tr", { key: k }, h("th", {}, k), h("td", {}, fieldView(f[k], false, 0, null, name)))))) : h("p", { class: "muted" }, "No fields."),
       h("h2", {}, "How it moved"), (it.moves || []).length ? table(["when", "from", "to", "by event"], it.moves.map((m) => h("tr", { key: `${m.time}|${m.to}` },
         h("td", { class: "nowrap" }, when(m.time)), h("td", {}, m.from || "arrived"), h("td", {}, m.to), h("td", { class: "muted" }, m.type)))) : h("p", { class: "muted" }, "No moves."),
       h("h2", {}, "Events"), eventsTable(evs, true));

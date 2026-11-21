@@ -266,3 +266,31 @@ No code changed in this round.
 and the page code have never been executed, and by the house rules the gap is not done until they pass. Also not
 run here: the whole unit suite, which the factory runs. The merged ref is local `main` (e1e778c), because this
 clone has no `origin/main`.
+
+## Where it stopped (round 4)
+
+**The finding: a remote item's `file:` field was drawn as a local file (blocking).** Fixed. `fieldView`
+(`pages.js`) takes a last argument `there`, the remote's name, and passes it down through lists and records.
+When it is set, a `file:PATH` value is shown as its text, titled "a file at remote NAME, not read here". It is
+never turned into `/file/PATH`, never fetched, and never drawn as an image or a file view. `pageRemoteItem` passes
+the remote's name, so this holds for every field of a remote item, nested ones too. Local items are drawn as
+before. SPEC §4c says so. The item page's answer carries no URL for the remote, so the value is not linked there;
+the Items page's link to `URL/item/ID` stays. This was the only finding listed, and it is answered (lesson-12).
+
+**The test:** `tests/test_items_page.py::test_a_remote_items_file_field_never_reads_a_local_file`. The fake
+remote's item now has `notes: file:notes.md` and `shots: [{pic: file:shot.png}]`, and the local project has its
+own `notes.md`. The test opens `/item/incident%2F3?remote=r` and waits until both `file:` texts are shown. It
+checks that the local file's text is not on the page and that the page has no `img` or `.file-view`. It then loads
+`/record?remote=r` and checks that no request the browser made went to `/file/`. It waits only on page content.
+
+**Not run, and not shown failing (lesson-9).** Playwright is still not importable here (`could not import
+'playwright.sync_api'`). The new test, the rest of the browser tests and the page code have **never been
+executed**. The test was not shown failing with the guard removed. It should fail if the `there` branch in
+`fieldView` is removed, because the local `notes.md` would then be fetched and drawn. That is reasoned, not seen.
+`node --check ergostat/web/static/pages.js` was refused, so nothing has checked the JS syntax either. The factory's
+browser run must run both remote tests in `tests/test_items_page.py`.
+
+**Run here:** `ruff check ergostat tests scripts` (clean). `tests/test_items_page.py -k remote` was skipped because
+Playwright is missing. No Python under `ergostat/` changed this round.
+
+**Size:** +3 net lines in `pages.js`, about 322 under `ergostat/` (budget 420).

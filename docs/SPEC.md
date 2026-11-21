@@ -635,8 +635,9 @@ most); `ergostat remote refresh` asks each again now.
 **Its items and events in the pages.** The Items page adds, after the local systems, one section per remote,
 framed and marked *remote NAME · URL*: the remote's counts by kind and state and its newest 25 items, each linking
 to `/item/ID?remote=NAME` (its fields, moves and events read there, marked remote, read only: no message box, no
-actions) and to the remote's own page (`URL/item/ID`). It is asked by its own call, so a slow remote never delays
-the local listing. The Record page's filter bar links to each remote's events (`/record?remote=NAME`), listed as
+actions) and to the remote's own page (`URL/item/ID`). A remote item's `file:PATH` value names a file in the
+remote's project, so it is shown as its text, never read from this ergostat's `/file/` or drawn inline. It is asked
+by its own call, so a slow remote never delays the local listing. The Record page's filter bar links to each remote's events (`/record?remote=NAME`), listed as
 local events are, their items linking to the remote's. Nothing of them reaches the local record or fold.
 
 | Asked of the page | Answers |

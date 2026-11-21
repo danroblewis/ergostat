@@ -818,7 +818,8 @@ def fake_remote():
           "data": {"title": "disk full"}}
     answers = {"counts": {"kinds": {"incident": {"open": 1, "closed": 4}}, "total": 5},
                "items": {"items": [{"id": "incident/3", "kind": "incident", "state": "open"}], "total": 5, "kinds": []},
-               "items/incident/3": {"id": "incident/3", "state": "open", "fields": {"title": "disk full"}, "events": 1,
+               "items/incident/3": {"id": "incident/3", "state": "open", "fields": {"title": "disk full", "notes": "file:notes.md",
+                                                    "shots": [{"pic": "file:shot.png"}]}, "events": 1,
                              "moves": [{"time": now - 30, "from": None, "to": "open", "type": "incident.opened"}],
                              "record": [ev]},
                "status": {"last_seq": 1},
@@ -890,5 +891,46 @@ def test_a_remotes_items_and_events_are_shown_marked_remote(browser, tmp_path, m
         pg.close()
         server.shutdown()
         server.server_close()
+        items._state.clear()
+        events._kept.clear()
+
+
+def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
+    """A remote item's `file:` value names a file in the remote's project: shown as text, never fetched from ours."""
+    from ergostat import model as mdl
+    from ergostat.remote import events, items
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    items._state.clear()
+    events._kept.clear()
+    remote, rurl = fake_remote()
+    d = tmp_path / "home"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(REMOTE_LOCAL.format(url=rurl))
+    (d / "r.token").write_text("tok")
+    (d / "notes.md").write_text("LOCAL-ONLY TEXT\n")          # a local file of the same name as the remote's
+    server, url = web_serve(Project(mdl.load(d)), free_port())
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+    asked: list[str] = []
+    pg.on("request", lambda r: asked.append(r.url))
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        pg.goto(f"{url}/item/incident%2F3?remote=r")
+        pg.wait_for_function("() => document.body.innerText.includes('file:notes.md')")
+        pg.wait_for_function("() => document.body.innerText.includes('file:shot.png')")   # inside a list of records
+        body = pg.locator("#main").inner_text()
+        assert "LOCAL-ONLY TEXT" not in body
+        assert pg.locator("#main img").count() == 0 and pg.locator("#main .file-view").count() == 0
+        pg.goto(f"{url}/record?remote=r")                     # a later page: any request the item page made is seen
+        pg.wait_for_function("() => document.body.innerText.includes('incident.opened')")
+        assert not [u for u in asked if "/file/" in u], asked
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+        remote.shutdown()
+        remote.server_close()
         items._state.clear()
         events._kept.clear()
