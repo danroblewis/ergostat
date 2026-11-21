@@ -317,6 +317,13 @@ blocks:
     actions: [push-main]
     in: block.queue-when
     out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures]
+  push-settler:
+    type: program
+    description: settles the last batch's push once it ran, failed or was denied, with no gap approved to start a run - under the queue's lock when it is free (a run holding it settles the push itself), its held outcome said once
+    run: python3 dev/bin/queue.py settle
+    every: 2m
+    timeout: 1m
+    in: auxiliary.push-waiting
 
   triage-when:
     type: expr
