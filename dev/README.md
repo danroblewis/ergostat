@@ -1,8 +1,8 @@
 # The factory: ergostat developing itself
 
 `ergostat.yaml` at the repository's root is the factory that develops ergostat: gaps (from `docs/GAPS.md`, or asked
-for) defined first, built by an AI implementor in their own worktrees, judged by a disagreeable AI reviewer, landed one
-at a time by a merge queue behind the four suites, and the new main installed and switched to, with a revert. Its
+for) defined first, built by an AI implementor in their own worktrees, judged by a disagreeable AI reviewer, landed by a
+merge queue behind the four suites (one batch of approved gaps a run, 1 gap to start), and the new main installed and switched to, with a revert. Its
 programs, prompts and model files are here, in `dev/`. The plan it automates is
 `docs/roadmap/overnight-2026-11-19.md`; what it is meant to do is `docs/roadmap/overnight/factory.md`.
 
@@ -108,7 +108,7 @@ ergostat event --add gap.requested --item gap/warm2-again \
 
 A branch carried on under a new name (its first commit is another name's definition, e.g. `warm.md` on `warm2`) names
 that file as its definition, `"definition": "factory/warm2:docs/roadmap/overnight/warm.md"`: the implementor commits no
-copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is the branch's first commit.
+copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is on the branch and unchanged since its first commit.
 
 The intake fetches it into the drop as `factory/NAME` (never over a `factory/NAME` already there, and refusing a name
 that is not lowercase words and dashes). It is not taken while another gap on the same branch is anywhere but parked or
@@ -119,8 +119,8 @@ read is taken, the other waits). Each run fetches its session's work to a side r
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
 (it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
 the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after. The reviewer's gate 1 takes the branch's own first commit (its first-parent line) as the definition (the file the
-gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
+after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
+that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
 between build and review is not a failed gate: the merge queue merges the branch into the main of its moment and runs
 the suites again. Its reviews are numbered past the branch's earlier ones (`review/NAME-3` after a parked gap's `-1` and
@@ -153,15 +153,43 @@ is given back with `waits_on_main`, the implementor skips it, and the intake rel
 At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
 failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
 
+## The backlog: ranked, groomed
+
+Each gap has a `rank` (lower first), and `value` (1-5), `size` (S/M/L or hours), `risk` and `groomed_why`; the planner
+and the implementor take the unblocked gaps in rank order (`takes: {order: rank}`), and the Items page's Timeline
+projects them in that order. `dev/bin/solve.py` ranks them: a topological order, by value / size (risk weighs the
+size) and a bonus for each gap waiting on it; pins held; a cycle refused. The groomer (`backlog.py groom`, an Opus
+session, off until `ergostat sensor grooming-open.main --read 1`) proposes links, value, size and risk, closes (done on
+main, or a duplicate) and splits, and asks for `groom-backlog` with the diff (`run/backlog/<time>.md`): approve it in the
+inbox. By hand, each change re-ranking the backlog:
+
+```sh
+python3 dev/bin/backlog.py show                   # the backlog in rank order (* pinned)
+python3 dev/bin/backlog.py pin GAP 1              # or: pin GAP --off
+python3 dev/bin/backlog.py dep add GAP ON         # or: dep rm GAP ON (kept: GAPS.md does not add it again)
+python3 dev/bin/backlog.py close GAP --done --why "landed in abc1234"   # or --duplicate-of OTHER
+python3 dev/bin/backlog.py propose                # the solver's order and why, writing nothing
+```
+
+A GAPS.md entry whose head (its opening parenthetical, or the clause after its colon) begins with "done" or
+"superseded by" is never found as open, and one the record holds not yet started is closed.
+
 ## Plans, research and what the factory knows
 
 A gap with no definition is **planned** (`dev/bin/plan.py`), once you open planning
 (`ergostat sensor planning-open.main --read 1`): the planner reads the code, docs and knowledge in a read-only clone of
 main and writes its definition of done to `run/plans/<branch>.md` (acceptance tests, a budget, the review lessons that
 apply as risks, the files to touch); a gap too large for one branch becomes sub-gaps with `depends-on` among them, the
-gap waiting in `split` until each is merged. A short plan review (the plan and the lessons only) approves it into
-`run/defs/` (the gap is ready) or sends it back; a second failure parks it. A definition you write yourself skips all
-of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
+gap waiting in `split` until each is merged. The planner is given the task graph (gaps merged in the last 3 days and
+the files they changed, gaps active and ready with the files they touch, 40 lines at most). Each plan is linted by the
+program (`plan.lint`, no AI: the sections, tests named `tests/...py::test_name`, a budget within
+`[gates] plan_budget_most`, lessons, `depends-on` names and files that exist or are marked new); one that fails goes
+straight back to the planner (the 6th failure parks), and a lint-clean one is the definition at once: the gap is ready.
+The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
+`dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
+findings are appended to the definition as notes the implementor answers, and recorded by class on
+`review/<branch>-plan` for the knowledge loop. "This should not be built" is only asked of you (`park-gap`, in the
+inbox). `plan-review-agreement` and `plan-{flagged,clean}-{fix-rounds,parks}` say what the stage is worth. A definition you write yourself skips all of this. Every brief carries the factory's knowledge (`dev/knowledge/README.md`), and records which entries.
 
 ```sh
 python3 dev/bin/status.py                                   # one screen: in flight, blocked, failed, queue, spend
@@ -188,8 +216,8 @@ goals in `dev/model/resources.yaml` (change them there). `session-headroom` is h
 measured use of a session and its suite. **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
 the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
 (`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
-new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous) older
-than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
+new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous, nor
+one whose switch waits) older than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
 which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
 
 ## Approve the push
@@ -201,8 +229,29 @@ ergostat inbox                                  # the push and the switch wait h
 ergostat inbox action/<id> --approve --as coordinator
 ```
 
-One merge waits for its push at a time. If you deny the push, the queue undoes that merge (`git reset --keep`) and
-sends the gap back. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
+One merge waits for its push at a time, and while it waits the queue takes no gap (`push-waiting`, read from
+`run/queue.json`). The push is asked under the lease of the run's own gap, and an approval is fenced out once that
+gap is leased again; so when the run's own gap does not land (sent back, queue-failed) and others do, its outcome is
+said only once the push settles: it stays `queued` until then. If you deny the push, the queue undoes that merge (`git reset --keep`) and
+sends the gap back.
+
+**The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
+its pages drew nothing); the first failure in that order is the one reported.
+
+**Batches.** The queue merges up to `batch` approved gaps onto main in turn (in rank order) and runs the suites once.
+The batch is 1 to start (`[pools] batch = 1`: one gap a run, the queue as it always was). A green batch asks for one
+push, of its last merge, so one approval lands the batch, and a denial sends every gap of it back. A red batch is
+bisected (the suites again on the first half of the merges, and so on) to the first merge that fails; that gap goes to
+flake triage with its failures, the merges before it land, and those after it are merged again and run once more. A
+batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
+`run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
+
+To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
+`queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
+`run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
+a batch of 4 whose every merge fails is at most 8 suite runs (about 1.5 hours at 12 minutes), and the block's 3 hour
+timeout also covers the wait for the lock and a quiet machine. `merges-per-hour` (gaps merged over the hours of every
+queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
 
@@ -259,9 +308,22 @@ one of its own open at a time, and never one whose branch exists.
 ## Upgrade and revert
 
 Each green merge opens an `upgrade` item; the upgrader installs it into `~/ergostat-live/<sha>` and checks the model
-with its own code, then asks for `switch-instance`. Approving it (the inbox, as above) stops the engine, points
-`current` at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record
-read, the merge queue in the model); unhealthy, it goes back to the previous version by itself. By hand:
+with its own code, then asks for `switch-instance`. Only the newest waits: the switcher (`dev/bin/drain.py`, every
+minute) withdraws a request for a version older than one waiting, or than the one running (its action denied by the
+switcher, saying which version supersedes it). Approving it (the inbox, as above; or standing, with `gate: auto` on the
+action in the instance's model) does not switch at once: the switch waits for a quiet moment (at most `[upgrade]
+quiet_runs` AI runs under way) or, at the latest, the daily window (`[upgrade] daily_at`, 04:00 local) passing; then it
+drains: `run/drain.json` is written and the AI blocks take no new item (each run gives its item back uncounted) while
+the runs under way finish, for at most `[upgrade] drain_minutes` (45); the runs still going then are given back
+uncounted (not a failure of their gaps) and stopped with the engine. The switch then stops the engine, points `current`
+at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record read, the
+merge queue in the model); unhealthy, it goes back to the previous version by itself. Either way it removes
+`run/drain.json`. A switch that ends with no outcome recorded (it failed before stopping the engine, as with a version
+no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
+never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
+runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
+`drain-minutes` stops counting once the switch begins. The groomer and the plan review start no session while
+`run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
 python3 dev/bin/live.py switch <sha>           # the same, in the foreground
