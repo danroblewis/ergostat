@@ -136,6 +136,7 @@ GAPS = """\
 - **Libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
   and reference models.
 - **Superseded by any edit, the title says**: open (not done) in its own words.
+- **Superseded in a done title** (done, `churn` and `superseded-x`; owner, 2026-11-19): a version since changed.
 
 ## Done recently
 
@@ -155,7 +156,8 @@ def test_the_done_rule_on_a_fixture():
                     "Spans lines": "done", "Done with a decision": "done", "Open right after": "open",
                     "Warm workers": "superseded", "Superseded across lines": "superseded",
                     "A first slice across lines": "open", "Libraries": "parked",
-                    "Superseded by any edit, the title says": "open"}   # (not Gone: done recently)
+                    "Superseded by any edit, the title says": "open",
+                    "Superseded in a done title": "done"}   # (not Gone: done recently)
     assert [e["line"] for e in entries][:2] == [5, 6]
     assert {e["section"] for e in entries} == {"Things", "Other things"}
     assert all(not e["head"].startswith("done") for e in entries if e["gaps_says"] != "done")
@@ -168,7 +170,7 @@ def test_a_duplicated_gaps_entry_is_reported(tmp_path):
     twice = intake().twice(GAPS + "- **Spans lines** (done, `churn`): moved here too.\n- **Plain done**: again.\n"
                            + "- **Plain done**: and again.\n")
     assert sorted(twice) == ["gap/plain-done", "gap/spans-lines"]
-    assert "2 times, lines 24 (Other things), 44 (Done recently)" in twice["gap/spans-lines"]
+    assert "2 times, lines 24 (Other things), 45 (Done recently)" in twice["gap/spans-lines"]
     assert "3 times" in twice["gap/plain-done"]
     f = Instance(tmp_path)
     f.opened()
