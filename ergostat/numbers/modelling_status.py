@@ -15,7 +15,7 @@ def _last_run(p, block: str) -> float | None:
 
 
 def of(p, now: float | None = None) -> dict:
-    """``{"on", "fit", "fit_holds", "fit_why", "requests", "tiers", "waiting", "says"}``."""
+    """``{"on", "fit", "fit_holds", "fit_why", "requests", "tiers", "waiting", "ai_spent", "ai_daily", "says"}``."""
     from . import proposals as pr
     from . import requests as rq
     spec = p.model.spec
@@ -62,6 +62,7 @@ def of(p, now: float | None = None) -> dict:
                      + (f", every {dur(t['every'])}" if t["every"] else ""))
     if held_ai:
         parts.append(f"{len(held_ai)} held for the AI tier" + ("" if "modeller" in tiers else ", which is off (ai: true turns it on)"))
+    ai_spent, ai_daily = _cap(p, spec, now, parts) if "modeller" in tiers else (None, None)
     if owner:
         parts.append(f"{len(owner)} change{'s' if len(owner) != 1 else ''} waiting for the owner (the Model page's review queue)")
     if waiting and len(waiting) > len(owner):
@@ -75,4 +76,23 @@ def of(p, now: float | None = None) -> dict:
     if not open_ and not waiting and (fit is None or holds is not False):
         parts.append("nothing to do: every request answered" + ("" if fit is None else " and the fit holds"))
     return {"on": True, "fit": fit, "fit_holds": holds, "fit_why": why, "requests": counts, "tiers": tiers,
-            "waiting": {"judge": len(waiting) - len(owner), "owner": len(owner)}, "says": "; ".join(parts)}
+            "waiting": {"judge": len(waiting) - len(owner), "owner": len(owner)}, "ai_spent": ai_spent,
+            "ai_daily": ai_daily, "says": "; ".join(parts)}
+
+
+def _cap(p, spec, now: float, parts: list) -> tuple:
+    """The AI tier's day against its cap (its block's ``--daily``), said once a call was refused for it today or the
+    spend is within the latest reservation of it; read without the lock (a line still being written is left out)."""
+    import re
+
+    from . import modeller_spend as sp
+    m = re.search(r"--daily\s+([0-9.]+)", str(spec.blocks["modeller"].params.get("run") or ""))
+    daily = float(m.group(1)) if m else None
+    got = sp.today(p, now)
+    if "unreadable" in got:
+        parts.append("the AI tier's spend ledger cannot be read: no AI call")
+        return None, daily
+    near = daily is not None and got["last"] is not None and got["spent"] + got["last"] > daily
+    if daily is not None and (got["refused"] or near):
+        parts.append(f"the AI tier has spent ${got['spent']:.4f} of its ${daily:.2f} today")
+    return got["spent"], daily
