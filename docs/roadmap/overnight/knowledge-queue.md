@@ -87,3 +87,13 @@ Round 2 (answering review/knowledge-queue-1, every finding):
 - Run: `tests/test_factory_knowledge.py` (68 passed), `tests/test_factory.py` (91 passed, 2 skipped), ruff clean.
   Main has no commits past this branch. The four browser files and the whole unit suite were not run here: the
   factory runs them.
+
+After round 2's fast suites failed: the unit tail shows one `F` about 24% in (under `-n 8 --dist worksteal`), then
+stops at 55%. It does not name the test. I could not find it, and I changed no code. What I ran: the whole unit suite,
+one file group at a time and serially (a-c, c-e, f-j, l-p, r, s, t-z, plus every `test_factory*` file and
+`test_architecture`/`test_backlog`), with the two quarantined tests deselected as the factory does. Every test passed,
+none failed. I also ran `tests/test_factory_knowledge.py` and `tests/test_factory.py` together under `-n 8 --dist
+worksteal` (159 passed, 2 skipped), and ruff is clean. So the failure shows only under the full parallel load. Under
+lesson-13 I take it to be a load flake outside this branch, which touches only dev/, the root model, its test file and
+docs, but that is a guess, since the failing test's name was never seen. Next: the factory's run on clean main or its
+flake triage should name the test. If it is in `tests/test_factory_knowledge.py`, it belongs to this gap.
