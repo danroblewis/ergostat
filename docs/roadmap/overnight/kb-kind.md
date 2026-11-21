@@ -117,3 +117,13 @@ section the definition allows to be added, so the answers go here.
 - No `origin` remote exists in this clone, and local `main` has not moved past the branch's base, so there was
   nothing to merge.
 - Size: `dev/bin/knowledge.py` is +126/−42, so 84 net lines, within the 150.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:11).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 4: ack
+- attempt 5: nack exited 1
+- attempt 6: nack exited 1
+- attempt 7: nack exited 1
