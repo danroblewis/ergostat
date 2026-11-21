@@ -2861,6 +2861,64 @@ def test_an_older_switch_request_is_withdrawn(tmp_path):
     assert f.item(u_new)["state"] == "draining" and f.item(u_newer)["state"] == "installed"
 
 
+def draining(f: Factory) -> tuple[list[str], str]:
+    """Versions running, older, draining and newer; the one draining asked for, approved, and drained while one run
+    goes on: (the versions, the draining upgrade)."""
+    vs = versions(f, 4)
+    uid = asked(f, vs[2], "ran")
+    held(f, "gap/one")
+    assert switcher(f, NOON)[0] == ["upgrade.switch-approved", "upgrade.draining"]
+    return vs, uid
+
+
+def test_a_newer_installed_version_leaves_the_drain_and_its_flag_in_place(tmp_path):
+    f = Factory(tmp_path)
+    (_, old, b, c), uid = draining(f)
+    u_old, u_c = asked(f, old, "held"), asked(f, c, "held")                      # installed during the drain
+    said, why, started = switcher(f, NOON + 60)
+    assert said == ["upgrade.withdrawn"] and started == [] and why == f"{uid} drains: 1 run(s) under way, 1 of 45 minutes"
+    assert f.item(u_old)["state"] == "withdrawn" and f.item(u_old)["fields"]["superseded_by"] == u_c   # older: as today
+    flag = f.model / "run" / "drain.json"
+    assert json.loads(flag.read_text()) == {"sha": b, "since": NOON}
+    assert f.item(uid)["state"] == "draining" and f.item(u_c)["state"] == "installed"
+    assert f.db()["actions"][f.item(u_c)["fields"]["switch_action"]] == "held"   # its request still open
+
+
+def test_the_drain_then_switches_to_the_version_it_was_draining_for_and_the_newer_one_still_waits(tmp_path):
+    f = Factory(tmp_path)
+    (_, _, b, c), uid = draining(f)
+    u_c = asked(f, c, "held")
+    assert switcher(f, NOON + 60)[0] == []
+    held(f)                                                                      # the run finished
+    said, why, started = switcher(f, NOON + 120)
+    assert said == ["upgrade.drained"] and started == [b] and why == f"switching to {b[:12]}"
+    assert switcher(f, NOON + 180)[1:] == (f"switching to {b[:12]}", [])
+    flag = f.model / "run" / "drain.json"                                        # the switch as live.py makes it
+    f.fold([{"event": "upgrade.switched", "item": uid, "data": {"switch": "ran"}},
+            {"event": "upgrade.kept", "item": uid, "data": {}}], None)
+    (f.tmp / "live" / "current").unlink()
+    (f.tmp / "live" / "current").symlink_to(b)
+    flag.unlink()
+    said, why, started = switcher(f, NOON + 240)
+    assert said == [] and why == "no switch approved" and started == []
+    assert f.item(u_c)["state"] == "installed" and "superseded_by" not in f.item(u_c)["fields"]
+    assert f.db()["actions"][f.item(u_c)["fields"]["switch_action"]] == "held"   # it waits, its request open
+
+
+def test_a_newer_approved_version_takes_over_the_drain_with_its_start_time(tmp_path):
+    f = Factory(tmp_path)
+    (_, _, b, c), uid = draining(f)
+    u_c = asked(f, c, "ran")                                                     # approved during the drain
+    said, why, started = switcher(f, NOON + 60)
+    assert said == ["upgrade.withdrawn", "upgrade.switch-approved", "upgrade.draining"] and started == []
+    assert f.item(uid)["state"] == "withdrawn" and f.item(uid)["fields"]["superseded_by"] == u_c
+    assert json.loads((f.model / "run" / "drain.json").read_text()) == {"sha": c, "since": NOON}
+    assert f.item(u_c)["state"] == "draining" and f.item(u_c)["fields"]["drain_began_at"] == NOON
+    held(f)
+    said, _, started = switcher(f, NOON + 120)
+    assert said == ["upgrade.drained"] and started == [c]
+
+
 def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeypatch):
     f = Factory(tmp_path)
     a, b = versions(f, 2)
