@@ -36,7 +36,7 @@ from ..spec.ir import DEAD, LEASED, own_kind
 from . import ENDED, EXPIRED, RENEWED, TAKEN
 from .fold import held
 from .kill import kill
-from .ready import Ready, unblocked
+from .ready import Ready, ordered, unblocked
 from .terms import grace, terms
 
 SOURCE = "ergostat"
@@ -165,7 +165,7 @@ class Dispatcher:
                     room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
                 if room <= 0:
                     continue
-                for it in unblocked(self, b, self.ready(b, every, now))[:room]:
+                for it in ordered(b, unblocked(self, b, self.ready(b, every, now)))[:room]:
                     self.stale = True
                     self.take(b, self.whole(ix, it))
 
@@ -187,7 +187,8 @@ class Dispatcher:
         """A run asked for by hand (``ergostat block NAME --now``): it leases the next item the block would take, and
         runs here, at once, whatever its pool; with nothing to take, nothing runs."""
         with self.lock:
-            got = unblocked(self, b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False), time.time()))
+            got = ordered(b, unblocked(self, b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
+                                                          time.time())))
             started = self.take(b, got[0], inline=True) if got else None
         if started is None:
             self.e.say(f"{b.name}: nothing to take ({b.takes.kind} at {', '.join(b.takes.at)})")
@@ -201,22 +202,38 @@ class Dispatcher:
         fence = int(lease.get("fence") or 0) + 1
         run = uuid.uuid4().hex
         cause = it.moves[-1]["event"] if it.moves else None      # what brought it to the state it is taken from
-        ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
-                               data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
-                                     "max": t["attempts"],
-                                     "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1})
-        now = its.one(self.p.events, self.spec, it.id)
-        got = held(now.fields) if now else None
+        key = f"{b.name} {it.id}"
+        with self.e.lock:                  # (the stop is set under this lock: a take that passes waits it out in close)
+            if self.e.stop.is_set():
+                return None                                       # ergostat is stopping: nothing more is taken
+            self.e.running.add(key)
+        try:
+            ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
+                                   data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
+                                         "max": t["attempts"], "back": it.state, "tier": t["tier"],
+                                         "attempt": int(lease.get("attempts") or 0) + 1})
+            now = its.one(self.p.events, self.spec, it.id)
+            got = held(now.fields) if now else None
+        except BaseException:
+            with self.e.lock:
+                self.e.running.discard(key)
+            raise
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+            with self.e.lock:
+                self.e.running.discard(key)
             return None
         self.resources(ev)
-        self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence}
+        self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}
+        if self.e.stop.is_set():                                  # it raced the stop: given back, not counted, not run
+            self.give_back(b.name, it.id)
+            with self.e.lock:
+                self.e.running.discard(key)
+            return None
         self.e.say(f"{b.name}: took {it.id} (lease {fence}, {t['ttl'] / 60:g} min)")
         item = {"id": it.id, "kind": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
         given = {"fence": fence, "ttl": t["ttl"], "expires": got.get("expires"), "attempt": int(lease.get("attempts") or 0) + 1,
                  "attempts": t["attempts"], "tier": t["tier"], "back": it.state}
         with self.e.lock:
-            self.e.running.add(f"{b.name} {it.id}")
             given["model"] = (self.e.spec, self.e.version)       # it runs to its end under the model it was taken under
         if inline:
             return b, item, given, run, ev["id"]
@@ -232,6 +249,9 @@ class Dispatcher:
                 slot.acquire()
             try:
                 spec, version = lease.pop("model", (None, None))
+                if self.e.stop.is_set():                       # taken just as ergostat stopped: not started
+                    out["stopped"] = True
+                    return moved
                 moved = self.e.run_block(b, why, extra={"item": item, "lease": lease}, spec=spec, version=version,
                                          item=item["id"], fence=lease["fence"],
                                          run_id=run, cause=taken, outcome=out)
@@ -241,12 +261,15 @@ class Dispatcher:
         finally:
             if slot:
                 slot.release()
-            try:
-                self.finish(b, item["id"], lease["fence"], run, out)
-            except Exception as e:                                 # the watchdog ends it later
-                self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
-            with self.lock:
-                self.going.get(b.name, {}).pop(item["id"], None)
+            with self.lock:                  # claimed under the lock, ended outside it: once, here or by give_back
+                mine = self.going.get(b.name, {}).get(item["id"], {}).get("run") == run
+                if mine:
+                    self.going[b.name].pop(item["id"], None)
+            if mine:                         # (its lease still held in the fold: a look counts it till it ends)
+                try:
+                    self.finish(b, item["id"], lease["fence"], run, out)
+                except Exception as e:                         # the watchdog ends it later
+                    self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
             with self.e.lock:
                 for s in self.e.after_acting(moved):
                     self.e.read_cause[s.series] = run
@@ -255,6 +278,23 @@ class Dispatcher:
                 self.e.finished[b.name] = time.time()
         self.e.poke(b.name)
         return moved
+
+    def give_back(self, block: str | None = None, item: str | None = None) -> None:
+        """Ergostat stopping: each lease taken here and still going (or the one named) is given back, not counted, so
+        that after a restart no item is left leased by a run that never ran, or never ended (the engine's ``close``)."""
+        if not self.lock.acquire(timeout=self.e.lock_wait):    # (a look wedged: close never waits for good; the
+            self.e.say("leases: not given back (the dispatcher is busy); they expire")   # next watchdog expires them)
+            return
+        try:                                                   # claimed under the lock (as _work does), ended outside it
+            back = [(name, i, runs.pop(i)) for name, runs in self.going.items() for i in list(runs)
+                    if (block, item) in ((None, None), (name, i))]
+        finally:
+            self.lock.release()
+        for name, i, g in back:
+            try:
+                self.finish(g["block"], i, g["fence"], g["run"], {"stopped": True})
+            except Exception as e:                             # (the next engine's watchdog expires it)
+                self.e.say(f"{name}: giving back {i}: {type(e).__name__}: {e}")
 
     def finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
         """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired)."""

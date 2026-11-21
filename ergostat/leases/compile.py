@@ -4,10 +4,12 @@ itself, for its ``named``, ``keys``, ``err`` and ``duration``."""
 
 from __future__ import annotations
 
+import re
+
 from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Spec, Takes, own_kind
 
 TERMS_KEYS = {"ttl", "attempts"}
-TAKES_KEYS = {"kind", "at", "to", "where", "unblocked"}
+TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order"}
 
 
 def terms(c, m, key: str, what: str) -> LeaseTerms:
@@ -76,10 +78,16 @@ def takes(c, m, what: str) -> Takes | None:
         c.err(f"{what}.takes.unblocked: true or false (true: only items whose precedence relations name only finished "
               f"items, the critical first)", raw.at("unblocked"), "bad-takes")
         unblocked = False
+    order = raw.get("order") or []
+    order = [order] if isinstance(order, str) else order
+    if not isinstance(order, list) or not all(isinstance(f, str) and re.fullmatch(r"-?[^\s-]\S*", f) for f in order):
+        c.err(f"{what}.takes.order: a field's name, or a list of them (lowest first; -FIELD: highest first; the items "
+              f"without it after those with it)", raw.at("order"), "bad-takes")
+        order = []
     where = dict(where)
     if where:
         c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
-    return Takes(kind, list(states), list(to), where, unblocked)
+    return Takes(kind, list(states), list(to), where, unblocked, order)
 
 
 def pool(c, m, what: str) -> int:
@@ -93,7 +101,7 @@ def pool(c, m, what: str) -> int:
 def check(c, spec: Spec) -> None:
     """After the blocks: what each takes is a kind of the model's own, in its states; a kind taken gains the states a
     lease moves it through (``leased``, ``dead``) when it does not list them; a block that takes is started by its
-    items, so neither every: nor cron: (nor a pool without takes:)."""
+    items, so neither every: nor cron: (nor a pool without takes:), nor mode: advise (it asks per command, not per item)."""
     for b in spec.blocks.values():
         what = f"block {b.name}"
         if b.takes is None:
@@ -105,6 +113,10 @@ def check(c, spec: Spec) -> None:
             c.err(f"{what}.takes: only a program or an ai block takes items (a run of it per item)", b.where, "bad-takes")
             b.takes = None
             continue
+        if b.mode == "advise":                           # (before the kind's checks, which drop b.takes on a mistake)
+            c.err(f"{what}.mode: advise asks a person before a command or an event, never before each item it takes; to "
+                  f"have a person let its items through, gate it (goal:, or in: block.X from a block a person commands) "
+                  f"and its items wait while that is off; otherwise leave mode out", b.where, "advise-with-takes")
         if b.every or b.cron:
             c.err(f"{what}: a block that takes items is started by them (each item that reaches "
                   f"{', '.join(b.takes.at)}), not by every: or cron:", b.where, "takes-with-schedule")

@@ -125,7 +125,9 @@ def test_a_change_made_against_values_since_rewritten_is_never_applied(tmp_path)
     assert a["status"] == b["status"] == "proposed"
     at = s.t(s.train_h)
     assert judged(loop, at) == [a["id"]]
-    assert loop.changes()[b["id"]]["state"] in ("superseded", "failed")
+    xb = loop.changes()[b["id"]]                           # never written on a verdict reached on another version:
+    assert xb["state"] in ("superseded", "failed", "testing")   # carried back to testing, or superseded
+    assert xb["state"] != "testing" or xb.get("verdict") is None
     assert "leaks" not in s.p.model.path.read_text() and [x["id"] for x in loop.accepted()] == [a["id"]]
 
 

@@ -123,12 +123,14 @@ def save(p, props: dict[str, dict], why: str = "no longer found by the finder th
     """What changed in ``props`` since ``stored``, recorded as events: a new change made (by its ``made_by``, else
     ergostat) and checked; one left out superseded; one found again with new numbers ``revised`` (its ``revisions``
     counted); a status or state moved, with the fields that changed; fields alone changed, as its state again."""
-    now = stored(p)
+    now, folds = stored(p), changes(p)
     for pid, x in props.items():
         was = now.get(pid)
         body = {k: v for k, v in x.items() if k not in LOCAL}
         if was is None:
             body.setdefault("made_by", "owner" if x.get("scope") == "what-if" else "ergostat")
+            old = (folds.get(pid) or (None, {}))[1]          # made again on a superseded id: nothing of the old one kept
+            body = {**{k: None for k in old if k not in body and k not in LOCAL}, **body}
             event(p, pid, "made", body, source=body["made_by"], causedby=x.get("run"))
             st = x.get("state") if x.get("state") not in (None, "made") else \
                 {"pending": "checked", "made": None}.get(x.get("status", "pending"), x.get("status"))
@@ -166,52 +168,99 @@ def supersede(p, spec: Spec, why: str = "the model changed since it was made") -
         return _supersede(p, spec, why)
 
 
-def _supersede(p, spec: Spec, why: str = "the model changed since it was made") -> list[str]:
-    """Every change still open that was made against a model version that has since changed: superseded, unless it is
-    carried to the version now, keeping its history: one of ergostat's own, not yet under test, whose subject
-    (``subject``) the change left as it was and whose edit still applies (``revised``, ``rebased``); or a change of words
-    or a redesign, whoever made it, whose edit still applies (``_carried``). One mechanism, after ``rebase`` has moved
-    the waiting edits' lines."""
+def current_now(p, spec: Spec) -> bool:
+    """Whether the files as they are now compile to ``spec``'s version: a pass that read ``spec`` before the lock
+    writes only when this holds, under the lock (else the next pass redoes it)."""
+    now = files_now(p)
+    return now is not None and ver.version(now) == ver.version(spec)
+
+
+def files_now(p) -> Spec | None:
+    """The model compiled from its files as they are now (not as last loaded), or None when it has errors: every
+    carry and every judging is decided on this, under the lock."""
     from . import trial as tr
-    v, st = ver.version(spec), ver.structure(spec)
+    try:
+        spec, errors = tr.compiled(p.model.path, {})
+    except Exception:                                # unreadable: nothing is decided on it
+        return None
+    return None if errors else spec
+
+
+def _supersede(p, spec: Spec, why: str = "the model changed since it was made", found: list[dict] | None = None) -> list[str]:
+    """Every change still open that was made against a model version that has since changed: carried to the version
+    now, keeping its history, or superseded saying why. A change of words or a redesign, whoever made it, is carried
+    when its edit still applies (``_carried``); any other (a value, an equation, the structure, whoever made it and
+    under test or not) when its subject is unchanged and its edit applies as it stands, moved by ``rebase``, or made
+    again (``_carry``). ``found``: the structural finder's findings on this version, whose edits a structural change of
+    ergostat's own takes when its lines moved. Decided on the files as they are: when they do not compile, or are not
+    ``spec``'s version (the caller's model is stale), nothing is done and the next pass decides."""
+    now = files_now(p)
+    if now is None or ver.version(now) != ver.version(spec):
+        return []
+    spec, v = now, ver.version(now)
+    finds = None if found is None else {f["id"]: f for f in found}
     out = []
     for pid, x in stored(p).items():
         if not (x["state"] in OPEN and x.get("version") and x["version"] != v and x.get("kind") not in ("process", "tuning")):
             continue
-        sub, said = x.get("subject") or {}, why
-        if x.get("kind") in CARRIED:                 # words and redesigns, whoever made them: carried when they apply
-            said = _carried(p, spec, x)
-            if said is None:
-                continue
-        elif sub and x["state"] == "checked" and not candidate(x):
-            now = subject(spec, sub["refs"])
-            if now["sig"] == sub["sig"]:
-                edit = x["edit"]
-                try:
-                    try:
-                        tr.spec_after(p, tr.edits_of(x))
-                    except tr.TrialError:            # its lines moved: made again from the model as it is, if it can be
-                        edit = _edit_now(spec, x)
-                        tr.spec_after(p, tr.edits_of({"edit": edit}))
-                    event(p, pid, "revised", {"version": v, "structure": st, "edit": edit,
-                                              "rebased": {"from": x["version"], "to": v}})
-                    continue
-                except (tr.TrialError, ye.EditError, KeyError) as e:
-                    said = f"its edit no longer applies ({e})"
-            else:
-                gone = [r for r in sub["refs"] if _part(spec, r) is None]
-                said = f"what it is about changed: {', '.join(gone)} removed" if gone else \
-                    f"what it is about changed: {', '.join(sub['refs'])} edited since it was made"
+        said = _carried(p, spec, x) if x.get("kind") in CARRIED else _carry(p, spec, x, finds)
+        if said is None:                             # carried (or left for the structural pass)
+            continue
         event(p, pid, "superseded", {"why": said, "version_now": v})
         out.append(pid)
     return out
 
 
+def _carry(p, spec: Spec, x: dict, found: dict | None) -> str | None:
+    """A value, an equation or the structure, carried to ``spec`` (the files as they are) when its subject is unchanged
+    and its edit applies: the carry one event (``revised``; a passed change back to ``testing``), its last verdict and
+    look cleared so the judge judges it again, and what makes it the owner's worked out again. None when carried, or
+    when it is a structural change of ergostat's own whose lines moved and no finding is at hand; else why not."""
+    from . import improve as im
+    from . import structural as stc
+    from . import trial as tr
+    sub = x.get("subject") or {}
+    if not sub.get("refs"):
+        return "it was recorded without what it is about, so it cannot be held to the model as it is"
+    if subject(spec, sub["refs"])["sig"] != sub["sig"]:
+        gone = [r for r in sub["refs"] if _part(spec, r) is None]
+        return f"what it is about changed: {', '.join(gone)} removed" if gone else \
+            f"what it is about changed: {', '.join(sub['refs'])} edited since it was made"
+    edit = x["edit"]
+    try:
+        try:
+            after = tr.spec_after(p, tr.edits_of(x))
+        except tr.TrialError:                        # its lines moved: its edit found again, or made again
+            if x.get("kind") == "structure" and x.get("made_by") == "ergostat":
+                if found is None:
+                    return None                      # the structural pass decides it, with its finder
+                if x["id"] not in found:
+                    return "no longer found by the finder that made it"
+                edit = found[x["id"]]["edit"]
+            else:
+                edit = _edit_now(spec, x)
+                if edit is None:
+                    raise
+            after = tr.spec_after(p, tr.edits_of({"edit": edit}))
+    except (tr.TrialError, ye.EditError, KeyError) as e:
+        return f"its edit no longer applies ({e})"
+    if im.kind_of(spec, after, x["kind"]) != x["kind"]:
+        return f"it is no longer a {x['kind']} change on the model as it is"
+    who = im.governs(spec, after)
+    if who:
+        return f"on the model as it is, it would change who decides ({', '.join(who)})"
+    v = ver.version(spec)
+    event(p, x["id"], "testing" if x["state"] == "passed" else "revised",
+          {"version": v, "structure": ver.structure(spec), "edit": edit, "rebased": {"from": x["version"], "to": v},
+           "rewires": stc.rewired(spec, after), **dict.fromkeys(("verdict", "undecided", "more", "not_exercised", "looked"))})
+    return None
+
+
 def _edit_now(spec: Spec, x: dict) -> dict | None:
     """A value's or an equation's edit, made again on the files as they are now."""
-    if x.get("kind") == "parameter":
+    if x.get("kind") == "parameter" and x.get("parameters"):
         return _joined([_value_edit(spec.parameters[n], v) for n, v in x["parameters"].items()])
-    if x.get("kind") == "equation":
+    if x.get("kind") == "equation" and x.get("equation") and x.get("parameters") is not None:
         params = {k: (v["value"], v["unit"]) for k, v in x["parameters"].items()}
         return _equation_edit(spec, spec.flows[x["target"][5:]], x["equation"], params, x["id"])
     return None
@@ -379,13 +428,16 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
             "edit": _joined(edits) if not errors else {"error": "; ".join(errors)}})
     if which == "parts":
         found += _equations(spec, data, before)
-    props = stored(p)
-    mine = {x["id"] for x in found}
-    for k in [k for k, x in props.items() if x["status"] == "pending" and not candidate(x) and k not in mine
-              and x.get("kind") in ("parameter", "equation") and x.get("scope") != "what-if" and _calibration(x) == which]:
-        del props[k]                                  # its own, no longer found; a loop's or a structural change is not its
-    admit(p, spec, props, found, now, data.grid.until - data.grid.since)
-    save(p, props)
+    with locked(p):                                   # read, decided and recorded as one; only on the files estimated
+        if not current_now(p, spec):
+            return []
+        props = stored(p)
+        mine = {x["id"] for x in found}
+        for k in [k for k, x in props.items() if x["status"] == "pending" and not candidate(x) and k not in mine
+                  and x.get("kind") in ("parameter", "equation") and x.get("scope") != "what-if" and _calibration(x) == which]:
+            del props[k]                              # its own, no longer found; a loop's or a structural change is not its
+        admit(p, spec, props, found, now, data.grid.until - data.grid.since)
+        save(p, props)
     return pending(p, spec)
 
 
@@ -779,16 +831,17 @@ def find(p, pid: str) -> dict:
 def dismiss(p, pid: str, reason: str | None = None, by: str = "owner") -> dict:
     """Let a proposal go, with the owner's reason when they give one: kept, so the same change is not
     proposed again (a changed one, another value or another edit, is a new proposal)."""
-    props = stored(p)
-    x = find(p, pid)
-    if x["status"] != "pending":
-        raise ProposalError(f"proposal {x['id']} is {x['status']} already")
-    x["status"], x["decided"] = "dismissed", time.time()
-    if reason:
-        x["dismissed_because"] = reason.strip()[:500]
-    x["dismissed_by"] = by
-    props[x["id"]] = x
-    save(p, props)                                  # ergostat.model-change.dismissed, from the owner, with the reason
+    with locked(p):
+        props = stored(p)
+        x = find(p, pid)
+        if x["status"] != "pending":
+            raise ProposalError(f"proposal {x['id']} is {x['status']} already")
+        x["status"], x["decided"] = "dismissed", time.time()
+        if reason:
+            x["dismissed_because"] = reason.strip()[:500]
+        x["dismissed_by"] = by
+        props[x["id"]] = x
+        save(p, props)                              # ergostat.model-change.dismissed, from the owner, with the reason
     return x
 
 
@@ -812,8 +865,12 @@ def _accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = Non
         raise ProposalError(f"proposal {x['id']} is {x['status']} already")
     if "error" in (x.get("edit") or {"error": "none"}):
         raise ProposalError(f"its edit cannot be made by ergostat ({(x.get('edit') or {}).get('error')}); write it by hand")
-    if x["structure"] != ver.structure(p.model.spec) or (x.get("version") and x["version"] != ver.version(p.model.spec)):
+    now = files_now(p)                               # the files as they are, not the model as last loaded
+    if now is None or ver.version(now) != ver.version(p.model.spec) or x["structure"] != ver.structure(now) or \
+            (x.get("version") and x["version"] != ver.version(now)):
         raise ProposalError("the model has changed since it was proposed: ask for proposals again")
+    if policy and x["state"] != "passed":            # the judge writes only what is passed as it is now
+        raise ProposalError(f"proposal {x['id']} is {x['state']}, not passed, on the model as it is")
     if not current(x, p.model.spec):
         raise ProposalError("the value it changes has been changed since it was proposed: ask for proposals again")
     edits = [ye.Edit.from_dict(d) for d in x["edit"]["files"]]

@@ -11,7 +11,18 @@ queue_lock = "~/ergostat-live/queue.lock"   # set it to the coordinator's queue-
 run = "run"                          # briefs, logs, the cost ledger (from the model's folder)
 
 [gates]
-kill_after = 3                       # failed gates (reviews, queue conflicts, real failures) that park a gap
+kill_after = 6                       # failed gates (reviews, queue conflicts, real failures) that park a gap
+build_failures = 6                   # the implementor's failed fast suites that park a gap (main's own failures
+                                     # are not counted: dev/bin/onmain.py)
+build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
+plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
+scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej"]
+                                     # globs on each path part of a file the branch adds: the implementor's program
+                                     # refuses the build before the suites (dev/bin/implement.py strays)
+
+[plan]                               # the advisory plan review (dev/bin/planreview.py): never a gate
+review = "sample"                    # sample (1 in sample_every plans), all, or off
+sample_every = 3
 
 [git]
 base = "main"                        # what a gap's branch starts from, and what the queue merges into
@@ -23,20 +34,29 @@ implementor_model = "opus"
 reviewer_model = "opus"
 implementor_session_usd = 15.0       # the most one implementor session may spend (claude --max-budget-usd)
 reviewer_session_usd = 5.0
-suite_fix_rounds = 1                 # sessions the implementor gets to make its failing fast suites pass
+suite_fix_rounds = 2                 # sessions the implementor gets to make its failing fast suites pass
 planner_model = "opus"               # the planner: a gap's definition of done, or its split (dev/bin/plan.py)
 planner_session_usd = 5.0
-plan_reviewer_model = "opus"         # the plan review: the definition and the lessons only, so cheap
-plan_reviewer_session_usd = 1.0
+plan_reviewer_model = "opus"         # the plan review: the plan against main's code and the task graph
+plan_reviewer_session_usd = 3.0
 researcher_model = "opus"            # research questions (dev/bin/research.py)
 researcher_session_usd = 5.0
 librarian_model = "haiku"            # the librarian's one step: a review's findings against the lessons
 librarian_session_usd = 0.25
+groomer_model = "opus"               # the groomer: the backlog's links, value, size, risk, closes and splits (backlog.py)
+groomer_session_usd = 3.0
+pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one situation at a time
+pipeline_manager_session_usd = 3.0
+
+[backlog]
+every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before
 
 [knowledge]                          # what a brief may carry beyond the house rules and the review lessons (always)
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
 plan_reviewer_chars = 12000          # (the lessons alone)
-librarian = false                    # ships off: true runs the librarian after each review (an AI step on haiku)
+pipeline_manager_chars = 12000
+librarian = true                     # true runs the librarian after each review (an AI step on haiku); the owner wants
+                                     # review findings learned (operator, 2026-11-20)
 
 [agents]                             # the sessions' containers (dev/bin/agents.py, dev/agent/)
 image = "ergostat-agent:latest"      # docker build -t ergostat-agent:latest dev/agent (after the dev image)
@@ -45,12 +65,46 @@ hosts = ["api.anthropic.com"]        # the only hosts a session can reach, on 44
 token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude setup-token`; mode 600, or no session
 
 [pools]                              # the AI pools start at 1 and ramp up on good results (dev/bin/pools.py)
-implementor_max = 4                  # the most each may reach (the blocks' pool: in the model is this cap)
-reviewer_max = 2
+implementor_max = 9                  # the most each may reach (the blocks' pool: in the model is this cap)
+reviewer_max = 6                     # operator: reviewers spend AI budget, not machine; suites are capped by the suite slots
 streak = 3                           # good gaps in a row before an increase is asked for
+batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
+batch_max = 4                        # the most the tuner may ask for while the queue wait is off (never past 4)
+
+[manager]                            # the pipeline manager's triggers (dev/bin/watch.py)
+open = 1                             # the switch managing-open: 0 pauses it
+parked_within_hours = 48             # a park this recent is looked at (older ones were the coordinator's)
+park_wait_hours = 24                 # a waits_on / needs park not cleared this long is looked at (dev/bin/parks.py)
+intervention_hours = 12              # an open defect (not a decision: operator-decision, factory-tuning, factory: false)
+                                     # unremedied this long is looked at
+interventions_per_hour = 3           # at most this many such looks an hour (the first run's backlog)
+heartbeat_minutes = 30               # a look at the whole pipeline, when it changed since the last
+
+[manager.stuck_hours]                # a gap this long in one state is stuck (states not named are never stuck)
+ready = 6
+fix = 6
+leased = 3
+building = 5
+built = 2
+in-review = 2
+approved = 4
+queued = 3
+queue-failed = 1
+
+[resources]                          # the machine (dev/model/resources.yaml holds the setpoints)
+session_cpus = 0.5                   # one session's use until three are measured (run/resources/sessions.jsonl)
+session_memory_gb = 1.0
+suite_cpus = 4.0                     # one of its suites' (in a container of 4 CPUs and 12 GB); not charged with [suites] slot
+suite_memory_gb = 4.0
+session_keep_hours = 24              # session folders and installs younger than this are never cleaned up
 
 [instance]
 port = 8798
+
+[upgrade]                            # when an approved switch runs (dev/bin/drain.py)
+quiet_runs = 1                       # a quiet moment: at most this many AI runs under way (0-10)
+daily_at = "04:00"                   # at the latest: this local time passing after the approval
+drain_minutes = 45                   # the runs under way finish, or are given back uncounted after this long (1-240)
 
 [load]
 threads = 1500                       # the hard rule (scripts/suite_watch.py kills past these)
@@ -67,4 +121,15 @@ ruff = "uv run ruff check ergostat tests scripts"
 unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal"
 browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
 demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
+alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
+                                     # implementor's failing tests again, on its branch and on main (onmain.py)
 rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
+check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
+queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the
+                                     # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under
+                                     # run/coverage/ (dev/README.md, Coverage). On: its overhead on the full unit
+                                     # suite measured within noise (code-health-coverage.md, Where it stopped)
+
+[code_health]
+coverage_floor = 0.6                 # a module whose share of statements run by the unit suite is under this is
+                                     # named (measure.py coverage-below-floor; coverage_report.py --below)

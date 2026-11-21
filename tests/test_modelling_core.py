@@ -200,7 +200,7 @@ def test_the_redesigner_and_the_ai_tier_print_result_lines(tmp_path, monkeypatch
         on_call(one)
         return {"proposals": [], "cannot": [], "cost": cost, "tried": []}
     monkeypatch.setattr(md, "answer", answer)
-    assert ml.ai(["--model", "haiku"]) == 0
+    assert ml.ai(["--model", "haiku", "--daily", "1"]) == 0
     got = _results(capsys.readouterr().out)
     assert len(got) == 1 and got[0]["total_cost_usd"] == pytest.approx(0.012)
 

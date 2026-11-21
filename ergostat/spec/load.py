@@ -63,6 +63,7 @@ class Problem:
     where: Where | None = None
     code: str = ""             # a short name for the kind of problem: missing-feedback, unknown-key
     about: str = ""            # the reference it is about: goal.disk-headroom
+    items: list = field(default_factory=list)   # the open items about that part (spec/about.py)
 
     def __str__(self) -> str:
         return f"{self.where}: {self.message}" if self.where else self.message

@@ -660,11 +660,16 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     for name, a in snap.get("alarms", {}).items():
         out.append({"level": "bad", "what": f"alarm {name}", "says": f"raised since "
                     f"{time.strftime('%H:%M', time.localtime(a['since']))}: {a['watches']} {a['bound']}"})
-    for name, d in snap.get("daemons", {}).items():   # a daemon given up, or alarmed in the last hour (SPEC §9.7)
+    from .daemons.supervise import of_daemon
+    ds = snap.get("daemons", {})
+    for name in dict.fromkeys(k.rpartition("#")[0] or k for k in ds):   # given up, or alarmed in the last hour (§9.7)
+        d = of_daemon(ds, name)                       # (a warm one's processes together: one line, a partial give-up said)
         al = d.get("alarm") or {}
-        if d.get("state") == "failed" or (al and time.time() - al.get("at", 0) < 3600):
-            out.append({"level": "bad", "what": f"daemon {name}", "says": f"{al.get('why') or d.get('why')} "
-                        f"({time.strftime('%H:%M', time.localtime(al.get('at') or time.time()))}); its log: logs/daemon-{name}.log"})
+        if d.get("state") == "failed" or d.get("failed") or (al and time.time() - al.get("at", 0) < 3600):
+            part = f"{d['state']}: " if d.get("processes") else ""
+            log = f"logs/daemon-{name}#N.log" if d.get("processes") else f"logs/daemon-{name}.log"
+            out.append({"level": "bad", "what": f"daemon {name}", "says": f"{part}{al.get('why') or d.get('why')} "
+                        f"({time.strftime('%H:%M', time.localtime(al.get('at') or time.time()))}); its log: {log}"})
     for name, a in snap["agents"].items():
         if a["failing"]:
             note = (a["last"] or {}).get("data", {}).get("note", "failed")

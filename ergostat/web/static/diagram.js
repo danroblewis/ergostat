@@ -587,8 +587,8 @@ function edgePoints(e) {
 }
 
 /* the pin on a part (or a system) put by hand: clicked, it is let go, and the layout places it again */
-function pinMark(pid, x, y, title = "pinned here: click to let the layout place it again") {
-  return s("g", { class: "pin", "data-act": "unpin", "data-id": pid, transform: `translate(${x},${y})`,
+function pinMark(pid, x, y, title = "pinned here: click to let the layout place it again", kind = "system") {
+  return s("g", { class: `pin k-${kind}`,"data-act": "unpin", "data-id": pid, transform: `translate(${x},${y})`,
                   onclick: (ev) => { ev.stopPropagation(); delete S.pins[pid]; savePins(); S.relayout?.(); } },
     s("circle", { r: 7 }), s("path", { d: "M-2.5,-3 h5 l-1,3 h2 l-3.5,3 v3 M0,3 v3" }));
 }
@@ -800,7 +800,7 @@ function drawGraph(svg, g, lay) {
                         ondblclick: (ev) => { if (n.kind === "system") { ev.stopPropagation(); S.toggleSystem?.(n.label); } } });
     ng.append(((sd && SD_DRAW[n.kind]) || DRAW[n.kind] || drawCloud)(n, ln.width, ln.height, ln));
     const pid = pinId(n.id, n);                       // (a system's box and its open outline share one)
-    if (S.pins?.[pid]) pinsG.append(pinMark(pid, ln.x + ln.width - 4, ln.y - 6));
+    if (S.pins?.[pid]) pinsG.append(pinMark(pid, ln.x + ln.width - 4, ln.y - 6, undefined, n.kind));   // (its kind: hidden with it, flows only)
     for (const lb of ln.labels || []) {
       // the text from this tick's data, not the layout's: positions are kept, readings move on
       const fresh = labelLines(n);
@@ -1058,6 +1058,9 @@ async function pageDiagram(main, q) {
     view === "dynamics" ? { label: "Show loop markers", checked: loopsOn(), hint: "R and B, inside each loop",
       onclick: () => { const on = !loopsOn(); document.body.classList.toggle("no-loops", !on);
                        try { localStorage.setItem("ergostat.loops", on ? "1" : "0"); } catch (e) { /* not remembered */ } } } : null,
+    view === "dynamics" ? { label: "Flows only", checked: document.body.classList.contains("flows-only"), hint: "the pipes, their stocks and clouds",
+      onclick: () => { const on = document.body.classList.toggle("flows-only");     // a class, not a re-layout: nothing moves
+                       try { localStorage.setItem("ergostat.flowsOnly", on ? "1" : "0"); } catch (e) { /* not remembered */ } } } : null,
     view !== "process" ? { label: "Colour by correspondence", checked: CORR.on, hint: "or hold C",
       onclick: () => corrSet(!CORR.on) } : null,
     ...(view === "process" ? [...pmKindItems(), { sep: true }, unpinAll] : [
@@ -1398,3 +1401,4 @@ function renderSide(side, g, view) {
 }
 
 try { if (localStorage.getItem("ergostat.loops") === "0") document.body.classList.add("no-loops"); } catch (e) { /* shown */ }
+try { if (localStorage.getItem("ergostat.flowsOnly") === "1") document.body.classList.add("flows-only"); } catch (e) { /* all shown */ }

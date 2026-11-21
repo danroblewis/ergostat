@@ -1,0 +1,145 @@
+# The pipeline manager (the owner, 2026-11-20: "having a pipeline manager triage the issues was important"): what the
+# coordinator did by hand and recorded as interventions - a gap stuck, parked on main's own failures, the queue
+# blocked - watched by a program (pipeline-watch, dev/bin/watch.py) and looked at by an AI session, one situation at a
+# time (dev/bin/manager.py), acting only through manage.py's checked tools; what needs the coordinator (a close, a
+# park, a pool, a change to the model or the settings, anything touching origin) is a gated action in the inbox.
+# Every act is an intervention by pipeline-manager, so the interventions still count the loops the factory lacks.
+defaults:
+  system: managing
+
+stocks:
+  situations-raised:
+    unit: situations
+    description: situations raised by the watch, waiting for (or with) the pipeline manager - one at a time
+    sensor: {items: situation, state: raised, every: 1m}
+
+auxiliaries:
+  stuck-gaps:
+    unit: gaps
+    description: gaps in one state past its threshold ([manager.stuck_hours]) whose wait no full pool, dependency or held push explains
+    driven-by: [+stock.gaps-fix, +stock.gaps-ready, +stock.gaps-built, +stock.gaps-approved, +stock.gaps-queue-failed]
+    sensor: {run: python3 dev/bin/watch.py stuck, every: 5m, timeout: 2m, description: the gaps' time in their states}
+  managing-open:
+    unit: switch
+    exogenous: true
+    description: 1 while the pipeline manager may run ([manager] open in the settings, 1 by default; 0 in factory.local.toml pauses it)
+    sensor: {run: python3 dev/bin/watch.py open, every: 5m, timeout: 30s, description: the settings}
+  # Parks by kind (parked_for, dev/bin/parks.py): parks and resumes over 14 days, and the mean hours parked (to the
+  # resume, or now) - for the kinds a program resumes (waits_on, needs) and the manager's (defect, kill-rule);
+  # `measure.py parks|resumes|parked-hours KIND` reads any kind.
+  parks-waits-on: {unit: gaps, description: "gaps parked waiting on a gap or commits, 14 days", sensor: {run: python3 dev/bin/measure.py parks waits_on, every: 10m, timeout: 1m, description: the factory's measures}}
+  parks-needs: {unit: gaps, description: "gaps parked needing an action named for someone, 14 days", sensor: {run: python3 dev/bin/measure.py parks needs, every: 10m, timeout: 1m, description: the factory's measures}}
+  parks-defect: {unit: gaps, description: "gaps parked for their own work's findings, 14 days", sensor: {run: python3 dev/bin/measure.py parks defect, every: 10m, timeout: 1m, description: the factory's measures}}
+  parks-kill-rule: {unit: gaps, description: "gaps parked by the kill rule (rounds, hours or attempts ran out), 14 days", sensor: {run: python3 dev/bin/measure.py parks kill-rule, every: 10m, timeout: 1m, description: the factory's measures}}
+  resumes-waits-on: {unit: gaps, description: "waits_on parks resumed, 14 days", driven-by: [+auxiliary.parks-waits-on], sensor: {run: python3 dev/bin/measure.py resumes waits_on, every: 10m, timeout: 1m, description: the factory's measures}}
+  resumes-needs: {unit: gaps, description: "needs parks resumed, 14 days", driven-by: [+auxiliary.parks-needs], sensor: {run: python3 dev/bin/measure.py resumes needs, every: 10m, timeout: 1m, description: the factory's measures}}
+  parked-hours-waits-on: {unit: hours, description: "mean hours a waits_on park stayed parked (to its resume, or now)", driven-by: [+auxiliary.parks-waits-on, -auxiliary.resumes-waits-on], sensor: {run: python3 dev/bin/measure.py parked-hours waits_on, every: 10m, timeout: 1m, description: the factory's measures}}
+  parked-hours-needs: {unit: hours, description: "mean hours a needs park stayed parked (to its resume, or now)", driven-by: [+auxiliary.parks-needs, -auxiliary.resumes-needs], sensor: {run: python3 dev/bin/measure.py parked-hours needs, every: 10m, timeout: 1m, description: the factory's measures}}
+
+flows:
+  situations-found:
+    to: situations-raised
+    description: a trigger standing and not raised before (its fingerprint) - the queue blocked, a gap dead, parked or stuck, an intervention left, or the heartbeat
+    driven-by: [+auxiliary.stuck-gaps, +stock.interventions-open]
+    sensor: {items: situation, entering: raised, over: 1d}
+  situations-handled:
+    from: situations-raised
+    description: the session looked, and its calls ran (each checked by manage.py, each an intervention by pipeline-manager)
+    driven-by: [+stock.situations-raised]
+    equation: stock.situations-raised / manage-time
+    sensor: {items: situation, entering: handled, over: 1d}
+  situations-failed:
+    from: situations-raised
+    description: a session that failed on its last attempt
+    sensor: {items: situation, entering: failed, over: 1d}
+
+parameters:
+  manage-time:
+    value: 15m
+    estimate: true
+    description: how long the pipeline manager takes on a situation
+
+goals:
+  no-stuck-gaps:
+    auxiliary: stuck-gaps
+    hold: "<= 0"
+    tolerance: 0
+    description: no gap held in one state past its threshold without a reason
+  situations-looked-at:
+    stock: situations-raised
+    hold: "<= 0"
+    tolerance: 0
+    description: every situation raised looked at by the pipeline manager
+
+actions:
+  manager-close:
+    run: python3 dev/bin/manage.py closed {gap} {why}
+    in: .
+    gate: approve
+    class: groom
+    args: {gap: the gap to close, why: "done elsewhere, a duplicate, or no longer wanted"}
+    timeout: 2m
+    description: Close a gap (asked by the pipeline manager) - the coordinator approves
+  manager-park:
+    run: python3 dev/bin/manage.py parked {gap} {why}
+    in: .
+    gate: approve
+    class: park
+    args: {gap: the gap to park, why: where it stopped}
+    timeout: 5m
+    description: Park a gap with where it stopped (asked by the pipeline manager) - the coordinator approves
+  manager-pool:
+    run: python3 dev/bin/pools.py set {role} {to} {why}
+    in: .
+    gate: approve
+    class: pool
+    args: {role: implementor or reviewer, to: the pool asked for, why: the evidence}
+    description: Set an AI pool (asked by the pipeline manager) - the coordinator approves
+  manager-change:
+    run: python3 dev/bin/manage.py approved {what}
+    in: .
+    gate: approve
+    class: change
+    args: {what: "the change asked for - dev/model, the settings, or anything that pushes or touches origin", why: why it is needed}
+    timeout: 1m
+    description: A change the pipeline manager may not make itself, asked of the coordinator, who makes it once approved
+
+blocks:
+  park-resume:
+    type: program
+    description: resumes each park whose condition cleared, for whoever parked it (no AI) - waits_on once the gap merged or the commits are on main, needs once the action is recorded done, split once its stopped sub-gaps are resumed or closed; never a defect or the kill rule
+    run: python3 dev/bin/parks.py resume
+    every: 5m
+    timeout: 4m
+    out: [auxiliary.resumes-waits-on, auxiliary.resumes-needs]
+  pipeline-watch:
+    type: program
+    description: raises the first standing trigger not raised before as a situation, one at a time, while managing is open
+    run: python3 dev/bin/watch.py
+    every: 5m
+    timeout: 4m
+    goal: no-stuck-gaps
+    out: flow.situations-found
+
+  manage-when:
+    type: expr
+    description: look while a situation waits, managing is open, and the day's AI money is not spent
+    in:
+      waiting: goal.situations-looked-at.off
+      open: auxiliary.managing-open
+      over: goal.ai-budget.off
+    expr: waiting * min(open, 1) * (1 - over)
+    out: block.pipeline-manager
+  pipeline-manager:
+    type: ai
+    agent: opus
+    description: a session per situation in a read-only clone of main, on a brief of the situation and the knowledge - continues, re-approves (verified), flakes, files gaps and remedies through manage.py; asks the rest
+    run: python3 dev/bin/manager.py
+    prompt: dev/prompts/pipeline_manager.md
+    takes: {kind: situation, at: raised, to: [handled, failed]}
+    pool: 1
+    lease: {ttl: 60m, attempts: 2}
+    timeout: 1h
+    actions: [manager-close, manager-park, manager-pool, manager-change]
+    in: block.manage-when
+    out: [flow.situations-handled, flow.situations-failed]

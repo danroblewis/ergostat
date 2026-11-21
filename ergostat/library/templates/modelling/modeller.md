@@ -60,4 +60,7 @@ One JSON line per change, alone on its line, in your answer, nothing else on the
 - Prefer the smallest change that answers the request; never silence a finding, and never invent a number (give a
   parameter a first value with `estimate: true`, and say where it comes from).
 - Descriptions: plain, short, specific to this system; no "this stock", no markdown, no quotes inside.
+- With the reviewer on, a structural change is read after the judge passes it; "The reviewer on your recent proposals"
+  below (when there is one) is what it said: never propose again what it rejected, and answer every finding of one it
+  sent back.
 - Answer with JSON lines only.

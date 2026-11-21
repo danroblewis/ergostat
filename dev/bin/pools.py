@@ -8,12 +8,19 @@ hold the rest to the pool now.
     pools.py tune             the controller (a block): after [pools] streak good gaps in a row (approved within one fix
                               round, and not reverted after merging), an increase of one is asked as the gated action
                               raise-pool, for the coordinator; a park, a second fix round or a reverted merge lowers
-                              every pool by one at once, never below 1
-    pools.py set ROLE N WHY   the action's command: set it (within 1 and its most)"""
+                              every pool by one at once, never below 1. PAUSED (operator, 2026-11-20): the role
+                              pools are neither raised nor lowered (pool-control replaces it); only the batch is tuned
+    pools.py set ROLE N WHY   the action's command: set it (within 1 and its most)
+
+The merge queue's batch (`batch`: approved gaps it merges and tests together, dev/bin/queue.py) lives here too: [pools]
+batch to start (1, a gap a run), at most [pools] batch_max and never past BATCH_MOST. The tuner asks to raise it by
+one, the same gated action, while the goal queue-wait-short is off (dev/model/measures.yaml); it is not lowered on a
+bad gap (it changes how gaps are tested, not how many are built), only by hand (`set batch N`)."""
 
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 
@@ -21,12 +28,16 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
 ROLES = ("implementor", "reviewer")
+BATCH_MOST = 4         # a batch of 4 with every merge failing is at most 8 suite runs (~1.5 h; the 3 h timeout
+                       # also covers the lock and quiet-machine waits)
 
 
 def state(cfg: dict) -> dict:
     p = fac.run_dir(cfg) / "pools.json"
     got = json.loads(p.read_text()) if p.exists() else {}
-    return {"since": float(got.get("since") or 0), **{r: int(got.get(r) or 1) for r in ROLES}}
+    batch = int(got.get("batch") or cfg.get("pools", {}).get("batch", 1))
+    return {"since": float(got.get("since") or 0), **{r: int(got.get(r) or 1) for r in ROLES},
+            "batch": max(1, min(batch, most(cfg, "batch"))), "batch_since": float(got.get("batch_since") or 0)}
 
 
 def save(cfg: dict, st: dict) -> None:
@@ -37,7 +48,37 @@ def save(cfg: dict, st: dict) -> None:
 
 
 def most(cfg: dict, role: str) -> int:
-    return int(cfg.get("pools", {}).get(f"{role}_max", 1))
+    n = int(cfg.get("pools", {}).get(f"{role}_max", 1))
+    return min(n, BATCH_MOST) if role == "batch" else n
+
+
+WAIT_GOAL = re.compile(r"^\s*queue-wait-short:\s*$.*?^\s*hold:\s*\"<=\s*([\d.]+)\"\s*$\s*tolerance:\s*([\d.]+)",
+                       re.M | re.S)
+
+
+def wait_off(hours: float) -> str | None:
+    """Why the goal queue-wait-short is off (its hold plus its tolerance passed), or None; None too when the goal
+    cannot be read (raising the batch is the step that needs a reason)."""
+    m = WAIT_GOAL.search((fac.HERE / "model" / "measures.yaml").read_text())
+    if not m or hours <= float(m.group(1)) + float(m.group(2)):
+        return None
+    return f"queue wait {hours:g} h, over its goal of {m.group(1)} h (tolerance {m.group(2)})"
+
+
+def tune_batch(cfg: dict, st: dict) -> None:
+    """The queue's batch: measured (its size, the queue wait, merges per hour of the queue's running) and, while the
+    queue wait goal is off, a raise of one asked of the coordinator."""
+    import measure
+    wait, rate = measure.reading("queue-wait-hours"), measure.reading("merges-per-hour")
+    why = wait_off(wait)
+    if why and st["batch"] < most(cfg, "batch"):
+        to = st["batch"] + 1
+        rc, said = fac.act("raise-pool", key=f"batch-{to}-{int(st.get('batch_since') or 0)}", role="batch",
+                           to=str(to), why=why)
+        fac.say("pool.raise-asked", "pool/batch", pool=st["batch"], to=to, why=why,
+                asked={0: "raised", 3: "held", 4: "denied"}.get(rc, f"exit {rc}"))
+    fac.say("pool.measured", "pool/batch", pool=st["batch"], most=most(cfg, "batch"), queue_wait_hours=wait,
+            merges_per_hour=rate)
 
 
 def outcomes(gaps: list[dict], upgrades: list[dict]) -> list[tuple[float, str, str]]:
@@ -76,8 +117,15 @@ def decide(evidence: list[tuple[float, str, str]], since: float, pools: dict, cf
     return None, "", streak
 
 
+PAUSED = True     # the role pools' tuning (operator, 2026-11-20): it lowered the owner's pools on parks caused by main;
+                  # pool-control replaces it. The pools stay where `pools.py set` put them; the batch is still tuned.
+
+
 def tune(cfg: dict) -> int:
     st = state(cfg)
+    if PAUSED:
+        tune_batch(cfg, st)
+        return 0
     evidence = outcomes(fac.items("gap"), fac.items("upgrade"))
     what, why, streak = decide(evidence, st["since"], st, cfg)
     if what == "lower":
@@ -96,15 +144,16 @@ def tune(cfg: dict) -> int:
                 asked={0: "raised", 3: "held", 4: "denied"}.get(rc, f"exit {rc}"))
     for r in ROLES:
         fac.say("pool.measured", f"pool/{r}", pool=st[r], most=most(cfg, r), streak=streak)
+    tune_batch(cfg, st)
     return 0
 
 
 def set_pool(cfg: dict, role: str, n: int, why: str) -> int:
-    if role not in ROLES:
-        raise SystemExit(f"no pool {role!r}: {', '.join(ROLES)}")
+    if role not in (*ROLES, "batch"):
+        raise SystemExit(f"no pool {role!r}: {', '.join(ROLES)}, batch")
     st = state(cfg)
     st[role] = max(1, min(int(n), most(cfg, role)))
-    st["since"] = time.time()                        # a new pool: its evidence starts again
+    st["batch_since" if role == "batch" else "since"] = time.time()   # a new pool: its evidence starts again
     save(cfg, st)
     print(f"{role} pool {st[role]} ({why})")
     return 0
@@ -112,12 +161,15 @@ def set_pool(cfg: dict, role: str, n: int, why: str) -> int:
 
 def my_turn(cfg: dict, role: str, block: str, item: str) -> bool:
     """Whether this run's item is within the role's pool: the items its block's runs hold, by when their leases were
-    taken, and this one among the first `pool` of them (so two runs taken at once never both go on)."""
+    taken, and this one among the first `pool` of them (so two runs taken at once never both go on). The pool is the
+    risk target held to what the machine fits: min(pool, the role's sessions running + the headroom)."""
     held = [g for g in fac.items("gap") if (g["fields"].get("lease") or {}).get("block") == block
             and (g["fields"].get("lease") or {}).get("holder")]
     order = sorted((float(g["fields"]["lease"].get("taken") or 0), g["id"]) for g in held)
     ids = [i for _, i in order]
-    return item not in ids or ids.index(item) < state(cfg)[role]
+    import resources
+    fits = resources.room(cfg, role)
+    return item not in ids or ids.index(item) < min(state(cfg)[role], fits if fits is not None else 10**6)
 
 
 def main(argv: list[str]) -> int:
