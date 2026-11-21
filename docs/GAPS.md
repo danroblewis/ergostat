@@ -97,14 +97,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **System architecture review** (computed measures done on `architecture`; design in
   `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
   `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a
-  model-level `purpose:`; the stocks' modes at the start and each link's eigenvalue elasticity in `explain`
-  (`numbers/modes.py`, on `eigenvalue-elasticity`). *Left*: the relative gain array (needs a square, non-singular gain
-  matrix from approved step tests), aggregation from loop dominance, elasticity over the replay, interface
   model-level `purpose:`; candidates to aggregate from loop dominance over the window, an `aggregate` row on a
-  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`). *Left*: the relative gain
-  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
-  proposal to aggregate, interface
-  stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); the stocks' modes at the start
+  and each link's eigenvalue elasticity in `explain` (`numbers/modes.py`, on `eigenvalue-elasticity`). *Left*: the
+  relative gain array (needs a square, non-singular gain matrix from approved step tests), the AI rung's proposal to
+  aggregate (from loop dominance), elasticity over the replay, interface stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
   per-system redesign and daily larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
   STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
