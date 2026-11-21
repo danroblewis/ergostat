@@ -212,3 +212,29 @@ so they share its module state as tests in one xdist worker do (`test_upkeep_tem
 earlier `-n 8` run is still not named: this clone has no log of that run, and running the suite under `-n` is the
 factory's job. If it shows again, `-rf` names it. Then run that test alone on this branch and on main to decide
 whether it belongs to this gap (lesson-10, lesson-13).
+
+### Round 4 (answering review/upkeep-index-files-2)
+
+- **Size, 374 against 300 (blocking): the reason.** The 374 is not this gap's code. Round 3's "Merge main
+  (2b101c6)" brought in `Merge branch 'backlog'` (2b101c6, with 67c673e, 600535d, ff49649, d61e27e), and `main`
+  (now 7093853) does not contain it. So `git diff main HEAD` counts the backlog feature too. Counted by
+  `git diff --numstat` (added minus removed, outside `tests/`, `docs/`, `dev/`):
+  - this gap's own lines: 233 (`library/templates/upkeep/template.yaml` 98, `spec/itemindex.py` 49,
+    `library/run/upkeep.py` 43, `upkeep_measures.py` 24, `spec/ir.py` 7, `numbers/measures.py` 6,
+    `library/expand.py` 2, `library/templates.py` 2, `library/run/__init__.py` 2, `library/run/__main__.py` 0,
+    `spec/compile.py` 0). That is within the 300 budget;
+  - the backlog merge's lines in `ergostat/`: 141 (`numbers/etamodel.py` 45, `leases/ready.py` 23,
+    `cli/spec_cmds.py` 21, `numbers/eta.py` 16, `web/static/pages.js` 12, `leases/compile.py` 8, `precedence.py` 4,
+    `web/static/relations.js` 4, `web/static/style.css` 4, `spec/ir.py` 3, `leases/dispatch.py` 1), plus 5 in
+    `ergostat.yaml`. 233 + 141 = 374.
+- **The branch's base still holds that backlog merge (the same problem as review/gap-size-1).** Merging this
+  branch as it stands would land the backlog feature on main. It is not fixed in this round. The clean fix is to
+  rebuild the branch as `main` plus this gap's own commits (cherry-pick 8919bac..4c7f0bd and eeda24e onto
+  7093853; they were made on 05c6dc9, before the backlog merge). Rewriting the branch was refused in this session.
+  I did not make a commit that reverts the backlog changes either. The backlog commits would stay ancestors of the
+  branch, so if main later takes `backlog`, merging this branch would delete it from main. That is harder to
+  undo than leaving the base for the factory to rebuild. The branch head before this round is d69299a.
+- **`reindex` still globs `*.db` (non-blocking).** It stays as it is: `reindex` is outside this gap's definition
+  (lesson-13). The follow-up is to send its listing through `itemindex.files()` as well (lesson-11).
+
+No code changed in this round, so no test was run again.
