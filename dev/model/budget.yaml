@@ -10,7 +10,7 @@ auxiliaries:
   ai-spend:
     unit: USD
     description: what the AI sessions cost over the last day, as Claude Code reported it
-    driven-by: [+stock.gaps-building, +stock.gaps-in-review]
+    driven-by: [+stock.gaps-building, +stock.gaps-in-review, +stock.situations-raised]
     sensor: {builtin: ergostat.cost.usd, every: 5m, description: AI sessions' cost over a day}
 
 goals:
@@ -19,4 +19,4 @@ goals:
     hold: "<= 300"
     tolerance: 0
     on-stale: "off"                    # a spend not read is counted as over: the gates close
-    description: the implementor and the reviewer spend at most $300 a day (change it here)
+    description: the factory's AI sessions (the implementor, the reviewer, the planner, the pipeline manager...) spend at most $300 a day (change it here)

@@ -153,7 +153,7 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
             head=head, net_lines=net, budget=budget)
     fac.say(VERDICT_EVENT[v["verdict"]], rid, gap=gap["id"])
     record = dict(reviews=[rid], contexts=[context], ai_cost_usd=cost,
-                  review_hours=round((time.time() - began) / 3600, 3))
+                  review_hours=round((time.time() - began) / 3600, 3), resources=[got["resources"]] if got.get("resources") else [])
     failed = int(f.get("failed_gates") or 0) + (v["verdict"] == "fix")
     if v["verdict"] == "merge":
         fac.say("gap.approved", approved_at=time.time(), approved_by="review", first_pass=n == 1, reviewed_head=head,
