@@ -272,3 +272,15 @@ xdist worker, and both are changed (tests only, no code):
 Run: `test_library_untrusted_runs` (8), and under `-n 4` with `test_library_untrusted`, `test_templates`,
 `test_reload_in_place` and `test_leases` (105 passed). ruff is clean. Not run here: the whole unit suite and the browser
 files. If the stall comes back, the factory's log of which worker stopped, and on which test, is needed to go further.
+
+**After main was merged in (640ef397).** Main's merge touched three of this branch's files: `leases/dispatch.py`
+(`give_back` and `finish`), `spec/engine.py` and `spec/compile.py`. It also added a built-in `upkeep` template. None
+of it conflicted with the gates. `take` still calls `bounds.room` and `bounds.hold` under `e.lock` before
+`lease.taken`, and drops its entry when the lease is refused. `start`, the judge's pass and `pace` are unchanged. No
+code was changed. Run on the merged head, one batch at a time: `test_library_untrusted` (21) and
+`test_library_untrusted_runs` (8), alone. `test_templates`, `test_modelling_template`, `test_upkeep_template`,
+`test_leases` and `test_reload_in_place` (102). `test_spec_compile`, `test_resilience`, `test_chains` and
+`test_spec_engine` (106). All passed, and ruff is clean. Not run here: the whole unit suite and the four browser files,
+which are left to the factory under the watchdog. The stall the factory saw at 88% after round 3 has not yet been
+seen on a run that has round 3's test changes (8a221683). If it comes back, the worker's log naming the test is still
+needed.
