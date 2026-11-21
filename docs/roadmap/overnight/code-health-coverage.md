@@ -189,3 +189,20 @@ Run here: `tests/test_code_health_coverage.py` (9 passed), with `tests/test_fact
 Docker tests); `uv run ruff check ergostat tests scripts`, clean. Local `main` is this branch's merge base, so there was
 nothing to merge in. There is no network to fetch origin. The unit suite and the four browser files were not run by
 this session, which may not start the whole suite. The factory runs them after it.
+
+### Round 2, suite fix round (the factory's unit run after round 2)
+
+The unit run failed with one `F`, at about 82% of the dots, but its log names no test. It has no `FAILED` line or
+short summary, and the run's tail stops before pytest's summary. Under `-n 8 --dist worksteal` a dot's position says
+only when a test finished, not which test it was. So the test that failed is unknown, and **no code was changed**:
+changing code without a named failure would be guessing (lesson-13). Checked again here, one file at a time, serially:
+`tests/test_code_health_coverage.py` (9 passed), `tests/test_factory.py` (41 passed, 2 skipped),
+`tests/test_ticket_factory_daemons.py` with `tests/test_model.py` (28 passed), and `tests/test_architecture.py`,
+`tests/test_daemon_docs.py`, `tests/test_index_files.py`, `tests/test_factory_resources.py` and
+`tests/test_factory_sessions.py` (59 passed). Those are the files that read what this branch changes: conftest,
+queue.py, measure.py, factory.toml, measures.yaml, dev/README.md and scripts/. A serial run of the whole unit suite,
+started to name the failure, was denied by the session's permission mode. With `ERGOSTAT_COVERAGE` unset (as in the
+factory's run), the branch adds one `os.environ.get` per pytest process. Its own tests leave no global state behind:
+the tracer test frees the `sys.monitoring` tool id it took, and its children write only under `tmp_path`. If the next
+unit run names a test, that test is the next thing to look at. If it is a time-bound test, it belongs to lesson-10's
+triage, not to this branch. Point 3 is still the owner's to measure, as round 2 says.
