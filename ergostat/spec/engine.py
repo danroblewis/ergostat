@@ -41,7 +41,7 @@ from ..costs.sampler import SAMPLER, Measured
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
 from . import blocks as bl
-from . import stream, triggers
+from . import runrecord, stream, triggers
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 from .observer import KEEP, RUN, Observer, estimated, opted, stale_age
@@ -947,13 +947,21 @@ class Engine:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
             else:
+                files, proc = runrecord.files(self.p.dir, begun["id"]), None   # its input, output, exit, record
                 try:
                     if refused:
                         raise OSError(refused)
-                    proc = Measured(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
+                    files["in"].write_text(stdin or "", encoding="utf-8")
+                    with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
+                        proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
+                                        stderr=lf, start_new_session=True)
+                    runrecord.write(files, proc.pid, begun["id"], b.name, item, fence)
                 except OSError as e:
                     note = refused or f"could not start: {e}"
+                    if proc is not None:                         # started, but its record not written: stopped
+                        old._kill(proc)
+                        proc.wait()
+                    runrecord.remove(files)
                 else:
                     old.LIVE.add(proc)
                     if self.stop.is_set():                       # this engine stopping (set before its kill_all): it may
@@ -965,9 +973,10 @@ class Engine:
                     from ..library.reap import Watch
                     proc.watch = Watch(proc.pid)                 # what it starts, kept for a lease kill (leases/kill.py)
                     try:
-                        if stream.pump(proc, stdin, b.timeout, take):
+                        if stream.follow(proc, files["out"], b.timeout, take):
                             note = f"stopped after its timeout of {b.timeout:g}s"
                     finally:
+                        runrecord.remove(files)                      # read to its end: nothing left to take again
                         resources = SAMPLER.finish(tracked)
                         proc.watch.close(look=False)             # (its run is over: no last ps)
                         old.LIVE.discard(proc)
