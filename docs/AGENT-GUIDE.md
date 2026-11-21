@@ -553,9 +553,10 @@ blocks:
   of the record held out, or its errors are not white, or not independent of u): no `process:` is proposed, and you must
   not write one by hand from those numbers. Do what the finding says would identify it: approve the **step test** it
   offers (from the loop's panel, or the inbox; ergostat must be running), or wait for a large outside change in its
-  input (a burst of arrivals identifies it best: ergostat looks around one by itself and says "identified around an
-  outside step at T"), or for more record. A loop that never sees either stays unidentified, and that is the honest
-  answer.
+  input (bursts of arrivals identify it best: ergostat finds them by itself, fits them together and says "identified
+  around outside steps at T1, T2"), or for more record. If it says "the record after it covers X of the Y its process
+  needs to settle", the burst was too recent: wait until the record covers Y after it, and do not write a process from
+  the earlier, shorter window. A loop that never sees either stays unidentified, and that is the honest answer.
 - **Projections far off after a burst** (the strip says "Low confidence: ..." in front, the band wide): the model fit the
   quiet record, and the burst found what it lacks. Before tuning a value, suspect missing structure: a **capacity**
   (reviewers or workers at their most: a `MIN(stock / time, capacity)` outflow, or a block's `pool:`), a queue that
