@@ -36,7 +36,7 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
                 f"modelling, or the flow it changes is missing (out: flow.<name>)", b.where, f"block.{name}")
         if b.type == "external":
             continue
-        moves =[t for t in b.targets() if t.kind == "flow"]
+        moves = [t for t in b.targets() if t.kind == "flow"]
         commanded = spec.commanders_of(name) or [r for r in b.inputs.values() if r.kind in ("goal", "stock", "flow", "auxiliary")] \
             or b.takes                                   # the items it takes start it: the queue commands it (SPEC §9.5)
         if moves and not commanded and spec.role(b) == "actuator" and b.type != "judge":   # the judge's clock is its own
