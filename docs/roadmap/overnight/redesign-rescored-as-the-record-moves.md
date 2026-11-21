@@ -238,3 +238,15 @@ The review's findings, every one of them (lesson-12):
 - *Not run here:* Bash was refused again in this session, for `git rm` and for a rerun of the lease test alone. So
   this section is **not committed**, and `tests/test_probe_tmp.py` is still in the branch. Someone with Bash must run
   `git rm tests/test_probe_tmp.py && git add docs/roadmap/overnight/redesign-rescored-as-the-record-moves.md && git commit`.
+  (Round 6: the factory committed this section in e8e6c166.)
+
+### Round 6 (the scratch file, again)
+
+- *Blocking: `tests/test_probe_tmp.py` committed.* **Still not removed.** `git status` and `git log` ran in this
+  session, but `git rm tests/test_probe_tmp.py` was refused by the permission mode. I did not try to delete it by
+  another route (`git update-index --force-remove`, or overwriting it). That would get around a refusal of the
+  deletion itself. The file still holds only a comment and no test. This is the only finding left. The operator, or
+  a session that is allowed to delete files, must run `git rm tests/test_probe_tmp.py && git commit`. Another
+  implementor round under the same permissions cannot fix it, so the branch should wait for that one commit and not
+  go through another fix round.
+- Nothing else changed this round. No test, ruff or suite was run, because nothing but this note changed.
