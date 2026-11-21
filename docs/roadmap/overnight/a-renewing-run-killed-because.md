@@ -149,3 +149,10 @@ test, not in ergostat. A fix would accept the raise on either call. For example,
 until the first `_readings` has returned and then assert the same end state. That belongs in its own gap. I tried to
 show the race deterministically in a scratch run (wrapping `ThreadPoolExecutor.submit` to wait on its future, from a
 plugin in `/tmp`), but the session's permissions denied it, so the race is unconfirmed.
+
+**The factory's second unit run (2026-11-21): failed, cause not known, nothing changed.** The tail given to this
+session stops at 32 % with no `F` in it, so it names no failing test and no error. This session's permissions denied
+every shell command (no `git`, no `pytest`), so I could not read the full log, rerun the suite or commit. I changed
+no code: the branch's diff is still docs only, and the one failure known so far (the reload-safety test above) is
+outside this gap (lesson-13). To go on, the factory has to supply the failing test's name and output, from the full
+log or a rerun. This paragraph was written as an uncommitted edit, because the session could not run `git commit`.
