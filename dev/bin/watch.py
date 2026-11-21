@@ -137,8 +137,8 @@ def candidates(cfg: dict, now: float) -> list[dict]:
         elif parks.waiting(g, now, s["park_wait"]) and branch(g) not in holders:
             out.append(sit("waiting", g["id"], f"{g['id']} parked for {g['fields']['parked_for']} "
                            f"{json.dumps(g['fields'].get('parked_until'))[:300]} {(now - at) / 3600:.0f}h, not cleared", at))
-        elif (g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders
-              and g["fields"].get("parked_for") not in (*parks.RESUMED, "deferred", "cancelled")):
+        elif (g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders and not g["fields"].get("deferred")
+              and not g["fields"].get("cancelled") and g["fields"].get("parked_for") not in (*parks.RESUMED, "deferred", "cancelled")):
             out.append(sit("parked", g["id"], f"{g['id']} was parked ({g['fields'].get('parked_for') or 'its kind not said'}): "
                            f"{str(g['fields'].get('where_it_stopped'))[:300]}", at))
     out += stuck(cfg, gaps, now)
