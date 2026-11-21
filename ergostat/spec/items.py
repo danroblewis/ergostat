@@ -28,6 +28,8 @@ JOINED = "ergostat.item.joined"       # a parent moved on by its kind's join: to
 TRANSCRIPT_TYPES = "claude.*"     # a Claude Code transcript, line by line (transcripts.py): left out unless asked for
 SNAPSHOT = "ergostat.item.snapshot"    # an item's older events, folded into one (rollup.py): its document as a set
 LISTED = 500                           # the most items one listing carries; page through with offset
+TEXT_MOST = 65_536                     # characters of an item's text a search reads (text_of): words past them are not
+SEARCH_WORDS = 8                       # the most words one search may hold
 
 
 @dataclass
@@ -202,13 +204,19 @@ def _index(events, spec, transcript: bool):
     return index_for(events, spec, transcript)
 
 
+def late_cap(ix, kind: str | None = None) -> int:
+    """How many items changed since a moment are each folded again from the record; past it, the whole record up to
+    the moment is folded instead (``_late``, ``asof.AsOf``)."""
+    return max(50, ix.total(kind) // 10)
+
+
 def _late(ix, events, spec, kind: str | None, until: float | None, transcript: bool) -> dict[str, Item] | None:
     """The items (of ``kind``) with an event after ``until``, each folded again from the record up to
     then (dropped when it had none by then); None when that is most of them (a moment long past: the
     caller folds the record itself). Under the index's lock."""
     if until is None:
         return {}
-    cap = max(50, ix.total(kind) // 10)
+    cap = late_cap(ix, kind)
     ids = ix.late(until, kind, limit=cap + 1)
     if len(ids) > cap:
         return None
@@ -233,7 +241,6 @@ def project(events, spec: Spec, kind: str | None = None, until: float | None = N
     kinds = [spec.items[kind]] if kind else list(spec.items.values())
     if kind and not kinds:
         return []
-    globs = [k.id for k in kinds] if kind else None
     if transcript is None:
         transcript = asks_transcript(kinds, fields)
     ix = _index(events, spec, transcript)
@@ -243,8 +250,15 @@ def project(events, spec: Spec, kind: str | None = None, until: float | None = N
             if late is not None:
                 out = ix.items(kind, until=until) + [i for i in late.values() if not kind or i.kind == kind]
                 return sorted(out, key=lambda i: -i.last)
+    return fold_all(events, spec, kind, until, transcript)
+
+
+def fold_all(events, spec: Spec, kind: str | None, until: float | None, transcript: bool) -> list[Item]:
+    """Every item (of ``kind``; None: every item, of a kind or of none) as it stood at ``until``, folded from the
+    record itself, the latest first."""
     by: dict[str, list[dict]] = {}
-    for e in events.of_items(globs, until=until, skip=() if transcript else (TRANSCRIPT_TYPES,)):
+    for e in events.of_items([spec.items[kind].id] if kind else None, until=until,
+                             skip=() if transcript else (TRANSCRIPT_TYPES,)):
         by.setdefault(e["item"], []).append(e)
     out = []
     for id, evs in by.items():
@@ -466,17 +480,42 @@ def glob_ok(pattern: str) -> bool:
     return "/" in pattern and not pattern.startswith("/")
 
 
+def text_of(fields: dict) -> str:
+    """What a search reads of an item (SPEC §5a, *Search*): the string values of its fields, nested ones too, in the
+    document's order, one per line, casefolded, cut to the first ``TEXT_MOST`` characters."""
+    out, size, todo = [], 0, [fields]
+    while todo and size < TEXT_MOST:
+        v = todo.pop()
+        if isinstance(v, str):
+            out.append(v)
+            size += len(v) + 1
+        elif isinstance(v, (dict, list)):
+            todo += reversed(list(v.values()) if isinstance(v, dict) else v)
+    return "\n".join(out).casefold()[:TEXT_MOST]
+
+
+def words(search: str) -> tuple[str, ...]:
+    """A search's words, casefolded as ``text_of`` is: one at least, ``SEARCH_WORDS`` at most (else ``BadSet``)."""
+    from .item_sets import BadSet
+    got = tuple(search.casefold().split())
+    if not got or len(got) > SEARCH_WORDS:
+        raise BadSet(f"search: give 1 to {SEARCH_WORDS} words (an item matches when its fields hold every one)")
+    return got
+
+
 def kinds_of(spec) -> dict:
     return getattr(spec, "items", None) or {}
 
 
 def listing(events, spec, kind: str | None = None, state: str | None = None, until: float | None = None,
-            n: int = LISTED, offset: int = 0) -> dict:
+            n: int = LISTED, offset: int = 0, search: str | None = None) -> dict:
     """What the Items page and ``ergostat item`` show: each kind with its count per state, and
-    the items themselves (newest first), filtered by kind and state: ``n`` of them from ``offset``.
+    the items themselves (newest first), filtered by kind and state, and by ``search`` (``words``: items
+    whose ``text_of`` holds every word): ``n`` of them from ``offset``.
     Counted and paged by the item index: only the items shown are read."""
     kinds = kinds_of(spec)
-    plain = spec is None or not kinds
+    ws = words(search) if search is not None else ()
+    plain = (spec is None or not kinds) and not ws
     if plain:
         every = events.items()
         page = [fold(i["item"], events.query(n=None, item=i["item"], until=until, skip=(TRANSCRIPT_TYPES,)), None, transcript=False)
@@ -488,7 +527,7 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         page = [i for i in page if (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state)]
         total = len(every)
     else:
-        page, counts, total = _paged(events, spec, kind, state, until, n, offset)
+        page, counts, total = _paged(events, spec, kind, state, until, n, offset, ws)
     from ..transcripts import FIELDS
     lines = events.counted(TRANSCRIPT_TYPES, until=until)            # left out of the fold: counted, not read
     page = [copy.copy(i) for i in page]                                # what the index lent: changed only as copies
@@ -511,13 +550,14 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
             "items": [_listed(i, kinds, where) for i in page]}
 
 
-def _paged(events, spec, kind: str | None, state: str | None, until: float | None, n: int, offset: int):
+def _paged(events, spec, kind: str | None, state: str | None, until: float | None, n: int, offset: int, ws=()):
     """The listing's page of items, its counts per kind and state, and how many match."""
     kinds = kinds_of(spec)
     transcript = asks_transcript(list(kinds.values()), tuple(f for k in kinds.values() for f in k.show))
 
     def want(i: Item) -> bool:
-        return (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state)
+        return (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state) and \
+            all(w in text_of(i.fields) for w in ws)
     ix = _index(events, spec, transcript)
     if ix is not None:
         with ix.lock:
@@ -530,10 +570,11 @@ def _paged(events, spec, kind: str | None, state: str | None, until: float | Non
                 states = None if state is None else [state]
                 extra = [i for i in late.values() if want(i)]
                 if extra:
-                    page = sorted(ix.items(kind, states, until, n=offset + n) + extra, key=lambda i: -i.last)[offset:offset + n]
+                    page = sorted(ix.items(kind, states, until, n=offset + n, words=ws) + extra,
+                                  key=lambda i: -i.last)[offset:offset + n]
                 else:
-                    page = ix.items(kind, states, until, n=n, offset=offset)
-                return page, counts, ix.count(kind, states, until) + len(extra)
+                    page = ix.items(kind, states, until, n=n, offset=offset, words=ws)
+                return page, counts, ix.count(kind, states, until, ws) + len(extra)
     its = project(events, spec, until=until, transcript=transcript)
     counts = {}
     for i in its:

@@ -241,7 +241,15 @@ def test_cleanup_deletes_only_the_factorys_folders(tmp_path, monkeypatch):
     assert cleanup.installs(cfg) == [installs["old"]]
     assert set(cleanup.installs(cfg, every=True)) == {installs["old"], installs["young"]}   # what the measure counts
     monkeypatch.setattr(cleanup.fac, "config", lambda: cfg)
-    assert cleanup.main(["--dry-run"]) == 0 and gone.exists()
+    monkeypatch.setattr(cleanup.fac, "items", lambda kind: 1 / 0)          # the record unread: no install removed
+    with pytest.raises(ZeroDivisionError):
+        cleanup.main([])
+    assert installs["old"].exists() and gone.exists()
+    up = [{"state": "approved", "fields": {"sha": shas[10]}}]             # its switch approved, waiting for its moment
+    monkeypatch.setattr(cleanup.fac, "items", lambda kind: up if kind == "upgrade" else [])
+    assert cleanup.main([]) == 0 and installs["old"].exists() and not gone.exists()
+    up[0]["state"] = "withdrawn"
+    assert cleanup.main(["--dry-run"]) == 0 and installs["old"].exists()
     assert cleanup.main([]) == 0
     assert not gone.exists() and not claude_old.exists() and not installs["old"].exists()
     assert all(d.exists() for d in keep) and (plain / "keep.txt").exists() and elsewhere.exists()
@@ -251,3 +259,5 @@ def test_cleanup_deletes_only_the_factorys_folders(tmp_path, monkeypatch):
     assert shas[10] not in git(checkout, "worktree", "list")                        # removed by git, and pruned
     s = cleanup.sizes(cfg)
     assert s["factory-disk"] == round(s["sessions-disk"] + s["installs-disk"], 2)
+    monkeypatch.setitem(sys.modules, "live", module("live"))
+    assert cleanup.WAITING == module("drain").WAITING
