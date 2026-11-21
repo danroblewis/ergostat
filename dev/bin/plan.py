@@ -171,4 +171,5 @@ if __name__ == "__main__":
     fac.stop_on_term()
     if sys.argv[1:] == ["splits"]:
         sys.exit(splits(fac.config()))
-    sys.exit((review_plan if sys.argv[1:] == ["review"] else planner)(fac.config(), fac.read_input()["item"]))
+    cfg, item = fac.config(), fac.read_input()["item"]
+    sys.exit(0 if fac.drain_holds(cfg) else (review_plan if sys.argv[1:] == ["review"] else planner)(cfg, item))

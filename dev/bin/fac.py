@@ -73,6 +73,15 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def drain_holds(cfg: dict) -> bool:
+    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), an AI run takes no new
+    item: it gives it back uncounted, to be taken again after the switch."""
+    if not (run_dir(cfg) / "drain.json").exists():
+        return False
+    nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
+    return True
+
+
 def ergostat(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """$ERGOSTAT_CMD (this ergostat, on this model). Absent outside a run: a FileNotFoundError says so."""
     cmd = os.environ.get("ERGOSTAT_CMD")

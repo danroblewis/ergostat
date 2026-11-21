@@ -84,6 +84,11 @@ session_keep_hours = 24              # session folders and installs younger than
 [instance]
 port = 8798
 
+[upgrade]                            # when an approved switch runs (dev/bin/drain.py)
+quiet_runs = 1                       # a quiet moment: at most this many AI runs under way (0-10)
+daily_at = "04:00"                   # at the latest: this local time passing after the approval
+drain_minutes = 45                   # the runs under way finish, or are given back uncounted after this long (1-240)
+
 [load]
 threads = 1500                       # the hard rule (scripts/suite_watch.py kills past these)
 memory_gb = 6.0
