@@ -12,6 +12,7 @@ import os
 import queue
 import re
 import shlex
+import signal
 import subprocess
 import threading
 import time
@@ -23,6 +24,9 @@ QUEUE = 1000                 # lines waiting for its standard input, at most
 CHUNK = 65536                # bytes read from its standard output at once
 LINE_MAX = 1 << 20           # a line longer than this (1 MiB) is dropped, never held
 SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SOCKET", "ERGOSTAT_HOME"}
+GROUPS: set[int] = set()         # every daemon's process group not yet seen gone (``supervise.killpg``, ``end_all``)
+GROUPS_LOCK = threading.Lock()   # held for the set's own operations only: never across a wait, a signal or I/O
+CLOSING = False                  # set by ``supervise.end_all`` (ergostat starting itself again): a new group kills itself
 
 
 # not run by ``exec``: a shell's keywords and the builtins that are not programs (``exec cd`` fails)
@@ -108,6 +112,15 @@ class Process:
                              stdout=subprocess.PIPE, stderr=log, start_new_session=True)
         self.pid = self.proc.pid                     # the program's (``execd``), or its shell's; either way the
                                                      # session's leader, so its group's id (``supervise.killpg``)
+        with GROUPS_LOCK:                            # checked and added under one lock: in end_all's snapshot, or
+            closing = CLOSING                        # killed here, never spawned past it unseen
+            if not closing:
+                GROUPS.add(self.pid)
+        if closing:
+            try:
+                os.killpg(self.pid, signal.SIGKILL)
+            except OSError:
+                pass
         threading.Thread(target=self._write, name=f"daemon-{d.name}-in", daemon=True).start()
         threading.Thread(target=self._read, name=f"daemon-{d.name}-out", daemon=True).start()
 
