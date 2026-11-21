@@ -33,7 +33,6 @@ from contextlib import contextmanager
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
-import risk  # noqa: E402
 
 ROLES = ("implementor", "reviewer")
 POOLS = (*ROLES, "batch")
@@ -127,6 +126,7 @@ def cycle_hours(cfg: dict) -> float:
 
 def measured(cfg: dict, st: dict, gaps: list[dict]) -> dict:
     """Everything a decision rests on, from the record: the risk table, the tolerance, the demand, the target."""
+    import risk
     ivs = fac.items("intervention")
     ev = risk.evidence(gaps, ivs, fac.items("upgrade"), st["history"])
     tab = risk.table(ev, most(cfg, "implementor"), cycle_hours(cfg))
@@ -156,6 +156,7 @@ def held(cfg: dict) -> bool:
 
 
 def tune(cfg: dict) -> int:
+    import risk
     gaps = fac.items("gap")
     with locked(cfg):
         st = state(cfg)

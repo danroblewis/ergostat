@@ -292,3 +292,23 @@ Here: ruff clean (`ergostat tests scripts dev/bin`); `tests/test_factory.py` 90 
 `tests/test_factory_knowledge.py` 61 passed. Not run here: the whole unit suite and the four browser files (the
 factory runs them). The earlier unit failures (`tests/test_leases.py` restart and watchdog tests,
 `tests/test_factory_sessions.py` mount test) are main's code, which this branch does not touch (lesson-13).
+
+Continued, round 1, after the factory's fast suites: the `unit` tail named no test (one `F` at about 25%). Run here
+in full as the factory runs it (`suite_watch.py`, `-n 8 --dist worksteal`): 2228 passed, 2 failed.
+- `tests/test_factory_resources.py::test_my_turn_respects_headroom` was this branch's fault. The test loads
+  `dev/bin/pools.py` by file path, with only `fac` registered and `dev/bin` not on `sys.path`, so pools.py's new
+  top-level `import risk` raised `ModuleNotFoundError`. Fixed in the code, not the test: `risk` is now imported inside
+  `measured` and `tune`, the two functions that use it (the way pools.py already imports `measure` and `resources`).
+  The file now passes (10 passed).
+- `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`: main's code (`ergostat/`),
+  which this branch does not touch. It was already named in the parks above as load-dependent (lesson-10, lesson-13).
+  Not fixed here.
+- In an earlier `-x -n 4` run, `tests/test_index_files.py::test_two_processes_one_tidying_never_corrupt_an_index_another_has_open`
+  failed once and passed alone (8 passed). Its spawned child imported `dev/bin/queue.py` as the stdlib `queue`, because
+  main's tests insert `dev/bin` into the worker's `sys.path` and never take it out (`tests/test_backlog.py:24`,
+  `tests/test_factory.py` `test_two_gaps_editing_gaps_md_merge_cleanly`, `tests/test_factory_knowledge.py:116,600`,
+  `tests/test_factory_times.py:36`). Whether it fails depends on which tests share a worker. That is main's code
+  (lesson-13), and its fix (`monkeypatch.syspath_prepend`, or renaming `dev/bin/queue.py`) belongs in its own gap.
+
+Here: `tests/test_factory_resources.py` 10 passed; `tests/test_factory.py` and `tests/test_factory_knowledge.py` 151
+passed, 2 skipped; ruff clean (`ergostat tests scripts dev/bin`). Not run here: the four browser files.
