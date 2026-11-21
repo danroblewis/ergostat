@@ -91,11 +91,12 @@ def stored(p) -> dict[str, dict]:
 
 
 @contextlib.contextmanager
-def locked(p):
+def locked(p, name: str = "proposals"):
     """Held while the changes are read, changed and recorded back, so a block's proposal arriving in the engine and
-    the judge in its own thread never record over each other."""
+    the judge in its own thread never record over each other. ``name``: another record's lock (``requests``), never
+    taken inside this one, nor this one inside it."""
     p.dir.mkdir(parents=True, exist_ok=True)
-    with open(p.dir / "proposals.lock", "w") as f:
+    with open(p.dir / f"{name}.lock", "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:
             yield

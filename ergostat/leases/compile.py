@@ -98,6 +98,13 @@ def pool(c, m, what: str) -> int:
     return n
 
 
+def person_gates(spec: Spec, b) -> list[str]:
+    """The person blocks wired to command ``b`` (either end of the wire): a person's --done never sets a command."""
+    return [g.name for g in spec.blocks.values() if g.type == "person" and g.name != b.name and (
+        any(r.kind == "block" and r.name == g.name for r in b.inputs.values())
+        or any(r.kind == "block" and r.name == b.name for rs in g.outputs.values() for r in rs))]
+
+
 def check(c, spec: Spec) -> None:
     """After the blocks: what each takes is a kind of the model's own, in its states; a kind taken gains the states a
     lease moves it through (``leased``, ``dead``) when it does not list them; a block that takes is started by its
@@ -115,8 +122,12 @@ def check(c, spec: Spec) -> None:
             continue
         if b.mode == "advise":                           # (before the kind's checks, which drop b.takes on a mistake)
             c.err(f"{what}.mode: advise asks a person before a command or an event, never before each item it takes; to "
-                  f"have a person let its items through, gate it (goal:, or in: block.X from a block a person commands) "
-                  f"and its items wait while that is off; otherwise leave mode out", b.where, "advise-with-takes")
+                  f"have a person let its items through, gate it with in: block.X from an expr block reading a "
+                  f"sensor: {{manual: true}} (ergostat sensor STOCK --read 1 opens it for all its items at once, "
+                  f"--read 0 shuts it; not per item); otherwise leave mode out", b.where, "advise-with-takes")
+        for g in person_gates(spec, b):
+            c.err(f"{what}: a person block ({g}) never commands, so the items it gates would wait forever; gate it "
+                  f"with in: block.X from an expr block reading a sensor: {{manual: true}}", b.where, "person-gate")
         if b.every or b.cron:
             c.err(f"{what}: a block that takes items is started by them (each item that reaches "
                   f"{', '.join(b.takes.at)}), not by every: or cron:", b.where, "takes-with-schedule")

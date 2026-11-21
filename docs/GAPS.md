@@ -21,12 +21,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
     (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
-    `examples/remote-pair/` and its two-instance test.
+    `examples/remote-pair/` and its two-instance test. A remote's measures on its closed box (done on
+    `remote-box-measures`): its top systems' served `show:`, or a `show:` on its `remotes:` entry in its own
+    names (`remote-show-unresolved` for one it does not serve), each marked stale with its age when the remote
+    or the reading is not current.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
     it); lines in the process map between our items and theirs (needs an id both logs carry); proposals
     written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
-    not served); a remote's measures on its closed box (`show:` of the remote's systems); mutual TLS.
+    not served); mutual TLS.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
@@ -78,10 +81,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
-  program). *Left*: verifying a fix by the runs after it and offering its revert; per-run logs and log events; the
+  program). *Left*: verifying a fix by the runs after it and offering its revert; log events; the
   swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
-  failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text; two
-  runs of one block at once share the block's log, so a failure's stderr may hold the other's lines.
+  failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text.
 - **AI approver for repairs: needs a positive allowlist of the AST changes a fix may make** (SPEC §12r). One was built
   on `repair2` (the AI shown only the diff and pass or fail, behind a guard that escalated new imports, processes,
   network, environment, writes and URL or path literals) and cut before merging: a guard that denies by list was
@@ -175,9 +177,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   proposed only past a quality floor (what it follows held out, white errors in closed loop, independent of u), else
   the goal says `loop-not-identifiable` and what would identify it; the process is identified around a large outside
   step (a burst of arrivals), closer to the truth than from the loop working; the strip leads with "Low confidence"
-  and widens the band where the parts it rests on fit badly. **Left:** a burst's window is chosen from y's own
-  excursion (where it comes half way back), not from the process; several outside steps are not yet fitted together as
-  experiments; the projections do not yet suggest the missing structure (capacity) themselves.
+  and widens the band where the parts it rests on fit badly. Up to six outside steps are fitted together as experiments
+  (`poor-identifications-proposed`), their windows sized in passes from the process found. A step whose record after
+  it is too short, or whose window has an input with no readings, is dropped and said. **Left:** the projections do not
+  yet suggest the missing structure (capacity) themselves (with *Finding structure from residuals*). On a slow process
+  under integral control, a process window is often not reached: `ident.moves` finds no step of u in the longer window,
+  because integral action ramps u (the SPEC says what is measured).
 - **The judge almost never decides on a slow model** (owner, 2026-11-19: on the work model nearly every change is
   inconclusive, a few refused, none accepted; partly done on `slowjudge`, docs/roadmap/overnight/slowjudge.md; SPEC
   §12e): a change had to gain 2% in every window of at least twice its stock's time constant, above an absolute noise
@@ -314,7 +319,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   windup is only tested where a block writes `gain:`; the CLI waits at most 5 s, so a large model's first `check` says
   the rest are still to run; a project never run (no state directory, which `check` never makes) keeps them in memory
   only, so its every `check` runs them again.
-- **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`).
+- **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`). Done of it: the plan
+  (`shards-from-systems`, SPEC §9.8): every part assigned to one shard by top-level system, merged by a shared agent,
+  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Left: an
+  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.

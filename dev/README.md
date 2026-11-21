@@ -211,6 +211,13 @@ the files they changed, gaps active and ready with the files they touch, 40 line
 program (`plan.lint`, no AI: the sections, tests named `tests/...py::test_name`, a budget within
 `[gates] plan_budget_most`, lessons, `depends-on` names and files that exist or are marked new); one that fails goes
 straight back to the planner (the 6th failure parks), and a lint-clean one is the definition at once: the gap is ready.
+A split is checked further, and sent back the same way, naming the sub-gap or point: each sub-gap's budget must name
+at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a single plan keeps
+`plan_budget_most`), and the answer must hold exactly one `<coverage>` block restating what the parent must do, a
+`- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
+sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
+made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
+file).
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -223,6 +230,28 @@ python3 dev/bin/request.py "My change" --depends-on other-gap [--definition my-d
 python3 dev/bin/ask.py "How does the queue decide a flake?"  # answered in run/research/, summary on the item
 python3 dev/bin/lesson.py add "Title" --check "the check"   # or: retire N "why"; proposals wait in the inbox
 ```
+
+**The knowledge queue.** The review lessons have a work queue of their own, not the gap queue (the owner,
+2026-11-21). A `lesson` item moves proposed -> approved -> applied (or denied, retired), with its exact text on the
+item (`entry`). The librarian proposes; approving `knowledge-change` in the inbox runs `lesson.py request`, which
+records the item approved; `lesson.py add` and `retire` are approved at once. The program block `lesson-apply`
+(`dev/model/knowledge.yaml`, pool 1, no AI) then applies it. A new lesson is numbered past the seed's and every applied
+one's, and past one kept for each new lesson still requested as an unmerged gap (it numbers itself next in the seed);
+a record lesson whose number the seed holds all the same is carried as `lesson-N-record`, said on stderr. A retire marks lesson N (and an applied entry carrying it) retired. There is no session, branch, review,
+merge or gap. `knowledge.block` carries the repository's `dev/knowledge/review-lessons.md` (the seed) merged with the
+applied items: a "seen as" line goes under its lesson, a new lesson is its own entry, and a retired one is left out
+with its lines. The lesson ids and the item ids are recorded as carried, and the existing size budget is unchanged.
+When the record cannot be read, the brief says so and carries the seed only. `knowledge.py sync` shows applied
+entries as `knowledge/*` items. The items live in the instance's record, so a version switch keeps them.
+`lesson-settle` also runs the migration, every run and idempotently. A lesson `requested` under the old path whose
+own `gap/knowledge-*` has not merged is approved, for `lesson-apply` to apply and number, and that gap is closed
+(`end: superseded`, with the reason). Only a gap in a state no run is in (open, planned, replan, ready, fix, parked)
+that no lease holds is closed. A merged one is left alone, since its text is in the files already and is not carried
+twice. One in flight or leased waits for a later run, and so does one whose lease fence moved as it was closed (taken
+in between). A gap the record does not hold is left alone and reported. No other gap is touched. Measured: `lessons-to-apply` (approved, waiting) held at 0 by the goal `lessons-applied`, which
+`lesson-apply`'s loop reads, and `lesson-apply-hours` (proposed, or approved for the coordinator's own, to applied,
+over 14 days; `lesson.py hours`). A new lesson from the librarian has no check yet ("not yet written"): retire it and
+`add` it again with one.
 
 **Size classes.** Each plan's `## Size budget` holds `size: S|M|L|XL (confidence: low|medium|high)`, a class of the
 net lines that will merge outside `tests/` and `docs/` (everything else counts: `dev/`, `scripts/`, `examples/`,
@@ -370,6 +399,20 @@ flake triage with its failures, the merges before it land, and those after it ar
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
 
+The batch is filled with gaps that merge. The queue walks the approved gaps in rank order and dry-merges each onto the
+batch so far (`git merge-tree --write-tree`, which leaves the checkout alone) until the batch is full. A gap that
+conflicts with main is sent back at once, as a failed gate, and takes no slot. A gap that conflicts only with a
+batch-mate stays `approved`, with no gate failed, and waits for a later run. The run's own gap is always in its batch
+unless it is sent back: the last slot is kept for it, however low it ranks, and when it conflicts only with a
+batch-mate the walk is made again with the own gap first, so the batch-mate is the one left `approved`. Its lease is
+never given back while others land, since the batch's push is asked under it. When the own gap is sent back, the walk
+is made again in rank order, so gaps passed over for its slot fill the batch. Whether a gap conflicts is git's exit
+code, not the files it names. The real merges then make the batch's first run: when they all succeed, their tree must
+be the dry-merged one, or the run stops before any suite. A real merge that conflicts (one merged again after
+bisecting, or one where the dry merge was clean) is undone and sent back as a failed gate, and the rest go on to the
+suites, so what is tested is still what lands. If git cannot make a dry merge at all, the run fails there: gaps
+already sent back stay sent back, the rest stay `approved`.
+
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
 `run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
@@ -505,7 +548,9 @@ merge queue in the model); unhealthy, it goes back to the previous version by it
 no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
 never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
 runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
-`drain-minutes` stops counting once the switch begins. The groomer and the plan review start no session while
+`drain-minutes` stops counting once the switch begins. The switcher reads the goal (`in:`) rather than naming it
+(`goal:`): a goal named would command it, and a commanded block leaves its `every:` (`ergostat check` says
+`schedule-removed`); the pipeline watch reads `no-stuck-gaps` the same way. The groomer and the plan review start no session while
 `run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
