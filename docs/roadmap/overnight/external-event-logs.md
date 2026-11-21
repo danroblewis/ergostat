@@ -265,3 +265,26 @@ All four findings of review/external-event-logs-2 are answered here (lesson-12):
 
 Ran: `tests/test_mirror.py` (30 passed), and ruff (clean). The whole unit suite and the browser files were not run by
 me. origin/main was not merged: this clone has no `origin`.
+
+## Where it stopped, round 6 (the unit suite failed on a reload test)
+
+The unit run after round 5 finished: 1997 passed, 69 skipped and 1 failed. The failure was
+`tests/test_reload_in_place.py::test_a_removed_blocks_run_still_takes_messages_while_it_goes`, at line 169:
+after `e.close()`, `route.running` still listed the `sleep 30` run of `maker`, because no `agent.ran` was recorded
+for it. **No code changed in this round** (lesson-13):
+
+- The test is outside this branch's files. It runs no sensor, no collector, no intake and no rollup. The branch's
+  engine change is only in `observations`, `_observer` and `read_sensor`, and none of them is in a block's run or in
+  `close()`. The whole file passes here when run alone (11 passed, 28 s).
+- What is likely (read in the code, not reproduced): `Engine.run_block` writes `agent.started` (engine.py:863)
+  well before the process is spawned and added to `old.LIVE` (engine.py:949-954). Between them it places the run,
+  builds its program, trims and opens its log. The test waits only for `agent.started`. When `close()` runs in that
+  window (likely under `-n 8` load), `old.kill_all()` finds nothing to kill. The `sleep 30` then starts anyway,
+  `close()` gives up after its 5 s wait, and `agent.ran` is never written. That is a shutdown race on main
+  (lesson-1, lesson-10), not a fault of this branch.
+- This is the same race as the parked lease-shutdown-race gap. Its fix in `run_block` (kill a run spawned after
+  `close()` set stop) failed review/upkeep-index-files-3 because it sat in an unrelated branch. So it is reported
+  here and not fixed. It belongs in that gap.
+- `.mut/mut.py` is still committed. This session's sandbox refused `git rm .mut/mut.py` again (twice, in don't-ask
+  mode). It still needs `git rm .mut/mut.py && git commit` from the factory or the owner. That is the one blocking
+  finding left, and it needs no other change.
