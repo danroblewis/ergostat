@@ -366,8 +366,9 @@ kept. Main's `coverage-below-floor` and `coverage NAME` lines follow them, with 
 width. In `dev/model/measures.yaml`, the two size auxiliaries and main's `coverage-below-floor` are all kept. No
 code needed resolving.
 
-**review/gap-size-6's findings:** the wrap-width notes on `planner.md` and `queue.py:334` are about wording only.
-"Not run by this reviewer" is the reviewer's own note. Neither was changed in this round.
+**review/gap-size-6's findings:** the size line in `planner.md` was rewrapped to the file's width. In `queue.py`, the
+trailing comment on the `counted[x["id"]]` line was moved to a line of its own above it, so the line now fits. Only
+the layout changed. "Not run by this reviewer" is the reviewer's own note, so there is nothing to change for it.
 
 **Run here:** `tests/test_factory_knowledge.py` 61 passed; `tests/test_factory.py` 73 passed, 2 skipped (Docker);
 `tests/test_code_health_coverage.py` 11 passed. `ruff check ergostat tests scripts dev/bin` is clean. Not run: the
