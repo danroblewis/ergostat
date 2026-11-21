@@ -251,3 +251,12 @@ that goes through the gate: `test_inbox`, `test_interventions`, `test_messages`,
 `test_repair2`, `test_inbox_page`, `test_factory`, `test_factory_manager`. All passed, with 33 page tests in
 `test_inbox_page` and 2 in the factory files skipped (run without Playwright). `uv run ruff check ergostat tests
 scripts` is clean.
+
+**After the factory's unit run failed** (one `F` near 11%; its tail did not name the test): I ran the whole unit suite
+(`-m "not browser"`, `-n 4`, under `scripts/suite_watch.py`, the quarantined test deselected): 2385 passed, 69
+skipped, 1 xfailed, 6 failed. The six were `test_templates.py::test_a_trial_runs_a_copy_and_says_what_moved`,
+`test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`, and four two-process tests in
+`test_index_files.py`. None goes through actions, the gate or `risk.py`. All ten tests in those three spots pass alone,
+and the three files pass together under `-n 4` (64 passed). So I read them as load-timing failures unrelated to this
+branch (lesson-13), and changed no code. I could not tell whether the factory's `F` was one of these, so the factory
+should check that from its own log.
