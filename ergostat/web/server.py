@@ -554,6 +554,22 @@ def _answer(live: Live, path: str, q: dict, project=None):
                               source=one("source"), machine=one("machine"), after_seq=int(after) if after else None,
                               before_seq=int(before) if before else None, skip=skip,
                               **({"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}))
+    if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
+        from ..spec import itemgraph as ig
+        if one("at"):
+            raise BadSet("items-query: as the record is now, never at=")
+        try:
+            if one("near") is not None:
+                return ig.near(p.events, getattr(m, "spec", None), one("near"), one("depth"))
+            if one("path") is not None:
+                return ig.path(p.events, getattr(m, "spec", None), one("path"), one("to"))
+            if one("about") is not None:
+                return ig.about(p.events, getattr(m, "spec", None), one("about"))
+        except ig.Unknown:
+            return None
+        except ig.Bad as e:
+            raise BadSet(str(e)) from e
+        raise BadSet("items-query: near=ID, path=A&to=B or about=ID")
     if head == "items":
         from ..spec import items as its
         spec = getattr(m, "spec", None)

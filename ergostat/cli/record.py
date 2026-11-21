@@ -69,6 +69,8 @@ def cmd_event(args) -> int:
 
 def cmd_item(args) -> int:
     from ..spec import items as its
+    if args.near is not None or args.path_to is not None or args.about_item:
+        return _item_graph(args)
     if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
         from ..calls.client import Refused
         from . import fast
@@ -133,6 +135,38 @@ def cmd_item(args) -> int:
     print()
     for e in d["record"][-args.n:]:
         print(event_line(e))
+    return 0
+
+
+def _item_graph(args) -> int:
+    """``item ID --near [N]``, ``item A --path B``, ``item ID --about`` (``spec/itemgraph.py``), as the record is now."""
+    from ..spec import itemgraph as ig
+    asked = sum(x not in (None, False) for x in (args.near, args.path_to, args.about_item))
+    if getattr(args, "at", None) or not args.name or asked > 1:
+        print("--near, --path and --about: one of them, of an item (ergostat item ID --near), as the record is now "
+              "(never with --at)", file=sys.stderr)
+        return 2
+    p = open_project(args)
+    spec = getattr(p.model, "spec", None)
+    try:
+        got = ig.near(p.events, spec, args.name, args.near) if args.near is not None else \
+            ig.path(p.events, spec, args.name, args.path_to) if args.path_to is not None else \
+            ig.about(p.events, spec, args.name)
+    except (ig.Unknown, ig.Bad) as e:
+        print(f"{args.name}: {e.args[0]}", file=sys.stderr)
+        return 2
+    if args.json:
+        return out_json(got)
+    if got["query"] == "path":
+        print(f"{got['from']} → {got['to']}: {got['says']}")
+    for x in got.get("steps") or got.get("items") or []:
+        print(f"  {x['from']} {c(x['relation'], 'accent')} {x['to']}" if "to" in x else
+              f"  {x['id']:<24} {x['distance']}  {c(x['via']['relation'], 'dim')} from {x['via']['from']}"
+              if "distance" in x else f"  {x['id']:<24} {c(x['how'], 'accent')}  {x.get('relation') or x.get('field')}")
+    if got["query"] != "path" and not got["items"]:
+        print(c(f"nothing {got['query']} {got['id']}", "dim"))
+    if got["capped"]:
+        print(c(f"capped: stopped after {got['cap']} items", "warn"))
     return 0
 
 

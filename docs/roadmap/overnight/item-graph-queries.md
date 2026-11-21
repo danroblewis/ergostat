@@ -43,3 +43,53 @@ depends-on: [item-text-search]
 - If the frontier runs out exactly at the cap, the answer is 'no path', not capped; say which and test it.
 - lesson-9: the report says which code was broken to make each acceptance test fail.
 - lesson-7: merge origin/main into the branch and run the suites again before calling it built.
+
+## Where it stopped
+
+Built, round 1. Points 1 to 5 are done; the factory's watched unit and browser suites are still to run.
+
+**The dependency is not on main.** gap/item-text-search dead-lettered: main's item index has no text column and no
+`--search`. Rather than build it here, which would be out of scope, `about`'s inferred part reads the items' fields
+itself, a page of 500 at a time, newest first, and stops at the cap (`itemgraph.about`). This is the most reversible
+choice: once the text index lands, that scan can become an index lookup and the answer keeps the same shape.
+`itemindex.py` is not touched.
+
+**Size: about 202 net lines against 170.** That is `itemgraph.py` at 144 lines (about 30 of them docstring) plus 58 in
+the CLI, server and goodmodel. The overrun is the mention scan the missing text index would otherwise have provided
+(about 20 lines), the API's refusal of `at=` (the CLI's `--at` is refused per point 3, and the API is refused the same
+way so the two cannot disagree), and the plain-text printing of the three answers.
+
+**Answers to the plan review:**
+- GAPS.md: the new entry is **gap/item-graph-queries** under *Interface*, marked done on the branch. GAPS.md has no
+  gap/item-search entry to close.
+- Cap on near (a dense star) and on about (many mentions): `test_near_and_about_report_capped`.
+- lesson-7: `test_queries_under_fallback_and_engine` runs all three flags with `--json`, both with `fast.call` stubbed to
+  return a plain item and under a broken model with the last good one kept. It also checks that each flag's dest
+  (`near`, `path_to`, `about_item`) is in `READ_FLAGS`, is not in `ACTS` and is not `about`.
+- `--at`: refused with exit 2 (`test_the_queries_with_at_or_a_bad_depth_are_refused`). `at=` on the API gives 400
+  (`test_unknown_id_is_an_error`).
+- Backward step names: the kind's declared `inverse:`, else `relations.inverse_of` (`blocks`, `before`, `dependents`,
+  `children`, `duplicated_by`, `related_from`, otherwise `NAME_of`). Any relation may be walked; the names are not an
+  allowlist (SPEC §5a *Graph queries*).
+- Shortest of two routes: `test_path_is_the_shortest_of_two_routes`.
+- Depth 0, 5, `x`, `-1` or empty, and a missing `to=`: `Bad`, which gives exit 2 or 400, never a default. Only an
+  absent depth means 1 (the API's `parse_qs` drops an empty `depth=`).
+- A frontier that runs out exactly at the cap gives `no path`, not capped: `test_a_frontier_running_out_exactly_at_the_cap_is_no_path`.
+- lesson-9, the code broken to make each test fail (each break was run, then reverted):
+  - The backward step named by its own relation instead of the inverse fails near_by_depth and path_names_inverse_steps.
+  - The whole-token lookahead dropped fails about_declared_and_inferred_whole_token.
+  - The cap returning `capped=False` fails path_capped_is_not_unconnected and near_and_about_report_capped.
+  - `capped` also set when `seen` fills exactly to the cap fails frontier_running_out_exactly_at_the_cap.
+  - The graph flags handled after the engine's `item ID --json` shortcut fails queries_under_fallback_and_engine.
+  - Not returning when the goal is first reached (so a later, longer route overwrites it) fails path_is_the_shortest.
+  - The API answering `{}` for an unknown id fails unknown_id_is_an_error.
+  - The API ignoring `depth=` fails cli_and_api_agree and unknown_id_is_an_error.
+- Merging main: this container has no `origin` remote, and local `main` (a0dc0ec9) is the branch's base, so there was
+  nothing to merge. The coordinator should merge the real origin/main and run the suites again.
+
+**Not bounded:** `about` reads the declared links to the item with one indexed query (`links_to`) and no limit; if
+there are more than the cap, the answer keeps the first 2,000 and says `capped`.
+
+**Run here:** tests/test_item_graph_queries.py (11), test_cli_fallback.py, test_relations.py and
+test_graph_cli_web.py: 75 passed. Ruff is clean. Not run: the full unit suite and the four browser files, which the
+factory runs under the watchdog.

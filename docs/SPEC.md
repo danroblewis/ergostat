@@ -760,6 +760,26 @@ what an item names and what names it (the inverse: `blocks`, `children`) are bot
 them both ways, each related item with its state, and what it waits on first. A link to an id that was never
 recorded is kept, and said: what it names is not known to be finished.
 
+**Graph queries.** Three questions over the links, both ways, and the items' fields (`spec/itemgraph.py`), as the
+record is now: `ergostat item ID --near [N]`, `ergostat item A --path B`, `ergostat item ID --about`, each with
+`--json`, and `GET /api/items-query?near=ID&depth=N`, `?path=A&to=B`, `?about=ID`, which answer the same JSON.
+- **near**: the items within `N` hops (1 to 4, default 1), each with its distance and the step that first reached it
+  (`via`: the item it came from and the relation).
+- **path**: a shortest chain of relations from A to B (breadth first, the fewest steps), walked either way. A step
+  walked backward is named by the relation's inverse: the one the kind declares (`inverse:`), else `blocks`,
+  `children`, `before`, `dependents`, `duplicated_by`, `related_from` for the relations of those names, and `NAME_of`
+  for any other (`relations.inverse_of`; any relation may be walked, the names are not an allowlist). `says` is
+  `found`, `no path` (every item reachable was visited), or `none within the cap`.
+- **about**: the items linking to it by a declared relation (`declared`, with the relation), then those whose fields
+  hold its id as a whole token (`inferred`, with the first such field): `ticket/1` is not in `ticket/12`,
+  `ticket/1/x` or `xticket/1`. The mentions are found by reading the items' fields, newest first.
+
+Each visits at most 2,000 items (`itemgraph.VISIT`), and says `capped` when it stopped there: a path not found
+within the cap is never said to be "no path"; a walk that runs out of items to visit exactly at the cap is.
+An unknown id is an error (the command exits 2, the API answers 404); a depth outside 1 to 4 or not a number, a path
+with no `to=`, or one of them with `--at` (`at=`) is refused (exit 2, 400), never answered with a default (only
+no depth at all is 1; the API reads an empty `depth=` as none).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:
