@@ -41,6 +41,7 @@ It works.
 ## Files to touch
 
 - `app.py`, and `fresh.py` (new)
+- `standin/work.txt` (new): the stand-in implementor's note
 
 ## Risks
 
@@ -824,7 +825,8 @@ def test_the_lint_catches_each_missing_piece(tmp_path):
              "100 net lines": ("900 net lines", "900 net lines: at most 600"),
              "lesson-3:": ("lesson-999:", "lesson-999 under Risks is no review lesson"),
              "`fresh.py` (new)": ("`fresh.py`", "`fresh.py` under Files to touch is not on main"),
-             "- `app.py`, and `fresh.py` (new)": ("- the app", "no file named under Files to touch")}
+             "- `app.py`, and `fresh.py` (new)\n- `standin/work.txt` (new): the stand-in implementor's note":
+                 ("- the app", "no file named under Files to touch")}
     for old, (new, found) in cases.items():
         got = f.py(LINT, GOOD.replace(old, new))
         assert len(got) == 1 and found in got[0], (old, got)   # each piece missing: exactly its finding
@@ -881,7 +883,8 @@ def graph_fixture(f: Instance, n_ready: int = 1) -> None:
                                                                     "merged_at": now - 3600, "main_sha": sha}},
              {"event": "gap.merged", "item": "gap/old", "data": {"title": "Old", "branch": "old", "merged_at": now - 9e5}}]
     for name, event in [("busy", "gap.started")] + [(f"next-{i}", "gap.defined") for i in range(n_ready)]:
-        (defs / f"{name}.md").write_text(GOOD.replace("`app.py`, and `fresh.py` (new)", f"`{name}_mod.py` (new)"))
+        (defs / f"{name}.md").write_text(GOOD.replace("`app.py`, and `fresh.py` (new)", f"`{name}_mod.py` (new)")
+                                         .replace("- `standin/work.txt` (new): the stand-in implementor's note\n", ""))
         lines.append({"event": event, "item": f"gap/{name}", "data": {
             "title": name.title(), "branch": name, "definition": f"run/defs/{name}.md", "depends_on": ["gap/landed"]}})
     f.fold(lines, None)
