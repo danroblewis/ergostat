@@ -45,3 +45,36 @@ depends-on: []
 ## Notes from the plan review (answer each; not blocking)
 
 - Wire rule omits stocks with no sensors (and any part with no sensors) whose value exists only in memory: a cross-shard read of one must be a wire. Restate the rule as 'a part with sensors is never a wire; any other stock/flow/auxiliary/goal/block output read across shards is', and split the 'stock in B read by goal in A' test into a stock with sensors (no wire) and one without (wire), else SPEC 9.8's 'every in-memory crossing is a wire' is false (lesson-8).
+
+## Where it stopped
+
+Built, round 1: every point above, with `ergostat/spec/shards.py` at 199 lines. No question could be asked, so these
+are the choices I made. Each is the more reversible option and each is stated in SPEC §9.8:
+
+- **The plan review's note: adopted.** A stock, flow or auxiliary with no sensor that is read across shards is a wire
+  (kind `memory`; `equation` when an equation works it out). `test_cross_reads_are_wires_not_merges` covers both cases:
+  a sensed stock in B read by a goal in A gives no wire, and an unsensed one gives a wire. So that test expects four
+  wires, not three.
+- **Shard count.** The lead is always in `Plan.shards`, and `most` counts it. So "two shards" in the tests means `a`
+  and `b` beside the lead, and "16 shards" includes the lead. That count is the number of processes the supervisor
+  will start, which is what lesson-4 bounds.
+- **Part keys.** A sensor is keyed by its ref (`stock.x.main`), not by its series name (`sensor/x.main`). In the scale
+  model a stock and a flow share names (`w0001-approve`), and their series names are the same. Agents are keyed
+  `agent.NAME` and kinds `kind.NAME`.
+- **Kinds.** A kind goes with the blocks that take it, even a built-in one (`ergostat.failure`, which blocks can
+  lease), because its lease is locked in their process. A kind no block takes goes to its system's shard. A built-in
+  kind or a kind with no system goes to the lead.
+- **"Watch it through a join".** This is read as: a parent kind with a join, and the kinds whose relation names it,
+  count as one kind for the kind rule. `via` names the group's first kind by name.
+- **Daemons.** Only blocks' `params["daemon"]` merge shards, as written. A sensor read by a daemon that a block in
+  another shard uses does not merge them. `shard-supervisor` and `engine-runs-its-shard` need to decide where that
+  daemon runs.
+- **Joined and via.** `joined` is the name the absorbed shard had before the merge. For a ceiling merge, `via` is
+  that same name.
+
+Found on the way, outside this gap: `scripts/scale_model.py` puts every workflow system under one top-level `org`. So
+its plan has three shards whatever N is (`lead`, `org`, `modelling`) and no wires. `shards-measured` will see no
+sharding of the scale model unless it changes the generator or the seed rule.
+
+Not run here: the full unit and browser suites, because the factory runs them. Also not done: merging `origin/main`.
+This clone has no `origin`, and local `main` has nothing this branch lacks.
