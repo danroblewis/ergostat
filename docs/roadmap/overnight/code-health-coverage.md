@@ -212,3 +212,8 @@ triage, not to this branch. Point 3 is still the owner's to measure, as round 2 
 Parked by the factory (review/code-health-coverage-2, 2026-11-20 19:33).
 
 Done: points 1, 2, 4, 5 and 6. These are the sys.monitoring tracer in tests/coverage_lines.py (off unless ERGOSTAT_COVERAGE is set), scripts/coverage_report.py (158 lines, inside the 200 budget), and measure.py coverage / coverage-below-floor, which fail closed when the report is missing, unreadable, stale or not on main and pick the latest report by seq. Also done: queue.py's opt-in tracer run (main's copy of the script, timeout caught, reports pruned by seq and by name), the measures.yaml auxiliary, the README section, and acceptance tests with a break check recorded for each. Left (point 3): time the fast unit suite with and without the tracer, using the two commands in dev/README.md (Coverage), and record both numbers in the definition. Then either set [suites] queue_coverage = true (overhead 15% or less) or build the nightly unit run (more than 15%), and confirm a first real report on main. Why stop: after three rounds the implementor's session still cannot set ERGOSTAT_COVERAGE, so the remaining step is the owner's measurement. Nothing partial should reach main.
+
+**Measured by the coordinator (2026-11-20 23:50), in the container, through the suite slot, the machine otherwise
+busy (9 implementors):** the fast unit suite without the tracer 273.0 s, with `ERGOSTAT_COVERAGE=run/coverage/probe`
+255.1 s (both rc 0) — no measurable overhead (the difference is the machine's noise). The report was written: 8 worker
+files combined into `coverage.json`, 346 modules. So `[suites] queue_coverage = true`.
