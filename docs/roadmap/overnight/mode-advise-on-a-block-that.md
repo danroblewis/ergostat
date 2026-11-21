@@ -84,3 +84,54 @@ depends-on: []
 - lesson-7: before merging origin/main, also grep the current tree (tests/, examples/, docs/ snippets that run as tests) for `mode: advise` beside `takes:`. A fixture that exists today would now fail to compile, and it is part of this change, not something outside the gap.
 - lesson-9: in the positive test, assert the error's `where` is the block's location (as definition-of-done item 1 says), not only its code and name.
 - The 'run with the check commented out and moved' step in the report should include the actual failing assertion lines, not just say the tests failed.
+
+## Where it stopped
+
+Built, on this branch: the refusal, its tests and the docs. One step of item 5 was not done: this clone has no
+`origin` remote (`git branch -a` shows only `main` and this branch, and fetching would reach the network), so
+origin/main could not be merged. Local `main` has no commit the branch lacks. The factory's own merge and suite run
+after this session still have to cover it (lesson-7).
+
+- **The code:** `ergostat/leases/compile.py::check`, right after the `program`/`ai` check and before the
+  schedule, kind and state checks. It is 4 net lines (the check and its message), plus one docstring line rewritten,
+  within the 15-line budget. dispatch, engine, triggers and inbox are unchanged.
+- **Tests** (`tests/test_leases.py`): `test_mode_advise_on_a_block_that_takes_is_refused` (it asserts the code, the
+  block's name, `where == spec.blocks[name].where`, `goal:` and `in: block.`, and `typo`'s `unknown-ref`) and
+  `test_mode_advise_without_takes_and_takes_without_advise_compile`, plus one more, answering the first review note:
+  `test_a_block_that_takes_waits_while_what_commands_it_is_off`.
+- **Each test against broken code** (all reverted afterwards; the failing lines as pytest printed them):
+  - The check disabled: the refusal test fails with
+    `AssertionError: ('bot', ["ergostat.yaml:21: block typo.takes.kind: 'tickets' is not a kind of item ..."])` /
+    `assert 0 == 1`.
+  - The check moved after the kind check: the refusal test fails on `typo`, with `AssertionError: ('typo', [... 'block
+    bot.mode: advise ...', ... "block typo.takes.kind: 'tickets' is not a kind ..."])` / `assert 0 == 1`.
+  - The check on `takes` alone: the compile test fails with `AssertionError: assert not ['ergostat.yaml:11: block
+    plain.mode: advise asks a person ...']`.
+  - The check on `mode == "advise"` alone, before the `takes is None` skip: both tests fail, the compile test with
+    `AssertionError: assert not ['ergostat.yaml:24: block asked.mode: x']`, the refusal test with `assert 2 == 1`.
+  - The dispatcher's gate (`dispatch.py` `if cmd is not None and not cmd`) disabled: the gate test fails with
+    `AssertionError: off: its items wait`.
+- **Run:** `tests/test_leases.py` 23 passed, `tests/test_triggers2.py` 20, `tests/test_triggers3.py` 3,
+  `tests/test_inbox.py` 17, and `tests/test_blockdiagram.py` 67, which loads every example with `load`, including
+  `docs-fresh`. ruff is clean. The full unit suite and the four browser files were not run here: the factory runs
+  them after this session, under the watchdog.
+
+Answers to the plan review:
+- **The gate is real (lesson-8).** `goal:` is shown by the existing `test_a_goal_gates_what_a_block_takes`. For
+  `in: block.X` together with `takes:`, no test existed, so I added
+  `test_a_block_that_takes_waits_while_what_commands_it_is_off`. In it, an `expr` that is off holds two items, then
+  lets them through once it turns on. The factory's own `dev/model/*.yaml` also uses `in: block.X-when` with `takes:`
+  on every queue block.
+- **The inbox (lesson-8).** The GAPS entry says an inbox `advise:BLOCK` never names a takes-block "only because
+  `check` refuses that model". SPEC and the agent guide make no inbox claim.
+- **Falsy `takes` (lesson-3).** `leases.takes` returns `None` or a `Takes` dataclass, which has no `__bool__` or
+  `__len__` and so is always truthy. `check` sets `b.takes = None` only after its own errors. No path leaves `takes`
+  written but falsy.
+- **Today's fixtures (lesson-7).** No file under `tests/`, `examples/` or `dev/` has `mode: advise` beside `takes:`.
+  The advised blocks are in `test_inbox`, `test_incremental`, `test_redesign_memory`, `test_triggers2`,
+  `test_triggers3` and `docs-fresh`, and none of them takes items.
+- **`where` (lesson-9):** asserted, as `where == spec.blocks[name].where`.
+- **The failing lines:** listed above.
+
+The most reversible choice made alone: the refusal, the narrower of the GAPS entry's two options, rather than asking
+once per item. Lifting it later is a one-line removal.
