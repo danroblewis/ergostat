@@ -1,0 +1,25 @@
+# gaps-md-no-collisions: finishing a gap no longer collides on docs/GAPS.md or breaks a test
+
+depends-on: []
+
+Measured 2026-11-21: `docs/GAPS.md` changed in 13 of the last day's merges and caused queue conflicts, each sending a reviewed gap back. `tests/test_backlog.py::test_intake_done_rule_on_the_real_gaps_md` pins the live status of real entries, so any gap that correctly marks one of them done fails the merge queue (it just cost a batch of three a bisection, about 25 extra minutes).
+
+## Definition of done
+- `tests/test_backlog.py` tests the done rule on a fixture `GAPS.md`, covering each shape the pinned entries covered (a parenthetical across lines, superseded, parked, open). No test depends on the current status of a real entry.
+- Two gaps that each edit different entries of `docs/GAPS.md` merge without a conflict (`.gitattributes`: `docs/GAPS.md merge=union`). The same for `dev/knowledge/review-lessons.md`, where 4 of the 5 conflicting pairs among approved gaps are.
+- A union merge cannot silently leave an entry twice or in two sections: `ergostat`'s intake says so as a dependency-style problem, and a test shows it.
+
+## Files to touch
+`.gitattributes` (new), `tests/test_backlog.py`, `dev/bin/intake.py`.
+
+## Risks
+- lesson-3: a duplicated entry must be reported, never resolved by picking one.
+
+## Acceptance tests
+- `tests/test_backlog.py::test_the_done_rule_on_a_fixture`
+- `tests/test_factory.py::test_two_gaps_editing_gaps_md_merge_cleanly`
+- `tests/test_backlog.py::test_a_duplicated_gaps_entry_is_reported`
+- `tests/test_factory.py::test_two_lessons_editing_review_lessons_merge_cleanly`
+
+## Size budget
+30 net lines of code outside `tests/` and `docs/`.
