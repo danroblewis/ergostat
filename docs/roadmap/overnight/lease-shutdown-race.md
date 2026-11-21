@@ -389,3 +389,9 @@ FAILED tests/test_factory_sessions.py::test_the_container_mounts_only_the_sessio
 - **Ran serially:** `tests/test_leases.py` (26 passed in 34 s). Ruff is clean. There is no remote, and local `main` is
   already merged.
 - **Still open:** a green unit run, and the 30 loaded `-n 8` runs of the restart test. The gap is not done.
+
+## Where it stopped
+
+Parked by the factory (review/lease-shutdown-race-3, 2026-11-20 16:35).
+
+Done: the shutdown race is closed. take() checks the stop and registers the run in running under the engine's lock before writing the lease, and gives back uncounted a take that raced the stop. _work does not start a run taken after the stop. run_block kills a process started once this engine is stopping (its own stop, not the process-wide STOPPING). close sets the stop under the lock with a bounded wait and gives back every lease still going before ergostat.stopped. The restart test no longer uses a fixed sleep and is judged by seq order. Seven tests cover the parts, each reported seen to fail with its part disabled. 53 of 120 lines. Left: the DoD's measurement, 30 runs of `scripts/suite_watch.py -- pytest -n 8 tests/test_leases.py` with the CPU loaded, with pass/fail counts recorded. Why stop: every implementor and reviewer session has been refused that run (rounds 1-8), and rounds 3-7 changed no code, so more rounds only repeat the refusal. The factory should run the 30 loaded runs from its own watched slot. If they pass, record the counts and send the branch back to review unchanged. If they fail, the failing run's traceback is the next round's input. Alternatively the owner can amend the DoD.
