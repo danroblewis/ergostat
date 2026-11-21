@@ -390,6 +390,9 @@ def test_planned_gap_records_size_and_confidence(tmp_path):
     assert {k: f.item(gid)["fields"][k] for k in ("size", "planned_size", "size_confidence")} == {
         "size": 6, "planned_size": "M", "size_confidence": "low"}       # `size` stays the groomer's (the solver's)
     split = sized("beta-one", "size: XL (confidence: high)") + sized("beta-two", "`size: S (confidence: medium)`")
+    # an earlier whole plan's class on the parent, which the split must clear
+    f.fold([{"event": "gap.measured", "item": "gap/delta", "data": {"planned_size": "L", "size_confidence": "high"}}],
+           None)
     assert f.run("plan.py", "gap/delta", FACTORY_STANDIN_PLANNER=split)[0][-1] == "gap.split"
     one, two = f.item("gap/beta-one")["fields"], f.item("gap/beta-two")["fields"]
     assert (one["planned_size"], one["size_confidence"], two["planned_size"], two["size_confidence"]) == (

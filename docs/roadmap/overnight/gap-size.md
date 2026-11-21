@@ -319,3 +319,26 @@ only left out, so an earlier plan's class does not survive under the id, lesson-
 `test_backlog` 13 and `test_take_order` 4 passed. `ruff check ergostat tests scripts dev/bin` is clean. Not run:
 the whole unit suite and the browser files (the factory runs them under the watchdog). Main was not merged again
 here: the branch holds main 0ce61cf5, and there is no remote to fetch.
+
+### Resumed, round 3 (main 24756e50 merged; review/gap-size-5's findings)
+
+**Main's merge, resolved (6903a937).** `tests/test_factory_knowledge.py`: both sides kept (the size tests and main's
+`deny` helper and denied-lesson tests). `dev/bin/measure.py`'s docstring: main's time-in-state line (`in-STATE-hours`
+and the rest, from `times.py`) and the two size lines both kept. The closing sentence now names the measures that
+have no value with nothing to measure (first-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean and
+the two size measures), in place of "the last N". The time-in-state measures read 0 then (`times.pct`), so main's
+"the last three" was not right for them either. The code needed no resolution.
+
+**review/gap-size-5 (verdict merge), every finding answered:**
+- The split-parent check could not fail (lesson-9): the test now gives `gap/delta` an earlier `planned_size: L`
+  with high confidence before the split. Lesson-9: dropping `planned_size=None, size_confidence=None` from
+  `gap.split` now fails the test (`assert ('L' is None)`). The fix is restored.
+- `net_lines(core=False)` counts everything outside `tests/` and `docs/`: `planner.md` and the README now say so
+  (`dev/`, `scripts/`, `examples/` and root files all count).
+- The README's size paragraphs were rewrapped to the file's width. Only the wording's layout changed.
+- "Not run by this reviewer" is the reviewer's note. Nothing to change.
+
+**Run here:** `tests/test_factory_knowledge.py` 59 passed; `tests/test_factory.py` 62 passed, 2 skipped (Docker);
+`tests/test_factory_times.py` 7 passed. `ruff check ergostat tests scripts dev/bin` is clean.
+`git diff 24756e50...HEAD` touches only the definition's files and this one. Not run: the whole unit suite and the
+browser files (the factory runs them under the watchdog).
