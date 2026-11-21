@@ -6,8 +6,9 @@ new class, or none. Then, by the program:
 - a new class: counted on lesson/new-<name>; found in a second review, a proposed entry;
 - the classes found recorded on the review (review.measured: classes), so plans are scored against them.
 
-Each proposal is asked as the gated action knowledge-change: the coordinator approves, and `lesson.py request` makes it
-a gap whose definition is the exact edit, built and landed like any other."""
+Each proposal is asked as the gated action knowledge-change: the coordinator approves, and `lesson.py request` records
+it approved with its exact text, which the block lesson-apply applies to the record (never a gap); or denies, and
+`lesson.py settle` settles it `denied`. A lesson in any state but seen is never proposed again, so a denied shape stays denied."""
 
 from __future__ import annotations
 

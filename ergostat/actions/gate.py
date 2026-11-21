@@ -20,6 +20,7 @@ from pathlib import Path
 
 from ..spec.ir import Action
 from . import record as rec
+from . import risk as rk
 from .record import GATE
 
 OUTPUT_MAX = 4000
@@ -58,18 +59,20 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
     where = str((spec.root / a.in_).resolve()) if a.in_ else str(ctx.get("workdir") or spec.root)
     aid = rec.new_id(name)
     from ..workspaces.leases import fence_of
+    risk = rk.assess(p, a, ctx.get("block"), aid)        # (read before the writes: the act reads it again, below)
+    g = risk["gate"] if risk else a.gate
     data = {"action": name, "class": a.cls or name, "gate": a.gate, "args": args, "command": render(a, args, ctx),
             "in": where, **{k: ctx.get(k) for k in ("block", "run", "session", "item", "workdir", "branch")},
             **({"lease": fence_of(ctx.get("lease"))} if fence_of(ctx.get("lease")) is not None else {}),
             "description": a.description, **({"asker": asker} if asker != "session" else {}),
-            **({"key": key} if key else {})}
+            **({"key": key} if key else {}), **({"risk": risk} if risk else {})}
     rec.step(p, aid, "requested", data, by=ctx.get("block") or "session", causedby=ctx.get("run"))
     why = fenced(p, spec, data)
     if why:
         rec.step(p, aid, "denied", {"denied_by": GATE, "note": why})
-    elif a.gate == "deny":
-        rec.step(p, aid, "denied", {"denied_by": GATE, "note": "its gate is deny: never run"})
-    elif a.gate == "auto":
+    elif g == "deny":
+        rec.step(p, aid, "denied", {"denied_by": GATE, "note": rk.note(risk, a.gate) or "its gate is deny: never run"})
+    elif g == "auto":
         rec.step(p, aid, "approved", {"approved_by": GATE, "note": "its gate is auto: run at once"})
         if asker == "session":
             run_once(p, spec, aid)
@@ -79,9 +82,11 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
 def fenced(p, spec, a: dict) -> str | None:
     """Why an action asked for under a lease (SPEC §9.5) may no longer run: the lease it was asked under expired, or a
     later lease was taken on its item (the fencing number moved on). An action asked for under a lease that ended
-    (ack or nack) and was not taken again still runs once approved: its work waits for review."""
+    (ack or nack) and was not taken again still runs once approved: its work waits for review. An action the model
+    says is not fenced (``fenced: false``) is never fenced out: its own command is what keeps it safe."""
     fence, item = a.get("fence") or a.get("lease"), a.get("item")   # fence: the lease it was asked again under
-    if fence is None or not item:
+    act = spec.actions.get(a.get("action") or "")
+    if fence is None or not item or (act is not None and not act.fenced):
         return None
     from ..spec import items as its
     it = its.one(p.events, spec, item)
@@ -135,8 +140,16 @@ def run_once(p, spec, aid: str) -> dict | None:
     if why:                                           # its lease is over: the owner's approval came too late for it
         rec.step(p, a["id"], "failed", {"exit": None, "output": why, "seconds": 0, "fenced": True})
         return rec.get(p, a["id"])
-    act = spec.actions.get(a.get("action") or "")
-    timeout = act.timeout if act else 120.0
+    act, at = at_act(p, spec, a)                      # read again under the lock: what changed since the request
+    if at.get("held_note"):
+        return rehold(p, a["id"], lock, at)
+    if at["effective"] == "deny":                     # (even when the owner approved it)
+        note = at.pop("note", None) or f"its gate at the act is deny ({_why(at, act)}): not run"
+        rec.step(p, a["id"], "denied", {"denied_by": GATE, "note": note, "risk_at_act": at})
+        return rec.get(p, a["id"])
+    if at["effective"] == "approve" and a.get("approved_by") == GATE:
+        return rehold(p, a["id"], lock, {**at, "held_note": f"its gate at the act is approve ({_why(at, act)})"})
+    timeout = act.timeout
     env = {**os.environ, "ERGOSTAT_ACTION": a["id"], "ERGOSTAT_ITEM": a.get("item") or "",
            "ERGOSTAT_BRANCH": a.get("branch") or ""}
     started = time.time()
@@ -152,8 +165,45 @@ def run_once(p, spec, aid: str) -> dict | None:
     if len(out) > OUTPUT_MAX:
         out = "...\n" + out[-OUTPUT_MAX:]
     rec.step(p, a["id"], "ran" if code == 0 else "failed",
-             {"exit": code, "output": out, "seconds": round(time.time() - started, 2)})
+             {"exit": code, "output": out, "seconds": round(time.time() - started, 2), "risk_at_act": at})
     return rec.get(p, a["id"])
+
+
+def at_act(p, spec, a: dict) -> tuple[Action | None, dict]:
+    """The act's own reading: the model read again (its file; an in-memory model with none: ``spec``), the action's
+    gate and ``risk:`` as they are now, scored on the record as it is now, and the stricter of that and the request's
+    stepped gate (the first ``requested``'s ``risk.gate``, which a re-hold never replaces; its ``gate`` without one)."""
+    from .. import reload
+    model = getattr(p, "model", None)
+    if model is not None and model.path is not None and model.path.exists():
+        fresh, errors = reload.load_checked(model)
+        if fresh is None:
+            return None, {"held_note": f"the model cannot be read at the act ({reload.where(errors)})", "model": "unreadable"}
+        spec = fresh.spec
+    act = spec.actions.get(a.get("action") or "")
+    if act is None:
+        return None, {"effective": "deny", "note": f"{a.get('action')} is no longer in the model: not run"}
+    risk = rk.assess(p, act, a.get("block"), a["id"])
+    mine = risk["gate"] if risk else act.gate
+    asked = (a.get("risk") or {}).get("gate") or a.get("gate")
+    return act, {**(risk or {}), "gate": mine, "asked": asked, "effective": rk.stricter(mine, asked)}
+
+
+def _why(at: dict, act: Action) -> str:
+    stepped = rk.note(at, act.gate)
+    return stepped if at["gate"] == at["effective"] and stepped else \
+        f"its gate now is {at['gate']}, and was {at['asked']} at the request"
+
+
+def rehold(p, aid: str, lock: Path, at: dict) -> dict:
+    """Held again at the act, for the owner: the stale ``approved_by`` cleared, so neither a sweep nor the old
+    approval runs it. The event is written first and this call's own lock removed after (by its name), so a sweep
+    that takes the lock next already folds it held; a later approval can then run it."""
+    note = at.pop("held_note")
+    rec.step(p, aid, "requested", {"held_by": "act-risk", "held_note": note, "approved_by": None, "risk_at_act": at})
+    assert lock.parent == folder(p) and lock.name == f"{rec.short(aid)}.run"
+    lock.unlink(missing_ok=True)
+    return rec.get(p, aid)
 
 
 # ---- a session waiting for its answer
@@ -208,6 +258,9 @@ def result(a: dict) -> dict:
             out["note"] = a["note"]
     if a["state"] in ("requested", "approved"):
         out["note"] = "held for the owner's approval: it has not run" if a["state"] == "requested" else "approved, running"
+    why = (a.get("held_note") if a.get("held_by") == "act-risk" else rk.note(a.get("risk"), a.get("gate")))
+    if a["state"] == "requested" and why:
+        out["note"] += f" ({why})"
     return out
 
 

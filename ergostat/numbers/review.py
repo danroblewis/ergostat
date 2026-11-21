@@ -74,35 +74,43 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
     data = ob.measured(p, ob.reference(p, at))
     run, base = tr.fit_of(spec, data)
     found, not_made = stc.find(p, spec, data, _estimates(p, spec), base)
-    pr.supersede(p, spec)                             # made against another version: carried, or let go if its subject went
-    props = pr.stored(p)
-    mine = {x["id"] for x in found}
-    for k in [k for k, x in props.items() if x.get("kind") == "structure" and x["status"] == "pending" and
-              not pr.candidate(x) and k not in mine]:
-        del props[k]                                  # superseded: no longer found
-    fresh = []
     for x in found:
         x["made_by"] = "ergostat"
-        if x["id"] in props:                           # dismissed (or accepted, or pending) already: not made again
-            continue
-        again = None
-        try:
-            after_spec = tr.spec_after(p, tr.edits_of(x))
-            data_a = ob.measured(p, data.grid, after_spec)
-            _, after = tr.fit_of(after_spec, data_a)
-            again = im.refit(spec, after_spec, data_a)       # what it adds to estimate, fitted: the gate judges it so
-        except tr.TrialError:
-            after = None
-        best = again["fit"] if again and gt.total(again["fit"]) is not None and \
-            (gt.total(after) is None or gt.total(again["fit"]) < gt.total(after)) else after
-        fresh.append({**x, "fit_before": base, "fit_after": after or {"total": None, "stocks": {}, "equations": {}},
-                      "refit": again, "gate_fit": best, "span": data.grid.until - data.grid.since})
-    pr.admit(p, spec, props, fresh, now, data.grid.until - data.grid.since)   # held back, refused at the gate, or pending
-    pr.save(p, props)
-    tmp = f.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"version": v, "at": now, "not_made": not_made}, indent=1))
-    tmp.replace(f)
+    seen = pr.stored(p)                               # outside the lock, only to spare the fits of what is made already
+    fits = {x["id"]: _fitted(p, spec, data, base, x) for x in found
+            if x["id"] not in seen or (seen[x["id"]]["state"] in pr.OPEN and seen[x["id"]].get("version") != v)}
+    with pr.locked(p):                                # carried, let go, admitted and recorded as one, on the files found on
+        if not pr.current_now(p, spec):
+            return not_made                           # the files moved on since: the next pass redoes it
+        pr._supersede(p, spec, found=found)           # made against another version: carried, or let go saying why
+        props = pr.stored(p)
+        mine = {x["id"] for x in found}
+        for k in [k for k, x in props.items() if x.get("kind") == "structure" and x["status"] == "pending" and
+                  not pr.candidate(x) and k not in mine]:
+            del props[k]                              # superseded: no longer found
+        fresh = [fits[x["id"]] for x in found if x["id"] not in props and x["id"] in fits]   # dismissed (or accepted,
+        pr.admit(p, spec, props, fresh, now, data.grid.until - data.grid.since)              # or pending) already: not
+        pr.save(p, props)                                                                    # made again
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"version": v, "at": now, "not_made": not_made}, indent=1))
+        tmp.replace(f)
     return not_made
+
+
+def _fitted(p, spec: Spec, data, base: dict, x: dict) -> dict:
+    """A finding as it is made a change: ergostat's own, with the fit before and after (and refitted) for the gate."""
+    again = None
+    try:
+        after_spec = tr.spec_after(p, tr.edits_of(x))
+        data_a = ob.measured(p, data.grid, after_spec)
+        _, after = tr.fit_of(after_spec, data_a)
+        again = im.refit(spec, after_spec, data_a)           # what it adds to estimate, fitted: the gate judges it so
+    except tr.TrialError:
+        after = None
+    best = again["fit"] if again and gt.total(again["fit"]) is not None and \
+        (gt.total(after) is None or gt.total(again["fit"]) < gt.total(after)) else after
+    return {**x, "fit_before": base, "fit_after": after or {"total": None, "stocks": {}, "equations": {}},
+            "refit": again, "gate_fit": best, "span": data.grid.until - data.grid.since}
 
 
 # ---- an entry
@@ -344,7 +352,7 @@ def _by(x: dict) -> dict:
     return {"made_by": x.get("made_by") or "ergostat", "made_by_rung": x.get("made_by_rung"), "by_block": block,
             "item": f"ergostat.model-change/{x['id']}", "state": x.get("state"),
             "reasons": x.get("reasons") or [] if block else [], "confidence": x.get("confidence"),
-            "findings": x.get("findings") or {}, "verdict": v or None}
+            "findings": x.get("findings") or {}, "verdict": v or None, "review": x.get("review")}
 
 
 def _systems(spec: Spec, parts: list[str]) -> list[str]:

@@ -684,6 +684,10 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
                 ver.changed_words(spec, after) if kind == "description" else ver.changed_units(spec, after))), *parts]))
         if moved_ctl:
             x["parts"] = list(dict.fromkeys([*moved_ctl, *parts]))
+    joins = [f"stock.{s}" for n in set(after.flows) - set(spec.flows) for s in (after.flows[n].source, after.flows[n].target) if s]
+    about = [r for r in [*refs, *joins, *x["gone_parts"]] if pr._part(spec, r) is not None]
+    if about:                                            # what it is about, as the model has it: held to it when carried
+        x["subject"] = pr.subject(spec, about)
     x["key"] = mem.key(x)
     return x
 
@@ -802,6 +806,7 @@ def _rung(spec: Spec, by: str) -> str | None:
 def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None, at: float | None = None) -> dict:
     """A block's proposal: recorded as made (``ergostat.model-change.made``, from the block, caused by its run), then
     checked, or refused with why. Returns ``{"status": "proposed" | "not-proposed", "id", "title", "why"}``."""
+    from . import reviewer as rv
     spec: Spec = p.model.spec
     now = at or time.time()
     title = str((raw or {}).get("title") or "a change")[:200] if isinstance(raw, dict) else "a change"
@@ -813,6 +818,9 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
         x, err = None, None
         try:
             x = validate(p, spec, by, raw, data)
+            x.update(rv.asked(p, by, x.get("parts")))   # sent back by the reviewer: this is its next round
+            if x.get("review_held"):
+                raise ProposeError(x["review_held"])
             same = next((y for y in pr.stored(p).values() if y["id"] != pid and y.get("version") == made["version"] and
                          unstamped((y.get("edit") or {}).get("diff")) == unstamped(x["edit"]["diff"])
                          and y["state"] != "refused"), None)

@@ -253,6 +253,8 @@ function reviewEntry(e, { onDone }) {
         ["scorecard", e.redesign?.rescoring ? h("div", { class: "small muted" }, e.redesign.rescore_error ? `rescoring: ${e.redesign.rescore_error}; the judge scores it again once it can be read` : "rescoring: carried to the model as it is, the judge scores it again")
           : e.redesign?.scorecard?.why ? h("div", { class: e.redesign.scorecard.verdict === "better" ? "small s-ok" : "small s-open" }, e.redesign.scorecard.why) : null],
         ["judged", e.verdict ? h("div", { class: e.verdict.verdict === "dropped" ? "s-open small" : "small" }, `${e.verdict.verdict === "testing" ? "testing" : e.verdict.verdict}: ${e.verdict.why}`) : null],
+        ["reviewed", e.review ? h("div", { class: e.review.verdict === "pass" ? "small" : "s-open small" }, `${e.review.verdict}: `,
+          (e.review.findings || []).map((f) => f.says).join("; ") || e.review.summary) : null],
         ["how found", h("div", {}, ...howText(e.how))],
         [e.benefit?.better === false ? "effect" : "benefit", benefitRows(e.benefit) ? h("div", {}, ...benefitRows(e.benefit)) : null],
         ["conflicts", e.conflicts.length ? h("div", {}, ...e.conflicts.map((c) => h("div", { class: "s-open small" }, `with ${c.id}: ${c.why}`))) : null]]),

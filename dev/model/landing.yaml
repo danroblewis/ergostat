@@ -48,6 +48,16 @@ auxiliaries:
     description: how far the drain under way has gone past its bound ([upgrade] drain_minutes; 0 within it)
     driven-by: [+auxiliary.drain-minutes]
     sensor: {run: python3 dev/bin/drain.py overrun, every: 1m, timeout: 1m, description: the switcher}
+  push-waiting:
+    unit: switch
+    description: 1 while the merge queue can take no gap - its last batch's push waits for approval, or the queue is blocked (run/queue.json)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/queue.py waiting, every: 1m, timeout: 1m, description: the merge queue's state}
+  push-settleable:
+    unit: switch
+    description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
 
 flows:
   gaps-approved:
@@ -278,6 +288,8 @@ actions:
     class: push
     args: {sha: the green merge commit on the checkout's main}
     timeout: 5m
+    fenced: false                    # runs once approved, whatever became of the asking run's lease: it pushes only
+                                     # that commit, and only as a fast-forward of the remote's main (git refuses else)
     description: Push exactly that commit to origin's main (a fast-forward, or refused) - the coordinator approves it
   switch-instance:
     run: python3 dev/bin/drain.py approve {sha}
@@ -290,25 +302,33 @@ actions:
 blocks:
   queue-when:
     type: expr
-    description: land while approved gaps wait and no suite runs on the machine (the load interlock)
+    description: land while approved gaps wait, no suite runs on the machine (the load interlock) and no push waits for approval (a run would only give its gap back)
     in:
       waiting: goal.approved-gaps-landed.off
       busy: goal.machine-quiet.off
       threads: goal.suite-threads-within.off
       memory: goal.suite-memory-within.off
-    expr: waiting * (1 - max(busy, threads, memory))
+      pushing: auxiliary.push-waiting
+    expr: waiting * (1 - max(busy, threads, memory, pushing))
     out: block.merge-queue
   merge-queue:
     type: program
     description: one run at a time, under the coordinator's queue lock - merge a batch (stock.queue-batch) into a clean main, ruff, unit and browser at once, demo_check, once a batch; push if green (gated, one approval a batch), else bisect to the first failing merge, send it to triage and land the rest
     run: python3 dev/bin/queue.py
-    takes: {kind: gap, at: approved, to: [merged, fix, queue-failed]}
+    takes: {kind: gap, at: approved, to: [merged, fix, queue-failed, push-pending]}
     pool: 1
     lease: {ttl: 30m, attempts: 3}
     timeout: 3h
     actions: [push-main]
     in: block.queue-when
     out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures]
+  push-settler:
+    type: program
+    description: settles the last batch's push once it ran, failed or was denied, with no gap approved to start a run - under the queue's lock when it is free (a run holding it settles the push itself), its held outcome said at most once; commanded by push-settleable
+    run: python3 dev/bin/queue.py settle
+    every: 2m
+    timeout: 1m
+    in: auxiliary.push-settleable
 
   triage-when:
     type: expr
@@ -359,7 +379,8 @@ blocks:
     run: python3 dev/bin/drain.py
     every: 1m
     timeout: 5m
-    goal: drains-within-bound
+    in: goal.drains-within-bound     # read, not commanded: a goal: here would put a controller in front of it and take
+                                     # it off its schedule (only a drain sets the goal off, and only the switcher drains)
     out: [flow.switches-withdrawn, flow.drains-begun, flow.upgrades-switched]
   switch:
     type: external
