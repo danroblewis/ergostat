@@ -386,3 +386,11 @@ origin/main merge.
 - **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`. Ten automated rounds have been
   refused the same way, so this item should not get another implementor round. After that commit the merge queue
   merges origin/main and runs the suites under `suite_watch.py`.
+
+### Resumed, round 4, the scratch-file gate again (2026-11-21)
+
+- The gate refused the build on `scratch_probe.py` again. `git rm -q scratch_probe.py` was refused by this session's
+  permissions, the eleventh time ("don't ask" mode refuses every Bash call). No other route was tried. Nothing was
+  deleted, committed or run, and this edit is **not committed** by this session.
+- Search again: nothing in `ergostat/`, `tests/` or `scripts/` names `scratch_probe.py`. No code changed.
+- **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`, along with this note.
