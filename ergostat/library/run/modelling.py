@@ -103,8 +103,7 @@ def ai(argv: list[str]) -> int:
     from ...numbers import modeller_spend as sp
     from ...numbers import requests as rq
     p = project()
-    mine = [r for r in rq.waiting(p, ("open", "held")) if r.get("tier") == "ai" and not r.get("owner")
-            and int((r.get("tried") or {}).get("ai") or 0) < a.tries]
+    mine = rq.for_ai(p, a.tries)
     if not mine:
         note("modeller: no request waiting for the ai tier")
         return 0
@@ -124,8 +123,8 @@ def ai(argv: list[str]) -> int:
     for r in group:
         tried = {**(r.get("tried") or {}), "ai": int((r.get("tried") or {}).get("ai") or 0) + 1}
         if rq.evidence_of(r) in answered:
-            rq.event(p, r["id"], r["state"], {"tried": tried, "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
-            continue
+            rq.mark(p, r, r["state"], tried=tried, cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
+            continue                                     # (each mark refused if the owner answered it meanwhile)
         why = cannot.get(r["id"]) or "the ai tier proposed nothing that would be proposed"
         rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried,
                 cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
@@ -194,10 +193,12 @@ def redesign(argv: list[str]) -> int:
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"], "unit_sig": sig,
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
     from ...numbers import requests as rq
+    run = ("open", "answered")                     # (as it was opened, or answered as never ended meanwhile)
     if out.get("result") == "proposed":
-        rq.event(p, req, "proposed", {"change": out.get("id"), "why": None})
+        rq.move(p, req, "proposed", {"change": out.get("id"), "why": None}, run)
     else:
-        rq.event(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")})
+        rq.move(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")},
+                run)
     for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner
         print(json.dumps({"report": r}), flush=True)
     c = out["cost"]
