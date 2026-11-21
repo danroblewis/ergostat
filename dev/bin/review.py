@@ -127,7 +127,7 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
         fac.nack(f"budget: {refused}", after="1h", count=False)
         return 0
     if not pools.my_turn(cfg, "reviewer", "reviewer", gap["id"]):
-        fac.nack("the reviewer pool is full (run/pools.json): waits its turn", after="5m", count=False)
+        fac.nack("the reviewer pool is full (run/pools.json): waits its turn", after="45s", count=False)   # (as implement.py)
         return 0
     branch, base = fac.branch_of(gap), f"origin/{cfg['git']['base']}"       # (in the clone made from the drop)
     n = int(f.get("reviews_n") or 0) + 1
