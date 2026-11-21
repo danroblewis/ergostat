@@ -1763,7 +1763,13 @@ mid-run leaves the run going, and a small `sh` wrapper writes its exit code to `
 `runs/RUN.json` is its record: pid, the process's start time (a pid reused by another process has another start
 time), run id, lease and block. The files are removed once the engine has read the run to its end. (Taking up a run
 left behind by a stopped engine is not built yet.) A run has ended when its process has and nothing it started is
-left in its process group, or 2 s after its process ended, whichever is first. Event lines in a row are recorded together, in one write, before
+left in its process group, or 2 s after its process ended, whichever is first. **Its exit code is the wrapper's**,
+and `sh` reports a command killed by signal N and one that exits with 128+N alike, so the wrapper chooses: for HUP,
+INT, PIPE, ALRM, TERM, USR1, USR2 and KILL it ends itself by the same signal, and the run's exit reads -N (as a
+simple command's did before the wrapper); for every other code it exits with the code itself, so a run killed by a
+signal that dumps core (SEGV, ABRT, QUIT, ILL, BUS, FPE, TRAP, SYS, XCPU, XFSZ) reads 128+N, e.g. 139, never
+crashing the wrapper. The cost: a command that *exits* 129, 130, 134, 137, 139, 141, 142, 143 or another such code on
+purpose reads as ended by that signal (section 12's triage files both as `signal`). Event lines in a row are recorded together, in one write, before
 anything printed after them, so a run printing thousands of lines a second costs a few writes. A program flushes
 each line for it to be seen at once (`print(..., flush=True)`, `python -u`; `echo` and `jq -c` in a shell already
 do); what it holds in its own buffer arrives when it flushes or ends. By line:
@@ -1888,7 +1894,7 @@ and moved, that event says what the run cost, measured by ergostat, never by the
 
 | Field | What | How |
 |---|---|---|
-| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status; the clock |
+| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status (the run's wrapper's: a signal that dumps core reads 128+N, section 9.1); the clock |
 | `resources.cpu` (`cpu_user`, `cpu_system`) | CPU seconds of its whole process tree: its process, everything it started, user and system | The larger of its wait status (`wait4`: exact for the process and every descendant it waited for) and one shared sampler's sum (below) |
 | `resources.memory_peak` | The most memory the tree held at once, in bytes (resident) | The larger of the sampler's peak (summed over the tree at each sample) and the largest single process (`wait4`) |
 | `resources.processes_peak`, `open_files_peak` | The most processes in its tree, and the most files they held open at once | The sampler; open files where cheap to count (Linux `/proc`, macOS `libproc` for the user's own processes), else left out |
@@ -5224,7 +5230,9 @@ program and how it ended. The item keeps the error, the traceback, the tail of s
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
 of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. A failure starts
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
-timeout, a kill, a signal or failing to start; one that fails again after its fix was applied is opened again. The loop's
+timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
+(SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that
+exits with such a code on purpose is noted too. One that fails again after its fix was applied is opened again. The loop's
 own blocks (`repair-fix`, `repair-settle`) and any run a failure's events caused (six steps up the cause chain) record no
 failure. States: `noted`, `open`, `leased` (being fixed), `awaiting-approval`, `applied`, `dismissed`, `dead` (its fixes
 failed `tries` times).
