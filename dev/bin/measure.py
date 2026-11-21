@@ -20,19 +20,29 @@ own measures do).
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
+  parks KIND          gaps whose last park was for KIND (parks.KINDS); resumes KIND: parks of KIND resumed (by the
+                      program or by hand); parked-hours KIND: their mean hours parked, to the resume or now
   in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes (each also with -p90)
                       time in each state, the build-review loop and the gates, per gap, over every gap that left the
                       state, ended the loop or passed the gate in the window, whatever its end (times.py)
-The last three, like first-pass-yield, have no value with nothing to measure."""
+The last three, like first-pass-yield, have no value with nothing to measure.
+
+  coverage-below-floor  the modules whose share of statements the unit suite on main ran is under [code_health]
+                      coverage_floor, from the latest coverage report (scripts/coverage_report.py, under run/coverage/)
+  coverage NAME       one module's share (NAME: its path, e.g. ergostat/model.py)
+These two read no window: they have no value (exit 1) with no report, an unreadable one, or the latest more than
+STALE of main's first-parent commits (its merges) old; never 0 or 1 for a report that cannot be read."""
 
 from __future__ import annotations
 
+import json
 import statistics
 import sys
 import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import parks  # noqa: E402
 import times  # noqa: E402
 
 WINDOW = 14 * 86400
@@ -46,7 +56,7 @@ def median(xs: list[float]) -> float:
     return round(statistics.median(xs), 3) if xs else 0.0
 
 
-def reading(name: str, now: float | None = None) -> float:
+def reading(name: str, now: float | None = None, kind: str = "") -> float:
     now = now or time.time()
     since = now - WINDOW
     if name == "interventions-trend":
@@ -61,6 +71,17 @@ def reading(name: str, now: float | None = None) -> float:
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
     gaps = fac.items("gap")
+    if name in ("parks", "resumes", "parked-hours"):                   # by kind (parks.py): its last park, per gap
+        if kind not in parks.KINDS:
+            raise SystemExit(f"measure.py {name}: no kind {kind!r} (one of {', '.join(parks.KINDS)})")
+        mine = [g["fields"] for g in recent(gaps, "parked_at", since) if g["fields"].get("parked_for") == kind]
+        if name == "parks":
+            return float(len(mine))
+        if name == "resumes":
+            return float(sum(g["fields"].get("resumed_for") == kind and float(g["fields"].get("resumed_at") or 0) >= since
+                             for g in gaps))
+        return round(statistics.mean([(float(g["resumed_at"]) if g.get("resumed_as") else now) - float(g["parked_at"])
+                                      for g in mine]) / 3600, 2) if mine else 0.0
     if name.removesuffix("-p90") in times.measures():
         return times.reading(name, gaps, since)
     merged = [g["fields"] for g in recent(gaps, "merged_at", since) if g["state"] == "merged"]
@@ -119,5 +140,47 @@ def knowledge_reading(name: str, since: float) -> float:
     return share([not (risks[r["id"]] & set(r["fields"].get("classes") or [])) for r in first if risks[r["id"]]], name)
 
 
+STALE = 20                                              # main's merges after which a coverage report says nothing
+
+
+def coverage_report(cfg: dict) -> dict:
+    """The latest coverage report of main, by its ``seq`` (never by a file's time), among those whose commit is on
+    main (a run whose merge was undone measured a commit main never had); SystemExit (no value) when there is none,
+    any is unreadable (it may be the latest), or main has moved more than STALE first-parent commits past it."""
+    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
+    found = []
+    for p in sorted(fac.path(cfg, "run").joinpath("coverage").glob("*/coverage.json")):
+        try:
+            r = json.loads(p.read_text())
+            found.append((int(r["seq"]), str(r["main"]), {m: float(v["share"]) for m, v in r["modules"].items()}))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            raise SystemExit(f"coverage: no value (an unreadable report: {p})") from None
+    on_main = [f for f in found if fac.git_ok(repo, "merge-base", "--is-ancestor", f[1], base)]
+    if not on_main:
+        raise SystemExit("coverage: no value (no coverage report of a commit on main)")
+    seq, sha, shares = max(on_main, key=lambda f: f[0])
+    since = int(fac.git(repo, "rev-list", "--count", "--first-parent", f"{sha}..{base}"))
+    if since > STALE:
+        raise SystemExit(f"coverage: no value (the latest report, {sha[:12]}, is {since} merges behind {base})")
+    return shares
+
+
+def coverage_reading(name: str, args: list[str]) -> float:
+    cfg = fac.config()
+    shares = coverage_report(cfg)
+    if name == "coverage":
+        if len(args) != 1 or args[0] not in shares:
+            raise SystemExit(f"coverage: no value (no module {' '.join(args)!r} in the report)")
+        return shares[args[0]]
+    floor = (cfg.get("code_health") or {}).get("coverage_floor")
+    if not isinstance(floor, int | float) or not 0 <= floor <= 1:
+        raise SystemExit(f"coverage-below-floor: no value ([code_health] coverage_floor is {floor!r}, not a share)")
+    return float(sum(s < floor for s in shares.values()))
+
+
 if __name__ == "__main__":
-    print(reading(sys.argv[1]))
+    name = sys.argv[1]
+    if name in ("coverage", "coverage-below-floor"):
+        print(coverage_reading(name, sys.argv[2:]))
+    else:
+        print(reading(name, kind=sys.argv[2] if len(sys.argv) > 2 else ""))
