@@ -291,3 +291,28 @@ Its runs failed past their attempts (a dead letter):
 - attempt 9: nack exited 1
 - attempt 10: nack exited 1
 - attempt 11: nack exited 1
+
+### Round 3
+
+**The merge of main (7b39bc9).** It conflicted in three files. Each keeps main's change and the branch's:
+- `dev/bin/agents.py`: main gives the plan reviewer the reviewer's read-only tools; the branch's groomer keeps them too.
+- `dev/model/knowledge.yaml`: the planner's `takes:` drops `planned` from `to` (main: the plan review is advice, not a
+  gate) and keeps the branch's `unblocked: true, order: rank`.
+- `tests/test_factory_knowledge.py`: main's `[plan] review = "all"` with the branch's `groomer` role.
+
+**The queue's failure.** `tests/test_relations_asof.py::test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers`
+(both params) came from main (relations-as-of) and asserted the status `ready`. This branch carries the backlog merge
+(2b101c6), which renames that status to `unblocked` (`precedence.status`), and the branch's `tests/test_relations.py`
+already says `unblocked`. So the failure was the two merged changes meeting (lesson-7), not this gap's code. The fix
+is only the two asserts renamed to `unblocked`, as `test_relations.py` has. Nothing under `ergostat/` changed for it.
+
+**Still open, outside this gap (lesson-13).** main (7b39bc9) does not hold 2b101c6. So a diff of this branch against
+main still carries the backlog feature as well as this gap. Other branches' reviews have raised the same thing. Only
+the coordinator can settle it, by landing the backlog merge on main first or by choosing what this branch may carry.
+
+**Run in round 3, one file at a time:** `test_relations_asof.py` (9), `test_relations.py` (18), `test_pool_now.py`
+(25), `test_factory_knowledge.py` (34), `test_factory.py` (42, 2 skipped as before), `test_leases.py` (20),
+`test_eta.py` (13), `test_take_order.py` (4), `test_backlog.py` (13), `test_spec_schema.py` (27),
+`test_spec_compile.py` (26), `test_blockdiagram.py` (67), `test_closedloop.py` (15), `test_graph_cli_web.py` (29),
+`test_resilience.py` (24). Ruff is clean. `test_items_page.py` was skipped here because this container has no
+browser. The whole suite under `-n 8` and the four browser files were not run: the factory runs them.
