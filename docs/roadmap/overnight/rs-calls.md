@@ -102,3 +102,19 @@ Every test's duration was checked for a wait on a call's bound (5 s, `GONE` 10 s
 call-related test shows one. The only tests near 60 s are `test_index_files`' four, which are the failures above, and
 `test_factory.py::test_the_factory_model_loads` (60 s alone too). That one only reads the factory's model and makes
 no call. ruff is clean.
+
+After the factory's next unit run stalled (its tail: xdist up, 15 dots, then nothing; no failure printed): not
+reproduced, because this session could run nothing (no shell: no tests, no ruff, no git, so this change is not
+committed either). One defect was found by reading the engine's call handler, and it is fixed. When `Server.close`
+ran while the parked-call thread was partway through a pass, close cleared `parked` (empty, since the thread had taken
+the list out), and the thread then put its still-waiting calls back. Those connections were never closed, so their
+callers did not see the stop and did not ask again. Each waited out its read timeout (a CLI `act`: its wait plus an
+hour) instead of retrying across the restart, which goes against the first point of the definition of done for a
+parked gated action. An `act` parked by a worker just after the close had the same gap. Now both go through
+`Server._park`. Under `plock` it parks only while the socket is open (close clears `sock` before it takes `plock`),
+and otherwise closes the connection so the caller asks again. The window is a whole pass of `settled` reads, which is
+wide under load and narrow when tests run serially. That fits a stall seen only in the factory, but it is not shown
+to be the stall's cause. No test puts the close in that gap yet. Budget: about 3 net lines over 100, because the fix
+belongs in the call handler and nothing smaller closes the gap. Still open: a connection accepted around the close
+and queued behind the workers' stop markers is never answered or closed. That predates this branch and is not
+fixed here.

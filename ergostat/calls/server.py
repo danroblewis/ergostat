@@ -161,8 +161,14 @@ class Server:
         a, done = program.settled(self.e.p, self.e.spec, cfg, a, end, ran_by)
         if done:
             return self._answer(conn, ops.act_answer(self.e, cfg, a))
-        with self.plock:                                       # it waits without a thread
-            self.parked.append(Parked(conn, cfg, a, end, ran_by))
+        self._park([Parked(conn, cfg, a, end, ran_by)])        # it waits without a thread
+
+    def _park(self, ws: list) -> None:
+        with self.plock:                                       # (closed meanwhile: closed too, so asked again)
+            if self.sock is not None:
+                return self.parked.extend(ws)
+        for w in ws:
+            self._close(w.conn)
 
     def _parker(self) -> None:
         from ..actions import program
@@ -190,8 +196,7 @@ class Server:
                         still.append(w)
                 except Exception as e:
                     self._answer(w.conn, {"error": f"{type(e).__name__}: {e}"})
-            with self.plock:
-                self.parked.extend(still)
+            self._park(still)
 
     @staticmethod
     def _answer(conn, out: dict) -> None:
