@@ -118,35 +118,73 @@ GAPS = """\
 - **No paren**: done is a word here but not the head's start? It is: done.
 - **Undone** (undone): open.
 
+## Other things
+
+- **Spans lines** (done, `churn`; owner, 2026-11-19: a loop's process that
+  followed 2% held out was proposed, and the projections after a burst of 130 tickets were far off): a process is
+  proposed only past a quality floor.
+- **Done with a decision** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
+  *Fencing*): it.
+- **Open right after** (open; found by
+  a review): open.
+- **Warm workers**: superseded by daemons (branch `daemons`, SPEC §9.7,
+  `docs/RUNTIME.md`): long-lived processes.
+- **Superseded across lines** (superseded
+  by `daemons`): the rest.
+- **A first slice across lines** (first slice done, 72da4e1, merged from `remote`; what is left below is open;
+  `docs/proposals/remote-systems.md`, SPEC §4c): open.
+- **Libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
+  and reference models.
+- **Superseded by any edit, the title says**: open (not done) in its own words.
+- **Superseded in a done title** (done, `churn` and `superseded-x`; owner, 2026-11-19): a version since changed.
+
 ## Done recently
 
 - **Gone**: done.
 """
 
 
-def test_intake_done_rule_on_a_gaps_fixture():
-    says = {e["title"]: e["gaps_says"] for e in intake().gaps_md(GAPS)}
+def test_the_done_rule_on_a_fixture():
+    """The done rule on a fixture GAPS.md, never on the real one, whose entries change as gaps finish: each shape
+    the real entries had (a parenthetical across lines, superseded, parked, open), and the simpler ones."""
+    entries = intake().gaps_md(GAPS)
+    says = {e["title"]: e["gaps_says"] for e in entries}
     assert says == {"Plain done": "done", "Done on a branch": "done", "Done comma on": "done", "Bold done": "done",
                     "Across lines": "done", "Old warm": "superseded", "First slice": "open", "Partly": "open",
                     "Computed": "open", "Done later in the clause": "open", "Parked one": "parked",
-                    "Landing": "in progress", "No paren": "done", "Undone": "open"}
-    assert [e["line"] for e in intake().gaps_md(GAPS)][:2] == [5, 6]
-
-
-def test_intake_done_rule_on_the_real_gaps_md():
-    entries = intake().gaps_md((ROOT / "docs" / "GAPS.md").read_text())
-    got = {e["title"]: e["gaps_says"] for e in entries}
-    known = {"Identifying existing controllers": "done", "Built-in join": "done", "Craft notes in `check`": "done",
-             "Poor identifications proposed, projections drawn as sure": "done",       # its parenthetical spans lines
-             "Extreme-conditions tests and calibration per part of the model": "done",
-             "A run whose lease expired is killed": "done", "Warm workers instead of a process per item": "superseded",
-             "Remote systems": "open", "System architecture review": "open", "Proposals superseded by any edit": "done",
-             "Relations, what is left": "open", "Shared libraries": "parked"}
-    for title, want in known.items():                  # (each, while GAPS.md still lists it)
-        if title in got:
-            assert got[title] == want, title
-    assert sum(1 for x in got.values() if x == "done") >= 5
+                    "Landing": "in progress", "No paren": "done", "Undone": "open",
+                    "Spans lines": "done", "Done with a decision": "done", "Open right after": "open",
+                    "Warm workers": "superseded", "Superseded across lines": "superseded",
+                    "A first slice across lines": "open", "Libraries": "parked",
+                    "Superseded by any edit, the title says": "open",
+                    "Superseded in a done title": "done"}   # (not Gone: done recently)
+    assert [e["line"] for e in entries][:2] == [5, 6]
+    assert {e["section"] for e in entries} == {"Things", "Other things"}
     assert all(not e["head"].startswith("done") for e in entries if e["gaps_says"] != "done")
+    assert intake().twice(GAPS) == {}
+
+
+def test_a_duplicated_gaps_entry_is_reported(tmp_path):
+    """A union merge (.gitattributes) can leave an entry twice, or in two sections: the intake neither finds nor
+    closes it (it never picks one), and says it as a dependency problem on its gap (lesson-3)."""
+    twice = intake().twice(GAPS + "- **Spans lines** (done, `churn`): moved here too.\n- **Plain done**: again.\n"
+                           + "- **Plain done**: and again.\n")
+    assert sorted(twice) == ["gap/plain-done", "gap/spans-lines"]
+    assert "2 times, lines 24 (Other things), 45 (Done recently)" in twice["gap/spans-lines"]
+    assert "3 times" in twice["gap/plain-done"]
+    f = Instance(tmp_path)
+    f.opened()
+    from tests.test_factory import git
+    md = f.checkout / "docs" / "GAPS.md"
+    md.write_text(md.read_text().replace("- **Delta**", "- **Alpha thing** (done, abc1234): a merge kept both.\n"
+                                         "- **Epsilon**: new.\n- **Epsilon**: new, from the other side.\n- **Delta**"))
+    git(f.checkout, "commit", "-qam", "a union merge left two entries twice")
+    said, lines = f.run("intake.py")
+    assert "gap.closed" not in said and "gap/epsilon" not in {x["item"] for x in lines}   # neither closed nor found
+    assert "intake: gap/epsilon: GAPS.md lists it 2 times" in f.stderr                    # no gap to say it on
+    a =f.item("gap/alpha-thing")
+    assert a["state"] == "open" and a["fields"]["dependency_problem"] is True
+    assert "GAPS.md lists it 2 times" in a["fields"]["dependency_problems"][0]
 
 
 def test_intake_closes_gaps_marked_done(tmp_path):
