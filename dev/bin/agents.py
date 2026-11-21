@@ -43,11 +43,14 @@ TOOLS = {
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
-            "plan_reviewer": 1200, "researcher": 3600, "librarian": 600}   # seconds, each below its block's
+            "plan_reviewer": 1200, "researcher": 3600, "librarian": 600,
+            "pipeline_manager": 2400}   # seconds, each below its block's
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
-TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=["Read"], librarian=["Read"],   # all read-only: only the
-             researcher=TOOLS["reviewer"] + ["WebSearch"])      # implementor writes; WebSearch is run by the API itself
+TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
+             pipeline_manager=TOOLS["reviewer"],
+             researcher=TOOLS["reviewer"] + ["WebSearch"])      # all read-only: only the implementor writes; WebSearch is
+                                                                 # run by the API itself
 
 
 class Refused(RuntimeError):
@@ -318,10 +321,7 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
         if tests is not None:
             cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
         if cfg["ai"]["mode"] != "standin":
-            name = container("suite")
-            cmd = " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS,
-                            "-v", f"{home / 'work'}:/work", "-w", "/work", settings(cfg)["image"], "sh", "-c",
-                            shlex.quote(cmd)])
+            name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"
         try:
             with resources.sampled(cfg, name, "suite") if name else contextlib.nullcontext({}) as use:
@@ -335,6 +335,13 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
     return out
+
+
+def contained(cfg: dict, cmd: str, work: Path) -> tuple[str, str]:
+    """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network)."""
+    name = container("suite")
+    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS, "-v", f"{work}:/work",
+                           "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
 
 
 def suite_containers() -> int:
