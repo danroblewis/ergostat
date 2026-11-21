@@ -514,3 +514,74 @@ def test_reset_forgets_the_record_and_nothing_else(project, capsys):
     p = Project(mdl.load(project.repo))
     assert p.events.count() == 0 and p.measurements.latest("sensor/x") is None
     assert (project.dir / "keep.txt").read_text() == "mine" and (project.dir / "repo.json").exists()
+
+
+RELATED_MODEL = """
+systems:
+  planning: {description: what is planned}
+  delivery: {description: what is built}
+items:
+  epic:
+    id: epic/*
+    system: planning
+    states: [planned, underway, shipped]
+    relations: {after: epic}
+  goal:
+    id: goal/*
+    system: planning
+    states: [open, met]
+    relations: {serves: {kind: epic, precedence: false}}
+  ticket:
+    id: ticket/*
+    system: delivery
+    states: [todo, doing, done]
+    on: {ticket.started: doing}
+    relations: {blocked_by: ticket, parent: epic}
+  note:
+    id: note/*
+    system: delivery
+messages:
+  done: {ticket: [done], epic: [shipped]}
+"""
+
+
+def related_project(tmp_path):
+    """Related kinds in two systems: epics and goals in planning, tickets (and notes, unrelated) in delivery."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    (tmp_path / "ergostat.yaml").write_text(RELATED_MODEL)
+    p = Project(mdl.load(tmp_path))
+    import time
+    ev, t = p.events, time.time() - 1800
+    ev.add("epic.planned", item="epic/e1", data={"title": "first"}, at=t)
+    ev.add("epic.planned", item="epic/e2", data={"title": "second", "after": "epic/e1"}, at=t + 1)
+    ev.add("goal.set", item="goal/g", data={"title": "the goal", "serves": "epic/e2"}, at=t + 2)
+    ev.add("ticket.planned", item="ticket/a", data={"title": "design", "parent": "epic/e1"}, at=t + 3)
+    ev.add("ticket.planned", item="ticket/b", data={"title": "build", "parent": "epic/e1", "blocked_by": "ticket/a"}, at=t + 4)
+    ev.add("ticket.started", item="ticket/a", at=t + 600)
+    ev.add("note.made", item="note/n", at=t + 5)
+    return p
+
+
+def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
+    import re as _re
+
+    from ergostat.web.snapshot import build, key
+    html = build(related_project(tmp_path))
+    data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1))["data"]
+    listed = data["items"]
+    # as pages.js: the kinds with relations or named by one, per system; and each alone (a kind chosen)
+    rel = {n for k in listed["kinds"] for ts in (k["relations"] or {}).values() for n in (k["name"], *ts)}
+    groups = {g["name"]: [n for n in g["kinds"] if n in rel] for g in listed["systems"]}
+    assert groups["planning"] == ["epic", "goal"] and groups["delivery"] == ["ticket"]      # notes: no relations
+    want = {key("items-graph", {"kinds": ",".join(ks)}) for ks in groups.values() if ks}
+    want |= {key("items-graph", {"kinds": k}) for ks in groups.values() for k in ks}
+    assert want == {"items-graph?kinds=epic,goal", "items-graph?kinds=epic", "items-graph?kinds=goal",
+                    "items-graph?kinds=ticket"}
+    got = {k for k in data if k.startswith("items-graph")}
+    assert got == want, got
+    t = {x["id"]: x for x in data["items-graph?kinds=ticket"]["items"]}
+    assert t["ticket/b"]["status"] == "blocked" and t["ticket/b"]["links"]["parent"] == ["epic/e1"]
+    assert "epic/e1" in t and t["ticket/a"]["status"] == "active"                   # what its relations reach
+    both = {x["id"] for x in data["items-graph?kinds=epic,goal"]["items"]}
+    assert {"epic/e1", "epic/e2", "goal/g"} <= both and data["items-graph?kinds=epic,goal"]["asked"] == ["epic", "goal"]
