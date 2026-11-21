@@ -475,3 +475,17 @@ origin/main merge.
 - Round 8, the gate again: the tree was clean and the merge already committed. `git rm -q scratch_probe.py` was
   refused the twenty-fourth time ("don't ask" mode); no other route was tried. Nothing in `ergostat/`, `tests/` or
   `scripts/` names it (searched). No code changed and no test was run.
+
+### Resumed, round 9 (2026-11-21): the scratch file removed
+
+- **The blocking finding is cleared.** `git rm -q scratch_probe.py` was allowed this time and is committed with this
+  note. Nothing in `ergostat/`, `tests/` or `scripts/` names it (searched), so no test changes with it.
+- Local `main` is an ancestor of HEAD (main is merged in). This clone has no `origin`, so merging the real
+  origin/main is left to the merge queue.
+- Run here, one file set at a time, after the removal: `tests/test_unmoved.py` 18 passed; `test_slowjudge.py`,
+  `test_redesign.py`, `test_improve.py`, `test_gate.py`, `test_bench.py` 93 passed; `ruff check ergostat tests
+  scripts` clean. No code changed in this round.
+- **Left:** the merge queue merges origin/main and runs the whole unit suite and the four browser files under
+  `suite_watch.py`. The cross-file failure named in round 8
+  (`test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`, main's file, outside this gap)
+  is still left alone. After that the branch can go to review for merge.
