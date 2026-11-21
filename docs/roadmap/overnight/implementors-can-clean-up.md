@@ -112,3 +112,10 @@ tests/test_diagram_rendering.py::test_a_loop_clicked_chooses_its_members_in_both
 same `PermissionError: '/split-shots'` as in round 3 (its screenshot folder is `ROOT.parent`, which is `/` in this
 container). This branch changes neither test nor anything under ergostat/, so both are unrelated (lesson-13) and were
 left alone.
+
+Round 9: the merge of main (e8d3e331) was already committed (fdcbd0ac); `git status` was clean and HEAD holds main.
+The `unit` tail handed to this round ends just after uv rebuilt the package, before pytest printed anything. No test
+is named, so the run was cut off from outside. Here, `unit` in the factory's own form under suite_watch.py ran to the
+end with rc 0: 2310 passed, 69 skipped, 1 xfailed (peak 326 threads, 1.7 GB, nothing killed). Ruff is clean. No code
+was changed this round, since no failure was found to fix (the most reversible option). The four browser files were
+not run here.
