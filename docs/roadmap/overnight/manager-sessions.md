@@ -207,3 +207,19 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   `tests/test_factory_times.py` and `tests/test_factory_knowledge.py` 61 passed together. Ruff is clean. This round
   changed no code, so no code was broken to watch a test fail.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 6 (2026-11-21): the `unit` run with one `F` at 76%.**
+- *The merge of main ca35e0b* was already committed (c68975f7) with no conflict markers left, and
+  `tests/test_zz_profile_tmp.py` is removed (32ec09f1). Nothing was left to resolve.
+- *The failing test is not named:* the tail shows one `F` at 76%, then the run stops at 89% partway through a line,
+  with no summary, no `FAILED` line and no closing line from suite_watch. So the run was ended from outside, as in
+  rounds 2 and 4, before pytest printed which test failed.
+- *Every file that reads the branch's code passes, under load too:* with `-n 8`, `tests/test_factory_manager.py`,
+  `test_factory.py`, `test_factory_times.py` and `test_factory_knowledge.py` together: 159 passed, 2 skipped. With
+  `-n 8`, `test_factory_manager.py`, `test_interventions.py`, `test_gated_actions.py` and `test_leases.py`: 77 passed.
+  On their own: `test_code_health_coverage.py`, `test_factory_sessions.py`, `test_factory_resources.py` and
+  `test_backlog.py`, 37 passed. Those are the files that read `dev/bin/`, `dev/model/` or the repo's `ergostat.yaml`.
+- *No code changed (lesson-13):* no test fails here, and the failure can't be tied to this branch without its name. The
+  factory should run the unit suite again to completion. If it then names a test outside these files, it should run
+  that test on clean main.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
