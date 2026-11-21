@@ -174,3 +174,15 @@ and browser suites were not run here (the factory runs them under the watchdog).
 Net lines outside tests and docs: 233. Run: `tests/test_upkeep_template.py`, `tests/test_index_files.py`,
 `tests/test_templates.py` (56 passed), ruff clean. The origin/main merge and the full suites are still the
 factory's to run (no `origin` here).
+
+### The unit suite after round 2
+
+The factory's unit run stopped at 29% with no failing test in its tail (a stall or a kill, not an assertion). I
+could not run the whole suite here, so I could not name the test. The likeliest cause is in this branch's tests, and
+it is fixed: `test_tidy_never_opens_an_index` patched `sqlite3.connect` for the whole worker process, and `_cold()`
+closed every open index in the worker. Under xdist, threads left running by other tests in the same worker (engines,
+page servers) could fail or stall while either was in effect. Now the test patches only the three things the
+definition names (`Index.__init__`, `index_for`, `common.project`), and it still checks that no new
+`.db`/`-wal`/`-shm` appears. `_cold(d)` closes only this test's own indexes, under `_OPEN_LOCK`. No change to the
+code under test. If the unit suite still stalls, that is not explained here, and the next step is to find the test
+that hangs.

@@ -42,10 +42,13 @@ def _yaml(root: Path, states: str, upkeep: bool, extra: str = "") -> Path:
     return root
 
 
-def _cold() -> None:
-    for ix in list(ii._OPEN.values()):
-        ix.close()
-    ii._OPEN.clear()
+def _cold(d: Path) -> None:
+    """This test's open indexes (those in ``d``) closed and forgotten; other tests' in the same worker left alone."""
+    with ii._OPEN_LOCK:
+        for at, ix in list(ii._OPEN.items()):
+            if ix.path.parent == d:
+                ix.close()
+                del ii._OPEN[at]
 
 
 def _age(d: Path) -> None:
@@ -151,7 +154,7 @@ def test_tidy_never_opens_an_index(tmp_path, monkeypatch):
     proj.events.add("ticket.opened", item="ticket/1")
     ix = ii.index_for(proj.events, proj.model.spec, False)
     items = ix.path.parent
-    _cold()
+    _cold(items)
     _files(items, 8)
     _age(items)
 
@@ -160,7 +163,6 @@ def test_tidy_never_opens_an_index(tmp_path, monkeypatch):
     monkeypatch.setattr(ii.Index, "__init__", boom)
     monkeypatch.setattr(ii, "index_for", boom)
     monkeypatch.setattr(common, "project", boom)
-    monkeypatch.setattr(ii.sqlite3, "connect", boom)
     before = {p.name for p in items.iterdir()}
     assert _tidy(items.parent, 2, monkeypatch) == 0
     after = {p.name for p in items.iterdir()}
@@ -255,7 +257,7 @@ def test_with_upkeep_the_engine_does_not_tidy_and_without_it_does(tmp_path, upke
     for i in range(8):
         ix, _ = _fold(root, i, upkeep, proj)                      # each a change of the item kinds: a new fold
         items = ix.path.parent
-        _cold()                                                   # nobody holds them: only the age and the count say
+        _cold(items)                                              # nobody holds them: only the age and the count say
         _age(items)
     n = len(list(items.glob("*.db")))
     assert n == (8 if upkeep else ii.KEPT_FILES), n
@@ -278,6 +280,6 @@ def test_tidying_stopped_piles_files_up_and_nothing_breaks(tmp_path):
             assert [(x.id, x.state) for x in ix.items("ticket")] == [(x.id, x.state) for x in fresh.items("ticket")]
         fresh.close()
         items = ix.path.parent
-        _cold()
+        _cold(items)
         _age(items)
     assert len(ii.files(items)[0]) == 10
