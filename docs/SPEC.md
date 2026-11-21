@@ -3308,15 +3308,50 @@ process (follows 2% held out; its errors held out not white). What would: a step
 in its input (a burst of arrivals), or 2h more of record". It holds while the loop is as it was (`loop.key`) and clears
 once an identification passes.
 
-**Outside steps** (`ident.outside_steps`, `ident.around`, `loop.around_step`): a large change in what arrives at the
+**Outside steps** (`ident.outside_steps`, `experiments.py`, `loop.around_step`): a large change in what arrives at the
 goal's stock (a flow into it from outside the loop, measured) or in a measured input beside the path (a change from one
 bucket to the next past six of its typical changes and a fifth of its range: a burst like 130 tickets added at once)
-excites the loop from outside, as a step test does, while the controller keeps working. The process is identified
-from the record around the largest one, that input fitted beside u: from forty buckets before it to where y has come
-half way back from its furthest, fitted; as long again after, held out. Its estimate leans far less toward the
-controller's inverse than one from the loop working (on a synthetic loop with a known process, its gain within a
-quarter where the loop working's was off by half or more: `tests/test_churn.py`). It is ranked with the others, and
-said "identified around an outside step at 14:20 (flow.asked)", in its reason and its `identified:`.
+excites the loop from outside, as a step test does, while the controller keeps working. Every input is searched. Steps
+on different inputs within forty buckets of each other are one step, at the earlier bucket, naming each input. On one
+input, the larger of two such steps is kept (a burst's rise and fall are one). At most six are kept, the largest, and
+they are taken in bucket order. Their windows, those inputs fitted beside u, are fitted together as one data set of
+several experiments (Ljung §14.3, as the step tests are): the same K, τ and θ, each its own start and level, all but
+the last fitted and the last held out whole. Windows that overlap are one experiment over their union, held out to its
+last step's end. The windows are chosen in passes, three fits at most:
+- Pass 0 is y's excursion: from forty buckets before the step to where y has come half way back, read no further than
+  the next step. With one experiment, as long again after it is held out.
+- Each later pass sizes the windows from the process the kept pass found. It fits from forty buckets before the step
+  to its settling S = max(θ + 4τ, 5 (τ + θ) − 40 buckets) after it. With one experiment, it holds out as long again (20
+  buckets at least).
+- A later pass is kept unless it is worse by the order the identifications are ranked by (proposable, told apart,
+  then precision). Its held-out record differs from the kept pass's, so this is not a like-for-like comparison: the
+  precision favours the longer window.
+- The passes stop when one would fit windows already fitted, when the kept pass found no process, or when it found an
+  integrator (no settling to size from). What each pass did is said in `outside_step.passes`, and `window` says
+  `process` or `excursion`.
+- Nothing is clipped or filled in. A step whose process window runs past the record's end is dropped and said: "the
+  step at 18:00 (flow.asked): the record after it covers 7m of the 8m40s its process needs to settle". If an earlier
+  pass fitted that step, its result is not proposable either, and when no step is left nothing is proposed. A step
+  where u or an input fitted has no readings in its window is dropped ("d2 has no readings in its window"). It is not
+  filled from another experiment. When none is left, there is no process.
+- The steps said as dropped (`outside_step.dropped`) are those the kept pass dropped, with the "covers" lines a later
+  pass found for steps the kept pass fitted. A pass that was not kept does not add its own drops
+  (`test_a_drop_in_a_pass_not_kept_is_not_said`).
+- When there are several experiments, the record drawn with the result is the held-out one, the last (`last`), as for
+  step tests (`test_the_record_of_several_experiments_draws_only_the_held_out_one`).
+
+What is measured, on a synthetic loop with a known process (`tests/test_outside_experiments.py`):
+- With one burst (τ = 60 s), K is within 0.1 and θ within 10 s on each of six seeds. The mean relative error of K and τ
+  is under 0.3 and under a third of the loop working's.
+- With three equal bursts, the standard error of K is below that from the largest burst alone, on each seed.
+- With a slow process (τ = 300 s), the excursion's fitted part spans too little on every seed. The mean error is under
+  0.3 and at most half the excursion's, but not every seed reaches a process window, so no per-seed claim is made. On
+  some seeds the longer window has no step of u large enough for `ident.moves`: integral action ramps u.
+
+The result is ranked with the others. It is said "identified around outside steps at 14:20, 16:05 (flow.asked), each
+window from the process (θ + 4τ = 7m)" in its reason and its `identified:`, with any steps dropped. A later pass kept
+as an integrator has no τ, and is said "… from the process (integrating: no settling time, so no θ + 4τ)"
+(`test_the_reason_names_every_step_and_how_its_window_was_chosen`).
 
 **Analysis** (`lti.py`; Åström & Wittenmark, *Computer-Controlled Systems*, ch. 2, 3, 8): with the
 process (the model's, else the one identified, said as such) and the controller as its block writes
