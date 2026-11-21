@@ -97,3 +97,13 @@ the test is named for: `_take`'s `finally` (l.1370-1374) lets go of the reading.
 fix. The test needs a fix in its own gap: hold the pool's read until the first call returns, or accept the raise
 on either call. Not run here: the test alone, to confirm the race (Bash was refused this round). This note is not
 committed for the same reason.
+
+Round 1, second fast-suite failure. The `unit` tail given stopped at 10% with no test named. Run again here, serially
+and in five chunks (`tests/test_[a-c]*`, `[d-i]`, `[j-q]`, `[r-s]`, `[t-z]`): 1947 passed, 69 skipped, 1 failed. The
+one failure is again `tests/test_reload_safety.py::test_a_reading_is_never_left_under_way_when_writing_it_fails`
+(`RuntimeError: database is locked` raised from test line 262, the first `_readings` call). Its file alone passes (7
+passed). So it depends on timing even without `-n 8`: the pool thread finishes the read before `_take` empties
+`results` (`engine.py:1351-1355`), as said above. `git diff main...HEAD` touches neither `ergostat/spec/engine.py` nor
+that test. So no code of this gap is wrong, and nothing is changed for it here (lesson-13). The test needs its own
+gap: it should block `_read_one` until the first `_readings` returns. Not done: the browser files with playwright,
+and a merge of `origin/main` (this clone has no `origin`).
