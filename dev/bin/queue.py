@@ -262,33 +262,45 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
     """The batch, and its dry-merged head: the run's own gap and the approved gaps no run holds (only its own when n is
     1), walked in rank order (the groomer's rank, then when approved), each dry-merged onto the batch so far, until n
     merge. A gap that conflicts with main (`pre`) is sent back at once, a failed gate, and takes no slot; one that
-    conflicts only with a batch-mate stays `approved`, no gate failed (the run's own gap: given back, uncounted). The
-    others stay `approved` until the run settles them (merged, sent back, queue-failed): a run killed part way leaves
-    them to be taken again, and the queue's pool is 1, so no other run takes them meanwhile."""
+    conflicts only with a batch-mate stays `approved`, no gate failed. The run's own gap is in its batch unless it is
+    sent back: the last slot is kept for it, and if it conflicts only with batch-mates the walk is made again with it
+    first, so its lease, which the batch's push is asked under, is never given back while others land. The others
+    stay `approved` until the run settles them (merged, sent back, queue-failed): a run killed part way leaves them to
+    be taken again, and the queue's pool is 1, so no other run takes them meanwhile. A dry merge git cannot make
+    (RuntimeError) fails the run after some gaps may have been sent back: those stand, the rest stay `approved`."""
     def key(g: dict) -> tuple:
         rank = g["fields"].get("rank")                    # (rank 0 is a rank: only none is unranked)
         return (10**9 if rank is None else rank, float(g["fields"].get("approved_at") or 0), g["id"])
     others = [g for g in fac.items("gap", "approved") if g["id"] != gap["id"]
               and not (g["fields"].get("lease") or {}).get("holder")] if n > 1 else []
-    batch, head = [], pre
-    for g in sorted([gap, *others], key=key):
-        if len(batch) >= n:
-            break
-        sha, why = reviewed(cfg, repo, g)
-        if not sha:
-            tell("gap.sent-back", g["id"], sent_back_by="queue", findings=[f"not merged: {why}"])
-            continue
-        made, files = dry(repo, head, sha, message(g))
-        if made:
-            batch.append((g, sha))
-            head = made
-            continue
-        onmain = files if head == pre else dry(repo, pre, sha, message(g))[1]
-        if onmain:
-            refuse(cfg, g, onmain, time.time())
-        elif g["id"] == gap["id"]:
-            fac.nack(f"queue: conflicts only with its batch-mates ({' '.join(files)})", count=False)
-    return batch, head
+    shas: dict = {}                                       # each gap's reviewed commit; None once sent back
+
+    def walk(order: list[dict]) -> tuple[list[tuple[dict, str]], str] | None:
+        batch, head, own = [], pre, False
+        for g in order:
+            mine = g["id"] == gap["id"]
+            if len(batch) >= n or (not mine and not own and shas.get(gap["id"], 1) and len(batch) >= n - 1):
+                continue                                  # (full, or the last slot kept for the run's own gap)
+            if g["id"] not in shas:
+                shas[g["id"]], why = reviewed(cfg, repo, g)
+                if not shas[g["id"]]:
+                    tell("gap.sent-back", g["id"], sent_back_by="queue", findings=[f"not merged: {why}"])
+            if not shas[g["id"]]:
+                continue
+            made, files = dry(repo, head, shas[g["id"]], message(g))
+            if made:
+                batch.append((g, shas[g["id"]]))
+                head, own = made, own or mine
+                continue
+            onmain = files if head == pre else dry(repo, pre, shas[g["id"]], message(g))[1]
+            if onmain:
+                refuse(cfg, g, onmain, time.time())
+                shas[g["id"]] = None
+            elif mine:
+                return None                               # only with batch-mates: walked again, the own gap first
+        return batch, head
+    order = sorted([gap, *others], key=key)
+    return walk(order) or walk([gap, *[g for g in order if g is not gap]]) or ([], pre)
 
 
 def waited_hours(g: dict, began: float) -> float:
