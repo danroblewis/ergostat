@@ -632,6 +632,9 @@ can hold up the engine: every line written to a daemon goes through a queue of i
 - **The model changes.** A daemon whose definition changed is sent `stop` and drained: its runs finish, and a
   new one, started at once, takes the new work. One whose definition is the same carries on untouched.
 - **ergostat stops.** Each daemon is sent `stop`, and killed if it has not exited within 10 seconds.
+- **ergostat restarts itself** (a new model's name or store, or its watchdog's last resort). Just before, every
+  daemon's process group is sent SIGTERM, then SIGKILL after at most 3 seconds in all; on the watchdog's restart
+  they are sent no `stop`, and the items they held are taken again when their leases end.
 
 The Agents page lists the daemons, each with its state (running, backoff, failed, stopped), its process, how many
 times it restarted, the last line it printed, the runs it holds, what it serves, and its CPU and memory. `ergostat status` shows a
