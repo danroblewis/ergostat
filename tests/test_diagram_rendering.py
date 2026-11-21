@@ -1285,6 +1285,45 @@ def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_o
     assert not errors, errors
 
 
+def test_a_snapshot_lists_a_process_lines_items(browser, tmp_path):
+    """From the file (snapshot_sets.py): a process map node's panel and a line's list their items, and the line's
+    Items page link shows them; nothing says "not in this snapshot", and nothing is asked of a server."""
+    from ergostat.web.snapshot import build
+    from tests.test_snapshot_sets import sets_project
+    (tmp_path / "m").mkdir()
+    out = tmp_path / "snapshot.html"
+    out.write_text(build(sets_project(tmp_path / "m")))
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors, asked = [], []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
+             else (asked.append(rt.request.url), rt.abort()))
+    pg.goto(f"file://{out}#/diagram?view=process")
+    pg.wait_for_function(READY, timeout=60000)
+    listed = "() => [...document.querySelectorAll('#detail .item-set table.item-list a')].map((a) => a.textContent).sort()"
+    pg.evaluate("() => openProcessNode(S.graph.nodes.find((n) => n.itemKind === 'ticket' && n.activity === 'awaiting'))")
+    pg.wait_for_selector("#detail .item-set table.item-list", timeout=20000)
+    assert pg.evaluate(listed) == [f"ticket/{i}" for i in range(1, 7)]
+    assert "not in this snapshot" not in pg.locator("#detail").inner_text()
+    for kind, want in (("caused", ["ticket/1", "ticket/2"]), ("follows", None)):
+        e = pg.evaluate(f"() => S.graph.edges.filter((e) => e.kind === '{kind}').sort((a, b) => b.count - a.count)[0]")
+        pg.evaluate("(id) => openProcessEdge(S.graph.edges.find((e) => e.id === id))", e["id"])
+        pg.wait_for_selector("#detail .item-set table.item-list", timeout=20000)
+        got = pg.evaluate(listed)
+        assert got == (want or got) and len(got) == min(10, e["items"]), (kind, got, e)
+        assert "not in this snapshot" not in pg.locator("#detail").inner_text()
+    pg.locator("#detail .item-set a[href^='#/items?']").first.click()          # the follows line's set
+    pg.wait_for_selector(".set-chip", timeout=20000)
+    pg.wait_for_function("(n) => [...document.querySelectorAll('.page table td:first-child')]"
+                         ".filter((t) => t.textContent.trim().startsWith('ticket/')).length === n", arg=len(got), timeout=20000)
+    shown = pg.evaluate("() => [...document.querySelectorAll('.page table td:first-child')].map((t) => t.textContent.trim())"
+                        ".filter((t) => t.startsWith('ticket/')).sort()")
+    assert shown == got
+    assert "not in this snapshot" not in pg.locator(".page").inner_text()
+    pg.close()
+    assert not errors and not asked, (errors, asked)
+
+
 # ---- the Process view in hand: the same dragging, pinning and unpinning as the other views (interact.js, places.js)
 
 PM_SLANTED = """() => {

@@ -915,9 +915,14 @@ the completion estimates (none at a moment travelled to), and the status's list 
 (`ergostat snapshot`) holds the Items page's list with no kind chosen; each kind chosen alone, its list (the
 first 500 of its items, as `items?kind=K` answers) and its list in each state it declares or counts; and the
 Graph and the Timeline of each system's related kinds together and of each kind alone, related or not. An
-answer that could not be got is left out, and the page says it is not in the snapshot. A set chosen (`where`,
-`moved`, a process map's `through`, `followed` or `caused`) is not held: in a snapshot it says so. The Process
-view draws relations too (§5b).
+answer that could not be got is left out, and the page says it is not in the snapshot. It also holds the item sets its own panels link to: each part's (a stock's, a
+flow's, a sensor's side-panel set) and each node's and line's of every process map it holds (a node's `through`, a
+related line's first end's `through`, a caused line's `caused`, any other line's `followed`, with the map's `by` and
+span). Each is held both as the side panel lists it and as the Items page opened from its link shows it, at most 400
+sets: parts first, then each map's nodes as the map lists them, then all the maps' lines by count, most first
+(equal counts as listed). A set named twice is held, and counted, once; one past the 400, or one the server refuses,
+is not held and says "not in this snapshot", as a set typed into the address does. The process map's other `by`
+and the leased items a flow's panel links to are not held. The Process view draws relations too (§5b).
 
 **Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
 letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what
