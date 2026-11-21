@@ -2891,6 +2891,19 @@ block's taken as its goal's; a system's subsystems each one node), never a run:
   act for no goal inside it (one with stocks and no blocks, a sector, is normal); goals in no described system, when
   the model has no `purpose:`.
 
+**Modes** (`ergostat/numbers/modes.py`; eigenvalue elasticity analysis, Kampmann 1996/2012, Saleh et al. 2010): only
+`explain` shows them, never `check`, which neither imports nor works them out. They are the eigenvalues of the
+stocks' Jacobian at the model's start, linearised by the same forward differences the time constants use (one
+evaluation of the equations, no run; the diagonal is the one `time-scales` reads). Only the stocks are states: a
+delay's stages are not. `explain` lists up to 8 modes, slowest first: each mode's λ per hour, its time constant 1/|Re λ|
+(or "grows, e-folding every τ"), its period when complex (a conjugate pair once, ±), its 3 strongest links by |ε| (the
+eigenvalue elasticity ε_ij = (a_ij/λ)·∂λ/∂a_ij; a link is each nonzero entry of the Jacobian, "stock.j → stock.i", or
+a stock's own; real modes show ε signed, complex ones |ε| and ε), and the stock it is most in (participation |w_k
+v_k|). `explain system.NAME` lists those most in a stock of the system. Over 40 stocks, modes are not worked out.
+In place of numbers it says why: a λ = 0 mode (a conserved quantity, or a stock nothing drains) or a repeated one
+has no elasticities; an eigenvector not found is said; and "Modes: not worked out" is printed when no equation reads
+a stock, the equations fail or fault at the start (by name), an entry is not finite, or QR does not converge.
+
 ## 12a. Feedback loops (system dynamics)
 
 Worked out, never written: every cycle of cause and effect through stocks, flows, auxiliaries,

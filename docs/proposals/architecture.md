@@ -69,7 +69,7 @@ than 10 times between neighbours (above 10, not at it), with the fast and slow p
 **Not computed.** A stock with no equation (measured only) has no time constant; most observed models are mostly
 such stocks, so the measure is silent on them until equations are fitted. A loop's closed-loop speed (its
 controller's period, its answer time from the record: `back_in` on the loop's panel) is not yet used; nor are
-the eigenvalues of the whole Jacobian (modes, not parts).
+the modes at the start (§4, `explain`) in `time-scales`.
 
 **Reads.** `system plant: its parts run on time scales 20 times apart: fast [stock.fast 6m], slow [stock.slow
 1h59m], linked within it. Each stock's own time constant is a screen, not the system's modes; if they hold, the
@@ -104,11 +104,14 @@ Davidsen, "A comprehensive analytical approach for policy analysis of system dyn
 aggregation, Simon and Ando 1961 and Iwasaki and Simon 1994.
 
 **Computed today.** Loops That Matter on the replay (`numbers/dominance.py`, each loop's panel): which loop drives
-each stock over the window. The count of loops inside each system and through it (`size`, below).
+each stock over the window. The count of loops inside each system and through it (`size`, below). The modes at
+the start and each link's eigenvalue elasticity (`numbers/modes.py`, shown by `explain` and `explain system.NAME`,
+never by `check`): the eigenvalues of the stocks' Jacobian, from the one Jacobian the time constants take (the
+same point, the same forward differences), for stocks only (a delay's stages are not states there), up to 40
+stocks; a λ = 0 or repeated mode, or a fault in the equations, is said instead of numbers (SPEC, *Modes*).
 
-**Not computed.** Eigenvalue elasticity needs the Jacobian over time and its eigenvectors: one Jacobian is already
-taken for time constants, so the elasticities at the start are a small step; over the replay they are a
-simulation, kept out of `check`. Aggregation (a group of parts no dominant loop runs through, replaced by one
+**Not computed.** Eigenvalue elasticity over the replay (the Jacobian over time): a simulation, kept out of
+`check`. Aggregation (a group of parts no dominant loop runs through, replaced by one
 stock or one delay) follows from dominance per system over a long record: the AI rung's proposal, with LTM as its
 evidence.
 

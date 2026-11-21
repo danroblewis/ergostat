@@ -154,6 +154,12 @@ def test_inverse_iteration_at_an_exact_eigenvalue_finds_the_vector():
         _close([[links.get((i, j), 0) for j in XY] for i in XY], want)
 
 
+def test_an_eigenvector_not_found_is_said(monkeypatch):
+    monkeypatch.setattr(md, "vector", lambda J, lam, left=False: None)
+    for m in md.of_matrix([[-1.0, 1.0], [-2.0, -4.0]], XY).modes:
+        assert m.links is None and m.why == md.LOST and m.most_in is None
+
+
 def test_qr_that_does_not_converge_says_why(monkeypatch):
     J = [[-1.0, 2.0, 0.5], [-1.0, -1.0, 1.0], [0.3, 1.0, -3.0]]
     refs = ["stock.a", "stock.b", "stock.c"]
