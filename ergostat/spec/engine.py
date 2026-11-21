@@ -427,7 +427,8 @@ class Engine:
                     if tick:
                         names |= {n for n, on in self.was_commanded.items() if on and n not in self.running}
                     pos = w["mpos"]
-                    names &= {b.name for b in self.machines}            # (its shard's: SPEC §9.8)
+                    if self.shard is not None:                          # (its shard's: SPEC §9.8)
+                        names &= {b.name for b in self.machines}
                     todo = [b for b in sorted((self.spec.blocks[n] for n in names if n in pos), key=lambda b: pos[b.name])
                             if self.due(b, events)]
             if events:

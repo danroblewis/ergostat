@@ -100,3 +100,11 @@ Not done by shard (said in SPEC §9.8): the owner's asks (`_follow`), the lead's
 (`engine-runs-its-shard-2`), and wires (`shard-wires`). Two more are outside this definition's lists and are left as
 they are: a block's moving a flow asks for that flow's stocks' sensors to read (`after_acting`) wherever those stocks
 are, and an estimate read from another shard is not carried.
+
+After the factory's unit run failed (its tail was cut off at 14%, with no failing test named): every unit file was
+run again here, alone or in groups under `-n 4` (the whole suite at once was not allowed in this session). All
+passed except four tests in `tests/test_index_files.py`. Those pass alone and fail only when they share a worker
+with `test_backlog.py`, `test_factory.py` or `test_factory_times.py`: those tests put `dev/bin` (which has a
+`queue.py`) on `sys.path`, so a spawned child then imports the wrong `queue`. That comes from main, not from this
+branch (lesson-13), and is not fixed here. One change was made: the incremental pass's filter on its shard's machine
+blocks now runs only for a shard engine, so with `shard=None` a pass does no new O(blocks) work.
