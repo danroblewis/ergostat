@@ -3366,9 +3366,13 @@ def parts_page(browser, tmp_path_factory):
 
 
 def chain(parts: int = 261) -> tuple[list[dict], dict, dict]:
-    """A straight chain along x: parts p000.., each joined to the next (line l000 from p000 to p001, ...)."""
-    conns = [{"id": f"l{i:03d}", "s": f"p{i:03d}", "t": f"p{i + 1:03d}"} for i in range(parts - 1)]
-    return conns, {f"p{i:03d}": [i * 10, 0] for i in range(parts)}, {c["id"]: "s0" for c in conns}
+    """A straight chain along x, each part joined to the next (conns[i] from the i-th to the next); the parts' and the
+    lines' ids in no order of x, so that only their positions put them in order."""
+    import random
+    ids = [f"p{n:03d}" for n in random.Random(3).sample(range(parts), parts)]
+    lines = [f"l{n:03d}" for n in random.Random(4).sample(range(parts - 1), parts - 1)]
+    conns = [{"id": lines[i], "s": ids[i], "t": ids[i + 1]} for i in range(parts - 1)]
+    return conns, {p: [i * 10, 0] for i, p in enumerate(ids)}, {c["id"]: "s0" for c in conns}
 
 
 def check_parts(conns: list[dict], given: dict, at: dict, out: dict) -> dict:
@@ -3417,6 +3421,7 @@ def test_a_chain_over_the_cap_is_cut_into_bands(parts_page):
     assert len(bands) >= 3 and all(g.startswith("s0#") for g in bands), sizes
     shared = sorted(i for i, g in r["groups"].items() if g == "")
     assert len(shared) == len(bands) - 1, (shared, sizes)            # one line at each cut, and only those
+    assert sizes == {"s0#0": CAP, "s0#1": CAP, "s0#2": 58, "": 2}, sizes   # each band as full as the cap lets it
     assert len(sizes) <= bound(len(conns)) and not r["free"]
     # the same inputs as sets: the lines in another order, the positions in reverse key order
     import random
@@ -3453,9 +3458,10 @@ def test_groups_within_the_cap_are_returned_unchanged(parts_page):
 
 def test_a_part_with_no_position_sends_its_lines_to_the_shared_group(parts_page):
     conns, at, given = chain()
-    del at["p150"]
+    # the 51st part along x, its lines conns[49] and conns[50]: taken as at 0, it would be in its neighbours' band
+    del at[conns[50]["s"]]
     r = parts_page.evaluate(PART_GROUPS, [conns, at, given])
-    assert r["groups"]["l149"] == "" and r["groups"]["l150"] == ""
+    assert r["groups"][conns[49]["id"]] == "" and r["groups"][conns[50]["id"]] == ""
     sizes = check_parts(conns, given, at, r["groups"])
     assert sum(1 for g in sizes if g) >= 3, sizes
 
