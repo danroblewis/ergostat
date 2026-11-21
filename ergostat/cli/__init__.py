@@ -67,7 +67,7 @@ AI sessions and programs: where they work and what they may do
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
-  item           The items (ticket/12): each one's kind, state and fields, folded from its events
+  item           The items (ticket/12): each one's kind, state and fields, folded from its events; --search WORDS
   lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
   operating      The operating states: rank, pool, entered or left (enter NAME --why TEXT, leave NAME --why TEXT)
   decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
@@ -210,6 +210,9 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("-n", type=int, default=30, help="how many (default 30)")
     i.add_argument("--kind", help="only items of this kind")
     i.add_argument("--state", help="only items in this state")
+    i.add_argument("--search", metavar="WORDS", help="only items whose fields' text contains every word (1 to 8; case "
+                                                     "ignored; a plain substring, no ranking; the first 65,536 "
+                                                     "characters of each item's text)")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")

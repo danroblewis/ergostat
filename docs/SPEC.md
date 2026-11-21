@@ -723,6 +723,20 @@ changes and how many there were, all with `history=all`). An item can be read as
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
 
+**Search.** `ergostat item --search "WORDS" [--kind K] [--state S] [-n N] [--json]` and `/api/items?search=WORDS`
+(with `kind`, `state`, `n` and `offset` as the listing takes them) list the items whose text contains every word, newest
+first, in the listing's shape. An item's text is the string values of its fields, nested ones too, in the document's
+order, casefolded (Python's `str.casefold`, as the words are: `STRASSE` finds `straße`); keys, numbers and its id are
+not in it. A word matches as a plain substring (`alpha` finds `alphabet`; `%` and `_` are only themselves): there is no
+ranking and no fuzzy match. Only the first 65,536 characters of an item's text are kept (`items.TEXT_MOST`): a word
+past them is not found. A search is 1 to 8 words; an empty one, or more, is refused (exit 2, HTTP 400), never answered
+with every item. It answers as of now: with `--at` (or `at=`) it is refused. It narrows by kind and one state only:
+`/api/items?search=` with a set's filters (`where`, `moved`, `through`, `followed`, `caused`, `alone`, a list of
+states) is refused (HTTP 400), never answered with the filter dropped. The text is kept in the item index,
+on the item's own row, written with it and replaced each time the item is folded again (a changed field, a `set`, a
+snapshot), and gone when the item is; an index from before it is rebuilt from the record, and a row without its text
+has the index rebuilt before a search reads it. The Items page's own search box is apart from this.
+
 **Relations.** An item may name other items: a ticket blocked by another, a ticket's epic, a duplicate. A kind
 declares its relations, each a field of the item holding the ids it names, of the kinds it says (any kinds:
 cross-kind is the usual case):
@@ -2490,6 +2504,14 @@ are taken at most one a second; more are dropped.
   drained: its runs finish under the old model, and once it holds none it is killed if it has not ended within the
   grace. A new one, started at once, takes the new work. One whose definition is the same carries on.
 - **ergostat stopping**: each is sent `stop`, and killed if it has not ended within the grace.
+- **ergostat restarting itself** (its process started again in place: a new model's name, format or store, or the
+  watchdog's last resort): just before, every daemon process group it started and has not seen end is sent SIGTERM,
+  and SIGKILL goes to what is left after one wait shared by all of them, the grace but at most 3 s, however many there
+  are. Nothing it waits on takes the supervisor's lock, and a daemon spawned meanwhile kills its own group at once.
+  On a restart for a new model the daemons were first sent `stop` as when ergostat stops; this catches what that
+  left (a warm process being killed, a group still waiting for its SIGKILL). On the watchdog's restart they are sent
+  no `stop` and not drained: their groups get SIGTERM, then SIGKILL after at most 3 s, their runs are not recorded by
+  the old process, and the items they leased are taken again when their leases end.
 
 Its state is written to `<state>/daemons.json` every 2 s (running, backoff, failed or stopped; its pid, restarts,
 last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
