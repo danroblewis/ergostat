@@ -1051,7 +1051,8 @@ class Engine:
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
                     elif code and not note:
-                        note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
+                        note = (old.STOPPED_WITH_US if old.STOPPING.is_set() or self.stop.is_set()
+                                else STOPPED_BY_OWNER if asked else f"exited {code}")
         finally:                                                 # its entry in the block's log, whole, as it ends
             if rl is not None:
                 from ..repair.capture import TAIL
@@ -1868,7 +1869,7 @@ class Engine:
         # A run still going: its lease given back, not counted (SPEC §9.5). Its process outlived kill_all (or a daemon
         # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
         # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
-        self.dispatch.give_back()
+        self.dispatch.give_back()                # (and every lease still held here, its run's own end failed)
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 
