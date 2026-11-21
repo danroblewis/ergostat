@@ -54,6 +54,13 @@ implementor_max = 4                  # the most each may reach (the blocks' pool
 reviewer_max = 2
 streak = 3                           # good gaps in a row before an increase is asked for
 
+[resources]                          # the machine (dev/model/resources.yaml holds the setpoints)
+session_cpus = 0.5                   # one session's use until three are measured (run/resources/sessions.jsonl)
+session_memory_gb = 1.0
+suite_cpus = 4.0                     # one of its suites' (in a container of 4 CPUs and 12 GB)
+suite_memory_gb = 4.0
+session_keep_hours = 24              # session folders and installs younger than this are never cleaned up
+
 [instance]
 port = 8798
 

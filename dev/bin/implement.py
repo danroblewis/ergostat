@@ -120,7 +120,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
     text += conflict_brief(base_sha, conflicts) if conflicts else ""
     context["brief"] = brief.save(cfg, "implementor", gap, text)
     context["round"], context["merge_conflicts"] = rounds, conflicts
-    cost, sessions = 0.0, 0
+    cost, sessions, used = 0.0, 0, []
     logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
     seen: dict[str, bool] = {}                                  # tests run on main in this run: failed there?
@@ -136,16 +136,19 @@ def build(cfg: dict, given: dict, began: float) -> int:
             fac.nack(f"budget: {e}", after="1h", count=False)
             return 0
         cost, sessions = cost + float(got.get("total_cost_usd") or 0), sessions + 1
+        used += [got["resources"]] if got.get("resources") else []
         head = was = agents.finish(cfg, home, branch, base_sha, held, base_sha, was=was)   # (main merged in, and
         fac.wait_quiet(cfg)                                     # the branch where it was given: refused when not)
         suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
                                        deadline, seen, retried)
+        used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
         if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
             break
     net = fac.net_lines(agents.drop(cfg), cfg["git"]["base"], head)
     record = dict(rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
                   net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
-                  build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:])
+                  build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:],
+                  resources=used)
     if suites.get("flakes"):
         record["flakes"] = suites["flakes"]
     broken = sorted(t for t, bad in seen.items() if bad)        # (found in any round of this run)
