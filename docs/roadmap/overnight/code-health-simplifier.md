@@ -163,3 +163,15 @@ test read the real file. Fixed, each the more reversible reading:
 
 Run here, one file at a time: this file's tests (10 passed), `tests/test_code_health_coverage.py` (11 passed),
 `tests/test_factory.py` (102 passed, 2 skipped), and ruff clean. Not run: the full unit suite and the four browser files.
+
+### After the factory's unit run failed
+
+The factory's unit run failed with two tests, but its tail did not name them, and the shell was refused for most of
+this session. By reading, the likely cause was this file's `simp` fixture. It loads a `fac` of its own, and the
+dev/bin modules that `simplify.py` imports (`measure`, `parks`, `times`, `brief`, `knowledge`) stayed in
+`sys.modules` bound to that `fac`. A later test on the same xdist worker (`pools.py`'s `import measure`, or
+`manager.py`) would then import them bound to a `fac` it never patched. Fixed: the fixture removes each dev/bin module
+that it brought into `sys.modules`. Run: this file (10 passed), and in one process this file followed by
+`tests/test_factory_resources.py`, `tests/test_factory_manager.py` and `tests/test_factory_sessions.py` (43 passed),
+and ruff clean. Not shown: that the old fixture fails that same combination (the run was refused). The two failing
+tests are therefore not confirmed, and the factory's unit run is the check.
