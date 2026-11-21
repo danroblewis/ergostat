@@ -23,3 +23,40 @@ depends-on: []
 
 ## Size budget
 80 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1, 2026-11-21. **Not measured: item 1 is not done, and nothing here has run in a browser.** This container has
+no Playwright in the project environment, and the command that adds it (`uv run --with playwright==1.63.0 python -m
+pytest ...`) was refused, so `tests/test_page_polling.py` skips here as a whole. Every number this definition asks for
+is still to be taken, by the factory's browser run or the next round.
+
+What reading the code found (a reading, not a measurement):
+- One refresh of the Dynamics view builds the whole drawing aside and swaps it in with one synchronous
+  `svg.replaceChildren(vp)` (`ergostat/web/static/diagram.js` `drawGraph`). Refreshes come from `poll()`
+  (`util.js`), which never runs two at once. The router's redraw (`avoid.js` `avoidStart` → `S.redraw`) is also
+  synchronous and only runs for the layout now shown. No global keeps an old drawing's elements (only
+  `S.sideChartsEl` and `S.legendEl` hold elements, one each, kept on purpose). Listeners are put on the new elements
+  and go away with them.
+- So an old drawing can only be counted while it is not yet collected. That happens when a refresh's draw slips in
+  between the test's look and its read. The failures fit this: the growths (2717, 1334, 779) are not multiples of
+  one drawing, and they passed on retest. A pile-up would grow by whole drawings, every run.
+
+What was built, on that reading (item 3, the most reversible choice: tests only, no page code, the bound unchanged):
+- `idle_metrics`: a read taken only between refreshes. No poll is running and no lines are being routed before the
+  collection, and `S.drawN` is the same before and after it. If a drawing slipped in, the read is taken again. With no
+  such read before the deadline, the test fails (lesson-3).
+- `quiet_metrics`: two such reads with the same nodes and listeners. Past `SETTLE_S` it returns the last read,
+  however high, so growth that never stops still meets the same bound. `settle` and the end read of
+  `test_a_page_left_open_does_not_grow` now use these reads.
+- `test_dynamics_open_stays_bounded_over_30_refreshes` and `..._when_refreshes_overlap` run on
+  `scripts/scale_model.py 20` (`POLL_SCALE_N`). They read nodes and listeners every 5 of 30 refreshes, and each read
+  must stay within the existing bound. The second throttles the CPU 4x through CDP once the page has settled, and
+  starts three whole relayouts (`S.relayout()`) while the poll's own refresh is on its way, so two refreshes overlap.
+
+Left:
+1. Run both acceptance tests and the old parametrized test in a browser. Write the printed series here (item 1).
+2. If either grows, the reading above is wrong and the leak is in the page: fix it there (item 2). The tests stay.
+3. Lesson-9 not done: break the code and watch the tests fail. For example, keep each old `vp` in a global array in
+   `drawGraph`; both new tests should then fail.
+4. The unit suite and the four browser files were not run here. Only ruff ran.
