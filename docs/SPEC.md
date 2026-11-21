@@ -2393,6 +2393,14 @@ are taken at most one a second; more are dropped.
   drained: its runs finish under the old model, and once it holds none it is killed if it has not ended within the
   grace. A new one, started at once, takes the new work. One whose definition is the same carries on.
 - **ergostat stopping**: each is sent `stop`, and killed if it has not ended within the grace.
+- **ergostat restarting itself** (its process started again in place: a new model's name, format or store, or the
+  watchdog's last resort): just before, every daemon process group it started and has not seen end is sent SIGTERM,
+  and SIGKILL goes to what is left after one wait shared by all of them, the grace but at most 3 s, however many there
+  are. Nothing it waits on takes the supervisor's lock, and a daemon spawned meanwhile kills its own group at once.
+  On a restart for a new model the daemons were first sent `stop` as when ergostat stops; this catches what that
+  left (a warm process being killed, a group still waiting for its SIGKILL). On the watchdog's restart they are sent
+  no `stop` and not drained: their groups get SIGTERM, then SIGKILL after at most 3 s, their runs are not recorded by
+  the old process, and the items they leased are taken again when their leases end.
 
 Its state is written to `<state>/daemons.json` every 2 s (running, backoff, failed or stopped; its pid, restarts,
 last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
