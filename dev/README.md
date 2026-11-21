@@ -13,7 +13,7 @@ It ships **off**: the implementor takes nothing until you open the intake.
 | | |
 |---|---|
 | `~/ergostat` | the checkout the queue merges into, runs the suites in, and pushes from. Never the instance's code |
-| `~/ergostat-live/drop.git` | the factory's own bare repository: each gap's work, on `factory/<branch>`, as the sessions bundled it back; the queue fetches the reviewed commit from it |
+| `~/ergostat-live/drop.git` | the factory's own bare repository: each gap's work, on `factory/<branch>`, as the sessions bundled it back; the queue fetches the reviewed commit from it. Its main is fetched under `drop.git.lock` beside it, one session at a time |
 | `~/ergostat-live/sessions/` | each session's clone (made from the drop, never the owner's repository) |
 | `~/ergostat-live/<sha>` | each installed version: a detached worktree with its own `.venv` |
 | `~/ergostat-live/current`, `previous` | the version running, and the one a revert goes back to |
