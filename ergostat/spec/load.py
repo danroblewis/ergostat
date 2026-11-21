@@ -142,6 +142,7 @@ class Document:
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
     problems: list[Problem] = field(default_factory=list)
     library: list[Path] = field(default_factory=list)   # the owner's folders of templates (library:, main file only)
+    untrusted_library: set[Path] = field(default_factory=set)   # those of them declared untrusted (SPEC §2a)
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
@@ -237,12 +238,18 @@ def load(main: Path) -> Document:
         if "library" in data:
             if top:
                 lib = data["library"]
-                lib = [lib] if isinstance(lib, str) else lib
-                if not isinstance(lib, list) or not all(isinstance(x, str) for x in lib):
-                    doc.problems.append(Problem("error", "library: a folder of templates, or a list of them", data.at("library"),
+                lib = [lib] if isinstance(lib, str | dict) else lib
+                if not isinstance(lib, list) or not all(isinstance(x, str) or (
+                        isinstance(x, dict) and set(x) == {"folder", "untrusted"} and isinstance(x["folder"], str)
+                        and isinstance(x["untrusted"], bool)) for x in lib):
+                    doc.problems.append(Problem("error", "library: a folder of templates (trusted), or {folder: PATH, "
+                                                "untrusted: true|false}, or a list of them", data.at("library"),
                                                 "bad-library"))
                 else:
-                    doc.library = [(path.parent / Path(x).expanduser()).resolve() for x in lib]
+                    doc.library = [(path.parent / Path(x if isinstance(x, str) else x["folder"]).expanduser()).resolve()
+                                   for x in lib]
+                    doc.untrusted_library = {d for d, x in zip(doc.library, lib, strict=True)
+                                             if isinstance(x, dict) and x["untrusted"] is True}
             else:
                 doc.problems.append(Problem("error", "library: belongs in the main file only", data.at("library"),
                                             "library-in-include"))

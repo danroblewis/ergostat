@@ -38,7 +38,7 @@ from .. import runner as old
 from ..costs import ai as costs_ai
 from ..costs import record as costs_record
 from ..costs.sampler import SAMPLER, Measured
-from ..library import reap
+from ..library import bounds, reap
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
 from . import blocks as bl
@@ -111,6 +111,7 @@ class Engine:
         self.outputs: dict[str, dict[str, float]] = {}   # machine block → port → its last command (held)
         self.commands: dict[str, dict] = {}            # machine block → its last command's detail
         self.running: set[str] = set()
+        self.untrusted_runs: set[str] = set()          # those of them an untrusted library's block began (library/bounds.py)
         self.judge_next: dict[str, float] = {}         # judge block → when its next pass is due (monotonic): it backs off idle
         self.judge_idle: dict[str, int] = {}           # judge block → its passes in a row that moved nothing
         self.finished: dict[str, float] = {}
@@ -674,10 +675,13 @@ class Engine:
         if b.name in self.running or b.takes or b.on:         # started by the items it takes, or by its events
             return False
         cmd, _ = self.command_of(b)
+        gap = bounds.pace(self.spec, b, b.every)                # (an untrusted library's: never under its floor)
         if cmd is None:
             if b.every or b.cron:
                 return False                                    # on its own schedule
             data = [r for r in b.inputs.values() if r.kind != "block"]
+            if gap and time.time() - self.began.get(b.name, 0.0) < gap:
+                return False
             return bool(data) and self.last_reading > self.finished.get(b.name, 0.0)
         on = bool(cmd)
         rising = on and not self.was_commanded.get(b.name)
@@ -695,7 +699,7 @@ class Engine:
         flows = [t.name for t in b.targets() if t.kind == "flow"]
         if any(s.series in self.reading for s in self.after_acting(flows)):
             return False                                        # its last effect is not read yet: never outrun its sensors
-        if b.every and time.time() - self.began.get(b.name, 0.0) < b.every:
+        if gap and time.time() - self.began.get(b.name, 0.0) < gap:
             return False                                        # paced: a commanded block runs at most every `every`
         return rising or self.fresh_for(b, flows) > self.finished.get(b.name, 0.0)
 
@@ -729,7 +733,9 @@ class Engine:
             b = self.spec.blocks.get(b.name)                    # a new run starts under the model as it is now
             if b is None or not b.machine:                      # (removed, or no longer a machine: no more runs)
                 return False
-            self.running.add(b.name)
+            if not bounds.room(self, b):                        # an untrusted library's runs at once: counted and
+                return False                                    # added under this one lock (SPEC §2a)
+            bounds.hold(self, b.name, b)
             self.began[b.name] = time.time()
             spec, version = self.spec, self.version
         threading.Thread(target=self._run, args=(b, why, spec, version, extra, cause), daemon=True).start()
@@ -1174,7 +1180,7 @@ class Engine:
             with self.lock:
                 self.running.discard(b.name)
         if b.judge_mode != "intent":                   # nothing new to judge: it backs off (judge.pause)
-            every = b.every or JUDGE_EVERY
+            every = bounds.pace(spec, b, b.every or JUDGE_EVERY)
             wait = jd.pause(got, every, self.judge_idle.get(b.name, 0))
             self.judge_idle[b.name] = 0 if wait <= every else self.judge_idle.get(b.name, 0) + 1
             self.judge_next[b.name] = time.monotonic() + wait
@@ -1462,7 +1468,8 @@ class Engine:
                 except Exception as e:
                     self.say(f"schedules: {type(e).__name__}: {e}")
                 mono = time.monotonic()                          # a shorter every holds from now; a longer, from the next
-                for k, every in [(s.series, s.every or 60.0) for s in timed] + [(f"block/{b.name}", b.every) for b in timed_blocks]:
+                for k, every in [(s.series, bounds.pace(spec, s, s.every or 60.0)) for s in timed] + [
+                        (f"block/{b.name}", bounds.pace(spec, b, b.every)) for b in timed_blocks]:
                     if k in due:
                         due[k] = min(due[k], mono + every)
                 heap = [(due.get(s.series, 0.0), i) for i, s in enumerate(timed)]
@@ -1474,20 +1481,22 @@ class Engine:
                 if due.get(s.series, 0.0) > mono:               # another sensor of its series just read: due with it
                     heapq.heappush(heap, (due[s.series], i))
                     continue
-                due[s.series] = mono + (s.every or 60.0)
+                due[s.series] = mono + bounds.pace(spec, s, s.every or 60.0)
                 heapq.heappush(heap, (due[s.series], i))
                 self.read_soon(s)
             for b in timed_blocks:
                 k = f"block/{b.name}"
                 if mono >= due.get(k, 0):
-                    due[k] = mono + b.every
+                    due[k] = mono + bounds.pace(spec, b, b.every)
                     self.start(b, "schedule")
             for b in judges:                                     # the judge: built in, on its own clock (SPEC §12e)
                 k = f"block/{b.name}"
                 if mono >= due.get(k, 0) and mono >= self.judge_next.get(b.name, 0) and b.name not in self.running:
-                    due[k] = mono + (b.every or JUDGE_EVERY)
+                    due[k] = mono + bounds.pace(spec, b, b.every or JUDGE_EVERY)
                     with self.lock:
-                        self.running.add(b.name)
+                        if not bounds.room(self, b):             # (an untrusted library's judge counts as a run)
+                            continue
+                        bounds.hold(self, b.name, b)
                     threading.Thread(target=self.judge, args=(b,), daemon=True).start()
             if self.spec.contexts and mono >= due.get("contexts", 0):   # outcomes found later (an item kept, reopened)
                 due["contexts"] = mono + OUTCOMES_EVERY

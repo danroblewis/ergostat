@@ -1,0 +1,65 @@
+{
+ "full": {
+  "template": "plain",
+  "description": "A stock of work and a block that drains it, as the owner wrote it.",
+  "from": "OWNERS",
+  "params": {
+   "every": {
+    "type": "duration",
+    "description": "how often it runs",
+    "default": "10m"
+   },
+   "limit": {
+    "type": "integer",
+    "description": "how many at most",
+    "default": 3,
+    "min": 1,
+    "max": 9
+   },
+   "mode": {
+    "type": "string",
+    "description": "which way",
+    "default": "fast",
+    "choices": [
+     "fast",
+     "slow"
+    ]
+   },
+   "flags": {
+    "type": "strings",
+    "description": "some words",
+    "default": [
+     "a",
+     "b"
+    ]
+   },
+   "live": {
+    "type": "bool",
+    "description": "on or off",
+    "default": true
+   },
+   "command": {
+    "type": "command",
+    "description": "the source",
+    "stand-in": "a made-up feed"
+   }
+  },
+  "reading": "System dynamics: one stock, drained by one flow.\nControl: a program on a timer.",
+  "example": "uses:\n  w:\n    use: plain"
+ },
+ "list": [
+  {
+   "template": "plain",
+   "description": "A stock of work and a block that drains it, as the owner wrote it.",
+   "from": "OWNERS",
+   "params": [
+    "every",
+    "limit",
+    "mode",
+    "flags",
+    "live",
+    "command"
+   ]
+  }
+ ]
+}

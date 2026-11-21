@@ -7,6 +7,7 @@ from ..spec.ir import NAME
 from ..spec.load import SECTIONS, Map, Problem, Where
 from . import templates as tp
 from .expand import MAX_DEPTH, USE_KEYS, ExpandError, Via, expand
+from .untrusted import FILE, LABEL, mark
 
 
 def as_map(x, where: Where):
@@ -23,7 +24,7 @@ def as_map(x, where: Where):
 def library(doc) -> dict[str, tp.Template]:
     got = getattr(doc, "_templates", None)
     if got is None:
-        got, notes = tp.find_all(doc.library)
+        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted_library", set()))
         doc._templates, doc._template_notes = got, notes
         for n in notes:
             doc.problems.append(Problem("finding", n, None, "template-library"))
@@ -41,7 +42,9 @@ def take(doc, data: Map, defaults: dict, put, depth: int = 0, within: str | None
         one(doc, str(inst), entry, w, defaults, put, depth, within)
 
 
-def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int, within: str | None) -> None:
+def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int, within: str | None,
+        untrusted: bool = False) -> None:
+    """One instance; ``untrusted``: it sits inside an instance whose template, or whose own chain, is untrusted."""
     def err(msg, where=None, code="bad-use"):
         doc.problems.append(Problem("error", f"use {inst}: {msg}", where or w, code, f"system.{inst}"))
 
@@ -68,6 +71,9 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         if prior is not None:
             return err(f"{t.name} is used at most once a model (already as {prior}, at {doc.uses[prior]['where']})", at,
                        "used-twice")
+    untrusted = untrusted or t.untrusted                     # its own template, or any instance it sits inside
+    label = LABEL.format(t.name) if tp.SAFE.match(t.name) else FILE     # (a label is never library text)
+    said = (lambda x: mark(x, label)) if untrusted else str
     given = entry.get("with") or {}
     if not isinstance(given, dict):
         return err("with: a map of the template's parameters", entry.at("with"), "not-a-map")
@@ -77,7 +83,7 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         made = expand(t, inst, dict(given))
     except ExpandError as e:
         for msg, key in getattr(e, "all", [(str(e), e.key)]):
-            err(msg, given.at(key) if key and hasattr(given, "at") else at, "bad-param")
+            err(said(msg), given.at(key) if key and hasattr(given, "at") else at, "bad-param")
         return
     via = Via(at.file if at else doc.root, at.line if at else 1, t.name, inst)
     parent = entry.get("within") or within or (None if t.once else defaults.get("system"))   # once a model: the model's
@@ -92,14 +98,14 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         if section == "uses":
             continue
         if section not in SECTIONS:
-            err(f"template {t.name} writes {section}:, which is not a section", at, "bad-template")
+            err(said(f"template {t.name} writes {section}:, which is not a section"), at, "bad-template")
             continue
         for name, got in entries.items():
             put(section, name, as_map(got, via), via, {})
     doc.uses[inst] = {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once, "values": made.values,
-                      "standins": made.standins, "where": via, "within": parent, "depth": depth}
+                      "standins": made.standins, "where": via, "within": parent, "depth": depth, "untrusted": untrusted}
     if made.standins:
-        doc.problems.append(Problem("finding", f"use {inst}: runs on free stand-ins ({'; '.join(made.standins)}); "
+        doc.problems.append(Problem("finding", f"use {inst}: runs on free stand-ins ({said('; '.join(made.standins))}); "
                                     f"give them under with: to run it for real", via, "template-stand-in", f"system.{inst}"))
     for sub, e in (made.sections.get("uses") or {}).items():
-        one(doc, sub, as_map(e, via), via, {}, put, depth + 1, inst)
+        one(doc, sub, as_map(e, via), via, {}, put, depth + 1, inst, untrusted)

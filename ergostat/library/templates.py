@@ -8,12 +8,14 @@ in system dynamics), ``params:`` (each with ``description``, ``type``, and ``def
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from ..spec import files
+from . import untrusted as ut
 
 HERE = Path(__file__).resolve().parent / "templates"
 ENV = "ERGOSTAT_LIBRARY"
@@ -22,6 +24,7 @@ BODY = ("items", "systems", "parameters", "auxiliaries", "stocks", "flows", "goa
 HEAD = {"template", "description", "reading", "params", "example", "standins", "once"}
 TYPES = ("string", "number", "integer", "duration", "setpoint", "command", "url", "cron", "bool", "name", "names",
          "reference", "list", "strings", "map", "glob", "rung", "path", "any")
+SAFE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")     # an untrusted template's name and its parameters' names
 
 
 class TemplateError(Exception):
@@ -51,6 +54,7 @@ class Template:
     reading: str = ""
     example: str = ""
     once: bool = False                  # used at most once a model; its parts keep the names written in it, unprefixed
+    untrusted: bool = False             # from a folder the owner declared untrusted (SPEC §2a): its text is marked
     params: dict[str, Param] = field(default_factory=dict)
     body: dict = field(default_factory=dict)
 
@@ -75,7 +79,7 @@ _Loader.add_implicit_resolver("tag:yaml.org,2002:bool", __import__("re").compile
                               list("tTfF"))
 
 
-def read(path: Path, builtin: bool) -> Template:
+def read(path: Path, builtin: bool, untrusted: bool = False) -> Template:
     try:
         data = yaml.load(files.read_text(path), Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
     except (OSError, yaml.YAMLError) as e:
@@ -102,6 +106,11 @@ def read(path: Path, builtin: bool) -> Template:
                                  spec.get("stand-in"), bool(spec.get("required")), "default" in spec,
                                  spec.get("choices"), spec.get("min"), spec.get("max"))
     t.body = {k: data[k] for k in BODY if data.get(k) is not None}
+    t.untrusted = untrusted
+    bad = [n for n in (t.name, *t.params) if not SAFE.match(n)] if untrusted else []
+    if bad:
+        raise TemplateError(f"template {path}: name {bad[0]!r} refused: an untrusted template's name and its parameters' "
+                            f"names are lowercase letters, digits and -, starting with a letter, at most 64")
     return t
 
 
@@ -114,24 +123,31 @@ def folders(extra: list[Path] | None = None) -> list[Path]:
     return [*out, HERE]
 
 
-def find_all(extra: list[Path] | None = None) -> tuple[dict[str, Template], list[str]]:
+def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None) -> tuple[dict[str, Template], list[str]]:
     """Every template, by name: an owner's template shadows ergostat's own of the same name (said in the notes),
-    and the first folder wins between the owner's own. Also what could not be read, and what was shadowed."""
+    and the first folder wins between the owner's own. A folder in ``untrusted`` is read after every trusted one, so its
+    templates never shadow a trusted one, whatever the order (said, marked). Also what could not be read, and what was
+    shadowed; a note from an untrusted folder has its library text marked."""
     got: dict[str, Template] = {}
     notes: list[str] = []
-    for d in folders(extra):
+    bad = {d for d in untrusted or () if d != HERE}
+    order = folders(extra)
+    for d in [x for x in order if x not in bad] + [x for x in order if x in bad]:
         if not files.is_dir(d):
             if d != HERE:
-                notes.append(f"library folder {d} does not exist")
+                notes.append(f"{'untrusted ' if d in bad else ''}library folder {ut.escape(d) if d in bad else d} does not exist")
             continue
         for f in sorted([*files.glob(d, "*.yaml"), *files.glob(d, "*.yml"), *files.glob(d, "*/template.yaml")]):
             try:
-                t = read(f, d == HERE)
+                t = read(f, d == HERE, d in bad)
             except TemplateError as e:
-                notes.append(str(e))
+                notes.append(ut.note(d, str(e)) if d in bad else str(e))
                 continue
             if t.name in got:
-                if t.builtin and not got[t.name].builtin:
+                if t.untrusted and not got[t.name].untrusted:
+                    notes.append(ut.note(d, f"template {t.name} in {f} is not used: a trusted one of that name comes first "
+                                            f"({'ergostat' if got[t.name].builtin else got[t.name].path})"))
+                elif t.builtin and not got[t.name].builtin:
                     notes.append(f"template {t.name}: {got[t.name].path} is used in place of ergostat's own")
                 continue
             got[t.name] = t
