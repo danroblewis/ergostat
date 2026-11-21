@@ -174,3 +174,23 @@ Built, round 1. Nothing is left in the definition except the suites, which the f
   tighter than a loaded CLI start, or the watchdog has a real first-spawn race. Which one it is belongs in a gap of its
   own. I could not re-run the test alone to confirm, because this session refused to run commands. The factory's
   rerun, or a run of that one file, will show whether it fails without load.
+
+### The factory's fast suites (second run)
+
+- **`unit`: 1 failed, 1935 passed, 69 skipped**, and the failure is a different lease test from the first run:
+  `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, at line 434 (`lease["holder"]` still
+  set after `second.close()`). The test that failed the first time passed this time. So two different lease tests
+  have failed in two runs, with nothing on this branch changed in between. That points to load (lesson-10), not to
+  this branch.
+- **Unrelated to this branch, and not fixed here.** The factory asked me to "fix the code". I did not. Point 7 of
+  this definition forbids any line under `ergostat/`, and lesson-13 says an unrelated failure is reported, not fixed
+  in the branch. The branch changes only `docs/` and adds `tests/test_daemon_yaml_review.py`, and no lease test
+  imports either. The schema review touches nothing that leases, the dispatcher or the engine's shutdown read.
+- **What the failure looks like.** The test's last assertion depends on the killed `sleep 30` run's thread reaching
+  `Dispatch.finish` (`ergostat/leases/dispatch.py:259-279`), which writes the "stopped with ergostat" nack, before
+  `second.close()` returns and the test reads the fold. Under `-n 8` (peak 312 threads, 123 processes), that thread
+  can still be running when the read happens. Then the lease keeps its holder, which is the failure seen. Two causes
+  are possible: close does not wait for the runs it stops to record their end, or a give-back is lost under load.
+  Either is a real shutdown race in the engine, and it needs a gap of its own with a test that holds `finish` back
+  until after `close`. As in the first run, this session refused shell commands, so I could not run the test alone,
+  and I could not commit this note. It is in the working tree, left for the factory to commit.
