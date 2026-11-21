@@ -312,3 +312,33 @@ processes could not be counted after a run. Run here, one command each: the thre
 `tests/test_daemons.py`, `tests/test_warm.py`, `tests/test_run_costs.py` and `tests/test_daemon_docs.py` (92 passed),
 and `ruff check ergostat tests scripts` (clean). The cause of the stopped unit suite is still unknown. The same
 things as before are needed to find it: the full log and the container's exit reason.
+
+**Round 3: the unit suite ran to its end, with one failure.** The result was 1 failed, 1961 passed and 69 skipped, in
+326 s. The failure was `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, at line 434: after
+`second.close()`, one ticket's lease still has a holder. The factory asked for the code to be fixed. **No code was
+changed in this round.** This failure is outside this gap, and the definition says so (Risks, lesson-13). The reasons:
+- *What the test runs.* A `program` block with `sleep 30` and leases, through `leases/dispatch.py`,
+  `Engine.run_block` and `Engine.close`. It uses no daemon, so `lines.py`, `observe.py`, `proc.py`, `work.py` and the
+  daemons' sampler are never reached. `Supervisor.close` has no slots, so its new `flush_observed` loops over an empty
+  dict. The only changed code on its path is the runs' sampler (`Sampler()`, interval 1 and floor 1). For a run, it
+  samples on the same schedule as before (one listing a second at most, the first about 1 s after the start). It
+  takes the same lock in `finish`, and no lease or record code calls it.
+- *The race on main that fits.* `Dispatch.tick` checks `e.stop` and then calls `take`. `take` records the lease and
+  starts a thread, and that thread's `Engine.run_block` spawns the process with no second look at `stop` or
+  `old.STOPPING` (`ergostat/spec/engine.py:846`–952; the only stop check is at line 723, which is another path). If
+  `second.close()` runs `kill_all()` between the lease and the spawn, the new `sleep 30` is never killed. `close`
+  waits 5 s for `running` to drain, gives up, and the lease is still held when the test reads it. A run whose teardown
+  takes more than 5 s under load fails the same way. Either way, the cause is in main's lease and shutdown code.
+- *It is already a known flake, with a gap of its own.* In earlier rounds this same test failed under load, then
+  passed alone and on a rerun (see above). `review/code-health-1` records it as a main-side failure that was
+  correctly reported. The fix it needs (kill a run spawned after `close()` set `stop`, and note it as
+  `STOPPED_WITH_US`) is the parked lease-shutdown-race gap. The same change, made inside `upkeep-index-files` in
+  `engine.py`, failed that gap's review on scope (`review/upkeep-index-files-3`).
+- *Why it is not fixed here.* The fix is in `engine.py` and `dispatch.py`, which are not in this gap's files to touch.
+  It would be a lease fix inside a daemons gap, which is the lesson-13 case word for word. Leaving the branch as it is
+  can be undone; a lease fix in this branch has already failed one review.
+
+Not verified here: a run of this test on plain `main` under the same load. In this round the shell refused to unpack
+`main` beside the branch, so the claim that the test is unrelated rests on the reading above. The coordinator should
+run the lease-shutdown-race gap, or rerun the unit suite. If this test fails on `main` under `-n 8` as well, the
+branch is clear of it.
