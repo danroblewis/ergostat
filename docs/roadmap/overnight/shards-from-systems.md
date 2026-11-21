@@ -152,3 +152,18 @@ factory's next full run names a failing test, that test is the place to start.
   - the estimate case always false: `test_estimate_reads_are_wires`.
 - Run: `tests/test_shards.py` (14 passed), `tests/test_spec_systems.py`, and ruff (clean). Not run here: the full
   unit and browser suites, which the factory runs. Local `main` still has nothing this branch lacks.
+
+### After round 3: the factory's unit run
+
+The factory's `unit` run failed on one test,
+`tests/test_warm.py::test_revive_never_has_more_warm_processes_alive_than_the_cap` (1 failed, 1956 passed). Its
+`wait_for(live, 30)` timed out. A daemon's reader thread also raised `ValueError: I/O operation on closed file` in
+`ergostat/daemons/proc.py:158` (`stray` writing to a log that was already closed). This is unrelated to this branch:
+- the branch changes only `ergostat/spec/shards.py`, `tests/test_shards.py`, SPEC and GAPS;
+- nothing in `ergostat/` imports `shards.py`;
+- run alone here, the test passes (1 passed in 2.25 s).
+
+So it looks like a load-dependent failure in the daemons' revive path (lesson-10). Following lesson-13, I did not
+change `ergostat/daemons/` in this branch, because a fix there is outside this definition of done. That is the more
+reversible choice. Two things are worth their own gap: the stray-line write in `proc.py` that races the log being
+closed, and whether `revive` under load can miss its 30-second window. No code changed this round.
