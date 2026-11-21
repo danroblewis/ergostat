@@ -1955,6 +1955,95 @@ def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
     assert out["landed"] == ["gap/a", "gap/b"] and out["same"] is True
 
 
+def test_a_failed_suite_stops_its_sibling(tmp_path):
+    fast = "echo 'FAILED tests/test_b.py::test_b - boom'; exit 1"
+    slow = f"sleep 30; echo ran >> {tmp_path}/slow-ran"                 # finished only if it is never stopped
+    for failing, other in (("unit", "browser"), ("browser", "unit")):
+        f = Factory(tmp_path / failing, unit=fast if failing == "unit" else slow)
+        f.config.write_text(f.config.read_text().replace('browser = "true"',
+                                                         f'browser = "{fast if failing == "browser" else slow}"'))
+        approved_gaps(f, {"a": 1})
+        said, _ = f.run("queue.py", "gap/a")
+        assert said == ["gap.queued", "gap.queue-failed", "gap.measured"]
+        got = f.item("gap/a")["fields"]
+        assert got["failed_suite"] == failing and got["failed_tests"] == ["tests/test_b.py::test_b"]   # first to fail
+        assert got["suites_queue"][other]["stopped_by"] == failing and got["suites_queue"][other]["rc"] != 0
+        assert not (tmp_path / "slow-ran").exists()                       # the sibling was killed, never finished
+
+
+def bisect_stand_ins(tmp: Path, unit_names_tests: bool = True, rerun: str = "") -> Factory:
+    """A unit suite that stops at its first failure, as `-x` would (test_b while bad.txt is there, then test_c while
+    badc.txt is), each run logged in ``runs`` and each green one's tree in ``greens``; and the named tests' rerun,
+    which says PASSED or FAILED for each test it is given and logs its arguments in ``reruns``."""
+    say = (lambda t: f"echo 'FAILED tests/{t}.py::{t} - boom'") if unit_names_tests else (lambda t: "echo boom")
+    (tmp / "unit.sh").write_text(f"echo run >> {tmp}/runs\n"
+                                 f"if [ -e bad.txt ]; then {say('test_b')}; exit 1; fi\n"
+                                 f"if [ -e badc.txt ]; then {say('test_c')}; exit 1; fi\n"
+                                 f"git rev-parse 'HEAD^{{tree}}' >> {tmp}/greens\n")
+    (tmp / "rerun.sh").write_text(f'echo "$*" >> {tmp}/reruns\nrc=0\nfor t in "$@"; do\n case "$t" in\n'
+                                  ' *::test_b) f=bad.txt;;\n *::test_c) f=badc.txt;;\n *) continue;;\n esac\n'
+                                  ' if [ -e $f ]; then echo "FAILED $t - boom"; rc=1; else echo "PASSED $t"; fi\n'
+                                  'done\nexit $rc\n')
+    f = Factory(tmp, unit=f"sh {tmp / 'unit.sh'}")
+    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"',
+                                                     f'rerun = "{rerun or "sh " + str(tmp / "rerun.sh")} {{tests}}"'))
+    return f
+
+
+def reruns(f: Factory) -> list[str]:
+    p = f.tmp / "reruns"
+    return p.read_text().splitlines() if p.exists() else []
+
+
+def test_bisect_reruns_only_the_failing_tests(tmp_path):
+    f = bisect_stand_ins(tmp_path)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3
+    # all four red, naming test_b; then test_b alone on p, q (passed) and on p, q, r (failed): r. Then p, q, s merged
+    # again and run in full: green
+    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 2 and suite_runs(f) == 2
+    r = f.item("gap/r")["fields"]
+    assert r["failed_suite"] == "unit" and r["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert r["suites_queue"]["named"]["tests"] == 1                            # found by the named run
+    assert merges(f) == ["p", "q", "s"] and not (f.checkout / "bad.txt").exists()
+
+
+def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
+    f = bisect_stand_ins(tmp_path, unit_names_tests=False)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+    assert reruns(f) == [] and suite_runs(f) == 4                               # today's bisect: every run in full
+    assert f.item("gap/r")["fields"]["failed_tests"] == []
+    # a named run that cannot tell (its test not found: rc 4, no result for it) runs that step in full, never green
+    (tmp_path / "g").mkdir()
+    (tmp_path / "notfound.sh").write_text(f'echo "$*" >> {tmp_path / "g" / "reruns"}\necho "ERROR: not found: $1"\n'
+                                          'exit 4\n')
+    g = bisect_stand_ins(tmp_path / "g", rerun=f"sh {tmp_path / 'notfound.sh'}")
+    approved_gaps(g, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    g.run("queue.py", "gap/p")
+    assert len(reruns(g)) == 2 and suite_runs(g) == 4 and merges(g) == ["p", "q", "s"]
+    assert g.item("gap/r")["state"] == "queue-failed"
+
+
+def test_nothing_lands_without_a_full_green_run(tmp_path):
+    # q breaks test_c, which the first run never names (the suite stops at r's test_b): on test_b alone, p, q is green.
+    # Landed then, q would be on main broken and s blamed for it. Merged again with s and run in full, it is found.
+    f = bisect_stand_ins(tmp_path)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4, edits={"q": "badc.txt"})
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 2 and said.count("gap.merged") == 2
+    assert merges(f) == ["p", "s"] and f.item("gap/s")["state"] == "merged"
+    assert f.item("gap/q")["fields"]["failed_tests"] == ["tests/test_c.py::test_c"]
+    assert f.item("gap/r")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    greens = (tmp_path / "greens").read_text().split()
+    assert git(f.checkout, "rev-parse", "main^{tree}") in greens               # what landed ran green in full
+    for g in "ps":
+        assert "named" not in f.item(f"gap/{g}")["fields"]["suites_queue"]     # never a named run's green
+    assert len(f.db()["acts"]) == 1
+
+
 def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
     # the run stopped during its suites: only ever the queue's own process (never whatever else $PPID could be)
     f = Factory(tmp_path, unit="ps -o command= -p $PPID | grep -q dev/bin/queue.py && kill -TERM $PPID; sleep 30")
