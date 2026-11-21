@@ -69,6 +69,11 @@ def cmd_event(args) -> int:
 
 def cmd_item(args) -> int:
     from ..spec import items as its
+    from ..spec.item_sets import BadSet
+    search = getattr(args, "search", None)
+    if search is not None and (args.name or getattr(args, "at", None)):
+        print("ergostat item --search lists the items as they are now: leave out NAME and --at", file=sys.stderr)
+        return 2
     if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
         from ..calls.client import Refused
         from . import fast
@@ -82,7 +87,12 @@ def cmd_item(args) -> int:
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
     if not args.name:
-        got = its.listing(p.events, spec, kind=args.kind, state=args.state)
+        args.n = max(1, min(args.n, its.LISTED))
+        try:
+            got = its.listing(p.events, spec, kind=args.kind, state=args.state, search=search)
+        except BadSet as e:
+            print(str(e), file=sys.stderr)
+            return 2
         if args.json:
             return out_json(got)
         for k in got["kinds"]:
@@ -94,6 +104,7 @@ def cmd_item(args) -> int:
         rows = [[i["id"], i["kind"] or "-", i["state"] or "-", *[str(i["fields"].get(f, ""))[:30] for f in show],
                  str(i["events"]), i["latest"], ago(i["entered"] or i["first"]), ago(i["last"])] for i in got["items"][:args.n]]
         print(table(["ITEM", "KIND", "STATE", *[f.upper() for f in show], "EVENTS", "LATEST", "IN STATE SINCE", "LAST"], rows,
+                    f"no item's fields contain every word of {search!r}" if search is not None else
                     "no items yet: an item is what events with an id like ticket/12 are about "
                     "(a block prints {\"event\": \"ticket.opened\", \"item\": \"ticket/12\"})"))
         if got["total"] > args.n:

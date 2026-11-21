@@ -22,6 +22,9 @@ DEMOS = Path(__file__).resolve().parent.parent / "examples"   # each example, ru
 ERGOSTAT = [sys.executable, "-m", "ergostat"]
 # What a demo that can reach real services is run with here: offline, against its fakes, never the services
 OFFLINE = {"ticket-factory": {"TF_OFFLINE": "1"}}
+# Seconds one page or API read may take: under the machine's load (the queue's suites, the factory's sessions) an item
+# page sometimes took ~10 s, and the old 10 s limit failed merges that were fine (three times on 2026-11-20, on main too)
+GET_TIMEOUT = 30
 
 
 def sh(*args, cwd=None) -> subprocess.CompletedProcess:
@@ -34,7 +37,7 @@ class Refused(RuntimeError):
 
 def get(url: str):
     try:
-        with urllib.request.urlopen(url, timeout=10) as r:
+        with urllib.request.urlopen(url, timeout=GET_TIMEOUT) as r:
             return json.loads(r.read())
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace").strip()

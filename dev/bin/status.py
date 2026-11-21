@@ -1,7 +1,8 @@
 """One screen of the factory for the coordinator, from its record; run in the instance's folder.
 
-    status.py      in flight, blocked (on what), failed (why), the queue, research, proposed lessons, spend today and
-                   first-pass yield, and the time in each state, the loop and the gates (median and p90, with goals)
+    status.py      in flight, blocked (on what), failed (why), the queue, the top of the backlog by rank, research,
+                   proposed lessons, spend today and first-pass yield, the switch (waiting, draining or switching:
+                   drain.py), and the time in each state, the loop and the gates (median and p90, with goals)
     status.py session GAP [ROLE] [N]
                    a session's conversation (run/sessions/, sessions.py): each message, each tool call with its input
                    summarised, each result cut short. Without N, the role's latest; without ROLE, the gap's sessions
@@ -13,6 +14,7 @@ import sys
 import time
 
 sys.dont_write_bytecode = True
+import drain  # noqa: E402
 import fac  # noqa: E402
 import measure  # noqa: E402
 import resources  # noqa: E402
@@ -78,6 +80,9 @@ def main() -> int:
     section("Queue", [f"  {s:<9} {len(n)}: {', '.join(n[:6])}{' ...' if len(n) > 6 else ''}"
                       for s in WAITING if (n := [g["id"][4:] for g in gaps if g["state"] == s])])
     research = fac.items("research")
+    import backlog
+    section("Backlog (backlog.py show)", backlog.show(by, 10).splitlines()[1:]
+            if any(g["state"] in backlog.BACKLOG for g in gaps) else [])
     section("Research", [f"  {r['id']:<40} {r['state']:<9} {first(r['fields'].get('summary') or r['fields'].get('question'))}"
                          for r in sorted(research, key=lambda r: r["state"] == "answered")])
     section("Lessons proposed (ergostat inbox)", [f"  {x['id']:<40} {first(x['fields'].get('text') or x['fields'].get('name'))}"
@@ -91,6 +96,10 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001 - said, as the sessions would refuse
         spend = f"cannot be told ({type(e).__name__}: {e}): sessions refuse"
     out.append(f"Spend today {spend}; first-pass yield (14 days) {fpy}")
+    try:
+        out.append(drain.describe(cfg))
+    except Exception as e:  # noqa: BLE001 - said, as the switcher would not switch
+        out.append(f"Switch cannot be told ({type(e).__name__}: {e})")
     try:
         out.append(resources.line(cfg))
     except Exception as e:  # noqa: BLE001 - said, as the gates would hold

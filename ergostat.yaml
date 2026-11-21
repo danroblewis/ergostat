@@ -104,14 +104,17 @@ items:
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
-      gap.closed: closed             # the pipeline manager's close, once the coordinator approved it (done elsewhere, a duplicate)
-    show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason, loop_rounds, loop_hours]
+      gap.closed: closed             # out of the backlog: done on main already, or a duplicate (backlog.py; the pipeline
+                                     # manager's close, once the coordinator approved it)
+    show: [rank, title, value, size, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason,
+           loop_rounds, loop_hours]
     # gap.timed (no state): its time_in, loop_rounds, loop_hours, loop_ended and gates (dev/bin/times.py)
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
                                      # one waiting on a parked gap is held by its field waits_on_parked (takes: where);
                                      # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
+      duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
     fold:
       rounds: sum
       reviews_n: sum
@@ -124,6 +127,7 @@ items:
       build_hours: sum
       review_hours: sum
       queue_wait_hours: sum
+      queue_runs: append             # each queue run it was in: its id, whole minutes, end (merges-per-hour)
       reviews: append
       contexts: append
       flakes: union
@@ -136,6 +140,7 @@ items:
       - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
     lease: {attempts: 2}
     # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
+    # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
 
   review:
     id: review/*
@@ -218,13 +223,17 @@ items:
   upgrade:
     id: upgrade/*
     description: a version of main the instance may run - installed into its own folder, switched to, kept or reverted
-    states: [available, installed, switched, healthy, reverted, superseded, failed]
+    states: [available, installed, approved, draining, switched, healthy, reverted, superseded, withdrawn, failed]
     on:
       upgrade.opened: available        # merge queue: a new green main
       upgrade.installed: installed     # upgrader
       upgrade.superseded: superseded
       upgrade.failed: failed
-      upgrade.switched: switched       # the switch (live.py), once the coordinator approved it
+      upgrade.switch-approved: approved    # the switcher (drain.py): its switch-instance approved
+      upgrade.draining: draining       # a quiet moment or the daily window: the runs under way drain
+      upgrade.drained: draining        # drained (or the bound reached): the switch begins
+      upgrade.withdrawn: withdrawn     # a newer version waits, or runs: its switch request withdrawn
+      upgrade.switched: switched       # the switch (live.py), once drained
       upgrade.kept: healthy
       upgrade.reverted: reverted
     show: [sha, check, switch, previous]
@@ -261,14 +270,16 @@ items:
     show: [kind, title, file, areas, carried, text]
 
 messages:
-  done: {gap: [merged, parked, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
+  paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
+                                   # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 
 agents:
   opus:
     kind: ai
     model: claude-opus-5-5
-    at-once: 3
+    at-once: 24                         # operator, 2026-11-20: was 3, shared by every AI block, so planning got no slot while 3 implementors ran
     description: headless Claude Code sessions (claude -p) on Opus for the implementor and the reviewer; dev/factory.toml
   coordinator:
     kind: person
