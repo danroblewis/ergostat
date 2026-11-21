@@ -274,12 +274,11 @@ class Dispatcher:
             with self.e.lock:
                 self.e.running.discard(key)
             raise
-        if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+        if (not got or got.get("holder") != run                   # someone else took it first: the fold refused this one,
+                or self.spec.operating and self.entered_meanwhile(b, now, got, run, fence, inline)):   # or given back
             self.ours.discard(run)
             with self.e.lock:
                 self.e.running.discard(key)
-            return None
-        if self.spec.operating and self.entered_meanwhile(b, now, got, run, fence, inline):
             return None
         self.resources(ev)
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}

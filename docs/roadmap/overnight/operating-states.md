@@ -399,3 +399,21 @@ Parked by the factory (review/operating-states-6, 2026-11-21 00:31).
 
 Failed its gates 6 times (the kill rule). Blocking findings:
 - docs/roadmap/overnight/operating-states.md.tail: the stray scratch file (one line, 'x') is still committed and still in `git diff origin/main...HEAD --stat`. It was raised as blocking in rounds 3, 4 and 7, and neither commit since (ec632425, e9f9cada) touches it. A committed scratch file would land on main, which people install from. Fix: `git rm docs/roadmap/overnight/operating-states.md.tail`, by the coordinator if the implementor's tools refuse it.
+
+Round 9 (resumed after the park, review/operating-states-6). Its one blocking finding, and what changed:
+
+1. **The stray `operating-states.md.tail`** (blocking). Removed: `git rm` was allowed this time, and this round's
+   commit deletes it.
+
+Also found this round: after the factory's merge of main (bfdb0552),
+`test_state_entered_between_check_and_take_gives_back` failed. Main's `take` now adds the run's key to
+`Engine.running` (and the run to `ours`) before the `TAKEN` write. The give-back after the post-`TAKEN` re-read
+returned without removing them, so the item stayed marked as running in this engine. No program ran (the lease ended
+nack, and the test's other assertions held). Fixed in `dispatch.py`: the give-back now shares the cleanup of the
+"someone else took it first" branch. That is 0 net lines, so the size stays at 453, 3 over the budget for round 6's
+reason. The test failed before the fix and passes after it.
+
+Tests run this round: `tests/test_operating.py`, `tests/test_cli_fallback.py` and `tests/test_leases.py` (81
+passed); ruff clean. Local `main` has nothing the branch lacks, and there is no `origin` remote in this container.
+Not run by the implementor: the full unit suite and the four browser files (the factory runs them under the
+watchdog). No demo is touched, so `demo_check` is not needed.
