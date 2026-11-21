@@ -862,8 +862,15 @@ names the parent by `children`, or a state is not one of theirs (`bad-join`, `un
 listed before a join's `to`, which the join would move on. Each child's move costs a look at its parents' children
 (their links and states): fine for tens of children, not tuned for thousands.
 
-Relations are read as they stand now: time travel (`--at`, the pages') reaches an item's fields, its relations
-among them, but not the Graph and the Timeline, which are drawn from the item index as it is. The Process view draws them too (§5b).
+At a moment travelled to (the pages' time travel), the Graph and the Timeline show the items, their states, their
+segments and their links as they stood then: an event at that moment counts as before it, an item made after it is
+not there, and one made again since under its id shows its earlier self. They are read from the item index, each
+item changed since folded again from the record up to then (`spec/asof.py`; when more than a tenth of the items, and more than 50, changed since,
+the whole record up to then is folded instead), and each kind's time per state counts only the moves by then. Three things
+stay of now: which states a kind counts as finished (as the item index says now, unless `messages: done:` says),
+the completion estimates (none at a moment travelled to), and the status's list of relation cycles. A snapshot
+(`ergostat snapshot`) holds the Graph and the Timeline the Items page asks for: each system's related kinds
+together, and each such kind alone. The Process view draws relations too (§5b).
 
 **Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
 letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what

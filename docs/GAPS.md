@@ -106,11 +106,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   kind, not a block); each child's move reads all its parent's children (O(children) per move: fine for an epic's
   tickets, not tuned for thousands).
 - **Relations, what is left** (open; the first part merged as c4888bd from `relations`; the Process view draws them,
-  done in 0f7f870 on `smallgaps`): the Graph and Timeline read relations as they stand now (time travel does
-  not reach them) and are not in a snapshot;
-  `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py` asks Jira for
-  summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and folded as
-  relations first.
+  done in 0f7f870 on `smallgaps`; the Graph and Timeline at a moment travelled to, and in a snapshot, done on
+  `relations-as-of`): `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py`
+  asks Jira for summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and
+  folded as relations first.
+- **A kind chosen in a snapshot** (open; found on `relations-as-of`): a snapshot holds the Items page's list with no
+  kind chosen only (`items`, not `items?kind=K`), so choosing a kind in it says "not in this snapshot", and the
+  Graph of one kind it holds (`items-graph?kinds=K`) is not reached from the page.
 - **Resource levelling and completion estimates** (done, on `eta`; SPEC §5a, *Completion estimates*): the
   projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
   block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
