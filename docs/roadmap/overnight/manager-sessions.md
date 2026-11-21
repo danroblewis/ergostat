@@ -223,3 +223,15 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   factory should run the unit suite again to completion. If it then names a test outside these files, it should run
   that test on clean main.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 7 (2026-11-21): the `unit` run that ended after the build.**
+- *The merge of main ca35e0b* was already committed (c68975f7), with no conflict markers under `dev/`, and
+  `tests/test_zz_profile_tmp.py` is still gone. Nothing was left to resolve.
+- *What the tail shows:* the slot is taken, ergostat is built and installed, and the output ends there. No test was
+  collected and none ran: no dots, no `F`, no summary, no closing line from suite_watch. The run was ended from outside
+  before pytest started, so there is no failure to fix, and no code changed (lesson-13).
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 28 passed; `test_factory.py`,
+  `test_factory_times.py`, `test_factory_knowledge.py` and `test_interventions.py` together: 141 passed, 2 skipped.
+  Ruff is clean. The whole unit suite and the four browser files were not run here. The factory should run them again
+  to completion.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
