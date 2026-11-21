@@ -240,3 +240,29 @@ Net code is now 315 lines against main (`git diff --numstat main...HEAD -- ergos
 test_numbers, test_rates, test_aggregation, test_architecture, test_scale_caches, all passing; ruff clean. No newer
 main could be fetched (there is no origin remote and no network). The full unit suite, the browser files and
 `demo_check` are left to the factory.
+
+**Round 4: the review's findings.**
+- *Blocking (lesson-3): an equation left out of the plan.* The finding was right. `plan()` drops an equation whose
+  parameter has no value (for example one with `estimate: true` not yet fitted) into `pl.left_out`. `_data` then holds
+  that equation at its record or at 0, so `stock.x / tau` gave J = [[0]] and "λ 0/h: no decay". `at_start` now reads
+  `pl.left_out` straight after the 40-stock cap, before `_at_start` or any evaluation. If a left-out equation is a
+  live stock's flow, reads a stock, or is read by an equation that is run, `why` says "an equation the stocks depend
+  on is not run, a parameter has no value: flow.out (tau has no value)" and no modes are given. It comes before check
+  (b) on purpose: a left-out equation that reads a stock is missing from `felt`, so (b) would wrongly say "do not
+  feed back". New test: `test_an_equation_with_an_unfitted_parameter_says_why_not_lambda_0`. Its cases are the drain
+  itself (`stock.x / tau`) and an auxiliary `1 / tau` that feeds the drain. It also asserts that `explain` prints
+  "Modes: not worked out" and no "λ 0/h". Break tried: with the check disabled, both cases fail. SPEC's Modes
+  paragraph lists this reason.
+- *Non-blocking, round 1's start vector (lesson-12).* Inverse iteration started from all ones, which is exactly the
+  λ = 0 left eigenvector of a conserved sum. It now starts from x_k = 1 + frac((k+1)·0.618…), a vector not tied to
+  the structure. It still fails closed ("eigenvector not found") if the residual bound is not met. No assertion
+  changed, and test_modes passes.
+- *Non-blocking, the wrap width (lesson-12).* GAPS' Modelling entry, the over-long *Left* line, is reflowed.
+
+Net code is now 323 lines against main (`git diff --numstat main -- ergostat`; budget 330). Local main is already
+in the branch. There is still no origin remote, so nothing newer could be merged. Run one file at a time:
+test_modes (27), test_closedloop (15), test_extremes_closed (14), test_numbers (55), test_rates (13),
+test_architecture (9), test_aggregation (10), test_scale_caches (35), all passing; ruff clean. Refused here: a shell
+`for` loop over the test files, a scratch script under /tmp run with `uv run python`, a `sed -i` break toggle (it was
+done with the editor instead), and `git log -1 main; git merge-base ...; git remote`. The full unit suite, the browser
+files and `demo_check` are left to the factory.

@@ -101,8 +101,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); the stocks' modes at the start
   and each link's eigenvalue elasticity in `explain` (`numbers/modes.py`, on `eigenvalue-elasticity`). *Left*: the
   relative gain array (needs a square, non-singular gain matrix from approved step tests), the AI rung's proposal to
-  aggregate (from loop dominance), elasticity over the replay, interface stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
-  per-system redesign and daily larger-model review (after `redesign`).
+  aggregate (from loop dominance), elasticity over the replay, interface stability over the model's history, the
+  Viable System Model checklist and purpose coverage (the AI rung), and the per-system redesign and daily
+  larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
   STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
   move recorded as `ergostat.item.joined` caused by the child's, folded only forward and counted like any other;

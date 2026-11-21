@@ -134,7 +134,7 @@ def vector(J, lam: complex, left: bool = False) -> list[complex] | None:
             f = M[i][k] = M[i][k] / M[k][k]
             for j in range(k + 1, n):
                 M[i][j] -= f * M[k][j]
-    x = [1 + 0j] * n
+    x = [complex(1 + (k + 1) * 0.6180339887498949 % 1) for k in range(n)]    # not all ones: a conserved sum's w
     for _ in range(3):
         y = [x[perm[i]] for i in range(n)]
         for i in range(n):
@@ -213,6 +213,14 @@ def at_start(spec) -> Modes:
     if len(pl.integrate) > MOST:
         return Modes(f"{len(pl.integrate)} stocks move by equations, more than {MOST}: modes are not worked out "
                      f"(pure-Python eigenvectors are O(n³) a mode)", [], [])
+    eqn = {f"flow.{f.name}": f.equation for f in spec.flows.values() if f.equation}
+    eqn |= {f"auxiliary.{a.name}": a.equation for a in spec.auxiliaries.values() if a.equation}
+    used = {f for s in pl.integrate for f in pl.flows_in[s] + pl.flows_out[s]} | {d for r in pl.eqs for d in eqn[r].refs}
+    out = [f"{r} ({why})" for r, why in sorted(pl.left_out.items())
+           if r in used or any(d.startswith("stock.") for d in eqn[r].refs)]
+    if out:                                     # held at its record or 0 by the run: a J without its link (lesson-3)
+        return Modes("an equation the stocks depend on is not run, a parameter has no value: " + "; ".join(out),
+                     [], [])
     st, state = ex._at_start(spec, pl, ex.Condition("usual", "with everything as usual", usual=True), None)
     live = [s for s in st.stocks if state.get(s) is not None]
     refs = [f"stock.{s}" for s in live]

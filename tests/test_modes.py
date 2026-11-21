@@ -280,6 +280,31 @@ def test_no_equation_reading_a_stock_gives_why_not_an_empty_answer(tmp_path):
     assert f"Modes: not worked out: {md.NO_FEEDBACK}" in explain(spec)
 
 
+UNFITTED = """
+name: unfitted
+parameters:
+  tau: {{estimate: true, unit: h}}
+  hour: {{value: 1h}}
+stocks:
+  x: {{unit: litres, initial: 10, sensor: {{manual: true}}}}
+{aux}flows:
+  out: {{from: x, equation: {out}, driven-by: [+stock.x]}}
+"""
+
+
+@pytest.mark.parametrize("aux, out", [
+    ("", "stock.x / tau"),                                                       # a stock's drain, not run
+    ("auxiliary:\n  k: {equation: 1 / tau}\n", "stock.x * auxiliary.k"),           # feeds the drain, not run
+], ids=["drain", "feeds-the-drain"])
+def test_an_equation_with_an_unfitted_parameter_says_why_not_lambda_0(tmp_path, aux, out):
+    spec = _spec(tmp_path, UNFITTED.format(aux=aux.replace("auxiliary:", "auxiliaries:"), out=out))
+    ms = md.at_start(spec)                                          # the run holds it at 0: J = [[0]] would be "λ = 0"
+    assert ms.why.startswith("an equation the stocks depend on is not run, a parameter has no value:")
+    assert "tau has no value" in ms.why and ms.modes == []
+    assert ("flow.out" if not aux else "auxiliary.k") in ms.why
+    assert "λ 0/h" not in explain(spec) and "Modes: not worked out: an equation the stocks" in explain(spec)
+
+
 def test_more_than_most_stocks_returns_before_the_jacobian(tmp_path, monkeypatch):
     n = md.MOST + 1
     stocks = "".join(f"  s{i}: {{unit: litres, initial: 10, sensor: {{manual: true}}}}\n" for i in range(n))
