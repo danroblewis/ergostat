@@ -204,13 +204,19 @@ def _index(events, spec, transcript: bool):
     return index_for(events, spec, transcript)
 
 
+def late_cap(ix, kind: str | None = None) -> int:
+    """How many items changed since a moment are each folded again from the record; past it, the whole record up to
+    the moment is folded instead (``_late``, ``asof.AsOf``)."""
+    return max(50, ix.total(kind) // 10)
+
+
 def _late(ix, events, spec, kind: str | None, until: float | None, transcript: bool) -> dict[str, Item] | None:
     """The items (of ``kind``) with an event after ``until``, each folded again from the record up to
     then (dropped when it had none by then); None when that is most of them (a moment long past: the
     caller folds the record itself). Under the index's lock."""
     if until is None:
         return {}
-    cap = max(50, ix.total(kind) // 10)
+    cap = late_cap(ix, kind)
     ids = ix.late(until, kind, limit=cap + 1)
     if len(ids) > cap:
         return None
@@ -235,7 +241,6 @@ def project(events, spec: Spec, kind: str | None = None, until: float | None = N
     kinds = [spec.items[kind]] if kind else list(spec.items.values())
     if kind and not kinds:
         return []
-    globs = [k.id for k in kinds] if kind else None
     if transcript is None:
         transcript = asks_transcript(kinds, fields)
     ix = _index(events, spec, transcript)
@@ -245,8 +250,15 @@ def project(events, spec: Spec, kind: str | None = None, until: float | None = N
             if late is not None:
                 out = ix.items(kind, until=until) + [i for i in late.values() if not kind or i.kind == kind]
                 return sorted(out, key=lambda i: -i.last)
+    return fold_all(events, spec, kind, until, transcript)
+
+
+def fold_all(events, spec: Spec, kind: str | None, until: float | None, transcript: bool) -> list[Item]:
+    """Every item (of ``kind``; None: every item, of a kind or of none) as it stood at ``until``, folded from the
+    record itself, the latest first."""
     by: dict[str, list[dict]] = {}
-    for e in events.of_items(globs, until=until, skip=() if transcript else (TRANSCRIPT_TYPES,)):
+    for e in events.of_items([spec.items[kind].id] if kind else None, until=until,
+                             skip=() if transcript else (TRANSCRIPT_TYPES,)):
         by.setdefault(e["item"], []).append(e)
     out = []
     for id, evs in by.items():

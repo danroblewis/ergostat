@@ -746,28 +746,41 @@ class Index:
         return [(a, self.name(r), d) for a, r, d in self.db.execute(sql, args)]
 
     @_healing
-    def stays(self, kind: str, most: int = 2000, finished=()) -> tuple[dict[str, list[float]], dict[str, int], int]:
+    def stays(self, kind: str, most: int = 2000, finished=(), until: float | None = None
+              ) -> tuple[dict[str, list[float]], dict[str, int], int]:
         """How long ``kind``'s items stayed in each state they left (a lease's hold, ``leased``, is a state of its own
         here: the work), over the moves of its ``most`` latest items; and, of those now in a ``finished`` state, how
-        many stays each state had and how many such items there are (how often an item visits each state)."""
+        many stays each state had and how many such items there are (how often an item visits each state). With
+        ``until``: as of then, only the moves at or before it, the ``most`` items whose latest such move is latest, and
+        finished meaning their last move by then was into a finished state."""
         k = self.known(kind)
         if k == -1:
             return {}, {}, 0
         fin = {x for x in (self.known(f) for f in finished) if x != -1}
+        if until is None:
+            rows = self.db.execute(
+                "select m.rid, m.t, m.dst, i.state from moves m join items i on i.rid = m.rid where m.kind = ? and m.rid in "
+                "(select rid from items where kind = ? order by last desc limit ?) order by m.rid, m.rowid", (k, k, int(most)))
+        else:
+            rows = self.db.execute(
+                "select rid, t, dst, null from moves where kind = ? and t <= ? and rid in (select rid from moves where "
+                "kind = ? and t <= ? group by rid order by max(t) desc limit ?) order by rid, rowid", (k, until, k, until, int(most)))
+        by: dict[int, list[tuple]] = {}
+        for rid, t, d, now in rows:
+            by.setdefault(rid, []).append((t, d, now))
         out: dict[str, list[float]] = {}
         visits: dict[str, int] = {}
         done: set[int] = set()
-        rid0, t0, st0 = None, None, None
-        for rid, t, d, now in self.db.execute(
-                "select m.rid, m.t, m.dst, i.state from moves m join items i on i.rid = m.rid where m.kind = ? and m.rid in "
-                "(select rid from items where kind = ? order by last desc limit ?) order by m.rid, m.rowid", (k, k, int(most))):
-            if rid == rid0 and st0 is not None:
+        for rid, ms in by.items():
+            now = ms[-1][1] if until is not None else ms[-1][2]        # its state now, or its last move's by then
+            for (t0, st0, _), (t, _, _) in zip(ms, ms[1:], strict=False):
+                if st0 is None:
+                    continue
                 name = self.name(st0)
                 out.setdefault(name, []).append(max(0.0, t - t0))
                 if now in fin:
                     visits[name] = visits.get(name, 0) + 1
                     done.add(rid)
-            rid0, t0, st0 = rid, t, d
         return out, visits, len(done)
 
     @_healing
