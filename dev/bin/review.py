@@ -2,8 +2,9 @@
 of done, the GAPS entry, the rules, the earlier findings and the diff, and never the implementor's reasoning. It runs
 in a read-only worktree of its own (<worktrees>/.review/<branch>, detached at the branch's head), with read tools only.
 
-Before the session, the mechanical gates: the definition file committed first and unchanged since (but for a "Where it
-stopped" section), and the size budget. A gate that fails is a blocking finding.
+Before the session, the mechanical gates: the definition file on the branch and unchanged since its first commit (but
+for a "Where it stopped" section; its position in the branch's history is not checked), and the size budget. A gate
+that fails is a blocking finding.
 
 It records a `review` item (review/<branch>-<n>: its verdict, blocking and non-blocking findings, the context it was
 given, its cost), then moves the gap: approved (merge), back to fix with the findings, or parked. The kill rule: the
@@ -30,23 +31,24 @@ VERDICT = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 
 def gates(cfg: dict, wt: Path, branch: str, base: str, continued: bool = False,
           built_main: str = "", rel: str = "") -> tuple[list[str], str]:
-    """The mechanical gates: (blocking findings, the definition as committed first). The branch's own commits are
-    its first-parent line (main merged in is not the branch's). The definition is ``rel`` (fac.definition_file: for a
-    continued gap, the file its `definition` names, first committed on the continued branch under whatever name that
-    branch had), else `docs/roadmap/overnight/<branch>.md`. A continued branch must hold the main implement.py
-    merged at its build (``built_main``), not the main of this moment: main moving between build and review is the
-    merge queue's to settle (it merges and runs the suites again), never a failed gate. A ``built_main`` missing, or
-    not on main, counts as the worst case: current main."""
+    """The mechanical gates: (blocking findings, the definition as committed first). The definition must be on the
+    branch (or on main) and unchanged since the first of the branch's commits that touched it, wherever that commit
+    is in the branch's history. The branch's own commits are its first-parent line (main merged in is not the
+    branch's). The definition is ``rel`` (fac.definition_file: for a continued gap, the file its `definition`
+    names, first committed on the continued branch under whatever name that branch had), else
+    `docs/roadmap/overnight/<branch>.md`. A continued branch must hold the main implement.py merged at its build
+    (``built_main``), not the main of this moment: main moving between build and review is the merge queue's to
+    settle (it merges and runs the suites again), never a failed gate. A ``built_main`` missing, or not on main,
+    counts as the worst case: current main."""
     if not (re.fullmatch(r"[0-9a-f]{40}", built_main) and fac.git_ok(wt, "merge-base", "--is-ancestor", built_main, base)):
         built_main = fac.git(wt, "rev-parse", base)
     rel = rel or f"{fac.DEFS}/{branch}.md"
     found = []
     own = ("--first-parent", "--topo-order", "--reverse")
-    commits = fac.git(wt, "rev-list", *own, f"{base}..HEAD").split()
     touched = fac.git(wt, "log", *own, "--format=%H", f"{base}..HEAD", "--", rel).split()
     on_base = fac.git_ok(wt, "cat-file", "-e", f"{base}:{rel}")
-    if not on_base and (not touched or not commits or touched[0] != commits[0]):
-        found.append(f"gate 1: {rel} is not the branch's first commit")
+    if not on_base and not touched:      # its place in history is not a defect; its absence is (operator, 2026-11-20)
+        found.append(f"gate 1: {rel} is not on the branch")
     if continued and not fac.git_ok(wt, "merge-base", "--is-ancestor", built_main, "HEAD"):
         found.append(f"gate 1: the continued branch does not hold main as of its build ({built_main[:12]}): main is "
                      "not merged in")
@@ -111,6 +113,8 @@ def next_review(branch: str) -> int:
 
 def judge(cfg: dict, gap: dict, began: float) -> int:
     f = gap["fields"]
+    if fac.drain_holds(cfg):
+        return 0
     refused = fac.may_spend(cfg, float(cfg["ai"]["reviewer_session_usd"]))
     if refused:
         fac.nack(f"budget: {refused}", after="1h", count=False)
