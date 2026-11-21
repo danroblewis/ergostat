@@ -354,6 +354,25 @@ def test_the_velocity_record_reads_batches_goals_and_the_researchers_answers(tmp
     assert [r["summary"] for r in got["research"]] == ["select by changed files"]
 
 
+def test_a_first_pass_yield_of_zero_is_the_worst_case_and_binds(tmp_path):
+    """first-pass-good holds `>= 0.6`: a yield of 0 is furthest off, not on target; one between 0 and the setpoint is
+    off by the setpoint over it, and one above the setpoint is on the right side (off under 1)."""
+    f = Pipe(tmp_path)
+    f.put("gap/m0", "merged", merged_at=f.now - H, approved_at=f.now - 8 * H, queued_at=f.now - 2 * H,
+          queue_wait_hours=5.0, batch_id="b1", batch_runs=1, queue_minutes=30.0)      # queue-wait-short off by 2.5
+    read = "import manager\nprint(json.dumps(manager.velocity(manager.fac.config()), default=str))"
+    for verdicts, off, binding in ((["fix", "fix"], 60.0, "first-pass-good"), (["merge", "fix"], 1.2, "queue-wait-short"),
+                                   (["merge", "merge"], 0.6, "queue-wait-short")):
+        for n, v in enumerate(verdicts):
+            f.put(f"review/r{n}", "written", written_at=f.now - H, round=1, verdict=v, gap=f"gap/g{n}")
+        got = f.py(read)
+        assert got["goals"]["first-pass-good"]["off"] == off and got["binding"] == binding, (verdicts, got["goals"])
+    f.put("gap/m0", "merged", merged_at=f.now - H, queue_wait_hours=0.5, batch_id="b1", queue_minutes=30.0)
+    f.put("review/r0", "written", written_at=f.now - H, round=1, verdict="merge", gap="gap/g0")
+    f.put("review/r1", "written", written_at=f.now - H, round=1, verdict="fix", gap="gap/g1")
+    assert f.py(read)["binding"] == "first-pass-good"                  # 0.5 against 0.6: the goal furthest off now
+
+
 def test_the_sessions_are_measured(tmp_path):
     f = Pipe(tmp_path)
     for n, (t, a) in enumerate(((4, 2), (2, 0))):

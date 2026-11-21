@@ -120,3 +120,16 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   real session or the real load probe. Local `main` was already merged (4cabb2e). This clone has no `origin/main`, so
   merging origin/main is left to the merge queue.
 - *Size:* 149 net lines in `dev/bin/` against main, within 450.
+
+**The implementor, round 2 (2026-11-21).**
+- *Merge of main 24756e5:* conflicts in `dev/bin/measure.py` (the docstring: both the manager's measures and main's
+  time-in-state measures kept, "the last three" now "the last four") and `ergostat.yaml` (`messages.done`: the branch's
+  `situation: superseded` and main's `lesson: denied` both kept).
+- *The review's finding (first-pass-yield's `off`):* `manager.off(direction, setpoint, reading)` reads the goal's own
+  direction from its `hold` in `measures.yaml` (the same pattern as `watch.HOLD`), not the measure's name. For a `>=`
+  goal it is `setpoint / max(reading, 0.01)`, so a yield of 0 is the worst case (0.6 / 0.01 = 60), never on target; for
+  a `<=` goal `reading / max(setpoint, 0.01)`. A goal's `hold` in the record now reads with its direction (`">= 0.6"`).
+  Test: `test_a_first_pass_yield_of_zero_is_the_worst_case_and_binds`: a yield of 0 binds over a queue wait off by 2.5;
+  0.5 reads off 1.2 and binds when the queue wait is on target; 1.0 reads 0.6 (the right side). With the old formula
+  put back, the test failed (yield 0 read off 0.0); with the fix it passes.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.

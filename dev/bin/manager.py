@@ -94,6 +94,13 @@ def reading(name: str):
         return None                                     # (no value yet)
 
 
+def off(direction: str, sp: float, value: float) -> float:
+    """How far a reading is from its goal, as a ratio: 1 on the setpoint, above 1 the wrong side of it. For a `>=` goal
+    a reading of 0 is the worst case (setpoint over a hundredth), never on target."""
+    eps = 0.01
+    return round(sp / max(value, eps) if direction == ">=" else value / max(sp, eps), 2)
+
+
 def velocity(cfg: dict, now: float | None = None) -> dict:
     """The merge pipeline's record: its measures, its batches, time in each state, each goal against its setpoint and
     the binding constraint, and the manager's own proposals and questions with their answers."""
@@ -118,10 +125,11 @@ def velocity(cfg: dict, now: float | None = None) -> dict:
     out["hours-in-state"] = {s: round(statistics.median(v), 2) for s, v in waits.items() if s in watch.STUCK}
     goals = {}
     for m, gname in GOALS:
-        sp = watch.hold("measures.yaml", gname)
-        if sp and out.get(m) is not None:
-            goals[gname] = {"measure": m, "reading": out[m], "hold": sp,
-                            "off": round(sp / out[m] if m == "first-pass-yield" and out[m] else out[m] / sp, 2)}
+        held = re.search(watch.HOLD.format(name=re.escape(gname)), (fac.HERE / "model" / "measures.yaml").read_text(),
+                         re.M | re.S)
+        if held and out.get(m) is not None:
+            goals[gname] = {"measure": m, "reading": out[m], "hold": f"{held[1]} {held[2]}",
+                            "off": off(held[1], float(held[2]), float(out[m]))}
     out["goals"] = goals
     out["binding"] = max(goals, key=lambda k: goals[k]["off"], default=None)
     out["proposals"] = [f"{g['id']} ({g['state']})" for g in gaps if g["fields"].get("velocity")][-5:]
