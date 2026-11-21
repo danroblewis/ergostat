@@ -315,8 +315,11 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
     cost["seconds"] = round(time.perf_counter() - t0, 1)
     out = {"system": system, "why": why or [], "rounds": log, "cost": cost, "model": model, "budget": budget,
            "version": ver.version(spec), "reports": said}
-    if best is None:
-        out["result"] = "nothing proposed"
+    if best is None:                                   # a failed call is said as one, never as "nothing proposed"
+        failed = next((x["error"] for x in log if x.get("error")), None)
+        out["result"] = "error" if failed else "nothing proposed"
+        if failed:
+            out["why_not"] = failed
         return out
     out["scorecard"] = best[2]
     raw = {"title": title or f"A redesign of {'the model' if system == 'model' else system}", "system": system,

@@ -2283,7 +2283,13 @@ lease that expired is not ended again when its run ends.
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
 to run on, and the item was back in the queue meanwhile): when its lease expires, the engine that started it sends
-SIGTERM to its process group and every process it started (in whatever group or session), and SIGKILL after a grace
+SIGTERM to its process group and every process it started (in whatever group or session; one whose parent has
+exited too, as the run's watch saw it: the run's processes are looked at after each sample of the runs' resource
+sampler, about once a second, so one started and left between two looks is not seen; a pid the watch saw is
+signalled only while its start time is still the one it saw, so a pid used again by another process is left alone
+(start times are read to the second: a pid freed and taken again within the same second as its first start is not
+told apart); the run itself and its group are signalled while it is not yet waited on, even when the processes
+cannot be listed), and SIGKILL after a grace
 (`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records
 `ergostat.run.killed` (about its block; `run`, `item`, `fence`, `why`, `signal`: TERM or KILL, or `cancel` with no
 `pids` for a run a daemon holds, which is sent `cancel` instead: section 9.7, *Cancel*; `pids`, `grace`). The run
@@ -3903,7 +3909,22 @@ block of the template, answer them, the cheapest first:
   is its settled cost, or its whole reservation until settled (a run killed mid-call), dated by its reservation; a
   ledger that cannot be read means no call. A run the cap stops leaves its requests as they were (no try counted), and
   the status line says `the AI tier has spent $X of its $Y today` once a call was refused for the cap that day or the
-  spend is within the latest reservation of it. The lock covers the AI tier's own calls only, not the redesigner's or
+  spend is within the latest reservation of it. **A failed call** (`modeller.call`: it timed out, exited non-zero,
+  said `is_error`, or said no cost that is a finite number of dollars, 0 or more) is an `error` with what it said
+  (its result, or its standard error), charged its reservation, or what it said if more. The AI tier does not try again
+  in that run; when its first call fails, its requests keep their tries and state, are charged their share, and say the
+  error (`why`, `error`), so the next run gives them to it again, within the cap. When only its second (go-back) call
+  fails, its first answer was a real one, so the requests it did not answer use their try as before, held saying the
+  second call failed. Failed calls are counted apart from tries (`failed`) and bounded, since some fail the same way
+  every time (a prompt too long): a request that failed before is never in a call with others. While any request with
+  no failed call waits, the call takes only those; after that, the one that failed least goes alone in its call. After
+  `modeller.FAILS` (3) failed calls a request is held for the owner, saying the error. They are failed calls in a
+  row: a first call that answers sets the count back to 0, and so does the owner's approval (with its `error`
+  cleared), so an approved request is called again; raised again after a dismissal, it starts with none. The reviewer counts no failed
+  call toward its tries and stops its pass there; the changes that failed least are read first, and one with
+  `FAILS` failed calls is `undecided`, the owner's. A redesigner run whose calls failed ends `error` (with the
+  error), not `nothing proposed`; its request stays open saying so, and the unit takes no rest for it until `FAILS`
+  runs in a row have failed, when it rests as after a run that made nothing. The lock covers the AI tier's own calls only, not the redesigner's or
   repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":

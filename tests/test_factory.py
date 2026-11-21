@@ -2070,6 +2070,112 @@ def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
     assert out["landed"] == ["gap/a", "gap/b"] and out["same"] is True
 
 
+def test_a_failed_suite_stops_its_sibling(tmp_path):
+    fast = "echo 'FAILED tests/test_b.py::test_b - boom'; exit 1"
+    slow = f"sleep 30; echo ran >> {tmp_path}/slow-ran"                 # finished only if it is never stopped
+    for failing, other in (("unit", "browser"), ("browser", "unit")):
+        f = Factory(tmp_path / failing, unit=fast if failing == "unit" else slow)
+        f.config.write_text(f.config.read_text().replace('browser = "true"',
+                                                         f'browser = "{fast if failing == "browser" else slow}"'))
+        approved_gaps(f, {"a": 1})
+        said, _ = f.run("queue.py", "gap/a")
+        assert said == ["gap.queued", "gap.queue-failed", "gap.measured"]
+        got = f.item("gap/a")["fields"]
+        assert got["failed_suite"] == failing and got["failed_tests"] == ["tests/test_b.py::test_b"]   # first to fail
+        assert got["suites_queue"][other]["stopped_by"] == failing and got["suites_queue"][other]["rc"] != 0
+        assert not (tmp_path / "slow-ran").exists()                       # the sibling was killed, never finished
+
+
+def bisect_stand_ins(tmp: Path, unit_names_tests: bool = True, rerun: str = "") -> Factory:
+    """A unit suite that stops at its first failure, as `-x` would (test_b while bad.txt is there, then test_c while
+    badc.txt is), each run logged in ``runs`` and each green one's tree in ``greens``; and the named tests' rerun,
+    which says PASSED or FAILED for each test it is given and logs its arguments in ``reruns``."""
+    say = (lambda t: f"echo 'FAILED tests/{t}.py::{t} - boom'") if unit_names_tests else (lambda t: "echo boom")
+    (tmp / "unit.sh").write_text(f"echo run >> {tmp}/runs\n"
+                                 f"if [ -e bad.txt ]; then {say('test_b')}; exit 1; fi\n"
+                                 f"if [ -e badc.txt ]; then {say('test_c')}; exit 1; fi\n"
+                                 f"git rev-parse 'HEAD^{{tree}}' >> {tmp}/greens\n")
+    (tmp / "rerun.sh").write_text(f'echo "$*" >> {tmp}/reruns\nrc=0\nfor t in "$@"; do\n case "$t" in\n'
+                                  ' *::test_b) f=bad.txt;;\n *::test_c) f=badc.txt;;\n *) continue;;\n esac\n'
+                                  ' if [ -e $f ]; then echo "FAILED $t - boom"; rc=1; else echo "PASSED $t"; fi\n'
+                                  'done\nexit $rc\n')
+    f = Factory(tmp, unit=f"sh {tmp / 'unit.sh'}")
+    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"',
+                                                     f'rerun = "{rerun or "sh " + str(tmp / "rerun.sh")} {{tests}}"'))
+    return f
+
+
+def reruns(f: Factory) -> list[str]:
+    p = f.tmp / "reruns"
+    return p.read_text().splitlines() if p.exists() else []
+
+
+def test_bisect_reruns_only_the_failing_tests(tmp_path):
+    f = bisect_stand_ins(tmp_path)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3
+    # all four red, naming test_b; test_b alone on all four (failed); then on p, q (passed) and on p, q, r (failed): r.
+    # Then p, q, s merged again and run in full: green
+    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 3 and suite_runs(f) == 2
+    r = f.item("gap/r")["fields"]
+    assert r["failed_suite"] == "unit" and r["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert r["suites_queue"]["named"]["tests"] == 1                            # found by the named run
+    assert merges(f) == ["p", "q", "s"] and not (f.checkout / "bad.txt").exists()
+    # p, q never landed as that commit: r's pre is main's head before the batch, which main still holds
+    assert subprocess.run(["git", "merge-base", "--is-ancestor", r["pre"], "main"], cwd=f.checkout).returncode == 0
+    assert git(f.checkout, "rev-parse", f"{r['pre']}^{{tree}}") == git(f.checkout, "rev-parse", "main~3^{tree}")
+
+
+def test_a_named_rerun_green_on_the_red_tree_bisects_in_full(tmp_path):
+    # test_b fails only in the full run (order, pollution, load): alone it passes even on the red tree, so the bisect
+    # runs every suite, and r (not the last merge, s) is blamed
+    (tmp_path / "pass.sh").write_text(f'echo "$*" >> {tmp_path}/reruns\nfor t in "$@"; do echo "PASSED $t"; done\n')
+    f = bisect_stand_ins(tmp_path, rerun=f"sh {tmp_path / 'pass.sh'}")
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+    assert len(reruns(f)) == 1 and suite_runs(f) == 4                          # the check on p..s, then in full
+    r = f.item("gap/r")["fields"]
+    assert r["failed_tests"] == ["tests/test_b.py::test_b"] and "named" not in r["suites_queue"]
+    assert f.item("gap/s")["state"] == "merged"
+
+
+def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
+    f = bisect_stand_ins(tmp_path, unit_names_tests=False)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+    assert reruns(f) == [] and suite_runs(f) == 4                               # today's bisect: every run in full
+    assert f.item("gap/r")["fields"]["failed_tests"] == []
+    # a named run that cannot tell (its test not found: rc 4, no result for it) runs that step in full, never green
+    (tmp_path / "g").mkdir()
+    (tmp_path / "notfound.sh").write_text(f'echo "$*" >> {tmp_path / "g" / "reruns"}\necho "ERROR: not found: $1"\n'
+                                          'exit 4\n')
+    g = bisect_stand_ins(tmp_path / "g", rerun=f"sh {tmp_path / 'notfound.sh'}")
+    approved_gaps(g, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    g.run("queue.py", "gap/p")
+    assert len(reruns(g)) == 1 and suite_runs(g) == 4 and merges(g) == ["p", "q", "s"]   # (the check on p..s)
+    assert g.item("gap/r")["state"] == "queue-failed"
+
+
+def test_nothing_lands_without_a_full_green_run(tmp_path):
+    # q breaks test_c, which the first run never names (the suite stops at r's test_b): on test_b alone, p, q is green.
+    # Landed then, q would be on main broken and s blamed for it. Merged again with s and run in full, it is found.
+    f = bisect_stand_ins(tmp_path)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4, edits={"q": "badc.txt"})
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 2 and said.count("gap.merged") == 2
+    assert merges(f) == ["p", "s"] and f.item("gap/s")["state"] == "merged"
+    assert f.item("gap/q")["fields"]["failed_tests"] == ["tests/test_c.py::test_c"]
+    assert f.item("gap/r")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    greens = (tmp_path / "greens").read_text().split()
+    assert git(f.checkout, "rev-parse", "main^{tree}") in greens               # what landed ran green in full
+    for g in "ps":
+        assert "named" not in f.item(f"gap/{g}")["fields"]["suites_queue"]     # never a named run's green
+    assert len(f.db()["acts"]) == 1
+
+
 def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
     # the run stopped during its suites: only ever the queue's own process (never whatever else $PPID could be)
     f = Factory(tmp_path, unit="ps -o command= -p $PPID | grep -q dev/bin/queue.py && kill -TERM $PPID; sleep 30")
@@ -2221,6 +2327,130 @@ def test_a_gap_that_did_not_land_waits_for_the_push(tmp_path):
     assert f.item("gap/a")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
 
 
+def settler(f: Factory) -> list[str]:
+    """One run of the block push-settler (`queue.py settle`): the events it said."""
+    return f.run("queue.py", argv=["settle"])[0]
+
+
+def settleable(f: Factory) -> str:
+    """The sensor push-settleable (`queue.py settleable`), which commands push-settler."""
+    r = subprocess.run([sys.executable, str(BIN / "queue.py"), "settleable"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+def test_a_push_settles_with_no_gap_approved(tmp_path):
+    import fcntl
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    assert settleable(f) == "0"                                                # nothing pending: not commanded
+    assert f.run("queue.py", "gap/a")[0][-1] == "gap.push-pending"               # a failed, b landed, the push held
+    assert f.item("gap/a")["state"] == "push-pending" and f.item("gap/b")["state"] == "merged"
+    assert settleable(f) == "0" and waiting(f) == "1"                          # held: nothing to settle yet
+    assert settler(f) == [] and f.item("gap/a")["state"] == "push-pending"
+    set_action(f, "ran")                                                       # approved and run: no gap is approved
+    assert settleable(f) == "1" and waiting(f) == "0"                          # commanded exactly when it has work
+    with open(tmp_path / "queue.lock", "a") as lock:                          # a run starting holds the queue's lock
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        assert settler(f) == [] and "a run holds the queue's lock" in f.stderr  # it settles the push itself
+        assert f.item("gap/a")["state"] == "push-pending"
+    assert settler(f) == ["gap.pushed", "gap.queue-failed"]                    # the held outcome, applied
+    assert f.item("gap/a")["state"] == "queue-failed" and settleable(f) == "0"
+    assert f.item("gap/a")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())
+    assert settler(f) == [] and settle(f) == ([], None)                        # once: neither applies it again
+    approved_gaps(f, {"c": 3})
+    assert f.run("queue.py", "gap/c")[0] == ["gap.queued", "gap.merged", "gap.push-asked"]   # nothing said twice
+    d = Factory(tmp_path / "d", unit=RED.format(runs=tmp_path / "d-runs"))    # denied: b sent back, a's outcome said
+    approved_gaps(d, {"a": 1, "b": 2}, bad="a", batch=2)
+    d.run("queue.py", "gap/a")
+    set_action(d, "denied")
+    assert settleable(d) == "1"
+    assert settler(d) == ["gap.sent-back", "gap.queue-failed"] and d.item("gap/b")["state"] == "fix"
+    assert settleable(d) == "0"
+    x = Factory(tmp_path / "x", unit=RED.format(runs=tmp_path / "x-runs"))    # failed: blocked, a's outcome said
+    approved_gaps(x, {"a": 1, "b": 2}, bad="a", batch=2)
+    x.run("queue.py", "gap/a")
+    set_action(x, "failed")
+    assert settleable(x) == "1"
+    assert settler(x) == ["intervention.recorded", "gap.queue-failed"] and x.item("gap/a")["state"] == "queue-failed"
+    assert "then" not in json.loads((x.model / "run" / "queue.json").read_text())["pending"]
+    assert settleable(x) == "0"                                                # blocked, not remedied: nothing to do
+    iid = next(i for i in x.db()["items"] if i.startswith("intervention/"))
+    x.fold([{"event": "intervention.remedied", "item": iid, "data": {"remedy": "pushed by hand"}}], None)
+    assert settleable(x) == "1"
+    assert settler(x) == ["gap.push-settled"]                                  # (the outcome not said a second time)
+    assert settleable(x) == "0"
+
+
+def test_push_settler_is_commanded_by_push_settleable():
+    spec, _ = read(ROOT / "ergostat.yaml")                                    # the factory's own model
+    block = spec.blocks["push-settler"]
+    assert [(r.kind, r.name) for r in block.inputs.values()] == [("auxiliary", "push-settleable")]
+    assert block.params["run"] == "python3 dev/bin/queue.py settle"
+    assert [s.run for s in spec.auxiliaries["push-settleable"].sensors.values()] == [
+        "python3 dev/bin/queue.py settleable"]                                 # (its readings: the test above)
+
+
+def test_an_unreadable_push_is_read_again_before_it_blocks(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    f.run("queue.py", "gap/a")
+    set_action(f, "")                                                          # its action's state cannot be read
+    assert settleable(f) == "1"
+    assert settler(f) == [] and settler(f) == []                               # read again, twice, nothing said
+    assert f.item("gap/a")["state"] == "push-pending"
+    set_action(f, "ran")                                                       # the read works again: settled
+    assert settler(f) == ["gap.pushed", "gap.queue-failed"]
+    x = Factory(tmp_path / "x", unit=RED.format(runs=tmp_path / "x-runs"))
+    approved_gaps(x, {"a": 1, "b": 2}, bad="a", batch=2)
+    x.run("queue.py", "gap/a")
+    set_action(x, "")
+    assert settler(x) == [] and settler(x) == []
+    assert settler(x) == ["intervention.recorded", "gap.queue-failed"]         # the third: worst case, blocked
+
+
+def test_a_settler_killed_while_saying_says_nothing_twice(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, bad="a", batch=2)
+    f.run("queue.py", "gap/a")
+    set_action(f, "ran")
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, queue\n"
+            "def killed(*a, **k): raise SystemExit(143)\n"              # SIGTERM (stop_on_term) at its first event
+            "fac.say = killed; queue.settle_alone(fac.config())")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 143, r.stderr
+    assert "pending" not in json.loads((f.model / "run" / "queue.json").read_text())   # saved before it said
+    assert settler(f) == [] and settle(f) == ([], None)                        # at most once: nothing said again
+
+
+def test_a_gap_pending_with_no_push_is_stuck(tmp_path):
+    f = pipe(tmp_path)
+    q = tmp_path / "instance" / "run"
+    q.mkdir(exist_ok=True)
+    aid = "ergostat.action/0000000001"
+    (q / "queue.json").write_text(json.dumps({"pending": {"sha": "a" * 40, "gap": "gap/b", "gaps": ["gap/b"],
+                                                          "action": aid, "then": [{"event": "gap.queue-failed",
+                                                                                   "item": "gap/a", "data": {}}]}}))
+    f.put("gap/a", "push-pending", branch="a")                                 # 10 h, past its 4 h
+    db = f.db()
+    db["actions"] = {aid: "held"}
+    f.record.write_text(json.dumps(db))
+    s = f.watch()
+    assert s["trigger"] == "heartbeat"                                         # its push held: a wait explained
+    f.handled(s["id"])
+    db = f.db()
+    db["actions"][aid] = "ran"                                                 # the push ran, nothing settled it
+    f.record.write_text(json.dumps(db))
+    s = f.watch()
+    assert (s["trigger"], s["subject"]) == ("stuck", "gap/a")                  # no longer explained
+    f.handled(s["id"])
+    f.put("gap/c", "push-pending", ago=600, branch="c")                        # no pending push carries it
+    s = f.watch()
+    assert (s["trigger"], s["subject"]) == ("stuck", "gap/c")                  # stuck at once, not after 4 h
+
+
 def test_a_stale_push_is_refused_as_not_a_fast_forward(tmp_path):
     f = Factory(tmp_path)
     start = git(f.origin, "rev-parse", "main")
@@ -2289,17 +2519,18 @@ def test_the_queue_runs_unit_and_browser_at_once_and_reports_the_first_failure(t
     t = tmp_path / "t"
     f = Factory(tmp_path, unit=f"echo unit-start >> {t}; sleep 1; echo unit-end >> {t}; echo 'FAILED tests/test_u.py::test_u'; exit 1")
     f.config.write_text(f.config.read_text().replace(
-        'browser = "true"', f'browser = "echo browser-start >> {t}; sleep 1; echo browser-end >> {t}; exit 1"').replace(
+        'browser = "true"', f'browser = "echo browser-start >> {t}; sleep 5; echo browser-end >> {t}; exit 1"').replace(
         'demo = "true"', f'demo = "echo demo >> {t}"'))
     approved_gaps(f, {"a": 1})
     said, _ = f.run("queue.py", "gap/a")
     got = t.read_text().split()
     assert sorted(got[:2]) == ["browser-start", "unit-start"] and "demo" not in got    # together; demo not after red
     fields = f.item("gap/a")["fields"]
-    assert said[1] == "gap.queue-failed" and fields["failed_suite"] == "unit"           # the first, in order
+    assert said[1] == "gap.queue-failed" and fields["failed_suite"] == "unit"           # the first to fail
     assert fields["failed_tests"] == ["tests/test_u.py::test_u"]
-    assert fields["suites_queue"]["browser"]["rc"] == 1 and fields["suites_queue"]["unit"]["rc"] == 1
-    f.config.write_text(f.config.read_text().replace("exit 1", "exit 0"))
+    assert fields["suites_queue"]["unit"]["rc"] == 1 and fields["suites_queue"]["browser"]["stopped_by"] == "unit"
+    assert "browser-end" not in got                                                     # stopped by unit's failure
+    f.config.write_text(f.config.read_text().replace("exit 1", "exit 0").replace("sleep 5", "sleep 1"))
     t.unlink()
     approved_gaps(f, {"b": 1})
     said, _ = f.run("queue.py", "gap/b")
