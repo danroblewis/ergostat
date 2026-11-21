@@ -374,3 +374,13 @@ Parked by the factory (review/external-event-logs-6, 2026-11-21 00:49).
 
 Failed its gates 6 times (the kill rule). Blocking findings:
 - .mut/mut.py (tracked, still in `git diff origin/main...HEAD` at df9b0f9a): a scratch mutation script that rewrites ergostat source files, whose own docstring says '(Not committed.)'. It is a stray file headed for an installable main, and its 55 lines are the whole size overrun (316 against 300; about 261 without it). The factory's agent says it can't remove it (df9b0f9a), so the owner or the coordinator must run `git rm .mut/mut.py` and commit. Nothing else needs to change.
+
+## Where it stopped, continued round 1
+
+- **`.mut/mut.py` is removed.** This session's sandbox allowed `git rm -q .mut/mut.py`, and `git ls-files .mut` now
+  lists nothing. That was the one blocking finding of review/external-event-logs-6. With it gone, the code outside
+  `tests/`, `docs/` and `dev/` is 261 net lines against main (278 added, 17 removed), within the 300 budget.
+- No other code or tests changed. The branch head already carries main (merge 92a356a5; `git log HEAD..main` is
+  empty). This clone has no `origin`, so origin/main was not merged here.
+- Ran: `tests/test_mirror.py` with `-o faulthandler_timeout=120` (30 passed, 12 s) and ruff (clean). I did not run
+  the whole unit suite or the four browser files. The factory runs them under the watchdog.
