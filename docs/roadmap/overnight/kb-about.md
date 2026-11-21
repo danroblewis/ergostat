@@ -175,3 +175,14 @@ Each finding of that review, and what changed:
 Tests run, each file alone, serially: `tests/test_item_about.py` 14 passed, `tests/test_factory_knowledge.py` 24
 passed. The files that use `check` and MCP's `check` are listed in the report. Ruff is clean. Not run: the whole unit
 suite and the browser files (the factory runs them).
+
+After the factory's `unit` run failed on
+`tests/test_relations_asof.py::test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers` (both
+modes, `'unblocked' == 'ready'`): this comes from the merge, not from kb-about. The backlog merge (2b101c6, still
+in this branch's history) renamed the precedence status *ready* to *unblocked* in `ergostat/precedence.py` and
+in `tests/test_relations.py`'s assertions. Main's relations-as-of added this test later, using main's word. Keeping
+both sides means carrying backlog's rename into the new test, so its two expected statuses now say `unblocked`,
+as backlog did for `test_relations.py`. No bound changed, and the test checks the same thing. The code is not
+renamed back, because that would break backlog's tests and its Items-tab legend. If backlog is instead taken out
+of this branch (the open scope finding above), this test edit goes with it. Run alone: `test_relations_asof.py`
+9 passed, `test_relations.py` + `test_item_about.py` 32 passed, ruff clean.
