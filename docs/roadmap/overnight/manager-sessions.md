@@ -399,3 +399,13 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   run the unit suite to completion with `-rf`. If it names a test outside the files above, it should run that test on
   clean main (`onmain.py`).
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 17 (2026-11-21): the `unit` run that ended at 2%.**
+- *What the tail shows:* the build, the xdist nodes coming up, and 102 dots (2%), ending partway through a line. There is
+  no `F`, no error, no summary and no closing line from suite_watch. As in rounds 2, 4, 7, 13 and 14, the run was ended
+  from outside. There is no failure to fix, so no code changed (lesson-13).
+- *State:* the tree was clean on 6e306c83, and no conflict markers are left in `ergostat.yaml` or under `dev/`.
+- *Ran here:* `tests/test_factory_manager.py` 32 passed. Ruff is clean. The whole unit suite and the four browser files
+  were not run here. The factory should run them again to completion with `-rf`. Many runs in a row have been ended
+  early, so it should also find out what is stopping the suite container (its memory or its time limit).
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
