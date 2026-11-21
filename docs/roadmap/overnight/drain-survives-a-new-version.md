@@ -45,3 +45,14 @@ ruff is clean. The whole unit suite, run alone or under suite_watch, was refused
 test could not be named. With no failing test to point at, nothing in drain.py was changed: a guessed fix would be
 outside the gap (lesson-13). Left open: the factory's unit run with `-rfE` (or its full output), to name the test,
 and then either fix it here if this branch caused it or report it as unrelated.
+
+Round 2, on e8e97867 (main 313f147b merged in): the whole unit suite ran here this time, under the watchdog exactly as
+[suites] unit gives it, plus `-rfE` (`uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist
+worksteal -rfE`): 2475 passed, 69 skipped, 1 xfailed in 631 s, rc 0, no failure. So the earlier `F` did not happen
+again in a full run on this branch. With no traceback for it, it is still not named. Because it did not come back, it
+reads as a load-dependent flake elsewhere, not as something drain.py caused (lesson-10/13), but that is not proven.
+ruff is clean. Lesson-9, checked here: with `keep` switched off in step() (the code as on main), the first two
+acceptance tests fail (an extra `upgrade.withdrawn`). With `keep` widened to cover an approved newer version too, the
+third fails (the drain is not taken over). With the line restored, the tree is identical to the commit. No code was
+changed in this round. Not run here: the four browser files and demo_check (no example was touched). Left to the
+factory: its own unit and browser runs.
