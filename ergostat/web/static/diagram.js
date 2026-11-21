@@ -522,7 +522,7 @@ function drawSystem(n, w, hgt) {
   (n.measures || []).forEach((m, i) => {
     const y = 52 + i * MEAS_ROW;
     const mt = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[m.status] || "var(--unknown)";
-    const row = s("g", { class: "measure-row", transform: `translate(0,${y})`, "data-act": "measure",
+    const row = s("g", { class: m.stale ? "measure-row measure-stale" : "measure-row", transform: `translate(0,${y})`, "data-act": "measure",
                          onclick: (ev) => { ev.stopPropagation(); openNode({ id: m.part, kind: m.part.startsWith("flow:") ? "disturbance" : "stock", label: m.label, flow: m.label }); } },
       s("rect", { x: 8, y: 0, width: w - 16, height: MEAS_ROW - 3, rx: 5, class: "measure-bg" }),
       m.goal ? s("circle", { cx: 18, cy: 10.5, r: 4, fill: mt, class: "live" }) : null,
