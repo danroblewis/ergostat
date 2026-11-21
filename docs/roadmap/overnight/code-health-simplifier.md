@@ -245,5 +245,5 @@ trailer and its own merge sha, and an error when the gap's merge is not in the r
 `pre..main_sha` range put back, the test fails, because the batch-mate's trailer is recorded too. `dev/README.md`
 now says that the removals read only the gap's own merge.
 
-Run: this file (11 passed), and ruff clean. Not run: `tests/test_factory.py` (the shell refused that command in this
-round), the full unit suite and the four browser files.
+Run: this file (11 passed), `tests/test_factory.py` (126 passed, 2 skipped), and ruff clean. Not run: the full unit
+suite and the four browser files.
