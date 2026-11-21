@@ -190,6 +190,13 @@ checks it).
 12-chain model. On the 90-stock chain, 0.42 s against 0.40 s: not improved. Main's grouping was routed by the
 branch's core, not by a checkout of main. scale_model's `system=sys-001` was not measured.
 
+**Suites run:** `tests/test_diagram_rendering.py` whole, serially, under `suite_watch.py`: 196 passed and 1 failed,
+in 17.5 min. The failure is `test_a_loop_clicked_chooses_its_members_in_both_panes_and_the_split_is_pictured`, a
+`PermissionError` writing its pictures to `ROOT.parent / "split-shots"` (`/split-shots` in this container). This
+change does not touch it, so it is left alone (lesson-13). Ruff is clean. Not run here: the unit suite and the other
+three browser files (`test_page_polling.py`, `test_items_page.py`, `test_page_refresh.py`); the factory runs them
+after.
+
 **Not done here:** this clone has no `origin` remote and local `main` has no commit past this branch's base, so
 "merge origin/main" was a no-op. If `line-routing-for-large-diagrams` lands first, its `spec.plain` pass must still
 bypass `groups` and `penalties` (lesson-7), and the suites must run again after the merge.
