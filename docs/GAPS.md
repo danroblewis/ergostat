@@ -96,8 +96,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 - **System architecture review** (computed measures done on `architecture`; design in
   `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
-  `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a model-level `purpose:`. *Left*: the relative gain
-  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity and aggregation from loop dominance, interface
+  `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a
+  model-level `purpose:`; candidates to aggregate from loop dominance over the window, an `aggregate` row on a
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`). *Left*: the relative gain
+  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
+  proposal to aggregate, interface
   stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
   per-system redesign and daily larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
@@ -115,12 +118,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   chosen alone (`items?kind=K`), its list in each of its states (`items?kind=K&state=S`, the states from the kind's
   own answer), and its Graph and Timeline (`items-graph?kinds=K`, related or not); an answer that cannot be got is
   left out, so the page says "not in this snapshot". Left: see *A set chosen in a snapshot*.
-- **A set chosen in a snapshot** (open; found on `a-kind-chosen-in-a-snapshot`): a set (`where`, `moved`, a process
-  map's `through`/`followed`/`caused`) chosen in a snapshot says "items: not in this snapshot". Which sets to hold
-  is open: their parameters are free (any field, any span), so they cannot all be taken ahead. Also: a kind with
-  more than 500 items is held as its first 500, and the page's "All N" link then shows the same 300. And an item's
-  own page (`items/<id>`) is held only for the first 40 of the no-kind list, so most rows of a kind chosen open to
-  "not in this snapshot".
+- **A set chosen in a snapshot** (partly done on `a-set-chosen-in-a-snapshot`; found on `a-kind-chosen-in-a-snapshot`):
+  a set's parameters are free (any field, any span), so they cannot all be taken ahead. A snapshot now holds the sets
+  its panels link to: each part's side-panel set and each process map node's and line's, as the panel lists it and
+  as the Items page shows it, up to 400 sets (SPEC §5a). *Left*: a set typed into the address by hand; the process
+  map's other `by` (states or events, whichever the map was not drawn by); the leased items a flow's panel links to;
+  item pages past the 40 held. And: a kind with more than 500 items is held as its first 500, and the page's "All N"
+  link then shows the same 300 (a kind's own list, held by *A kind chosen in a snapshot*).
 - **Resource levelling and completion estimates** (done, on `eta`; SPEC §5a, *Completion estimates*): the
   projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
   block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
@@ -301,6 +305,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   no controller reads what it manages. If the engine stops, its loops stop: so correctness never depends on them, each fails
   safe (tidying stopped means files pile up, nothing breaks), and they are watched in layers (the engine's own
   watchdog, then the runner or launchd for a dead process, with a heartbeat goal an outside watcher reads).
+  - **The item-index files** (done on `factory/upkeep-index-files`, `docs/roadmap/overnight/upkeep-index-files.md`):
+    `use: upkeep` with the loop `index-files` / `index-files-few` / `index-tidier` (`upkeep tidy --keep N`); the
+    engine stands down from tidying under it; the interlock (lock without waiting, age checked again under the lock,
+    an allowlist of index names under the resolved folder) stays in `spec/itemindex.py`. Under `use: upkeep` nothing
+    else limits the count if the tidier stops. Still to come: **upkeep-watched-loops** (the watchdog, the heartbeat
+    goal the outer watcher reads, leases and the worktree pool) and **upkeep-record-loops** (the event log's roll-up
+    and measurement retention).
 - **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):
   - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (done, 3e106ee:
     `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").

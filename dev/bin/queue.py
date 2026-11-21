@@ -7,9 +7,10 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
 3. take the batch: the run's gap and up to `batch` - 1 more approved gaps no run holds (the pool `batch` in
    run/pools.json, 1 to start, which is one gap a run; dev/bin/pools.py), walked in rank order and each dry-merged
    onto the batch so far (`git merge-tree`, picks()): one that conflicts with main is sent back and takes no slot, one
-   that conflicts only with a batch-mate stays `approved`. The others stay `approved` until the run settles them, and
-   the run's start is kept in run/queue.json (`running`), so a run killed part way (SIGKILL, a crash) strands nothing:
-   the next run puts main back where it began and takes them again;
+   that conflicts only with a batch-mate stays `approved`; a batch that comes back empty says why (emptied()). The
+   others stay `approved` until the run settles them, and the run's start is kept in run/queue.json (`running`), so a
+   run killed part way (SIGKILL, a crash) strands nothing: the next run puts main back where it began and takes them
+   again;
 4. merge each into a clean main of the checkout in turn (`--no-ff`), the tree dry-merged; a conflict (a re-merge
    after bisecting) is undone and sent back;
 5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py (the first
@@ -413,8 +414,13 @@ def message(g: dict) -> str:
     return f"Merge branch '{fac.git_branch(fac.branch_of(g))}'\n\n{fac.TRAILER}"
 
 
-def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict, str]], str]:
-    """The batch, and its dry-merged head: the run's own gap and the approved gaps no run holds (only its own when n is
+SENT = "it was sent back"   # (the start of an empty batch's why when the run's own gap's outcome is said already)
+
+
+def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict, str]], str, str]:
+    """The batch, its dry-merged head, and why it is empty ("" when it is not), from the walk itself: the run's own gap
+    sent back (SENT, and what for), or its dry merge failing only with batch-mates on both walks, or (never expected)
+    a walk that never reached it. The run's own gap and the approved gaps no run holds (only its own when n is
     1), walked in rank order (the groomer's rank, then when approved), each dry-merged onto the batch so far, until n
     merge. A gap that conflicts with main (`pre`) is sent back at once, a failed gate, and takes no slot; one that
     conflicts only with a batch-mate stays `approved`, no gate failed. The run's own gap is in its batch unless it is
@@ -430,6 +436,7 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
     others = [g for g in fac.items("gap", "approved") if g["id"] != gap["id"]
               and not (g["fields"].get("lease") or {}).get("holder")] if n > 1 else []
     shas: dict = {}                                       # each gap's reviewed commit; None once sent back
+    why = ["its walk never reached it"]                   # what kept the run's own gap out (never none: lesson-3)
 
     def walk(order: list[dict]) -> tuple[list[tuple[dict, str]], str] | None:
         batch, head, own = [], pre, False
@@ -439,9 +446,10 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
             if len(batch) >= n or (not mine and own_waits and len(batch) >= n - 1):
                 continue                                  # (full, or the last slot kept for the run's own gap)
             if g["id"] not in shas:
-                shas[g["id"]], why = reviewed(cfg, repo, g)
+                shas[g["id"]], no = reviewed(cfg, repo, g)
                 if not shas[g["id"]]:
-                    tell("gap.sent-back", g["id"], sent_back_by="queue", findings=[f"not merged: {why}"])
+                    tell("gap.sent-back", g["id"], sent_back_by="queue", findings=[f"not merged: {no}"])
+                    why[0] = f"{SENT}: not merged: {no}" if mine else why[0]
             if not shas[g["id"]]:
                 continue
             made, files = dry(repo, head, shas[g["id"]], message(g))
@@ -453,14 +461,38 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
             if onmain:
                 refuse(cfg, g, onmain, time.time())
                 shas[g["id"]] = None
-            elif mine:
-                return None                               # only with batch-mates: walked again, the own gap first
+                why[0] = f"{SENT}: conflicts with {cfg['git']['base']}: {' '.join(onmain)}" if mine else why[0]
+            elif mine:                                    # only with batch-mates: walked again, the own gap first
+                why[0] = f"its dry merge failed only with batch-mates on both walks ({' '.join(files) or 'no file'})"
+                return None
         return batch, head
     order = sorted([gap, *others], key=key)
     got = walk(order) or walk([gap, *[g for g in order if g is not gap]]) or ([], pre)
     if gap["id"] in shas and not shas[gap["id"]] and len(got[0]) < n:
         got = walk(order)                                 # own gap sent back: the gaps passed over for its slot too
-    return got
+    return *got, "" if got[0] else why[0]
+
+
+EMPTY_MOST = 3       # empty batches on one reviewed commit before its gap is sent back (lesson-4: never taken forever)
+
+
+def emptied(cfg: dict, gap: dict, why: str) -> None:
+    """The run's own gap when its batch came back empty. Sent back already (SENT): that is its outcome (a nack would
+    give it back to `approved` over it). Else counted, per reviewed commit (`empty_batches`, so a new commit starts
+    again), and given back with the reason (`after` 10m), uncounted by its lease; the EMPTY_MOST-th time sent back
+    instead, a failed gate, with the reason as its finding. Read and written under the queue's lock, for the run's
+    own leased gap (the queue's pool is 1): nothing else counts it meanwhile."""
+    if why.startswith(SENT):
+        return
+    f = gap["fields"]
+    was = f.get("empty_batches") if isinstance(f.get("empty_batches"), dict) else {}
+    k = (int(was.get("n") or 0) if was.get("head") == f.get("reviewed_head") else 0) + 1
+    fac.say("gap.measured", empty_batches={"head": f.get("reviewed_head"), "n": 0 if k >= EMPTY_MOST else k},
+            empty_batch=why)
+    if k >= EMPTY_MOST:
+        refuse(cfg, gap, [], time.time(), [f"its queue batch came back empty {k} times: {why}"])
+    else:
+        fac.nack(f"queue: its batch came back empty ({k} of {EMPTY_MOST}): {why}", after="10m", count=False)
 
 
 def waited_hours(g: dict, began: float) -> float:
@@ -477,12 +509,13 @@ def merge(cfg: dict, repo, g: dict, sha: str, began: float) -> bool:
     return False
 
 
-def refuse(cfg: dict, g: dict, files: list[str], began: float) -> None:
-    """A gap whose merge conflicts: sent back, a failed gate (the kill rule's last parks it)."""
-    findings = [f"conflicts with {cfg['git']['base']}: {' '.join(files)}"]
+def refuse(cfg: dict, g: dict, files: list[str], began: float, findings: list[str] | None = None) -> None:
+    """A gap whose merge conflicts (or ``findings``: why else): sent back, a failed gate (the kill rule's last parks
+    it)."""
+    findings = findings or [f"conflicts with {cfg['git']['base']}: {' '.join(files)}"]
     if int(g["fields"].get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):          # a conflict is a failed gate too
         fac.say("gap.measured", g["id"], failed_gates=1, findings=findings)
-        review.park(cfg, g, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, a conflict in the "
+        review.park(cfg, g, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, in the "
                             f"merge queue: {findings[0]}", "merge-queue", where="queue", kind="kill-rule")
     else:
         tell("gap.sent-back", g["id"], sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,
@@ -620,8 +653,9 @@ def take(cfg: dict, gap: dict, repo) -> int:
         fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
         pre = fac.git(repo, "rev-parse", "HEAD")
         n = min(pools.state(cfg)["batch"], pools.BATCH_MOST)          # (the ceiling again, at run time)
-        batch, dried = picks(cfg, repo, gap, n, pre)
+        batch, dried, empty = picks(cfg, repo, gap, n, pre)
         if not batch:
+            emptied(cfg, gap, empty)
             return 0
         waited = fac.wait_quiet(cfg)
         began = time.time()
