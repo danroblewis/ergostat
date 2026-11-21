@@ -83,3 +83,13 @@ Mutations tried (lesson-9). Each broke the test named here, and each was reverte
 Run here, one file at a time: `test_item_search`, `test_item_index`, `test_cli_fallback`, `test_spec_items`,
 `test_item_sets`, `test_graph_cli_web` and `test_rollup` all pass, and ruff is clean. Not run here: the full unit suite
 and the four browser files, which the factory runs under the watchdog.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:11).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 3: ack
+- attempt 4: nack exited 1
+- attempt 5: nack exited 1
+- attempt 6: nack exited 1
