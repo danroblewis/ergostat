@@ -27,6 +27,16 @@ def room(suites: dict, deadline: float) -> bool:
     return time.time() + max(LEAST, float((suites.get("unit") or {}).get("seconds") or 0)) < deadline
 
 
+def failing(cfg: dict, branch: str, main: str, tests: list[str], logs: Path, tag: str) -> dict:
+    """The tests alone on clean ``main``, in a clone of the drop at it, in a suite container (what agents.suites
+    said: `failed` and the `tests` that failed, when any did). Also the pipeline manager's reapprove (manage.py)."""
+    mhome, _ = agents.clone(cfg, branch, "main", at=main)
+    try:
+        return agents.suites(cfg, mhome, ("alone",), logs, tag, tests=tests)
+    finally:
+        shutil.rmtree(mhome, ignore_errors=True)
+
+
 def check(cfg: dict, gap: str, home: Path, branch: str, main: str, logs: Path, tag: str, deadline: float,
           seen: dict[str, bool], retried: bool) -> tuple[dict, bool]:
     """The fast suites on the session's work, triaged; (what they said, whether the flake retry is spent). On a unit
@@ -52,13 +62,8 @@ def check(cfg: dict, gap: str, home: Path, branch: str, main: str, logs: Path, t
     if ask and not room(out, deadline):
         return {**out, "not_checked": "no building hours left under the kill rule for a run on main"}, retried
     if ask:
-        mhome, _ = agents.clone(cfg, branch, "main", at=main)
-        try:
-            got = agents.suites(cfg, mhome, ("alone",), logs, f"{tag}-main", tests=ask)
-        finally:
-            shutil.rmtree(mhome, ignore_errors=True)
-        bad = set(got.get("tests") or [])                   # (a failure that names no test blames nothing on main)
-        seen.update({t: t in bad for t in ask})
+        bad = set(failing(cfg, branch, main, ask, logs, f"{tag}-main").get("tests") or [])  # (a failure that names no
+        seen.update({t: t in bad for t in ask})                                              # test blames nothing)
     on_main = [t for t in still if seen.get(t)]
     return {**out, "main_checked": main, "on_main": on_main, "main_broken": len(on_main) == len(still)}, retried
 
