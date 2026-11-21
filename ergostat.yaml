@@ -213,13 +213,17 @@ items:
   upgrade:
     id: upgrade/*
     description: a version of main the instance may run - installed into its own folder, switched to, kept or reverted
-    states: [available, installed, switched, healthy, reverted, superseded, failed]
+    states: [available, installed, approved, draining, switched, healthy, reverted, superseded, withdrawn, failed]
     on:
       upgrade.opened: available        # merge queue: a new green main
       upgrade.installed: installed     # upgrader
       upgrade.superseded: superseded
       upgrade.failed: failed
-      upgrade.switched: switched       # the switch (live.py), once the coordinator approved it
+      upgrade.switch-approved: approved    # the switcher (drain.py): its switch-instance approved
+      upgrade.draining: draining       # a quiet moment or the daily window: the runs under way drain
+      upgrade.drained: draining        # drained (or the bound reached): the switch begins
+      upgrade.withdrawn: withdrawn     # a newer version waits, or runs: its switch request withdrawn
+      upgrade.switched: switched       # the switch (live.py), once drained
       upgrade.kept: healthy
       upgrade.reverted: reverted
     show: [sha, check, switch, previous]

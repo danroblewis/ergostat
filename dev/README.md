@@ -259,9 +259,17 @@ one of its own open at a time, and never one whose branch exists.
 ## Upgrade and revert
 
 Each green merge opens an `upgrade` item; the upgrader installs it into `~/ergostat-live/<sha>` and checks the model
-with its own code, then asks for `switch-instance`. Approving it (the inbox, as above) stops the engine, points
-`current` at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record
-read, the merge queue in the model); unhealthy, it goes back to the previous version by itself. By hand:
+with its own code, then asks for `switch-instance`. Only the newest waits: the switcher (`dev/bin/drain.py`, every
+minute) withdraws a request for a version older than one waiting, or than the one running (its action denied by the
+switcher, saying which version supersedes it). Approving it (the inbox, as above; or standing, with `gate: auto` on the
+action in the instance's model) does not switch at once: the switch waits for a quiet moment (at most `[upgrade]
+quiet_runs` AI runs under way) or, at the latest, the daily window (`[upgrade] daily_at`, 04:00 local) passing; then it
+drains: `run/drain.json` is written and the AI blocks take no new item (each run gives its item back uncounted) while
+the runs under way finish, for at most `[upgrade] drain_minutes` (45); the runs still going then are given back
+uncounted (not a failure of their gaps) and stopped with the engine. The switch then stops the engine, points `current`
+at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record read, the
+merge queue in the model); unhealthy, it goes back to the previous version by itself. Either way it removes
+`run/drain.json`. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
 python3 dev/bin/live.py switch <sha>           # the same, in the foreground
