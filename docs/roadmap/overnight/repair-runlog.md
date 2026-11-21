@@ -328,3 +328,9 @@ The other findings of review 3:
   and main's copy of `test_leases.py` were not run in this session. They must be run on the rebuilt branch. The lease
   test can be compared fairly only there, against main with only this gap on top.
 - **The reviewer could not run the tests.** Run here: `tests/test_runlog.py` 12 passed. ruff is clean.
+
+## Where it stopped
+
+Parked by the factory (review/repair-runlog-4, 2026-11-20 20:29).
+
+Done, by reading: the gap's own code (ergostat/runlog.py: per-run files opened by descriptor without following links, created with O_EXCL and fallback names, the shared run lock taken under the directory lock, the prune ordered by start seq with an allowlist that skips locked files, the trim and append done in one write under the block log's lockfile, keep() clamped including its fallback; engine.run_block refuses a run whose log can't be made and gives triage the run's own tail before finish; storage logs: runs: 1-1000) and the tests in tests/test_runlog.py, which the implementor reports passing (12) and seen failing with each guard broken. Left: the branch must be rebuilt on origin/main from the gap's own commits only (98d0af91 3b2a7396 e5d4b907 8becff97 f3498374 4c354b23 01a44bad; leave out e3bda351's test_relations_asof.py edit and carry its notes over by hand), as written at docs/roadmap/overnight/repair-runlog.md:300-316. Then run test_runlog.py, test_streamed_output.py, test_runner_and_state.py, test_resilience.py, test_daemons.py, test_repair2.py (on a host with the sandbox), test_relations_asof.py unchanged with 'ready', the unit suite and the four browser files, and compare test_leases.py with main. Why stop: two reviews in a row failed on the branch base, and the implementor's session cannot move branches, so a third fix round would end the same way. The rebuild needs a session allowed to make branches, or the coordinator.
