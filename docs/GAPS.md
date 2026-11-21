@@ -298,6 +298,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Interface
 
+- **Searching items and querying their graph** (`gap/item-search`, split in two): full-text search and graph queries
+  over items, from the CLI and API.
+  - *Search*: **done** on `factory/item-text-search` (SPEC §5a, *Search*): `ergostat item --search WORDS` and
+    `/api/items?search=WORDS` list the items whose fields' text contains every word (a casefolded substring, no
+    ranking, no fuzzy match; the first 65,536 characters of each item's text), kept in the item index. Not the Items
+    page's own box, not MCP, not `--at`.
+  - *near, path and about*: **open** (`gap/item-graph-queries`): the items near one, the path between two, and what is
+    about one, from the index's links and text.
 - **Light theme: the repeats toward the paper are low in contrast** (open; for a design pass, no colour work until
   then; found fixing the dark theme's): the third round of correspondence colours (`--g-fade`, 55% of the hue) stands
   1.6:1 to 2.5:1 on white, and `--g9` (gold) 2.4:1 as it is; WCAG asks 3:1 for graphics. Tried on `smallgaps`
