@@ -21,6 +21,11 @@ stocks:
     unit: gaps
     description: gaps split into sub-gaps, each waiting until every one of its sub-gaps is merged (a join)
     sensor: {items: gap, state: split, every: 1m}
+  gaps-joined:
+    system: intake
+    unit: gaps
+    description: split gaps whose sub-gaps all merged, waiting for the join judge - covered (merged) or short (split again)
+    sensor: {items: gap, state: joined, every: 1m}
   research-asked:
     system: research
     unit: questions
@@ -152,9 +157,31 @@ flows:
   splits-joined:
     system: intake
     from: gaps-split
-    description: a split gap moved to merged once every sub-gap was merged (a join; also counted by gaps-merged)
+    to: gaps-joined
+    description: a split gap moved to joined once every sub-gap was merged (a join), for the join judge
     driven-by: [+stock.gaps-split]
     equation: stock.gaps-split / split-time
+    sensor: {items: gap, entering: joined, over: 1d}
+  joins-covered:
+    system: intake
+    from: gaps-joined
+    description: a joined gap the join judge found covered - merged, with its verdict (also counted by gaps-merged)
+    driven-by: [+stock.gaps-joined]
+    equation: (1 - short-share) * stock.gaps-joined / judge-time
+    sensor: {items: gap, entering: merged, where: {join_verdict: covered}, over: 1d}
+  joins-short:
+    system: intake
+    from: gaps-joined
+    to: gaps-split
+    description: a joined gap the join judge found short - a sub-gap requested for what was not built, then split again
+    driven-by: [+stock.gaps-joined]
+    equation: short-share * stock.gaps-joined / judge-time
+    sensor: {items: gap, entering: split, where: {lease.back: joined}, over: 1d}
+  joins-parked:
+    system: intake
+    from: gaps-joined
+    description: a joined gap found short past the most short rounds - parked with the points still not built
+    sensor: {items: gap, entering: parked, where: {parked_in: joined}, over: 1d}
   splits-parked:
     system: intake
     from: gaps-split
@@ -266,6 +293,18 @@ parameters:
     value: 3d
     estimate: true
     description: how long a split gap waits for every one of its sub-gaps to merge
+  judge-time:
+    system: intake
+    value: 30m
+    estimate: true
+    description: how long a joined gap waits for the join judge
+  short-share:
+    system: intake
+    value: 0.2
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of joined gaps the join judge finds short
   stuck-share:
     system: intake
     value: 0.1
@@ -414,6 +453,18 @@ blocks:
     every: 5m
     timeout: 5m
     out: flow.splits-parked
+  join-judge:
+    type: ai
+    system: intake
+    agent: opus
+    description: a session per joined gap in a read-only clone of main - its entry, its coverage, each sub-gap's definition and last review against the code; covered merges it, short requests a sub-gap for what is missing and splits it again (the third short parks it); it waits while the day's money is spent
+    run: python3 dev/bin/plan.py join
+    prompt: dev/prompts/join_judge.md
+    takes: {kind: gap, at: [joined], to: [merged, split, parked]}
+    pool: 1
+    lease: {ttl: 60m, attempts: 2}
+    timeout: 1h
+    out: [flow.joins-covered, flow.joins-short, flow.joins-parked]
 
   research-when:
     type: expr
