@@ -248,3 +248,21 @@ either.
 **Run here:** `tests/test_remote_items.py` (21 passed) and `ruff check ergostat tests scripts` (clean).
 
 **Size:** about 319 net lines under `ergostat/`, within 420.
+
+## Where it stopped (round 3)
+
+**The finding: the branch was 636 commits behind main and conflicted in docs/GAPS.md.** Fixed. The factory's merge
+of main (e1e778c) was finished in c6a4433. The only conflict was the *Remote systems* entry. Main's addition there
+(the done `remote-box-measures` slice and its sentence) is kept. This branch's done sentence is placed after it.
+The *Left* list keeps main's other items and still leaves out "the remote's events in the Items and Record pages".
+No code changed in this round.
+
+**Run after the merge, one file at a time:** `tests/test_remote_items.py` (21 passed), `tests/test_remote.py` with
+`tests/test_remote_pair.py` (13 passed), `tests/test_graph_cli_web.py` (31 passed), `tests/test_web_access.py`
+(26 passed), `tests/test_spec_items.py` (6 passed). `ruff check ergostat tests scripts` is clean.
+
+**Still not run: the browser files.** `tests/test_items_page.py` is skipped here: "could not import
+'playwright.sync_api': No module named 'playwright'". So `test_a_remotes_items_and_events_are_shown_marked_remote`
+and the page code have never been executed, and by the house rules the gap is not done until they pass. Also not
+run here: the whole unit suite, which the factory runs. The merged ref is local `main` (e1e778c), because this
+clone has no `origin/main`.
