@@ -3,7 +3,8 @@
     plan.py           the planner: takes a gap at open (or replan). In a read-only clone of main, given the task graph
                       (brief.graph), a session writes its definition of done (acceptance tests by name, a budget, the
                       review lessons that apply as risks, the files to touch). Or it splits the gap into sub-gaps
-                      (`depends-on` among them, `parent:` the gap, which waits in split until every one is merged), or
+                      (`depends-on` among them, `parent:` the gap, which waits in split until every one is merged; each
+                      at most 250 net lines, its <coverage> block saved as run/plans/<parent>.md), or
                       asks research questions and waits for their answers (a question dead, or unanswered after 12
                       waits, is planned without, and the brief says so). Each definition is linted (lint: no AI): one
                       that fails goes back with the findings (the 6th lint failure parks: a planner that cannot write
@@ -35,6 +36,26 @@ TAG = re.compile(r'<definition branch="([^"]*)"(?: title="([^"]*)")?>\n?(.*?)</d
 DEPS = re.compile(r"^depends-on:\s*\[([^\]]*)\]", re.M)
 SIZE = re.compile(r"\bsize:\s*([A-Za-z]+)\s*\(confidence:\s*([A-Za-z]+)\s*\)")
 CLASSES, CONFIDENCES = ("S", "M", "L", "XL"), ("low", "medium", "high")
+SUB_GAP_MOST_LINES = 250                                 # a sub-gap's budget at most (a single plan: plan_budget_most)
+COVER = re.compile(r"<coverage>(.*?)</coverage>", re.S)
+BY = re.compile(r"\(by:([^()]*)\)\s*$")
+
+
+def coverage(said: str, names: list[str]) -> tuple[str, list[str]]:
+    """A split's one `<coverage>` block (what the parent must do, a `- ` point per line ending `(by: name, name)`),
+    and what makes it unusable: not exactly one block, a point naming no sub-gap or one not of this split, a sub-gap
+    no point names. Names are matched exactly."""
+    blocks = COVER.findall(said)
+    if len(blocks) != 1:
+        return "", [f"a split needs exactly one <coverage>...</coverage> block, not {len(blocks)}"]
+    points = [x.strip()[2:] for x in blocks[0].splitlines() if x.strip().startswith("- ")]
+    out, named = [] if points else ["the <coverage> block has no `- ` point"], set()
+    for p in points:
+        by = [n.strip() for n in m[1].split(",") if n.strip()] if (m := BY.search(p)) else []
+        out += [] if by else [f"coverage point {p[:80]!r} names no sub-gap: end it `(by: name, name)`"]
+        out += [f"coverage point {p[:80]!r} names {n!r}, not a sub-gap of this split" for n in by if n not in names]
+        named |= set(by)
+    return blocks[0].strip(), out + [f"sub-gap {n!r}: no coverage point names it" for n in names if n not in named]
 
 
 def size_of(body: str) -> dict | str:
@@ -139,13 +160,18 @@ def deps_of(body: str) -> list[str]:
 
 def problems(defs: list[tuple[str, str, str]], branch: str, known: set[str]) -> list[str]:
     """What makes a planner's definitions unusable: none, too many, one not for the gap, a sub-gap named as the gap or
-    as a gap that exists (its id reused would merge old fields in), a name that is not lowercase words and dashes, or
-    a dependency on a later sub-gap or on no gap, or a size line missing or not understood."""
+    as a gap that exists (its id reused would merge old fields in), a name that is not lowercase words and dashes, a
+    sub-gap whose budget is over SUB_GAP_MOST_LINES or names no number (counted as over), a dependency on a later
+    sub-gap or on no gap, or a size line missing or not understood."""
     sizes = [f"{name!r}: {why}" for name, _, body in defs if isinstance(why := size_of(body), str)]
     if len(defs) == 1:
         return sizes + ([] if defs[0][0] == branch else [f"a single definition must be for {branch}, not {defs[0][0]!r}"])
     names = [d[0] for d in defs]
     out = [] if defs else ["the planner wrote no <definition>"]
+    out += [f"sub-gap {name!r}: its size budget is {n} net lines, at most {SUB_GAP_MOST_LINES} (split it further)"
+            if n >= 0 else f"sub-gap {name!r}: its size budget names no number of net lines (counted as over "
+            f"{SUB_GAP_MOST_LINES})" for name, _, body in defs
+            if not 0 <= (n := fac.budget_of(body, default=-1)) <= SUB_GAP_MOST_LINES]
     out += [f"a split into {len(defs)} sub-gaps: at most {MOST_SPLIT}"] if len(defs) > MOST_SPLIT else []
     for i, (name, _, body) in enumerate(defs):
         if name == branch or not fac.SAFE.match(name) or f"gap/{name}" in known or name in names[:i]:
@@ -197,8 +223,11 @@ def planner(cfg: dict, gap: dict) -> int:
     defs = [(n.strip(), t.strip(), b.strip() + "\n") for n, t, b in TAG.findall(said)]
     gaps = fac.items("gap")                              # a sub-gap's name is never another gap's id or branch
     known = {g["id"] for g in gaps} | {f"gap/{g['fields'].get('branch')}" for g in gaps}
-    if wrong := problems(defs, branch, known) or linted(cfg, defs):
+    cover, uncovered = coverage(said, [d[0] for d in defs]) if len(defs) > 1 else ("", [])
+    if wrong := problems(defs, branch, known) + uncovered or linted(cfg, defs):
         return send_back(cfg, gap, wrong, **record)
+    if cover:                                            # the parent's plan, over any earlier split's (lesson-5)
+        (fac.run_dir(cfg, "plans") / f"{branch}.md").write_text(f"<coverage>\n{cover}\n</coverage>\n")
     for name, title, body in defs:
         sized = dict(size_of(body), merged_lines=None, merged_lines_error=None)  # never scored on old lines
         if name != branch:
@@ -239,6 +268,8 @@ def sweep(cfg: dict) -> int:
         if (f.get("lease") or {}).get("holder") or not p.is_file() or not (g["state"] == "planned" or old):
             continue
         body = p.read_text()
+        if COVER.search(body):                           # a split parent's coverage: never a definition
+            continue
         if not (found := lint(cfg, body)):
             define(cfg, g["id"], fac.branch_of(g), body, "plan-lint", notes=list(f.get("plan_findings") or []) if old
                    else [], released_from=g["state"])
