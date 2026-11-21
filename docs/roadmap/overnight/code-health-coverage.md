@@ -206,3 +206,9 @@ factory's run), the branch adds one `os.environ.get` per pytest process. Its own
 the tracer test frees the `sys.monitoring` tool id it took, and its children write only under `tmp_path`. If the next
 unit run names a test, that test is the next thing to look at. If it is a time-bound test, it belongs to lesson-10's
 triage, not to this branch. Point 3 is still the owner's to measure, as round 2 says.
+
+## Where it stopped
+
+Parked by the factory (review/code-health-coverage-2, 2026-11-20 19:33).
+
+Done: points 1, 2, 4, 5 and 6. These are the sys.monitoring tracer in tests/coverage_lines.py (off unless ERGOSTAT_COVERAGE is set), scripts/coverage_report.py (158 lines, inside the 200 budget), and measure.py coverage / coverage-below-floor, which fail closed when the report is missing, unreadable, stale or not on main and pick the latest report by seq. Also done: queue.py's opt-in tracer run (main's copy of the script, timeout caught, reports pruned by seq and by name), the measures.yaml auxiliary, the README section, and acceptance tests with a break check recorded for each. Left (point 3): time the fast unit suite with and without the tracer, using the two commands in dev/README.md (Coverage), and record both numbers in the definition. Then either set [suites] queue_coverage = true (overhead 15% or less) or build the nightly unit run (more than 15%), and confirm a first real report on main. Why stop: after three rounds the implementor's session still cannot set ERGOSTAT_COVERAGE, so the remaining step is the owner's measurement. Nothing partial should reach main.
