@@ -123,3 +123,45 @@ Run, one file at a time, after the merge: `test_resilience.py` (40 passed), `tes
 `test_trial_stops.py` (12), `test_leases.py` (29), `test_notify.py` (4, 1 skipped: kqueue, macOS only),
 `test_run_costs.py` (14), `test_streamed_output.py` (10). Ruff is clean. Not run: the full unit suite and the browser
 files (the factory runs them).
+
+Round 4, answering review/lease-kill-detached-3 and the queue's size finding:
+
+- **Size, "no reason written" (blocking):** the gate (`dev/bin/review.py`, `judge`) reads the definition as first
+  committed (`gates()` returns `first or now`), so a reason written here under "Where it stopped" is never seen by
+  it. That is a factory defect, outside this gap (lesson-13): reported, not fixed here. So that the gap can pass, the
+  change is now within budget: **40 net lines** in `ergostat/` (+74 −34, docstrings and comments counted):
+  `reap.py` +30, `kill.py` +4, `engine.py` +4, `costs/sampler.py` +2.
+  - The shared looker thread is gone. The runs' resource sampler (`costs/sampler.py`, one thread for every run) calls
+    `reap.look_all()` after each sample: one `ps` for every open watch, and no thread of its own. **Outside the files
+    to touch: `ergostat/costs/sampler.py`** (+2). It was the smallest way to keep a run at one thread. The cost: the
+    watch looks about once a second (the sampler's interval) instead of every 0.5 s. SPEC §9.5 says so, and the
+    acceptance test's child now stays under its parent 2.5 s (two looks) instead of 1 s.
+  - `reap.stop`'s callable mode no longer keeps start times of its own. Each round asks `Watch.still()`, which looks
+    once more and stamps what is under the run now. So a child the TERM round found is still named by the SIGKILL
+    round while it is the same process (the round-1 finding, kept). `Watch.look` adds nothing while the run's own pid
+    has a start time other than its first, so a stranger who took that pid is never looked under.
+  - `Watch()` starts no thread, so it can't fail for want of one. Round 3's `except RuntimeError` in the engine is
+    gone, and its test (`test_a_run_whose_watch_cannot_start_still_ends_as_a_run`) has a new name and checks:
+    `test_a_runs_watch_costs_no_thread_and_ends_with_its_run` (no thread added by a run's watch; it is closed when
+    the run ends; the sampler looked at it while it ran). The watch is still made inside the `try` whose `finally`
+    closes it. A kill that comes before the run has a watch makes one for itself, then closes it.
+- **SPEC §9.5 and the `kill.py` docstring past their wrap width:** both rewrapped.
+- **`_look_all` dying on a bad look:** there is no looker thread to die now. `look_all` runs inside the sampler's own
+  `try/except` (a failed listing is tried again at the next sample). So one look that raises skips the other
+  watches for that one sample only. The kill does not depend on it: `still()` looks for itself.
+- **Not run by the reviewer:** run here, below.
+
+Each fix was seen to fail its test with the fix broken: no `look_all` call in the sampler fails
+`test_a_lease_kill_reaches_a_detached_child` (the child lives) and the new watch test (never looked at); `still()`
+ignoring start times fails `test_a_lease_kill_leaves_a_reused_pid_alone`; `look` ignoring the run's own changed
+stamp fails `test_a_watch_knows_a_pid_its_run_took_again` (its new last step); leaving the run's own pid out of
+`also` fails `test_a_lease_kill_still_stops_the_run_when_ps_fails`.
+
+Limits, as stated in SPEC: about one look a second; start times to the second; a window of milliseconds between
+`still()` and the signal.
+
+Run, one file at a time: `test_resilience.py` (40 passed), `test_lease_kill.py` + `test_trial_stops.py` (12),
+`test_leases.py` (29), `test_notify.py` (4, 1 skipped: kqueue, macOS only), `test_run_costs.py` (14),
+`test_sampler_ramp.py` (3), `test_streamed_output.py` (10). Ruff is clean. Not run: the full unit suite and the
+browser files (the factory runs them). `main` has nothing this branch lacks (`git rev-list --count HEAD..main` is 0;
+no `origin/main` in this clone), so nothing was merged.

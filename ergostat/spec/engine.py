@@ -38,6 +38,7 @@ from .. import runner as old
 from ..costs import ai as costs_ai
 from ..costs import record as costs_record
 from ..costs.sampler import SAMPLER, Measured
+from ..library import reap
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
 from . import blocks as bl
@@ -970,19 +971,14 @@ class Engine:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
-                    from ..library.reap import Watch
-                    proc.watch = None
                     try:
-                        try:                                     # what it starts, kept for a lease kill (leases/kill.py)
-                            proc.watch = Watch(proc.pid)
-                        except RuntimeError:                     # (no thread to spare: the kill stops its own tree)
-                            pass
+                        proc.watch = reap.Watch(proc.pid)            # what it starts, for a lease kill (leases/kill.py)
                         if stream.follow(proc, files["out"], b.timeout, take):
                             note = f"stopped after its timeout of {b.timeout:g}s"
                     finally:
                         runrecord.remove(files)                      # read to its end: nothing left to take again
                         resources = SAMPLER.finish(tracked)
-                        if proc.watch is not None:
+                        if getattr(proc, "watch", None):
                             proc.watch.close(look=False)         # (its run is over: no last ps)
                         old.LIVE.discard(proc)
                         with self.lock:
