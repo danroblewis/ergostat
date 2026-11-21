@@ -21,10 +21,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
     (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
-    `examples/remote-pair/` and its two-instance test.
+    `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
+    parts written as text for its owner, in its names, against the version read, never applied or sent
+    (`remote-proposals-text`; `ergostat remote proposals`, SPEC §4c "Proposals for its owner").
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
-    it); lines in the process map between our items and theirs (needs an id both logs carry); proposals
-    written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
+    it); lines in the process map between our items and theirs (needs an id both logs carry); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
     not served); a remote's measures on its closed box (`show:` of the remote's systems); mutual TLS.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
