@@ -336,3 +336,10 @@ The review's findings, every one of them (lesson-12):
   it. The operator must make one commit:
   `git rm tests/test_probe_tmp.py && git add docs/roadmap/overnight/redesign-rescored-as-the-record-moves.md && git commit`.
 - Nothing else changed, so no test, ruff or suite was run this round.
+
+## Where it stopped
+
+Parked by the factory (review/redesign-rescored-as-the-record-moves-6, 2026-11-20 23:31).
+
+Failed its gates 6 times (the kill rule). Blocking findings:
+- tests/test_probe_tmp.py:1: the stray scratch file is still committed (added in 69e04cdb; the latest commit 9dd52988 touches only the roadmap note). Its own comment says 'committed by mistake... Remove it before merge'. A stray file would reach main, which people install from. Fix: one commit, `git rm tests/test_probe_tmp.py`, by the operator or a session with delete rights. Nothing else in the branch needs changing.
