@@ -714,6 +714,30 @@ def test_a_timed_out_warm_run_is_charged(tmp_path, monkeypatch):
     assert res.get("method") == "warm" and 0.5 <= res.get("cpu", 0) < 1.5, f"its 0.6 s charged, not lost: {data}"
 
 
+def test_a_warm_run_failed_between_its_done_s_charge_and_its_pop_is_charged_and_ended_once():
+    import types
+
+    from ergostat.daemons.proc import Handle, Process
+    p = Process.__new__(Process)                 # (no program: only the done path and fail_all)
+    p.d = types.SimpleNamespace(warm=True, recycle=100, name="w")
+    p.lock, p.requests, p.served, p.idle_since, p.recycle = threading.Lock(), {}, 0, None, None
+    h = Handle(take=lambda lines: None)
+    h.sent, p.runs = True, {"r1": h}
+    calls = []
+
+    def charge():                                # fail_all takes the run while done is being charged
+        calls.append(1)
+        if len(calls) == 1:
+            p.fail_all("its daemon exited 3", requeue=False)
+            return {"cpu": 0.25, "method": "warm"}, [7]
+        return {"cpu": 0.5, "method": "warm"}, []
+    p.charge = charge
+    p.line(json.dumps({"done": 0, "run": "r1"}))
+    assert h.code is None and h.note == "its daemon exited 3", "ended once, by fail_all, never as done"
+    assert h.resources == {"cpu": 0.5, "method": "warm"}, "fail_all's charge kept, never done's written over it"
+    assert p.served == 0 and p.recycle is None, "a run done never took is not counted as served"
+
+
 def test_a_warm_run_whose_leader_cannot_be_read_when_it_ends_is_unknown_never_zero():
     import subprocess
 
