@@ -294,3 +294,22 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   factory should run the unit suite to completion. If it names a test outside the files above, it should run that test
   on clean main (`onmain.py`).
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 11 (2026-11-21): the `unit` run that named
+`tests/test_reload_safety.py::test_a_reading_is_never_left_under_way_when_writing_it_fails`.**
+- *The merge of main e8d3e33* was already committed (456d8d18). `git merge-base --is-ancestor e8d3e33 HEAD` holds, and
+  no conflict markers are left under `dev/`. Nothing was left to resolve.
+- *The failure is not this branch's (lesson-13):* `git diff main -- ergostat/ tests/test_reload_safety.py` is empty.
+  The test builds its own model in `tmp_path` (`SMALL`) and reads nothing the branch changes (`dev/`, the repo's
+  `ergostat.yaml`). The traceback shows the *first* `e._readings(False)` raising, at line 262, which the test expects
+  not to raise. That call hands the sensor to the pool and then, in `_take`, drains `e.results`. Under load the pool's
+  `_read_one` can finish and put its result before the drain. That result is then written in the first call, and the
+  test's `busy` raises there. The test assumes the pool thread is slower than the caller. This is a timing race in
+  main's test, or in `Engine._take`'s contract (lesson-10), and not in anything this gap touches. The rest of the run
+  passed (2319, 69 skipped).
+- *No code changed:* a fix to `ergostat/spec/engine.py` or to that test falls outside this definition. It belongs in its
+  own gap. The factory should run the test on clean main (`onmain.py`), ideally under `-n 8` load, where it should fail
+  the same way about as often.
+- *Not run here:* this session's shell refused `pytest`, so not even that single test was re-run. This round is judged
+  by reading the traceback and the code only.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
