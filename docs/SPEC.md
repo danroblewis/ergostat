@@ -2216,10 +2216,14 @@ the order the block will take them; only the critical tiebreak among equals is m
 notes an order field no item in the record holds yet (`takes-order-unset`). ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. Nor has it `mode: advise` (`check`:
-`advise-with-takes`), which asks before a command or an event, never before each item: to have a person
-hold its items, gate it with `goal:` or `in: block.X` from a block a person commands, and its items wait
-while that is off. A kind taken by a block gains two states, when
-it does not list them: `leased`, after the first `at` state, and `dead`, last.
+`advise-with-takes`), which asks before a command or an event, never before each item. To have a person
+hold its items, gate it with `in: block.X` from an `expr` block that reads a stock with `sensor: {manual:
+true}` (`expr: o` over `in: {o: stock.open}`). `ergostat sensor open --read 1` opens the gate and
+`--read 0` shuts it. It opens for all of the block's items at once, not for one item; while it is off,
+or has no reading yet, the items wait. A `person` block is no gate: its `--done` records work and never
+sets a command, so `check` refuses one wired to command a block that takes (`person-gate`). A kind taken
+by a block gains two states, when it does not list them: `leased`, after the first `at` state, and
+`dead`, last.
 
 **A lease** is a run's hold on one item. Its events, about the item, are ergostat's own:
 
