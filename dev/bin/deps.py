@@ -14,8 +14,9 @@ Read, conservatively, from:
 
 A NAME is a gap's branch, its id's name, or a branch its GAPS entry names in backticks. Each link keeps where it came
 from. A name that is no gap, or a link that would close a cycle, is never recorded: it is a dependency problem on the
-gap (`dependency_problem`, the goal dependencies-sound), said, never dropped silently. A gap waiting on a parked one
-says so (`blocked_reason`)."""
+gap (`dependency_problem`, the goal dependencies-sound), said, never dropped silently. A gap waiting on any unfinished
+one says which and its state (`blocked_reason`; only a parked or dead one sets `waits_on_parked`); one whose branch is
+already merged into main is said 'landed, not closed', for the coordinator to close."""
 
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ PHRASES = [re.compile(p, re.I) for p in (
     r"\bneeds `([a-z0-9][a-z0-9-]*)` first",
     r"\bdepends on `([a-z0-9][a-z0-9-]*)`",
 )]
+DONE = ("merged", "closed")                                        # finished (ergostat.yaml messages: done)
 DEFLINE = re.compile(r"^depends-on:\s*\[([^\]]*)\]\s*$", re.M | re.I)
 ENTRY = re.compile(r"^- \*\*(.+?)\*\*")
 
@@ -137,10 +139,24 @@ def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: d
                     out[gid]["sources"].append({"on": dep, "from": where})
     for gid in gaps:
         out[gid]["depends_on"] = sorted(graph[gid])
-        parked = [d for d in graph[gid] if gaps[d]["state"] in ("parked", "dead")]
-        out[gid]["blocked_reason"] = "; ".join(f"waits on {d}, which is {gaps[d]['state']}: {stopped(gaps[d])}"
-                                               for d in sorted(parked))
+        waits = [d for d in sorted(graph[gid]) if gaps[d]["state"] not in DONE]
+        out[gid]["waits_on_parked"] = any(gaps[d]["state"] in ("parked", "dead") for d in waits)
+        out[gid]["blocked_reason"] = "" if gaps[gid]["state"] in DONE else "; ".join(
+            waiting(d, gaps[d], merged) for d in waits)
     return out
+
+
+def waiting(d: str, g: dict, merged: set[str]) -> str:
+    """Why a gap waits on ``d``: its state, and 'landed, not closed' when its branch is already merged into main."""
+    try:
+        b = fac.branch_of(g)
+    except ValueError:
+        b = ""
+    if b and {b, f"factory/{b}"} & set(merged):
+        return f"waits on {d} ({g['state']}): landed, not closed (its branch {b} is on main; close it)"
+    if g["state"] in ("parked", "dead"):
+        return f"waits on {d}, which is {g['state']}: {stopped(g)}"
+    return f"waits on {d}, which is {g['state']}"
 
 
 def stopped(g: dict) -> str:
@@ -155,10 +171,11 @@ def changes(gaps: dict[str, dict], want: dict[str, dict]) -> list[tuple[str, dic
         f = gaps[gid]["fields"]
         data = {"depends_on": {"set": w["depends_on"]}, "depends_on_sources": w["sources"],
                 "dependency_problems": w["problems"], "dependency_problem": bool(w["problems"]),
-                "blocked_reason": w["blocked_reason"], "waits_on_parked": True if w["blocked_reason"] else None}
+                "blocked_reason": w["blocked_reason"], "waits_on_parked": True if w.get("waits_on_parked") else None}
         same = (sorted(f.get("depends_on") or []) == w["depends_on"]
                 and (f.get("dependency_problems") or []) == w["problems"]
                 and (f.get("blocked_reason") or "") == w["blocked_reason"]
+                and bool(f.get("waits_on_parked")) == bool(w.get("waits_on_parked"))
                 and (f.get("depends_on_sources") or []) == w["sources"])
         if not same and (w["depends_on"] or w["problems"] or f.get("depends_on") or f.get("dependency_problems")
                          or w["blocked_reason"] or f.get("blocked_reason")):
