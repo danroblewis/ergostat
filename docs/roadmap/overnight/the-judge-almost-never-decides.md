@@ -284,3 +284,12 @@ stand. **Left, and it blocks the merge:** a session or person allowed to delete 
 `git rm scratch_probe.py && git commit -m "the-judge-almost-never-decides: remove the scratch probe"`. Nothing in
 `ergostat/` or `tests/` imports it, so no test changes with it. Still also left: the factory's `unit` run under
 `suite_watch.py`, the four browser files, and the merge of the real origin/main (this clone has no `origin`).
+
+### Round 4 (the same blocking finding)
+
+Checked again: nothing in `ergostat/`, `tests/` or `scripts/` imports `scratch_probe.py`. `git rm -q scratch_probe.py`
+was refused by this session's permissions for the fourth time, and it was not worked around by another route
+(revert, `--cached`, emptying the file): that would get around the same refusal. No code changed. The branch should
+not go to a fifth implementor round on this finding alone. A session or person who is allowed to delete files must
+run `git rm scratch_probe.py` and commit it. The merge queue also needs to run the unit suite under
+`suite_watch.py`, the four browser files and the real origin/main merge.
