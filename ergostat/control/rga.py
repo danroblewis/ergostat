@@ -23,7 +23,10 @@ MOST_LOOPS = 8             # a system of more loops is not worked out (a matrix 
 MOST_TESTS = 12            # the latest tests in record order, for the whole system
 COND = 100.0               # sqrt of the 1-norm condition number of ΔUᵀΔU (columns scaled by their RMS) past which: not computed
 FIGHT = 10.0               # a relative gain past this: the loops fight
-SETTLE = 0.25              # the after window's two halves may differ by this share of Δ (plus twice the noise before)
+# The after window's two halves may differ by this share of Δ (plus twice the noise before). A ramp (an integrator not
+# declared) always differs by 1/7 of Δ, whatever its slope; a first-order lag of time constant τ by 0.016 at τ = hold/4,
+# 0.030 at hold/3 (93% of its gain held), 0.053 at hold/2. So a ramp, or a lag far from settled, is left out.
+SETTLE = 0.03
 KINDS = ("stock", "flow", "auxiliary")
 
 

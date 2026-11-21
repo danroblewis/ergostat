@@ -86,8 +86,11 @@ held quantity; pair loops on λ near 1, never on a negative λ; large λ means t
 made of the system as it is now (its stamp of the system's process matches) gives every loop's Δu and Δy over the
 last quarter of its hold; the latest 12 are fitted together by least squares (ΔY = ΔU Gᵀ, the other controllers
 acting), and Λ = G ⊙ (G⁻¹)ᵀ is said as one line of `explain system.NAME`, on the pairing as built, with a negative
-λ, a λ past 10 and, with two loops, a better pairing swapped. Not computed, and why: integrating loops, more than 8
-loops, too few tests or a loop with none, collinear moves (ΔU's 1-norm condition past 100), singular gains.
+λ, a λ past 10 and, with two loops, a better pairing swapped. Not computed, and why: integrating loops (declared by
+`process:`, or a u that fills its stock directly), more than 8 loops, too few tests or a loop with none, collinear moves
+(ΔU's 1-norm condition past 100), singular gains. An integrator the model does not declare ramps, so its tests are left
+out as not settled (unless the step is within about 18 times the noise), and so are those of a lag over a third of the
+hold.
 Structurally, `competing-commands` (two controllers on one block) and `own-disturbance` are the extreme cases;
 `interface` says when a block outside moves or commands what a system's own loops use (a reach-in: two
 controllers on one path).

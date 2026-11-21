@@ -56,11 +56,13 @@ def stamp(spec, goal):
     return {s: rga.plant_signature(spec, s) for s in _chains(spec)[f"goal.{goal}"]}
 
 
-def record_tests(p, tests, G=G0, compensate=False, tau=30.0, noise=0.003, gap=200, seed=5, us=None, delay=0):
+def record_tests(p, tests, G=G0, compensate=False, tau=30.0, noise=0.003, gap=200, seed=5, us=None, delay=0,
+                 ramp=None):
     """A linear plant y = G u (each y lagging by ``tau``) and its step tests, written as the record: each test is a
     dict (``loop`` index, ``amount``, ``hold``, and optionally ``how``, ``stamp``, ``after`` (the finish's stamp),
     ``spec`` (stamped from), ``no_y``: a loop with no y reading in its after window). With ``compensate``, the other
-    loop's u moves so its y stays where it was (its controller acting)."""
+    loop's u moves so its y stays where it was (its controller acting). With ``ramp`` (per second), the plant is an
+    integrator instead: dy/dt = ramp · G (u − 25)."""
     m = len(G)
     us = us or [f"s{i + 1}" for i in range(m)]
     rnd = random.Random(seed)
@@ -97,7 +99,11 @@ def record_tests(p, tests, G=G0, compensate=False, tau=30.0, noise=0.003, gap=20
         hist.append(u[:])
         ud = hist[max(0, s - delay)]
         target = [sum(G[i][j] * ud[j] for j in range(m)) for i in range(m)]
-        x = target[:] if x is None else [a * x[i] + (1 - a) * target[i] for i in range(m)]
+        if ramp is not None:
+            x = x or [5.0] * m
+            x = [x[i] + ramp * (target[i] - sum(G[i]) * 25.0) for i in range(m)]
+        else:
+            x = target[:] if x is None else [a * x[i] + (1 - a) * target[i] for i in range(m)]
         if s % 10 == 0:
             for i in range(m):
                 p.measurements.add(f"sensor/{us[i]}.main", u[i], T)
@@ -298,12 +304,35 @@ def test_a_test_with_no_step_back_recorded_is_left_out(tmp_path):
 
 
 def test_a_step_not_settled_by_the_end_of_its_hold_is_left_out(tmp_path):
-    """A dead time of 320 s in a hold of 400: y is still rising through the last quarter. (A first-order lag alone never
-    trips SETTLE: its two halves differ by at most W/2 over the time since the step, a seventh of Δ.)"""
+    """A dead time of 320 s in a hold of 400: y is still rising through the last quarter."""
     p = record_tests(load(tmp_path, model()), two_each(), delay=320)
     r = rga.of(p, p.model.spec, "plant")
     assert not r["computed"] and r["why"] == "0 usable step tests, fewer than its 2 loops"
     assert r["left"][0]["why"] == "not settled: stock.l1 still moving at the end of its hold", r
+
+
+@pytest.mark.parametrize("plant", [{"ramp": 0.005}, {"tau": 200.0}], ids=["undeclared-integrator", "lag-of-half-hold"])
+def test_a_ramp_or_a_lag_far_from_settled_is_left_out(tmp_path, plant):
+    """An integrator nobody declared (no ``process:``, no ``known``): its y ramps, so the after window's halves differ by
+    a seventh of Δ whatever the slope. A lag of half the hold differs by about 0.053 of Δ. Both pass SETTLE = 0.25;
+    neither may count as a gain."""
+    p = record_tests(load(tmp_path, model()), two_each(), **plant)
+    from ergostat.control import record
+    assert all(record.signals(p.model.spec, g).known is None and p.model.spec.goals[g].process is None
+               for g in ("g1", "g2"))
+    r = rga.of(p, p.model.spec, "plant")
+    assert not r["computed"] and r["why"] == "0 usable step tests, fewer than its 2 loops", r
+    assert [x["test"] for x in r["left"]] == ["x0", "x1"], r
+    assert all(x["why"] in ("not settled: stock.l1 still moving at the end of its hold",
+                            "not settled: stock.l2 still moving at the end of its hold") for x in r["left"]), r
+
+
+def test_a_lag_of_a_quarter_of_the_hold_still_counts(tmp_path):
+    """SETTLE is not so tight that a lag mostly settled (τ = hold/4: 97% of its gain held) is refused."""
+    p = record_tests(load(tmp_path, model()), two_each(), tau=100.0)
+    r = rga.of(p, p.model.spec, "plant")
+    assert r["computed"] and r["tests"] == 2, r
+    assert lam(r, 0) == pytest.approx(1.25, abs=0.05)
 
 
 def test_a_missing_reading_leaves_the_test_out(tmp_path):

@@ -213,3 +213,33 @@ all passed: `test_rga` (35), `test_control` + `test_redesign` + `test_redesign_m
 `sys.path` fix holds), `test_factory` (116, 2 skipped, as on main), and `test_unmoved` + `test_spec_schema` +
 `test_parity` + `test_inbox` (92). Ruff is clean. I did not run the whole unit suite or the browser files. They are
 left to the factory's watchdogged run.
+
+Round 3, answering both findings of the review:
+
+- **An integrator nobody declared** (rga.py, lesson-3/8; blocking). It was right: with W = hold/4, a ramp's after-window
+  halves differ by exactly 1/7 of Δ whatever the slope, always under SETTLE = 0.25. `SETTLE` is now **0.03**. That goes
+  past point 3's literal "SETTLE (0.25)", as the review allowed ("a settle share below 1/7 justified"). The reason, for
+  a first-order lag of time constant τ (share = the halves' difference over Δ): 0.008 at τ = hold/5, 0.016 at hold/4
+  (97% of its gain held), 0.030 at hold/3 (93%), 0.053 at hold/2 (82%). A ramp gives 0.143. So 0.03 leaves out any ramp
+  with almost 5× margin, and any lag longer than about a third of the hold, while keeping the lags whose held gain is
+  within about 7%. The `2·sd(before)` term from point 3 is unchanged, so a ramp whose Δ is within about 18 times the
+  noise before the step (2 / (1/7 − 0.03)) still passes. SPEC §12d says so. A slope comparison would be a second
+  check for the same thing, so I took the single constant, which is easier to undo. New tests:
+  `test_a_ramp_or_a_lag_far_from_settled_is_left_out[undeclared-integrator]` (dy/dt = 0.005·G(u − 25), no `process:`,
+  no `known`; both tests left out as not settled, not computed) and `[lag-of-half-hold]` (τ = 200 s in a hold of 400).
+  `test_a_lag_of_a_quarter_of_the_hold_still_counts` (τ = 100 s, λ 1.25 ± 0.05) keeps it from going too tight.
+  Broken in turn: SETTLE = 0.25 fails both cases of the first test, and SETTLE = 0.005 fails the second. SPEC §12d and
+  `docs/proposals/architecture.md` §3 now say that only declared integrators (and a u that fills its stock) are refused
+  by name, and that an undeclared one is left out as not settled. Budget: rga.py +3 lines, 211 net in all.
+- **The sys.path fix** (tests/test_backlog.py, tests/test_factory.py, lesson-13; not blocking). Removed: both files are
+  again exactly main's (`git diff main` on them is empty). This puts back the leak described above: on main,
+  `test_backlog` leaves `dev/bin` first on `sys.path`, so a spawn test later in the same xdist worker can import the
+  factory's `queue.py`. If the unit suite fails in `test_index_files`, `test_modelling_ai_cap` or
+  `test_store_conformance` with `cannot import name 'Empty' from 'queue'`, that is this on main and not this branch.
+  Its fix belongs to its own gap.
+
+Run in round 3, one file group at a time: `test_rga` (38 passed), `test_control` + `test_redesign` +
+`test_spec_mcp_explain` + `test_architecture` (84), `test_backlog` + `test_unmoved` + `test_spec_schema` +
+`test_parity` (81), `test_factory` (126, 2 skipped). Ruff is clean. The whole unit suite and the browser files were not
+run by me. No origin remote is in this clone, so origin/main could not be merged here (lesson-7). The branch already
+has main d697b89e merged in.

@@ -3598,10 +3598,12 @@ system (so an older one may be the only test of a loop, and that loop is then na
 is now, string for string (a missing or null one never matches). Each test gives, for every loop's u and y, Δ = the mean
 of its readings over the last quarter of the hold, `[back − hold/4, back)`, less the mean over the quarter before the
 step: the gains as held at the end of the hold, not a steady state proved. A test is left out, with its reason, when a
-window has no reading of one of them, or when the two halves of that last quarter differ by more than 0.25·|Δ| plus
-twice the spread before the step (this catches a response still rising late, behind a dead time near the hold; a
-first-order lag never moves its two halves more than about a seventh of Δ, so a hold short of its time constants is not
-caught). The other controllers keep working: their u moves too, and every loop's ΔU and ΔY are fitted together by least
+window has no reading of one of them, or when the two halves of that last quarter differ by more than 0.03·|Δ| plus
+twice the spread before the step. A ramp always differs by a seventh of Δ, so an integrator the model does not declare
+is left out this way, unless its Δ is within about 18 times the noise before the step. A first-order lag of time
+constant τ differs by 0.016 of Δ at τ = hold/4 and by 0.030 at hold/3 (93% of its gain held), so a lag longer than about
+a third of the hold is left out too. So is a response still rising late, behind a dead time near the hold. The other
+controllers keep working: their u moves too, and every loop's ΔU and ΔY are fitted together by least
 squares (ΔY = ΔU Gᵀ), so G is the open-loop gain matrix, not the closed loop's. Not computed: fewer tests than loops; a
 loop with no test of its own; ΔU's columns (each scaled by its RMS) collinear, or the square root of the 1-norm
 condition number of ΔUᵀΔU (the inverse taken exactly, not estimated) past 100; G singular. Else Λ = G ⊙ (G⁻¹)ᵀ, said
