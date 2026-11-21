@@ -126,7 +126,8 @@ def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list
 
 
 def stored(p) -> dict[str, dict]:
-    """Every request in the record, folded: ``{id: {state, ...fields}}``."""
+    """Every request in the record, folded: ``{id: {state, ...fields, moved}}``; ``moved`` is the seq of its last move
+    (``_moved_at``), which a tier compares under the lock to know nobody moved it since it read it."""
     from ..spec import items as its
     from ..spec.ir import modelling_request_kind
     by: dict[str, list[dict]] = {}
@@ -137,8 +138,21 @@ def stored(p) -> dict[str, dict]:
     out = {}
     for item, evs in by.items():
         it = its.fold(item, evs, kind)
-        out[item.split("/", 1)[1]] = {**it.fields, "id": item.split("/", 1)[1], "state": it.state}
+        out[item.split("/", 1)[1]] = {**it.fields, "id": item.split("/", 1)[1], "state": it.state,
+                                      "moved": _moved_at(evs, kind)}
     return out
+
+
+def _moved_at(evs: list[dict], kind) -> int | None:
+    """The seq of the request's last move: an event that put it in another state, or any reopening (an approval
+    reopens a held request; a tier that read it open before it was held must not write over that)."""
+    at, was = None, None
+    for e in evs:
+        to = kind.on.get(e["type"])
+        if to is not None and (to != was or e["type"].endswith(".reopened")):
+            at = e.get("seq")
+        was = to if to is not None else was
+    return at
 
 
 def event(p, x: str, what: str, data: dict | None = None, source: str = "ergostat") -> dict:
@@ -304,16 +318,19 @@ def current(p, states=OPEN) -> list[dict]:
 
 def mark(p, x: dict, what: str, why: str | None = None, **more) -> bool:
     """A tier's word on a request as it read it (``x``): held (it has nothing it can make), with why; or its tries
-    and cost, in the state it was in. Written only if the request is still in the state the tier read (under
-    ``locked``): the owner's answer, or the collector's move, made while the tier was working, stands."""
-    return move(p, x["id"], what, {**({"why": why} if why is not None else {}), **more}, (x["state"],))
+    and cost, in the state it was in. Written only if, read again under ``locked``, the request has not moved since the
+    tier read it (the same ``moved`` seq, not only the same state): the owner's answer, or the collector's move, made
+    while the tier was working, stands, even when the request has come back to the state the tier read."""
+    return move(p, x["id"], what, {**({"why": why} if why is not None else {}), **more}, (x["state"],),
+                x.get("moved", -1))
 
 
-def move(p, x: str, what: str, data: dict, states) -> bool:
-    """``what`` written on request ``x`` only if, read again under ``locked``, it is in one of ``states``."""
+def move(p, x: str, what: str, data: dict, states, moved: int | None = None) -> bool:
+    """``what`` written on request ``x`` only if, read again under ``locked``, it is in one of ``states`` and, given
+    ``moved`` (the seq of its last move as it was read), it has not moved since."""
     with locked(p):
         now = stored(p).get(x)
-        if now is None or now["state"] not in states:
+        if now is None or now["state"] not in states or (moved is not None and now.get("moved") != moved):
             return False
         event(p, x, what, data)
         return True

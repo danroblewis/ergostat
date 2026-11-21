@@ -474,6 +474,24 @@ def test_a_dismissal_made_while_the_ai_tier_works_stands(tmp_path):
     assert rq.stored(p)[r["id"]]["state"] == "dismissed" and eid not in {e["id"] for e in entries.entries(p)}
 
 
+def test_an_approval_made_while_the_ai_tier_works_stands_though_the_state_is_as_it_read(tmp_path):
+    """review/inbox-dismiss-4: the tier reads R open; meanwhile R is held (a change citing it turned away) and the
+    owner approves it, so R is open again, as the tier read it. The tier's word is refused all the same."""
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    answer.answer(p, p.model.spec, eid, "approve")
+    read = next(w for w in rq.for_ai(p, 2) if w["id"] == r["id"])        # the ai tier reads it open, calls the model
+    assert rq.move(p, r["id"], "held", {"why": "its change was dismissed", "tier": "ai", "owner": False}, ("open",))
+    answer.answer(p, p.model.spec, eid, "approve")                        # the owner hands it back: open, untried
+    assert rq.stored(p)[r["id"]]["state"] == read["state"] == "open"
+    assert rq.mark(p, read, "held", "the ai tier: nothing", tried={"ai": 1}) is False
+    assert rq.mark(p, read, "open", tried={"ai": 1}, cost_usd=0.01) is False
+    x = rq.stored(p)[r["id"]]
+    assert x["state"] == "open" and x["tried"]["ai"] == 0 and eid not in {e["id"] for e in entries.entries(p)}
+    again = rq.stored(p)[r["id"]]                                         # a tier that reads it now is heard
+    assert rq.mark(p, again, "open", tried={"ai": 1}) and rq.mark(p, rq.stored(p)[r["id"]], "held", "nothing")
+
+
 def test_a_request_is_answered_under_the_lock(tmp_path, monkeypatch):
     import threading
 
