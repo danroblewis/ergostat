@@ -23,3 +23,16 @@ Seen on 2026-11-21. The engine leases gaps by rank, so when the machine is near 
 
 ## Size budget
 10 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+The change is built (`after="45s"` in `dev/bin/implement.py` and `dev/bin/review.py`, 3 net lines) and the three
+acceptance tests pass, as do `tests/test_factory.py` in full (120 passed, 2 skipped). After it, the factory's `unit`
+suite failed three tests, but the tail it gave shows only their positions (`F` at about 5%, 11% and 94%), not their
+names. The implementor could not read the suite's full log, and the brief forbids running the whole suite itself.
+Every file that touches `implement.py`, `review.py`, the pools or the dispatch was run alone, and all passed:
+tests/test_factory.py, test_review.py, test_factory_resources.py, test_factory_sessions.py,
+test_factory_knowledge.py, test_factory_times.py, test_factory_join.py, test_factory_manager.py,
+test_architecture.py, test_code_health_coverage.py and test_backlog.py. No test or doc outside the branch refers to
+the old `5m`. The code was not changed blindly (the reversible choice). Left: the names of the three failures, from
+the factory's run, to decide whether they are this branch's or load flakes on main (lesson 13).
