@@ -2722,6 +2722,12 @@ change only through the use's `with:`):
 - **event-names-mixed**: an item kind whose event types are not all `KIND.verb-past`, with the name each reads best as;
 - **queue-goal-tolerance**: a goal served by a block that takes the items its stock counts, with a tolerance or a
   setpoint above 0, so items wait unseen (the block runs only while the goal is off);
+- **schedule-removed**: a machine block with `every:` or `cron:`, and no `takes:` or `on:`, that also names a `goal:`.
+  The controller that goal puts in front of it (§9.1) commands it, and a commanded block leaves the clock: it runs
+  only while the goal is off, its `every:` only a pace. Meant, that is a paced controller; meant as a schedule (a
+  sweep that must run whatever the goal reads, or one whose goal only its own runs can set off), read the goal as an
+  input instead (`in: goal.NAME`). Only the model's author knows which was meant, so `check` says it and no
+  modelling request is raised for it (§12e);
 - **process-not-identified**: a goal's `process:` with no `identified:`.
 
 **A kind's states, chained** (findings, `ergostat/spec/chains.py`). When two or more stocks count the items of one
