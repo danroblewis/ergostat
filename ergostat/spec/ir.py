@@ -384,6 +384,7 @@ class Messages:
     follow_up: str | None = None
     reopen_to: dict[str, str] = field(default_factory=dict)
     done: dict[str, list[str]] = field(default_factory=dict)
+    paused: dict[str, list[str]] = field(default_factory=dict)   # by kind: states an item waits in, held by hand
     where: Where | None = None
 
 
@@ -752,6 +753,8 @@ class Takes:
     to: list[str] = field(default_factory=list)   # the states that count as done: the lease's ack (else any state but these)
     where: dict = field(default_factory=dict)     # only items whose fields match (as a sensor's where:)
     unblocked: bool = False         # only items whose predecessors are all finished, the critical first (SPEC §5a, relations)
+    order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
+                                                     # without one after those with it; the order above among equals
 
 
 @dataclass

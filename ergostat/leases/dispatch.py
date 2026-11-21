@@ -37,7 +37,7 @@ from ..spec.ir import DEAD, LEASED, own_kind
 from . import ENDED, EXPIRED, RENEWED, TAKEN, poolnow
 from .fold import held
 from .kill import kill
-from .ready import Ready, unblocked
+from .ready import Ready, ordered, unblocked
 from .terms import grace, terms
 
 SOURCE = "ergostat"
@@ -167,7 +167,7 @@ class Dispatcher:
                     room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
                 if room <= 0:
                     continue
-                for it in unblocked(self, b, self.ready(b, every, now))[:room]:
+                for it in ordered(b, unblocked(self, b, self.ready(b, every, now)))[:room]:
                     self.stale = True
                     self.take(b, self.whole(ix, it))
 
@@ -203,7 +203,8 @@ class Dispatcher:
         """A run asked for by hand (``ergostat block NAME --now``): it leases the next item the block would take, and
         runs here, at once, whatever its pool; with nothing to take, nothing runs."""
         with self.lock:
-            got = unblocked(self, b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False), time.time()))
+            got = ordered(b, unblocked(self, b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
+                                                          time.time())))
             started = self.take(b, got[0], inline=True) if got else None
         if started is None:
             self.e.say(f"{b.name}: nothing to take ({b.takes.kind} at {', '.join(b.takes.at)})")

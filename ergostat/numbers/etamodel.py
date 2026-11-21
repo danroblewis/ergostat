@@ -43,6 +43,8 @@ class BlockIn:
     most: int                      # attempts before a dead letter
     ttl: float = 0.0               # its lease's TTL: a run silent this long expires
     workspace: str | None = None   # the workspace pool its runs take one from, held by the item until it finishes
+    order: list[str] = field(default_factory=list)   # takes: {order: [FIELD]}: its queue by them first (SPEC §9.5)
+    off: str = ""                  # commanded off now (why): what waits for it is projected not to move
     attempts: list[Attempt] = field(default_factory=list)
     run: KM | None = None          # how long a run holds its lease (the going censored)
     assumed: str = ""
@@ -64,6 +66,7 @@ class KindIn:
     arrivals: float = 0.0                          # an hour
     arrive_at: list[tuple[str, float]] = field(default_factory=list)
     visits: dict[str, float] = field(default_factory=dict)   # N's row for the first state
+    paused: set = field(default_factory=set)       # states an item waits in, held by hand (messages: paused): no move
 
 
 @dataclass
@@ -79,6 +82,7 @@ class ItemAt:
     preds: list[str] = field(default_factory=list)
     level: int = 0                 # how many items wait on it, however far (critical first, for unblocked)
     holds: set = field(default_factory=set)   # the workspace pools it holds one of at ``at``
+    fields: dict = field(default_factory=dict)  # the fields some block's takes: orders by
 
 
 @dataclass
@@ -89,6 +93,10 @@ class Inputs:
     items: dict[str, ItemAt]
     finished_at: dict[str, float] = field(default_factory=dict)   # (the backtest's truth, when read past ``at``)
     workspaces: dict[str, int] = field(default_factory=dict)      # each workspace pool a block uses → its size
+
+
+def _orders(spec, kind: str) -> set[str]:
+    return {f.lstrip("-") for b in spec.blocks.values() if b.takes and b.takes.kind == kind for f in b.takes.order}
 
 
 def _fold(moves: list[dict], at: float):
@@ -181,7 +189,8 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
             s, t0, t1 = stays[-1]
             if s not in fin and s != DEAD:
                 out.items[it.id] = ItemAt(it.id, k, s, t0, back[-1] if back else t0,
-                                          (None, leased) if leased else None)
+                                          (None, leased) if leased else None,
+                                          fields={f: it.fields.get(f) for f in _orders(spec, k)})
                 done = next((m["time"] for m in it.moves if m["time"] > at and (m["to"] in fin or m["to"] == DEAD)), None)
                 if truth and done is not None:
                     out.finished_at[it.id] = done
@@ -191,6 +200,7 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
         every[1].extend(goingk)
         pooled[k] = (allk, goingk)
         kin = KindIn(k, ik.states, fin, nxt, ended, {}, {})
+        kin.paused = set(info[k].get("paused") or ())
         kin.km = {s: KM(ended.get(s, []), going.get(s, [])) for s in ik.states if len(ended.get(s, [])) >= MIN_OBS}
         kin.said = {s: "own" for s in kin.km}
         many = {c for c, n in Counter(came).items() if n > 2}   # a batch brought in at once (a backlog imported): not a rate
@@ -214,6 +224,40 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
     return out
 
 
+def gated_off(p, spec, at: float) -> dict[str, str]:
+    """The blocks that take items and are switched off at ``at``: commanded 0 while an exogenous switch their commander
+    reads is at 0 or never read (a controller commanding 0 because nothing waits is idle, not off): {name: why}.
+    Worked out as the engine would (``closedloop.Shadow``) from the record's newest readings."""
+    want = [b for b in spec.blocks.values() if b.takes and b.machine and spec.commanders_of(b.name)]
+    if not want:
+        return {}
+    from .closedloop import Shadow, start_of
+    sig: dict = {}
+    for kind, table in (("stock", spec.stocks), ("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
+        for name, x in table.items():
+            got = [g for s in x.sensors.values() if (g := p.measurements.latest(s.series, before=at))]
+            if got:
+                sig[f"{kind}.{name}"] = max(got)[1]
+            elif kind == "auxiliary" and x.exogenous and any(s.manual for s in x.sensors.values()):
+                sig[f"{kind}.{name}"] = 0.0             # a switch never read is off
+    try:
+        sh = Shadow(spec, sig, start_of(p, spec, at))
+        sh.step(at)
+        out = {}
+        for b in want:                                    # off: commanded 0 while a switch it reads is at 0 (a
+            cmd, d = sh.command_of(b)                     # controller at 0 is idle, not off; a reading missing says
+            if cmd != 0 or not d.get("from"):             # nothing)
+                continue
+            c = spec.blocks[d["from"]]
+            off = [r.name for r in c.inputs.values() if r.kind == "auxiliary" and r.name in spec.auxiliaries
+                   and spec.auxiliaries[r.name].exogenous and not sig.get(f"auxiliary.{r.name}")]
+            if off:
+                out[b.name] = f"{c.name}, {' and '.join(off)} at 0"
+        return out
+    except Exception:  # noqa: BLE001 - not worked out: every block projected as running, as before
+        return {}
+
+
 def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     """Each block's attempts and its run-time curve; each open item's lease, attempts and put-off."""
     from ..leases import poolnow
@@ -222,6 +266,7 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     evs = p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at)
     void = refused_expiries(p.events, spec, evs, ix=ix)   # (renewed after it was judged: the run went on)
     runs: dict[str, dict] = {}
+    offs = gated_off(p, spec, out.at)
     for e in evs:
         if e["id"] in void:
             continue
@@ -260,7 +305,8 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
         ws = ws if ws in spec.workspaces else None
         level = poolnow.read_at(p, spec, b, out.at) if b.pool_now else None
         bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), max(1, poolnow.now(b, level)), shared,
-                     bool(b.takes.unblocked), t["attempts"], float(t["ttl"]), ws, pool_said=poolnow.said(b, level))
+                     bool(b.takes.unblocked), t["attempts"], float(t["ttl"]), ws, b.takes.order, offs.get(b.name, ""),
+                     pool_said=poolnow.said(b, level))
         rs = by_block.get(b.name, [])
         if ws:                                          # a run given back for want of a workspace held nothing: a wait
             out.workspaces[ws] = spec.workspaces[ws].size
