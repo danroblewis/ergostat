@@ -206,7 +206,8 @@ never given to another item. What an item needs to know (its `ERGOSTAT_ITEM`, le
 never in the process's environment, so nothing of one item leaks into the next.
 
 Each item is still a run in the record, with its lease and fencing, as before. What is different is cost: the CPU
-and memory are the daemon's, sampled for the whole process every 30 seconds and shown on the Agents page; an item's
+and memory are the daemon's, sampled for the whole process about 1 second after it starts, then at doubling gaps up
+to every 30 seconds (never two samples within 1 second), and shown on the Agents page; an item's
 run records only its wall time, because a process serving many items at once cannot honestly say which CPU second
 was whose.
 
