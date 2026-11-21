@@ -167,7 +167,8 @@ def _around(r: dict) -> str | None:
     head, each = (f"identified around outside steps at {at} ({ins})", "each window") if len(steps) > 1 else \
         (f"identified around an outside step at {at} ({ins})", "its window")
     if o.get("window") == "process":
-        how = f"{each} from the process (θ + 4τ = {dur(r['theta'] + 4 * r['tau'])})"
+        how = f"{each} from the process (" + (f"θ + 4τ = {dur(r['theta'] + 4 * r['tau'])})" if r.get("tau") is not None
+                                               else "integrating: no settling time, so no θ + 4τ)")
     else:
         stop = next((x for x in (o.get("passes") or [])[1:] if x != "kept"), None)
         how = f"{each} from y's excursion" + (f" ({stop})" if stop else "")

@@ -3167,7 +3167,9 @@ What is measured, on a synthetic loop with a known process (`tests/test_outside_
   some seeds the longer window has no step of u large enough for `ident.moves`: integral action ramps u.
 
 The result is ranked with the others. It is said "identified around outside steps at 14:20, 16:05 (flow.asked), each
-window from the process (θ + 4τ = 7m)" in its reason and its `identified:`, with any steps dropped.
+window from the process (θ + 4τ = 7m)" in its reason and its `identified:`, with any steps dropped. A later pass kept
+as an integrator has no τ, and is said "… from the process (integrating: no settling time, so no θ + 4τ)"
+(`test_the_reason_names_every_step_and_how_its_window_was_chosen`).
 
 **Analysis** (`lti.py`; Åström & Wittenmark, *Computer-Controlled Systems*, ch. 2, 3, 8): with the
 process (the model's, else the one identified, said as such) and the controller as its block writes
