@@ -155,6 +155,9 @@ def cmd_proposals(args) -> int:
     if args.json:
         return out_json(entries)
     _turned(p, spec)
+    texts = sum(1 for x in pr.stored(p).values() if x.get("for_remote") and x["state"] in pr.OPEN)
+    if texts:
+        print(f"{texts} written for remotes' owners: ergostat remote proposals")
     if not entries:
         from ..numbers import estimate as es
         why = {es.label(n, e): e.get("refused") or e.get("why") for n, e in es.load(p, spec, which).items()

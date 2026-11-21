@@ -140,7 +140,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
                                  **({"within": str(parent)} if parent else {})}, via), via, {})
     info = {"url": url, "token_file": str(token_file) if token_file else None, "every": every, "dir": str(d),
             "where": via, "within": parent, "systems": list(only) if only else None, "version": None, "fetched": None,
-            "name": None, "parts": {}, "kinds": {}, "missing": [], "status": st}
+            "name": None, "parts": {}, "names": {}, "kinds": {}, "missing": [], "status": st}
     doc.remotes[name] = info
     if not st.get("ok", True) or st.get("ok") is None and served is None:
         why = st.get("why") or "not asked yet"
@@ -161,6 +161,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         for pname, got in entries.items():
             put(section, pname, as_map(got, via), via, {})
             info["parts"][f"{SINGULAR[section]}.{pname}"] = True
+            info["names"][f"{SINGULAR[section]}.{pname}"] = f"{SINGULAR[section]}.{pname[len(name) + 1:]}"   # served only
 
 
 SINGULAR = {"systems": "system", "parameters": "parameter", "auxiliaries": "auxiliary", "stocks": "stock",
