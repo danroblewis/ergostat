@@ -744,7 +744,7 @@ def test_a_branch_cannot_quarantine_its_own_failing_test(tmp_path):
     gid = ready(f)
     f.run("implement.py", gid)
     assert f.item("flake/old")["fields"]["quarantined"] is False                  # no longer listed: released
-    work = tmp_path / "branch"                                                      # the branch quarantines T itself
+    work = tmp_path / "home" / "work"                                               # the branch quarantines T itself
     git(tmp_path, "clone", "-q", "-b", "factory/alpha-thing", str(tmp_path / "live" / "drop.git"), str(work))
     (work / "tests").mkdir()
     (work / "tests" / "quarantine.txt").write_text(f"{T} | me | 2026-11-21 | in my way\n")
@@ -758,6 +758,13 @@ def test_a_branch_cannot_quarantine_its_own_failing_test(tmp_path):
     assert said[:2] == ["gap.queued", "gap.queue-failed"] and f.item(gid)["fields"]["failed_tests"] == [T]  # red
     unit = [r for r in runs(tmp_path) if r.startswith("unit ")]
     assert "--deselect" not in unit[-1] and not [r for r in runs(tmp_path) if r.startswith("alone ")]
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, agents; from pathlib import Path; "
+            "h = Path(sys.argv[2]); print(json.dumps(agents.suites(fac.config(), h, ('unit',), h, 'own')))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(work.parent)], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert json.loads(r.stdout.strip().splitlines()[-1])["unit"]["rc"] == 0       # the implementor's own run: held
+    assert f"--deselect {T}" in runs(tmp_path)[-1] and not runs(tmp_path)[-1].startswith("alone ")   # back, unrun
 
 
 def test_upgrades_follow_the_pushed_main(tmp_path):

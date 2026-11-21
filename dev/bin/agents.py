@@ -320,12 +320,13 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
     ``tests``: the test ids a suite's `{tests}` names (each shell-quoted)."""
     import resources
     out: dict = {}
-    held = fac.quarantine(fac.path(cfg, "live") / "drop.git", cfg["git"]["base"])    # main's list, not the work's
-    for n in names:
+    held = fac.quarantine(fac.path(cfg, "live") / "drop.git", cfg["git"]["base"])    # main's list: run beside
+    own = [t for t in fac.quarantine(home / "work", "HEAD") if t not in held]   # the work's own lines: deselected
+    for n in names:                                    # here only (this run lands nothing; the queue reads main's)
         cmd, name = cfg["suites"][n], None
         if tests is not None:
             cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
-        cmd = fac.deselected(n, cmd, held)
+        cmd = fac.deselected(n, cmd, held + own)
         if cfg["ai"]["mode"] != "standin":
             name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"
