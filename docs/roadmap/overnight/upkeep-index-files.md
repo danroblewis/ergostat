@@ -265,3 +265,28 @@ before `kill_all` walks `LIVE`, so one of the two always kills it. With the test
 (0.26 s) and with its file (11 passed); ruff is clean. `engine.py` is not on the gap's list of files. The factory asked
 for the code to be fixed here, so it is fixed here and said (lesson-13). Whether main fails the same way alone was
 not run (no copy of main could be made in this session). Net lines for the gap outside tests and docs: 235.
+
+### Round 6 (after the factory merged main, 8eb0fc0)
+
+- **The merge.** It conflicted in `dev/bin/agents.py`, `dev/bin/fac.py`, `dev/factory.toml` and `ergostat.yaml`,
+  each where main's pipeline manager met the backlog's groomer. Both sides are kept: the `groomer` and
+  `pipeline_manager` timeouts, tools, stand-in answers and session settings side by side; the `gap` kind keeps the
+  backlog's `show:` (with `rank`, `value`, `size`), and `gap.closed`'s comment names both closers. In `messages:
+  done:`, `gap` stays `[merged, closed]`, without main's `parked`, because the branch's `paused: {gap: [parked]}`
+  already holds it (parked is paused, not done). Main's new `situation: [handled, failed]` is added. After it:
+  `test_factory_manager`, `test_backlog`, `test_factory`, `test_factory_sessions` pass (77 passed, 2 skipped).
+- **Size (the blocking finding: 374 against 300 with no reason written).** Round 4 wrote the reason above. Against
+  8eb0fc0, `git diff --stat` over `ergostat/` and `ergostat.yaml` is +442 −61, net 381. This gap's own lines are
+  235 (round 4's 233, plus round 5's 2 in `spec/engine.py`), within the 300 budget. The rest is the backlog merge
+  (2b101c6), which main still lacks. Its `precedence.py` still says `ready`. The base is left for the factory
+  to rebuild (cherry-pick this gap's own commits onto main), for the reason round 4 gives.
+- **Two failures from that same base, not from this gap (lesson-7, lesson-13).**
+  `tests/test_relations_asof.py::test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers[per_item]`
+  and `[whole]` fail here: they assert an item's derived status is `ready`, and the backlog merge's 600535d
+  renamed that status to `unblocked` in `ergostat/precedence.py`. Main has the test and not the rename, so the test
+  passes on main. Rebuilding the branch on main without the backlog merge clears both failures. Changing the test to
+  `unblocked` here would be wrong on main, so it is left as it is.
+
+Run after the merge: `tests/test_upkeep_template.py`, `tests/test_index_files.py`, `tests/test_templates.py`,
+`tests/test_reload_in_place.py`, `tests/test_relations_asof.py`, `tests/test_item_index.py`,
+`tests/test_spec_schema.py`, `tests/test_parity.py`: 163 passed, the 2 above failed. Ruff clean. No code changed.
