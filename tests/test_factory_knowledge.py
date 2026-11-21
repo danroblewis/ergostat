@@ -244,7 +244,7 @@ def test_planner_writes_plan_and_review_makes_ready(tmp_path):
     said, _ = f.run("implement.py", gid)
     assert said == ["gap.started", "gap.built"]
     assert "test_unreadable_ledger_refuses" in git(tmp_path / "live" / "drop.git", "show",
-                                                   "factory/alpha-thing:docs/roadmap/overnight/alpha-thing.md")
+                                                   "factory/alpha-thing:dev/records/alpha-thing.md")
 
 
 def test_a_written_definition_skips_the_planner(tmp_path):

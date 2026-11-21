@@ -405,6 +405,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
+        from ..spec import itemgraph as ig
+        asked = [k for k in ("near", "path", "about") if one(k) is not None]
+        if one("at") or len(asked) != 1:
+            raise BadSet("items-query: one of near=ID, path=A&to=B or about=ID, as the record is now (never at=)")
+        ev, s = p.events, getattr(m, "spec", None)
+        try:
+            return ig.near(ev, s, one("near"), one("depth")) if asked == ["near"] else \
+                ig.path(ev, s, one("path"), one("to")) if asked == ["path"] else ig.about(ev, s, one("about"))
+        except ig.Unknown:
+            return None
+        except ig.Bad as e:
+            raise BadSet(str(e)) from e
     at = None
     if one("at"):
         try:
