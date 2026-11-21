@@ -92,7 +92,7 @@ def size_settings(cfg: dict) -> tuple[float, float, float]:
     m, share, bar = (float(v) for v in got.values())
     bad = [] if 0 < m <= full else [f"[ai] planner_m_session_usd = {m:g}: above 0 and at most planner_session_usd "
                                     f"({full:g})"]
-    bad += [f"{k} = {v:g}: outside [0, 1]" for k, v in list(zip(got, (m, share, bar)))[1:] if not 0 <= v <= 1]
+    bad += [f"{k} = {v:g}: outside [0, 1]" for k, v in zip(list(got)[1:], (share, bar), strict=True) if not 0 <= v <= 1]
     if bad:
         raise SystemExit("plan.py: " + "; ".join(bad))
     return m, share, bar

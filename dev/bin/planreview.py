@@ -88,7 +88,8 @@ def review_one(cfg: dict) -> int:
     fac.say("gap.measured", gid, plan_review="done", plan_flagged=bool(v["blocking"]), plan_findings_n=len(found),
             plan_reviews=[{"verdict": v["verdict"], "blocking": len(v["blocking"]), "at": time.time()}],
             plan_notes_late=bool(found) and gap["state"] not in ("ready", "open", "replan", "planned"),
-            contexts=[context], ai_cost_usd=cost, planning_cost_usd=cost, sessions=1, plan_review_hours=round((time.time() - began) / 3600, 3))
+            contexts=[context], ai_cost_usd=cost, planning_cost_usd=cost, sessions=1,
+            plan_review_hours=round((time.time() - began) / 3600, 3))
     if v["verdict"] == "park":
         fac.act("park-gap", key=gid, gap=gid, why=(v["where_it_stopped"] or "; ".join(v["blocking"]))[:1500])
     return 0
