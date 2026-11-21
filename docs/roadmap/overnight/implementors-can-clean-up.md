@@ -60,3 +60,13 @@ tests/test_factory.py 76 passed, 2 skipped, and ruff is clean. Refused this roun
 scripts/suite_watch.py -- uv run python -m pytest ... > /tmp/unit.log 2>&1; echo rc=$?; tail` (the unit suite under
 the watchdog, a compound command). It was not worked around, so the factory's fast suites after this session are the
 unit and browser runs for this round.
+
+Round 5: main (7c0e4a60) merged in. Its one conflict, tests/test_factory.py, was again two independent additions in
+the same place: this branch's three acceptance tests, and main's `.gitattributes` merge tests
+(test_two_gaps_editing_gaps_md_merge_cleanly, test_two_lessons_editing_review_lessons_merge_cleanly). Both are kept,
+unchanged. After the merge: tests/test_factory.py 94 passed, 2 skipped, and ruff is clean. No code was changed this
+round. Round 4's review had no blocking finding; its notes (reviewer sessions counted, `rm` reaching the session's own
+clone, the files outside "Files to touch") were answered in round 4 and stay as built. Refused this round: a compound
+`python3 - <<EOF ... ; git add ... && git commit` that resolved the conflict markers. It was not worked around in
+the shell; the markers were removed with the editor and the commit made as separate commands. The unit suite and the
+four browser files were not run here; they are the factory's fast suites after this session.
