@@ -283,6 +283,8 @@ actions:
     class: push
     args: {sha: the green merge commit on the checkout's main}
     timeout: 5m
+    fenced: false                    # runs once approved, whatever became of the asking run's lease: it pushes only
+                                     # that commit, and only as a fast-forward of the remote's main (git refuses else)
     description: Push exactly that commit to origin's main (a fast-forward, or refused) - the coordinator approves it
   switch-instance:
     run: python3 dev/bin/drain.py approve {sha}
@@ -308,7 +310,7 @@ blocks:
     type: program
     description: one run at a time, under the coordinator's queue lock - merge a batch (stock.queue-batch) into a clean main, ruff, unit and browser at once, demo_check, once a batch; push if green (gated, one approval a batch), else bisect to the first failing merge, send it to triage and land the rest
     run: python3 dev/bin/queue.py
-    takes: {kind: gap, at: approved, to: [merged, fix, queue-failed]}
+    takes: {kind: gap, at: approved, to: [merged, fix, queue-failed, push-pending]}
     pool: 1
     lease: {ttl: 30m, attempts: 3}
     timeout: 3h

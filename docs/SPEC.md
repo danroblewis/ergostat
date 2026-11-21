@@ -156,8 +156,9 @@ on them, and `check` lists the instances still on stand-ins (**template-stand-in
 
 **Writing one.** A template file is YAML: `template:` (its name), `description:`, `reading:` (what it is in
 control theory and in system dynamics), `params:` (each with `type`, `description`, and `default`,
-`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; type `any` takes a
-value as given, checked where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
+`required: true` or nothing; `stand-in:` says what stands in when it is left out; `choices:`; `min:` and `max:` on a
+`number` or `integer`, a value outside them an error naming the bound; type `any` takes a value as given, checked
+where it is used), `example:` (a `uses:` entry), `once: true` when it is used once a model
 (above), then the sections it makes (`items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`,
 `goals`, `blocks`, `agents`, `uses`). In them:
 
@@ -674,6 +675,7 @@ items:
 | `fold` | map of field → rule | `replace` | How the plain `data` of its events folds into each field (the rules below) |
 | `relations` | map of name → kind(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
 | `join` | a rule, or a list | none | When its children move it on (*Join*, below) |
+| `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `system`, `description` | | | |
 
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
@@ -802,6 +804,41 @@ for:
   completion estimates are worked out, from a levelled run of their simulation instead (below).
 - **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
   (`ergostat`, the page's side panel), and is left out of the projection.
+
+**About.** An item may say which parts of the model it bears on: a lesson about a goal, a note about a stock. A kind
+opts in by naming the field that holds them, `about: FIELD`; the field holds one name or a list, each in the text
+form a claim's `about` uses: `goal.x`, `stock.x`, `flow.x`, `auxiliary.x`, `block.x`. ergostat declares no such
+kind of its own, and a model none of whose kinds declares `about:` looks nothing up.
+
+```yaml
+items:
+  note:
+    id: note/*
+    states: [open, retired]
+    about: about                            # "data": {"about": ["goal.inbox-short", "stock.inbox"]}
+messages:
+  done: {note: [retired]}
+```
+
+The field folds by `replace` (any other `fold:` for it, or a relation's name, is an error, `bad-about`): an event
+that sets it replaces the whole list, so a part dropped from an item, or an item made again under the same id with
+a new list, no longer points at the old part. The item index keeps each item→part link beside its relations' links,
+as they stand now, so the items about a part are one indexed lookup, never a read of every item (an index built
+before these links is built again). They are read in three places, each listing only the **open** items about the
+part (not in a state its kind counts as finished, `messages: done:`, else as the item index says; a kind without
+states, always open), the latest first:
+
+- `ergostat explain PART` (and MCP's `explain`), with a project, ends with a line `Open items about goal.x: ID
+  (title), ...`: each item's id, then its `title`, else its first field with a value; **at most 5**, then `and N
+  more`. `none.` when there are none; `unknown` (with why) when the item index cannot be read, never `none`.
+- `ergostat check`: a finding whose part has open items about it carries their ids (`items` in `--json`, and said
+  in its message, at most 5 named); an open item naming something that is not a part of the model (`goal.gone`,
+  `foo.x`, `goal.`, `stock.x.main`) is a finding, `about-missing-part` (section 12). Finished items are not checked.
+- `ergostat` (the status): a loop that is off names the open items about its goal or the value it measures
+  (`goal.x`, or its `stock.y` / `flow.y` / `auxiliary.y`), on its attention line (`· items about it: a, b, c +2`)
+  and in its row of the loops table, **at most 3**, then `+N`; `unknown` when the index cannot be read. A loop that
+  is not off names none. Under `--at` (a past snapshot) no items are named: the items open now are not the ones
+  that were open then.
 
 **Join.** A parent moved on by its children (fork-join) is a rule on the parent's kind, over the relation its children
 name it by, not a block that lists and matches items:
@@ -1288,6 +1325,7 @@ it measured). These are recorded as events from the sensor (`benchmark-score.mai
 the items like any other. An observation records what was seen, never a command: it must name an
 item (an id with a `/`), may not use ergostat's own types, and a sensor has no outputs. A measured
 value is shown as measured by its sensor; an auxiliary a block sets is shown as set by that block.
+A sensor read by a daemon may print the same lines tagged with `"sensor": "STOCK.SENSOR"` (section 9.7).
 
 ## 7. Flows
 
@@ -2373,17 +2411,33 @@ Out, on its standard output, every line tagged with what it is for:
 | `{"done": EXIT, "run": ID}` | The run ended with that exit code. Exactly these two keys, `EXIT` a whole number (never `true`, never `1.0`) |
 | `{"reading": V, "request": ID}` | The answer to a reading (`{"error": WHY, "request": ID}`: none) |
 | `{"reading": V, "sensor": "STOCK.SENSOR"}` | A reading it sends by itself, for a sensor with `push: true` |
+| `{"event": T, "item": I, "data": {...}, "sensor": "STOCK.SENSOR"}`, `{"message": {...}, "sensor": "STOCK.SENSOR"}` | What one of its sensors observed (section 6), or a message it relays: checked and recorded as a `run` sensor's are, from that sensor (a refused one is a `sensor.refused`). No `reading` beside it |
 | `{"heartbeat": true}` | It lives (any line says so) |
 
 A line that is not a JSON object, tags nothing, or names a run or request the daemon does not hold, is written to its
-log and dropped: never taken as another run's. The `env` of an item travels in its line and never in the process's
-environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
+log and dropped: never taken as another run's. So is an observation that also carries a `reading`, that names a
+sensor this daemon does not serve (a warm daemon serves none), or that a `run` sensor's would neither take nor
+refuse (`{"message": "text"}`): it is never recorded from another source, and never counted. A sensor's
+observations are taken at most 50 a second (accepted and refused alike, in one-second windows from the first); more
+are dropped and counted, not recorded, and each window's count is said once, as a `sensor.refused` with
+`{"why": "N observations dropped: more than 50 a second", "dropped": N}`, at the first of: its sensor's next
+observation after the window closes, the supervisor's next look once the window is a second old (every 0.2 s), or
+ergostat stopping (after its daemons have ended, or a second after they were killed; a line read later than that is
+written to the log and dropped, not counted). The lines of one read are judged at the time it was read. A line over
+1 MiB is dropped (said once in the log), up to its newline, and never held. Lines are read as UTF-8, what is not
+UTF-8 replaced. A run's `done` is taken after its earlier lines; should taking a run's batch of lines fail as a
+whole, each line of it is said dropped in the log. The `env` of an item travels in its line and never in the
+process's environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
 `ERGOSTAT_SOCKET`): a daemon passes an item's `env` to what it starts for that item, and never writes it into its own.
 
 **Each item is still a run**: `agent.started`, `agent.ran` or `agent.failed` (with `daemon`: its name), its lease
-and fencing, its lines taking effect as printed. Its time is its wall time only: a process serving many items at
-once cannot say which CPU second was whose, so a daemon's CPU and memory are its own, sampled every 30 s (and exact
-from its wait status when it ends: on `ergostat.daemon.restarted`), shown on the Agents page, and no run claims them.
+and fencing, its lines taking effect in the order it printed them (a run's line may be taken after lines of the
+same read that are no run's, such as requests, readings and observations, printed after it). Its time is its wall
+time only: a process serving many items at once cannot say which CPU second was whose, so a daemon's CPU and memory
+are its own, sampled about 1 s after it
+starts, then at doubling gaps up to every 30 s (never two samples within 1 s), and exact from its wait status when it
+ends (on `ergostat.daemon.restarted`), shown on the Agents page, and no run claims them. Lines that arrive together
+are taken together, per run, up to 500 at once, in the order printed.
 A sensor read by a daemon starts no process and holds none of the sensor pool's threads while it waits.
 
 **Supervision** (`ergostat/daemons/supervise.py`: a thread of its own, never the engine's loop). Everything written
@@ -2577,7 +2631,18 @@ where the error is 0.
 - **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
   (section 12e);
 - **template-library**: a template in a `library:` folder that does not read, or one used in place of
-  ergostat's own.
+  ergostat's own;
+- **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
+  is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
+  (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
+  message, all in `items`). Finished items are not checked. When the item index cannot be read, **about-unknown**
+  says so instead, and nothing is said to be missing or not.
+
+A finding of `check` (CLI or MCP) about a part (`about`: `goal.x`) that has open items about it carries their ids:
+`items` in `check --json` and MCP's `check`, and `(open items about it: a, b)` at the end of its message, at most 5
+named there. This is done last, after the calibration and extreme-conditions findings, so those carry them too; the
+coherence report (section 12l) is apart and does not. These two findings and the ids are `check`'s alone: loading the
+model (any other command, the engine, a proposal's trial) does not open the item index for them.
 
 **Structure** (findings, the tests system dynamics makes of a model's structure before its
 behaviour: Sterman, *Business Dynamics*, ch. 21, structure assessment, dimensional consistency and
@@ -3538,11 +3603,20 @@ numbers taken out). Found again with other numbers, the same item is **revised**
 reason and evidence, and `revisions` counted; found again saying the same, nothing is recorded); its history keeps every
 earlier statement, and the judge holds out the record after its last revision. One under test or passed is left to the
 judge, one decided is not made again, and one turned away is revised and checked again once `memory` lets it go. When
-the model's version changes, a change not yet under test whose subject is as it was is **carried** to the new version
-(`.revised` with `rebased`; a value's or an equation's edit made again on the files as they are now); only one whose
-subject was removed or edited, or whose edit cannot be made again, is superseded, saying which. Each finder lets go only
-of its own changes it no longer finds: the calibration of values and equations, the structural finder of structure; a
-loop's process or gain is its analysis's alone. A block's proposal is not carried yet (GAPS).
+the model's version changes, a waiting change whose subject is as it was is **carried** to the new version, whoever made
+it (a block records its `subject` too: the parts it touches, the stocks a flow it adds joins, the parts it removes):
+`.revised` with `rebased`, its edit as it stands, moved by `rebase`, or a value's or an equation's made again on the files
+as they are now (`tests/test_churn_carry.py`, *a block's value change is carried*). A carried change under test or
+passed was judged on another version: it goes back to testing with its verdict and last look cleared, in the same event,
+and is judged again (*a passed change carried goes back to testing*). A structural change of ergostat's own whose lines
+moved is carried with the edit its finder finds again on the same item, not made again (*a structural change whose lines
+moved is carried*). The rest are superseded, saying which: the subject removed or edited, the edit no longer applies (a
+block's to make again), no longer found by its finder, recorded without a subject, no longer of its kind, or it would change
+who decides. Every carry is decided under the proposals' lock on the model as its files are now (`files_now`): while they
+do not compile, or differ from the model the pass read, nothing is carried, superseded, judged or written, and the next
+pass decides (*an edit between the finder and the lock defers the carry*, *files that do not compile defer every pass*).
+Each finder lets go only of its own changes it no longer finds: the calibration of values and equations, the structural
+finder of structure; a loop's process or gain is its analysis's alone.
 
 Each pass (`ergostat/numbers/judge.py`; `ergostat judge` makes one by hand) supersedes every open change made
 against a version of the model since changed (but those it carries, above), starts **testing** each checked change it can replay (a value, an
@@ -3635,7 +3709,20 @@ block of the template, answer them, the cheapest first:
   author skill and the modelling guides made short (`library/templates/modelling/modeller.md`). It proposes
   descriptions, units, equations, structure, loops and collectors as ordinary changes; each is tried first as
   `try_change` tries it, and what would be turned away is given back once with why. Its cost is recorded on the
-  requests it was given (`cost_usd`), and a request it has tried twice waits for the owner.
+  requests it was given (`cost_usd`), and a request it has tried twice waits for the owner. Its parameters: `ai-model`
+  (haiku), `ai-every` (10m), `ai-most` (requests in one call, 8, from 1 to 16) and `ai-daily` (dollars a day, 1, from
+  0 to 20), passed as `modelling ai --most` (1 to 16), `--tries` (1 to 3) and `--daily` (0 to 20, required), each
+  refused outside its bounds at expansion and again by the run. **Its daily cap** (`ergostat/numbers/modeller_spend.py`,
+  `<p.dir>/modelling/ai-spend.jsonl` under an `fcntl` lock): each call, the go-back too, reserves the most its prompt
+  and longest answer could cost (`unsaid`), which also goes to claude as `--max-budget-usd`. A call starts only when the
+  day's spend plus its reservation stays within `ai-daily`; one call at a time (the lock is held from the check through
+  the call to its charge); a call that reports more than its reservation is charged what it reported, so the day can end
+  above `ai-daily` by that one call's overrun, and none starts after it until the day's spend is back under. A charge
+  is its settled cost, or its whole reservation until settled (a run killed mid-call), dated by its reservation; a
+  ledger that cannot be read means no call. A run the cap stops leaves its requests as they were (no try counted), and
+  the status line says `the AI tier has spent $X of its $Y today` once a call was refused for the cap that day or the
+  spend is within the latest reservation of it. The lock covers the AI tier's own calls only, not the redesigner's or
+  repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
 "parameters", "name": "t", "set": {...}}` besides `replace` and hunks.
@@ -3813,7 +3900,8 @@ asks for, in memory, so the models it damages stay as written.
 **1. The pipeline** (`tests/test_bench.py`). A proposal with no reason whose evidence ergostat can check is
 refused; so is one whose edit cannot be made or does not compile. Accept writes exactly the diff shown, and refuses
 when the file has changed since (the diff's hash). A change made against a model since changed, even only in its
-numbers, is superseded and never written, by the judge or by hand. Under the default policy (`accept: owner`) the
+numbers, is never written on a verdict reached on another version: carried back to testing, or superseded, by the
+judge or by hand. Under the default policy (`accept: owner`) the
 judge passes a change and nothing is written.
 
 **2. The judge** (`ergostat/bench/judging.py`, `ergostat bench judge`). On synthetic worlds whose truth is known
@@ -4441,7 +4529,9 @@ holds the workspace **fenced** (`fenced`: the run and its fence): the next lease
 and the old run's item events (§9.5) and gated actions are refused. A gated action records the lease it was asked for
 under; it is denied when asked for, and fails unrun when approved, once that lease has expired or a later one has been
 taken on the item. An action asked for under a lease that ended (ack or nack) and was not taken again still runs once
-approved: its item waits for review.
+approved: its item waits for review. An action declared `fenced: false` is never fenced: once approved it runs
+whatever became of the lease it was asked for under. That is for an action whose own command keeps it safe whenever
+it runs, such as a push of one exact commit that the remote refuses unless it is a fast-forward.
 
 **Quarantined** workspaces are never given to an item; `ergostat workspaces POOL --free N` (the owner) removes that
 worktree, and the slot is made afresh when next needed. Each workspace is an item, `ergostat.workspace/POOL-N`
@@ -4474,6 +4564,7 @@ actions:
     args: {title: the pull request's title, body: what it changes and why}
     wait: 15m                      # how long the session waits for the owner before going on (default 5m)
     timeout: 2m                    # how long it may run (default 2m)
+    # fenced: false                # run once approved even after a later lease took the item (default true)
 blocks:
   developer:
     type: ai

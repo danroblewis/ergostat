@@ -125,3 +125,11 @@ demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-fac
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
 rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
+queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the
+                                     # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under
+                                     # run/coverage/ (dev/README.md, Coverage). On: its overhead on the full unit
+                                     # suite measured within noise (code-health-coverage.md, Where it stopped)
+
+[code_health]
+coverage_floor = 0.6                 # a module whose share of statements run by the unit suite is under this is
+                                     # named (measure.py coverage-below-floor; coverage_report.py --below)

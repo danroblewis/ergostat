@@ -33,6 +33,16 @@ proposed) whose scope names a word of the gap's text, recording their `ergostat.
 superseded one. If the items cannot be read, the brief is not built. Editing a heading makes a new decision; editing
 only the body changes nothing already proposed.
 
+**What an entry is about.** An entry may end with an *About:* line naming the parts of the root model (`ergostat.yaml`
+and `dev/model/`) it bears on, comma-separated: `*About:* goal.first-pass-good, goal.few-fix-rounds.` `knowledge.py
+sync` puts the names on the item's `about` field (the whole list each time; the line taken out, or the entry retired
+and back without it, clears it), and the `knowledge` kind declares `about: about` (SPEC §5a, *About*). So `ergostat
+explain goal.first-pass-good` ends with the open (active) entries about that goal, at most 5 and "and N more"; retired
+ones are not listed. An off loop in `ergostat` names at most 3 (and "+N"), and a `check` finding about the goal
+carries their ids. A name that is no part of the model is the finding `about-missing-part`. The lessons about the
+pipeline (4, 6, 7, 8, 9, 10, 12, 13) and the Process and Machine rules name the goals they bear on;
+`tests/test_factory_knowledge.py` checks every name is a part of the root model.
+
 **Kept current by the factory itself.** After each review, the librarian (`dev/bin/librarian.py`) compares the findings
 with `review-lessons.md`: a finding of a class already listed proposes a "seen as" line when it's a new shape; a class
 found in two reviews that isn't listed proposes a new entry. Each proposal waits in the inbox (`knowledge-change`);
