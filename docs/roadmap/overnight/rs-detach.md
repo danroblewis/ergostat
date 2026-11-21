@@ -102,3 +102,11 @@ in a row. As before, I did not get around it another way (`rm`, a revert, `git u
 the only thing left, and someone allowed to delete files has to do it:
 `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`. No code changed and no suites were run.
 Running another implementor session with the same permissions will be refused the same way.
+
+Round 5 (the factory's "round 3"), after main (31cffd8f870e) was merged into the branch: the same refusal, the fifth
+session in a row. `git rm -r .bench` was denied ("don't ask" permission mode), and as before nothing else was tried to
+delete it. `.bench/test_bench_detach.py` is still tracked; it is the only thing left. No code changed. The suites were
+not run again after the merge of main, so lesson-7's re-run after merging is still owed, along with the removal:
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. A sixth
+implementor session with these permissions will not get further. This needs a person, or a session allowed to delete
+files.
