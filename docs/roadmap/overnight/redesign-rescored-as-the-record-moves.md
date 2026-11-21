@@ -382,3 +382,20 @@ Failed its gates 6 times (the kill rule). Blocking findings:
   mode). So no test or ruff was run, no code was changed, and this section is **not committed**. The factory must commit it
   (`git add docs/roadmap/overnight/redesign-rescored-as-the-record-moves.md && git commit`) and run the unit suite
   again.
+
+### Continued, round 3 (the unit suite cut off at 75%)
+
+- *The merge of main:* already finished in 5e70f469. `git status` was clean, no conflict markers are left, and
+  `tests/test_probe_tmp.py` is gone (0f92734c).
+- *The unit suite stopped at about 75%,* partway through a line of passing dots, with no failing test and no pytest
+  summary. `scripts/suite_watch.py` prints one JSON line whenever it ends, including when it kills the run itself,
+  and the tail has none. So the watchdog was killed along with pytest, by something outside the suite command (the
+  runner's container or time limit). A test that hangs under `-n 8` stops only its own worker, and the other seven
+  would keep printing dots. This is the sixth such cut on this branch's code (53%, 49%, 99%, 75%, about 0%, and 75%
+  now). Round 5 ran the same code to the end. So I changed no code and no test bounds (lesson-10, lesson-13). The
+  runner's kill needs its own gap.
+- *Refused:* a serial run of the whole unit suite under the watchdog, in the background, to name any test that
+  hangs: `uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:xdist -o faulthandler_timeout=300
+  --durations=25`. The permission mode refused it, and it refused a later combined append-and-commit command too.
+- *Run here:* test_redesign_rescored, test_redesign, test_modelling_core, test_modelling_core2 and test_slowjudge,
+  with `-o faulthandler_timeout=120`: 75 passed in 30 s. Ruff is clean.
