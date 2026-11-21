@@ -225,3 +225,9 @@ belongs in its own gap.
 
 **Run here (round 4):** `test_relations_asof` 9 passed; `test_leases` 20 passed. `ruff check ergostat tests scripts
 dev/bin` is clean. Not run: the whole unit suite and the browser files.
+
+## Where it stopped
+
+Parked by the factory (review/gap-size-3, 2026-11-20 18:01).
+
+Done: the gap's own work (plan.py size_of/problems, the size reset on replan and split, queue.py merged_lines/merged_lines_error written on every gap.merged, measure.py size-accuracy and size-accuracy-high with unmeasured gaps left out and named on stderr, the planner prompt, measures.yaml, the README, and the acceptance tests). Its code was found sound in rounds 2-4. Left: the branch is built on top of the unmerged backlog merge 2b101c6, so it cannot reach main without landing backlog unreviewed. Implementor sessions were refused the replay in every round, so further fix rounds cannot finish it. Someone allowed to rewrite the branch must replay only the gap's commits onto origin/main (d3cd937, 860a76f, c7e0faf, 39d6fb8, 093f942, the gap-size part of 1e16402's notes; not the tests/test_relations_asof.py change and not merges b6c5872 and 1a5cd15), for example `git rebase --onto origin/main 2b101c6 factory/gap-size` and drop the merges and the relations-as-of change. Then confirm `git diff origin/main...HEAD` touches only the definition's 'Files to touch' (plus docs/roadmap/overnight/gap-size.md), and run the acceptance tests, the unit suite, the browser files and ruff again before the branch is reviewed.
