@@ -274,36 +274,40 @@ ergostat event --add intervention.remedied --item intervention/2026-11-20-unstic
 What the coordinator did by hand and recorded as interventions (a gap parked on main's own failures continued, a gap
 re-approved after an environmental queue failure, the queue unblocked, a missing gap filed) is the pipeline manager's:
 an AI block (`pipeline-manager`, `dev/model/manager.yaml`; `[ai] pipeline_manager_model`, Opus, and its own
-`pipeline_manager_session_usd`; pool 1; within the daily cap) that looks at one **situation** at a time, in a container
-on a read-only clone of main like the other sessions, its conversation kept as a session item related to the situation.
+`pipeline_manager_session_usd`; pool 1; within the daily cap). **One session sees the whole pipeline**, in a container
+on a read-only clone of main, its conversation kept as a session item related to its `situation/*`.
 
-**The triggers** (`dev/bin/watch.py`, the block `pipeline-watch`, every 5 minutes; `[manager]` in the settings), in
-order: the queue blocked (`run/queue.json`, or an open intervention of class `queue`); a gap dead past half an hour, or
-parked within `parked_within_hours` (48) unless another gap carries its branch on; a gap in one state past
-`[manager.stuck_hours]` for it (its time there from state-times' `time_in` when the gap has it, else from its moves, a
-lease taken and given back not counting as a new visit), unless its pool is full, its dependencies unmerged or the
-queue's push held; an open, unremedied intervention recording a defect (not the manager's own, and not a decision: classes
-`operator-decision` and `factory-tuning`, or `factory: false`) past `intervention_hours` (12), at most
-`interventions_per_hour` (3) an hour; a heartbeat every
-`heartbeat_minutes` (30), only when the pipeline changed. One situation at a time, and never one whose fingerprint (its
-subject and the visit, park or change it is about) was raised before. `python3 dev/bin/watch.py stuck` counts the
-stuck gaps (the goal `no-stuck-gaps`). Pause it with `[manager] open = 0` in `factory.local.toml`.
+**When it runs** (`dev/bin/watch.py`, the block `pipeline-watch`, a plain `every: 5m`; `[manager]` in the settings):
 
-**The brief** (`dev/bin/manager.py`): the situation, its gap's fields, moves, reviews, sessions and log tails, the
-queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity, and the knowledge.
+- on a schedule, `every` (2h): the routine review;
+- at once when the merge pipeline has been broken past `broken_minutes` (30): the queue blocked, a pending push that
+  old, no merge in that long while approved gaps have waited as long, the interlock holding the queue that long, or the
+  same test failing on two main commits (at once). When each began is kept in `run/manager.json`; a new push or block
+  has its own clock. A break already looked at does not start another session, and a session that failed is tried again
+  no sooner than `broken_minutes` later;
+- never when nothing changed since the last session (no new trigger, no new break, the pipeline the same).
 
-**The tools** (`dev/bin/manage.py`): the session answers with its calls in a fenced JSON block, each run through
-manage.py's own checks; refused calls are said on the situation. Directly: `continue GAP`, `reapprove GAP --why` (the
-failed tests are run again on main where they failed, the checkout for the queue's or a container for the fast
-suites', and must fail there too: back to approved, or to built), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a
-queue one only once main is clean and pushed). Asked in the inbox: `close GAP` (a new state, closed), `park GAP`,
-`pool ROLE N`, `change --what` (dev/model, the settings, anything touching origin). Every call is an
-`intervention.recorded` with a class and `by: pipeline-manager`, open like the coordinator's, so the interventions still
-count what the factory lacks. By hand (as the coordinator): `python3 dev/bin/manage.py continue gap/NAME --why ...`.
+**What it is given.** Every standing trigger no earlier session answered (by fingerprint): the queue blocked; a gap dead
+past half an hour, or parked within `parked_within_hours` (48), unless another gap carries its branch on or the park is
+`deferred` or `cancelled`; a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
+else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
+`intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
+`factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
+queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
+It answers per trigger what it did or why it left it; a trigger it did not answer comes back in the next session.
 
-**The velocity watch**: each heartbeat reads queue wait, suite minutes, cycle hours and each waiting state's time; when
-`queue-wait-short` or `suites-in-time` is off it files a gap (merge batching with bisection; faster suites), at most
-one of its own open at a time, and never one whose branch exists.
+**The tools** (`dev/bin/manage.py`, at most `most_actions` (8) calls a session, each through its own checks). Directly:
+`continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, and must fail there too),
+`flake TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
+in the inbox: `close GAP`, `park GAP`, `pool ROLE N`, `change --what` (dev/model, the settings, anything touching
+origin). Every call is an `intervention.recorded` with a class and `by: pipeline-manager`. By hand, as the coordinator:
+`python3 dev/bin/manage.py continue gap/NAME --why ...`. Pause it with `[manager] open = 0` in `factory.local.toml`.
+
+**The routine review.** Each session's record has queue wait, minutes per merge and per batch, batch size and bisected
+batches, time in state, first-pass yield, merges per hour, each goal against its setpoint and the binding constraint, and
+the answers to its earlier questions. A scheduled session either `propose`s a change (a gap with a definition, one
+open at a time) or `ask`s the researcher how to speed up the merge pipeline (one open at a time), or says why neither.
+The measures `manager-triggers-per-session` and `manager-actions-per-session` say how much each session takes on.
 
 ## Upgrade and revert
 

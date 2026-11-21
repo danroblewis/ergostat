@@ -7,6 +7,8 @@ intervention by whoever asked (the coordinator by hand, `pipeline-manager` from 
   flake TEST --why W                    the test recorded as a flake
   file-gap --title T --definition-text D [--depends-on a,b] [--branch B]
   remedy INTERVENTION --why W           an open intervention remedied (a queue one: main clean and pushed)
+  propose --title T --definition-text D --why W   the review's change to the merge pipeline, a gap (one open at a time)
+  ask QUESTION --why W                  a question for the researcher on speeding up the merge pipeline (one open)
   close GAP | park GAP | pool ROLE N | change --what W   (each --why W) asked in the inbox, from the block's run"""
 
 from __future__ import annotations
@@ -27,7 +29,8 @@ import onmain  # noqa: E402
 BY = ["coordinator"]                      # who acts: the coordinator by hand, the pipeline manager from its run
 SITUATION = [""]
 CLASSES = {"continue": "parked-continued", "reapprove": "environment-defect", "flake": "flake", "file-gap": "missing-gap",
-           "remedy": "remedied", "close": "groom", "park": "stuck", "pool": "operator-decision", "change": "factory-change"}
+           "remedy": "remedied", "close": "groom", "park": "stuck", "pool": "operator-decision", "change": "factory-change",
+           "propose": "velocity", "ask": "velocity-research"}
 GATED = {"close": "manager-close", "park": "manager-park", "pool": "manager-pool", "change": "manager-change"}
 
 
@@ -168,6 +171,26 @@ def do_remedy(cfg: dict, a) -> str:
     return f"{a.intervention} remedied"
 
 
+def do_propose(cfg: dict, a) -> str:
+    open_ = [g["id"] for g in fac.items("gap") if g["fields"].get("velocity") and g["state"] not in ("merged", "parked", "closed")]
+    if open_:
+        raise Refused(f"a proposal of the review's is open already ({', '.join(open_)}): one at a time")
+    return file_gap(cfg, a.title, a.definition_text, a.depends_on, a.branch, a.why, a.cls or "velocity", velocity=True)
+
+
+def do_ask(cfg: dict, a) -> str:
+    mine = [r["id"] for r in fac.items("research", "asked") if r["fields"].get("asked_by") == BY[0]]
+    if mine:
+        raise Refused(f"a question of yours waits for the researcher already ({', '.join(mine)}): one at a time")
+    question = " ".join(a.question.split())
+    if len(question) < 15:
+        raise Refused("ask a whole question")
+    rid = f"research/{fac.slug(question, 40) or 'question'}-{uuid.uuid4().hex[:6]}"
+    record("research.asked", rid, question=question, asked_by=BY[0], asked_at=time.time(), situation=SITUATION[0])
+    intervene("ask", rid, a.why, a.cls)
+    return f"{rid} asked"
+
+
 def gated(cfg: dict, a) -> str:
     args = {"close": lambda: {"gap": a.gap}, "park": lambda: {"gap": a.gap}, "pool": lambda: {"role": a.role, "to": str(int(a.n))},
             "change": lambda: {"what": a.what}}[a.cmd]()
@@ -202,12 +225,13 @@ def parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, args in (("continue", "gap --depends-on"), ("reapprove", "gap"), ("flake", "test"), ("remedy", "intervention"),
                        ("file-gap", "--title! --definition-text! --depends-on --branch"), ("close", "gap"),
+                       ("propose", "--title! --definition-text! --depends-on --branch"), ("ask", "question"),
                        ("park", "gap"), ("pool", "role n"), ("change", "--what!")):
         p = sub.add_parser(name, exit_on_error=False)
         for x in args.split():
             p.add_argument(x.rstrip("!"), **({"required": x.endswith("!")} if x.startswith("--") else {}),
                            **({"default": ""} if x.startswith("--") and not x.endswith("!") else {}))
-        p.add_argument("--why", default="", required=name not in ("continue", "file-gap"))
+        p.add_argument("--why", default="", required=name not in ("continue", "file-gap", "propose"))
         p.add_argument("--class", dest="cls", default="")
     return ap
 
@@ -221,6 +245,7 @@ def run(cfg: dict, argv: list[str]) -> dict:
         if a.cmd in GATED:
             return {"call": argv, "ok": True, "said": gated(cfg, a)}
         do = {"continue": do_continue, "reapprove": do_reapprove, "flake": do_flake, "remedy": do_remedy,
+              "propose": do_propose, "ask": do_ask,
               "file-gap": lambda c, a: file_gap(c, a.title, a.definition_text, a.depends_on, a.branch, a.why, a.cls)}
         return {"call": argv, "ok": True, "said": do[a.cmd](cfg, a)}
     except (Refused, argparse.ArgumentError, KeyError, ValueError) as e:
