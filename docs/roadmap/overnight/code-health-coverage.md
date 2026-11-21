@@ -248,3 +248,19 @@ the key off nothing is set. Each break below was made alone and then undone, and
 2 skipped: its Docker tests), each alone; `uv run ruff check ergostat tests scripts`, clean. This session did not run
 the unit suite or the four browser files (the factory runs them). The first report from the queue itself will exist
 after the first green queue run once this lands.
+
+### Continued, round 1, suite fix round (the factory's unit run after the continued round)
+
+The merge of main (0ecf249c) was already committed (`d9527bfe`), so nothing was left to resolve. The unit run's tail
+stops partway through a line of dots at 72%. It has no `F`, no `FAILED` line, no summary and no closing
+`{"rc": ...}` from suite_watch, so no test failed in what it shows. The run was cut off before it finished, as in
+round 1's suite fix round. **No code was changed**: with no test named, a change would be a guess (lesson-13). The
+config flip (`queue_coverage = true`) does not reach the tests. `fac.config()` reads only `FACTORY_CONFIG` when it is
+set, every test that runs the queue writes its own `factory.toml` without the key, and the factory's unit run has
+`ERGOSTAT_COVERAGE` unset. Each subprocess this branch's tests start has a timeout (60 to 300 s), so none of them can
+hang the run. A serial, verbose whole-suite run, started to name a hanging test, was denied by the session's
+permission mode. Checked here instead, one invocation at a time: `tests/test_code_health_coverage.py` (11 passed),
+`tests/test_factory.py` (57 passed, 2 skipped, its Docker tests), and `tests/test_factory_resources.py`,
+`test_architecture.py`, `test_daemon_docs.py`, `test_index_files.py`, `test_factory_sessions.py`,
+`test_ticket_factory_daemons.py` and `test_model.py` together (87 passed). `uv run ruff check ergostat tests scripts`
+is clean. If the next unit run names a test, that test is the next thing to look at.
