@@ -316,3 +316,9 @@ the coordinator can settle it, by landing the backlog merge on main first or by 
 `test_spec_compile.py` (26), `test_blockdiagram.py` (67), `test_closedloop.py` (15), `test_graph_cli_web.py` (29),
 `test_resilience.py` (24). Ruff is clean. `test_items_page.py` was skipped here because this container has no
 browser. The whole suite under `-n 8` and the four browser files were not run: the factory runs them.
+
+## Where it stopped
+
+Parked by the factory (review/a-block-s-pool-set-by-the-model-3, 2026-11-20 20:21).
+
+Done, judged by reading: DoD points 1-7 for the pool-now feature itself. Compile with both forms and every error code, poolnow.now/read_at/said, dispatch reading the stock under self.lock and failing closed with one 'has no reading' message, estimates and the Blocks view at the pool now (held at 1 and said why), the block box's pool row, the factory's implementor and reviewer on implementor-pool and reviewer-pool, and SPEC/help/GAPS updated. The acceptance tests exist and assert numbers that tell the pool now from the most. Left: the branch is built on a local main holding the unreviewed backlog merge (2b101c6), which is not on origin/main, so merging it would land the backlog feature too, and building.yaml and the relations-as-of test now depend on it. It stops because this is round 4 and the rule parks after two failed reviews. Resolving the base is the coordinator's call: either the backlog is reviewed and lands on main first and this branch is rebuilt on it, or the gap's commits (d1532eb4, ae5e4563, 251058f4 and the pool parts of 578cc5ad) are carried onto a fresh branch from origin/main, without `order: rank` in building.yaml and without the test_relations_asof.py rename. Then the full unit suite and the four browser files are run.
