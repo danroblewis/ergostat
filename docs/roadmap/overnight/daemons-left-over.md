@@ -260,3 +260,12 @@ run here; the factory runs them under the watchdog. The test files touched were 
 **Load (lesson-10).** `test_a_burst_with_nothing_after_it_is_reported_by_the_supervisor` assumes 60 lines of one
 write are judged within one second of the first. The lines are admitted in the reader thread before each is recorded,
 so this holds unless 50 record writes take longer than a second. If it ever fails under load, look there first.
+
+**After the factory's unit suite failed (one F at 42%).** The tail it gave doesn't name the test. Every file that
+imports the changed modules or reads the changed docs passes alone, and the touched files also pass under `-n 4`. One
+real race was found and fixed in `Sampler._loop`, and it fits a failure seen only under load. The loop checked that a
+run was tracked and computed its wait under two separate holds of the lock. A run that finished between them left
+`wait` None, and the thread then waited on `wake` with no timeout and never ended
+(`tests/test_run_costs.py::test_fifty_short_runs_...` asserts that it ends). The check and the wait are now one hold,
+and `finish` sets `wake` when the last run leaves, so the thread ends at once. If the suite's failure was another
+test, it is still unknown here.
