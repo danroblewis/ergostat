@@ -72,3 +72,73 @@ For each test, break the code it guards once and record in the report that it fa
 ## Size budget
 
 200 net lines of code outside `tests/`, `docs/` and `dev/` (`scripts/coverage_report.py`). The tracer is in `tests/`.
+
+## Where it stopped
+
+Round 1, by the implementor. Points 1, 2, 4, 5 and 6 are built. **Point 3 is not done: the overhead was not
+measured**, so the queue's tracer ships off (see below).
+
+**Built.**
+- `tests/coverage_lines.py`: the tracer (`sys.monitoring` LINE events with `DISABLE`, on its own tool id), registered
+  from `tests/conftest.py`'s `pytest_configure` only when `ERGOSTAT_COVERAGE` is set. Each xdist worker (or the one
+  process of a serial run, as `main`) writes `lines-<worker>.json` with its lines, the traced files it imported, the
+  worker count and xdist's run id. xdist's controller runs no test and writes nothing.
+- `scripts/coverage_report.py` (158 lines, inside the 200): statements from `ast` (a statement's start line; a line run
+  anywhere in its own lines, such as a continuation or a decorator, covers it; docstrings, `global` and `nonlocal` are
+  not counted). The worker files are combined into `coverage.json` (`{"main", "seq", "modules": {...}}`), and
+  `--below` lists the modules under the floor, worst first. If a worker's file is missing, unreadable or from another
+  run, the script writes no report and exits 1. `"subprocess-only": true` marks a module that no worker imported.
+- `dev/bin/measure.py coverage-below-floor` and `coverage NAME`, with the auxiliary and sensor in
+  `dev/model/measures.yaml`. There is no value (exit 1, nothing on stdout) when there is no report, when any report is
+  unreadable (it may be the latest), when no report is of a commit on main (one whose merge the queue undid), or when
+  the latest is more than 20 of main's first-parent commits old. A missing or invalid `[code_health] coverage_floor`
+  also gives no value.
+- `dev/bin/queue.py`: with `[suites] queue_coverage = true`, the queue's unit run is prefixed with
+  `ERGOSTAT_COVERAGE=run/coverage/<run tag>`. The report is made after a green unit run. Reports are kept by seq, the
+  last five; a red run's folder, or one that made no report, is removed by name.
+- `dev/README.md`, *Coverage: the modules below a floor*.
+
+**Decisions taken alone (each reversible).**
+- `seq` is `git rev-list --count --first-parent HEAD`, main's merges and direct commits, and staleness is
+  `rev-list --count --first-parent <sha>..main > 20`. Plain commit counts would count every commit of a branch
+  merged.
+- The definition's "in [suites], so that only main's runs pay" was found wrong by review/code-health-1: `[suites]`
+  runs in the implementor's worktree too. So the variable is not in a suite command. `[suites] queue_coverage` is a
+  key only `queue.py` reads, and it prefixes the queue's own unit command.
+- **`queue_coverage` ships `false`.** This session could not run any command that sets `ERGOSTAT_COVERAGE` (the
+  session's permission mode denied each attempt), and its brief forbids running the whole suite in parallel. So
+  neither number of point 3 exists. Turning on a tracer of unmeasured overhead in main's queue risks lesson-10, with
+  time-bound tests failing under `-n 8` on every merge. Off is one key to flip. Until it is flipped,
+  `coverage-below-floor` has no value (exit 1), which is its designed behaviour.
+
+**Left.**
+- Measure the fast unit suite with and without the tracer: `scripts/in_container.sh uv run python
+  scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`, and the same with
+  `ERGOSTAT_COVERAGE=run/coverage/probe` before `uv run`. Record both numbers here. If the overhead is 15% or less, set
+  `queue_coverage = true`. If it is more, the tracer belongs on a nightly unit run instead (not built here).
+- The first real report on this repository has not been made, for the same reason. Its numbers (how many modules are
+  below 0.6, how many are subprocess-only) are not known.
+
+**Tests run** (one file at a time, not the whole suite): `tests/test_code_health_coverage.py`, 8 passed;
+`tests/test_factory.py`, 41 passed, 2 skipped (its Docker tests); `uv run ruff check ergostat tests scripts`, clean.
+The unit suite and the four browser files were not run by this session; the factory runs them after it.
+
+**Each test broken once (lesson-9).** Each change below was made and then undone. Each was alone,
+except the staleness and the by-seq changes, made together because each touches only its own test's case:
+- docstrings counted as statements: `test_tracer_counts_executed_statement_lines` failed (and the combine test, whose
+  count changed);
+- the last worker's lines kept instead of the union: `test_workers_combine_into_one_report` failed;
+- the modules below the floor sorted by name: `test_below_floor_lists_worst_first` failed;
+- staleness at `> 21`: `test_missing_or_stale_report_has_no_value` failed;
+- the report read last by path instead of by seq: `test_latest_report_by_seq_not_mtime` failed;
+- an unreadable report skipped instead of having no value: no test failed at first, because a corrupt report alone
+  gives no value either way. The test now also puts a readable report next to the corrupt one, and with the break it
+  failed;
+- the plugin registered without the variable (in both `conftest.py` and `register()`): `test_tracer_off_without_the_variable`
+  failed;
+- the queue's reports pruned by folder name instead of by seq: `test_the_queue_keeps_the_last_reports_by_seq` (an
+  addition) failed.
+
+Also added: `test_a_report_of_a_commit_not_on_main_is_not_read`. `test_tracer_off_without_the_variable` also runs the
+tracer for real in a child pytest with the variable set, and checks that a module the probe imported
+(`ergostat/durations.py`) is in its file.

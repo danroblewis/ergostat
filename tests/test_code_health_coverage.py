@@ -165,8 +165,9 @@ def test_missing_or_stale_report_has_no_value(tmp_path):
     bad = inst.report("corrupt", {"ergostat/a.py": 0.2})
     bad.write_text('{"main": ')
     assert no_value(inst.measure("coverage-below-floor"))                       # an unreadable one
-    bad.unlink()
     inst.report("r", {"ergostat/a.py": 0.2, "ergostat/b.py": 0.9})
+    assert no_value(inst.measure("coverage-below-floor"))                       # one beside it (it may be the latest)
+    bad.unlink()
     inst.commit(20)
     r = inst.measure("coverage-below-floor")
     assert (r.returncode, r.stdout.strip()) == (0, "1.0"), r.stderr            # 20 merges old: still read
@@ -195,6 +196,35 @@ def test_latest_report_by_seq_not_mtime(tmp_path):
     os.utime(old, (later, later))                                              # the older one touched last
     r = inst.measure("coverage-below-floor")
     assert (r.returncode, r.stdout.strip()) == (0, "0.0"), r.stderr
+
+
+def test_the_queue_keeps_the_last_reports_by_seq(tmp_path):
+    inst = Instance(tmp_path)
+    top = inst.model / "run" / "coverage"
+    for seq in range(1, 7):                                                    # (names in the reverse order)
+        d = top / f"gap-{'fedcba'[seq - 1]}-20261101T00000{seq}Z"
+        d.mkdir(parents=True)
+        (d / "coverage.json").write_text(json.dumps({"main": "x", "seq": seq, "modules": {}}))
+    (top / "not-the-queues").mkdir()
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, queue; from pathlib import Path; "
+            "print(queue.coverage_kept(fac.config(), Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4])))")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")} | {"FACTORY_CONFIG": str(inst.config)}
+
+    def kept(name: str, rc: int, worker: str = "main", workers: int = 0) -> str:   # one queue run's unit suite
+        d = top / f"gap-{name}-20261102T000000Z"
+        worker_file(d, worker, {}, workers=workers)
+        r = subprocess.run([sys.executable, "-c", code, str(ROOT / "dev" / "bin"), str(ROOT), str(d), str(rc)],
+                           cwd=inst.model, env=env, capture_output=True, text=True, timeout=300)
+        assert r.returncode == 0, r.stderr
+        return r.stdout.strip()
+    assert kept("red", 1) == "not reported: the unit suite failed"
+    got = kept("partial", 0, "gw0", workers=2)
+    assert got.startswith("no report:") and "gw1" in got
+    green = top / "gap-green-20261102T000000Z"
+    assert kept("green", 0) == "reported"
+    assert sorted(d.name for d in top.iterdir()) == sorted(
+        ["not-the-queues", green.name] + [f"gap-{'fedcba'[s - 1]}-20261101T00000{s}Z" for s in (3, 4, 5, 6)])
+    assert json.loads((green / "coverage.json").read_text())["seq"] > 6
 
 
 PROBE = """\

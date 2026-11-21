@@ -194,8 +194,9 @@ which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on on
 
 ## Coverage: the modules below a floor
 
-The queue's unit run on main (`[suites] queue_coverage = true`; an implementor's runs never) sets
-`ERGOSTAT_COVERAGE`, and a line tracer (`tests/coverage_lines.py`, Python 3.12's `sys.monitoring`, no package)
+With `[suites] queue_coverage = true`, the queue's unit run on main (an implementor's runs never) sets
+`ERGOSTAT_COVERAGE`. It ships `false` until the tracer's overhead on the full unit suite is measured; until then the
+measure below has no value. A line tracer (`tests/coverage_lines.py`, Python 3.12's `sys.monitoring`, no package)
 records the lines each test process ran of `ergostat/`, `dev/bin/` and `scripts/`. `scripts/coverage_report.py DIR`
 combines the workers' files into `DIR/coverage.json`: per module its statements (from the file's `ast`, docstrings
 not counted), those covered and the share, stamped with the commit and its `seq` (main's first-parent commits). The
