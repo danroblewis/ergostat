@@ -184,7 +184,8 @@ until answered, up to a count, then a person takes over), `daily-report` (a repo
 item), `keep-under` (a level held under a limit by a corrective action), `steps` (an item worked through a list
 of steps, a block each), `collect` (the event collector) and `modelling` (the model improved as a loop of its
 own, section 12e: its fit held by a goal, what `check` finds held as requests, a rule tier and an AI tier that answer
-them, and the judge; once a model, every model should have it). Each says its reading in both disciplines
+them, and the judge; once a model, every model should have it), and `upkeep` (ergostat's own upkeep as loops of
+the model, below). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
 ergostat.library.run`): `collect` (a sensor that polls a command or an HTTP endpoint, records each new record as
 an event about an item, once, from a cursor, and prints the arrivals per hour), `each` (a block's program that
@@ -197,6 +198,41 @@ one item a run, `pool` at once, and an item that fails every try is a dead lette
 for the instance like any part (`steps` makes `NAME-workspace`, and `NAME-push` for an action `push`), and a
 block's `workspace:` and `actions:` follow the names. A block's lease terms are its own (`lease:`, with `takes:`
 and `pool:`); `leases:`, each tier's terms, belongs to the model as a whole, as do `messages:` and `storage:`.
+
+### Upkeep
+
+`use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own
+upkeep as loops of the model. Its first and so far only loop is the item-index files (section 4b: one
+`<state>/items/<hash>[.n].db` per shape of the model's item kinds). The stock `index-files` (`ergostat.upkeep.index-files`,
+the live files) fills by `index-files-made` (`changes: rises`, a new file on each change to the kinds) and drains by
+`index-files-tidied` (`changes: falls`). The stock `retired-index-files` (`ergostat.upkeep.retired-index-files`)
+drains by `retired-index-files-removed`. A file is *retired* when its mark `<hash>[.n].retired` stands beside it
+(`itemindex.retired`, the one test the measures and the tidy both use): a process still held it when it was due to
+go, and it is never opened again. The goal `index-files-few` holds `index-files <= ${index-files}` (default 6, 1 to
+64, checked when the model loads), and `no-retired-index-files` holds the retired ones at 0. The controller
+`index-tidier` is a program on the rule rung, `${lib} upkeep tidy --keep ${index-files}` every `tidy-every` (10m).
+It works from the state directory alone (never the project, its model or an index, which it only locks), refuses
+`--keep` outside 1 to 64 (exit 2), and exits 1 with a message when `<state>/items` is missing or cannot be listed.
+It prints one line per output: `{"out": "flow.index-files-tidied", "moved": LIVE, "left": ..., "held": ...,
+"young": ...}` (the live files it removed) and `{"out": "flow.retired-index-files-removed", "moved": RETIRED}` (the
+retired ones), so the engine opens each flow's valve by its own count.
+
+**The engine stands down.** In a model whose `uses:` holds ergostat's own `upkeep`, `index_for` no longer tidies the
+folder when it makes a new file; the `index-tidier` does. The engine reads that from the model it is given (the
+spec it folds with, after each reload). A model without it tidies as before (`KEPT_FILES`, 6).
+
+**The interlock stays in the code.** Whether a file may be deleted is decided only in `spec/itemindex.py`, for the
+engine and the tidier alike, and no goal, parameter or template changes it: only a regular file named
+`^[0-9a-f]{16}(\.[0-9]+)?\.db$` directly in the resolved items folder (never a symlink, never another name), with
+its `-wal`, `-shm` and `.lock`; only under its exclusive lock taken without waiting (a lock file that cannot be
+opened counts as held). A retired file goes once its lock is taken, whatever its age (it is never opened again). A
+live file goes only when, besides, neither it nor its WAL or shared memory changed within `TIDY_AGE` (an hour),
+checked before the lock and again once it is held.
+
+**Fail-safe.** A measure with no state directory, or a folder it cannot list, gives no reading, never 0. If the
+tidier stops, nothing else limits the number of files under `use: upkeep`: they only pile up (one per change of the
+kinds), and every index still opens and folds right. The other upkeep loops (the watchdog, the heartbeat, leases
+and the worktree pool; the event log's roll-up and measurement retention) are still to come.
 
 ## 3. Names, references and values
 
@@ -316,6 +352,10 @@ A system named by a part and not described here is a top-level system.
 `purpose:` (top level, the main file only) says in a sentence what the whole model is for: a goal in no system that
 says what it is for is traced to it (the `purpose` note, section 12). Each system's size (its parts at any depth, the
 feedback loops inside it and through it, and the levels of systems within it) is in `explain` and on its panel.
+Beside its size, the Dynamics panel names each chain of its own stocks that, over the window shown, no feedback loop
+beyond each stock's own drove: a candidate to aggregate into one delay, not a finding (section 12c, *Stocks to
+aggregate*). It is worked out from the loop dominance over that window; no row is shown when the dominance is not
+known.
 
 **Its interface is worked out, never written.** Whatever crosses a system's boundary is one of
 its ports:
@@ -915,9 +955,14 @@ the completion estimates (none at a moment travelled to), and the status's list 
 (`ergostat snapshot`) holds the Items page's list with no kind chosen; each kind chosen alone, its list (the
 first 500 of its items, as `items?kind=K` answers) and its list in each state it declares or counts; and the
 Graph and the Timeline of each system's related kinds together and of each kind alone, related or not. An
-answer that could not be got is left out, and the page says it is not in the snapshot. A set chosen (`where`,
-`moved`, a process map's `through`, `followed` or `caused`) is not held: in a snapshot it says so. The Process
-view draws relations too (§5b).
+answer that could not be got is left out, and the page says it is not in the snapshot. It also holds the item sets its own panels link to: each part's (a stock's, a
+flow's, a sensor's side-panel set) and each node's and line's of every process map it holds (a node's `through`, a
+related line's first end's `through`, a caused line's `caused`, any other line's `followed`, with the map's `by` and
+span). Each is held both as the side panel lists it and as the Items page opened from its link shows it, at most 400
+sets: parts first, then each map's nodes as the map lists them, then all the maps' lines by count, most first
+(equal counts as listed). A set named twice is held, and counted, once; one past the 400, or one the server refuses,
+is not held and says "not in this snapshot", as a set typed into the address does. The process map's other `by`
+and the leased items a flow's panel links to are not held. The Process view draws relations too (§5b).
 
 **Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
 letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what
@@ -1337,7 +1382,7 @@ flows:
 | `sum` | field | | On a flow's `items`: the rate per hour of this field summed over the items moving (a number; else 0), not how many moved. `model-mended` sums each written change's `fit_gained`, what Accept measured it took off the error |
 | `changes` | `rises`, `falls`, `net` or `rest` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over`; `rest` (two-way, one a stock): the net change less what the stock's other measured flows moved, each at its last reading (the residual flow). Every rise or fall is whatever caused it: a flow so measured that is drawn as caused by another flow is the finding `measured-not-caused` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
-| `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings` | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
+| `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings`; `ergostat.upkeep.*` (`index-files`, `retired-index-files`) | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e) or of its own upkeep (section 2a, *Upkeep*), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
 | `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
 | `where` | map of field → value (or list) | | Only items whose fields match; a field's field is named with a dot (`lease.back: triage`: the items whose lease was taken at `triage`, section 9.5). Values compare as typed JSON: a number matches a number (`1` matches `1.0`), a string a string, a boolean a boolean, `null` a field that is null or missing, so `priority: 1` never matches the text `"1"` (write it quoted when the field holds text). *Decided* (2026-11-18): before, both sides were compared as text, so `1` missed a field holding `1.0`; `check` notes each bare number or boolean in a `where:` (**where-typed**) since its meaning changed. The same holds for a block's `takes: where:` |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
@@ -3321,6 +3366,25 @@ and says how much of the window it dominated there; no loop is named where two a
 where a loop through it cannot be scored (the share of its loops that are scored is said instead). A
 loop through a link that cannot be scored (a decision with several inputs, an equation with a delay
 inside it, an unsigned link) says why, and is left out of the sums.
+
+**Stocks to aggregate** (`ergostat/numbers/aggregation.py`; a system's panel, the `aggregate` of
+`GET /api/dominance`), from that loop dominance over the same window, the one the page shows: a chain
+of stocks whose stages are each driven only by their own drain behaves as one delay (Simon and Ando
+1961; Iwasaki and Simon 1994), so it is a **candidate** to aggregate into one, never a finding: it
+holds for the window scored, and only among the loops of up to 30 parts that the loop search finds. A
+stock qualifies when it is in the system itself (its innermost system), has a balancing loop of its
+own through no other stock (its drain; a stock without one, an accumulator, is not a stage of a
+delay), every loop through it is scored, it is named and moved in the window, it was never tied while
+a loop through other stocks runs through it, and no loop through it and another stock dominated any
+stock in any bucket. Anything not known disqualifies: a loop not scored (through one stock or more),
+a stock not named or that never moved, the dominance missing or worked out for other loops than the
+model's now, the loop search at its cap. A group is two or more qualifying stocks of one system
+joined by flows into one linear chain, said in its material order: `over the window (SINCE to UNTIL)
+no feedback loop beyond each stock's own drove stock.a, stock.b: a candidate to aggregate into one
+delay`. A branch (a to b and a to c) or a cycle among them is no group, nor are two stocks with no
+flow between them, nor two in different systems. The system's panel shows an `aggregate` row for
+each of its groups, and none when there is none or the dominance could not be worked out; `check` is
+unchanged.
 
 ## 12d. Control: identification, analysis, monitoring and tuning
 
