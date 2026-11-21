@@ -16,7 +16,8 @@ for every block or, with ``@WHO``, one block, rung or model; how the owner's mes
 ``messages/measures.py``): ``ergostat.messages.unrouted``, ``.awaiting``, ``.missed`` and the rest; and how the work
 each projection recipe started turned out (SPEC §12j, ``recipes/uses.py``): ``ergostat.context.RECIPE.outcome``,
 ``.cost`` and counts; and what the runs cost (SPEC §9.1, ``costs/record.py``): ``ergostat.cost.usd``, ``.tokens``,
-``.cpu``, ``.memory``, ``.runs``, over the last day or hour, for every block or one.
+``.cpu``, ``.memory``, ``.runs``, over the last day or hour, for every block or one; and ergostat's own upkeep (SPEC
+§2a, *Upkeep*, ``upkeep_measures.py``): ``ergostat.upkeep.index-files`` and ``.retired-index-files``.
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ from ..spec.ir import (
     MODEL_MEASURES,
     TRUST,
     TRUST_MEASURES,
+    UPKEEP,
+    UPKEEP_MEASURES,
     WORKSPACES,
     WORKSPACES_MEASURES,
 )
@@ -117,14 +120,14 @@ def _meta():
 
 READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
            "ergostat.model.unidentified-loops": loops_unidentified, "ergostat.model.open-findings": findings,
-           **{n: (lambda p, n=n: _meta()[n](p)) for n in ("ergostat.model.accepted-per-day", "ergostat.model.regressed",
-                                                          "ergostat.model.verified-share", "ergostat.model.fit-gained",
-                                                          "ergostat.model.cost-per-accepted")}}
+           **{n: (lambda p, n=n: _meta()[n](p)) for n in MODEL_MEASURES if n.startswith(("ergostat.model.accepted-per-day",
+              "ergostat.model.regressed", "ergostat.model.verified-share", "ergostat.model.fit-gained",
+              "ergostat.model.cost-per-accepted", "ergostat.model.review"))}}
 
 
 def measure(p, name: str) -> float | None:
     if name.startswith(("trust.", "messages.", "intent.", "leases.", "actions.", "workspaces.", "inbox.", "interventions.",
-                        "cost.")):                 # by hand: trust.contradicted@developer
+                        "cost.", "upkeep.")):      # by hand: trust.contradicted@developer
         name = "ergostat." + name
     if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
         name = "ergostat.model." + name.removeprefix("model.")
@@ -134,6 +137,9 @@ def measure(p, name: str) -> float | None:
     if COST.match(name):                           # what the runs cost: dollars, tokens, CPU, memory (SPEC §9.1)
         from ..costs import record as cr
         return cr.measure(p, name)
+    if UPKEEP.match(name):                         # ergostat's own upkeep: its index files (SPEC §2a, Upkeep)
+        from .. import upkeep_measures as um
+        return um.measure(p, name)
     if name in MESSAGE_MEASURES:                   # how the owner's messages reach the work (SPEC §12h)
         from ..messages import measures as mm
         return mm.measure(p, name)
@@ -176,7 +182,7 @@ def measure(p, name: str) -> float | None:
     if name not in MODEL_MEASURES:
         known = [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES,
                  *ACTIONS_MEASURES, *WORKSPACES_MEASURES, *COST_MEASURES,
-                 *INBOX_MEASURES]
+                 *INBOX_MEASURES, *UPKEEP_MEASURES]
         raise MeasureError(f"no measure {name!r}: {', '.join(known)}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
@@ -186,7 +192,7 @@ def measure(p, name: str) -> float | None:
 def all_of(p) -> dict[str, float | None]:
     out = {}
     for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES, *ACTIONS_MEASURES,
-              *WORKSPACES_MEASURES, *COST_MEASURES, *INBOX_MEASURES]:
+              *WORKSPACES_MEASURES, *COST_MEASURES, *INBOX_MEASURES, *UPKEEP_MEASURES]:
         try:
             out[n] = measure(p, n)
         except Exception as e:                        # one measure that cannot be read leaves the others

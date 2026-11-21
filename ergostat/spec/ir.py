@@ -93,6 +93,10 @@ MODEL_MEASURES = {                 # the model's own quality (SPEC §12e), read 
     "ergostat.model.fit-gained": "what the changes written over the last week lowered the scaled error by, together",
     "ergostat.model.cost-per-accepted": "dollars the blocks that make changes spent over the last week, over the changes "
                                         "written",
+    "ergostat.model.reviews-passed": "changes the reviewer passed over the last week",
+    "ergostat.model.reviews-revised": "changes the reviewer sent back to their author over the last week",
+    "ergostat.model.reviews-rejected": "changes the reviewer rejected over the last week",
+    "ergostat.model.review-misses": "changes the reviewer passed that the prediction check later flagged for revert",
 }
 MODEL_CHANGE = "ergostat.model-change"   # the built-in item kind: every change to the model, made, judged and decided
 MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded",
@@ -100,7 +104,7 @@ MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refu
                        "inconclusive"]            # the record held out could not tell it from the model as it is
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
 MODELLING_REQUEST = "ergostat.modelling-request"   # the built-in item kind: work for modelling, raised from what check finds
-MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered"]
+MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered", "dismissed"]
 CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
@@ -229,14 +233,21 @@ LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or 
 }
 
 
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files)$")
+UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
+    "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
+    "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
+}
+
+
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
     intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
     ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``), the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``) or what the runs
-    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``)."""
-    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
+    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), or ergostat's upkeep (``ergostat.upkeep.*``)."""
+    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES or bool(UPKEEP.match(name))
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
             or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES)
 
@@ -256,6 +267,7 @@ class Improve:
     windows: list[int] = field(default_factory=lambda: [1, 2, 4])
     warm_up: float = 6 * 3600.0     # each window replayed from this long before it, its stocks and delays warm
     block: str | None = None
+    reviewed: list[str] = field(default_factory=list)   # kinds written only after the reviewer's pass (numbers/reviewer.py)
 
 
 def template_made(x) -> bool:
@@ -274,7 +286,8 @@ def once_made(spec, x) -> bool:
 
 def modelling_request_kind() -> ItemKind:
     on = {f"{MODELLING_REQUEST}.raised": "open", f"{MODELLING_REQUEST}.reopened": "open", f"{MODELLING_REQUEST}.proposed": "proposed",
-          f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered"}
+          f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered",
+          f"{MODELLING_REQUEST}.dismissed": "dismissed"}
     return ItemKind(MODELLING_REQUEST, f"{MODELLING_REQUEST}/*", list(MODELLING_REQUEST_STATES), on,
                     ["code", "about", "source", "tier", "change"], {}, None,
                     "work for the modelling subsystem: a finding, a chain finding, a coherence mismatch or a craft note "
@@ -410,7 +423,9 @@ class Action:
     (``{name}`` filled with an argument, shell-quoted, or with ``{item}``, ``{branch}``, ``{workdir}``, ``{block}``,
     ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``; ``cls``: the class it is counted in (its name, else);
     ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
-    ``in_``: where it runs (else the session's working directory)."""
+    ``in_``: where it runs (else the session's working directory); ``fenced``: False for an action that runs once
+    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs);
+    ``severity`` (1 to 5; None: no ``risk:``) and ``threshold``: its act-risk (``actions/risk.py``)."""
     name: str
     run: str
     gate: str = "approve"
@@ -421,6 +436,9 @@ class Action:
     in_: str | None = None
     description: str = ""
     where: Where | None = None
+    fenced: bool = True
+    severity: int | None = None
+    threshold: float = 8.0
 
 
 @dataclass
@@ -637,7 +655,8 @@ class Block:
     implied: bool = False      # put in by ergostat (a machine block's goal:), not written
     signs: dict[str, int] = field(default_factory=dict)         # port → +1 or -1, for an input written with a sign (+stock.x)
     takes: Takes | None = None   # the items it works, one run per item, each leased (SPEC §9.5)
-    pool: int = 1                # the most runs of it at once, when it takes items
+    pool: int = 1                # the most runs of it at once, when it takes items (``pool: N``, or ``most:``)
+    pool_now: Ref | None = None  # ``pool: {now: stock.S}``: the pool read from S at each dispatch, at most ``pool``
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
@@ -801,6 +820,7 @@ class ItemKind:
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
+    about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
 
     def matches(self, id: str) -> bool:
         import fnmatch

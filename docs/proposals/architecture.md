@@ -104,16 +104,17 @@ Davidsen, "A comprehensive analytical approach for policy analysis of system dyn
 aggregation, Simon and Ando 1961 and Iwasaki and Simon 1994.
 
 **Computed today.** Loops That Matter on the replay (`numbers/dominance.py`, each loop's panel): which loop drives
-each stock over the window. The count of loops inside each system and through it (`size`, below).
+each stock over the window. The count of loops inside each system and through it (`size`, below). The computed rung
+of aggregation (`numbers/aggregation.py`, an `aggregate` row on a system's Dynamics panel, SPEC §12c): a linear
+chain of a system's own stocks, each with its own drain, that no loop beyond each stock's own drove over the window
+the page shows, every loop through it scored and named. It reads: `over the window (2026-11-20 09:00 to 2026-11-20
+10:00) no feedback loop beyond each stock's own drove stock.ramps-briefed, stock.ramps-to-research: a candidate to
+aggregate into one delay`. A candidate, not a finding: it says nothing beyond the window, and nothing is proposed.
 
 **Not computed.** Eigenvalue elasticity needs the Jacobian over time and its eigenvectors: one Jacobian is already
 taken for time constants, so the elasticities at the start are a small step; over the replay they are a
-simulation, kept out of `check`. Aggregation (a group of parts no dominant loop runs through, replaced by one
-stock or one delay) follows from dominance per system over a long record: the AI rung's proposal, with LTM as its
-evidence.
-
-**Would read.** `system safety: over the last week no dominant loop passed through stock.ramps-briefed and
-stock.ramps-to-research: a candidate to aggregate into one delay.`
+simulation, kept out of `check`. The proposal to aggregate (the chain replaced by one stock or one delay, judged
+over a long record) is the AI rung's, with the computed candidates and LTM as its evidence.
 
 ## 5. Interface control documents: what crosses each boundary
 

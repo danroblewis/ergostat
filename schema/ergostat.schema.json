@@ -1588,9 +1588,30 @@
           "$ref": "#/$defs/trigger"
         },
         "pool": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "The most runs of a block that takes items at once"
+          "description": "The most runs of a block that takes items at once: a number, or a stock's level read at each dispatch, held within 0 and most",
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "object",
+              "properties": {
+                "now": {
+                  "type": "string",
+                  "pattern": "^stock\\.[a-z][a-z0-9-]*$",
+                  "description": "The stock whose level is the pool now (it must have a sensor)"
+                },
+                "most": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "The hard ceiling: never more at once, whatever the stock reads"
+                }
+              },
+              "required": ["now", "most"],
+              "additionalProperties": false
+            }
+          ]
         },
         "lease": {
           "$ref": "#/$defs/lease_terms"
@@ -1993,6 +2014,10 @@
         },
         "lease": {
           "$ref": "#/$defs/lease_terms"
+        },
+        "about": {
+          "type": "string",
+          "description": "The field that names the parts of the model each item is about (goal.x, stock.y, flow.z, auxiliary.w, block.v), folded by replace (SPEC section 5a, About). explain, check and status point at the open items about a part"
         },
         "relations": {
           "type": "object",

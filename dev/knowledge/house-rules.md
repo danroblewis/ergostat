@@ -6,7 +6,8 @@ use: every implementor and reviewer brief
 # House rules
 
 ## Process
-- The definition of done is the branch's first commit (`docs/roadmap/overnight/<branch>.md`): the gap, what done means,
+- The definition of done is the branch's first commit (`dev/records/<branch>.md`; a branch begun before 2026-11-21
+  keeps its `docs/roadmap/overnight/<branch>.md`, and `docs/` is for human readers): the gap, what done means,
   acceptance tests by name, and a size budget (net lines outside tests and docs). After that it changes only by
   appending "Where it stopped". An overrun needs a written reason.
 - Done means: the acceptance tests exist and pass; the unit suite and the four browser files pass with rc 0 and no page
@@ -16,6 +17,7 @@ use: every implementor and reviewer brief
   failed reviews park the branch with "Where it stopped" saying exactly what is left; nothing partial reaches main.
 - Report honestly: what failed, what was not run, numbers that did not improve. A smaller true claim beats a larger one
   a review will knock down (see review-lessons §8).
+*About:* goal.first-pass-good, goal.few-fix-rounds.
 
 ## Machine
 - Suites run one at a time through the shared slot script and under `scripts/suite_watch.py`. Any load test or
@@ -23,6 +25,7 @@ use: every implementor and reviewer brief
 - macOS sandbox profiles: no `syscall-unix` rules; seatbelt filter lists of 5 entries or fewer (kernel panics).
 - Never `git stash` (stashes are shared between worktrees). Never kill a process you didn't start; no broad `pkill`.
 - To wait for a free machine, match real test processes: `ps -A -o command= | grep -E '^[^ ]*python[0-9.]* -m pytest'`.
+*About:* goal.machine-quiet, goal.suite-threads-within, goal.threads-within.
 
 ## Code
 - Modules small and single-purpose; the disciplines' own terms (system dynamics, control, queueing, process mining).

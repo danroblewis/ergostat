@@ -145,7 +145,8 @@ def _record(p, spec: Spec) -> list[str]:
     return out
 
 
-def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | None = None, card: dict | None = None) -> str:
+def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | None = None, card: dict | None = None,
+           by: str = "redesigner") -> str:
     spec, problems = s.compiled()
     shown = spec or s.base
     lines = [guides(), "", "## The task", "",
@@ -179,6 +180,8 @@ def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | 
     if card:
         from . import scorecard as sc
         lines += ["", "## The scorecard of your edits so far", ""] + sc.lines(card)
+    from . import reviewer as rv
+    lines += rv.lines(p, by)
     if feedback:
         lines += ["", "## What ergostat said of your last answer (fix these in this round's edits)", ""] + [f"- {x}" for x in feedback]
     if s.done:
@@ -220,8 +223,9 @@ def reports(text: str) -> list:
 
 def run(p, system: str = "model", why: list[str] | None = None, model: str = "haiku", budget: float = BUDGET,
         rounds: int = ROUNDS, by: str = "redesigner", submit: bool = True, call=None, timeout: float | None = None,
-        on_call=None) -> dict:
-    """One run: rounds on a scratch copy, then the best copy proposed. Returns what it did and what it cost."""
+        on_call=None, room=None) -> dict:
+    """One run: rounds on a scratch copy, then the best copy proposed. ``room()``, if given, is what is left of its
+    share of the day's cap, read again before each call (``redesign.held``). Returns what it did and what it cost."""
     from ..spec import read
     from . import redesign as rd
     from . import scorecard as sc
@@ -241,15 +245,17 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
     said: list = []                                   # report lines, for the block to print (SPEC §12m)
     t0 = time.perf_counter()
     for r in range(1, max(1, rounds) + 1):
-        if cost["usd"] >= budget:
-            log.append({"round": r, "stopped": f"the budget (${budget:.2f}) is spent"})
-            break
         t_p = time.perf_counter()
-        text = prompt(p, s, system, why or [], feedback, card)
-        t_c = time.perf_counter()
-        got = call(text, model, md.per_call(timeout, rounds))
-        if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it
-            on_call(got)
+        text = prompt(p, s, system, why or [], feedback, card, by)
+        dearest = md.unsaid(text, model)["usd"]
+        with rd.held(p, dearest, room) as fits:       # the day's cap read again and this call held against it
+            if not fits or cost["usd"] + dearest > budget:    # its estimated most: none past the cap
+                log.append({"round": r, "stopped": f"the budget (${budget:.2f}) is spent"})
+                break
+            t_c = time.perf_counter()
+            got = call(text, model, md.per_call(timeout, rounds))
+            if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it
+                on_call(got)
         took = {"prompt_s": round(t_c - t_p, 1), "call_s": round(time.perf_counter() - t_c, 1), "prompt_chars": len(text)}
         cost["calls"] += 1
         for k in ("usd", "tokens_in", "tokens_out", "seconds"):
@@ -309,8 +315,11 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
     cost["seconds"] = round(time.perf_counter() - t0, 1)
     out = {"system": system, "why": why or [], "rounds": log, "cost": cost, "model": model, "budget": budget,
            "version": ver.version(spec), "reports": said}
-    if best is None:
-        out["result"] = "nothing proposed"
+    if best is None:                                   # a failed call is said as one, never as "nothing proposed"
+        failed = next((x["error"] for x in log if x.get("error")), None)
+        out["result"] = "error" if failed else "nothing proposed"
+        if failed:
+            out["why_not"] = failed
         return out
     out["scorecard"] = best[2]
     raw = {"title": title or f"A redesign of {'the model' if system == 'model' else system}", "system": system,

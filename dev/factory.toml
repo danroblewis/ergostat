@@ -16,6 +16,9 @@ build_failures = 6                   # the implementor's failed fast suites that
                                      # are not counted: dev/bin/onmain.py)
 build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
 plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
+scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej"]
+                                     # globs on each path part of a file the branch adds: the implementor's program
+                                     # refuses the build before the suites (dev/bin/implement.py strays)
 
 [plan]                               # the advisory plan review (dev/bin/planreview.py): never a gate
 review = "sample"                    # sample (1 in sample_every plans), all, or off
@@ -36,13 +39,15 @@ planner_model = "opus"               # the planner: a gap's definition of done, 
 planner_session_usd = 5.0
 plan_reviewer_model = "opus"         # the plan review: the plan against main's code and the task graph
 plan_reviewer_session_usd = 3.0
+join_judge_model = "opus"            # the join judge (plan.py join): the plan reviewer's model and session cap
+join_judge_session_usd = 3.0
 researcher_model = "opus"            # research questions (dev/bin/research.py)
 researcher_session_usd = 5.0
 librarian_model = "haiku"            # the librarian's one step: a review's findings against the lessons
 librarian_session_usd = 0.25
 groomer_model = "opus"               # the groomer: the backlog's links, value, size, risk, closes and splits (backlog.py)
 groomer_session_usd = 3.0
-pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one situation at a time
+pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one session sees the whole pipeline
 pipeline_manager_session_usd = 3.0
 
 [backlog]
@@ -68,13 +73,15 @@ streak = 3                           # good gaps in a row before an increase is 
 batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
 batch_max = 4                        # the most the tuner may ask for while the queue wait is off (never past 4)
 
-[manager]                            # the pipeline manager's triggers (dev/bin/watch.py)
+[manager]                            # the pipeline manager's sessions (dev/bin/watch.py, manager.py)
 open = 1                             # the switch managing-open: 0 pauses it
-parked_within_hours = 48             # a park this recent is looked at (older ones were the coordinator's)
+every = "2h"                         # a scheduled session (the routine review), when something changed since the last
+broken_minutes = 30                  # a session at once when the merge pipeline has been broken this long
+most_actions = 8                     # manage.py calls a session may make (held to 1..12)
+parked_within_hours = 48             # a park this recent is a trigger (older ones were the coordinator's)
+park_wait_hours = 24                 # a waits_on / needs park not cleared this long is a trigger (dev/bin/parks.py)
 intervention_hours = 12              # an open defect (not a decision: operator-decision, factory-tuning, factory: false)
-                                     # unremedied this long is looked at
-interventions_per_hour = 3           # at most this many such looks an hour (the first run's backlog)
-heartbeat_minutes = 30               # a look at the whole pipeline, when it changed since the last
+                                     # unremedied this long is a trigger
 
 [manager.stuck_hours]                # a gap this long in one state is stuck (states not named are never stuck)
 ready = 6
@@ -90,7 +97,7 @@ queue-failed = 1
 [resources]                          # the machine (dev/model/resources.yaml holds the setpoints)
 session_cpus = 0.5                   # one session's use until three are measured (run/resources/sessions.jsonl)
 session_memory_gb = 1.0
-suite_cpus = 4.0                     # one of its suites' (in a container of 4 CPUs and 12 GB)
+suite_cpus = 4.0                     # one of its suites' (in a container of 4 CPUs and 12 GB); not charged with [suites] slot
 suite_memory_gb = 4.0
 session_keep_hours = 24              # session folders and installs younger than this are never cleaned up
 
@@ -116,7 +123,18 @@ slot = ""                            # a command that holds a machine-wide suite
 ruff = "uv run ruff check ergostat tests scripts"
 unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal"
 browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+browser_ready = "uv run --with playwright==1.63.0 python -c 'from playwright.sync_api import sync_playwright as s; p = s().start(); p.chromium.launch().close(); p.stop()'"
+                                     # before each implementor round (agents.browser_ready): no browser stops it
 demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
-rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
+rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -p no:randomly {tests}"
+check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
+queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the
+                                     # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under
+                                     # run/coverage/ (dev/README.md, Coverage). On: its overhead on the full unit
+                                     # suite measured within noise (code-health-coverage.md, Where it stopped)
+
+[code_health]
+coverage_floor = 0.6                 # a module whose share of statements run by the unit suite is under this is
+                                     # named (measure.py coverage-below-floor; coverage_report.py --below)
