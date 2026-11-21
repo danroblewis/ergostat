@@ -355,3 +355,18 @@ changed: `HARD = 9` already matches the blocks' `most: 9` and `most: 6`. Here: `
 tests scripts` is clean. With `dev/bin` added, ruff finds B023 at `dev/bin/plan.py:315` and E501 at
 `dev/bin/review.py:41`. Both files are identical to main's, so the fix is outside this gap (lesson-13). Not run
 here: the whole unit suite and the four browser files (the factory runs them).
+
+Continued, round 3, after the factory's fast suites: main c5eb54e6 was already merged (be5c85c0, main an ancestor of
+HEAD, no conflict markers in `dev/bin/pools.py` or `dev/model/pools.yaml`). The `unit` tail given shows one `F` at
+about 19% and is cut off at about 61%, with no pytest summary and no `suite_watch` JSON line, so it names no test.
+This session refused the whole-suite run (`uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8
+--dist worksteal -p no:cacheprovider`), a shell loop over single files, and the shell for the commit of this note. So
+the failing test is still not named, and no code was changed blindly. Every test file that loads `dev/bin`, `dev/model`
+or the pools passes here: `tests/test_factory.py` 132 passed, 2 skipped; `test_factory_knowledge`,
+`test_factory_resources`, `test_factory_sessions`, `test_factory_times` and `test_backlog` 116 passed; `test_queue`,
+`test_factory_manager`, `test_agents_drop`, `test_workspaces`, `test_slowjudge`, `test_scale_caches`,
+`test_leased_workspaces`, `test_extremes_closed`, `test_eta`, `test_code_health_coverage` and `test_closedloop` 147
+passed (`-n 4`). Main's load-dependent files named in earlier parks (`test_leases`, `test_warm`, `test_index_files`)
+pass too: 66 passed (`-n 4`). Ruff is clean (`ergostat tests scripts`). Left: a full `unit` run whose output reaches
+pytest's summary, so that the `F` gets a name. If it names a test outside this branch's files, it belongs to its own
+gap (lesson-13). Also left: the four browser files.
