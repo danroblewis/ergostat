@@ -172,6 +172,28 @@ def test_untrusted_first_wins_between_untrusted(tmp_path):
     assert got["mine"].description == "a copy" and got["mine"].trust == "untrusted"
 
 
+@pytest.mark.parametrize("order", ["parent-first", "child-first"])
+def test_untrusted_subfolder_of_a_trusted_folder_stays_untrusted(tmp_path, order):
+    """lib/shared/template.yaml is reached through the trusted lib (its */template.yaml) and the untrusted lib/shared:
+    the file's own trust decides, so the owner's untrusted mark is never dropped, in either order."""
+    tmp_path = tmp_path.resolve()
+    folders = ["lib", "{folder: lib/shared}"] if order == "parent-first" else ["{folder: lib/shared}", "lib"]
+    path = write(tmp_path, f"""
+        name: t
+        library: [{', '.join(folders)}]
+        uses:
+          u:
+            use: bad
+        """, {"lib": {"mine": OWN}, "lib/shared": {"template": BASE + CASES["program-run"][0], "copy": COPY}})
+    assert "blocks.u-x.type" in refused_once(path)
+    doc = load(path)
+    notes = [p.message for p in doc.problems if p.code == "template-library"]
+    assert any(str(tmp_path / "lib" / "shared" / "copy.yaml") in n and "is not used" in n for n in notes), notes
+    for n in notes:                     # a note never names one file as both the skipped and the used
+        m = re.match(r"template \S+: (\S+) \(from a folder not marked trusted\) is not used; (.+) is$", n)
+        assert m is None or m.group(1) != m.group(2), n
+
+
 # ---- what a held chain may make
 
 

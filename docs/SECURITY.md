@@ -87,7 +87,9 @@ Each of these is tested by an attack (`tests/test_sandbox_attacks.py`), with fak
 A folder of templates someone else wrote can be listed in the main file as `library: [{folder: PATH}]` (SPEC §2a).
 A map entry is **untrusted** unless it says `trust: owner`; a plain path, and `$ERGOSTAT_LIBRARY`, are yours and
 trusted. A map entry written wrong (another key, no `folder:`, a `trust:` other than `owner` or `untrusted`) is an
-error and its folder is not read at all.
+error and its folder is not read at all. Trust is decided for each file: a template file that lies inside any folder
+listed untrusted (as listed, or with links resolved) is untrusted, even when a trusted folder that holds it, such as
+its parent, also reaches it.
 
 An untrusted template never takes the place of ergostat's own template or one of yours of the same name, whatever order
 the folders are listed in; the check says which one it skipped. A use whose chain holds an untrusted template anywhere

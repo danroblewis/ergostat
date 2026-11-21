@@ -121,6 +121,13 @@ def folders(extra: list[Path] | None = None) -> list[Path]:
     return [*out, HERE]
 
 
+def held(f: Path, d: Path, untrusted: set[Path]) -> bool:
+    """Trust is the file's, not the folder's it was reached through: it is untrusted if it lies under any folder
+    listed untrusted, as reached or with its links resolved, so a trusted parent never vouches for it (fail closed)."""
+    at = {Path(f).resolve(), Path(d).resolve() / Path(f).relative_to(d)}
+    return any(u == p or u in p.parents for p in at for u in untrusted)
+
+
 def find_all(extra: list[Path] | None = None, untrusted=()) -> tuple[dict[str, Template], list[str]]:
     """Every template, by name: an owner's template shadows ergostat's own of the same name (said in the notes),
     and the first folder wins between the owner's own. A template from a folder in ``untrusted`` never shadows a
@@ -135,7 +142,7 @@ def find_all(extra: list[Path] | None = None, untrusted=()) -> tuple[dict[str, T
             continue
         for f in sorted([*files.glob(d, "*.yaml"), *files.glob(d, "*.yml"), *files.glob(d, "*/template.yaml")]):
             try:
-                t = read(f, d == HERE, "untrusted" if Path(d).resolve() in untrusted else "owner")
+                t = read(f, d == HERE, "untrusted" if held(f, d, untrusted) else "owner")
             except TemplateError as e:
                 notes.append(str(e))
                 continue

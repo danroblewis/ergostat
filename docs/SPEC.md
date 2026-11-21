@@ -209,7 +209,9 @@ library:
 ```
 
 A map with another key, no `folder:`, or a `trust:` other than `owner` or `untrusted` is an error at its line
-(**bad-library**), and its folder is not read at all. `$ERGOSTAT_LIBRARY` is the owner's. Each template's trust
+(**bad-library**), and its folder is not read at all. `$ERGOSTAT_LIBRARY` is the owner's. Trust is each file's: a
+template file inside any folder listed untrusted is untrusted, even when a trusted folder (its parent, whose
+`*/template.yaml` reaches it) is listed too. Each template's trust
 (`ergostat`, `owner` or `untrusted`) is shown by the authoring tools' `library`. An untrusted template never takes the
 place of ergostat's own or a trusted one of the same name, whatever order the folders are listed in: the trusted one is
 used and `check` names the file skipped (**template-library**); between untrusted folders the first wins.

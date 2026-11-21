@@ -316,3 +316,32 @@ has a `library:` or `uses:` line.
 
 **Left:** the four browser files, and a unit run once main's `sys.path` leak is fixed. Expect the same five spawn
 failures on clean main whenever xdist puts a `dev/bin` test before them on the same worker.
+
+### Round 6
+
+- **The merge (lesson-7).** The factory's merge of main at e1e778c1 conflicted in `docs/SPEC.md` §2a. Main's new
+  *Upkeep* subsection and this branch's *Folders the owner did not write* paragraphs were at the same place. Both are
+  kept (2c6132a8): the branch's paragraphs first, then main's subsection. Nothing else conflicted. Main adds no other
+  untrusted marker for libraries, so point 1's map form stands.
+- **The blocking finding (lesson-3): trust came from the folder a file was reached through.** With
+  `library: [lib, {folder: lib/shared}]`, in either order, `lib/shared/template.yaml` was read through `lib` (its
+  `*/template.yaml` glob) as the owner's. The trusted copy was kept, so the owner's untrusted mark was dropped.
+  This is fixed in `templates.held`: trust now belongs to each file. A file is untrusted if it lies inside any folder
+  listed untrusted, either as reached or with its links resolved, whichever folder reached it. So a trusted parent
+  never vouches for it. The earlier claim here that a folder listed both ways "fails closed" held only for the same
+  folder. It now also holds for any folder inside an untrusted one. SPEC §2a and SECURITY now say that trust is each
+  file's.
+  New test: `test_untrusted_subfolder_of_a_trusted_folder_stays_untrusted[parent-first|child-first]`. It asserts:
+  - one `library-untrusted` error at the `use:` line;
+  - nothing of the chain is in the spec;
+  - the `template-library` note names two different files (the untrusted `lib/shared/copy.yaml` skipped, the
+    owner's `lib/mine.yaml` used), and no note names one file as both.
+
+  Break-once: with the old folder-only rule put back, both cases failed and the other 46 passed. With the fix
+  restored, all 48 pass.
+- **Run here, after the merge:** `tests/test_library_trust.py`, `tests/test_templates.py` and
+  `tests/test_modelling_template.py` (89 passed; the last two unchanged). Ruff is clean. **Not run here:** the whole
+  unit suite and the four browser files, which are left to the factory under the watchdog.
+  Size: about 294 net lines outside tests and docs (budget 330).
+
+**Left:** the unit suite and the four browser files, run under the watchdog.
