@@ -559,6 +559,50 @@ what admits.
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
 most); `ergostat remote refresh` asks each again now.
 
+**Its items and events in the pages.** The Items page adds, after the local systems, one section per remote,
+framed and marked *remote NAME · URL*: the remote's counts by kind and state and its newest 25 items, each linking
+to `/item/ID?remote=NAME` (its fields, moves and events read there, marked remote, read only: no message box, no
+actions) and to the remote's own page (`URL/item/ID`). It is asked by its own call, so a slow remote never delays
+the local listing. The Record page's filter bar links to each remote's events (`/record?remote=NAME`), listed as
+local events are, their items linking to the remote's. Nothing of them reaches the local record or fold.
+
+| Asked of the page | Answers |
+|---|---|
+| `/api/items?remote=NAME` (`kind`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/remote/v1/counts`), `total`, `items` (each marked `remote`) |
+| `/api/items/ID?remote=NAME` | `remote`, `ok`, `why`, `read`, `age`, `item` (the remote's own detail); 404 *no such item at NAME* when it says so, never a local item of the same id |
+| `/api/events?remote=NAME` (`n` ≤ 1,000, `type` a glob) | `remote`, `ok`, `why`, `read`, `age`, `events` from the cursor cache, in `seq` order, each marked `remote` |
+
+Without `remote=` these answer as before; `/api/items` also says `remotes` (each name and url) when the model has
+any. `NAME` must be a key of `remotes:` (else 400 *no remote NAME (this model's: …)*). An item `ID` must fully
+match `[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]{0,199}` and hold no `..`, checked before anything is sent (else 400; then it
+goes quoted whole as one path segment). This is an allowlist: an id with `/`, `%` or a space is refused, so a remote
+item whose id is outside it (an item id such as `incident/3`, since item kinds' ids hold a `/`) is listed but can be
+opened only on its own page.
+
+- **Bounded.** A remote's period is its `every` clamped to 10 s..10 min. In one period at most **8 requests** go to
+  one remote for its items, counts, listings and details together; the counter goes up before each request, and a
+  request that fails counts. Counts are cached once a period; listings (by `kind`, `state`, `n`, `offset`) and
+  details (by id) up to 32 each a remote, the oldest dropped first; a cached answer younger than the period is
+  served without asking. With the budget spent, a cached answer is served with its `age`; with none, 503 *NAME
+  asked 8 times this period; again in Ts*. Its events are read at most once a period (a status call the first time,
+  then at most five pages of 1,000); `ergostat remote events NAME` reads now whatever the period, and that read is
+  the period's read for the pages.
+- **One lock a remote.** Each decision (fresh? failed this period? within the budget?), the request, the write and
+  the trim are made under one lock per remote, so many pages polling ask once. Each request is bounded by 3 s; a
+  caller waits at most 7 s for an items lock (19 s for the events lock, whose holder may make six requests), then
+  is answered with an error saying the remote is busy (503 for items, 502 for events); a remote that hangs holds
+  only its own callers.
+- **By `seq`.** Only events past the cursor are kept, so a page read twice adds nothing. An answer whose
+  `last_seq` is below the cursor means the remote's record was made again: what was kept is dropped and the read
+  starts again from `last_seq - 1000` (0 at least). A remote remade whose record has already passed the old cursor
+  is not detected (its status carries no identity of its record): its older events stay mixed in until the day's
+  window drops them, and its events up to the old cursor are not read.
+- **Failing closed.** A token file missing, unreadable or empty, a remote that does not answer or answers 401, 403
+  or 5xx, and an answer that is not the expected shape (*unexpected answer*) are failures: what was read before is
+  served with `ok: false`, `why` and its `age`, and with nothing read before the answer is 502 with the reason. A
+  remote that failed is not asked again until its period has passed. The pages then say *NAME does not answer
+  (why); these were read T ago*, never "Nothing recorded yet.".
+
 ## 4d. The page behind a public name
 
 The page answers on this machine only: a request must name it as `127.0.0.1:PORT` (or `localhost`, `[::1]`) in its
@@ -1039,6 +1083,7 @@ The Items page's filters, in its address (`/items?...`) and in `GET /api/items`:
 | `where=FIELD:VALUE` | the field equals the value (repeated: any of the values for one field, all the fields) |
 | `moved=FROM>TO` | moved from one of `FROM` to one of `TO` (states joined by commas); an empty side is any other state, or none (an arrival): `>done` entering done, `briefed>` leaving briefed |
 | `moved_since`, `moved_until` | the span of `moved` (after since, up to until): `2026-11-18T10:00:00Z` (UTC) or seconds since 1970; default the hour before now |
+| `remote=NAME` | a remote's items instead, asked there within its budget (§4c, *Its items and events in the pages*); with it only `kind`, `state`, `n` and `offset` |
 
 The page shows the set as one chip with its count (for moves, the items and the moves), removed with its ×;
 each item's latest matching move is a column. The API answers the set alone, newest first (a move's set by its

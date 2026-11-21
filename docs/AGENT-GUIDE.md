@@ -353,9 +353,10 @@ keeps running it; this model reads it.
    `remote-reference-unresolved` finding means the remote renamed or dropped a part you reference: fix the
    reference here (a stand-in is drawn meanwhile). `remote-unreachable` means it did not answer: the model
    runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
-5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
-   the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
-   incidents, ref: stock.open}`.
+5. **Use its measures, not its items.** Its items can be seen in the Items page (a section marked remote)
+   and its events in the Record page (`/record?remote=incidents`), but they are still never folded or counted
+   locally: count them through the remote stock that counts them (its sensor is mirrored), or a sensor of your
+   own, `query: {source: incidents, ref: stock.open}`.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
 
