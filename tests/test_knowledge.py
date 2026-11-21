@@ -3,14 +3,31 @@ it at once: a file gone between the look and the read, a half-written file, and 
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
-from tests.test_factory_knowledge import knowledge_module
+import pytest
 
-knowledge = knowledge_module()
+BIN = Path(__file__).resolve().parent.parent / "dev" / "bin"
+
+
+def module(name: str):
+    spec = importlib.util.spec_from_file_location(name, BIN / f"{name}.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+@pytest.fixture
+def knowledge(monkeypatch):
+    """knowledge.py and the fac it imports, loaded for this test only: nothing is left in sys.modules for the other
+    tests of this worker (test_factory.py's sys.modules.setdefault("fac", ...) would pick up a leftover)."""
+    monkeypatch.setitem(sys.modules, "fac", module("fac"))
+    return module("knowledge")
 
 
 def setup(tmp_path: Path) -> tuple[dict, str, Path]:
@@ -29,7 +46,7 @@ def setup(tmp_path: Path) -> tuple[dict, str, Path]:
 MAP = {"ergostat": [["thing.py", "The thing."]]}
 
 
-def test_module_map_survives_its_cache_file_removed_between_check_and_read(tmp_path, monkeypatch):
+def test_module_map_survives_its_cache_file_removed_between_check_and_read(knowledge, tmp_path, monkeypatch):
     cfg, sha, d = setup(tmp_path)
     d.mkdir(parents=True)
     cache = d / f"{sha}.json"
@@ -46,7 +63,7 @@ def test_module_map_survives_its_cache_file_removed_between_check_and_read(tmp_p
     assert json.loads(read(cache)) == MAP            # made again, and cached
 
 
-def test_module_map_rebuilds_on_a_partial_cache_file(tmp_path):
+def test_module_map_rebuilds_on_a_partial_cache_file(knowledge, tmp_path):
     cfg, sha, d = setup(tmp_path)
     d.mkdir(parents=True)
     (d / f"{sha}.json").write_text('{"ergostat": [["thi')
@@ -55,7 +72,7 @@ def test_module_map_rebuilds_on_a_partial_cache_file(tmp_path):
     assert not list(d.glob("*.tmp"))                 # the temp file was renamed into place
 
 
-def test_module_map_prune_skips_a_file_already_gone_and_keeps_its_own(tmp_path, monkeypatch):
+def test_module_map_prune_skips_a_file_already_gone_and_keeps_its_own(knowledge, tmp_path, monkeypatch):
     cfg, sha, d = setup(tmp_path)
     d.mkdir(parents=True)
     old = [d / f"{c * 40}.json" for c in "abc"]

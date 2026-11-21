@@ -26,3 +26,11 @@ test_knowledge.py with test_factory_knowledge.py (78 passed), test_factory.py (1
 `mtime` helper collides with no name in knowledge.py. No code changed in this round: without the test's name, no cause
 is known. The one F may be a load flake unrelated to this change (lesson-13). The next round needs the failing test's
 name from the queue's full log.
+
+After the second unit run (its tail cut off again, at 74%, with no failure shown): the likely cause is the branch's own
+test file. tests/test_knowledge.py loaded knowledge.py (and with it `fac`) at import, so every xdist worker collected it
+and kept `fac` and `knowledge` in sys.modules. test_factory.py's `sys.modules.setdefault("fac", ...)` and
+`sys.modules.get("fac") or ...` then picked up that leftover, so failures depended on test order. The file now loads
+both per test in a fixture under monkeypatch.setitem, so nothing is left behind. No code outside tests changed. This is
+inferred, not seen: the failing test is still not named. test_knowledge.py followed by test_factory.py in one process:
+119 passed, 2 skipped.
