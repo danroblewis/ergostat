@@ -1,0 +1,249 @@
+# rs-detach: a run's process no longer depends on the engine that started it
+
+depends-on: [lease-race-resumed]
+
+First of four parts of upgrades that keep runs going (owner, 2026-11-20). This part changes **no behaviour at a switch**.
+
+## Definition of done
+- A run starts in its own session, its output goes to its run log file (no pipe the engine holds), and the engine follows that file. A run record in the state folder holds pid, process start time, run id, lease and block.
+- Streamed output, timeouts, stop and exit codes behave as before.
+- Process start time works on macOS and Linux, and the wrapper runs under bash 3.2 and dash.
+
+## Risks
+Replacing the pipe touches **every** run: compare run-start latency and thread count with main, and report both.
+
+## Files to touch
+`ergostat/spec/engine.py`, the run/stream code it uses, `tests/test_resilience.py`.
+
+## Acceptance tests
+- `tests/test_resilience.py::test_a_run_keeps_going_when_its_engine_is_killed`
+- `tests/test_resilience.py::test_a_detached_runs_output_and_exit_are_recorded_once`
+- `tests/test_resilience.py::test_a_run_record_detects_a_reused_pid`
+
+## Size budget
+150 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1, built. Net lines outside `tests/` and `docs/`: +53 against main (`runrecord.py` +75 new, `engine.py` +13/-4,
+`stream.py` +44/-75), inside the 150 budget.
+
+**What it does.** `ergostat/spec/runrecord.py` (new) holds a run's four files in `runs/` of the state folder, named by
+its run id (`RUN.in`, `RUN.out`, `RUN.exit`, `RUN.json`), plus the POSIX `sh` wrapper, `start_time(pid)` (Linux:
+`/proc/PID/stat` field 22; elsewhere, i.e. macOS: `ps -o lstart=`) and `alive(record)`, which is true only while the
+pid's start time still equals the recorded one. `Engine.run_block` writes the run's input to `RUN.in`. It starts the
+wrapper in its own session, with stdin from that file and stdout to `RUN.out` (stderr goes to the block log as
+before). It writes `RUN.json` (pid, start, run, block, lease `{item, fence}`) and follows `RUN.out` with
+`stream.follow`, which replaces `stream.pump`. The files are removed once the run has been read to its end. Taking
+up a run left behind by a dead engine is not built (a later part); nothing changes at a switch.
+
+**Choices made alone (the most reversible ones, each a line or two to undo):**
+- Exit codes as before. The wrapper catches INT and TERM, so a signal to the group leaves it waiting for its command
+  (a caught signal is the default again in the command). When the command ended by a signal, the wrapper ends itself
+  by the same signal, so `returncode` is still `-N`. The cost: a command that *exits* with 129..159 on purpose is now
+  reported as killed by that signal (`-N`), since `sh` can't tell the two apart.
+- End of a run. The old pump read until every holder of the pipe had closed it (for a killed run: until 2 s after it
+  ended). A file has no such end, so a run now ends when its process has ended and its process group is empty, or
+  2 s (`GRACE`) after its process ended, whichever comes first. The difference: a process the run left running *with
+  the run's stdout* used to keep the run open with no limit; now it is cut off after 2 s. A process it left in its
+  group with its output sent elsewhere now holds the run open for up to 2 s, where before the run ended at once.
+  `test_streamed_output.py::test_a_fenced_runs_later_lines_are_refused_at_once` depends on this grace: its late line
+  comes from python after the `sh` that started it was sent TERM.
+- `RUN.exit` is written directly (an empty file means no exit yet), not through tmp+mv. That saves one process per run.
+- A record whose start time can't be read counts as gone (`alive` is false). That never takes another process for
+  the run. A later part that takes up runs must not read "gone" as "ended" unless `RUN.exit` is there.
+- The output file grows with everything the run prints until the run ends (the pipe buffered 64 KB). It is removed
+  at the end, and it is not capped here.
+
+**Measured** on Linux in the container, in-process, for the changed path only: main's `stream.pump` (loaded with
+`git show`) against the branch's wrapper, files and `follow`. The benchmark was a throwaway pytest file, not
+committed, because making a worktree of main was not allowed here.
+- Run latency, `echo 1`, 30 in a row, median: main 0.6 ms, branch 2.7 ms (p90 1.0 vs 3.6 ms). The extra comes from
+  the wrapper's `sh`, writing the files and record, and the first look at the file (after 1 ms). The first version,
+  with a 5 ms first look and an `mv`, measured 6.6 ms; the changes above cut it to 2.7 ms.
+- A run's first line after a pause can arrive up to 50 ms late: when nothing is new the follower looks every 50 ms,
+  where the pipe woke at once. 20 runs of `sleep 1; echo 1` at once: 1.02 s on main, 1.08 s on the branch.
+- Threads: the same. 20 runs at once peak at 22 threads on both (one per run, the main thread and the watcher).
+- Not measured: macOS, where `start_time` forks a `ps` for each run (expect a few ms more per run start).
+
+**Tests.** The three acceptance tests, plus `test_a_runs_timeout_and_stop_still_end_it` and
+`test_the_run_wrapper_records_the_exit_under_each_shell[sh|bash|dash]` (dash, and bash 5 here). bash 3.2 (macOS's
+`/bin/bash`) was not run; the wrapper uses only POSIX `trap`, `[ ]`, `$(...)`, `kill -l`, `kill -s` and `printf`.
+Each acceptance test was seen to fail with the code broken: stdout back on a pipe (the engine-killed test fails,
+though at a missing output file rather than at the run dying), the final partial line dropped (the recorded-once
+test fails), and `alive` comparing only the pid (the reused-pid test fails). Run one file at a time, all of these
+pass: test_resilience, test_streamed_output, test_run_costs, test_spec_engine, test_leases, test_lease_kill,
+test_parallel_runs, test_spec_blocks, test_runner_and_state, test_daemons, test_leased_workspaces,
+test_gated_actions, test_decisions, test_claims, test_improve. I did not run the full unit suite under `-n 8` or the
+browser suite (the factory runs them). This clone has no origin remote, so there was no origin/main to merge; the
+branch is up to date with local main.
+
+Round 2. There were no review findings to answer. One problem is still open, and it blocks: commit 1227723b ("work
+the session left uncommitted") added `.bench/test_bench_detach.py`, the throwaway benchmark from round 1. It is a
+scratch file, and the definition's files to touch don't name it. It has to come out (`git rm -r .bench` and a
+commit). In this session, removing files was refused (`git rm` was denied twice), so it is still on the branch. I did
+not try any other way to delete it. The code is unchanged since round 1, and the round 1 numbers still stand. Run
+again this round, one file or a few at a time, all passing: test_resilience (31), test_streamed_output (10),
+test_spec_engine (10), test_run_costs + test_leases + test_lease_kill (53), test_parallel_runs + test_spec_blocks +
+test_runner_and_state + test_daemons (88). `ruff check ergostat tests scripts` is clean. Checked again: a timeout or
+stop still sends SIGKILL to the run's group (`runner._kill`), so the wrapper's INT/TERM trap does not keep a killed
+run going (lesson-6).
+
+Round 3, after the factory's scratch-file gate refused `.bench/test_bench_detach.py`. Its removal was refused again
+this session: `git rm -r .bench` was denied by the session's permission mode, the third session in a row. I did not
+get around the denial another way (`rm`, `git update-index`, a revert of 1227723b). It reads as a deliberate block on
+deleting files, so the next step belongs to whoever can delete them. **What is left:** one command and a commit,
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`. This only deletes the file; nothing
+else in the gap needs to change. Nothing else changed this round. No code was touched, so the suites were not run
+again.
+
+Round 4, the same refusal. `git rm -r .bench` was denied again by the session's permission mode, the fourth session
+in a row. As before, I did not get around it another way (`rm`, a revert, `git update-index`). Removing the file is
+the only thing left, and someone allowed to delete files has to do it:
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`. No code changed and no suites were run.
+Running another implementor session with the same permissions will be refused the same way.
+
+Round 5 (the factory's "round 3"), after main (31cffd8f870e) was merged into the branch: the same refusal, the fifth
+session in a row. `git rm -r .bench` was denied ("don't ask" permission mode), and as before nothing else was tried to
+delete it. `.bench/test_bench_detach.py` is still tracked; it is the only thing left. No code changed. After the merge of main,
+test_resilience (31), test_streamed_output and test_spec_engine (20) pass, one file at a time, and ruff is clean.
+The full unit suite and the browser files were not run here; those and the removal are what is owed:
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. A sixth
+implementor session with these permissions will not get further. This needs a person, or a session allowed to delete
+files.
+
+Round 6 (the factory's "round 3" again): the sixth refusal. `git rm -r .bench` was denied by the "don't ask"
+permission mode, and nothing else was tried to delete the file. Nothing changed: no code, and no suites were run. The
+only thing left is `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, run by a person or by
+a session that is allowed to delete files, then the factory's suites. Sending this item back to an implementor with
+the same permissions will not move it.
+
+Round 7: the seventh refusal. `git rm -r .bench` was denied by the "don't ask" permission mode, and nothing else was
+tried to delete the file (no `rm`, revert or `git update-index`). No code changed and no suites were run. What is left
+is the same: a person, or a session allowed to delete files, runs
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending the
+item back to an implementor with these permissions will not end this loop; the factory has to allow the deletion or
+stop re-queuing it.
+
+Round 8 (the factory's "round 4"), after main (278666f7349a) was merged into the branch (9f0ec90e): the eighth
+refusal. `git rm -r .bench` was denied by the "don't ask" permission mode, and nothing else was tried to delete the
+file. No code changed. After the merge, test_resilience (31) and test_streamed_output + test_spec_engine (20) pass,
+and `ruff check ergostat tests scripts` is clean. Not run: the full unit suite and the browser files. Still left, and
+only a person or a session allowed to delete files can do it:
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites.
+
+Round 9 (the factory's "round 4" again): the ninth refusal. `git rm -r .bench` was denied by the "don't ask"
+permission mode, while a read-only `git status` in the same session was allowed. So the block is on deleting, not on
+the shell. Nothing else was tried to delete the file (no `rm`, revert, `git update-index`, or overwriting it with an
+empty file). No code changed, main was not merged again, and no suites were run. What is left has not changed: a
+person, or a session allowed to delete files, runs
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending the
+item back to an implementor with these permissions will be refused the same way.
+
+Round 10 (the factory's "round 4" again): the tenth refusal. `git rm -r .bench` was denied by the "don't ask"
+permission mode. Nothing else was tried to delete the file. No code changed, main was not merged again, and no suites
+were run. What is left is still one command and a commit, for a person or a session allowed to delete files:
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending this
+item back to an implementor with these permissions has now failed ten times in a row.
+
+Round 11 (the factory's "round 5"), after main (9acc11c2) was merged into the branch (fb030abf): the eleventh refusal.
+`git rm -r .bench` was denied by the "don't ask" permission mode, and nothing else was tried to delete the file. No
+code changed. After the merge, test_resilience (31) and test_streamed_output + test_spec_engine (20) pass, and
+`ruff check ergostat tests scripts` is clean. Not run: the full unit suite and the browser files. Still left, for a
+person or a session allowed to delete files: `git rm -r .bench && git commit -m "rs-detach: the stray benchmark
+removed"`, then the factory's suites. Sending the item back to an implementor with these permissions will not move it.
+
+Round 12 (the factory's "round 5" again): the twelfth refusal, and a wider one. This session's "don't ask" mode
+denied the shell itself (`git ls-files .bench && git rm -r .bench` was refused), so nothing could be deleted,
+committed, or run. This note was written with the file editor and is **not committed** (committing needs the shell).
+Nothing else was tried to delete the file. No code changed and no suites were run. Still left, for a person or a
+session allowed to use the shell and delete files: `git rm -r .bench && git commit -m "rs-detach: the stray benchmark
+removed"` (committing this note with it), then the factory's suites.
+
+Round 13 (the factory's "round 5" again): the thirteenth refusal. Read-only `git status` and `git ls-files` were
+allowed; `git rm -r .bench` was denied by the "don't ask" permission mode, and so was a shell command that appended
+this note and committed it. Nothing else was tried to delete the file. No code changed and no suites were run. Still
+left, for a person or a session allowed to delete files: `git rm -r .bench && git commit -m "rs-detach: the stray
+benchmark removed"`, then the factory's suites.
+
+Round 14 (the factory's "round 6"): the stray benchmark is gone. `git rm -r .bench` was allowed this time and was
+committed (36d5c37d); `.bench/test_bench_detach.py` is no longer tracked. No code changed. Running the tests
+(test_resilience, test_streamed_output, test_spec_engine) and ruff was denied by the "don't ask" permission mode, so
+no suites were run this round. The code is the same as when they last passed, in round 11 after main 9acc11c2 was
+merged in. Main has been merged since then (8426a568) and nothing has been run on it. Still owed: the factory's
+suites (unit, the four browser files, ruff) on this branch.
+
+Round 15 (after the factory's unit suite "failed"): **the failure was not found.** The tail it gave stops at 78% with
+no failing test named, no watchdog line and no closing JSON line from `suite_watch`, so the run was stopped from
+outside (a hang or too slow, not a reported failure). This session could not run the whole unit suite: a serial run
+under the watchdog, a loop over the files one at a time, and a parallel run of the files a–l were all denied by the
+"don't ask" permission mode. What was run passes. One at a time: test_factory (70, 2 skipped), test_trial_stops +
+test_warm + test_cli_fallback (40), test_reload_in_place + test_reload_safety + test_program_actions +
+test_lease_refused_cost + test_cron (42), test_sandbox_attacks + test_triggers2 + test_triggers3 +
+test_ticket_factory_daemons + test_workspaces + test_watchdog + test_take_order (56 passed, 20 skipped). Together under
+`-n 6` and the watchdog, the twelve files that start runs (test_resilience, test_streamed_output, test_spec_engine,
+test_run_costs, test_leases, test_lease_kill, test_parallel_runs, test_reload_in_place, test_spec_blocks,
+test_runner_and_state, test_daemons, test_triggers2): 223 passed in 59 s, at most 334 threads, nothing left behind.
+
+Reading the code for a way a run could hang turned up one, and it is fixed (+3 net lines in `runrecord.py`, now +56
+against main). A command that exits with 128 plus a stop signal's number (147–150 on Linux: STOP, TSTP, TTIN, TTOU)
+made the wrapper send itself that signal. That *stops* the wrapper, so its run never ends unless a timeout kills it.
+The wrapper now exits with the code for those four. New check in
+`test_the_run_wrapper_records_the_exit_under_each_shell` (with a 10 s timeout). Its failure with the old wrapper was
+not shown: that run was denied too. No test on main exits with those codes, so **this is not shown to be the cause
+of the stopped suite.** Also: the run's files are now named by an absolute path (`resolve()`), because the wrapper
+writes `RUN.exit` from the run's cwd, which a relative `ERGOSTAT_HOME` would have got wrong. After the change:
+test_resilience + test_streamed_output + test_spec_engine (51) pass, and ruff is clean. **Still owed:** the factory's
+unit suite under `-n 8`. If it stops again, the tests still running when it stopped (e.g. from `pytest -v` or
+`--timeout`) are what is needed to go further.
+
+Round 16 (after the factory's unit suite "failed" again): **no failure to fix was found, and nothing was changed.**
+This time the tail ends after uv's build and install (`Installed 1 package`). pytest printed nothing: no collection
+line, no progress, no failing test, no watchdog or `suite_watch` line. So the run stopped before or as pytest started,
+not on a test. A collection error or an import error in the branch's code would have been printed. Reading
+`runrecord.py` (imported by `engine.py`) found nothing that could fail or block at import: it only compiles a regex
+and defines functions. This session's "don't ask" mode denied the shell entirely (a read-only `git log` was refused),
+so nothing could be run, reproduced or committed. This note was written with the file editor and is **not
+committed**. Still owed: the factory's unit suite run again. If it stops with no pytest output again, the cause is in
+the suite runner or the machine (slot, build, watchdog), not something this branch's code can change. Its full output,
+not only the tail, is what is needed to go further.
+
+Round 17 (review/rs-detach-1, one blocking finding): **fixed.** The wrapper raised again the signal behind any exit
+code from 129 to 159 except the four stop signals. That included the ones that dump core, so `exit 134` or `exit 139`
+crashed the wrapper's `sh` (a core file in the project where dumps are on, a crash report on macOS). The list is now
+an allowlist of signals that end a process with no core: HUP INT PIPE ALRM TERM USR1 USR2 KILL. Every other code from
+129 up, the stop signals and the core-dumping ones alike, exits with the code itself. The cost, chosen as the more
+reversible side: a command really *killed* by SEGV, ABRT or another core-dumping signal now reads 139/134
+(`returncode` positive), where main read -11/-6. A plain `exit 134` reads 134, as on main. New check in
+`test_the_run_wrapper_records_the_exit_under_each_shell` (`exit 134` and `exit 139`, under sh, bash and dash). With
+ABRT and SEGV put back on the list it failed (`assert (-6 == 134)`); with the fix it passes. Net lines outside tests
+and docs: +57 against main (`runrecord.py` +1 this round). Run one file at a time, all passing: test_resilience (31),
+test_streamed_output + test_spec_engine (20). `ruff check ergostat tests scripts` is clean. Not run here: the full
+unit suite and the browser files, which the factory runs.
+
+Round 18 (review/rs-detach-2, its findings one by one):
+- **Blocking (lesson-8 / lesson-12): SPEC did not say how the wrapper changes exit codes, and triage filed a segfault
+  as the code's to fix.** Both fixed. (a) Triage now agrees with main for a real crash: `runrecord.by_signal(code)` is
+  true for -N and for 128+N where N is a signal that dumps core (QUIT ILL TRAP ABRT BUS FPE SEGV SYS XCPU XFSZ, read
+  from Python's `signal` module, so macOS's numbers are its own). `repair/capture.py` files such a run as `signal`, so
+  a segfaulting or aborting program is noted, never opened, as on main. (b) SPEC §9.1 now states the mapping and its
+  cost, the `exit` row (§9.1's table) points to it, and §12's triage paragraph says what counts as a signal. What
+  still differs from main, now written in SPEC: a command that *exits* 129–159 on purpose. Those in the allowlist
+  read -N; the core ones read 128+N but are filed as `signal`. Either way the run is noted, where main opened it. A
+  compound `run:` whose last command segfaults read 139 on main too (main's own `sh` could not tell), and was opened;
+  it is now noted. `capture.py` is outside the definition's files to touch. It is the only
+  reader of the exit's sign in ergostat (searched), and the review named it as one of the two fixes. Choosing to
+  change triage rather than only document the difference was the reversible option: undoing it is one line.
+- **Non-blocking: no test of a command really killed by a core-dumping signal.** Added. The wrapper test runs
+  `ulimit -c 0; kill -SEGV $$` under sh, bash and dash and checks it reads 139 (and `by_signal` of 5, 147, -15).
+  New `test_resilience.py::test_a_run_killed_by_a_core_dumping_signal_is_triaged_as_a_signal`: a project program
+  that sends itself SEGV (core limit 0) is filed with exit 139 and stays `noted`, and one that exits 7 is `open`. With
+  capture.py's old `code < 0` put back it failed (`assert 'open' == 'noted'`); with the fix it passes. It sits in
+  test_resilience because `test_repair2.py` is skipped wholesale where bwrap cannot make namespaces (here).
+- **Fixed earlier (round-1 finding):** unchanged.
+
+Net lines outside tests and docs: +67 against main (`runrecord.py` +88, `engine.py` +13/-4, `stream.py` +44/-75,
+`capture.py` +2/-1), inside the 150 budget. Run, one file at a time or a few: test_resilience (35), and
+test_streamed_output + test_spec_engine + test_repair2 + test_impact (32 passed, 32 skipped for no bwrap namespaces).
+`ruff check ergostat tests scripts` is clean. Not run here: the full unit suite and the browser files, which the
+factory runs. Main was not merged again this round.

@@ -65,7 +65,8 @@ def terminal(spec, kind: str | None, state: str | None) -> bool:
 class Dispatcher:
     def __init__(self, eng):
         self.e, self.p = eng, eng.p
-        self.going: dict[str, dict[str, dict]] = {}   # block → item → {run, fence}: the runs going here
+        self.going: dict[str, dict[str, dict]] = {}   # block → item → {run, fence, block}: the runs going here
+        self.ours: set[str] = set()                   # the runs this engine took whose leases have not ended
         self.holding = False                          # whether the last watch found a lease held (one outlives its block)
         self.lock = threading.RLock()
         self.seq = 0
@@ -256,24 +257,42 @@ class Dispatcher:
         fence = int(lease.get("fence") or 0) + 1
         run = uuid.uuid4().hex
         cause = it.moves[-1]["event"] if it.moves else None      # what brought it to the state it is taken from
-        ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
-                               data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
-                                     "max": t["attempts"],
-                                     "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1})
-        now = its.one(self.p.events, self.spec, it.id)
-        got = held(now.fields) if now else None
+        key = f"{b.name} {it.id}"
+        with self.e.lock:                  # (the stop is set under this lock: a take that passes waits it out in close)
+            if self.e.stop.is_set():
+                return None                                       # ergostat is stopping: nothing more is taken
+            self.e.running.add(key)
+            self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
+        try:
+            ev = self.p.events.add(TAKEN, item=it.id, source=SOURCE, causedby=cause,
+                                   data={"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"],
+                                         "max": t["attempts"], "back": it.state, "tier": t["tier"],
+                                         "attempt": int(lease.get("attempts") or 0) + 1})
+            now = its.one(self.p.events, self.spec, it.id)
+            got = held(now.fields) if now else None
+        except BaseException:
+            with self.e.lock:
+                self.e.running.discard(key)
+            raise
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+            self.ours.discard(run)
+            with self.e.lock:
+                self.e.running.discard(key)
             return None
         if self.spec.operating and self.entered_meanwhile(b, now, got, run, fence, inline):
             return None
         self.resources(ev)
-        self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence}
+        self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}
+        if self.e.stop.is_set():                                  # it raced the stop: given back, not counted, not run
+            self.give_back(b.name, it.id)
+            with self.e.lock:
+                self.e.running.discard(key)
+            return None
         self.e.say(f"{b.name}: took {it.id} (lease {fence}, {t['ttl'] / 60:g} min)")
         item = {"id": it.id, "kind": it.kind, "state": it.state, "fields": {k: v for k, v in it.fields.items() if k != "lease"}}
         given = {"fence": fence, "ttl": t["ttl"], "expires": got.get("expires"), "attempt": int(lease.get("attempts") or 0) + 1,
                  "attempts": t["attempts"], "tier": t["tier"], "back": it.state}
         with self.e.lock:
-            self.e.running.add(f"{b.name} {it.id}")
             given["model"] = (self.e.spec, self.e.version)       # it runs to its end under the model it was taken under
         if inline:
             return b, item, given, run, ev["id"]
@@ -289,6 +308,9 @@ class Dispatcher:
                 slot.acquire()
             try:
                 spec, version = lease.pop("model", (None, None))
+                if self.e.stop.is_set():                       # taken just as ergostat stopped: not started
+                    out["stopped"] = True
+                    return moved
                 moved = self.e.run_block(b, why, extra={"item": item, "lease": lease}, spec=spec, version=version,
                                          item=item["id"], fence=lease["fence"],
                                          run_id=run, cause=taken, outcome=out)
@@ -298,12 +320,15 @@ class Dispatcher:
         finally:
             if slot:
                 slot.release()
-            try:
-                self.finish(b, item["id"], lease["fence"], run, out)
-            except Exception as e:                                 # the watchdog ends it later
-                self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
-            with self.lock:
-                self.going.get(b.name, {}).pop(item["id"], None)
+            with self.lock:                  # claimed under the lock, ended outside it: once, here or by give_back
+                mine = self.going.get(b.name, {}).get(item["id"], {}).get("run") == run
+                if mine:
+                    self.going[b.name].pop(item["id"], None)
+            if mine:                         # (its lease still held in the fold: a look counts it till it ends)
+                try:
+                    self.finish(b, item["id"], lease["fence"], run, out)
+                except Exception as e:                         # the watchdog ends it later
+                    self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
             with self.e.lock:
                 for s in self.e.after_acting(moved):
                     self.e.read_cause[s.series] = run
@@ -313,11 +338,29 @@ class Dispatcher:
         self.e.poke(b.name)
         return moved
 
+    def give_back(self, block: str | None = None, item: str | None = None) -> None:
+        """Ergostat stopping: each lease taken here and still going (or the one named) is given back, not counted, so
+        that after a restart no item is left leased by a run that never ran, or never ended (the engine's ``close``)."""
+        if not self.lock.acquire(timeout=self.e.lock_wait):    # (a look wedged: close never waits for good; the
+            self.e.say("leases: not given back (the dispatcher is busy); they expire")   # next watchdog expires them)
+            return
+        try:                                                   # claimed under the lock (as _work does), ended outside it
+            back = [(name, i, runs.pop(i)) for name, runs in self.going.items() for i in list(runs)
+                    if (block, item) in ((None, None), (name, i))]
+        finally:
+            self.lock.release()
+        for name, i, g in back:
+            try:
+                self.finish(g["block"], i, g["fence"], g["run"], {"stopped": True})
+            except Exception as e:                             # (the next engine's watchdog expires it)
+                self.e.say(f"{name}: giving back {i}: {type(e).__name__}: {e}")
+
     def finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
         """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired)."""
         it = its.one(self.p.events, self.spec, item)
         lease = held(it.fields) if it else None
         if not lease or lease.get("fence") != fence or lease.get("holder") != run:
+            self.ours.discard(run)                       # (ended already: expired, or given back from outside)
             return
         data = {"run": run, "fence": fence, "exit": out.get("exit"), **({"note": out["note"]} if out.get("note") else {})}
         nack = out.get("nack")
@@ -334,6 +377,7 @@ class Dispatcher:
         data.update(self.after(it, lease, data["how"] == "nack" and data.get("count", True) is not False,
                                it.state if data["how"] == "ack" else None))
         self.resources(self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data))
+        self.ours.discard(run)
         if data["how"] == "nack":
             after = its.one(self.p.events, self.spec, item)
             dead = after is not None and after.state == DEAD
@@ -403,17 +447,19 @@ class Dispatcher:
 
     def expire(self, it, lease: dict, now: float, ttl: float) -> None:
         """The lease expires, unless the fold refuses it (renewed since it was judged): then nothing else is done. Its
-        run, when this engine started it, is killed."""
+        run, when this engine started it, is killed. Held by a run this engine did not take (a previous engine
+        process's, its finish never recorded: a hard restart, a crash), its attempt is not counted."""
         fresh = its.one(self.p.events, self.spec, it.id)              # (the record now, not the look's index)
         now_held = held(fresh.fields) if fresh else None
         if (not now_held or now_held.get("fence") != lease["fence"]
                 or float(now_held.get("expires") or 0) > float(lease.get("expires") or 0)):
             return                                                    # renewed, or ended, since the look: nothing written
         silent = now - float(lease.get("renewed") or lease.get("taken") or now)
+        counted = lease["holder"] in self.ours
         ev = self.p.events.add(EXPIRED, item=it.id, source=SOURCE,
                                data={"run": lease["holder"], "fence": lease["fence"], "block": lease.get("block"),
                                      "silent": round(silent, 1), "ttl": ttl, "expires": lease.get("expires"),
-                                     **self.after(it, lease, True)})
+                                     **({} if counted else {"count": False}), **self.after(it, lease, counted)})
         after = its.one(self.p.events, self.spec, it.id)
         if after is None or any(r["event"] == ev["id"] for r in after.refused):    # (renewed meanwhile: it holds on)
             return

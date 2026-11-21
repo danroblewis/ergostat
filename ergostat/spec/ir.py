@@ -93,6 +93,10 @@ MODEL_MEASURES = {                 # the model's own quality (SPEC §12e), read 
     "ergostat.model.fit-gained": "what the changes written over the last week lowered the scaled error by, together",
     "ergostat.model.cost-per-accepted": "dollars the blocks that make changes spent over the last week, over the changes "
                                         "written",
+    "ergostat.model.reviews-passed": "changes the reviewer passed over the last week",
+    "ergostat.model.reviews-revised": "changes the reviewer sent back to their author over the last week",
+    "ergostat.model.reviews-rejected": "changes the reviewer rejected over the last week",
+    "ergostat.model.review-misses": "changes the reviewer passed that the prediction check later flagged for revert",
 }
 MODEL_CHANGE = "ergostat.model-change"   # the built-in item kind: every change to the model, made, judged and decided
 MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded",
@@ -100,7 +104,7 @@ MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refu
                        "inconclusive"]            # the record held out could not tell it from the model as it is
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
 MODELLING_REQUEST = "ergostat.modelling-request"   # the built-in item kind: work for modelling, raised from what check finds
-MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered"]
+MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered", "dismissed"]
 CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
@@ -256,6 +260,7 @@ class Improve:
     windows: list[int] = field(default_factory=lambda: [1, 2, 4])
     warm_up: float = 6 * 3600.0     # each window replayed from this long before it, its stocks and delays warm
     block: str | None = None
+    reviewed: list[str] = field(default_factory=list)   # kinds written only after the reviewer's pass (numbers/reviewer.py)
 
 
 def template_made(x) -> bool:
@@ -274,7 +279,8 @@ def once_made(spec, x) -> bool:
 
 def modelling_request_kind() -> ItemKind:
     on = {f"{MODELLING_REQUEST}.raised": "open", f"{MODELLING_REQUEST}.reopened": "open", f"{MODELLING_REQUEST}.proposed": "proposed",
-          f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered"}
+          f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered",
+          f"{MODELLING_REQUEST}.dismissed": "dismissed"}
     return ItemKind(MODELLING_REQUEST, f"{MODELLING_REQUEST}/*", list(MODELLING_REQUEST_STATES), on,
                     ["code", "about", "source", "tier", "change"], {}, None,
                     "work for the modelling subsystem: a finding, a chain finding, a coherence mismatch or a craft note "
@@ -410,7 +416,8 @@ class Action:
     (``{name}`` filled with an argument, shell-quoted, or with ``{item}``, ``{branch}``, ``{workdir}``, ``{block}``,
     ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``; ``cls``: the class it is counted in (its name, else);
     ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
-    ``in_``: where it runs (else the session's working directory)."""
+    ``in_``: where it runs (else the session's working directory); ``fenced``: False for an action that runs once
+    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs)."""
     name: str
     run: str
     gate: str = "approve"
@@ -421,6 +428,7 @@ class Action:
     in_: str | None = None
     description: str = ""
     where: Where | None = None
+    fenced: bool = True
 
 
 @dataclass
@@ -801,6 +809,7 @@ class ItemKind:
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
+    about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
 
     def matches(self, id: str) -> bool:
         import fnmatch

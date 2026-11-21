@@ -1,7 +1,9 @@
 """pipeline-watch: the triggers of the pipeline manager, from the record (dev/README.md, *The pipeline manager*): while
 managing is open and no situation is raised or leased, the first standing trigger not raised before (its fingerprint)
-is raised as `situation/...`: the queue blocked, a gap dead or parked, a gap stuck in its state, an old intervention,
-the heartbeat. `watch.py stuck` counts the stuck gaps (a sensor); `watch.py open` reads the switch managing-open."""
+is raised as `situation/...`: the queue blocked, a gap dead or parked (for a kind no program resumes: a defect, the
+kill rule, or a kind not said), a waits_on / needs park not cleared in `[manager] park_wait_hours` (parks.py), a gap
+stuck in its state, an old intervention, the heartbeat. `watch.py stuck` counts the stuck gaps (a sensor);
+`watch.py open` reads the switch managing-open."""
 
 from __future__ import annotations
 
@@ -12,18 +14,20 @@ import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import parks  # noqa: E402
 import pools  # noqa: E402
 
 BY = "pipeline-manager"
 ENDED = ("merged", "parked", "closed")
 DECISIONS = ("operator-decision", "factory-tuning", "queue")    # records of a decision (or the queue's own trigger)
 STUCK = {"ready": 6, "fix": 6, "leased": 3, "building": 5, "built": 2, "in-review": 2, "approved": 4, "queued": 3,
-         "queue-failed": 1}                         # hours, the defaults of [manager.stuck_hours]
+         "push-pending": 4, "queue-failed": 1}                         # hours, the defaults of [manager.stuck_hours]
 
 
 def settings(cfg: dict) -> dict:
     m = cfg.get("manager") or {}
     return {"open": int(m.get("open", 1)), "parked": float(m.get("parked_within_hours", 48)),
+            "park_wait": float(m.get("park_wait_hours", 24)),
             "intervention": float(m.get("intervention_hours", 12)), "heartbeat": float(m.get("heartbeat_minutes", 30)),
             "per_hour": int(m.get("interventions_per_hour", 3)),
             "stuck": {**STUCK, **(m.get("stuck_hours") or {})}}
@@ -73,7 +77,8 @@ def hours_in(g: dict, start: float, now: float) -> float:
 
 def explained(g: dict, gaps: dict, cfg: dict) -> bool:
     """A wait that is no trouble: waiting on main to move, its dependencies unmerged or its pool full, the queue busy or
-    its push held (a queued gap whose outcome waits for its batch's push, queue.py tell())."""
+    its push held (a push-pending gap whose outcome waits for its batch's push, queue.py tell(), while that push still
+    waits for the coordinator)."""
     st, n, p = g["state"], lambda *s: sum(x["state"] in s for x in gaps.values()), pools.state(cfg)  # noqa: E731
     waits = [d for d in fac.ids(g["fields"].get("depends_on")) if gaps.get(d, {}).get("state") != "merged"]
     if g["fields"].get("waits_on_main"):                 # (main-broken: it waits for main to move, by design)
@@ -81,13 +86,27 @@ def explained(g: dict, gaps: dict, cfg: dict) -> bool:
     return (st in ("ready", "fix") and bool(waits or n("building") >= p["implementor"])) or (
         st == "built" and n("in-review") >= p["reviewer"]) or (
         st == "approved" and bool(n("queued", "queue-failed") or queue_state(cfg).get("pending"))) or (
-        st == "queued" and any(e.get("item") == g["id"] for e in (queue_state(cfg).get("pending") or {}).get("then") or []))
+        st == "push-pending" and carried(g, cfg) and push_waits(cfg))
+
+
+def carried(g: dict, cfg: dict) -> bool:
+    """A push-pending gap whose outcome the pending push holds back (queue.py tell()); not carried, nothing settles it."""
+    return any(e.get("item") == g["id"] for e in (queue_state(cfg).get("pending") or {}).get("then") or [])
+
+
+def push_waits(cfg: dict) -> bool:
+    """The pending push still waits for the coordinator; ran, denied, failed or unreadable: it is no reason to wait."""
+    aid = (queue_state(cfg).get("pending") or {}).get("action")
+    try:
+        return bool(aid) and detail(aid).get("state") in ("held", "requested", "approved")
+    except (RuntimeError, ValueError, FileNotFoundError):
+        return False
 
 
 def stuck(cfg: dict, gaps: dict, now: float) -> list[dict]:
     s, out = settings(cfg), []
     for g in gaps.values():
-        limit = s["stuck"].get(g["state"])
+        limit = 0 if g["state"] == "push-pending" and not carried(g, cfg) else s["stuck"].get(g["state"])
         if limit is None or now - float(g.get("first") or now) < float(limit) * 3600 or explained(g, gaps, cfg):
             continue
         start = visit_start(detail(g["id"]).get("moves") or [], g["state"]) or float(g.get("entered") or now)
@@ -115,8 +134,13 @@ def candidates(cfg: dict, now: float) -> list[dict]:
         if g["state"] == "dead" and now - float(g.get("entered") or now) > 1800:     # (dead-letters parks it first)
             out.append(sit("dead", g["id"], f"{g['id']} is a dead letter: {str(g['fields'].get('last_error'))[:300]}",
                            g.get("entered")))
-        elif g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders:
-            out.append(sit("parked", g["id"], f"{g['id']} was parked: {str(g['fields'].get('where_it_stopped'))[:300]}", at))
+        elif parks.waiting(g, now, s["park_wait"]) and branch(g) not in holders:
+            out.append(sit("waiting", g["id"], f"{g['id']} parked for {g['fields']['parked_for']} "
+                           f"{json.dumps(g['fields'].get('parked_until'))[:300]} {(now - at) / 3600:.0f}h, not cleared", at))
+        elif (g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders
+              and g["fields"].get("parked_for") not in (*parks.RESUMED, "deferred", "cancelled")):
+            out.append(sit("parked", g["id"], f"{g['id']} was parked ({g['fields'].get('parked_for') or 'its kind not said'}): "
+                           f"{str(g['fields'].get('where_it_stopped'))[:300]}", at))
     out += stuck(cfg, gaps, now)
     for i in sorted(opened, key=lambda i: float(i["fields"].get("recorded_at") or i.get("first") or 0)):
         at = float(i["fields"].get("recorded_at") or i.get("first") or now)

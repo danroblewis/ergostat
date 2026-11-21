@@ -25,8 +25,11 @@ reading: |
   beyond the record's noise, and writes what `accept` allows (nothing by default: the owner accepts in the review queue on the
   Fit page). What is written lowers the error, which the measure then sees. The goal requests-handled holds the
   unanswered requests at 0: while it is off the tiers run, their changes are judged, and what is written answers them.
+    With ai: true a reviewer (an AI agent, haiku by default) reads each structural change and redesign the judge passed,
+  deliberately disagreeable, and passes it, sends it back to its author with findings, or rejects it; those kinds are
+  written, or offered to the owner, only after its pass, and each author's prompt carries its recent verdicts.
   It is used once a model, and its parts keep the names written here (model-error, model-fits, improver, fixer,
-  modeller, judge),
+  modeller, reviewer, judge),
   in a system named for the use (modelling, by convention).
 example: |
   uses:
@@ -82,7 +85,7 @@ params:
   ai:
     type: bool
     default: false
-    description: the AI tier, an AI agent (claude -p) given the requests the rule tier cannot answer, with the model near each and the modelling guides; off by default, so a fresh model costs nothing
+    description: the AI tier, an AI agent (claude -p) given the requests the rule tier cannot answer, with the model near each and the modelling guides; off by default, so a fresh model costs nothing; within ai-daily (see there)
   ai-model:
     default: haiku
     description: the model the AI tier's session uses
@@ -91,13 +94,29 @@ params:
     default: 10m
     description: the least time between the AI tier's runs while requests wait for it
   ai-most:
-    type: number
+    type: integer
     default: 8
-    description: the requests given to one AI call
+    min: 1
+    max: 16
+    description: the requests given to one AI call (1 to 16), so a prompt's size and cost have a ceiling
+  ai-daily:
+    type: number
+    default: 1
+    min: 0
+    max: 20
+    description: "the AI tier's dollars a day (0 to 20). A call starts only when the day's spend plus its reservation (the most its prompt and longest answer could cost) stays within ai-daily; one call at a time; a call that reports more than its reservation is charged what it reported, so the day can end above ai-daily by that one call's overrun, and none starts after it until the day's spend is back under. A spend ledger that cannot be read means no call"
   redesign:
     type: any
     default: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2}
     description: 'the redesigner, with ai: true (SPEC §12e, Redesign): one change set of many edits for a system, judged by a scorecard. when: auto (the default) reviews each system on its own when it is due (its replay worse than its mean for 30 minutes, a finding that says the structure is wrong, refinement stalled, the first run, and once a day), a system of more than 40 parts a subsystem at a time; ask: only when the owner asks (ergostat improve --redesign, the Model page); off. model (haiku), budget (dollars a run, 0.5), rounds (3), daily (dollars a day at most, 2: past it nothing runs). What it makes is never written without the owner: it waits in the review queue and the inbox, unless accept: {redesign: auto}, and even then not one that takes a part away, rewires a chain or changes control'
+  review:
+    type: any
+    default: {when: auto, model: haiku, kinds: structure redesign, most: 3}
+    description: 'the reviewer, with ai: true (SPEC §12e, The reviewer): an AI agent that reads each change of these kinds (structure and redesign; add equation if you like) after the judge passes it, deliberately disagreeable, through the review checklists of MODELLING-WELL.md, and passes it, sends it back to its author with findings (twice is a reject), or rejects it. With it on, the judge writes those kinds only after its pass, and the inbox offers them only after it (the review queue still lets the owner accept). when: auto, or off; model (haiku); most (changes read a run, 3). Its calls count against redesign.daily, the template''s one daily cap, a quarter of which is kept for it; a change it cannot decide on in 3 tries, or sends back with no author to take it, goes to the owner'
+  review-every:
+    type: duration
+    default: 2m
+    description: the least time between the reviewer's runs
   redesign-every:
     type: duration
     default: 10m
@@ -308,6 +327,17 @@ flows:
       items: ergostat.model-change
       entering: failed
       over: ${over}
+  changes-sent-back:
+    if: ${ai}
+    unless: ${review.when|auto} == off
+    from: passed-changes
+    description: passed changes the reviewer rejected or sent back to their author with its findings
+    driven-by: +stock.passed-changes
+    sensor:
+      items: ergostat.model-change
+      leaving: passed
+      where: {review.verdict: [reject, revise]}
+      over: ${over}
   changes-accepted:
     from: passed-changes
     to: accepted-changes
@@ -363,7 +393,7 @@ blocks:
     description: the AI tier, answering the requests the rule tier cannot, with the model near each and the modelling guides
     goal: requests-handled
     prompt: ${folder}/modeller.md
-    run: ${lib} modelling ai --model ${ai-model} --most ${ai-most} --timeout ${timeout:seconds}
+    run: ${lib} modelling ai --model ${ai-model} --most ${ai-most} --daily ${ai-daily} --timeout ${timeout:seconds}
     model: ${ai-model}
     every: ${ai-every}
     timeout: ${timeout}
@@ -382,6 +412,18 @@ blocks:
     timeout: ${timeout}
     in: +stock.unanswered-requests
     out: flow.changes-made-by-redesigner
+  model-reviewer:                     # not "reviewer": a model's own blocks often take that name
+    if: ${ai}
+    unless: ${review.when|auto} == off
+    type: ai
+    description: reads each structural change and redesign the judge passed as a senior modeller would, and passes it, sends it back to its author, or rejects it
+    prompt: ${folder}/reviewer.md
+    run: ${lib} modelling review --model ${review.model|haiku} --most ${review.most|3} --daily ${redesign.daily|2} --timeout ${timeout:seconds}
+    model: ${review.model|haiku}
+    every: ${review-every}
+    timeout: ${timeout}
+    in: +stock.passed-changes
+    out: flow.changes-sent-back
   judge:
     type: judge                       # ergostat's judge (SPEC §12e): each change replayed on the record after it
     every: ${judge-every}
@@ -390,6 +432,11 @@ blocks:
     threshold: ${threshold}
     warm-up: ${warm-up}
     accept: ${accept}
+    reviewed:                         # with the reviewer on, these kinds are written only after its pass
+      if: ${ai}
+      value:
+        unless: ${review.when|auto} == off
+        value: ${review.kinds|structure redesign}
     in:
       waiting: +stock.pending-changes
       testing: +stock.changes-testing
