@@ -197,3 +197,13 @@ changed in this round. Run on the merged tree, one command at a time: this file 
 of `sys.modules` holds against the files that run after it. Ruff clean. Not run: `ergostat check` on the root model
 (the shell refused it; `test_the_factory_model_loads` and the gate test read the same model and passed), the full unit
 suite and the four browser files (left to the factory's watchdogged run).
+
+### After the third unit run
+
+The third unit run's tail ends at `uv`'s install lines, before pytest printed anything: no dot, no failure, no
+summary and no `suite_watch` line. No test failed in it, so there was nothing in the code to fix. As in the second
+run, it was most likely stopped from outside. Checked here: the whole suite collects (2439 tests in 21 s). In one
+process, this file with `tests/test_code_health_coverage.py`, `tests/test_factory_resources.py`,
+`tests/test_factory_manager.py`, `tests/test_factory_sessions.py` and `tests/test_factory_knowledge.py` (129 passed),
+and this file followed by `tests/test_factory.py` (122 passed, 2 skipped). Ruff clean. No code changed. Not run: the
+full unit suite under xdist and the four browser files. The factory's run is the check.
