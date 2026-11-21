@@ -501,7 +501,7 @@ def attempt(cfg: dict, role: str, brief: str, work: Path) -> dict | None:
 
 STANDIN = {
     "planner": '<definition branch="{b}">\n# {b}: planned by the stand-in\n\ndepends-on: []\n\n## Definition of done\n\n'
-               'It works.\n\n## Files to touch\n\n- `x.py` (new)\n\n## Risks\n\n- none.\n\n'
+               'It works.\n\n## Files to touch\n\n- `x.py` (new)\n- `standin/work.txt` (new)\n\n## Risks\n\n- none.\n\n'
                '## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
                'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
@@ -513,7 +513,8 @@ STANDIN = {
 def standin(role: str, brief: str, cwd: Path) -> dict:
     """Free and scripted. FACTORY_STANDIN_<ROLE> is what a role says, when set. Else the implementor finishes a merge
     it was handed (main's side of each conflict; or aborts it, when FACTORY_STANDIN_MERGE=abort) and writes a note
-    into the work; the planner, researcher and
+    into the work, and each of FACTORY_STANDIN_WRITES (comma-separated paths; `git rm`ed once its brief says they
+    were refused); the planner, researcher and
     librarian say STANDIN's; a reviewer's (or plan reviewer's) verdict is FACTORY_STANDIN_VERDICT (merge by default; fix, or park)."""
     b = re.search(r"Branch: `([a-z0-9-]+)`", brief)
     said = os.environ.get(f"FACTORY_STANDIN_{role.upper()}") or STANDIN.get(role, "").replace("{b}", b[1] if b else "x")
@@ -531,6 +532,12 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
         with note.open("a") as f:
             f.write(f"worked by the stand-in ({len(brief)} characters of brief)\n")
         said = f"wrote {note.relative_to(cwd)}"
+        for p in filter(None, os.environ.get("FACTORY_STANDIN_WRITES", "").split(",")):   # (the tests' scratch files:
+            if "# Scratch files refused" in brief:                                       # removed once refused)
+                git(cwd, "rm", "-q", "--", p)
+            else:
+                (cwd / p).parent.mkdir(parents=True, exist_ok=True)
+                (cwd / p).write_text("a scratch file\n")
     else:
         v = os.environ.get("FACTORY_STANDIN_VERDICT", "merge")
         said = "The stand-in read the diff.\n```json\n" + json.dumps(
