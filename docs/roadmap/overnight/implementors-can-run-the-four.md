@@ -123,3 +123,22 @@ Round 5, merged; main (b24eb901) merged in first.
   `tool_denials` text, plus the branch's browser paragraph.
 - **Ruff:** clean on ergostat, tests and scripts. On dev/bin it finds one B023 in dev/bin/plan.py:315. That file is
   the same as on main (the branch does not touch it), so it is main's and is left alone (lesson 13).
+- **The four browser files, first run:** `[suites] browser` as written, under suite_watch: rc 1, 237 passed,
+  2 failed, 0 skipped, 818 s, peak 561 threads and 4.0 GB, nothing killed.
+  - **`/split-shots` again.** This session's container still had no `SPLIT_SHOTS`. Its `docker run`, and the
+    round's suite containers, come from the running factory's agents.py, which is main's and has no `SHOTS`. So
+    until this branch lands, the round's browser suite fails this test on the branch and on main alike. Triage
+    would then hold the gap as "failing on main" until main is fixed, and only this branch's landing fixes main.
+  - **Fixed (decided alone, reversible, in tests/ only):** tests/test_diagram_rendering.py's `SHOTS` is still
+    `$SPLIT_SHOTS` first, then beside the checkout. Where the folder beside the checkout cannot be written, it now
+    falls back to `tempfile.gettempdir()`. The test passed alone after this. The run above, on the old line, is the
+    failure seen. agents.py's `SHOTS` stays: with both, the pictures go to a known folder.
+  - **A load flake, not this gap's (lessons 10 and 13):** test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back
+    timed out (30 s) waiting for the ctrl-click's new tab under `-n 4`. It passed under round 4's run. Run again
+    alone with `[suites] rerun`, it passed (rc 0, 8 s). It was left alone.
+- **The four browser files, after the fix:** the same command: **rc 0, 239 passed, 0 failed, 0 skipped**, 753 s,
+  peak 493 threads and 3.4 GB, nothing killed.
+- **Run here:** tests/test_agents.py (4 passed), tests/test_factory.py with tests/test_factory_times.py
+  (123 passed, 2 skipped: Docker-only, as on main), tests/test_factory_manager.py (19 passed). Ruff is clean on
+  ergostat, tests and scripts. The whole unit suite under suite_watch was not run by me; the factory's fast suites
+  run it. Net lines outside tests, docs and dev: still 0.
