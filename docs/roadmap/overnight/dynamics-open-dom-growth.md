@@ -60,3 +60,11 @@ Left:
 3. Lesson-9 not done: break the code and watch the tests fail. For example, keep each old `vp` in a global array in
    `drawGraph`; both new tests should then fail.
 4. The unit suite and the four browser files were not run here. Only ruff ran.
+
+After the factory's unit suite failed (its tail showed no failing test): the unit suite run here under
+`suite_watch` (`-n 8 --dist worksteal`) gave 2 failed, 2523 passed, 69 skipped, rc 1:
+`tests/test_runner_and_state.py::test_a_run_past_its_timeout_is_stopped_with_what_it_started` (FileNotFoundError:
+`lsof` is not installed in this container) and `tests/test_daemons.py::test_a_short_lived_daemon_is_sampled_before_it_ends`
+(not sampled within 3 s under load). Both pass alone (2 passed). This branch changes neither file nor any code they
+run (only `tests/test_page_polling.py`, which the unit suite skips without Playwright), so they are reported as
+unrelated (lesson-13), not fixed here.
