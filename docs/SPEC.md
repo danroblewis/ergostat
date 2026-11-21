@@ -490,6 +490,7 @@ remotes:
     systems: [triage]                 # optional: only these of its systems (and what is inside them)
     within: support                   # optional: the system it is drawn inside
     every: 1m                         # how often its model and readings are read (default 1m, least 10s)
+    show: [stock.open]                # optional: what its closed box shows, in its own names
     description: the incident desk
 ```
 
@@ -501,6 +502,7 @@ remotes:
 | `within` | system name | the file's default | The local system it is drawn inside |
 | `every` | duration | `1m` | How often its model is checked and its readings read |
 | `description` | string | where it runs | |
+| `show` | list | its top systems' `show:` | The measures its closed box shows, each `stock.NAME`, `flow.NAME` or `auxiliary.NAME` in the **remote's own** names, as it serves them: `stock.open` is its `open`, drawn here as `incidents-open`, even when this model has an `open` of its own; a local part is never shown on a remote's box. It takes the place of the served tops' `show:`. Anything else is **bad-remote**, an error |
 
 **What it becomes here.** Each part it serves is put in under the remote's name (`stock.incidents-open`),
 as a template's instance names its parts (§2a), in the system `incidents` (its own systems inside it,
@@ -535,6 +537,21 @@ least) is stale and is not taken.
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
 in place like any system. In Process its kinds' maps are drawn beside ours, framed *remote incidents*.
+Its closed box shows, in this order of precedence: (a) the `show:` on its `remotes:` entry; else (b) the
+served `show:` of its top systems (those with no `within`, or with `systems:` the kept ones whose `within` is
+not kept), in the order it serves them, each part once, a part `systems:` leaves out cut; else (c) the
+measures of its goals that it serves (never a stand-in's); (d) a remote never read shows the parts its local
+`show:` names, each *never read*, and with none no measures at all, never a goal's. A system inside it shows
+its own served `show:`. The panel (Dynamics' module, the system panel) lists them under the remote note,
+and Blocks' box draws them as rows. A measure there is **stale**, dimmed, and says `last V · AGE old`
+(AGE: the snapshot's moment less its newest reading here) or *never read* when the remote is not answering,
+its readings fail, or it has not answered yet: then every measure is stale. When it answers, a measure is
+stale when its sensors' newest reading here is older than three of its sensor's periods (two minutes at
+least, also for a sensor with no period), and says *never read here* when they have none; a part with no
+sensor here is stale only when the remote is not answering. A local `show:` part it does not serve stays,
+dimmed, *not served*, and is a finding (**remote-show-unresolved**, on the `show:` key: the version it was
+checked against, as last read when the remote is not answering, and why: it serves no such part, `systems:`
+leaves it out, or the name is a local one); neither it nor a *never read* one is charted.
 The local residuals, coherence and attention leave its parts out: they are held to its own record, there.
 
 **Never edited here.** A model change (§12e) that would write a remote part is refused, as one that would
@@ -1756,7 +1773,20 @@ saturation.
 **Lines take effect as they arrive.** A run's standard output is read while it runs, line by line, and each
 complete line is taken when it is printed, in the order printed; half a line waits for the rest (or for the end of
 the output). Its input is written, and its errors go to its log, beside the reading, so neither a large output nor
-a program that reads its input slowly stalls it. Event lines in a row are recorded together, in one write, before
+a program that reads its input slowly stalls it. **A run outlives its engine:** it starts in its own session, its
+input is a file and its output goes to its run log file (`runs/RUN.out` in the state folder), which the engine
+follows (looking again within 50 ms when nothing is new), so no pipe ties the run to the engine: an engine killed
+mid-run leaves the run going, and a small `sh` wrapper writes its exit code to `runs/RUN.exit` when it ends.
+`runs/RUN.json` is its record: pid, the process's start time (a pid reused by another process has another start
+time), run id, lease and block. The files are removed once the engine has read the run to its end. (Taking up a run
+left behind by a stopped engine is not built yet.) A run has ended when its process has and nothing it started is
+left in its process group, or 2 s after its process ended, whichever is first. **Its exit code is the wrapper's**,
+and `sh` reports a command killed by signal N and one that exits with 128+N alike, so the wrapper chooses: for HUP,
+INT, PIPE, ALRM, TERM, USR1, USR2 and KILL it ends itself by the same signal, and the run's exit reads -N (as a
+simple command's did before the wrapper); for every other code it exits with the code itself, so a run killed by a
+signal that dumps core (SEGV, ABRT, QUIT, ILL, BUS, FPE, TRAP, SYS, XCPU, XFSZ) reads 128+N, e.g. 139, never
+crashing the wrapper. The cost: a command that *exits* 129, 130, 134, 137, 139, 141, 142, 143 or another such code on
+purpose reads as ended by that signal (section 12's triage files both as `signal`). Event lines in a row are recorded together, in one write, before
 anything printed after them, so a run printing thousands of lines a second costs a few writes. A program flushes
 each line for it to be seen at once (`print(..., flush=True)`, `python -u`; `echo` and `jq -c` in a shell already
 do); what it holds in its own buffer arrives when it flushes or ends. By line:
@@ -1844,7 +1874,11 @@ nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest t
 and 10 s more, when that is longer: one still queued never lengthens it), a fresh pool takes over and the readings it held are asked for again; when no pass has
 finished for 30 s, the loop is started again; when there is still no pass 30 s after that, or the pool wedged three
 times in ten minutes, the process restarts in place (by the run loop, or by the watchdog itself if that has not
-happened within 20 s), which stops the runs under way (leased items are taken again when their leases end). Each
+happened within 20 s), which stops the runs under way (leased items are taken again when their leases end, the
+attempt not counted). Before it waits on the daemons' groups it closes dispatch as stopping does (its stop set under
+the lock a take checks it under, waiting at most 1 s for that lock): no lease is taken in that wait, and a run whose
+process starts from then on is killed at once, so no run of an item outlives the old process to run beside the new
+one's (one exception: a run whose process is being forked at the very moment of the exec). Each
 time every thread's stack is written to `<state>/stalls/` and `ergostat.engine.stalled` is recorded (`what`: pool or
 pass, `seconds`, `recovery`, `stacks`); the stacks begin with what holds the item index (the thread holding its lock,
 with its stack, and any other process with the file open). **Restarts back off** (`ergostat/restarts.py`): the first
@@ -1877,7 +1911,7 @@ and moved, that event says what the run cost, measured by ergostat, never by the
 
 | Field | What | How |
 |---|---|---|
-| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status; the clock |
+| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status (the run's wrapper's: a signal that dumps core reads 128+N, section 9.1); the clock |
 | `resources.cpu` (`cpu_user`, `cpu_system`) | CPU seconds of its whole process tree: its process, everything it started, user and system | The larger of its wait status (`wait4`: exact for the process and every descendant it waited for) and one shared sampler's sum (below) |
 | `resources.memory_peak` | The most memory the tree held at once, in bytes (resident) | The larger of the sampler's peak (summed over the tree at each sample) and the largest single process (`wait4`) |
 | `resources.processes_peak`, `open_files_peak` | The most processes in its tree, and the most files they held open at once | The sampler; open files where cheap to count (Linux `/proc`, macOS `libproc` for the user's own processes), else left out |
@@ -2194,7 +2228,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 | `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
 | `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
-| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `item`, `state`, `terminal` | back to `back`, the attempt counted; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `count` (false: its holder was not a run this engine process took); `item`, `state`, `terminal` | back to `back`, the attempt counted unless `count` is false; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
@@ -2222,8 +2256,9 @@ back uncounted, unless what it printed before had already moved the item on (its
 them, section 9.1): that is an ack. Once ergostat has begun stopping it takes no lease; a take that raced the stop is
 given back uncounted before its run starts, and a run still going when ergostat has waited its last for it has its
 lease given back uncounted as ergostat exits. A lease that could not be given back (the write failed, or ergostat was
-killed) is expired by the next engine's watchdog on its TTL, so after a restart no item stays leased by a run that
-never ran. A
+killed, or restarted itself at once) is expired by the next engine's watchdog on its TTL, so after a restart no item
+stays leased by a run that never ran; that expiry counts no attempt (`count: false`), since its holder was not a run
+this engine process took (the dispatcher keeps, in memory, the runs it took whose leases have not ended). A
 lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
@@ -2477,7 +2512,8 @@ are taken at most one a second; more are dropped.
   On a restart for a new model the daemons were first sent `stop` as when ergostat stops; this catches what that
   left (a warm process being killed, a group still waiting for its SIGKILL). On the watchdog's restart they are sent
   no `stop` and not drained: their groups get SIGTERM, then SIGKILL after at most 3 s, their runs are not recorded by
-  the old process, and the items they leased are taken again when their leases end.
+  the old process, and the items they leased are taken again when their leases end, uncounted. Dispatch is closed
+  before the groups are signalled, so no item is handed to a daemon in that wait.
 
 Its state is written to `<state>/daemons.json` every 2 s (running, backoff, failed or stopped; its pid, restarts,
 last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
@@ -2512,6 +2548,39 @@ was kept, rc 1; the fresh runs differing, the program is not deterministic for t
 rc 3. A daemon that is not warm, or a FILE that is missing, not JSON or not a JSON object, is a usage error (rc 2,
 the file named, nothing run). A program started for a run reads its `env` from the line and passes `{**os.environ, **env}` to what it starts;
 it never writes its own environment, and it reaps what it starts before `done`.
+
+### 9.8 Engine shards
+
+A model can be divided into **shards**, each to be run by an engine of its own. The division is worked out from the
+model's graph, never written in it (invariant 8): `ergostat/spec/shards.py`'s `plan(spec, most=16)` reads the compiled
+model and changes nothing. Nothing on the running path uses it yet.
+
+- **Seeds.** Each top-level system (the outermost system a part is within) starts a shard, named after the system,
+  lowercased. A name that is not `^[a-z0-9][a-z0-9-]{0,63}$` becomes `s-` and the first 12 hex digits of the system
+  name's sha256; a name already taken gets `-2`, `-3` and so on. The **lead** shard, named `lead`, always exists, even
+  in a model with no systems. It holds the parts with no system, ergostat's own kinds (`ergostat.*`) that no block
+  takes, agents no block runs on, and anything else nothing assigns.
+- **Parts.** Every stock, flow, auxiliary, goal, block, sensor, agent and kind of item is in exactly one shard. A
+  sensor is in its part's shard, an agent in the shard of the blocks that run on it, a kind in the shard of the
+  blocks that take it, else in its system's, else in the lead. `Plan.of(ref)` names a part's shard and raises
+  `KeyError` for one not in the model; it has no default. A stock's estimate or uncertainty is in the stock's shard.
+- **Merges.** Two shards are merged when blocks in each run on the same agent (its `at-once` is counted in one
+  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon. Kinds
+  tied by a join (a parent kind and the kinds whose relation names it) count as one kind here. Nothing else merges
+  shards; in particular, reading a signal across them does not. Each merge is recorded in `Plan.why`: the shard that
+  joined, the rule (`agent`, `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
+- **Wires.** `Plan.wires` lists, sorted, each value a part in one shard reads from a part in another that exists only
+  in memory, with the shard it comes from and the one that reads it: a goal's setpoint, error or off (`goal`), a
+  block's output read by another block (`cascade`), a block's output to a goal's setpoint (`setpoint`) or to a block,
+  flow or auxiliary (`command`), a flow or auxiliary worked out from its equation (`equation`), a stock's estimate or
+  uncertainty, which its shard's observer keeps (`estimate`), and any other stock, flow or auxiliary with no sensor
+  (`memory`). The readers counted are goals (their part), equations, blocks (their inputs, and each goal they read or
+  act in as an actuator, with that goal's part, as the engine gives them), and the observer of an estimated stock
+  (each flow it adds up). Reading a part with a sensor is reading the measurements, which any shard can do, so it is
+  never a wire; its sensors are read only by the shard that owns it. Writing to one (a command) still is.
+- **Ceiling.** `most` is clipped to 1 to 16. While there are more shards than that, the two smallest (counted in
+  parts, ties broken by name) are merged (`ceiling`). With `most` 1 there is one shard, the lead, with every part.
+- **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
 
 ## 10. Agents
 
@@ -2683,6 +2752,12 @@ change only through the use's `with:`):
 - **event-names-mixed**: an item kind whose event types are not all `KIND.verb-past`, with the name each reads best as;
 - **queue-goal-tolerance**: a goal served by a block that takes the items its stock counts, with a tolerance or a
   setpoint above 0, so items wait unseen (the block runs only while the goal is off);
+- **schedule-removed**: a machine block with `every:` or `cron:`, and no `takes:` or `on:`, that also names a `goal:`.
+  The controller that goal puts in front of it (§9.1) commands it, and a commanded block leaves the clock: it runs
+  only while the goal is off, its `every:` only a pace. Meant, that is a paced controller; meant as a schedule (a
+  sweep that must run whatever the goal reads, or one whose goal only its own runs can set off), read the goal as an
+  input instead (`in: goal.NAME`). Only the model's author knows which was meant, so `check` says it and no
+  modelling request is raised for it (§12e);
 - **process-not-identified**: a goal's `process:` with no `identified:`.
 
 **A kind's states, chained** (findings, `ergostat/spec/chains.py`). When two or more stocks count the items of one
@@ -3721,8 +3796,25 @@ ergostat's own kinds are left out). Each records what it is about (`about`), why
 |---|---|
 | open | check finds it, and no change waiting cites it |
 | proposed | a change waiting cites it (its finding, `finding:CODE@ABOUT` or `coherence:CODE@ABOUT`, among its evidence) |
-| held | no tier enabled has a change for it, or its change was turned away (with why); the owner's when the owner dismissed it; opened again when the model's version changes |
+| held | no tier enabled has a change for it, or its change was turned away (with why); left to the owner (no tier takes it up) when the owner dismissed its change, or its finding is control; opened again when the model's version changes (unless left to the owner). It is in the inbox (§12o) |
 | answered | check no longer finds it |
+| dismissed | the owner denied it from the inbox with why (`--deny --note WHY`; the note and who are kept): not raised again while the part it is about is unchanged (its definition and description, hashed; a finding about the model, or about no part found, waits on the whole model); raised again (`reopened`) once that part changes, as a new finding: untried, not the owner's, its tier the finding's, its dismissal's note and who cleared. Counted as an answered intervention (denied), never a suppressed one |
+
+A held request **approved** from the inbox is `reopened`: open again, for the AI tier (`tier: ai`, its tries given
+back, `approved_by` kept); if the AI tier holds it again after its tries, it is back in the inbox. Approval is offered
+from an allowlist: only for a request the tiers take up (raised by check, a craft note, a coherence mismatch or the
+fit; never a redesign's, such as `too-large`), whose tier is the rule or the AI tier (not the owner's), whose finding is
+not one only the owner changes, and only when the model runs the AI tier. Otherwise the owner's own change citing it
+answers it, or a dismissal. A redesign's request the owner dismissed stays dismissed across the redesigner's passes
+while its unit is as it was (its own parts, hashed), and is held again once the unit changes.
+
+Every write of a request's state (the owner's answer, the collector's moves, a tier's word, the redesigner's holds and
+its run's end) is made under one lock (`requests.lock` in the project's state), the request read again inside it. A
+tier that read a request before calling its model writes its word only if the request has not moved since it read it
+(the record's seq of its last move, an event that changed its state or reopened it, is the one it read; the state alone
+is not enough, because held then approved is open again): an answer the owner gave meanwhile stands. A tier's own
+word in the same state (its tries and cost) and a refreshed wording from check are not moves. The redesigner's run writes its end only on a request still open (or
+answered as never ended), never over a dismissal.
 
 The **request collector** (`modelling requests`, the sensor of the template's `requests-raised`) reads check, raises
 what is new, answers what is gone and moves each to where its changes say it is. **The tiers**, each an ordinary
@@ -4972,6 +5064,11 @@ must reach the person and be quick to answer. **The inbox** is everything waitin
 | `advise` | an advised command (`block.advised`) is neither approved (`block.approved`) nor denied (`block.denied`) | `advise/BLOCK@SEQ` | `approve`, `deny` |
 | `steptest` | a step test was offered (`steptest.offered`, recorded when a loop's analysis first offers it, section 12d), is undecided, and the loop is as it was | `steptest/<id>` | `approve`, `deny` (accepted or dismissed) |
 | `change` | a change to the model awaits the owner (the review queue, section 12b; with a judge, the ones it passed) | `change/<id>` | `approve`, `deny` (accepted or dismissed) |
+| `request` | a modelling request is `held` (section 12e, *Requests*) | `request/<id>` | `approve` (`reopened`: open again for the AI tier, its tries given back; offered only for a request the tiers take up, never a redesign's, and when the model has the AI tier: section 12e), `deny --note WHY` (`dismissed`, with the note, until its part changes) |
+| `breaker` | a block started by events tripped its breaker (`trigger.tripped`, section 9.3) | `breaker/BLOCK@SEQ` | `approve` (`trigger.reset`) |
+
+An entry kind with no verb is not shown as answerable (`answer` says where it is settled instead); today every kind has
+one. `ergostat inbox`, the status and the notifications say the same command for each entry.
 
 A person's or an advised block's entry is **one ask**: `SEQ` is the event that asked. A newer ask before any answer
 replaces it (the older is superseded, and no longer waits); an answer is to exactly the ask shown, and is recorded
@@ -5211,7 +5308,9 @@ program and how it ended. The item keeps the error, the traceback, the tail of s
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
 of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. A failure starts
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
-timeout, a kill, a signal or failing to start; one that fails again after its fix was applied is opened again. The loop's
+timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
+(SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that
+exits with such a code on purpose is noted too. One that fails again after its fix was applied is opened again. The loop's
 own blocks (`repair-fix`, `repair-settle`) and any run a failure's events caused (six steps up the cause chain) record no
 failure. States: `noted`, `open`, `leased` (being fixed), `awaiting-approval`, `applied`, `dismissed`, `dead` (its fixes
 failed `tries` times).

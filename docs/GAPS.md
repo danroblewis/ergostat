@@ -21,12 +21,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
     (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
-    `examples/remote-pair/` and its two-instance test.
+    `examples/remote-pair/` and its two-instance test. A remote's measures on its closed box (done on
+    `remote-box-measures`): its top systems' served `show:`, or a `show:` on its `remotes:` entry in its own
+    names (`remote-show-unresolved` for one it does not serve), each marked stale with its age when the remote
+    or the reading is not current.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
     it); lines in the process map between our items and theirs (needs an id both logs carry); proposals
     written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
-    not served); a remote's measures on its closed box (`show:` of the remote's systems); mutual TLS.
+    not served); mutual TLS.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
@@ -314,7 +317,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   windup is only tested where a block writes `gain:`; the CLI waits at most 5 s, so a large model's first `check` says
   the rest are still to run; a project never run (no state directory, which `check` never makes) keeps them in memory
   only, so its every `check` runs them again.
-- **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`).
+- **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`). Done of it: the plan
+  (`shards-from-systems`, SPEC §9.8): every part assigned to one shard by top-level system, merged by a shared agent,
+  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Left: an
+  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.

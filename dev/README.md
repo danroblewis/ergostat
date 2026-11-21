@@ -141,8 +141,11 @@ gap/NAME` shows each round, its reviews, the context each session was given and 
 
 **The kill rule** is in `[gates]` (dev/factory.toml): `kill_after = 6` failed gates (fix verdicts, queue conflicts, real
 failures in the queue), `build_failures = 6` failed fast-suite runs of the implementor's, or `build_hours = 12` of
-building over its rounds, park a gap; within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make
-its failing fast suites pass.
+building over its rounds, park a gap. The three count over the gap's whole life (each a `sum` in the gap kind's fold:
+each failed build adds one to `build_failures`): a later successful build or a review round resets none of them, and a
+gap continued from a park (`manage.py continue`, `parks.py resume`) is a new item, under an id not yet in the record,
+that starts from zero. Within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make its failing fast
+suites pass.
 
 **Scratch files are refused by a program, not a review.** After each session, before the fast suites, implement.py
 lists the files the branch adds against main and refuses any with a path part matching `[gates] scratch_patterns`
@@ -208,6 +211,13 @@ the files they changed, gaps active and ready with the files they touch, 40 line
 program (`plan.lint`, no AI: the sections, tests named `tests/...py::test_name`, a budget within
 `[gates] plan_budget_most`, lessons, `depends-on` names and files that exist or are marked new); one that fails goes
 straight back to the planner (the 6th failure parks), and a lint-clean one is the definition at once: the gap is ready.
+A split is checked further, and sent back the same way, naming the sub-gap or point: each sub-gap's budget must name
+at most 250 net lines (`plan.SUB_GAP_MOST_LINES`; no number counts as over; a single plan keeps
+`plan_budget_most`), and the answer must hold exactly one `<coverage>` block restating what the parent must do, a
+`- ` point per line ending `(by: name, name)`, every name one of the split's sub-gaps (matched exactly) and every
+sub-gap named. An accepted block is written to `run/plans/<parent-branch>.md`, over any earlier split's, and is never
+made a definition by the lint sweep; each sub-gap's plan review is given it (`(none)` for a gap with no parent or no
+file).
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -343,6 +353,20 @@ flake triage with its failures, the merges before it land, and those after it ar
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
 
+The batch is filled with gaps that merge. The queue walks the approved gaps in rank order and dry-merges each onto the
+batch so far (`git merge-tree --write-tree`, which leaves the checkout alone) until the batch is full. A gap that
+conflicts with main is sent back at once, as a failed gate, and takes no slot. A gap that conflicts only with a
+batch-mate stays `approved`, with no gate failed, and waits for a later run. The run's own gap is always in its batch
+unless it is sent back: the last slot is kept for it, however low it ranks, and when it conflicts only with a
+batch-mate the walk is made again with the own gap first, so the batch-mate is the one left `approved`. Its lease is
+never given back while others land, since the batch's push is asked under it. When the own gap is sent back, the walk
+is made again in rank order, so gaps passed over for its slot fill the batch. Whether a gap conflicts is git's exit
+code, not the files it names. The real merges then make the batch's first run: when they all succeed, their tree must
+be the dry-merged one, or the run stops before any suite. A real merge that conflicts (one merged again after
+bisecting, or one where the dry merge was clean) is undone and sent back as a failed gate, and the rest go on to the
+suites, so what is tested is still what lands. If git cannot make a dry merge at all, the run fails there: gaps
+already sent back stay sent back, the rest stay `approved`.
+
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
 `run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
@@ -477,7 +501,9 @@ merge queue in the model); unhealthy, it goes back to the previous version by it
 no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
 never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
 runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
-`drain-minutes` stops counting once the switch begins. The groomer and the plan review start no session while
+`drain-minutes` stops counting once the switch begins. The switcher reads the goal (`in:`) rather than naming it
+(`goal:`): a goal named would command it, and a commanded block leaves its `every:` (`ergostat check` says
+`schedule-removed`); the pipeline watch reads `no-stuck-gaps` the same way. The groomer and the plan review start no session while
 `run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
