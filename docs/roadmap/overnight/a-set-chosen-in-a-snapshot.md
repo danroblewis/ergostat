@@ -107,3 +107,24 @@ passed). So it depends on timing even without `-n 8`: the pool thread finishes t
 that test. So no code of this gap is wrong, and nothing is changed for it here (lesson-13). The test needs its own
 gap: it should block `_read_one` until the first `_readings` returns. Not done: the browser files with playwright,
 and a merge of `origin/main` (this clone has no `origin`).
+
+Round 2. Main (9acc11c2, which now holds `a-kind-chosen-in-a-snapshot`) is merged in (e5491bd2). The conflicts
+were resolved keeping both sides:
+- GAPS: main's *A kind chosen in a snapshot* entry (done) is kept. The set entry keeps its *Left* list, with "which
+  is not on main" removed.
+- SPEC §5a: main's sentence on what a snapshot holds (the no-kind list, each kind, its states, the Graphs) comes
+  first, then this branch's sets. Main's "A set chosen ... is not held" is dropped, because it is no longer true of
+  the sets the panels link to. A set typed by hand is still covered by "as a set typed into the address does".
+- `tests/test_items_page.py`: this branch's two snapshot tests and main's
+  `test_a_snapshot_lets_a_kind_and_its_state_be_chosen` are all kept. Main's test asks `items?kind=ticket&moved=doing`
+  on `related_project`, which has no parts and no `moved` sets, so it is still not held.
+
+What broke in the merge (lesson-7): `test_the_sets_held_stop_at_the_maximum` failed, because main now also holds
+`items?kind=K` and `items?kind=K&state=S`, and the test counted every `items?` key. The test now leaves those out
+(a key of only `kind` and `state`; a set always has another parameter), in its key check and in its counting `api`.
+No code changed. Re-broken: with the cap at `MOST + 1`, it fails.
+
+Run here: `tests/test_snapshot_sets.py` (4 passed), `tests/test_graph_cli_web.py` (with it: 35 passed), ruff clean.
+**Still not run: the three browser tests.** `tests/test_items_page.py` and `tests/test_diagram_rendering.py` skip
+because there is no `playwright` module in this container. Their lesson-9 breaks are still to be made by the
+browser gate. The unit suite was not rerun here after the merge; the factory runs it.

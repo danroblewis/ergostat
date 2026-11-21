@@ -134,7 +134,7 @@ def test_the_sets_held_stop_at_the_maximum(p, monkeypatch):
     asked: list[dict] = []
 
     def counting(live, path, q):
-        if path == "items" and q.get("kind"):
+        if path == "items" and set(q) - {"since", "kind", "state"}:         # a set, not a kind's own list
             asked.append(q)
         return api(live, path, q)
     monkeypatch.setattr(snapshot, "api", counting)
@@ -148,7 +148,8 @@ def test_the_sets_held_stop_at_the_maximum(p, monkeypatch):
              {"kind": "ticket", "moved": ">done", "moved_since": s["moved_since"][0], "moved_until": s["moved_until"][0]},
              {"kind": n0["itemKind"], "through": n0["activity"], **span}]                       # held and counted once
     want = {snap_key(q) for f in first for q in (f, {**f, **PANEL})}
-    got = {k for k in data if k.startswith("items?")}
+    kinds = re.compile(r"items\?kind=[^&]+(&state=[^&]+)?")                     # each kind's own lists (main)
+    got = {k for k in data if k.startswith("items?") and not kinds.fullmatch(k)}
     assert got == want, sorted(got ^ want)
     assert len(asked) == 6, asked
 
