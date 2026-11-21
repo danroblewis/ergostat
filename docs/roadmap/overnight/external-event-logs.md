@@ -117,3 +117,65 @@ Also required: the unit suite and the four browser files pass with rc 0 (no page
 ## Notes from the plan review (answer each; not blocking)
 
 - Point 6 / lesson-5: 'a log that restarts its positions stops the mirror' is false. The went-back check fires only when the source's newest entry is below the cursor. A restarted log that has already grown past the cursor (cursor 10, new log 0-15) loses entries 0-10 silently: they are skipped as at-or-before the cursor and their cite ids are already recorded. A source that reads after the cursor (Kafka offsets, {cursor}) returns nothing after a reset, so the check never runs. test_a_log_that_went_back_stops_the_mirror covers only the 0-3 case and cannot fail on this. Either detect it (keep a fingerprint of the cursor entry in memory and exit 1 when the source returns that position with different contents) or narrow SPEC, Risks and point 6 to say restarts past the cursor lose entries silently. Either way, add a test of the restart that has grown past the cursor.
+
+## Where it stopped
+
+Built, round 1: every point of the definition, every named acceptance test and a few more, in `tests/test_mirror.py`
+(29 tests). 260 net lines of code outside `tests/` and `docs/` (budget 300): `mirror.py` 135, `collect.py` +101,
+`collect.yaml` +7, `engine.py` +8, `envelope.py` +5, `rollup.py` +4. No store code changed.
+
+**The plan-review note (point 6, lesson-5), answered both ways.** It is detected where the source shows it: when the
+source returns the entry at the cursor's position and what it says (type, item, data) is not what the record holds
+under that cite, the poll exits 1 ("LOG went back: its entry at the cursor C is not the one recorded there"). The
+record is the fingerprint, so this also works after lost memory. `test_a_restarted_log_that_grew_past_the_cursor_stops_the_mirror`
+(cursor 10, a new log 0-15) fails without the check. Where the source does not show it, the claim is narrowed in SPEC
+§2 and GAPS: a source that reads only after the cursor (a Kafka offset in `{cursor}`) sees a restart as silence, or as
+new entries past the cursor, and loses the restarted log's entries up to the cursor without a word. The check also
+can't run when the cursor's event was rolled up or pruned (`get` finds no event under the cite). That case is left
+open in GAPS, with what would close it: the source's own epoch in the cite.
+
+**What I chose alone (nobody to ask; the most reversible option each time):**
+- A mirror record with no `--id-field` value fails the poll (exit 1, nothing said), as a missing position does. On
+  main, copy-in mode skips it with a note.
+- When the memory's position type differs from `--position` (the owner changed it), the poll exits 1 and asks for a
+  new sensor name or cleared memory. It never reinterprets the old cursor.
+- `rollup.cites[source]` is one id, as the definition says. When a log was cited both as `i` and as `t`, it is a list
+  of the greatest of each, so `recorded` still fails closed on the mix after a roll-up instead of picking one.
+- Malformed `mirror` memory (missing keys) counts as lost and is recovered from the record. A cursor in memory that is
+  not a position of its type fails the poll.
+- The reason given for a missing said entry is the newest `sensor.refused`/`sensor.failed` about the sensor, as
+  specified. It can be older than the poll that lost the entry.
+
+**Breaking each guard (lesson-9).** Each change below made its test fail, and each was put back by hand:
+- positions kept as text: position_types, crosses_9_to_10, resumes_after_10;
+- `recorded` ordering by `str`: resumes_after_10 (both cases);
+- the collector sorting by `str`: crosses_9_to_10, at_most_5000;
+- no `rollup.cites`: after_rollup;
+- the collector skipping `position` and `valid`: engine_would_refuse. Skipping `position` alone still passes,
+  because `valid` refuses `1.5` too;
+- the cursor moved on saying: not_recorded (both cases) and partly_recorded;
+- `said` not cleared: not_recorded;
+- `valid` without the `log == sensor` check: another_sensor;
+- `recorded` without the source filter (in the query and in Python): reads_only. The Python filter alone is a
+  backstop the query already covers;
+- `greatest` without the log check: reads_only;
+- no envelope check: push, webhook, socket;
+- `observations` passing any id: plain_id;
+- no went-back check: went_back;
+- no restart check: restarted;
+- `key` coercing to `str`: mixed;
+- no 5,000 ceiling: at_most_5000;
+- no `ERGOSTAT_SENSOR`: end_to_end;
+- a recovery error taken as "nothing recorded": store_error;
+- `Lines.take` and `Recorder` passing `id`: block_line, legacy_agent;
+- an `--id` option on `ergostat event`: event_add.
+
+**Not done here:**
+- This clone has no `origin` remote. Local `main` (f7b93bea) is the branch's base and is already merged, so the
+  origin/main merge is left to the factory.
+- The whole unit suite and the four browser files were not run by me (the factory runs them under the watchdog).
+  I ran these files one at a time: test_mirror, test_templates, test_intake, test_rollup, test_store_conformance,
+  test_spec_engine, test_calls, test_runner_and_state, test_spec_auxiliaries and test_messages, all passing. Ruff
+  is clean.
+- An untracked `.mut/` folder (a mutation script the sandbox would not run or delete) is in the worktree and in no
+  commit. Delete it.
