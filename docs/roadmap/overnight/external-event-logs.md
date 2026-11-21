@@ -367,3 +367,10 @@ suite and the browser files were not run by me. origin/main was not merged: this
   with `-o faulthandler_timeout=120` (30 passed, 12 s), and `tests/test_templates.py` with
   `tests/test_store_conformance.py` (69 passed, 7 skipped). Ruff is clean. The whole unit suite and the browser files
   were not run by me.
+
+## Where it stopped
+
+Parked by the factory (review/external-event-logs-6, 2026-11-21 00:49).
+
+Failed its gates 6 times (the kill rule). Blocking findings:
+- .mut/mut.py (tracked, still in `git diff origin/main...HEAD` at df9b0f9a): a scratch mutation script that rewrites ergostat source files, whose own docstring says '(Not committed.)'. It is a stray file headed for an installable main, and its 55 lines are the whole size overrun (316 against 300; about 261 without it). The factory's agent says it can't remove it (df9b0f9a), so the owner or the coordinator must run `git rm .mut/mut.py` and commit. Nothing else needs to change.
