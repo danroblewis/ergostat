@@ -221,14 +221,18 @@ def scrub(text: str, tok: str) -> str:
 # ---- the work: clones made here, bundles back
 
 def drop(cfg: dict) -> Path:
-    """The factory's own bare repository: what sessions return lands here, never in the owner's."""
+    """The factory's own bare repository: what sessions return lands here, never in the owner's. Its main is the
+    checkout's ``refs/remotes/<remote>/<base>`` (main as pushed), never the checkout's own main."""
     d = fac.path(cfg, "live") / "drop.git"
     if not (d / "HEAD").exists():
         d.parent.mkdir(parents=True, exist_ok=True)
         fac.git(d.parent, "init", "-q", "--bare", str(d))
     base = cfg["git"]["base"]
     fac.git(d, "symbolic-ref", "HEAD", f"refs/heads/{base}")
-    fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")), f"+refs/heads/{base}:refs/heads/{base}")
+    # main as pushed (the checkout's <remote>/<base>), never the checkout's own main, where the queue merges before
+    # testing: branches forked from that carried merges that later failed and were undone (operator, 2026-11-20)
+    remote = cfg["git"].get("remote", "origin")
+    fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")), f"+refs/remotes/{remote}/{base}:refs/heads/{base}")
     return d
 
 
