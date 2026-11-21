@@ -300,7 +300,7 @@ queue, main's commits, the open interventions, the flakes, the pipeline by state
 **The tools** (`dev/bin/manage.py`): the session answers with its calls in a fenced JSON block, each run through
 manage.py's own checks; refused calls are said on the situation. Directly: `continue GAP`, `reapprove GAP --why` (the
 failed tests are run again on main where they failed, the checkout for the queue's or a container for the fast
-suites', and must fail there too: back to approved, or to built), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a
+suites', browser tests with Playwright (`rerun`, a skip not a pass), and must fail there too: back to approved, or to built), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a
 queue one only once main is clean and pushed). Asked in the inbox: `close GAP` (a new state, closed), `park GAP`,
 `pool ROLE N`, `change --what` (dev/model, the settings, anything touching origin). Every call is an
 `intervention.recorded` with a class and `by: pipeline-manager`, open like the coordinator's, so the interventions still

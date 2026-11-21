@@ -47,3 +47,23 @@ Round 1, built; what was found, decided alone, and not run.
   from the next session. Run: tests/test_agents.py (2 passed; the first really launched Chromium here) and
   tests/test_factory*.py (115 passed, 2 skipped: the Docker-only tests, as on main). Ruff is clean. The branch was made
   from main this round; the clone has no remote, so origin/main could not be fetched again.
+
+Round 2, fixed; every finding of both reviews answered.
+
+- **Blocking (review 2), manage.py on_main:** reapprove of a fast-suite failure now runs the tests on main with the
+  failed suite's own rerun, `onmain.AGAIN[fast['failed']]` (a browser test: `rerun`, with Playwright; else `alone`),
+  and logs under that suite's name. Test: tests/test_factory_manager.py::
+  test_reapprove_runs_a_browser_failure_on_main_with_playwright (with `alone` passed again, it fails: reapproved).
+- **Review 1, skips under `rerun`:** agents.suites counts skips for `rerun` too, so a browser test that skips when run
+  again alone is no flake and no pass on main. Test: tests/test_agents.py::
+  test_a_browser_failure_that_skips_alone_is_not_a_flake (with `rerun` not counted, it fails: flake.seen).
+- **Review 1, room():** the rerun's estimate is the failed suite's seconds (browser or unit), not always the unit
+  suite's. Test: tests/test_agents.py::test_a_rerun_is_timed_by_the_suite_that_failed (with the unit suite only, it fails).
+- **Review 1, not run:** still not run here, and not by choice. This session refused
+  `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest ...` again. The likely
+  reason: the session's permissions come from the running factory's agents.py (main's), not this branch's, so the
+  new TOOLS line takes effect only once merged. The four browser files and the whole unit suite under suite_watch are
+  owed to the factory's fast suites and the queue. Run here: tests/test_agents.py (4 passed),
+  tests/test_factory.py (57 passed, 2 skipped: Docker-only, as on main), tests/test_factory_{resources,sessions,
+  knowledge,manager}.py (81 passed). Ruff is clean on ergostat, tests, scripts and dev/bin. origin/main could not be
+  fetched again (no remote in the clone).

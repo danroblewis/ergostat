@@ -8,6 +8,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import tomllib
 
 import pytest
@@ -67,3 +68,25 @@ def test_missing_browser_stops_the_round_rather_than_skipping(tmp_path):
     assert "gap.built" not in said and "gap.measured" in said
     fast = f.item(gid)["fields"]["suites_fast"]
     assert fast["failed"] == "browser" and fast["browser"]["rc"] == 0 and fast["browser"]["skipped"] == 1
+
+
+def test_a_rerun_is_timed_by_the_suite_that_failed():
+    sys.modules.setdefault("fac", module("fac"))
+    sys.modules.setdefault("agents", module("agents"))
+    room, soon = module("onmain").room, time.time() + 200
+    took = {"unit": {"seconds": 10}, "browser": {"seconds": 400}}
+    assert not room({**took, "failed": "browser"}, soon) and room({**took, "failed": "unit"}, soon)
+
+
+@pytest.mark.slow
+def test_a_browser_failure_that_skips_alone_is_not_a_flake(tmp_path):
+    """A browser test failed, then skipped when run again alone (`rerun`): the skip is no pass, so no flake.seen and
+    no free retry; it counts against the gap."""
+    f = Factory(tmp_path)
+    gid = ready(f)
+    f.config.write_text(f.config.read_text()
+                        .replace('browser = "true"', 'browser = "echo FAILED tests/test_items_page.py::test_b - x; false"')
+                        .replace('rerun = "echo again {tests}"', 'rerun = "echo SKIPPED [1] {tests}: no browser"'))
+    said, _ = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
+    assert f.item(gid)["fields"]["suites_fast"]["failed"] == "browser"

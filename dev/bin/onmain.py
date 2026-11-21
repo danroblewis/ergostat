@@ -27,8 +27,9 @@ AGAIN = {"unit": "alone", "browser": "rerun"}          # each one's tests run ag
 
 
 def room(suites: dict, deadline: float) -> bool:
-    """Whether a rerun fits before the kill rule's building hours run out."""
-    return time.time() + max(LEAST, float((suites.get("unit") or {}).get("seconds") or 0)) < deadline
+    """Whether a rerun fits before the kill rule's building hours run out (the failed suite's time)."""
+    took = suites.get(str(suites.get("failed"))) or suites.get("unit") or {}
+    return time.time() + max(LEAST, float(took.get("seconds") or 0)) < deadline
 
 
 def failing(cfg: dict, branch: str, main: str, tests: list[str], logs: Path, tag: str, suite: str = "alone") -> dict:
