@@ -196,3 +196,14 @@ Read-only Bash worked: the tree was clean, the merge of main already committed (
 9acc11c2), and the three `.gitattributes` files unchanged. `git rm .gitattributes` was refused again, so the root
 `.gitattributes` is still committed. I did not delete it with the file tools (the blocked removal by another
 route). No tests were run. What is left is the one command `git rm .gitattributes && git commit`.
+
+### Round 10
+`git rm .gitattributes` worked this time, and the removal is committed (500c6b36). The rules are now only in
+`docs/.gitattributes` (`GAPS.md merge=union`) and `dev/knowledge/.gitattributes` (`review-lessons.md merge=union`),
+so the branch no longer adds a top-level file. The net lines outside `tests/` and `docs/` are therefore 22 in
+`dev/bin/intake.py` plus 2 in `dev/knowledge/.gitattributes`; `docs/.gitattributes` is under `docs/`. Main
+(4e2078a8) was already merged in (ad1460e7). After the removal: `tests/test_backlog.py` 13 passed,
+`tests/test_factory.py -k merge_cleanly` 2 passed (the test copies the folder's file, never the root one), and ruff
+is clean. A later read-only command (`git check-attr`) was refused, so the folder rules were not checked that way
+in this session. The merge tests do show them working, though. The full unit suite and the four browser files were
+not run here; the factory runs them. Nothing is left.
