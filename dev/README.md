@@ -234,6 +234,11 @@ sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points 
 coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
 most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
 cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
+The judge's verdicts are measured by `split-quality` (of parents first judged in 14 days, the share whose first
+verdict, in record order, was `covered`), `split-joins` (parents judged at least once, whole record) and
+`split-overhead` (the median, over parents merged in 14 days, of the parent's and its children's AI cost over the
+median cost of merged unsplit gaps of the children's size class; a parent that cannot be priced is left out and
+named), and `split-quality ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on

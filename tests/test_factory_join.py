@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+import sys
 import tarfile
 import time
 
@@ -17,7 +18,7 @@ from ergostat.spec import items as its
 from ergostat.spec import read
 from ergostat.spec.engine import Engine
 from ergostat.store import Project
-from tests.test_factory import ROOT
+from tests.test_factory import BIN, ROOT
 from tests.test_factory_knowledge import PLAN, Instance, covered
 
 pytestmark = pytest.mark.slow                                        # (each 10 s or more: started first)
@@ -255,3 +256,113 @@ def missing_brief(f: Instance) -> None:
     assert "(missing: run/plans/alpha-thing.md: FileNotFoundError" in text, text
     assert "(missing: nothing readable at run/defs/alpha-two.md)" in text and "(missing: no review recorded)" in text
     assert "# alpha-one: a plan" in text
+
+
+DAY = 86400
+
+
+def measure(f: Instance, name: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(BIN / "measure.py"), name], cwd=f.model, env=f.env,
+                          capture_output=True, text=True, timeout=60)
+
+
+def parent(f: Instance, gid: str, *verdicts: tuple[str, float], kids: tuple[str, ...] = ("gap/x-one",), **merged):
+    """A split parent with its children and join verdicts, in this record order (and merged, given its fields)."""
+    lines = [{"event": "gap.split", "item": gid, "data": {"children": list(kids)}}]
+    lines += [{"event": "gap.measured", "item": gid, "data": {"join_verdicts": [{"verdict": v, "missing": [], "at": at}]}}
+              for v, at in verdicts]
+    lines += [{"event": "gap.merged", "item": gid, "data": merged}] if merged else []
+    f.fold(lines, None)
+
+
+def gap(f: Instance, gid: str, merged: bool = True, **fields) -> None:
+    f.fold([{"event": "gap.merged" if merged else "gap.requested", "item": gid,
+             "data": {**({"merged_at": time.time() - DAY} if merged else {}), **fields}}], None)
+
+
+def test_split_quality_counts_each_parent_by_its_first_verdict(tmp_path):
+    f = Instance(tmp_path)
+    now = time.time()
+    parent(f, "gap/p-covered", ("covered", now - DAY))
+    parent(f, "gap/p-short-covered", ("short", now - DAY), ("covered", now - DAY))   # the same `at`: list order decides
+    parent(f, "gap/p-short", ("short", now - 2 * DAY))
+    parent(f, "gap/p-old", ("covered", now - 20 * DAY))                              # judged only before the window
+    r = measure(f, "split-quality")
+    assert r.returncode == 0 and r.stdout.strip() == "0.333", r.stderr
+
+
+def test_split_quality_has_no_value_with_no_parent_judged(tmp_path):
+    f = Instance(tmp_path)
+    parent(f, "gap/p-old", ("covered", time.time() - 20 * DAY))
+    parent(f, "gap/p-unjudged")
+    r = measure(f, "split-quality")
+    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
+
+
+def test_split_joins_counts_judged_parents_over_the_whole_record(tmp_path):
+    f = Instance(tmp_path)
+    now = time.time()
+    parent(f, "gap/p-month", ("short", now - 30 * DAY))
+    parent(f, "gap/p-twice", ("short", now), ("covered", now))
+    parent(f, "gap/p-unjudged")
+    r = measure(f, "split-joins")
+    assert r.returncode == 0 and r.stdout.strip() == "2.0", r.stderr
+
+
+def priced_split(f: Instance, gid: str = "gap/p") -> None:
+    """A parent costing 2 whose children cost 10 and 8 with 60 and 50 lines (110: M)."""
+    for k, cost, lines in (("one", 10, 60), ("two", 8, 50)):
+        gap(f, f"{gid}-{k}", parent=[gid], ai_cost_usd=cost, merged_lines=lines)
+    parent(f, gid, ("covered", time.time()), kids=(f"{gid}-one", f"{gid}-two"), merged_at=time.time(), ai_cost_usd=2)
+
+
+def unsplit(f: Instance) -> None:
+    for n, (cost, lines) in enumerate(((5, 100), (10, 120), (40, 60), (1, 10))):   # M: 5, 10, 40; S: 1
+        gap(f, f"gap/u-{n}", ai_cost_usd=cost, merged_lines=lines)
+
+
+def test_split_overhead_is_the_split_cost_over_the_unsplit_median_of_its_class(tmp_path):
+    f = Instance(tmp_path)
+    unsplit(f)
+    priced_split(f)
+    r = measure(f, "split-overhead")
+    assert r.returncode == 0 and r.stdout.strip() == "2.0", r.stderr               # (2 + 10 + 8) / 10
+
+
+def unpriceable(f: Instance) -> None:
+    now = time.time()
+    for gid, kid, merged, fields in (("gap/q-lines", "gap/q-lines-1", True, {"ai_cost_usd": 3}),
+                                     ("gap/q-cost", "gap/q-cost-1", True, {"merged_lines": 80}),
+                                     ("gap/q-open", "gap/q-open-1", False, {"ai_cost_usd": 3, "merged_lines": 80}),
+                                     ("gap/q-class", "gap/q-class-1", True, {"ai_cost_usd": 3, "merged_lines": 900})):
+        gap(f, kid, merged, parent=[gid], **fields)
+        parent(f, gid, ("covered", now), kids=(kid,), merged_at=now, ai_cost_usd=1)
+
+
+def test_split_overhead_leaves_out_a_parent_it_cannot_price(tmp_path):
+    f = Instance(tmp_path / "a")
+    unsplit(f)
+    priced_split(f)
+    unpriceable(f)
+    r = measure(f, "split-overhead")
+    assert r.returncode == 0 and r.stdout.strip() == "2.0", r.stderr
+    for gid, why in (("gap/q-lines", "a child with no merged_lines"), ("gap/q-cost", "a child with no ai_cost_usd"),
+                     ("gap/q-open", "a child not merged"), ("gap/q-class", "no merged unsplit XL gap")):
+        assert f"{gid}: {why}" in r.stderr, (gid, r.stderr)
+    assert "gap/p:" not in r.stderr
+    g = Instance(tmp_path / "b")
+    unsplit(g)
+    unpriceable(g)
+    r = measure(g, "split-overhead")
+    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
+
+
+def test_the_split_measures_are_sensed_in_the_factory_model():
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    doc = (BIN / "measure.py").read_text().split('"""')[1]
+    for name in ("split-quality", "split-joins", "split-overhead"):
+        aux = spec.auxiliaries[name]
+        assert aux.system == "intake" and [s.run for s in aux.sensors.values()] == [
+            f"python3 dev/bin/measure.py {name}"]
+        assert f"\n  {name} " in doc

@@ -118,6 +118,24 @@ auxiliaries:
     description: of sub-gaps merged, the share approved on their first review
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py splits-clean, every: 10m, timeout: 1m, description: the factory's measures}
+  split-quality:
+    system: intake
+    unit: share
+    description: of split parents whose first join verdict is in 14 days, the share whose first verdict (in record order) was covered; short then covered counts as not covered
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py split-quality, every: 10m, timeout: 1m, description: the factory's measures}
+  split-joins:
+    system: intake
+    unit: parents
+    description: split parents with at least one join verdict, over the whole record
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py split-joins, every: 10m, timeout: 1m, description: the factory's measures}
+  split-overhead:
+    system: intake
+    unit: ratio
+    description: of split parents merged in 14 days, the median of the parent's own AI cost plus its children's (join sub-gaps too) over the median cost of merged unsplit gaps of the children's summed size class; a parent that cannot be priced is left out
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py split-overhead, every: 10m, timeout: 1m, description: the factory's measures}
 
 flows:
   plans-written:
