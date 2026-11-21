@@ -12,6 +12,7 @@ intervention by whoever asked (the coordinator by hand, `pipeline-manager` from 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import re
 import shlex
@@ -61,22 +62,38 @@ def gap_ids(names: str, known: set[str]) -> list[str]:
 
 
 def do_continue(cfg: dict, a) -> str:
-    g, gaps = item(a.gap), {x["id"]: x for x in fac.items("gap")}
-    if g["state"] not in ("parked", "dead"):
-        raise Refused(f"{a.gap} is {g['state']}: only a parked or dead gap is continued")
-    branch = fac.branch_of(g)
-    held = [x["id"] for x in gaps.values() if x["id"] != g["id"] and x["state"] not in ("parked", "merged", "closed")
-            and (x["fields"].get("branch") == branch or str(x["fields"].get("continues") or "").removeprefix("factory/") == branch)]
-    if held:
-        raise Refused(f"{branch} is held by {', '.join(held)}")
-    gid = next(i for n in range(1, 99) if (i := f"gap/{fac.slug(g['id'].split('/', 1)[1], 40)}-continued"
-                                           + (f"-{n}" if n > 1 else "")) not in gaps)
-    rel = fac.definition_file(g)
-    record("gap.requested", gid, title=f"{g['fields'].get('title') or g['id']}, continued", source="request",
-           continues=branch, depends_on=gap_ids(a.depends_on, set(gaps)), requested_at=time.time(), requested_by=BY[0],
-           **({"definition": f"{fac.git_branch(branch)}:{rel}"} if rel != f"{fac.DEFS}/{branch}.md" else {}))
+    gid, branch = continue_gap(cfg, a.gap, a.depends_on, cleared=f"continued by {BY[0]}: {a.why}"[:500])
     intervene("continue", a.gap, a.why or f"continued as {gid}", a.cls, gap=gid)
     return f"{gid} requested, continuing {branch}"
+
+
+def continue_gap(cfg: dict, gap: str, depends_on: str = "", cleared: str = "", once: bool = False) -> tuple[str, str]:
+    """A new gap continuing a parked (or dead) gap's branch: (its id, the branch). The parked gap's `gap.resumed` says
+    as what and what cleared. Read, checked and written under the continue lock, so the coordinator's continue and the
+    park resumer's never both take one park; ``once`` (the resumer's): refused when it was resumed already."""
+    with open(fac.run_dir(cfg) / "continue.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        g, gaps = item(gap), {x["id"]: x for x in fac.items("gap")}
+        if g["state"] not in ("parked", "dead"):
+            raise Refused(f"{gap} is {g['state']}: only a parked or dead gap is continued")
+        branch = fac.branch_of(g)
+        held = [x["id"] for x in gaps.values() if x["id"] != g["id"] and x["state"] not in ("parked", "merged", "closed")
+                and (x["fields"].get("branch") == branch
+                     or str(x["fields"].get("continues") or "").removeprefix("factory/") == branch)]
+        if held:
+            raise Refused(f"{branch} is held by {', '.join(held)}")
+        if once and g["fields"].get("resumed_as"):
+            raise Refused(f"{gap} was resumed already, as {g['fields']['resumed_as']}")
+        gid = next(i for n in range(1, 99) if (i := f"gap/{fac.slug(g['id'].split('/', 1)[1], 40)}-continued"
+                                               + (f"-{n}" if n > 1 else "")) not in gaps)
+        rel = fac.definition_file(g)
+        record("gap.requested", gid, title=f"{g['fields'].get('title') or g['id']}, continued", source="request",
+               continues=branch, depends_on=gap_ids(depends_on, set(gaps)), requested_at=time.time(),
+               requested_by=BY[0], **({"definition": f"{fac.git_branch(branch)}:{rel}"}
+                                      if rel != f"{fac.DEFS}/{branch}.md" else {}))
+        record("gap.resumed", g["id"], resumed_as=gid, resumed_at=time.time(), resumed_by=BY[0],
+               resumed_for=g["fields"].get("parked_for") or "defect", cleared=cleared or f"continued by {BY[0]}")
+        return gid, branch
 
 
 def on_main(cfg: dict, g: dict, tests: list[str], contained: bool) -> tuple[int, list[str], str]:
@@ -193,7 +210,7 @@ def approved(cfg: dict, argv: list[str]) -> str:
     else:
         import review
         fac.say = lambda event, it=None, **data: record(event, it or gap, **data)    # (said, outside a run: recorded)
-        review.park(cfg, item(gap), why, "pipeline-manager", where="manager")
+        review.park(cfg, item(gap), why, "pipeline-manager", where="manager", kind="deferred")
     return f"{gap} {argv[0]}"
 
 

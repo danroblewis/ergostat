@@ -126,7 +126,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    so each can be reviewed whole. It learns from what happened: its past change sets for the system with what
    became of each, and the interventions about it (approvals, denials, a person's requests, alarms, with their
    notes) as evidence of missing loops. So when you dismiss a redesign or deny an approval, give the reason
-   (`--note`): it is what the next one reads. Do not hand-write these parts.
+   (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
+   redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
+   change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
+   they say rather than proposing the same idea again. Do not hand-write these parts.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
