@@ -99,6 +99,17 @@ class Record:
 
 @pytest.fixture
 def simp(monkeypatch, tmp_path, repo):
+    """simplify.py against a fac of its own. The dev/bin modules it imports (measure, parks, times, brief, knowledge)
+    bind that fac, so each one new in sys.modules is taken out after the test: left there, a later test on the same
+    worker would import them bound to a fac it never patched."""
+    before = set(sys.modules)
+    yield from _simp(monkeypatch, tmp_path, repo)
+    for name in set(sys.modules) - before:
+        if str(getattr(sys.modules[name], "__file__", "") or "").startswith(str(BIN)):
+            del sys.modules[name]
+
+
+def _simp(monkeypatch, tmp_path, repo):
     monkeypatch.syspath_prepend(str(BIN))
     fac = module("fac")
     monkeypatch.setitem(sys.modules, "fac", fac)
@@ -113,7 +124,7 @@ def simp(monkeypatch, tmp_path, repo):
              "git": {"base": "main"},
              "code_health": {"coverage": str(coverage(tmp_path)), "coverage_floor": 0.6, "size": 1.0, "churn": 0.25,
                              "duplicates": 1.0, "dead": 0.5}}
-    return s
+    yield s
 
 
 def evidence_rows(repo: Path, cov: Path) -> dict[str, dict]:
