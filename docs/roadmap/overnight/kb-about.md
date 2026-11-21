@@ -317,3 +317,26 @@ and still checks the same thing. With the found-again `about: []` taken out, it 
 Tests run here, each file alone and serially (`-p no:randomly`): `test_factory_knowledge.py`, 53 passed and that
 one failed before the test edit, then both about tests passed after it. `test_item_about.py`: 14 passed. Ruff is
 clean. Not run here: the whole unit suite and the four browser files (the factory runs them).
+
+## Where it stopped (resumed, round 3: review/kb-about-4)
+
+Each finding of review/kb-about-4, and what changed:
+- **Blocking: `status --at` named the items open now** (`cli/status.py:109`, off_about). Fixed. The block now
+  skips under `--at`, like the blocks at :100 and :123. SPEC §5a (the status bullet) and the agent guide now say
+  that no items are named under `--at`. `test_status_at_a_past_time_names_no_items` checks that the live status
+  names `knowledge/g`, then that `--at 30m` names none, both as text and as `--json` (loop row and attention). With
+  the `--at` condition taken out, it failed (checked, then put back).
+- **The rebuild test sets up a case that can't happen.** `test_an_index_built_before_the_about_links_is_rebuilt`
+  is kept, because it shows that a layout stamp that doesn't match is folded again. The real protection now has a
+  test of its own: `test_the_index_file_changes_with_its_layout_and_the_about_field` asserts three things.
+  `index_for`'s path changes when `VERSION` changes, and comes back when it is restored. A kind's `about:` is part
+  of `kinds_key`. So an index file of another layout or another `about:` is never opened as current. With
+  `VERSION` taken out of the hash at `itemindex.py:855`, it failed (checked, then put back). That 5 differs from
+  main's 4 is still checked only by reading the line.
+- **Not run by that reviewer** (Bash was refused there). Run here, see below.
+
+Size: no net lines added (one condition changed in `cli/status.py`). Still 192 net against main.
+
+Tests run here, each file alone and serially (`-p no:randomly`): `tests/test_item_about.py` 16 passed,
+`tests/test_factory_knowledge.py` 54 passed. Ruff is clean. Not run: the whole unit suite and the four browser
+files (the factory runs them).

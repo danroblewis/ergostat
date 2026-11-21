@@ -106,7 +106,7 @@ def status(args) -> int:
                 att.append({"level": "bad" if "(critical)" in f.message else "hint", "what": f.about,
                             "says": f.message.split(": ", 1)[-1]})
     loops = snap["loops"]
-    if spec is not None:                                  # an off loop names the open items about it (SPEC §5a, About)
+    if spec is not None and not getattr(args, "at", None):   # an off loop names the open items about it (SPEC §5a)
         for n, says in off_about(p, spec, loops).items():
             loops[n]["about"] = says
             for a in att:

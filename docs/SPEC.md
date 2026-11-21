@@ -836,7 +836,8 @@ states, always open), the latest first:
 - `ergostat` (the status): a loop that is off names the open items about its goal or the value it measures
   (`goal.x`, or its `stock.y` / `flow.y` / `auxiliary.y`), on its attention line (`· items about it: a, b, c +2`)
   and in its row of the loops table, **at most 3**, then `+N`; `unknown` when the index cannot be read. A loop that
-  is not off names none.
+  is not off names none. Under `--at` (a past snapshot) no items are named: the items open now are not the ones
+  that were open then.
 
 **Join.** A parent moved on by its children (fork-join) is a rule on the parent's kind, over the relation its children
 name it by, not a block that lists and matches items:
