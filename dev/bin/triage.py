@@ -30,8 +30,14 @@ def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) 
         if not fac.git_ok(wt, "merge", "-q", "--no-ff", "--no-commit", sha):
             return 1, {"why": "the merge no longer applies"}
         log = fac.run_dir(cfg, "queue") / f"{branch}-{n}-triage.txt"
+        q, held = fac.run_dir(cfg, "queue") / f"{branch}-{n}-triage-quarantined.txt", fac.quarantine(repo, pre)
+        fac.beside(held, q, lambda ts: fac.suite(cfg, "rerun", wt, q, tests=ts))
+        tests = [t for t in tests if t not in held]       # main's list, not the branch's: they never block
+        if not tests:
+            return 0, {"why": "only quarantined tests failed", "quarantined": held}
         rc, secs = fac.suite(cfg, "rerun", wt, log, tests=tests)
-        return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text())}
+        return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text()),
+                    "quarantined": held}
     finally:
         fac.git(wt, "merge", "--abort", check=False)
         fac.git(wt, "checkout", "-q", "--detach", pre)
@@ -49,10 +55,11 @@ def main() -> int:
     elif tests:
         fac.wait_quiet(cfg)                             # (a suite slot, in fac.suite: never the queue's lock)
         rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
-    if rc == 0:
+    if rc == 0:                                  # (only quarantined tests failed: no flake seen, no retry spent)
+        tests = [t for t in tests if t not in got.get("quarantined", [])]
         for t in tests:
             fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=[gap["id"]], times=1, seen_at=time.time())
-        fac.say("gap.retried", approved_by="flake-retry", retries=1, flakes=tests, triage=got)
+        fac.say("gap.retried", approved_by="flake-retry", retries=1 if tests else 0, flakes=tests, triage=got)
         return 0
     again = f"failed again alone: {', '.join(got.get('tests') or tests)}" if "seconds" in got else got["why"]
     findings = list(f.get("findings") or [])[-1:] + [again]
