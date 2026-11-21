@@ -356,3 +356,19 @@ warm-up). In file order that is main's `test_brief_carries_knowledge_within_budg
 1 s each when they are not first. No code was changed. `ruff check ergostat tests scripts dev/bin` is clean.
 **Left:** rerun `unit` and keep its full output (or its summary and the watchdog's JSON line), so the test that was
 running when it stopped is known.
+
+### Resumed, round 4 (main 9ec5588e merged)
+
+**Main's merge, resolved.** Both conflicts were main's new coverage measures beside this gap's size measures. In
+`dev/bin/measure.py`'s docstring, the size lines and the sentence that names the six measures with no value are
+kept. Main's `coverage-below-floor` and `coverage NAME` lines follow them, with their own no-value sentence. Main's
+"the last three" is not kept, because it would now be wrong. The size-accuracy line was rewrapped to the file's
+width. In `dev/model/measures.yaml`, the two size auxiliaries and main's `coverage-below-floor` are all kept. No
+code needed resolving.
+
+**review/gap-size-6's findings:** the wrap-width notes on `planner.md` and `queue.py:334` are about wording only.
+"Not run by this reviewer" is the reviewer's own note. Neither was changed in this round.
+
+**Run here:** `tests/test_factory_knowledge.py` 61 passed; `tests/test_factory.py` 73 passed, 2 skipped (Docker);
+`tests/test_code_health_coverage.py` 11 passed. `ruff check ergostat tests scripts dev/bin` is clean. Not run: the
+whole unit suite and the browser files (the factory runs them under the watchdog).
