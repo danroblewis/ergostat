@@ -262,6 +262,11 @@ def waits(cfg: dict) -> str | None:
     return None
 
 
+class Waits(str):
+    """settle()'s answer while the last push waits for approval: take() puts its gap off for a minute, not ten (the
+    push-waiting sensor keeps the queue from leasing meanwhile), so the next batch starts soon after the push runs."""
+
+
 def settle(cfg: dict, repo) -> str | None:
     """Before a merge: what became of the last merge's push. None when the queue may go on; else why it waits.
     Pushed: done. Held: wait (one unpushed merge at a time, so a denial undoes only its own). Denied: the merge undone
@@ -305,7 +310,7 @@ def settle(cfg: dict, repo) -> str | None:
         save(cfg, st)
         return None
     if now in ("held", "requested", "approved"):
-        return f"the push of {p['sha'][:12]} ({p['gap']}) is {now}"
+        return Waits(f"the push of {p['sha'][:12]} ({p['gap']}) is {now}")
     return block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
 
 
@@ -531,7 +536,7 @@ def take(cfg: dict, gap: dict, repo) -> int:
         except Unreadable as e:                        # (it cannot tell whether a push waits: no gap is taken)
             why = str(e)
         if why:
-            fac.nack(f"queue: {why}", after="10m", count=False)
+            fac.nack(f"queue: {why}", after="1m" if isinstance(why, Waits) else "10m", count=False)
             return 0
         fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
         pre = fac.git(repo, "rev-parse", "HEAD")
