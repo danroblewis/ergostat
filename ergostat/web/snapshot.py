@@ -11,6 +11,7 @@ import time
 from urllib.parse import quote
 
 from .. import series
+from . import snapshot_sets
 from .server import STATIC, Live, api
 
 SKIP = {"since", "at"}            # one window, one moment: the snapshot's own
@@ -97,6 +98,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
         ask(path, params)
     for params in _graphs(data.get("items") or {}):
         ask("items-graph", params)
+    snapshot_sets.hold(data, lambda q: api(live, "items", {"since": [since], **q}))   # the sets its panels link to
     for it in ((data.get("items") or {}).get("items") or [])[:40]:
         got = api(live, f"items/{_q(it['id'])}", {"since": [since]})
         if got is not None:
