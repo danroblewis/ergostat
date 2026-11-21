@@ -360,7 +360,7 @@ Continued, round 3, after the factory's fast suites: main c5eb54e6 was already m
 HEAD, no conflict markers in `dev/bin/pools.py` or `dev/model/pools.yaml`). The `unit` tail given shows one `F` at
 about 19% and is cut off at about 61%, with no pytest summary and no `suite_watch` JSON line, so it names no test.
 This session refused the whole-suite run (`uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8
---dist worksteal -p no:cacheprovider`), a shell loop over single files, and the shell for the commit of this note. So
+--dist worksteal -p no:cacheprovider`), and a shell loop over single files (each file was then run by its own command). So
 the failing test is still not named, and no code was changed blindly. Every test file that loads `dev/bin`, `dev/model`
 or the pools passes here: `tests/test_factory.py` 132 passed, 2 skipped; `test_factory_knowledge`,
 `test_factory_resources`, `test_factory_sessions`, `test_factory_times` and `test_backlog` 116 passed; `test_queue`,
