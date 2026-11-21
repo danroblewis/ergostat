@@ -444,3 +444,14 @@ nothing in `dev/bin/`, is in `git diff main...HEAD`. So main stalls the same way
 reaches a spawning test after one of them. Per lesson-13 it is not fixed here. Its own gap should use
 `monkeypatch.syspath_prepend` in those five places (as `tests/test_factory.py:439` already does), or rename
 `dev/bin/queue.py`. Until then this branch's `unit` run can't pass, whatever the branch contains.
+
+Round 10 (the merge of main 07f9b250, which conflicted in `ergostat/leases/dispatch.py`). Both sides were kept. The
+`Dispatcher` fields are main's `mine` and `unread` plus the branch's `hold`. A block's room in `tick` is now
+`min(pool_now(b), cap) − in flight`: main's pool (`pool:` or its stock's level, `pool_now`), capped by the state in
+force. So a state still never raises a block's pool. Merge commit 83ed9b9b. No other code changed, so the size is
+unchanged (453 net lines). Tests run after the merge: `tests/test_operating.py` and `tests/test_cli_fallback.py`
+(50 passed), `tests/test_pool_now.py` (25 passed), `tests/test_leases.py` (37 passed), and ruff is clean. In its
+first run, `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` failed once. It
+passed alone, and the whole file passed when run again. It is main's test, its model declares no `operating:`, and
+it is not in this branch's diff, so it is reported here and not fixed (lesson-10, lesson-13). Not run by the
+implementor: the full unit suite and the four browser files. No demo is touched, so `demo_check` is not needed.
