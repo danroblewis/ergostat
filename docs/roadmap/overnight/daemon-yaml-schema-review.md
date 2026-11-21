@@ -174,5 +174,3 @@ Built, round 1. Nothing is left in the definition except the suites, which the f
   tighter than a loaded CLI start, or the watchdog has a real first-spawn race. Which one it is belongs in a gap of its
   own. I could not re-run the test alone to confirm, because this session refused to run commands. The factory's
   rerun, or a run of that one file, will show whether it fails without load.
-- **Not committed by me.** This note was written to the working tree. The sandbox refused `git commit`, so it is
-  left uncommitted for the factory to commit.
