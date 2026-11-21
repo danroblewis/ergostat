@@ -191,3 +191,33 @@ is run alone:
   which this gap does not touch.
 
 No code was changed for this round: no failure traced to this branch was found.
+
+Round 2: main (e1e778c1) is merged in. It conflicted in `ergostat/numbers/measures.py` and `ergostat/spec/ir.py`,
+where main's `ergostat.upkeep.*` measures sat next to this branch's `ergostat.budget.left`. Both were kept: the
+`budget.` and `upkeep.` short prefixes, both lists of names in `measure` and `all_of`, and `RunBudget` beside
+`UPKEEP`. Net lines outside `tests/` and `docs/`: 347 of the 380.
+
+The two review findings, both blocking:
+
+- A malformed cost (NaN, ±inf, negative) was taken as real. `_charge` now counts a cost as known only when it is
+  finite and at least 0 (`_known`). Any other cost that a run reports is unknown and is charged the run's reserve,
+  or `max-cost` when the run has none (a free run, or a start more than 7 days old). This holds for `agent.ran`,
+  `agent.failed` and `budget.closed`. SPEC §9.9 says so. Test: `test_malformed_cost_counts_unknown`, run with NaN,
+  -5, inf and -inf. In each case the fold charges the reserve, the permit refuses a run that would go over, and a
+  free run's malformed cost is charged `max-cost`.
+- `recover` read the record before it copied `OPEN`. It now copies `OPEN` first, under the flock, and then reads.
+  A start cannot get in between, because starts take the flock. An end that comes after the copy is seen by the read.
+  SPEC §9.9 says so. Test: `test_recover_copies_open_before_reading` wraps `read` so that the run writes its end and
+  leaves `OPEN` just after the read returns. That is the gap in the old order. The test asserts that no
+  `budget.closed` is written and that the run is charged its real 0.1.
+
+I broke the code by hand to check that each new test fails. With `_known` reduced to "is a number", all four
+`test_malformed_cost_counts_unknown` cases fail. With the copy moved back after the read,
+`test_recover_copies_open_before_reading` fails. Both changes were then undone.
+
+Tests run, one file or batch at a time: `tests/test_run_budget.py` (30 passed),
+`test_upkeep_template.py` with `test_run_costs.py` and `test_rollup.py` (75 passed), `test_item_index.py` (55 passed),
+`test_resilience.py` with `test_messages.py` (60 passed), and `test_runner_and_state.py` (43 passed). ruff is clean.
+I did not run the whole unit suite or the four browser files here. The factory runs them under the watchdog after this
+round. A shell loop that ran several test files in turn was refused (Bash, "don't ask" mode). I ran those files as
+separate commands instead.

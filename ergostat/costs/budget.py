@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import math
 import os
 import time
 
@@ -59,15 +60,24 @@ def _number(v) -> bool:
     return isinstance(v, int | float) and not isinstance(v, bool)
 
 
+def _known(v) -> bool:
+    """A cost that can be counted: a finite number, not below 0 (NaN, ±inf or a negative from a run's own output
+    is unknown)."""
+    return _number(v) and math.isfinite(v) and v >= 0
+
+
 def _charge(e: dict, reserve: float | None, cap: float) -> float:
     """One end's charge: its known cost; unknown, its reserve (0 for a free run or one whose start is not in the
-    window), or ``max-cost`` when it used AI at no known price, or a close of unknown cost with no reserve."""
+    window), or ``max-cost`` when it used AI at no known price, or a close of unknown cost with no reserve. A cost
+    reported but malformed is unknown, charged the reserve, or ``max-cost`` when there is none."""
     d = e.get("data") or {}
     if e["type"] == CLOSED:
-        return float(d["cost_usd"]) if _number(d.get("cost_usd")) else reserve or cap
-    n = cr.numbers(e)
-    if n["cost_usd"] is not None:
-        return float(n["cost_usd"])
+        return float(d["cost_usd"]) if _known(d.get("cost_usd")) else reserve or cap
+    c = cr.numbers(e)["cost_usd"]
+    if _known(c):
+        return float(c)
+    if c is not None:
+        return reserve or cap
     return cap if isinstance(d.get("ai"), dict) else reserve or 0.0
 
 
@@ -171,8 +181,8 @@ def recover(p, spec, every: float = RECOVER_EVERY) -> list[str]:
     _recovered[key] = mono
     closed = []
     with held(p):
+        mine, me = OPEN.copy(), os.getpid()        # (before the read: a run that ends after the copy is seen ended)
         runs, ends = read(p, time.time())
-        mine, me = OPEN.copy(), os.getpid()
         for run, v in runs.items():
             if run in ends or v["reserve"] <= 0 or (v["pid"] == me and run in mine) or (v["pid"] != me and alive(v["pid"])):
                 continue

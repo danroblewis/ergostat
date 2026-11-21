@@ -2758,12 +2758,15 @@ spends more is charged what it spent, and nothing stops it as it runs (that is T
   known `cost_usd`; else its reserve, or `max-cost` when it used AI at no known price; a run with several ends, the
   largest. An end whose run has no reserving event in the 7 days (a free run, a run started more than 7 days ago,
   and the starts outside the permit below) counts its known cost, `max-cost` when it used AI at no known price, and
-  otherwise 0.
+  otherwise 0. A cost is known only when it is a finite number of at least 0. A cost that is reported but is NaN,
+  infinite or negative (it comes from the run's own output) is unknown: it is charged the run's reserve, or
+  `max-cost` when the run has none.
 - **Closing what has no end.** `budget.closed` with cost null (charged its reserve for 24 hours from the close) is
   written by recovery, under the same lock, for each reserving run with no end whose recorded `pid` is not alive, or
   is this process's but no longer among the runs it has open. Recovery runs when the engine starts and on the
   dispatcher's clock, at most once a minute, and reads the open runs without taking the engine's or dispatcher's
-  locks. A run is listed as open under the lock, before its event is written. A run that `run_block` raises out of
+  locks. It copies the open runs before it reads the record, so a run that ends between the two is seen as ended.
+  A run is listed as open under the lock, before its event is written. A run that `run_block` raises out of
   after its `agent.started` is closed there, cost null. A take the item fold refused (another holder won) is closed
   with `cost_usd: 0`: nothing ran.
 - **`ergostat.budget.left`** is daily − spent − reserved. With no `budget:`, or a record that cannot be read, it is

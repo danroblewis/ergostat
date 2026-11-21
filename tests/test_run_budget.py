@@ -366,6 +366,25 @@ def test_end_without_cost_charges_reserve(tmp_path):
     assert budget.fold(p, spec) == (3.0, 0.0), "two ends: the larger charge"
 
 
+@pytest.mark.parametrize("bad", [float("nan"), -5.0, float("inf"), float("-inf")])
+def test_malformed_cost_counts_unknown(tmp_path, bad):
+    """Guards budget._known in _charge: a cost from a run's own output that is NaN, infinite or negative is unknown,
+    charged its reserve (max-cost for a run with none), so the permit still refuses."""
+    p = project(tmp_path)                                        # daily 1.5, max-cost 1
+    spec = p.model.spec
+    started(p, "a", reserve=1.0)
+    ended(p, "a", {"ai": {"cost_usd": bad, "cost": "reported"}})
+    assert budget.fold(p, spec) == (1.0, 0.0)
+    run = uuid.uuid4().hex
+    got, why = budget.permit(p, spec, spec.blocks["solo"], lambda more: started(p, run, pid=more["pid"]), run)
+    assert got is None and "spent" in why and not [e for e in reserving(p) if e["id"] == run]
+    for i, (end, data) in enumerate([("agent.ran", {"cost_usd": bad}), ("budget.closed", {"cost_usd": bad})]):
+        r = f"free{i}"
+        started(p, r, reserve=0.0, block="free")
+        p.events.add(end, item="free", source="ergostat", causedby=r, data={"run": r, **data})
+    assert budget.fold(p, spec) == (3.0, 0.0), "a free run's malformed cost: max-cost"
+
+
 def test_unended_reserve_does_not_age_out(tmp_path):
     p = project(tmp_path, bud="budget: {daily: 10, max-cost: 1}")
     spec, now = p.model.spec, time.time()
@@ -438,6 +457,28 @@ def test_permit_lists_the_run_under_the_lock(tmp_path):
     ts[0].join(10)
     budget.OPEN.discard(run)
     assert got and done == [[]], "the run was open when recovery read it"
+
+
+def test_recover_copies_open_before_reading(tmp_path, monkeypatch):
+    """Guards the order in budget.recover: OPEN is copied before the record is read, so a run of this process that
+    writes its end and leaves OPEN in between is seen ended, not closed at its reserve."""
+    p = project(tmp_path, bud="budget: {daily: 10, max-cost: 1}")
+    spec = p.model.spec
+    started(p, "r")
+    budget.OPEN.add("r")
+
+    def read_then_end(*a, real=budget.read):                     # the run ends right after the read, as engine._ran
+        got = real(*a)                                           # does it: its end, then out of OPEN
+        ended(p, "r", {"ai": {"cost_usd": 0.1}})
+        budget.OPEN.discard("r")
+        return got
+    monkeypatch.setattr(budget, "read", read_then_end)
+    try:
+        assert budget.recover(p, spec, every=0) == []
+    finally:
+        budget.OPEN.discard("r")
+        monkeypatch.undo()
+    assert not evs(p, "budget.closed") and budget.fold(p, spec) == pytest.approx((0.1, 0.0))
 
 
 def test_run_block_crash_closes_reserve(tmp_path, monkeypatch):
