@@ -3615,6 +3615,22 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   equation) are said beside the verdict and count against it only when nothing else moves. The judge takes a redesign
   up at once: its scorecard worked out again on the record as it is, passed when better, failed otherwise; the owner
   sees the scorecard either way (the review queue; one judged not better is a model-change item, on the Items page).
+  Every judging stamps what it read (`scored`: a **mark** of the record the scorecard reads, the store's last seq, for
+  order only, and when) and clears `rescoring` and `rescore_error`, so a redesign made again under its id, or carried,
+  keeps neither, nor an old stamp. The mark (`ergostat/numbers/redesign_record.py`) is model-wide and an allowlist: the
+  newest seq of the events of the model's own kinds' items, of its own blocks' runs and of its own valves'
+  openings; the latest reading of each of its own parts' sensors; and the model itself (its dynamics, control, sensors,
+  words, units and kinds). The judge's, the redesigner's and modelling's own events, and a `once` template's parts, do
+  not move it. It is compared for equality only, never by age. **A redesign waiting for the owner is scored again at
+  most once every 30 minutes, and only when the record it reads has moved**, one a pass (first judgings and the write
+  aside), least recently scored first; still better, it stays passed with the new scorecard; else it is failed, "no
+  longer better on the record as it is now", and its system rests as after any failed redesign. Sensors read every
+  few seconds move the mark nearly every pass, so in practice a waiting redesign is scored again about every 30 minutes,
+  and most promoted ones are scored again when they are written. A mark that cannot be read fails closed: every passed
+  redesign says `rescoring` with why (the review queue shows it), written once, not each pass; nothing is scored or
+  written that pass, and the next pass that can read it scores them again at once, one a pass. **A promoted redesign is
+  written only on a scorecard of the record as it is**: in one hold of the proposals' lock it is read again, its mark
+  held against the record's, scored again when they differ (or it says `rescoring`), and written only if still better.
 - **Never written without the owner** unless the class is promoted by name: `accept: {redesign: auto}`; `accept: auto`
   for every kind leaves it the owner's (promoted and passed, it is written first, alone in its pass; one that cannot be
   written is superseded, and the pass goes on). Even promoted, a redesign that takes a part away, rewires a kind's chain

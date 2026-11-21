@@ -131,7 +131,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `ergostat.model-change` of kind `redesign`, drawn dashed on both diagrams, never written without the owner unless
   `accept: {redesign: auto}` (and never one that removes, rewires or changes control). Runs on its own a system at a
   time when it is due (the owner's decision, 2026-11-19: `when: auto` by default), or when the owner asks. Open: removed parts are named, not drawn as ghosts; splitting a model into systems is
-  in the guide but not scored; the judge scores a redesign on the record it has when it takes it up.
+  in the guide but not scored. (A waiting redesign is scored again as the record it reads moves, and a promoted one
+  written only on a scorecard of the record as it is: `redesign-rescored-as-the-record-moves`.)
 - **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
   between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
