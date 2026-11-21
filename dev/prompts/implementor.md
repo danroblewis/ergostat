@@ -34,7 +34,8 @@ answer questions: take the most reversible option and say so in the definition f
    stopped" rather than building it here. Build exactly what it asks, nothing more: the owner's
    rule is to build only what was asked.
 2. Keep within the size budget: {budget} net lines of code outside `tests/`, `docs/` and `dev/`. An overrun needs a
-   written reason in the definition file.
+   written reason in the definition file, appended under "Where it stopped" (the size gate reads only what is
+   appended; an edit to the definition's text counts as no reason).
 3. Write the acceptance tests it names. Run the tests you touch one file at a time
    (`uv run python -m pytest -q tests/test_x.py`); never the whole suite in parallel yourself: the factory runs the
    fast suites after you, under the watchdog. A failure on main is reported, not fixed (lesson 13): a test that

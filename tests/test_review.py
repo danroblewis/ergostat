@@ -692,3 +692,62 @@ def test_the_page_api_lists_the_queue_simulates_and_accepts_only_what_was_shown(
     assert post(live, f"proposals/{e['id']}/accept", 3600.0, {"expect": ["nope"]})[0] == 409
     code, got = post(live, f"proposals/{e['id']}/accept", 3600.0, {"expect": [e["diff"]["hash"]]})
     assert code == 200 and got["status"] == "accepted"
+
+
+# The factory reviewer's size gate (dev/bin/review.py): an overrun's reason in the definition's 'Where it stopped'.
+
+DEF_REL = "docs/roadmap/overnight/g.md"
+FIRST = "# g\n\n## Definition of done\n\nIt works.\n\n## Size budget\n\n30 net lines\n"
+
+
+@pytest.fixture
+def factory_review(monkeypatch):
+    import importlib.util
+    import sys
+    from pathlib import Path
+    bin_ = Path(__file__).resolve().parent.parent / "dev" / "bin"
+    had = set(sys.modules)
+    monkeypatch.syspath_prepend(str(bin_))
+    spec = importlib.util.spec_from_file_location("factory_review_size", bin_ / "review.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    yield m
+    for k in set(sys.modules) - had:                                            # (fac, agents, ... beside it)
+        sys.modules.pop(k, None)
+
+
+def head_definition(tmp_path, text: str):
+    f = tmp_path / DEF_REL
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+    return tmp_path
+
+
+def test_an_overrun_reason_in_where_it_stopped_is_seen(tmp_path, factory_review):
+    wt = head_definition(tmp_path, FIRST + "\n## Where it stopped\n\nOver budget by 12 lines; the reason: the lock.\n")
+    first = FIRST.strip()                                                       # (as fac.git returns it)
+    assert factory_review.size_gate(42, 30, first, wt, DEF_REL) == []
+    assert factory_review.size_gate(30, 30, first, wt, DEF_REL) == []           # within budget: no reason needed
+
+
+def test_an_overrun_with_no_reason_appended_still_blocks(tmp_path, factory_review):
+    first = FIRST.strip()
+    for text in (FIRST, FIRST + "\n## Where it stopped\n\nAll built.\n"):
+        got = factory_review.size_gate(42, 30, first, head_definition(tmp_path, text), DEF_REL)
+        assert len(got) == 1 and "no reason written" in got[0]
+        assert DEF_REL in got[0] and "Where it stopped" in got[0]               # says where it was looked for
+    missing = tmp_path / "elsewhere"                                            # a HEAD file that cannot be read
+    assert factory_review.size_gate(42, 30, first, missing, DEF_REL)            # counts as no reason (lesson-3)
+    (missing / DEF_REL).mkdir(parents=True)
+    assert factory_review.size_gate(42, 30, first, missing, DEF_REL)
+
+
+def test_a_reason_in_an_edited_definition_does_not_count(tmp_path, factory_review):
+    first = FIRST.strip()
+    edited = FIRST.replace("It works.", "It works. Over budget, for a reason.")
+    wt = head_definition(tmp_path, edited + "\n## Where it stopped\n\nOver budget: the reason is above.\n")
+    assert factory_review.appended(wt, DEF_REL, first) == ""
+    assert factory_review.size_gate(42, 30, first, wt, DEF_REL)                 # the edit gains it nothing
+    budget = FIRST.replace("30 net lines", "300 net lines") + "\n## Where it stopped\n\nOver: reason.\n"
+    assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, budget), DEF_REL)
+    assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, FIRST + "\nreason: over\n"), DEF_REL) == []

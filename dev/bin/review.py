@@ -61,6 +61,30 @@ def gates(cfg: dict, wt: Path, branch: str, base: str, continued: bool = False,
     return found, first or now
 
 
+def appended(wt: Path, rel: str, first: str) -> str:
+    """What the definition at the branch's HEAD (``wt/rel``) adds after its first-committed text ``first``: where the
+    house rules put an overrun's reason ('Where it stopped'). A HEAD file that cannot be read, or that does not start
+    with the first text (an edited definition), adds nothing, so a branch cannot write its reason by editing."""
+    try:
+        now = (wt / rel).read_text()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    first = first.strip()
+    return now.lstrip()[len(first):] if first and now.lstrip().startswith(first) else ""
+
+
+OVER_REASON = re.compile(r"over.*reason|reason.*over", re.I | re.S)
+
+
+def size_gate(net: int, budget: int, first: str, wt: Path, rel: str) -> list[str]:
+    """The size gate: an overrun blocks unless a reason for it is written in the definition as first committed
+    (``first``, which also gave the budget) or in what the branch's HEAD appended to it (appended())."""
+    if net <= budget or OVER_REASON.search(first) or OVER_REASON.search(appended(wt, rel, first)):
+        return []
+    return [f"size: {net} net lines of core code against a budget of {budget}, with no reason written (looked for in "
+            f"{rel} as first committed and in what its HEAD appends to that, the 'Where it stopped' section)"]
+
+
 def verdict(said: str) -> dict:
     blocks = VERDICT.findall(said)
     if not blocks:
@@ -137,11 +161,11 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         raise RuntimeError(f"{gap['id']} has no built head to review")
     home, wt = agents.clone(cfg, branch, "reviewer", at=head)
+    rel = fac.definition_file(gap)
     blocking, definition = gates(cfg, wt, branch, base, continued=bool(f.get("continues")),
-                           built_main=str(f.get("built_main") or ""), rel=fac.definition_file(gap))
+                                 built_main=str(f.get("built_main") or ""), rel=rel)
     net, budget = fac.net_lines(wt, base, "HEAD"), fac.budget_of(definition)
-    if net > budget and not re.search(r"over.*reason|reason.*over", definition, re.I | re.S):
-        blocking.append(f"size: {net} net lines of core code against a budget of {budget}, with no reason written")
+    blocking += size_gate(net, budget, definition, wt, rel)
     diff = fac.git(wt, "diff", f"{base}...HEAD")
     if len(diff) > brief.DIFF_MOST:
         diff = (fac.git(wt, "diff", "--stat", f"{base}...HEAD") + "\n\n(the diff is too long to give whole: read it"
