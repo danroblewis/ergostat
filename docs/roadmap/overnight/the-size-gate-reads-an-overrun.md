@@ -39,3 +39,13 @@ Choices made with nobody to ask (the most reversible ones):
   such a branch needs to add one `Overrun reason:` line.
 
 All changes are under dev/ and tests/, so 0 net lines count against the 30-line budget.
+
+After the fast suites: the unit suite failed with one F, and its tail does not name the test. The cause found in
+this branch: the size-gate tests' fixture loaded dev/bin/review.py and left dev/bin on sys.path and fac, agents,
+brief, knowledge, parks and pools in sys.modules. fac fixes its MODEL to the cwd at import, so a later test in the
+same xdist worker could pick up those stale modules (test_factory.py's `sys.modules.setdefault("fac", ...)`, for
+one). The fixture now puts sys.path back and takes out only the dev/bin modules it added
+(tests/test_review.py::test_the_size_gate_tests_leave_no_factory_module_behind; it fails with the cleanup
+removed). The F was not reproduced here: tests/test_review.py with tests/test_factory.py, in either order, plus
+tests/test_backlog.py and tests/test_outside_experiments.py, all pass alone. If the next unit run still fails, that
+failure needs its name before anything more can be said.

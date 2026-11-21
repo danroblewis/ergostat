@@ -5,11 +5,14 @@ each kind of structural proposal from a crafted model; the command line's same f
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import re
+import sys
 import textwrap
 import time
+from pathlib import Path
 
 import pytest
 
@@ -700,21 +703,44 @@ DEF_REL = "docs/roadmap/overnight/g.md"
 FIRST = "# g\n\n## Definition of done\n\nIt works.\n\n## Size budget\n\n30 net lines\n"
 
 
+FACTORY_BIN = Path(__file__).resolve().parent.parent / "dev" / "bin"
+
+
+@contextlib.contextmanager
+def factory_review_module():
+    """dev/bin/review.py with its neighbours importable as the factory runs it: dev/bin is appended to sys.path, as
+    tests/test_agents_drop.py does (prepended, its queue.py would shadow the standard library's queue). Both are put
+    back after: sys.path as it was, and only the dev/bin modules this import added (fac, agents, brief, ...: fac fixes
+    its MODEL to the cwd at import) taken out of sys.modules, so no later test in the worker gets them in place of its
+    own; a module already there before is left as it was."""
+    import importlib.util
+    path, before = list(sys.path), set(sys.modules)
+    sys.path.append(str(FACTORY_BIN))
+    try:
+        spec = importlib.util.spec_from_file_location("factory_review_size", FACTORY_BIN / "review.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        yield m
+    finally:
+        sys.path[:] = path
+        for name in set(sys.modules) - before:                                # (dev/bin's own, never the stdlib's)
+            if Path(getattr(sys.modules[name], "__file__", None) or "/").parent == FACTORY_BIN:
+                del sys.modules[name]
+
+
 @pytest.fixture
 def factory_review():
-    """dev/bin/review.py with its neighbours importable as the factory runs it: dev/bin is appended to sys.path, as
-    tests/test_agents_drop.py does (prepended, its queue.py would shadow the standard library's queue for every later
-    import in the worker), and nothing is taken out of sys.modules after (other tests in the worker share them)."""
-    import importlib.util
-    import sys
-    from pathlib import Path
-    bin_ = Path(__file__).resolve().parent.parent / "dev" / "bin"
-    if str(bin_) not in sys.path:
-        sys.path.append(str(bin_))
-    spec = importlib.util.spec_from_file_location("factory_review_size", bin_ / "review.py")
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m
+    with factory_review_module() as m:
+        yield m
+
+
+def test_the_size_gate_tests_leave_no_factory_module_behind():
+    before = set(sys.modules)
+    with factory_review_module() as m:
+        assert m.size_gate and str(FACTORY_BIN) in sys.path and "fac" in sys.modules
+    left = [n for n in set(sys.modules) - before if Path(getattr(sys.modules[n], "__file__", None) or "/").parent
+            == FACTORY_BIN]
+    assert left == [] and str(FACTORY_BIN) not in sys.path
 
 
 def head_definition(tmp_path, text: str):
