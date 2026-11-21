@@ -164,14 +164,18 @@ function avoidCore(A) {
       }
       // the lines in groups (spec.groups: a line's group, else one for all): a crossing is weighed only between lines
       // of one group, which is most of the routing's time, and grows fast with how many lines there are together
+      // (a group spec.penalties names, "" past its cap, takes that crossing penalty: 0, routed free)
       const groups = {};
       for (const c of spec.conns) (groups[spec.groups?.[c.id] ?? ""] ||= []).push(c);
-      for (const list of Object.values(groups)) {
+      prof.shared = groups[""]?.length || 0; prof.free = 0;
+      for (const [name, list] of Object.entries(groups)) {
         const router = new A.Router(A.RouterFlag.OrthogonalRouting);
+        const penalty = spec.penalties?.[name] ?? spec.crossingPenalty;
+        if (spec.penalties?.[name] === 0) prof.free += list.length;
         router.setRoutingParameter(P.shapeBufferDistance, 5);
         router.setRoutingParameter(P.idealNudgingDistance, 7);
         router.setRoutingParameter(P.segmentPenalty, 60);
-        router.setRoutingParameter(P.crossingPenalty, spec.crossingPenalty);
+        router.setRoutingParameter(P.crossingPenalty, penalty);
         router.setRoutingParameter(P.fixedSharedPathPenalty, 0);
         router.setRoutingParameter(P.portDirectionPenalty, 100);
         router.setRoutingOption(O.nudgeOrthogonalSegmentsConnectedToShapes, true);
@@ -379,9 +383,9 @@ function avoidLoad() {                                  // once: the worker, els
 }
 
 const PIN = { IN: 3, OUT: 4, STEM: 5, TELL: 6, PIPE: 7, ANY: 8, NET: 1000, PORT: 100 };   // pin classes (NET + i: a part's i-th net)
-const GROUP_OVER = 150, GROUP_CAP = 100, BENT = 5;                // lines a view has past which they are routed in groups; the
-                                                         // most the lines between systems take with them; the bends
-                                                         // past which a line is routed again, free
+const GROUP_OVER = 150, BENT = 5;                        // lines a view has past which they are routed in groups (the most
+                                                         // the lines between systems take with them: GROUP_CAP, in
+                                                         // routeparts.js); the bends past which a line is routed again, free
 const PIPE_ALONG = [0.15, 0.3, 0.5, 0.7, 0.85];   // where pipes may meet a stock's sides: apart enough (9px on a 44px stock) for a track each
 const CROSSING_PENALTY = (lines) => (lines <= 100 ? 200 : lines <= 600 ? 50 : 20);   // a crossing costs; less where there are
                                                                                       // many lines: its search is most of the time
@@ -598,13 +602,17 @@ function avoidSpec(lay, g) {
       total += size[sys];
       for (const id in groups) if (groups[id] === sys) groups[id] = "";
     }
-    // (a net, the lines leaving one point or reaching one, is put in order as one: never split between groups)
+    // (a net, the lines leaving one point or reaching one, is put in order as one: not split between systems' groups;
+    // the parting below may split one between "" and one group, at a hub, a band's edge or a part of two groups:
+    // routeparts.js (ii))
     const nets = {};
     for (const c of conns) { const k = edgeOf[c.id].kind; (nets[`s|${k}|${c.s}`] ||= []).push(c.id); (nets[`t|${k}|${c.t}`] ||= []).push(c.id); }
     for (const ids of Object.values(nets)) if (new Set(ids.map((id) => groups[id])).size > 1) for (const id of ids) groups[id] = "";
   }
+  // (a group past GROUP_CAP parted by where its parts lie, "" too (a one-system view's lines); "" past its cap routed free)
+  const parted = groups && partGroups(conns, Object.fromEntries(shapes.map((s) => [s.id, [s.x + s.w / 2, s.y + s.h / 2]])), groups);
   // (in the dynamics view a flow's pipe reads best short and straight: a crossing there costs less than a long way round)
-  return { shapes, conns, flows, groups, bent: BENT, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
+  return { shapes, conns, flows, groups: parted && parted.groups, ...(parted?.free ? { penalties: { "": 0 } } : {}), bent: BENT, crossingPenalty: sd ? Math.min(80, CROSSING_PENALTY(conns.length) * (conns.length > 150 ? 0.6 : 1)) : CROSSING_PENALTY(conns.length), nudgeCommon: true };
 }
 
 /* the lines routed: in the worker (the page keeps ELK's lines meanwhile and redraws when they come), or on

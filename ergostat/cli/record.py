@@ -69,17 +69,13 @@ def cmd_event(args) -> int:
 
 def cmd_item(args) -> int:
     from ..spec import items as its
+    from ..spec.item_sets import BadSet
     search = getattr(args, "search", None)
-    if search is not None:
-        if args.name or getattr(args, "at", None):
-            print("--search lists the items as they are now: leave out NAME and --at", file=sys.stderr)
-            return 2
-        try:
-            search = its.words_of(search)
-        except its.BadSearch as e:
-            print(f"--search: {e}", file=sys.stderr)
-            return 2
-        args.n = max(1, min(args.n, its.LISTED))
+    if search is not None and (args.name or getattr(args, "at", None)):
+        print("ergostat item --search lists the items as they are now: leave out NAME and --at", file=sys.stderr)
+        return 2
+    if args.near is not None or args.path_to is not None or args.about_item:
+        return _item_graph(args)
     if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
         from ..calls.client import Refused
         from . import fast
@@ -93,8 +89,12 @@ def cmd_item(args) -> int:
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
     if not args.name:
-        got = its.listing(p.events, spec, kind=args.kind, state=args.state, search=search,
-                          n=args.n if search else its.LISTED)
+        args.n = max(1, min(args.n, its.LISTED))
+        try:
+            got = its.listing(p.events, spec, kind=args.kind, state=args.state, search=search)
+        except BadSet as e:
+            print(str(e), file=sys.stderr)
+            return 2
         if args.json:
             return out_json(got)
         for k in got["kinds"]:
@@ -106,6 +106,7 @@ def cmd_item(args) -> int:
         rows = [[i["id"], i["kind"] or "-", i["state"] or "-", *[str(i["fields"].get(f, ""))[:30] for f in show],
                  str(i["events"]), i["latest"], ago(i["entered"] or i["first"]), ago(i["last"])] for i in got["items"][:args.n]]
         print(table(["ITEM", "KIND", "STATE", *[f.upper() for f in show], "EVENTS", "LATEST", "IN STATE SINCE", "LAST"], rows,
+                    f"no item's fields contain every word of {search!r}" if search is not None else
                     "no items yet: an item is what events with an id like ticket/12 are about "
                     "(a block prints {\"event\": \"ticket.opened\", \"item\": \"ticket/12\"})"))
         if got["total"] > args.n:
@@ -145,6 +146,30 @@ def cmd_item(args) -> int:
     print()
     for e in d["record"][-args.n:]:
         print(event_line(e))
+    return 0
+
+
+def _item_graph(args) -> int:
+    """``item ID --near [N]``, ``item A --path B``, ``item ID --about`` (``spec/itemgraph.py``), as the record is now."""
+    from ..spec import itemgraph as ig
+    asked = sum(x not in (None, False) for x in (args.near, args.path_to, args.about_item))
+    if getattr(args, "at", None) or getattr(args, "history", None) is not None or not args.name or asked > 1:
+        print("--near, --path, --about: one, of an item, as the record is now (never with --at or --history)", file=sys.stderr)
+        return 2
+    p = open_project(args)
+    ev, spec, n = p.events, getattr(p.model, "spec", None), args.name
+    try:
+        got = ig.near(ev, spec, n, args.near) if args.near is not None else \
+            ig.path(ev, spec, n, args.path_to) if args.path_to is not None else ig.about(ev, spec, n)
+    except (ig.Unknown, ig.Bad) as e:
+        print(f"{n}: {e.args[0]}", file=sys.stderr)
+        return 2
+    if args.json:
+        return out_json(got)
+    for x in got.get("steps") or got.get("items") or []:     # from relation to, or id distance (via) / how relation-or-field
+        print("  " + "  ".join(" ".join(map(str, v.values())) if isinstance(v, dict) else str(v) for v in x.values()))
+    print(c(got.get("says") or f"{len(got['items'])} items" + (f", capped at {got['cap']}" if got["capped"] else ""),
+            "warn" if got["capped"] else "dim"))
     return 0
 
 

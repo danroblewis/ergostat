@@ -24,7 +24,6 @@ from .. import state as st
 from ..reports.crash import noted as crash_noted
 from ..series import off_stretches
 from ..spec.item_sets import BadSet
-from ..spec.items import BadSearch
 
 STATIC = Path(__file__).parent / "static"
 GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)    # the client went away mid-answer
@@ -406,6 +405,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
+        from ..spec import itemgraph as ig
+        asked = [k for k in ("near", "path", "about") if one(k) is not None]
+        if one("at") or len(asked) != 1:
+            raise BadSet("items-query: one of near=ID, path=A&to=B or about=ID, as the record is now (never at=)")
+        ev, s = p.events, getattr(m, "spec", None)
+        try:
+            return ig.near(ev, s, one("near"), one("depth")) if asked == ["near"] else \
+                ig.path(ev, s, one("path"), one("to")) if asked == ["path"] else ig.about(ev, s, one("about"))
+        except ig.Unknown:
+            return None
+        except ig.Bad as e:
+            raise BadSet(str(e)) from e
     at = None
     if one("at"):
         try:
@@ -471,9 +483,13 @@ def _answer(live: Live, path: str, q: dict, project=None):
             g = graph.control(m, snap, graph.select(m), graph.readings(p, at))
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
+            reads = None
+            if getattr(m.spec, "remotes", None):     # when what remotes' boxes show last read (SPEC §4c)
+                from ..remote.measures import read_times
+                reads = read_times(p, m.spec, snap["at"])
             if sd:
-                return {**finish(fold(dynamics(g, m), m, want, system)), "attention": att}
-            return {**fold(g, m, want, system), "attention": att}
+                return {**finish(fold(dynamics(g, m), m, want, system, reads)), "attention": att}
+            return {**fold(g, m, want, system, reads), "attention": att}
         sel = graph.select(m, system, around, int(one("depth") or 1))
         g = graph.control(m, snap, sel, graph.readings(p, at))
         return {**(dynamics(g, m) if sd else g), "attention": att}
@@ -569,10 +585,16 @@ def _answer(live: Live, path: str, q: dict, project=None):
             return d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
+        if "search" in q:                         # the items whose fields hold every word, as now (SPEC §5a, Search)
+            if one("at"):
+                raise BadSet("search: answers as of now; leave out at")
+            if item_sets.asked(q) or one("alone"):           # never a filter silently dropped
+                raise BadSet("search: narrows by kind and one state only; leave out where, moved, through, followed, "
+                             "caused, alone and a list of states")
+            got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), n=n, offset=offset,
+                              search=one("search"))
+            return _as_listed(got, None, 0, bool(one("shown")))
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
-        words = its.words_of(one("search")) if "search" in q else None      # (SPEC §5a, *Search*): as of now
-        if words and (one("at") or want is not None and (item_sets.asked(q) or one("alone"))):
-            raise its.BadSearch("search= lists the items as they are now: it takes neither at= nor a set's filters")
         if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
             if one("alone"):                              # the side panel's list: the set, and nothing of the page
@@ -581,10 +603,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
                         "kinds": []}
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
-        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset,
-                          search=words)
+        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
         pk = int(one("per_kind") or 0)
-        if pk and not words and not one("kind") and not one("state") and spec is not None:   # each kind's newest
+        if pk and not one("kind") and not one("state") and spec is not None:   # each kind's newest, however busy the rest
             have = {}
             for i in got["items"]:
                 have[i.get("kind")] = have.get(i.get("kind"), 0) + 1
@@ -944,12 +965,11 @@ def handler(project):
             if who is None:                                # another site's name, or no login under a public one
                 return None
             if u.path.startswith("/api/"):
-                q = parse_qs(u.query)
-                if "search" in (blank := parse_qs(u.query, keep_blank_values=True)):
-                    q["search"] = blank["search"]         # a blank search is refused, not dropped (parse_qs drops it)
                 try:
+                    q = parse_qs(u.query)                   # (a blank search kept, to be refused: never "list all")
+                    q.update({"search": [""]} if "search" not in q and "search" in parse_qs(u.query, True) else {})
                     data = api(live, u.path.removeprefix("/api/"), q)
-                except (BadSet, BadSearch) as e:        # an Items filter that is not one: said, as the asker's
+                except BadSet as e:                     # an Items filter that is not one: said, as the asker's
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except Exception as e:                  # a broken request never takes the page down
                     crash_noted(live, e, "web")                # a report for the owner (SPEC §12m)

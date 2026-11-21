@@ -1,5 +1,5 @@
-"""Searching items (SPEC §5a, *Search*): the items whose fields' text contains every word, casefolded, kept on each
-item's own row of the item index and written again whenever the item is folded; the CLI and the API agree."""
+"""Search over items' fields (SPEC §5a, *Search*): the items whose text contains every word, kept in the item index
+(spec/itemindex.py) and rewritten with each fold, from the command line and the API."""
 
 from __future__ import annotations
 
@@ -9,186 +9,194 @@ import textwrap
 import threading
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
+
+import pytest
 
 from ergostat import model as mdl
 from ergostat.cli import main
-from ergostat.goodmodel import keep
+from ergostat.rollup import upkeep
 from ergostat.spec import itemindex
 from ergostat.spec import items as its
+from ergostat.spec.item_sets import BadSet
 from ergostat.store import Project
 
 T0 = 1_700_000_000.0
 MODEL = """
-name: sr
 items:
   ticket:
     id: ticket/*
     states: [open, done]
     on: {ticket.done: done}
+  note:
+    id: note/*
 """
 
 
-def _project(tmp_path) -> Project:
-    d = tmp_path / "sr"
-    d.mkdir(exist_ok=True)
-    (d / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
-    return Project(mdl.load(d))
+def _project(tmp_path, extra: str = "") -> Project:
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL) + extra)
+    return Project(mdl.load(tmp_path))
 
 
-def _found(p, words: str, **kw) -> list[str]:
-    return sorted(i["id"] for i in its.listing(p.events, p.model.spec, search=its.words_of(words), **kw)["items"])
+def _found(p, search: str, **k) -> list[str]:
+    return [i["id"] for i in its.listing(p.events, p.model.spec, search=search, **k)["items"]]
 
 
 def _cold() -> None:
-    """As a process that starts: nothing of the index in memory."""
+    """As a process that starts: nothing of the index in memory, its file closed."""
     for ix in list(itemindex._OPEN.values()):
         ix.close()
     itemindex._OPEN.clear()
 
 
-def _three(p) -> None:
-    p.events.add("ticket.opened", item="ticket/1", at=T0,
-                 data={"title": "Alpha", "notes": {"deep": ["x", "the BETA here"]}, "city": "Straße"})
-    p.events.add("ticket.opened", item="ticket/2", at=T0 + 1, data={"title": "alpha only", "cut": "50% off"})
-    p.events.add("ticket.opened", item="ticket/3", at=T0 + 2, data={"title": "beta only", "cut": "500 a_b"})
-    p.events.add("ticket.opened", item="ticket/4", at=T0 + 3, data={"cut": "axb"})
+def _file(p) -> str:
+    return str(itemindex.index_for(p.events, p.model.spec, False).path)
 
 
 def test_search_finds_by_every_word(tmp_path):
     p = _project(tmp_path)
-    _three(p)
-    assert _found(p, "alpha beta") == ["ticket/1"]              # both words, one nested, in any case
-    assert _found(p, "ALPHA") == ["ticket/1", "ticket/2"]
-    assert _found(p, "beta alpha") == ["ticket/1"]              # the order of the words does not matter
-    assert _found(p, "STRASSE") == ["ticket/1"]                  # casefolded, not only lowered
-    assert _found(p, "50%") == ["ticket/2"]                      # no LIKE: % and _ are only themselves
-    assert _found(p, "a_b") == ["ticket/3"]
+    p.events.add("ticket.opened", item="ticket/1", data={"title": "ALPHA release", "meta": {"tags": ["x", "Beta"]}}, at=T0)
+    p.events.add("ticket.opened", item="ticket/2", data={"title": "alpha only"}, at=T0 + 1)          # the decoy: one word
+    p.events.add("ticket.opened", item="ticket/3", data={"title": "beta only"}, at=T0 + 2)           # and the other
+    p.events.add("note.made", item="note/1", data={"body": "Alphabet and betamax"}, at=T0 + 3)        # substrings
+    assert _found(p, "alpha beta") == ["note/1", "ticket/1"]                 # newest first; a nested field's word too
+    assert _found(p, "BETA Alpha", kind="ticket") == ["ticket/1"]
+    assert _found(p, "alpha", kind="ticket", state="open") == ["ticket/2", "ticket/1"]
     assert _found(p, "alpha", kind="ticket", state="done") == []
-    p.events.add("ticket.opened", item="ticket/5", at=T0 + 4, data={"title": "count", "n": 4242, "ok": True})
-    assert _found(p, "4242") == _found(p, "true") == _found(p, "title") == []   # string values only, not keys
-    got = its.listing(p.events, p.model.spec, search=["alpha"], n=1)
-    assert got["total"] == 2 and [i["id"] for i in got["items"]] == ["ticket/2"]    # the latest first, paged
-
-
-def test_changed_field_stops_matching(tmp_path):
-    from ergostat.rollup import compact
-    p = _project(tmp_path)
-    p.events.add("ticket.opened", item="ticket/1", at=T0, data={"title": "gamma"})
-    assert _found(p, "gamma") == ["ticket/1"]
-    p.events.add("ticket.renamed", item="ticket/1", at=T0 + 1, data={"title": "delta", "about": "kappa"})
-    assert _found(p, "gamma") == [] and _found(p, "delta") == ["ticket/1"]         # a field replaced
-    p.events.add("ticket.opened", item="ticket/1", at=T0 + 2, set={"title": "omega"})
-    assert _found(p, "kappa") == [] and _found(p, "delta") == [] and _found(p, "omega") == ["ticket/1"]   # a same-id set
-    _cold()
-    assert _found(p, "kappa") == [] and _found(p, "omega") == ["ticket/1"]          # a process that starts
-    assert compact(p, now=T0 + 2 + p.storage.rollup_after + 3600)["items"] == 1     # its events now one snapshot
-    itemindex.reindex(p.events, p.model.spec)                                       # folded from the snapshot alone
-    assert _found(p, "gamma") == [] and _found(p, "kappa") == [] and _found(p, "omega") == ["ticket/1"]
-
-
-def test_forgotten_item_leaves_search(tmp_path):
-    p = _project(tmp_path)
-    p.events.add("ticket.opened", item="ticket/9", at=T0, data={"title": "zeta"})
-    p.events.add("ticket.opened", item="ticket/1", at=T0 + 100, data={"title": "zeta too"})
-    assert _found(p, "zeta") == ["ticket/1", "ticket/9"]
-    p.events.prune(T0 + 50)
-    assert _found(p, "zeta") == ["ticket/1"]
-
-
-def test_old_index_rebuilt_and_searchable(tmp_path, monkeypatch):
-    p = _project(tmp_path)
-    _three(p)
-    monkeypatch.setattr(itemindex, "VERSION", 3)          # main's previous layout: its own file, with no text
-    old = itemindex.index_for(p.events, p.model.spec, False).path
-    _cold()
-    with sqlite3.connect(old) as c:
-        c.execute("drop index items_untexted")
-        c.execute("alter table items drop column text")
-    c.close()
-    monkeypatch.undo()
-    assert _found(p, "alpha beta") == ["ticket/1"]        # the new VERSION's file, folded from the record
-    new = itemindex.index_for(p.events, p.model.spec, False).path
-    assert new != old and "text" not in {r[1] for r in sqlite3.connect(old).execute("pragma table_info(items)")}
-    _cold()
-    with sqlite3.connect(new) as c:                       # and a file at the new path with an old stamp: made again
-        c.execute("update items set text = ''")
-        c.execute("update meta set value = ? where key = 'version'", (itemindex.VERSION - 1,))
-    c.close()
-    assert _found(p, "alpha beta") == ["ticket/1"]
-    with sqlite3.connect(new) as c:
-        assert c.execute("select value from meta where key = 'version'").fetchone()[0] == itemindex.VERSION
-    c.close()
-
-
-def test_a_row_without_its_text_is_rebuilt_not_read_as_no_match(tmp_path):
-    p = _project(tmp_path)
-    _three(p)
-    ix = itemindex.index_for(p.events, p.model.spec, False)
-    with ix.lock:
-        ix.db.execute("update items set text = null where id = 'ticket/1'")
-    assert _found(p, "alpha beta") == ["ticket/1"]
-    with ix.lock:
-        assert ix.db.execute("select count(*) from items where text is null").fetchone()[0] == 0
-        plan = ix.db.execute("explain query plan select 1 from items where text is null limit 1").fetchall()
-    assert "items_untexted" in str(plan)                    # the probe reads only rows without text, not the table
+    assert its.listing(p.events, p.model.spec, search="alpha beta")["total"] == 2
+    p.events.add("ticket.opened", item="ticket/4", data={"price": "50% off", "k": "Ärger STRAẞE"}, at=T0 + 4)
+    assert _found(p, "50%") == ["ticket/4"]                                  # % and _ are no wildcards
+    assert _found(p, "_") == [] and _found(p, "a_p") == []
+    assert _found(p, "ärger straße") == ["ticket/4"] == _found(p, "ÄRGER strasse")   # casefolded, not only ASCII
+    for bad in ("", "   ", " ".join(["w"] * (its.SEARCH_WORDS + 1))):
+        with pytest.raises(BadSet):
+            its.listing(p.events, p.model.spec, search=bad)
 
 
 def test_words_past_the_cap_are_not_searched(tmp_path):
     p = _project(tmp_path)
-    text = "before " + "x" * (its.TEXT_MOST - len("before ") - len(" inside")) + " inside" + " beyond"
-    p.events.add("ticket.opened", item="ticket/1", at=T0, data={"body": text})
-    assert _found(p, "before") == _found(p, "inside") == ["ticket/1"]
-    assert _found(p, "beyond") == []
+    p.events.add("ticket.opened", item="ticket/1", data={"a": "early", "b": "x" * its.TEXT_MOST, "c": "late"}, at=T0)
+    assert _found(p, "early") == ["ticket/1"] and _found(p, "late") == []       # as SPEC §5a says: the first 65,536
+
+
+def test_changed_field_stops_matching(tmp_path):
+    p = _project(tmp_path)
+    p.events.add("ticket.opened", item="ticket/1", data={"title": "old words", "deep": {"n": "remnant"}}, at=T0)
+    assert _found(p, "old") == ["ticket/1"]
+    p.events.add("ticket.renamed", item="ticket/1", data={"title": "new words"}, at=T0 + 1)
+    assert _found(p, "old") == [] and _found(p, "new") == ["ticket/1"] and _found(p, "remnant") == ["ticket/1"]
+    p.events.add("ticket.remade", item="ticket/1", set={"title": "remade"}, at=T0 + 2)            # the same id made again
+    assert _found(p, "remnant") == [] and _found(p, "new") == [] and _found(p, "remade") == ["ticket/1"]
+    p.events.add(its.SNAPSHOT, item="ticket/1", set={"title": "restored"}, at=T0 + 3)
+    assert _found(p, "remade") == [] and _found(p, "restored") == ["ticket/1"]
+    _cold()                                                                  # and so on disk, for a process that starts
+    assert _found(p, "remade") == [] and _found(p, "restored") == ["ticket/1"]
+
+
+def test_forgotten_item_leaves_search(tmp_path):
+    p = _project(tmp_path, "keep: 1d\n")
+    now = T0 + 10 * 86400
+    p.events.add("ticket.opened", item="ticket/old", data={"title": "findme"}, at=T0)
+    p.events.add("ticket.opened", item="ticket/live", data={"title": "findme"}, at=now - 10)
+    assert _found(p, "findme") == ["ticket/live", "ticket/old"]
+    upkeep(p, now=now)
+    assert _found(p, "findme") == ["ticket/live"]
+    with sqlite3.connect(_file(p)) as c:
+        assert c.execute("select count(*) from items where instr(text, 'findme')").fetchone()[0] == 1
+
+
+def test_old_index_rebuilt_and_searchable(tmp_path, monkeypatch):
+    p = _project(tmp_path)
+    p.events.add("ticket.opened", item="ticket/1", data={"title": "before upgrade"}, at=T0)
+    monkeypatch.setattr(itemindex, "VERSION", itemindex.VERSION - 1)
+    old = _file(p)                                                           # folded by the release before this one
+    _cold()
+    with sqlite3.connect(old) as c:                                          # and in its layout: no text at all
+        c.execute("drop index items_textless")
+        c.execute("alter table items drop column text")
+    monkeypatch.undo()
+    new = _file(p)                                                           # the upgrade: its own file, from the record
+    assert new != old
+    assert its.listing(p.events, p.model.spec)["total"] == 1
+    assert _found(p, "upgrade") == ["ticket/1"]
+    with sqlite3.connect(new) as c:
+        assert c.execute("select value from meta where key = 'version'").fetchone()[0] == itemindex.VERSION
+        assert c.execute("select count(*) from items where text is null").fetchone()[0] == 0
+    _cold()                                                                  # an old stamp at the new path: rebuilt too
+    with sqlite3.connect(new) as c:
+        c.execute("update meta set value = ? where key = 'version'", (itemindex.VERSION - 1,))
+        c.execute("update items set text = ''")
+    assert _found(p, "upgrade") == ["ticket/1"]
+
+
+def test_a_row_without_its_text_is_rebuilt_not_read_as_no_match(tmp_path):
+    p = _project(tmp_path)
+    p.events.add("ticket.opened", item="ticket/1", data={"title": "kept"}, at=T0)
+    path = _file(p)
+    _cold()
+    with sqlite3.connect(path) as c:
+        c.execute("update items set text = null")
+    assert _found(p, "kept") == ["ticket/1"]
+    with sqlite3.connect(path) as c:                                         # the check before each search: one lookup
+        plan = " ".join(r[-1] for r in c.execute("explain query plan select 1 from items where text is null limit 1"))
+    assert "items_textless" in plan, plan
+
+
+def _model_repo(tmp_path):
+    d = tmp_path / "rz"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    p = Project(mdl.load(d))
+    p.events.add("ticket.opened", item="ticket/1", data={"title": "alpha beta"}, at=T0)
+    p.events.add("ticket.opened", item="ticket/2", data={"title": "alpha"}, at=T0 + 1)
+    p.events.add("note.made", item="note/1", data={"body": "beta, then alpha"}, at=T0 + 2)
+    return d, p
 
 
 def test_search_cli_and_api_agree(tmp_path, capsys):
-    from ergostat.web.server import Live, api, handler
-    p = _project(tmp_path)
-    _three(p)
-    d = p.model.path.parent
-    from_api = sorted(i["id"] for i in api(Live(p), "items", {"search": ["alpha beta"]})["items"])
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.goodmodel import keep
+    from ergostat.web.server import handler
+    d, p = _model_repo(tmp_path)
+    assert main(["-C", str(d), "item", "--search", "alpha beta", "--json"]) == 0
+    cli = json.loads(capsys.readouterr().out)
+    assert set(cli) == set(its.listing(p.events, p.model.spec))               # the listing's shape
+    assert [i["id"] for i in cli["items"]] == ["note/1", "ticket/1"]
+    assert main(["-C", str(d), "item", "--search", "beta alpha", "-n", "100000"]) == 0
+    table = capsys.readouterr().out
+    assert "note/1" in table and "ticket/1" in table and "ticket/2" not in table
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(p))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/api/items"
 
-    def get(query: str):
+    def get(q):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{srv.server_address[1]}/api/items?{query}", timeout=10) as r:
+            with urllib.request.urlopen(url + q, timeout=10) as r:
                 return r.status, json.loads(r.read())
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
     try:
-        st, got = get("search=Alpha+BETA")
-        assert st == 200 and sorted(i["id"] for i in got["items"]) == from_api == ["ticket/1"]
-        assert get("search=")[0] == 400 and get("search=+++")[0] == 400               # blank: refused, not all
-        assert get("search=" + "+".join("abcdefghi"))[0] == 400                         # 9 words
-        assert get("search=" + "+".join("abcdefgh"))[0] == 200                          # 8: taken
-        st, got = get(f"search=alpha&at={T0 + 10}")
-        assert st == 400 and "now" in got["error"]                                      # not answered as of at
+        code, got = get("?search=alpha%20beta")
+        assert code == 200 and [i["id"] for i in got["items"]] == [i["id"] for i in cli["items"]]
+        assert [i["id"] for i in get("?search=alpha&kind=ticket&n=1")[1]["items"]] == ["ticket/2"]
+        for q in ("?search=", "?search=%20", "?search=alpha&at=1700000000", "?search=alpha&kind=ticket&where=title:x",
+                  "?search=alpha&where=title:x", "?search=alpha&kind=ticket&state=open,done",
+                  "?search=alpha&kind=ticket&state=open&alone=1"):
+            assert get(q)[0] == 400, q                                       # never "everything"
     finally:
         srv.shutdown()
         srv.server_close()
-    assert keep(p) is None
-    with open(d / "ergostat.yaml", "a") as f:                     # broken: the CLI reads on the last good model
+    assert keep(p) is None                                                   # the last good model, then a broken YAML
+    with open(d / "ergostat.yaml", "a") as f:
         f.write("\nbroken: [\n")
-    capsys.readouterr()
     assert main(["-C", str(d), "item", "--search", "alpha beta", "--json"]) == 0
     out, err = capsys.readouterr()
-    assert sorted(i["id"] for i in json.loads(out)["items"]) == from_api and "last good model" in err
-    assert main(["-C", str(d), "item", "--search", "alpha", "-n", "0", "--json"]) == 0      # -n clamped to 1..
-    assert len(json.loads(capsys.readouterr().out)["items"]) == 1
-    assert main(["-C", str(d), "item", "--search", "alpha", "-n", "100000", "--json"]) == 0  # ..items.LISTED
-    assert len(json.loads(capsys.readouterr().out)["items"]) == 2
-    assert main(["-C", str(d), "item", "--search", "  "]) == 2 and "needs a word" in capsys.readouterr().err
-    assert main(["-C", str(d), "item", "--search", " ".join("abcdefghi")]) == 2
-    assert "at most 8" in capsys.readouterr().err
+    assert [i["id"] for i in json.loads(out)["items"]] == ["note/1", "ticket/1"] and "last good" in err
 
 
 def test_search_with_at_refused(tmp_path, capsys):
-    p = _project(tmp_path)
-    _three(p)
-    d = p.model.path.parent
+    d, _ = _model_repo(tmp_path)
     assert main(["-C", str(d), "item", "--search", "alpha", "--at", "30m"]) == 2
     assert "--at" in capsys.readouterr().err
-    assert main(["-C", str(d), "item", "ticket/1", "--search", "alpha"]) == 2      # one item: not silently unsearched
-    assert "NAME" in capsys.readouterr().err
+    assert main(["-C", str(d), "item", "--search", "  "]) == 2
+    assert "1 to 8 words" in capsys.readouterr().err

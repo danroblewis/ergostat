@@ -37,7 +37,7 @@ class BlockIn:
     name: str
     kind: str
     at: list[str]
-    pool: int
+    pool: int                      # its pool now, at ``at`` (1 at least: said in ``pool_said``)
     shared: list[tuple[str, int]]  # (agent:NAME | daemon:NAME, its capacity): held with other blocks
     unblocked: bool
     most: int                      # attempts before a dead letter
@@ -48,6 +48,7 @@ class BlockIn:
     attempts: list[Attempt] = field(default_factory=list)
     run: KM | None = None          # how long a run holds its lease (the going censored)
     assumed: str = ""
+    pool_said: str = ""            # why its pool is taken as 1 (its stock reads 0, or nothing)
 
     def capacity(self, pools: dict | None = None) -> int:
         return min([(pools or {}).get(self.name, self.pool), *(c for _, c in self.shared)])
@@ -259,6 +260,7 @@ def gated_off(p, spec, at: float) -> dict[str, str]:
 
 def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     """Each block's attempts and its run-time curve; each open item's lease, attempts and put-off."""
+    from ..leases import poolnow
     from ..leases.fold import refused_expiries
     from ..leases.terms import terms
     evs = p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at)
@@ -301,8 +303,10 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
         t = terms(spec, b)
         ws = (b.params or {}).get("workspace")
         ws = ws if ws in spec.workspaces else None
-        bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), b.pool, shared, bool(b.takes.unblocked), t["attempts"],
-                     float(t["ttl"]), ws, b.takes.order, offs.get(b.name, ""))
+        level = poolnow.read_at(p, spec, b, out.at) if b.pool_now else None
+        bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), max(1, poolnow.now(b, level)), shared,
+                     bool(b.takes.unblocked), t["attempts"], float(t["ttl"]), ws, b.takes.order, offs.get(b.name, ""),
+                     pool_said=poolnow.said(b, level))
         rs = by_block.get(b.name, [])
         if ws:                                          # a run given back for want of a workspace held nothing: a wait
             out.workspaces[ws] = spec.workspaces[ws].size

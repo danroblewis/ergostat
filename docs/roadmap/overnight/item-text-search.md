@@ -93,3 +93,34 @@ Its runs failed past their attempts (a dead letter):
 - attempt 4: nack exited 1
 - attempt 5: nack exited 1
 - attempt 6: nack exited 1
+
+## Where it stopped
+
+Round 2. Main has not moved since the last merge (local `main` is 0ac33144, which the branch contains). This clone has
+no `origin` and no network, so origin/main could not be fetched.
+
+The queue's finding, "the push of its merge (77bcc530bd81) was denied: the merge is undone": nothing in the branch
+caused it. The push is the factory's gated step, and this clone cannot push. The branch is ready for the merge to be
+tried again.
+
+Every finding of review/searching-items-and-querying-1 (lesson-12):
+- **The NULL-text probe scans the table** (itemindex `_where`): a partial index `items_textless on items(rid) where
+  text is null` makes the probe one lookup. The test checks the query plan names it, and it failed (`SCAN items`) when
+  the index was removed.
+- **`alter table ... add column text` is dead code**: removed. The index file's name hashes VERSION, so an older layout
+  is always a different file. `test_old_index_rebuilt_and_searchable` now covers the real upgrade: the item is folded
+  under VERSION 3 into its own file, with the column dropped as the old layout had it. Under VERSION 4 the search
+  opens a new path, rebuilds from the record and finds the item. It also still covers an old stamp at the new path,
+  with the text blanked so that a stale read would miss. It failed when the version check was turned off.
+- **SPEC "as they are now" held only for the CLI**: answered already in round 1. `/api/items?search=…&at=…` is
+  refused with 400, and `test_search_cli_and_api_agree` checks it.
+- **The 400 for search beside a set's filters had no test, and `where=` without `kind` was silently ignored**: with
+  `search=`, the API now refuses `where`, `moved`, `through`, `followed`, `caused`, `alone` and a list of states (400),
+  with `kind` or without it. SPEC §5a *Search* says so. The test checks four of these combinations and failed when the
+  refusal was removed.
+
+Budget: 67 net lines in `ergostat/` (94 added, 27 removed), within 120.
+
+Run here, one file at a time or two together, all passing: `test_item_search` (8), `test_item_index`,
+`test_cli_fallback`, `test_spec_items`, `test_item_sets`, `test_graph_cli_web` and `test_rollup`. Ruff is clean.
+Not run: the full unit suite and the four browser files (the factory runs them under the watchdog).

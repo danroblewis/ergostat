@@ -44,7 +44,7 @@ The **Diagram** page has three views of the same model:
 Click anything: the side panel says what it is, charts it over the time window (a stock with its
 inflows and outflows; a loop's setpoint, measurement, action and error), and links what it touches.
 Closed systems open in place (**Open**) or drawn alone (**Into**). The **⋯** menu opens or closes
-everything, hides the loop markers, colours each part to match its counterparts in the other view
+everything, hides the loop markers, shows the flows only (the pipes, their stocks and clouds, and the lines between closed systems that carry a flow's rate; Dynamics), colours each part to match its counterparts in the other view
 (or hold **C**), unpins what you dragged.
 
 **Items** lists what moves through the system (each review, alert, PR) with its states and history.

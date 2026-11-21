@@ -18,14 +18,17 @@ from dataclasses import replace
 from .. import runner as old
 from ..costs.sampler import Sampler
 from ..leases.kill import grace
+from . import proc
 from .config import WARM_ALL
+from .observe import Observed
 from .proc import Process
 from .work import Hands
 
 SOURCE = "ergostat"
 TICK = 0.2
 WRITE_EVERY = 2.0
-SAMPLER = Sampler(30.0, "ergostat-daemon-sampler")   # the daemons' CPU and memory, every 30 s: one ps for all
+SAMPLER = Sampler(30.0, "ergostat-daemon-sampler", floor=1.0)   # the daemons' CPU and memory: about 1 s after a
+                                                                # start, then at doubling gaps to every 30 s; one ps
 
 
 class Slot:
@@ -41,19 +44,61 @@ class Slot:
 
 
 def killpg(pgid: int, wait: float) -> None:
-    """Its whole process group (it leads a session of its own): TERM, then KILL after ``wait`` for what is left."""
-    for sig, then in ((signal.SIGTERM, wait), (signal.SIGKILL, 0.0)):
-        try:
-            os.killpg(pgid, sig)
-        except OSError:                              # (none left)
-            return
-        end = time.monotonic() + then
-        while time.monotonic() < end:
+    """Its whole process group (it leads a session of its own): TERM, then KILL after ``wait`` for what is left. Once
+    gone (or sent KILL, which it cannot outlive) it leaves ``proc.GROUPS``: no id kept that the OS could reuse."""
+    try:
+        for sig, then in ((signal.SIGTERM, wait), (signal.SIGKILL, 0.0)):
             try:
-                os.killpg(pgid, 0)
-            except OSError:
+                os.killpg(pgid, sig)
+            except OSError:                          # (none left)
                 return
-            time.sleep(0.05)
+            end = time.monotonic() + then
+            while time.monotonic() < end:
+                try:
+                    os.killpg(pgid, 0)
+                except OSError:
+                    return
+                time.sleep(0.05)
+    finally:
+        with proc.GROUPS_LOCK:
+            proc.GROUPS.discard(pgid)
+
+
+def _signal(pgid: int, sig: int) -> bool:
+    """False when the group cannot be signalled: none left, or (EPERM) it cannot be ours any more."""
+    try:
+        return os.killpg(pgid, sig) is None
+    except OSError:
+        return False
+
+
+def collect() -> set[int]:
+    """``end_all``'s first step: new groups closed off (each kills itself) and the live ones taken, under the one
+    lock ``Process`` checks and adds under, so a group spawned meanwhile is in this snapshot or killed by itself."""
+    with proc.GROUPS_LOCK:
+        proc.CLOSING = True
+        return set(proc.GROUPS)
+
+
+def end_all(wait: float) -> list[int]:
+    """Every daemon's group ended before ergostat starts itself again in place, with no ``Supervisor`` lock taken (what
+    is wedged may hold it): TERM to each, one shared deadline ``wait`` (clamped to 0..3 s) for all, then KILL to what
+    is left. A group that cannot be signalled (gone, EPERM) is dropped, never retried. A group ``killpg`` ended after
+    the snapshot may still be signalled from it: harmless while its leader is unreaped, a small window otherwise.
+    A group with only unreaped processes left counts as present, so it is waited for to the deadline, then KILLed.
+    The groups that were sent TERM, returned."""
+    wait = min(max(float(wait), 0.0), 3.0)
+    groups = collect()
+    sent = [g for g in sorted(groups) if _signal(g, signal.SIGTERM)]
+    left, deadline = set(sent), time.monotonic() + wait
+    while left and time.monotonic() < deadline:
+        time.sleep(0.05)
+        left = {g for g in left if _signal(g, 0)}
+    for g in left:
+        _signal(g, signal.SIGKILL)
+    with proc.GROUPS_LOCK:
+        proc.GROUPS.difference_update(groups)
+    return sent
 
 
 class Supervisor(Hands):
@@ -65,6 +110,8 @@ class Supervisor(Hands):
         self.dying: list[Process] = []               # (warm) restarted, its group being killed: counted until it ends
         self.push: dict[tuple[str, str], object] = {}
         self.pushed_at: dict[str, float] = {}
+        self.observers: dict[tuple[str, str], object] = {}   # (daemon, STOCK.SENSOR) → a sensor it serves
+        self.observed = Observed()
         self.put_off: dict[str, str] = {}                # item → the daemon given up that gave it back, put off
         self.thread: threading.Thread | None = None
         self.written = 0.0
@@ -73,9 +120,11 @@ class Supervisor(Hands):
 
     def sync(self, spec) -> None:
         """The daemons this model uses: a new one started, one changed or no longer used drained, one given up and
-        written the same revived."""
+        written the same revived. Of the engine's shard only (SPEC §9.8), by the plan of ``spec`` itself: never read
+        again from the engine, which a later swap may have moved on."""
+        mine = lambda n: self.e.own(f"daemon.{n}", spec)          # noqa: E731
         used = {b.params["daemon"] for b in spec.blocks.values() if b.params.get("daemon")}
-        used |= {s.daemon for s in spec.sensors() if s.daemon}
+        used = {n for n in used | {s.daemon for s in spec.sensors() if s.daemon} if mine(n)}
         want = {}                                    # a warm one: a process of its own per run held at once, NAME#i
         for n in used:
             d = spec.daemons[n]
@@ -95,7 +144,8 @@ class Supervisor(Hands):
                     continue                         # (the loop starts it once a warm process ends: WARM_ALL at most)
                 slot.spawning = True                 # claimed before the loop runs: spawned here, never by its tick
                 start.append(slot)
-            self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon and s.push}
+            self.push = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon in used and s.push}
+            self.observers = {(s.daemon, f"{s.of.name}.{s.name}"): s for s in spec.sensors() if s.daemon in used}
             if self.slots and (self.thread is None or not self.thread.is_alive()):
                 self.thread = threading.Thread(target=self._loop, name="ergostat-daemons", daemon=True)
                 self.thread.start()
@@ -193,6 +243,7 @@ class Supervisor(Hands):
             self._kill(p)                            # (what it started, left in its group)
         for slot, why in todo:
             self._start(slot) if why is None else self._restart(slot, *why)
+        self.flush_observed()                        # (a burst's drops said within about a second, nothing after it)
         if now - self.written >= WRITE_EVERY:
             self.write()
 
@@ -240,7 +291,8 @@ class Supervisor(Hands):
         from ..spec.engine import callback_env
         try:
             p = Process(slot.d, self.e.spec.root, callback_env(self.e.spec, self.e.p.dir, self.e.socket), log,
-                        lambda s, v, n=slot.d.name: self._pushed(n, s, v))
+                        lambda s, v, n=slot.d.name: self._pushed(n, s, v),
+                        lambda s, o, t, n=slot.d.name: self._observed(n, s, o, t))
         except OSError as err:
             log.close()
             self._restart(slot, f"could not start: {err}", False)
@@ -365,6 +417,10 @@ class Supervisor(Hands):
         for p in procs:
             p.fail_all(old.STOPPED_WITH_US, True)
             killpg(p.pid, 1.0)                       # (ended or not: what it started goes too)
+        deadline = time.monotonic() + 1.0            # (its reader's last lines counted, unless something it started
+        while any(not p.ended.is_set() for p in procs) and time.monotonic() < deadline:   # still holds its output)
+            time.sleep(0.02)
+        self.flush_observed(every=True)              # (each window's drops said, open or not; a line after: the log's)
         if self.slots or self.draining:
             self.write(final=True)
 

@@ -519,6 +519,17 @@ Ordered by what matters most. Go through each after `check` is clean.
 5. Items end where the work ends; no state is dead.
 6. Coherence reads `N of N agree` for every kind.
 
+**Reviewing a change** (the modelling loop's reviewer reads each structural change and redesign with these first)
+
+1. The causal story: it says why, in the world's terms, the stock fills or the flow moves; the system's people would
+   recognise it. A link that only makes the curves meet is not a mechanism.
+2. Units and boundary: units convert along every flow and equation it touches; nothing that no valve controls is
+   pulled inside, nothing the loops need is pushed out.
+3. Not fitting noise: no stock no one could count, no delay or constant that only absorbs the record's wiggles.
+4. One coherent change: one thing a reviewer can name; unrelated edits are split.
+5. The behaviour it predicts: it says what the model will now do (settle, oscillate, grow) and why the system does
+   that.
+
 ## 6. What ergostat does not help with yet
 
 `check` says much of the craft above as **notes** (a part with no description, a stock with no unit, a flow between

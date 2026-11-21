@@ -5,26 +5,44 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
 2. fetch the remote and fast-forward the checkout's main to main as pushed (``--ff-only``); one that cannot is
    nacked, not counted;
 3. take the batch: the run's gap and up to `batch` - 1 more approved gaps no run holds (the pool `batch` in
-   run/pools.json, 1 to start, which is one gap a run; dev/bin/pools.py), in rank order. The others stay `approved`
-   until the run settles them, and the run's start is kept in run/queue.json (`running`), so a run killed part way
-   (SIGKILL, a crash) strands nothing: the next run puts main back where it began and takes them again;
-4. merge each into a clean main of the checkout in turn (`--no-ff`); a conflict is undone and sent back;
-5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py, then
-   demo_check, once for the batch; a browser test skipped counts as a failure;
+   run/pools.json, 1 to start, which is one gap a run; dev/bin/pools.py), walked in rank order and each dry-merged
+   onto the batch so far (`git merge-tree`, picks()): one that conflicts with main is sent back and takes no slot, one
+   that conflicts only with a batch-mate stays `approved`; a batch that comes back empty says why (emptied()). The
+   others stay `approved` until the run settles them, and the run's start is kept in run/queue.json (`running`), so a
+   run killed part way (SIGKILL, a crash) strands nothing: the next run puts main back where it began and takes them
+   again;
+4. merge each into a clean main of the checkout in turn (`--no-ff`), the tree dry-merged; a conflict (a re-merge
+   after bisecting) is undone and sent back;
+5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py (the first
+   to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
+   tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
+   recorded and never blocking (fac.beside());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
-   bisected to the first failing merge (land()), which goes on to flake triage with what failed (`queue-failed`) and
-   the rest lands. On any error or stop, main is undone with `git reset --keep`.
+   bisected to the first failing merge (land(), on the failing tests alone when the run named any), which goes on to
+   flake triage with what failed (`queue-failed`) and the rest lands, each merge only on a full green run. On any
+   error or stop, main is undone with `git reset --keep`. The push is asked under the run's own gap's lease, and is
+   not fenced by it (`fenced: false`: it pushes only that commit, only as a fast-forward), so it runs once approved
+   whatever became of that lease. When that gap does not land, it waits at `push-pending` and its outcome is said
+   once the push settles (tell()), never back at `approved` meanwhile.
+
+While a push waits (run/queue.json, read under the queue's lock before a gap is taken; unreadable, the same), a run
+takes no gap: it gives its lease back, uncounted, and says nothing of it.
 
 It merges exactly the commit the reviewer approved, fetched from the drop (never the branch's name), and refuses a
 branch that moved since. A conflict is a failed gate (the second parks).
 
-`queue.py push SHA` is the action's command: it pushes exactly that commit to the remote's main, never anything else."""
+`queue.py push SHA` is the action's command: it pushes exactly that commit to the remote's main, never anything else.
+`queue.py settle` (the block push-settler) settles a push that ran, failed or was denied with no run started."""
 
 from __future__ import annotations
 
+import fcntl
 import json
 import re
+import shlex
+import shutil
+import subprocess
 import sys
 import threading  # never concurrent.futures: this file is named queue.py, which shadows the stdlib queue it imports
 import time
@@ -58,32 +76,52 @@ def up_to_date(cfg: dict, repo) -> str | None:
     return None
 
 
-def suites(cfg: dict, repo, tag: str, logs) -> dict:
+def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD") -> dict:
     """ruff; then unit and browser at once; then demo (under the other two's load its pages drew nothing). The first
-    failure in that order is the one reported; a failure stops the later steps."""
+    to fail is the one reported; it stops its sibling (killed, `stopped_by` it, its own failure unsaid) and the later
+    steps. With `[suites] queue_coverage`, the
+    unit run is traced into run/coverage/<tag> and scored with ``pre``'s script (coverage_kept). The quarantine is
+    main's (``pre``), never the batch's: a branch's own line in tests/quarantine.txt holds nothing back in its run."""
+    held = fac.quarantine(repo, pre)
+
     def one(name: str) -> dict:
         log = logs / f"{tag}-{name}.txt"
-        rc, secs = fac.suite(cfg, name, repo, log, slot=False)        # the queue's lock is its slot
+        cov = fac.run_dir(cfg, "coverage") / tag \
+            if name == "unit" and cfg["suites"].get("queue_coverage") is True else None
+        cmd = fac.deselected(name, f"ERGOSTAT_COVERAGE={shlex.quote(str(cov))} {cfg['suites']['unit']}", held) \
+            if cov else None
+        rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held)  # the lock is its slot
         text = log.read_text()
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {})}
+        if cov:
+            got["coverage"] = coverage_kept(cfg, repo, cov, rc, pre)
         if rc or skipped:
             got["failure"] = {"failed": name, "tests": fac.failed_tests(text), "tail": text[-2000:], "log": str(log)}
         return got
 
     def together(names: tuple) -> dict:
-        got, ts = {}, []
+        got, ts, first, said = {}, [], [], threading.Lock()
         for n in names:
             def body(n=n):
                 try:
-                    got[n] = one(n)
+                    r = one(n)
                 except BaseException as e:             # (raised again below, in the queue's own thread)
-                    got[n] = e
+                    r = e
+                with said:                             # (which failed first, decided and kept in one hold)
+                    if isinstance(r, dict) and r.get("failure") and first:
+                        r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]}
+                    elif isinstance(r, dict) and r.get("failure"):
+                        first.append(n)
+                    got[n] = r
             ts.append(threading.Thread(target=body, daemon=True))
             ts[-1].start()
         try:
-            for t in ts:
-                t.join()
+            while any(t.is_alive() for t in ts):
+                for t in ts:
+                    t.join(0.5)
+                if first:                              # again each pass: a sibling's suite started after the failure
+                    fac.stop_suites()
         except BaseException:                          # stopped: the suites' process groups go with the queue
             fac.stop_suites()
             raise
@@ -92,9 +130,14 @@ def suites(cfg: dict, repo, tag: str, logs) -> dict:
                 raise got[n]
         return {n: got[n] for n in names}
 
+    def quarantined(tests: list[str]) -> None:
+        fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, tests=tests)
+
     out = {}
     for step in (("ruff",), ("unit", "browser"), ("demo",)):
         got = together(step)
+        if step[0] == "unit":                          # the quarantined tests after them, whatever they said
+            fac.beside(held, logs / f"{tag}-quarantined.txt", quarantined)
         for name in step:
             failure = got[name].pop("failure", None)
             out[name] = got[name]
@@ -105,11 +148,85 @@ def suites(cfg: dict, repo, tag: str, logs) -> dict:
     return out
 
 
+def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
+    """Only the tests a red run named, on the checkout as it is (`[suites] rerun`, serial, `-rA`), for bisecting. Red
+    when one of them fails (said as the suite that named them); green only when the run passed and said PASSED for
+    every one; else (a test not on this prefix, a run that could not start) None, and that step runs every suite. It
+    never counts as the green run anything lands on (land())."""
+    tests = failed["tests"]
+    log = logs / f"{tag}-named.txt"
+    rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, tests=[*tests, "-rA"])
+    text = log.read_text()
+    said = fac.outcomes(text, tests)
+    got = {"named": {"suite": failed["failed"], "tests": len(tests), "rc": rc, "seconds": round(secs)}}
+    if bad := sorted(t for t, r in said.items() if r == "fail"):
+        return got | {"failed": failed["failed"], "tests": bad, "tail": text[-2000:], "log": str(log)}
+    return got if rc == 0 and set(said.values()) == {"pass"} else None
+
+
+COVERAGE_KEEP = 5                                       # coverage reports kept under run/coverage/, by their seq
+COVERAGE_RUN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}-\d{8}T\d{6}Z(-\d+)?$")  # (a run_tag; -N: a bisecting run)
+
+
+def coverage_made(repo, cov, pre: str) -> str:
+    """scripts/coverage_report.py as it is in ``pre`` (main before the merge, so a branch never scores its own
+    coverage), run on the merged checkout. "reported", or why not; a timeout or a missing script is a "no report"."""
+    try:
+        script = fac.git(repo, "show", f"{pre}:scripts/coverage_report.py")
+    except (RuntimeError, subprocess.SubprocessError) as e:
+        return f"no report: main's scripts/coverage_report.py unreadable ({str(e)[-200:]})"
+    path = cov / "coverage_report_main.py"
+    try:
+        path.write_text(script + "\n")
+        r = subprocess.run([sys.executable, str(path), str(cov), "--root", str(repo)], cwd=repo, capture_output=True,
+                           text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return "no report: timed out"
+    except OSError as e:
+        return f"no report: {e}"
+    finally:
+        path.unlink(missing_ok=True)
+    return "reported" if r.returncode == 0 else f"no report: {r.stderr.strip()[-300:]}"
+
+
+def coverage_kept(cfg: dict, repo, cov, rc: int, pre: str = "HEAD") -> str:
+    """The unit run's coverage report made (coverage_made) and the last COVERAGE_KEEP kept, by the seq stamped in each
+    (never a file's time); a red run's worker files, a run that made no report, and an unreadable report (which would
+    hold the measure at no value) removed at once. It never fails the queue: the measure is read by measure.py, which
+    has no value without a fresh report."""
+    said = "not reported: the unit suite failed"
+    if not rc:
+        said = coverage_made(repo, cov, pre)
+    top = fac.run_dir(cfg, "coverage").resolve()
+    seqs = {}
+    for d in top.iterdir():
+        if not (d.is_dir() and COVERAGE_RUN.match(d.name) and d.resolve().parent == top):
+            continue                                    # (only what this made, by name)
+        try:
+            seqs[d] = int(json.loads((d / "coverage.json").read_text())["seq"])
+        except (OSError, ValueError, KeyError, TypeError):
+            seqs[d] = -1                                # (no readable report: removed now)
+    good = sorted((d for d in seqs if seqs[d] >= 0), key=lambda d: (seqs[d], d.name))
+    for d in good[:-COVERAGE_KEEP] + [d for d in seqs if seqs[d] < 0] + ([cov] if said != "reported" else []):
+        shutil.rmtree(d, ignore_errors=True)
+    return said
+
+
 # ---- the queue's own state: the merge whose push is not settled yet, and a block the coordinator must lift
+
+class Unreadable(Exception):
+    """run/queue.json is there and cannot be read: the queue takes no gap (it cannot tell whether a push waits)."""
+
 
 def state(cfg: dict) -> dict:
     p = fac.run_dir(cfg) / "queue.json"
-    return json.loads(p.read_text()) if p.exists() else {}
+    try:
+        st = json.loads(p.read_text()) if p.exists() else {}
+    except (OSError, ValueError) as e:
+        raise Unreadable(f"run/queue.json cannot be read ({type(e).__name__})") from None
+    if not isinstance(st, dict):
+        raise Unreadable("run/queue.json is not a map")
+    return st
 
 
 def save(cfg: dict, st: dict) -> None:
@@ -122,10 +239,10 @@ def save(cfg: dict, st: dict) -> None:
 def block(cfg: dict, st: dict, why: str) -> str:
     """Stop the queue and ask the coordinator: an intervention, open until they record it remedied."""
     iid = f"intervention/queue-{time.strftime('%Y%m%d-%H%M%S')}"
+    st["blocked"] = {"why": why, "intervention": iid, "at": time.time()}
+    save(cfg, st)                                      # saved, then said: a run killed between says it at most once
     fac.say("intervention.recorded", iid, reason=f"the merge queue stopped: {why}", recorded_at=time.time(),
             **{"class": "queue"})
-    st["blocked"] = {"why": why, "intervention": iid, "at": time.time()}
-    save(cfg, st)
     return why
 
 
@@ -141,11 +258,60 @@ def pushed(p: dict | None) -> list[str]:
     return list(p.get("gaps") or [p["gap"]]) if p else []
 
 
+HELD: dict = {"own": None, "said": []}    # the run's own gap's outcome, kept back while its push waits (tell())
+
+
+def tell(event: str, gid: str, **data) -> None:
+    """A gap's outcome said, but the run's own gap's kept back: a batch that lands without it asks its push under that
+    gap's lease, and the gap waits at `push-pending` until the push settles, not taken by the implementor or flake
+    triage meanwhile. Said at the run's end, or once its push settles (``then`` in the pending record, release())."""
+    if gid == HELD["own"]:
+        HELD["said"].append({"event": event, "item": gid, "data": data})
+    else:
+        fac.say(event, gid, **data)
+
+
+def release(p: dict | None) -> None:
+    for e in (p or {}).get("then") or []:
+        fac.say(e["event"], e["item"], **e["data"])
+
+
+def waits(cfg: dict) -> str | None:
+    """Why the queue can take no gap now, read only: a push held for approval, or the queue blocked. Its sensor
+    (`queue.py waiting`) keeps the merge queue from leasing gaps only to give them back; a run decides again from the
+    file itself, under the queue's lock (take())."""
+    try:
+        st = state(cfg)
+    except Unreadable as e:
+        return str(e)
+    if st.get("blocked"):
+        return None if action_state(st["blocked"]["intervention"]) == "remedied" else "blocked"
+    p = st.get("pending")
+    if p and p.get("action") and action_state(p["action"]) in ("held", "requested", "approved"):
+        return f"the push of {p['sha'][:12]} waits"
+    return None
+
+
+class Waits(str):
+    """settle()'s answer while the last push waits for approval: take() puts its gap off for a minute, not ten (the
+    push-waiting sensor keeps the queue from leasing meanwhile), so the next batch starts soon after the push runs."""
+
+
+def settleable(cfg: dict) -> bool:
+    """The sensor push-settleable (`queue.py settleable`): a pending push that ran, was denied, failed or cannot be
+    read, or a block remedied: what push-settler settles. Unreadable: 1, so its runs fail where they can be seen."""
+    try:
+        st = state(cfg)
+    except Unreadable:
+        return True
+    return bool(st.get("pending") or st.get("blocked")) and not waits(cfg)
+
+
 def settle(cfg: dict, repo) -> str | None:
     """Before a merge: what became of the last merge's push. None when the queue may go on; else why it waits.
     Pushed: done. Held: wait (one unpushed merge at a time, so a denial undoes only its own). Denied: the merge undone
     (`reset --keep` to before it) and its gap sent back. Failed, or an undo that fails: the queue blocked, with an
-    intervention, until the coordinator records it remedied."""
+    intervention, until the coordinator records it remedied (a failed push's held outcome is said at once)."""
     st = state(cfg)
     if st.get("blocked"):
         iid = st["blocked"]["intervention"]
@@ -153,10 +319,11 @@ def settle(cfg: dict, repo) -> str | None:
             return f"blocked until {iid} is remedied: {st['blocked']['why']}"
         st.pop("blocked")
         p = st.pop("pending", None)                    # the coordinator's remedy settled that merge, whatever its push
+        save(cfg, st)                                  # (saved before said, here and below: said at most once)
         for gid in pushed(p):
             fac.say("gap.push-settled", gid, push="settled by the coordinator", settled_by=iid,
                     settled_at=time.time())
-        save(cfg, st)
+        release(p)
         return None
     p = st.get("pending")
     if not p:
@@ -165,26 +332,54 @@ def settle(cfg: dict, repo) -> str | None:
     if now == "held" and not p.get("action"):
         return block(cfg, st, f"the push of {p['sha'][:12]} is held, and its action's id was not said: "
                               f"it cannot be followed")
+    if now == "unknown" and p.get("action") and p.get("unread", 0) < 2:   # a read that failed: blocked the third time
+        p["unread"] = p.get("unread", 0) + 1
+        save(cfg, st)
+        return f"the push of {p['sha'][:12]} cannot be read ({p['unread']} of 3)"
     if now == "ran":
-        for gid in pushed(p):
-            fac.say("gap.pushed", gid, pushed_at=time.time(), push="pushed")
         st.pop("pending")
         save(cfg, st)
+        for gid in pushed(p):
+            fac.say("gap.pushed", gid, pushed_at=time.time(), push="pushed")
+        release(p)
         return None
     if now == "denied":
         head = fac.git(repo, "rev-parse", "HEAD")
         if head != p["sha"] or not fac.git_ok(repo, "reset", "-q", "--keep", p["pre"]):
             return block(cfg, st, f"the push of {p['sha'][:12]} was denied, and its merge could not be undone "
                                   f"(main at {head[:12]})")
+        st.pop("pending")
+        save(cfg, st)
         for gid in pushed(p):                          # one approval for the batch: a denial sends back all of it
             fac.say("gap.sent-back", gid, sent_back_by="queue", push="denied",
                     findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])
-        st.pop("pending")
-        save(cfg, st)
+        release(p)
         return None
     if now in ("held", "requested", "approved"):
-        return f"the push of {p['sha'][:12]} ({p['gap']}) is {now}"
-    return block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
+        return Waits(f"the push of {p['sha'][:12]} ({p['gap']}) is {now}")
+    then = {"then": p.pop("then", None)}               # failed: the held outcome said now, not once it is remedied
+    why = block(cfg, st, f"the push of {p['sha'][:12]} is {now}" + (f": {p['said'][-200:]}" if p.get("said") else ""))
+    release(then)
+    return why
+
+
+def settle_alone(cfg: dict) -> str | None:
+    """`queue.py settle` (the block push-settler, every few minutes): a push that ran, failed or was denied is settled
+    with no gap approved to start a run. Under the queue's lock, taken only if free: a run holding it settles the push
+    itself (take()), and each re-reads run/queue.json inside the lock, so the outcome is applied once. Why it did
+    nothing, or None."""
+    lock = fac.path(cfg, "queue_lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock, "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return "a run holds the queue's lock"
+        try:
+            repo = fac.path(cfg, "checkout")
+            return recover(cfg, repo) or settle(cfg, repo)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def reviewed(cfg: dict, repo, gap: dict) -> tuple[str | None, str]:
@@ -204,19 +399,105 @@ def reviewed(cfg: dict, repo, gap: dict) -> tuple[str | None, str]:
     return sha, ""
 
 
-def picks(cfg: dict, gap: dict, n: int) -> list[dict]:
-    """The batch: the run's own gap and up to n - 1 more approved gaps that no run holds, all in rank order (the
-    groomer's rank, then when approved). The others stay `approved` until the run settles them (merged, sent back,
-    queue-failed): a run killed part way leaves them to be taken again, and the queue's pool is 1, so no other run
-    takes them meanwhile."""
-    if n <= 1:
-        return [gap]
+def dry(repo, onto: str, sha: str, msg: str) -> tuple[str | None, list[str]]:
+    """`sha` merged onto `onto` without touching the checkout (`git merge-tree --write-tree`): (that merge as a commit
+    on no branch, or None; the files in conflict). A commit, so the next dry merge finds the merge base a real one would."""
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z",
+                            onto, sha], capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"git merge-tree {onto[:12]} {sha[:12]}: timed out after 600 s") from e
+    m = re.match(r"([0-9a-f]{40,64})[\0\n]", r.stdout)
+    if r.returncode not in (0, 1) or not m:
+        raise RuntimeError(f"git merge-tree {onto[:12]} {sha[:12]}: {r.stderr.strip()[-400:]}")
+    if r.returncode:                                      # (a conflict always names something: the exit code decides)
+        return None, sorted({p for p in r.stdout[m.end():].split("\0") if p}) or ["(git named no file)"]
+    return fac.git(repo, "commit-tree", m.group(1), "-p", onto, "-p", sha, "-m", msg), []
+
+
+def message(g: dict) -> str:
+    return f"Merge branch '{fac.git_branch(fac.branch_of(g))}'\n\n{fac.TRAILER}"
+
+
+SENT = "it was sent back"   # (the start of an empty batch's why when the run's own gap's outcome is said already)
+
+
+def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict, str]], str, str]:
+    """The batch, its dry-merged head, and why it is empty ("" when it is not), from the walk itself: the run's own gap
+    sent back (SENT, and what for), or its dry merge failing only with batch-mates on both walks, or (never expected)
+    a walk that never reached it. The run's own gap and the approved gaps no run holds (only its own when n is
+    1), walked in rank order (the groomer's rank, then when approved), each dry-merged onto the batch so far, until n
+    merge. A gap that conflicts with main (`pre`) is sent back at once, a failed gate, and takes no slot; one that
+    conflicts only with a batch-mate stays `approved`, no gate failed. The run's own gap is in its batch unless it is
+    sent back: the last slot is kept for it, and if it conflicts only with batch-mates the walk is made again with it
+    first, so its lease, which the batch's push is asked under, is never given back while others land; if it is sent
+    back, the walk is made again in rank order, so the gaps passed over for its slot can fill the batch. The others
+    stay `approved` until the run settles them (merged, sent back, queue-failed): a run killed part way leaves them to
+    be taken again, and the queue's pool is 1, so no other run takes them meanwhile. A dry merge git cannot make
+    (RuntimeError) fails the run after some gaps may have been sent back: those stand, the rest stay `approved`."""
     def key(g: dict) -> tuple:
         rank = g["fields"].get("rank")                    # (rank 0 is a rank: only none is unranked)
         return (10**9 if rank is None else rank, float(g["fields"].get("approved_at") or 0), g["id"])
     others = [g for g in fac.items("gap", "approved") if g["id"] != gap["id"]
-              and not (g["fields"].get("lease") or {}).get("holder")]
-    return sorted([gap, *sorted(others, key=key)[:n - 1]], key=key)
+              and not (g["fields"].get("lease") or {}).get("holder")] if n > 1 else []
+    shas: dict = {}                                       # each gap's reviewed commit; None once sent back
+    why = ["its walk never reached it"]                   # what kept the run's own gap out (never none: lesson-3)
+
+    def walk(order: list[dict]) -> tuple[list[tuple[dict, str]], str] | None:
+        batch, head, own = [], pre, False
+        for g in order:
+            mine = g["id"] == gap["id"]
+            own_waits = not own and shas.get(gap["id"], 1)    # the run's own gap: not in yet, and not sent back
+            if len(batch) >= n or (not mine and own_waits and len(batch) >= n - 1):
+                continue                                  # (full, or the last slot kept for the run's own gap)
+            if g["id"] not in shas:
+                shas[g["id"]], no = reviewed(cfg, repo, g)
+                if not shas[g["id"]]:
+                    tell("gap.sent-back", g["id"], sent_back_by="queue", findings=[f"not merged: {no}"])
+                    why[0] = f"{SENT}: not merged: {no}" if mine else why[0]
+            if not shas[g["id"]]:
+                continue
+            made, files = dry(repo, head, shas[g["id"]], message(g))
+            if made:
+                batch.append((g, shas[g["id"]]))
+                head, own = made, own or mine
+                continue
+            onmain = files if head == pre else dry(repo, pre, shas[g["id"]], message(g))[1]
+            if onmain:
+                refuse(cfg, g, onmain, time.time())
+                shas[g["id"]] = None
+                why[0] = f"{SENT}: conflicts with {cfg['git']['base']}: {' '.join(onmain)}" if mine else why[0]
+            elif mine:                                    # only with batch-mates: walked again, the own gap first
+                why[0] = f"its dry merge failed only with batch-mates on both walks ({' '.join(files) or 'no file'})"
+                return None
+        return batch, head
+    order = sorted([gap, *others], key=key)
+    got = walk(order) or walk([gap, *[g for g in order if g is not gap]]) or ([], pre)
+    if gap["id"] in shas and not shas[gap["id"]] and len(got[0]) < n:
+        got = walk(order)                                 # own gap sent back: the gaps passed over for its slot too
+    return *got, "" if got[0] else why[0]
+
+
+EMPTY_MOST = 3       # empty batches on one reviewed commit before its gap is sent back (lesson-4: never taken forever)
+
+
+def emptied(cfg: dict, gap: dict, why: str) -> None:
+    """The run's own gap when its batch came back empty. Sent back already (SENT): that is its outcome (a nack would
+    give it back to `approved` over it). Else counted, per reviewed commit (`empty_batches`, so a new commit starts
+    again), and given back with the reason (`after` 10m), uncounted by its lease; the EMPTY_MOST-th time sent back
+    instead, a failed gate, with the reason as its finding. Read and written under the queue's lock, for the run's
+    own leased gap (the queue's pool is 1): nothing else counts it meanwhile."""
+    if why.startswith(SENT):
+        return
+    f = gap["fields"]
+    was = f.get("empty_batches") if isinstance(f.get("empty_batches"), dict) else {}
+    k = (int(was.get("n") or 0) if was.get("head") == f.get("reviewed_head") else 0) + 1
+    fac.say("gap.measured", empty_batches={"head": f.get("reviewed_head"), "n": 0 if k >= EMPTY_MOST else k},
+            empty_batch=why)
+    if k >= EMPTY_MOST:
+        refuse(cfg, gap, [], time.time(), [f"its queue batch came back empty {k} times: {why}"])
+    else:
+        fac.nack(f"queue: its batch came back empty ({k} of {EMPTY_MOST}): {why}", after="10m", count=False)
 
 
 def waited_hours(g: dict, began: float) -> float:
@@ -225,68 +506,107 @@ def waited_hours(g: dict, began: float) -> float:
 
 def merge(cfg: dict, repo, g: dict, sha: str, began: float) -> bool:
     """One gap's reviewed commit merged onto the checkout's HEAD; a conflict is undone, and is a failed gate."""
-    msg = f"Merge branch '{fac.git_branch(fac.branch_of(g))}'\n\n{fac.TRAILER}"
-    if fac.git_ok(repo, "merge", "-q", "--no-ff", sha, "-m", msg):
+    if fac.git_ok(repo, "merge", "-q", "--no-ff", sha, "-m", message(g)):
         return True
     files = fac.conflicted(repo)
     fac.git(repo, "merge", "--abort", check=False)
-    findings = [f"conflicts with {cfg['git']['base']}: {' '.join(files)}"]
-    if int(g["fields"].get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):          # a conflict is a failed gate too
-        fac.say("gap.measured", g["id"], failed_gates=1, findings=findings)
-        review.park(cfg, g, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, a conflict in the "
-                            f"merge queue: {findings[0]}", "merge-queue", where="queue")
-    else:
-        fac.say("gap.sent-back", g["id"], sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,
-                queue_wait_hours=waited_hours(g, began))
+    refuse(cfg, g, files, began)
     return False
 
 
-def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float, waited: float) -> tuple[list, str]:
-    """Merge the batch onto main in turn and run the suites once. Green: every merge lands. Red: bisected (the suites
-    run again on the first half of the merges, then on half of what is left, ...) to the first merge whose prefix
-    fails; that gap goes to flake triage with its failures and the commit it was merged onto (its `pre`), the merges
-    before it land, and those after it are merged again onto them and tried as a batch of their own. Each failing merge
-    found costs at most 1 + ceil(log2 m) runs (m: the merges left), so n <= pools.BATCH_MOST. Returns (each gap landing with its
+def refuse(cfg: dict, g: dict, files: list[str], began: float, findings: list[str] | None = None) -> None:
+    """A gap whose merge conflicts (or ``findings``: why else): sent back, a failed gate (the kill rule's last parks
+    it)."""
+    findings = findings or [f"conflicts with {cfg['git']['base']}: {' '.join(files)}"]
+    if int(g["fields"].get("failed_gates") or 0) + 1 >= fac.kill_after(cfg):          # a conflict is a failed gate too
+        fac.say("gap.measured", g["id"], failed_gates=1, findings=findings)
+        review.park(cfg, g, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, in the "
+                            f"merge queue: {findings[0]}", "merge-queue", where="queue", kind="kill-rule")
+    else:
+        tell("gap.sent-back", g["id"], sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,
+                queue_wait_hours=waited_hours(g, began))
+
+
+def lines(repo, before: str, after: str) -> dict:
+    """A merge's net lines outside tests/ and docs/, dev/ counted. Both always said, so a merge again never keeps an
+    old count; unreadable, the merge stands and its count is unknown (null and why), never 0."""
+    try:
+        return {"merged_lines": fac.net_lines(repo, before, after, core=False), "merged_lines_error": None}
+    except Exception as e:
+        return {"merged_lines": None, "merged_lines_error": f"{type(e).__name__}: {e}"[-300:]}
+
+
+def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float, waited: float,
+         dried: str = "") -> tuple[list, str]:
+    """Merge the batch onto main in turn and run the suites once. Green: every merge lands. Red: bisected (run again on
+    the first half of the merges, then on half of what is left, ...) to the first merge whose prefix fails; that gap
+    goes to flake triage with its failures and the commit it was merged onto (its `pre`). A red run that named failing
+    tests is bisected on those tests alone (named()) only when they fail alone on the whole red tree too; else (they
+    pass there, or it cannot tell), and when it named none, with every suite. A prefix green on every suite
+    lands, and the merges after the failing one are merged again onto it and tried as a batch of their own; a prefix
+    green on the named tests only lands nothing yet: it is merged again with those after the failing merge, and they
+    all land only on a full green run of that tree (the failing gap's `pre` then main's head, `base`, as no commit of
+    that prefix lands). Each failing merge found costs at most 2 + 2 ceil(log2 m) runs (m: the merges left; the red
+    run, the named tests on its tree, and each step, two when a named run cannot tell). Returns (each gap landing with its
     timing, main's head), the checkout's main left at that head. Gaps sent on are said so here; those landing, by the
     caller, once main is settled."""
     base, todo, landed, runs, tag = pre, batch, [], [0], fac.run_tag(fac.branch_of(batch[0][0]), began)
     logs = fac.run_dir(cfg, "queue")
 
-    def run() -> dict:
+    def run(failed: dict | None = None, every: bool = True) -> dict | None:
         runs[0] += 1
-        return suites(cfg, repo, tag + (f"-{runs[0]}" if runs[0] > 1 else ""), logs)
+        t = tag + (f"-{runs[0]}" if runs[0] > 1 else "")
+        got = named(cfg, repo, t, logs, failed) if failed and failed.get("tests") else None
+        if got is not None or not every:
+            return got
+        runs[0] += bool(failed and failed.get("tests"))   # (a named run that could not tell, then every suite: two)
+        return suites(cfg, repo, t, logs, pre)
 
     def timing(g: dict, got: dict) -> dict:
         return dict(queue_wait_hours=waited_hours(g, began), queue_minutes=round((time.time() - began) / 60, 1),
                     lock_and_load_wait_s=round(waited), suites_queue=got, batch_size=len(batch), batch_id=tag,
                     batch_runs=runs[0])
+    counted = {}                                           # each gap's own merge: main before it to it (its last try)
     while todo:
         fac.git(repo, "reset", "-q", "--keep", base)
         kept, heads = [], []                               # heads[i]: main with the first i + 1 merges
         for g, sha in todo:
+            before = fac.git(repo, "rev-parse", "HEAD")
             if merge(cfg, repo, g, sha, began):
                 kept.append((g, sha))
                 heads.append(fac.git(repo, "rev-parse", "HEAD"))
-        todo = kept
+                counted[g["id"]] = lines(repo, before, heads[-1])
+        tree = lambda c: fac.git(repo, "rev-parse", f"{c}^{{tree}}")              # noqa: E731
+        if dried and kept == batch and tree("HEAD") != tree(dried):             # the tree tested is the one dry-merged
+            raise RuntimeError(f"the batch's merges differ from its dry merge ({dried[:12]})")
+        todo, dried = kept, ""
         if not todo:
             break
         red = run()
         if not red.get("failed"):
-            landed += [(g, timing(g, red)) for g, _ in todo]
+            landed += [(g, timing(g, red) | counted[g["id"]]) for g, _ in todo]
             base = heads[-1]
             break
+        alone = run(red, every=False) if len(todo) > 1 and red.get("tests") else None   # on the whole red tree
+        full = alone if alone and alone.get("failed") else None  # they fail there alone: bisect on them; else in full
         lo, hi, green = 0, len(todo), {}         # the first lo merges ran green (or none); the first hi red
         while hi - lo > 1:
             mid = (lo + hi) // 2
             fac.git(repo, "reset", "-q", "--keep", heads[mid - 1])
-            got = run()
+            got = run(full)
             lo, hi, red, green = (lo, mid, got, green) if got.get("failed") else (mid, hi, red, got)
         g, onto = todo[hi - 1][0], heads[hi - 2] if hi > 1 else base
-        fac.say("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=onto,
+        if "named" in green:                     # (that commit is merged again, never landed: main's own is told)
+            onto = base
+        tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=onto,
                 findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
                 + ([f"the first failing merge of a batch of {len(todo)}, found by bisecting"] if len(todo) > 1 else []),
                 **timing(g, red))
-        landed += [(x, timing(x, green)) for x, _ in todo[:hi - 1]]    # (hi - 1 == lo: that prefix's run was green)
+        # (hi - 1 == lo: that prefix's run was green)
+        if "named" in green:                     # green on the named tests only: merged again with the rest, so it
+            todo = todo[:hi - 1] + todo[hi:]     # lands only on a full green run of the tree it lands as
+            continue
+        landed += [(x, timing(x, green) | counted[x["id"]]) for x, _ in todo[:hi - 1]]
         base, todo = onto, todo[hi:]
     fac.git(repo, "reset", "-q", "--keep", base)
     return landed, base
@@ -317,28 +637,43 @@ def main() -> int:
     cfg = fac.config()
     gap = fac.read_input()["item"]
     repo = fac.path(cfg, "checkout")
-    fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
+    HELD["own"] = gap["id"]
+    try:
+        return take(cfg, gap, repo)
+    finally:                                              # what was kept back and not handed to a pending push
+        release({"then": HELD["said"]})
+
+
+def take(cfg: dict, gap: dict, repo) -> int:
+    """Under the queue's lock throughout: whether a push waits is read from run/queue.json, the gap is taken
+    (`gap.queued`), and a push asked for is written there, in one hold, so no run between them takes a gap."""
     with fac.queue_lock(cfg):
-        why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
+        try:
+            why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
+        except Unreadable as e:                        # (it cannot tell whether a push waits: no gap is taken)
+            why = str(e)
         if why:
-            fac.nack(f"queue: {why}", after="10m", count=False)
+            fac.nack(f"queue: {why}", after="1m" if isinstance(why, Waits) else "10m", count=False)
             return 0
-        batch = []
-        for g in picks(cfg, gap, min(pools.state(cfg)["batch"], pools.BATCH_MOST)):   # (the ceiling again, at run time)
-            sha, why = reviewed(cfg, repo, g)
-            if sha:
-                batch.append((g, sha))
-            else:
-                fac.say("gap.sent-back", g["id"], sent_back_by="queue", findings=[f"not merged: {why}"])
+        fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
+        pre = fac.git(repo, "rev-parse", "HEAD")
+        n = min(pools.state(cfg)["batch"], pools.BATCH_MOST)          # (the ceiling again, at run time)
+        batch, dried, empty = picks(cfg, repo, gap, n, pre)
         if not batch:
+            emptied(cfg, gap, empty)
             return 0
         waited = fac.wait_quiet(cfg)
         began = time.time()
-        pre = fac.git(repo, "rev-parse", "HEAD")
+        if fac.git(repo, "rev-parse", "HEAD") != pre:      # (under the lock nothing should move it: never merged onto)
+            fac.nack(f"queue: {cfg['git']['base']} moved while the run waited", after="10m", count=False)
+            return 0
         save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": [g["id"] for g, _ in batch], "at": began}})
         done = settled = False
         try:
-            landed, merged = land(cfg, repo, batch, pre, began, waited)
+            landed, merged = land(cfg, repo, batch, pre, began, waited, dried)
+            if not landed:                                 # no push to wait for: the run's own gap's outcome now
+                release({"then": HELD["said"]})
+                HELD["said"] = []
             done = True                                    # the point of no return: main holds the landed merges
             ids = [g["id"] for g, _ in landed]
             save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": ids, "at": began, "landing": ids}})
@@ -361,9 +696,16 @@ def main() -> int:
                 st = state(cfg)
                 st.pop("running", None)
                 save(cfg, st)
-    if not landed:
-        return 0
-    try:                                                  # one gated push for the batch: its last merge holds them all
+        if landed:
+            ask(cfg, repo, gap, landed, merged, pre)
+    return 0
+
+
+def ask(cfg: dict, repo, gap: dict, landed: list, merged: str, pre: str) -> None:
+    """One gated push for the batch (its last merge holds them all), asked and written as pending under the queue's
+    lock. The run's own gap, when it did not land, waits for it (`gap.push-pending`): its lease ends there, not back
+    at approved, and its outcome is said once the push settles (release())."""
+    try:
         rc, said = fac.act("push-main", key=merged, sha=merged)
         push = {0: "pushed", 1: "failed", 3: "held", 4: "denied"}.get(rc, f"refused ({rc})")
     except FileNotFoundError:
@@ -373,16 +715,18 @@ def main() -> int:
         fac.say("gap.push-asked", gid, push=push, push_said=said[-600:])
     if push != "pushed":
         m = re.search(r"ergostat\.action/[0-9a-f]+", said)
+        then, HELD["said"] = HELD["said"], []           # the run's own gap's outcome waits for the push to settle
         save(cfg, {**state(cfg), "pending": {"sha": merged, "pre": pre, "gap": gids[0], "gaps": gids,
                                              "action": m.group(0) if m else "", "known": push.split(" ")[0],
-                                             "said": said[-600:], "at": time.time()}})
-        with fac.queue_lock(cfg):
-            settle(cfg, repo)                             # a push denied or failed at once is handled now
-    return 0
+                                             "said": said[-600:], "at": time.time(), "then": then}})
+        if then:
+            fac.say("gap.push-pending", gap["id"], push_pending=merged)
+        settle(cfg, repo)                                 # a push denied or failed at once is handled now
 
 
 def push(sha: str) -> int:
-    """The action push-main: that commit, and nothing else, to the remote's main (a fast-forward, or refused)."""
+    """The action push-main: that commit, and nothing else, to the remote's main (a fast-forward, or refused: never
+    forced, so the remote moves only from the main it had, which an approval that came late cannot rewind)."""
     cfg = fac.config()
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise SystemExit(f"not a full commit id: {sha!r}")
@@ -392,4 +736,14 @@ def push(sha: str) -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["waiting"]:                   # the sensor push-waiting: 1 while the queue can take no gap
+        print(1 if waits(fac.config()) else 0)
+        sys.exit(0)
+    if sys.argv[1:2] == ["settleable"]:                # the sensor push-settleable: 1 while push-settler has work
+        print(1 if settleable(fac.config()) else 0)
+        sys.exit(0)
+    if sys.argv[1:2] == ["settle"]:                    # the block push-settler (unreadable: raised, a failed run)
+        fac.stop_on_term()
+        print(f"settle: {settle_alone(fac.config()) or 'nothing waits'}", file=sys.stderr)
+        sys.exit(0)
     sys.exit(push(sys.argv[2]) if sys.argv[1:2] == ["push"] else main())

@@ -1012,6 +1012,14 @@ class _Diagram:
             return b.builtin_rung
         return None if b.type == "external" else KIND_OF_TYPE.get(b.type)
 
+    def pool_row(self, b) -> str:
+        """``M``, or ``N now, at most M (stock.S)`` from the snapshot's level of S (``no reading`` without one)."""
+        from .leases import poolnow
+        if b.pool_now is None:
+            return str(b.pool)
+        v = (self.snap.get("stocks") or {}).get(b.pool_now.name, {}).get("value")
+        return f"{'no reading' if poolnow.unread(v) else f'{poolnow.now(b, v)} now'}, at most {b.pool} ({b.pool_now})"
+
     def block_fn(self, n: str) -> dict:
         """A block's function: its symbol and what is known of it, and its definition as MathML."""
         s = self.s
@@ -1030,6 +1038,8 @@ class _Diagram:
                 ["description", b.description]]
         if agent and agent.kind:
             rows.insert(1, ["agent", f"{agent.name} ({agent.kind})"])
+        if b.takes:                                        # its pool: written, or its stock's level now (SPEC §9.5)
+            rows.insert(rows.index(["runs", when]) + 1, ["pool", self.pool_row(b)])
         knob = self.setting_of.get(n)
         reads_error = any(k.startswith("goal.") and k.endswith(".e") for _, k in self.reads.get(n, []))
         e = next((k.split(".")[1] for _, k in self.reads.get(n, []) if k.startswith("goal.") and k.endswith(".e")), None)

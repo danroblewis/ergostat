@@ -11,7 +11,9 @@ it was given."""
 
 from __future__ import annotations
 
+import contextlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -26,6 +28,7 @@ from .requests import evidence_of
 
 GUIDE = Path(__file__).resolve().parent.parent / "library" / "templates" / "modelling" / "modeller.md"
 MOST = 8                    # requests given to one call
+FAILS = 3                   # failed calls (``call``'s ``error``) on one item before it waits for the owner (no try counted)
 LINES = 40                  # lines of YAML shown for one part at most
 CODE_LINES = 60             # lines of a program a part runs shown at most
 TOOLS_OFF = "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit"
@@ -115,6 +118,8 @@ def prompt(p, spec: Spec, reqs: list[dict], feedback: list[str] | None = None) -
         lines += ["", "## Programs they run (read before you describe what they measure or do)", ""]
         for t in progs:
             lines += ["```", t, "```"]
+    from . import reviewer as rv
+    lines += rv.lines(p, os.environ.get("ERGOSTAT_BLOCK") or "modeller")
     if feedback:
         lines += ["", "## What ergostat said of your last answer (fix these, or say cannot)", ""] + [f"- {x}" for x in feedback]
     return "\n".join(lines)
@@ -140,30 +145,50 @@ def parse(text: str) -> tuple[list[dict], list[dict]]:
 
 def call(text: str, model: str, timeout: float = 600.0) -> dict:
     """One ``claude -p`` call, tools off: ``{"result", "usd", "tokens_in", "tokens_out", "seconds"}`` (``ERGOSTAT_AI`` names
-    another command that answers the same way, as the tests' stand-in does)."""
+    another command that answers the same way, as the tests' stand-in does). One that fails (times out, exits non-zero,
+    says ``is_error``, or says no cost that is a number) has an ``error`` saying what it said, and is charged its
+    reservation (``unsaid``), or what it said if more."""
     cmd = [os.environ.get("ERGOSTAT_AI") or "claude", "-p", "--model", model, "--output-format", "json",
            "--disallowedTools", TOOLS_OFF]
+    if Path(cmd[0]).name == "claude":              # its reservation as claude's budget (checked after a turn: no ceiling)
+        cmd += ["--max-budget-usd", f"{unsaid(text, model)['usd']:.6f}"]
     t0 = time.perf_counter()
     try:
         got = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=timeout)
-        out = json.loads(got.stdout)
+        try:
+            out = json.loads(got.stdout)
+        except ValueError:
+            if not got.returncode:
+                raise
+            out = {"result": got.stdout}                              # a failed exit: what it printed is what it said
     except (subprocess.TimeoutExpired, ValueError, OSError) as e:      # what it cost is not said: charged as the most it
         return {"result": "", **unsaid(text, model), "seconds": time.perf_counter() - t0,   # could have (fail closed)
                 "error": f"{type(e).__name__}: {e}"}
+    out = out if isinstance(out, dict) else {"result": str(out)}
+    usd = out.get("total_cost_usd")
+    said = isinstance(usd, (int, float)) and not isinstance(usd, bool) and math.isfinite(usd) and usd >= 0
+    if got.returncode or out.get("is_error") or not said:         # failed, or its cost unsaid:
+        why = f"exit {got.returncode}" if got.returncode else "is_error" if out.get("is_error") else "no cost said"
+        told = str(out.get("result") or got.stderr or "").strip()[:300]                      # charged its reservation,
+        r = unsaid(text, model)                                                                # or more if it said more
+        return {"result": "", **r, "usd": max(r["usd"], float(usd) if said else 0.0), "seconds": time.perf_counter() - t0,
+                "error": f"the call failed ({why})" + (f": {told}" if told else "")}
     u = out.get("usage") or {}
     tin = int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0)
-    return {"result": str(out.get("result") or ""), "usd": float(out.get("total_cost_usd") or 0.0), "tokens_in": tin,
+    return {"result": str(out.get("result") or ""), "usd": float(usd), "tokens_in": tin,
             "tokens_out": int(u.get("output_tokens") or 0), "seconds": round(time.perf_counter() - t0, 1)}
 
 
 MOST_OUT = 16000            # output tokens a call that said nothing of its cost is charged for, besides its prompt
+SYSTEM_IN = 20000           # input tokens of claude's own system prompt, read on every call besides ours
 
 
 def unsaid(text: str, model: str) -> dict:
     """The cost charged for a call that never said its own (killed, timed out, or answered no JSON): its prompt read
-    and the most it could have written, at the model's price; dear rather than free, so a cap fails closed."""
+    (with claude's own system prompt) and ``MOST_OUT`` written, at the model's price; dear rather than free. An
+    estimate, not a bound: ``claude -p`` is given no output limit, so a call can cost more."""
     from ..costs import prices
-    tin = len(text) // 3 + 1
+    tin = len(text) // 3 + 1 + SYSTEM_IN
     usd = prices.estimate(model, {"input": tin, "output": MOST_OUT})
     return {"usd": round(usd if usd is not None else 1.0, 6), "tokens_in": tin, "tokens_out": MOST_OUT, "estimated": True}
 
@@ -175,16 +200,29 @@ def per_call(timeout: float | None, calls: int) -> float:
     return max(30.0, min(600.0, (float(timeout) * 0.8) / max(1, calls)))
 
 
-def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True, timeout: float = 600.0, on_call=None) -> dict:
+def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True, timeout: float = 600.0, on_call=None,
+           within=None) -> dict:
     """The AI tier on these requests: ``{"proposals": [propose], "cannot": [{id, why}], "cost": {...}, "tried": [...]}``,
-    each proposal one ``try_change`` would propose (the rest given back once, with why)."""
+    each proposal one ``try_change`` would propose (the rest given back once, with why). ``within(prompt)``: the
+    context each call is made in (``modeller_spend.held``), given a list for its cost; one that raises ``Capped``
+    stops the run there (``cost["capped"]``). A call that reports more than its reservation is in ``cost["over"]``."""
+    from .modeller_spend import Capped
     spec: Spec = p.model.spec
     cost = {"usd": 0.0, "tokens_in": 0, "tokens_out": 0, "calls": 0, "seconds": 0.0, "model": model}
     good, cannot, tried = [], [], []
     feedback: list[str] | None = None
     for attempt in range(2 if retry else 1):
-        got = call(prompt(p, spec, reqs, feedback), model, timeout)
+        text = prompt(p, spec, reqs, feedback)
+        try:
+            with (within(text) if within else contextlib.nullcontext([])) as box:
+                got = call(text, model, timeout)
+                box.append(got)
+        except Capped as e:
+            cost["capped"] = str(e)
+            break
         cost["calls"] += 1
+        if (r := unsaid(text, model)["usd"]) < float(got.get("usd") or 0):
+            cost.setdefault("over", []).append((round(float(got["usd"]) - r, 6), r))
         for k in ("usd", "tokens_in", "tokens_out", "seconds"):
             cost[k] = round(cost[k] + got.get(k, 0), 6)
         if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it

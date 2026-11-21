@@ -18,19 +18,19 @@ ALWAYS = {"implementor": ["CLAUDE.md", "NOTES.md"], "reviewer": ["CLAUDE.md", "N
 DOC = re.compile(r"\b((?:docs|examples|scripts|tests|ergostat)/[\w./-]+\.(?:md|py|yaml))\b")
 DIFF_MOST = 60_000           # characters of the diff a reviewer is given whole; past it, the stat and the files
 PATH = re.compile(r"^[\w.-]+(?:/[\w.-]+)+/?$|^[\w.-]+\.(?:py|md|yaml|yml|toml|sh|js|css|html|json)$")
-ACTIVE = ("fix", "building", "built", "in-review", "approved", "queued", "queue-failed")
+ACTIVE = ("fix", "building", "built", "in-review", "approved", "queued", "push-pending", "queue-failed")
 
 
 def definition_text(cfg: dict, where: str, branch: str) -> str:
     """A gap's definition, only from where the coordinator writes one: a file in the instance's run/defs/, or
-    `REF:docs/roadmap/overnight/NAME.md` on main or the gap's own branch, in the checkout or the drop. Anything else
-    (another path, the text itself) is refused: ""."""
+    `REF:dev/records/NAME.md` (or the old `REF:docs/roadmap/overnight/NAME.md`) on main or the gap's own branch, in
+    the checkout or the drop. Anything else (another path, the text itself) is refused: ""."""
     defs = fac.run_dir(cfg, "defs").resolve()
     p = Path(where)
     p = (p if p.is_absolute() else fac.MODEL / p).resolve()
     if defs in p.parents and p.suffix == ".md" and p.is_file():
         return p.read_text()
-    m = re.fullmatch(r"([\w/.-]+):(docs/roadmap/overnight/[a-z0-9-]+\.md)", where)
+    m = fac.REF.fullmatch(where)
     if m and m.group(1) in (cfg["git"]["base"], branch, fac.git_branch(branch)):
         for repo in (fac.path(cfg, "checkout"), fac.path(cfg, "live") / "drop.git"):
             ref = m.group(1) if m.group(1) == cfg["git"]["base"] else fac.git_branch(branch)
@@ -78,7 +78,7 @@ def assemble(cfg: dict, role: str, gap: dict, worktree: Path, **extra) -> tuple[
         "gap": gap["id"], "title": f.get("title", gap["id"]), "branch": fac.git_branch(fac.branch_of(gap)), "worktree": "/work",
         "base": cfg["git"]["base"], "definition": definition.strip(), "gaps_entry": entry or "(not in GAPS.md)",
         "guides": "\n".join(f"- {g}" for g in guides), "findings": findings_text(findings),
-        "definition_path": fac.definition_file(gap), "budget": str(fac.budget_of(definition)),
+        "definition_path": fac.definition_file(gap, worktree), "budget": str(fac.budget_of(definition)),
         "round": str(int(f.get("rounds") or 0) + 1), "knowledge": know, **{k: str(v) for k, v in extra.items()},
     }
     text = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), template.read_text())
