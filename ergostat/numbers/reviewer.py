@@ -209,9 +209,9 @@ def spent(p, now: float | None = None) -> float:
 
 def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: float = 600.0, call=None, on_call=None,
         room=None) -> dict:
-    """One pass: each change waiting for a review, while the day's allowance ``left`` lasts (no call starts that could cost
-    more than is left). ``room()``, if given, is what is left of the day's cap, read again before each call and held
-    against it while the call runs (``redesign.held``). Returns ``{"verdicts", "cost"}``."""
+    """One pass: each change waiting for a review, while the day's allowance ``left`` lasts (no call starts whose estimated
+    most, ``modeller.unsaid``, is more than is left). ``room()``, if given, is what is left of the day's cap, read again
+    before each call and held against it while the call runs (``redesign.held``). Returns ``{"verdicts", "cost"}``."""
     from . import modeller as md
     from . import redesign as rd
     call = call or md.call
@@ -221,7 +221,7 @@ def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: floa
         text = prompt(p, spec, x)
         dearest = md.unsaid(text, model)["usd"]
         with rd.held(p, dearest, room, by="reviewer") as fits:
-            if not fits or out["cost"]["usd"] + dearest > left:     # its dearest: never past the cap
+            if not fits or out["cost"]["usd"] + dearest > left:     # its estimated most: none past the cap
                 out["verdicts"].append({"id": x["id"], "verdict": None, "why": "the day's allowance is spent"})
                 break
             got = call(text, model, timeout)

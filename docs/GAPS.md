@@ -144,8 +144,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   change and redesign the judge passed, and passes it, sends it back to its author, or rejects it, with the authors'
   prompts carrying its verdicts. The continued gap stamps each review with the verdict and edit it read (held by
   equality, recorded under the changes' lock only if the change is still that one), and keeps the shared daily cap
-  closed: each call's worst-case cost is checked against what is left, read again before each call, and held against
-  the cap while it runs, so the reviewer and the redesigner running at once never pass it.
+  closed: each call's estimated most is checked against what is left, read again before each call, and held against
+  the cap while it runs, so the reviewer and the redesigner running at once do not both start calls on one remainder.
+  Open: the estimate is not a bound (`claude -p` is given no output limit), so a call that writes more than 16,000
+  tokens can take the day a little past the cap.
 - **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
   between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not

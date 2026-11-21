@@ -249,7 +249,7 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
         text = prompt(p, s, system, why or [], feedback, card, by)
         dearest = md.unsaid(text, model)["usd"]
         with rd.held(p, dearest, room) as fits:       # the day's cap read again and this call held against it
-            if not fits or cost["usd"] + dearest > budget:    # its dearest: no call that could pass the cap
+            if not fits or cost["usd"] + dearest > budget:    # its estimated most: none past the cap
                 log.append({"round": r, "stopped": f"the budget (${budget:.2f}) is spent"})
                 break
             t_c = time.perf_counter()
