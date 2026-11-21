@@ -5,12 +5,10 @@ AI (dev/bin/manager.py), on the fixture of tests/test_factory.py."""
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 import time
 
 from ergostat.spec import read
-from tests.test_factory import BIN, ROOT, git, ready
+from tests.test_factory import ROOT, git, ready
 from tests.test_factory_knowledge import Instance
 
 H = 3600.0
@@ -64,47 +62,15 @@ def test_the_model_has_the_block_its_kind_triggers_and_gated_actions():
     assert {"manager-close", "manager-park", "manager-pool", "manager-change"} <= set(spec.actions)
     assert all(spec.actions[a].gate == "approve" for a in ("manager-close", "manager-park", "manager-pool", "manager-change"))
     assert "closed" in spec.items["gap"].states and "situation" in spec.items["session"].relations
-
-
-def test_the_queue_blocked_is_raised_first_and_once(tmp_path):
-    f = Pipe(tmp_path)
-    (tmp_path / "instance" / "run").mkdir(exist_ok=True)
-    (tmp_path / "instance" / "run" / "queue.json").write_text(json.dumps(
-        {"blocked": {"why": "the push failed", "intervention": "intervention/queue-1", "at": f.now - 60}}))
-    f.put("intervention/queue-1", "open", reason="the merge queue stopped", recorded_at=f.now - 60, **{"class": "queue"})
-    f.put("gap/stopped", "parked", parked_at=f.now - H, branch="stopped")
-    got = f.watch()
-    assert got["trigger"] == "queue" and got["subject"] == "intervention/queue-1" and "push failed" in got["why"]
-    assert f.watch() is None                                   # one at a time: nothing while it is raised
-    f.handled(got["id"])
-    assert f.watch()["trigger"] == "parked"                    # the queue's own intervention is not raised twice
-
-
-def test_dead_and_parked_gaps_are_raised_but_not_old_or_carried_on_ones(tmp_path):
-    f = Pipe(tmp_path)
-    f.put("gap/just-died", "dead", entered=600, branch="just-died")               # dead-letters parks it first
-    f.put("gap/old-park", "parked", parked_at=f.now - 72 * H, branch="old-park")
-    f.put("gap/carried", "parked", parked_at=f.now - H, branch="carried")
-    f.put("gap/carried-on", "open", continues="carried")
-    f.put("gap/long-dead", "dead", entered=2 * H, branch="long-dead", last_error="RuntimeError: lost")
-    got = f.watch()
-    assert (got["trigger"], got["subject"], got["gap"]) == ("dead", "gap/long-dead", "gap/long-dead")
-    f.handled(got["id"])
-    assert f.watch()["trigger"] == "heartbeat"
-
-
-def test_a_gap_stuck_in_its_state_from_its_moves_and_from_state_times(tmp_path):
-    f = Pipe(tmp_path)
-    bounces = [{"time": f.now - 8 * H, "from": "building", "to": "fix"},
-               {"time": f.now - 600, "from": "fix", "to": "leased"}, {"time": f.now - 60, "from": "leased", "to": "fix"}]
-    f.put("gap/slow", "fix", entered=60, moves=bounces, branch="slow")                   # 8 hours in fix, not 1 minute
-    f.put("gap/fresh", "fix", entered=60, moves=bounces[1:], branch="fresh")             # in fix 10 minutes
-    f.put("gap/timed", "built", entered=60, moves=bounces[1:], time_in={"built": {"hours": 3.0, "visits": 2}})
-    assert f.tool("watch.py", "stuck").stdout.strip() == "2"
-    got = f.watch()
-    assert got["trigger"] == "stuck" and got["subject"] == "gap/slow" and "8.0h" in got["why"]
-    f.handled(got["id"])
-    assert f.watch()["subject"] == "gap/timed"                 # from state-times' time_in: 3h over its 2h threshold
+    for goal in ("no-stuck-gaps", "merge-pipeline-flowing", "situations-looked-at"):
+        assert spec.loop(goal).closes, goal
+    assert "minutes-since-manager" not in {g.of.name for g in spec.goals.values()}   # (a measure: it grows while idle)
+    when = spec.blocks["manage-when"]
+    assert set(when.inputs) == {"waiting", "open", "over"}      # it reads only what its expression uses
+    watch = spec.blocks["pipeline-watch"]
+    assert {"no-stuck-gaps", "merge-pipeline-flowing"} <= {r.name for r in watch.reads() if r.kind == "goal"}
+    assert watch.every
+    assert spec.goals["merge-pipeline-flowing"].hold.value == 0  # (minutes past [manager] broken_minutes)
 
 
 def test_a_wait_the_pipeline_explains_is_not_stuck(tmp_path):
@@ -119,66 +85,393 @@ def test_a_wait_the_pipeline_explains_is_not_stuck(tmp_path):
     assert f.tool("watch.py", "stuck").stdout.strip() == "0"
 
 
-def test_an_old_open_intervention_is_raised_but_never_the_managers_own(tmp_path):
+def subjects(sit: dict) -> list[str]:
+    return [t["subject"] for t in sit["triggers"]]
+
+
+def test_one_session_carries_every_standing_trigger_and_answers_each(tmp_path):
     f = Pipe(tmp_path)
-    f.put("intervention/mine", "open", recorded_at=f.now - 20 * H, by="pipeline-manager", **{"class": "flake"})
-    f.put("intervention/recent", "open", recorded_at=f.now - H, by="claude-coordinator")
-    f.put("intervention/old", "open", recorded_at=f.now - 13 * H, by="claude-coordinator", reason="seeded by hand",
+    (tmp_path / "instance" / "run").mkdir(exist_ok=True)
+    (tmp_path / "instance" / "run" / "queue.json").write_text(json.dumps(
+        {"blocked": {"why": "the push failed", "intervention": "intervention/queue-1", "at": f.now - 60}}))
+    f.put("intervention/queue-1", "open", reason="the merge queue stopped", recorded_at=f.now - 60, **{"class": "queue"})
+    f.put("gap/p", "parked", title="P", branch="p", parked_at=f.now - H, where_it_stopped="main's own lease race")
+    f.put("gap/long-dead", "dead", entered=2 * H, branch="long-dead", last_error="RuntimeError: lost")
+    f.put("intervention/old", "open", recorded_at=f.now - 13 * H, reason="seeded by hand",
           **{"class": "factory-missing-capability"})
+    sit = f.watch()
+    assert sit["reason"] == "scheduled" and subjects(sit)[0] == "intervention/queue-1"
+    assert set(subjects(sit)) == {"intervention/queue-1", "gap/p", "gap/long-dead", "intervention/old"}
+    assert f.watch() is None                                   # one session at a time
+    by = {t["subject"]: t["print"] for t in sit["triggers"]}
+    answer = {"calls": [["continue", "gap/p", "--why", "main's own failure"], ["flake", "nope", "--why", "x"],
+                        ["close", "gap/long-dead", "--why", "done elsewhere"]],
+              "answers": {by["gap/p"]: "continued", by["gap/long-dead"]: "close asked", by["intervention/old"]: "left",
+                          by["intervention/queue-1"]: "the push is the coordinator's"},
+              "summary": "continued p; the queue needs its push"}
+    said, _ = f.run("manager.py", sit["id"], FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(answer) + "\n```")
+    f.drain()
+    assert said == ["situation.handled"]
+    s = f.item(sit["id"])
+    assert s["state"] == "handled" and s["fields"]["triggers_n"] == 4 and s["fields"]["actions_n"] == 2
+    assert [a["ok"] for a in s["fields"]["actions"]] == [True, False, True]
+    assert {a["subject"]: a["answer"] for a in s["fields"]["answers"]}["gap/p"] == "continued"
+    assert f.item("gap/p-continued")["fields"]["requested_by"] == "pipeline-manager"
+    assert {i["fields"]["action"] for i in f.interventions("pipeline-manager")} == {"continue", "close"}
+    assert all(i["fields"]["situation"] == sit["id"] for i in f.interventions("pipeline-manager"))
+    text = (f.model / s["fields"]["context"]["brief"].removeprefix("file:")).read_text()
+    for part in ("# This session", by["gap/p"], "main's own lease race", "## The merge queue", "## Main's recent commits",
+                 "The velocity record", "The house rules", "continue GAP"):
+        assert part in text
+    (session,) = [i for i in f.db()["items"].values() if i["kind"] == "session"]
+    assert session["fields"]["situation"] == [sit["id"]] and session["fields"]["role"] == "pipeline_manager"
+    db = f.db()
+    db["items"][sit["id"]]["fields"]["raised_at"] = f.now - 3 * H
+    f.record.write_text(json.dumps(db))
+    f.put("gap/new-park", "parked", branch="new-park", parked_at=f.now - 60)
+    assert subjects(f.watch()) == ["gap/new-park"]             # what was answered is not carried again
+
+
+def test_the_brief_carries_the_owners_decisions_on_continuing_and_deferring(tmp_path):
+    from tests.test_factory_knowledge import decide, knowledge_module
+    f = Pipe(tmp_path)
+    mine = {d["decision"]: d["scope"] for d in knowledge_module().decisions().values()}   # (as decisions.md has them)
+    heads = ["A branch carrying another gap's merge is continued once that merge lands", "Deferred areas stay deferred"]
+    for head in heads:
+        decide(f, head, mine[head], "confirmed")
+    f.put("gap/p", "parked", title="P", branch="p", parked_at=f.now - H, where_it_stopped="main's own lease race")
+    sit = f.watch()
+    answer = {"calls": [], "answers": {sit["triggers"][0]["print"]: "left"}, "summary": "left"}
+    said, _ = f.run("manager.py", sit["id"], FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(answer) + "\n```")
+    assert said == ["situation.handled"]
+    s = f.item(sit["id"])
+    text = (f.model / s["fields"]["context"]["brief"].removeprefix("file:")).read_text()
+    for head in heads:
+        assert f"**{head}**" in text, head
+
+
+def test_a_trigger_left_unanswered_or_a_failed_session_comes_back(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/a", "parked", branch="a", parked_at=f.now - H)
+    f.put("gap/b", "parked", branch="b", parked_at=f.now - H)
+    sit = f.watch()
+    by = {t["subject"]: t["print"] for t in sit["triggers"]}
+    reply = "```json\n" + json.dumps({"calls": [], "answers": {by["gap/a"]: "left"}, "summary": "s"}) + "\n```"
+    f.run("manager.py", sit["id"], FACTORY_STANDIN_PIPELINE_MANAGER=reply)
+    db = f.db()
+    db["items"][sit["id"]]["fields"]["raised_at"] = f.now - 3 * H
+    f.record.write_text(json.dumps(db))
+    again = f.watch()
+    assert subjects(again) == ["gap/b"]
+    f.run("manager.py", again["id"], lease={"attempt": 2, "attempts": 2}, FACTORY_STANDIN_PIPELINE_MANAGER="no json")
+    assert f.item(again["id"])["state"] == "failed"
+    db = f.db()
+    db["items"][again["id"]]["fields"]["raised_at"] = f.now - 3 * H
+    f.record.write_text(json.dumps(db))
+    f.put("gap/c", "ready", ago=60)                            # (the pipeline changed)
+    assert subjects(f.watch()) == ["gap/b"]
+
+
+def test_situations_of_the_one_trigger_watch_are_read_and_an_old_raised_one_is_superseded(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/a", "parked", branch="a", parked_at=f.now - H)
+    f.put("gap/b", "parked", branch="b", parked_at=f.now - H)
+    prints = f.py("import watch\nprint(json.dumps({g: watch.sit('parked', g, '', t)['print'] "
+                  f"for g, t in (('gap/a', {f.now - H!r}), ('gap/b', {f.now - H!r}))}}))")
+    f.put("situation/parked-a-1234", "handled", ago=3 * H, trigger="parked", subject="gap/a", print=prints["gap/a"],
+          raised_at=f.now - 3 * H)
+    f.put("situation/parked-b-5678", "raised", ago=3 * H, trigger="parked", subject="gap/b", print=prints["gap/b"],
+          raised_at=f.now - 3 * H)
+    assert f.watch() is None                                   # the old raised one is first closed
+    said, _ = f.run("manager.py", "situation/parked-b-5678", FACTORY_STANDIN_PIPELINE_MANAGER="never asked")
+    f.drain()
+    assert said == ["situation.superseded"] and f.item("situation/parked-b-5678")["state"] == "superseded"
+    assert [i for i in f.db()["items"].values() if i["kind"] == "session"] == []      # never run
+    assert subjects(f.watch()) == ["gap/b"]                     # the old handled one is handled; the superseded is not
+
+
+def test_each_situation_raised_has_its_own_id(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/a", "parked", branch="a", parked_at=f.now - H)
+    code = ("import watch\ncfg = watch.fac.config()\nwatch.fac.items = lambda kind, *s: [] if kind == 'situation' else "
+            "ITEMS(kind, *s)\nids = [watch.raise_one(cfg, 1.8e9)['id'] for _ in range(2)]\nprint(json.dumps(ids))")
+    a, b = f.py("ITEMS = __import__('fac').items\n" + code)
+    assert a != b and a.startswith("situation/scheduled-")
+
+
+def test_nothing_changed_means_no_session(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/r", "ready", ago=60, branch="r")
+    first = f.watch()
+    assert first["reason"] == "scheduled" and first["triggers"] == []
+    f.handled(first["id"])
+    assert f.watch() is None                                   # not due
+    db = f.db()
+    db["items"][first["id"]]["fields"]["raised_at"] = f.now - 3 * H
+    f.record.write_text(json.dumps(db))
+    assert f.watch() is None                                   # due, and nothing changed
+    f.put("gap/new", "ready", ago=60, branch="new")
+    assert f.watch()["reason"] == "scheduled"                  # due, and it changed
+
+
+def after_a_session(f: Pipe) -> str:
+    """A session just handled, so the schedule is not due."""
+    first = f.watch()
+    f.handled(first["id"])
+    db = f.db()
+    db["items"][first["id"]]["fields"]["raised_at"] = f.now - 31 * 60        # (past the least time between sessions)
+    f.record.write_text(json.dumps(db))
+    return first["id"]
+
+
+def queue_json(f: Pipe, **st) -> None:
+    (f.model / "run").mkdir(exist_ok=True)
+    (f.model / "run" / "queue.json").write_text(json.dumps(st))
+
+
+def test_a_broken_pipeline_starts_a_session_at_once(tmp_path):
+    f = Pipe(tmp_path)
+    after_a_session(f)
+    queue_json(f, pending={"sha": "a" * 40, "gaps": ["gap/x"], "at": f.now - 10 * 60})
+    assert f.watch() is None                                   # younger than broken_minutes
+    queue_json(f, pending={"sha": "a" * 40, "gaps": ["gap/x"], "at": f.now - 40 * 60})
     got = f.watch()
-    assert got["trigger"] == "intervention" and got["subject"] == "intervention/old"
+    assert got["reason"] == "broken" and list(got["broken"]) == ["push"]
+    f.handled(got["id"])
+    db = f.db()
+    db["items"][got["id"]]["fields"]["raised_at"] = f.now - 31 * 60
+    f.record.write_text(json.dumps(db))
+    assert f.watch() is None                                   # the same break, already looked at
+    queue_json(f, pending={"sha": "b" * 40, "gaps": ["gap/y"], "at": f.now - 35 * 60})
+    assert f.watch()["reason"] == "broken"                     # another push, its own clock
 
 
-def test_only_unremedied_defects_are_raised_and_at_most_three_an_hour(tmp_path):
-    f = Pipe(tmp_path, manager="heartbeat_minutes = 100000\n")
+def test_a_break_that_persists_never_relaunches_a_failing_session_every_run(tmp_path):
+    f = Pipe(tmp_path)
+    after_a_session(f)
+    queue_json(f, blocked={"why": "push failed", "intervention": "intervention/q", "at": f.now - 40 * 60})
+    got = f.watch()
+    f.fold([{"event": "situation.failed", "item": got["id"], "data": {}}], None)
+    assert f.watch() is None                                   # raised a moment ago: not again at once
+    db = f.db()
+    db["items"][got["id"]]["fields"]["raised_at"] = f.now - 31 * 60
+    f.record.write_text(json.dumps(db))
+    assert f.watch()["reason"] == "broken"                     # it failed: not handled, so it comes back
+
+
+def test_each_broken_condition(tmp_path):
+    f = Pipe(tmp_path)
+    old = f.now - 2 * H
+    f.put("gap/m", "merged", merged_at=old)
+    f.put("gap/a", "approved", approved_at=old + 60)
+    f.put("intervention/main-1", "open", main="a" * 12, tests=["tests/t.py::x"], **{"class": "main-broken"})
+    f.put("intervention/main-2", "open", main="b" * 12, tests=["tests/t.py::x", "tests/t.py::y"], **{"class": "main-broken"})
+    queue_json(f, blocked={"why": "w", "intervention": "intervention/q", "at": old})
+    code = ("import watch\nwatch.load.reading = lambda w: {'suites': 99}.get(w, 0)\ncfg = watch.fac.config()\n"
+            "cfg['load']['wait'] = True\ngaps = {g['id']: g for g in watch.fac.items('gap')}\n"
+            "print(json.dumps(sorted(watch.broken(cfg, gaps, [], time.time()))))\nprint(json.dumps(sorted(watch.broken("
+            "cfg, gaps, [], time.time() + 3600))))")
+    got = f.py("import time\n" + code)
+    assert got == ["blocked", "interlock", "main-twice", "no-merge"]   # (the interlock's own clock, an hour on)
+    f.put("intervention/main-1", "remedied", main="a" * 12, tests=["tests/t.py::x"], remedy="fixed in c0ffee",
+          **{"class": "main-broken"})
+    assert "main-twice" not in f.py("import time\n" + code)            # remedied: once on one main commit only
+
+
+def test_the_broken_reading_is_the_minutes_past_broken_minutes(tmp_path):
+    f = Pipe(tmp_path, manager="broken_minutes = 20\n")
+    queue_json(f, pending={"sha": "a" * 40, "gaps": ["gap/x"], "at": f.now - 50 * 60})
+    assert 29.5 <= float(f.tool("watch.py", "broken").stdout) <= 31             # 50 minutes broken, 20 of them allowed
+    queue_json(f, pending={"sha": "a" * 40, "gaps": ["gap/x"], "at": f.now - 10 * 60})
+    assert float(f.tool("watch.py", "broken").stdout) == 0                     # within broken_minutes: flowing
+
+
+def test_deferred_and_cancelled_parks_are_not_triggers(tmp_path):
+    f = Pipe(tmp_path)
+    f.put("gap/d", "parked", branch="d", parked_at=f.now - H, deferred=True)
+    f.put("gap/c", "parked", branch="c", parked_at=f.now - H, cancelled=True)
+    f.put("gap/old", "parked", branch="old", parked_at=f.now - 72 * H)
+    f.put("gap/carried", "parked", branch="carried", parked_at=f.now - H)
+    f.put("gap/carried-on", "open", continues="carried")
+    f.put("gap/p", "parked", branch="p", parked_at=f.now - H)
+    assert subjects(f.watch()) == ["gap/p"]
+
+
+def test_a_gap_stuck_in_its_state_from_its_moves_and_from_state_times(tmp_path):
+    f = Pipe(tmp_path)
+    bounces = [{"time": f.now - 8 * H, "from": "building", "to": "fix"},
+               {"time": f.now - 600, "from": "fix", "to": "leased"}, {"time": f.now - 60, "from": "leased", "to": "fix"}]
+    f.put("gap/slow", "fix", entered=60, moves=bounces, branch="slow")                   # 8 hours in fix, not 1 minute
+    f.put("gap/fresh", "fix", entered=60, moves=bounces[1:], branch="fresh")             # in fix 10 minutes
+    f.put("gap/timed", "built", entered=60, moves=bounces[1:], time_in={"built": {"hours": 3.0, "visits": 2}})
+    assert f.tool("watch.py", "stuck").stdout.strip() == "2"
+    sit = f.watch()
+    assert subjects(sit) == ["gap/slow", "gap/timed"] and "8.0h" in sit["triggers"][0]["why"]
+
+
+def test_only_unremedied_defects_are_triggers_and_never_the_managers_own(tmp_path):
+    f = Pipe(tmp_path)
     old = f.now - 20 * H
+    f.put("intervention/mine", "open", recorded_at=old, by="pipeline-manager", **{"class": "flake"})
+    f.put("intervention/recent", "open", recorded_at=f.now - H, by="claude-coordinator")
     f.put("intervention/pools-raised", "open", recorded_at=old, **{"class": "operator-decision"})
     f.put("intervention/tuned", "open", recorded_at=old, **{"class": "factory-tuning"})
     f.put("intervention/not-ours", "open", recorded_at=old, factory=False, **{"class": "environment-defect"})
     f.put("intervention/said-remedied", "open", recorded_at=old, remedy="fixed", **{"class": "main-broken"})
-    for n in range(5):
-        f.put(f"intervention/d{n}", "open", recorded_at=old + n, **{"class": ["scope-creep", "something-new"][n % 2]})
-    raised = []
-    while (got := f.watch()) is not None:
-        raised.append(got)
-        f.handled(got["id"])
-    subjects = [r["subject"] for r in raised if r["trigger"] == "intervention"]
-    assert subjects == ["intervention/d0", "intervention/d1", "intervention/d2"]    # three this hour, oldest first
-    db = f.db()
-    for r in raised:
-        db["items"][r["id"]]["fields"]["raised_at"] = f.now - 2 * H                  # an hour on
-    f.record.write_text(json.dumps(db))
-    assert [f.watch()["subject"]] == ["intervention/d3"]
+    f.put("intervention/d0", "open", recorded_at=old, **{"class": "scope-creep"})
+    f.put("intervention/d1", "open", recorded_at=old + 1, **{"class": "something-new"})
+    assert subjects(f.watch()) == ["intervention/d0", "intervention/d1"]
 
 
-def test_the_heartbeat_comes_only_when_the_pipeline_changed_and_its_time_came(tmp_path):
-    f = Pipe(tmp_path)
-    got = f.watch()
-    assert got["trigger"] == "heartbeat"
-    f.handled(got["id"])
-    assert f.watch() is None                                   # unchanged, and within its 30 minutes
-    db = f.db()
-    db["items"][got["id"]]["fields"]["raised_at"] = f.now - 31 * 60
-    f.record.write_text(json.dumps(db))
-    assert f.watch() is None                                   # its time came, but nothing changed: deduplicated
-    f.put("gap/new", "ready", ago=60)
-    assert f.watch()["trigger"] == "heartbeat"
-
-
-def test_a_situation_is_raised_again_only_when_it_changed_and_never_while_paused(tmp_path):
-    f = Pipe(tmp_path, manager="heartbeat_minutes = 100000\n")
+def test_paused_raises_nothing(tmp_path):
+    f = Pipe(tmp_path, manager="open = 0\n")
     f.put("gap/p", "parked", parked_at=f.now - H, branch="p")
-    first = f.watch()
-    f.handled(first["id"])
-    assert f.watch()["trigger"] == "heartbeat"                 # (the first heartbeat) and not the same park again
-    f.handled(next(i for i in f.db()["items"] if "heartbeat" in i))
-    assert f.watch() is None
-    f.put("gap/p", "parked", parked_at=f.now - 60, branch="p")  # parked again: a new situation
-    again = f.watch()
-    assert again["subject"] == "gap/p" and again["id"] != first["id"]
-    p = Pipe(tmp_path / "paused", manager="open = 0\n")
-    p.put("gap/p", "parked", parked_at=p.now - H, branch="p")
-    assert p.watch() is None and p.tool("watch.py", "open").stdout.strip() == "0"
+    assert f.watch() is None and f.tool("watch.py", "open").stdout.strip() == "0"
+
+
+def test_most_actions_a_session_is_held(tmp_path):
+    f = Pipe(tmp_path, manager="most_actions = 1\n")
+    f.put("gap/p", "parked", branch="p", parked_at=f.now - H)
+    sit = f.watch()
+    calls = [["flake", f"tests/test_x.py::t{n}", "--why", "w"] for n in range(2)]
+    reply = "```json\n" + json.dumps({"calls": calls, "answers": {}, "summary": "s"}) + "\n```"
+    f.run("manager.py", sit["id"], FACTORY_STANDIN_PIPELINE_MANAGER=reply)
+    f.drain()
+    acts = f.item(sit["id"])["fields"]["actions"]
+    assert [a["ok"] for a in acts] == [True, False] and "at most 1" in acts[1]["said"]
+
+
+def test_most_actions_has_a_floor_and_a_ceiling(tmp_path):
+    """A negative most_actions would run all but the last calls ([:-5]); a huge one lets one session start many gaps."""
+    read = "import watch\nprint(json.dumps(watch.settings(watch.fac.config())['most']))"
+    for said, held in (("-5", 1), ("0", 1), ("500", 12), ("8", 8)):
+        assert Pipe(tmp_path / said, manager=f"most_actions = {said}\n").py(read) == held, said
+
+
+def test_every_and_broken_minutes_have_floors(tmp_path):
+    """`every = "0"` would start a paid session on each 5-minute tick the pipeline's shape changes."""
+    read = "import watch\ns = watch.settings(watch.fac.config())\nprint(json.dumps([s['every'], s['broken']]))"
+    for said, held in (('"0"', [15.0, 5.0]), ('"1m"', [15.0, 5.0]), ('"2h"', [120.0, 120.0]), ("40", [40.0, 40.0])):
+        f = Pipe(tmp_path / said.strip('"'), manager=f"every = {said}\nbroken_minutes = {said}\n")
+        assert f.py(read) == held, said
+
+
+def test_the_broken_clocks_are_kept_under_a_lock(tmp_path):
+    """The sensor and the block both read, decide and write run/manager.json: one holds the lock across all three."""
+    f = Pipe(tmp_path)
+    probe = ("import fcntl, sys\nf = open(sys.argv[1], 'a')\ntry:\n    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)"
+             "\n    print(0)\nexcept BlockingIOError:\n    print(1)")
+    code = ("import subprocess, sys, watch\ncfg = watch.fac.config()\nseen = []\n"
+            f"probe = {probe!r}\nlk = str(watch.fac.run_dir(cfg) / 'manager.lock')\n"
+            "def taken(*a):                              # (the decision, between the read and the write)\n"
+            "    seen.append(subprocess.run([sys.executable, '-c', probe, lk], capture_output=True, text=True)"
+            ".stdout.strip())\n    return {}\n"
+            "watch.conditions = taken\nwatch.broken(cfg, {}, [], 0.0)\nprint(json.dumps(seen))")
+    assert f.py(code) == ["1"]                                  # another process cannot take it while one decides
+
+
+def test_a_goal_the_watch_or_the_review_cannot_find_never_passes_silently(tmp_path):
+    """The interlock's limits and the review's goals are read from the model by name: one renamed or reworded is a
+    broken condition (the interlock's) or the binding constraint (the review's), said, never left out."""
+    f = Pipe(tmp_path)
+    renamed = "{'suites': 'machine-quiet-renamed', 'threads': 'suite-threads-within', 'memory': 'suite-memory-within'}"
+    code = ("import time, watch\nwatch.load.reading = lambda w: 0\ncfg = watch.fac.config()\n"
+            "watch.INTERLOCK = {INTERLOCK}\nprint(json.dumps(watch.conditions(cfg, {}, [], time.time())))")
+    assert "interlock" not in f.py(code.replace("{INTERLOCK}", "watch.INTERLOCK"))    # every limit found, none over
+    got = f.py(code.replace("{INTERLOCK}", renamed))
+    assert "machine-quiet-renamed" in got["interlock"] and "no hold" in got["interlock"]
+    f.put("gap/m0", "merged", merged_at=f.now - H, approved_at=f.now - 8 * H, queued_at=f.now - 2 * H,
+          queue_wait_hours=5.0, batch_id="b1", batch_runs=1, queue_minutes=30.0)      # queue-wait-short off by 2.5
+    read = ("import manager\nmanager.GOALS = ({GOALS})\n"
+            "print(json.dumps(manager.velocity(manager.fac.config()), default=str))")
+    assert f.py(read.replace("{GOALS}", "manager.GOALS"))["binding"] == "queue-wait-short"
+    got = f.py(read.replace("{GOALS}", "('queue-wait-hours', 'queue-wait-short'), ('suite-minutes', 'suites-renamed')"))
+    assert got["binding"] == "suites-renamed" and got["goals"]["suites-renamed"]["off"] is None
+    assert "no hold" in got["goals"]["suites-renamed"]["unknown"]
+
+
+DEFINITION = "# {b}: a change\n\ndepends-on: []\n\n## Definition of done\n\nIt holds.\n\n## Size budget\n\n50 net lines.\n"
+
+
+def test_the_review_proposes_at_most_one_gap_and_asks_at_most_one_question(tmp_path):
+    f = Pipe(tmp_path)
+    assert "requested" in f.manage("propose", "--title", "Test selection", "--branch", "test-selection",
+                                   "--definition-text", DEFINITION.format(b="test-selection"), "--why", "suites bind")
+    assert f.item("gap/test-selection")["fields"]["velocity"] is True
+    assert "one at a time" in f.manage("propose", "--title", "Sharding", "--branch", "sharding", "--definition-text",
+                                       DEFINITION.format(b="sharding"), ok=False)
+    f.put("gap/test-selection", "merged", velocity=True, branch="test-selection")
+    assert "requested" in f.manage("propose", "--title", "Sharding", "--branch", "sharding", "--definition-text",
+                                   DEFINITION.format(b="sharding"))
+    assert " asked" in f.manage("ask", "How much would selecting tests by changed files save?", "--why", "suites bind")
+    assert "one at a time" in f.manage("ask", "Would caching the environments save time?", "--why", "x", ok=False)
+    (r,) = [i for i in f.db()["items"].values() if i["kind"] == "research"]
+    assert r["state"] == "asked" and r["fields"]["asked_by"] == "coordinator"
+    assert {"velocity", "velocity-research"} <= {i["fields"]["class"] for i in f.interventions()}
+    for state in ("leased", "dead"):          # being researched, or given up on: still open, still one at a time
+        f.put(r["id"], state, **r["fields"])
+        assert "one at a time" in f.manage("ask", "Would caching the environments save time?", "--why", "x", ok=False)
+    f.put(r["id"], "answered", **r["fields"])
+    assert " asked" in f.manage("ask", "Would caching the environments save time?", "--why", "x")
+
+
+def test_the_one_open_check_and_its_write_hold_a_lock(tmp_path):
+    """propose and ask read what is open, decide and write: another process cannot take the lock in between."""
+    f = Pipe(tmp_path)
+    probe = ("import fcntl, sys\nf = open(sys.argv[1], 'a')\ntry:\n    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)"
+             "\n    print(0)\nexcept BlockingIOError:\n    print(1)")
+    code = ("import argparse, subprocess, sys, manage\ncfg = manage.fac.config()\nseen = []\n"
+            f"probe = {probe!r}\nlk = str(manage.fac.run_dir(cfg) / 'one-open.lock')\nitems = manage.fac.items\n"
+            "def taken(*a):                              # (the check, before the write)\n"
+            "    seen.append(subprocess.run([sys.executable, '-c', probe, lk], capture_output=True, text=True)"
+            ".stdout.strip())\n    return items(*a)\n"
+            "manage.fac.items = taken\n"
+            "manage.do_ask(cfg, argparse.Namespace(question='Would caching the environments save time?', why='x',"
+            " cls=''))\nprint(json.dumps(seen))")
+    assert f.py(code) == ["1"]
+
+
+def test_the_velocity_record_reads_batches_goals_and_the_researchers_answers(tmp_path):
+    f = Pipe(tmp_path)
+    for n, (batch, runs) in enumerate((("b1", 1), ("b1", 1), ("b2", 3))):
+        f.put(f"gap/m{n}", "merged", merged_at=f.now - H, ready_at=f.now - 9 * H, approved_at=f.now - 8 * H, queued_at=f.now - 2 * H,
+              queue_wait_hours=5.0, batch_id=batch, batch_size=2, batch_runs=runs, queue_minutes=30.0)
+    f.put("research/r1", "answered", asked_by="pipeline-manager", question="q?", summary="select by changed files")
+    f.put("research/other", "answered", asked_by="coordinator", question="other?", summary="no")
+    got = f.py("import manager\nprint(json.dumps(manager.velocity(manager.fac.config()), default=str))")
+    assert got["batches"]["n"] == 2 and got["batches"]["bisected"] == 1 and got["batches"]["minutes-per-merge"] == 20.0
+    assert got["binding"] == "queue-wait-short" and got["goals"]["queue-wait-short"]["off"] == 2.5
+    assert [r["summary"] for r in got["research"]] == ["select by changed files"]
+
+
+def test_a_first_pass_yield_of_zero_is_the_worst_case_and_binds(tmp_path):
+    """first-pass-good holds `>= 0.6`: a yield of 0 is furthest off, not on target; one between 0 and the setpoint is
+    off by the setpoint over it, and one above the setpoint is on the right side (off under 1)."""
+    f = Pipe(tmp_path)
+    f.put("gap/m0", "merged", merged_at=f.now - H, approved_at=f.now - 8 * H, queued_at=f.now - 2 * H,
+          queue_wait_hours=5.0, batch_id="b1", batch_runs=1, queue_minutes=30.0)      # queue-wait-short off by 2.5
+    read = "import manager\nprint(json.dumps(manager.velocity(manager.fac.config()), default=str))"
+    for verdicts, off, binding in ((["fix", "fix"], 60.0, "first-pass-good"), (["merge", "fix"], 1.2, "queue-wait-short"),
+                                   (["merge", "merge"], 0.6, "queue-wait-short")):
+        for n, v in enumerate(verdicts):
+            f.put(f"review/r{n}", "written", written_at=f.now - H, round=1, verdict=v, gap=f"gap/g{n}")
+        got = f.py(read)
+        assert got["goals"]["first-pass-good"]["off"] == off and got["binding"] == binding, (verdicts, got["goals"])
+    f.put("gap/m0", "merged", merged_at=f.now - H, queue_wait_hours=0.5, batch_id="b1", queue_minutes=30.0)
+    f.put("review/r0", "written", written_at=f.now - H, round=1, verdict="merge", gap="gap/g0")
+    f.put("review/r1", "written", written_at=f.now - H, round=1, verdict="fix", gap="gap/g1")
+    assert f.py(read)["binding"] == "first-pass-good"                  # 0.5 against 0.6: the goal furthest off now
+
+
+def test_the_sessions_are_measured(tmp_path):
+    f = Pipe(tmp_path)
+    for n, (t, a) in enumerate(((4, 2), (2, 0))):
+        f.put(f"situation/s{n}", "handled", handled_at=f.now - H, triggers_n=t, actions_n=a)
+    assert f.py("import measure\nprint(measure.reading('manager-triggers-per-session'))") == 3.0
+    assert f.py("import measure\nprint(measure.reading('manager-actions-per-session'))") == 1.0
+    said = f.py("import measure\ntry:\n    measure.reading('manager-action-per-session')\n"   # (a typo: refused,
+                "except SystemExit as e:\n    print(json.dumps(str(e)))")                    # never read as a number)
+    assert "no measure" in said
 
 
 def test_continue_asks_for_a_gap_on_the_parked_branch_once(tmp_path):
@@ -299,58 +592,3 @@ def test_gated_asks_are_held_and_their_commands_run_once_approved(tmp_path):
     assert "was not asked" in f.manage("pool", "reviewer", "2", "--why", "x", ok=False)
     assert "refused" in f.manage("pool", "reviewer", "--why", "x", ok=False)          # (no N: does not parse)
     assert len(f.interventions()) == 4                           # nothing recorded for an ask that was not made
-
-
-def test_a_whole_run_briefs_the_situation_runs_the_calls_and_records_each_as_the_managers(tmp_path):
-    f = Pipe(tmp_path)
-    f.put("gap/p", "parked", title="P", branch="p", parked_at=f.now - H, where_it_stopped="main's own lease race",
-          findings=["tests/test_leases.py::test_race failed"])
-    f.put("gap/q", "fix", branch="q")
-    sit = f.watch()["id"]
-    answer = {"calls": [["continue", "gap/p", "--why", "main's own failure"], ["flake", "nope", "--why", "x"],
-                        ["close", "gap/q", "--why", "done elsewhere"]], "summary": "continued p; q is done elsewhere"}
-    said, _ = f.run("manager.py", sit, FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(answer) + "\n```")
-    f.drain()
-    assert said == ["situation.handled"]
-    s = f.item(sit)
-    assert s["state"] == "handled" and s["fields"]["summary"].startswith("continued p")
-    assert [a["ok"] for a in s["fields"]["actions"]] == [True, False, True]
-    assert f.item("gap/p-continued")["fields"]["requested_by"] == "pipeline-manager"
-    assert {i["fields"]["action"] for i in f.interventions("pipeline-manager")} == {"continue", "close"}
-    assert all(i["fields"]["situation"] == sit for i in f.interventions())
-    text = (f.model / s["fields"]["context"]["brief"].removeprefix("file:")).read_text()
-    for part in ("# The situation", "main's own lease race", "## The merge queue", "## Main's recent commits",
-                 "The house rules", "continue GAP"):
-        assert part in text
-    (session,) = [i for i in f.db()["items"].values() if i["kind"] == "session"]
-    assert session["fields"]["situation"] == [sit] and session["fields"]["role"] == "pipeline_manager"
-
-
-def test_the_heartbeat_files_one_velocity_gap_when_the_queue_wait_is_off(tmp_path):
-    f = Pipe(tmp_path)
-    for n in range(3):
-        f.put(f"gap/m{n}", "merged", merged_at=f.now - H, ready_at=f.now - 9 * H, queue_wait_hours=5.0)
-    code = "import manager\nprint(json.dumps(manager.velocity(manager.fac.config())))"
-    got = f.py(code)
-    f.drain()
-    assert got["queue-wait-hours"] == 5.0 and "gap/merge-batching requested" in got["filed"]
-    g = f.item("gap/merge-batching")
-    assert g["fields"]["velocity"] == "queue-wait-hours" and "## Definition of done" in (
-        tmp_path / "instance" / "run" / "defs" / "merge-batching.md").read_text()
-    for n in range(3, 6):
-        f.put(f"gap/s{n}", "merged", merged_at=f.now - H, suites_queue={"unit": {"seconds": 3000}})
-    again = f.py(code)
-    assert "filed" not in again                                # one of the watch's open at a time
-    (i,) = f.interventions()
-    assert i["fields"]["class"] == "velocity"
-
-
-def test_a_session_answer_without_calls_is_handled_and_a_bad_one_fails_on_its_last_attempt(tmp_path):
-    f = Pipe(tmp_path)
-    sit = f.watch()["id"]
-    said, _ = f.run("manager.py", sit, lease={"attempt": 2, "attempts": 2}, FACTORY_STANDIN_PIPELINE_MANAGER="no json")
-    assert said == ["situation.failed"] and f.item(sit)["state"] == "failed"
-    sit2 = f.watch()
-    assert sit2 is None or sit2["trigger"] == "heartbeat"
-    r = subprocess.run([sys.executable, str(BIN / "manage.py")], capture_output=True, text=True, cwd=f.model, env=f.env)
-    assert "reapprove GAP" in r.stdout

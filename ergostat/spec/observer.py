@@ -161,11 +161,12 @@ class Track:
 class Observer:
     """Every estimated stock's ``Track``, moved together by the model between readings."""
 
-    def __init__(self, spec: Spec, history=None, carry: Observer | None = None):
+    def __init__(self, spec: Spec, history=None, carry: Observer | None = None, mine=None):
+        """``mine``: whether a stock (``stock.NAME``) is this engine's shard's to estimate (None: every one)."""
         self.spec, self.t = spec, carry.t if carry else None
         self.rate: dict[str, float] = {}                   # each stock's net flow over the last step, per hour
         self.tracks: dict[str, Track] = {}
-        for n in opted(spec).stocks:
+        for n in (n for n in opted(spec).stocks if mine is None or mine(f"stock.{n}")):
             tr = carry.tracks.get(n) if carry else None
             if tr is None:
                 tr = Track(any(s.items for s in spec.stocks[n].sensors.values()))

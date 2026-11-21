@@ -339,3 +339,114 @@ def test_a_duplicate_close_that_would_close_a_cycle_is_refused_and_nothing_is_wr
                 json.dumps({"closes": [{"gap": "gap/a", "end": "duplicate", "of": "gap/one", "reason": "x"}],
                             "grooming": {"gap/b": {"value": 5}}}))
     assert "~ gap/d waits on gap/one instead of gap/a" in gaps[0] and gaps[1] == []   # the re-pointing shown
+
+
+# ---- a link the coordinator refused is not proposed again
+
+LINKS = {"links_add": [["gap/three", "gap/one", "it builds on one"], ["gap/three", "gap/two", "it needs two"]]}
+
+
+def proposal(f: Instance) -> str:
+    p = f.model / "run" / "backlog" / "links.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(LINKS))
+    return str(p)
+
+
+def test_a_refused_link_is_not_proposed_again(tmp_path):
+    f = seeded(tmp_path)
+    f.tool("backlog.py", "refuse-link", "three", "one", "--why", "its definition names no need of one")
+    rec = [json.loads(x) for x in (f.model / "run" / "backlog" / "refused-links.jsonl").read_text().splitlines()]
+    assert [(r["gap"], r["depends_on"], r["why"]) for r in rec] == [
+        ("gap/three", "gap/one", "its definition names no need of one")]
+    out = f.tool("backlog.py", "propose", proposal(f)).stdout
+    assert "+ gap/three waits on gap/one" not in out and "+ gap/three waits on gap/two: it needs two" in out
+    assert ("! refused: link gap/three -> gap/one: refused before by the coordinator "
+            "(its definition names no need of one)") in out
+    assert f.drain() == []                                              # propose writes nothing
+    said, _ = f.run("backlog.py", argv=("groom",), FACTORY_STANDIN_GROOMER="```json\n" + json.dumps(LINKS) + "\n```")
+    act = f.db()["acts"][-1]
+    args = dict(a.split("=", 1) for a in act[act.index("--arg") + 1::2])
+    assert args["summary"].startswith("1 links added")                  # the groomer's proposal drops it too
+    f.tool("backlog.py", "apply", args["proposal"])
+    f.drain()
+    assert f.item("gap/three")["fields"]["depends_on"] == ["gap/two"]
+
+
+def test_an_explicit_dep_add_clears_a_refused_link(tmp_path):
+    f = seeded(tmp_path)
+    f.tool("backlog.py", "refuse-link", "three", "one", "--why", "not needed")
+    f.tool("backlog.py", "dep", "add", "three", "one")                  # the coordinator's own decision: it applies
+    f.drain()
+    assert f.item("gap/three")["fields"]["depends_on"] == ["gap/one"]
+    assert json.loads((f.model / "run" / "backlog" / "refused-links.jsonl").read_text().splitlines()[-1])["cleared"]
+    f.tool("backlog.py", "dep", "rm", "three", "one")
+    f.drain()
+    out = f.tool("backlog.py", "propose", proposal(f)).stdout
+    assert "+ gap/three waits on gap/one: it builds on one" in out and "refused before" not in out
+
+
+def test_an_unreadable_refusal_file_stops_nothing(tmp_path):
+    f = seeded(tmp_path)
+    f.tool("backlog.py", "refuse-link", "three", "one", "--why", "not needed")
+    (f.model / "run" / "backlog" / "refused-links.jsonl").write_text('{"gap": "gap/three", "depends_on": "gap/one"\n')
+    out = f.tool("backlog.py", "propose", proposal(f)).stdout
+    assert "+ gap/three waits on gap/one: it builds on one" in out and "+ gap/three waits on gap/two" in out
+    assert "! refused: refused-links.jsonl could not be read, so it refuses no link" in out
+
+
+# ---- a split never abandons built work
+
+CHECK = ("import backlog, fac; fac.cli(fac.config()); g = {x['id']: x for x in fac.items('gap')}\n"
+         "p, ref = backlog.check(g, json.loads(sys.argv[1])); print(json.dumps([p['splits'], ref, backlog.diff(g, p, ref)]))")
+ABANDON = "; its parts would start from main and abandon that work"
+
+
+def split(*gids: str) -> dict:
+    return {"splits": [{"gap": g, "into": [{"title": "A", "why": "x"}, {"title": "B", "why": "y"}]} for g in gids],
+            "grooming": {"gap/three": {"value": 4, "size": "S", "risk": "low", "groomed_why": "the rest applies"}}}
+
+
+def continuing(tmp_path) -> Instance:
+    f = seeded(tmp_path)
+    f.fold([{"event": "gap.requested", "item": "gap/one-continued",
+             "data": {"title": "On", "source": "request", "continues": "one"}}], None)
+    return f
+
+
+def test_a_split_of_a_continued_gap_is_refused(tmp_path):
+    f = continuing(tmp_path)
+    kept, refused, md = f.py(CHECK, json.dumps(split("gap/one-continued")))
+    assert kept == [] and refused == ["split gap/one-continued: it continues one" + ABANDON]
+    assert "! refused: split gap/one-continued: it continues one" in md and "/ split" not in md
+
+
+def test_a_split_of_a_gap_with_commits_is_refused(tmp_path):
+    from tests.test_factory import git
+    f = seeded(tmp_path)
+    kept, refused, _ = f.py(CHECK, json.dumps(split("gap/two")))       # no branch in the drop yet: no work
+    assert [s["gap"] for s in kept] == ["gap/two"] and refused == []
+    drop = tmp_path / "live" / "drop.git"
+    work = git(drop, "commit-tree", "main^{tree}", "-p", "main", "-m", "built work")
+    git(drop, "update-ref", "refs/heads/factory/two", work)
+    git(drop, "update-ref", "refs/heads/factory/three", git(drop, "rev-parse", "main"))   # a branch, nothing ahead
+    kept, refused, _ = f.py(CHECK, json.dumps(split("gap/two", "gap/three")))
+    assert [s["gap"] for s in kept] == ["gap/three"]
+    assert refused == ["split gap/two: its branch has 1 commits main lacks" + ABANDON]
+    (drop / "config").write_text("[[[ not a git config\n")             # the drop unreadable: work (lesson-3)
+    kept, refused, _ = f.py(CHECK, json.dumps(split("gap/four")))
+    assert kept == [] and refused[0].startswith("split gap/four: its branch could not be read")
+
+
+def test_a_split_of_an_unbuilt_gap_still_applies(tmp_path):
+    """One split refused, the rest of the proposal applied: the other split and the grooming."""
+    f = continuing(tmp_path)
+    p = f.model / "run" / "backlog" / "p.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(split("gap/one-continued", "gap/four")))
+    r = f.tool("backlog.py", "apply", str(p))
+    f.drain()
+    assert "refused: split gap/one-continued: it continues one" + ABANDON in r.stdout
+    assert f.item("gap/one-continued")["state"] == "open" and f.item("gap/four")["state"] == "split"
+    assert f.item("gap/four-1")["fields"]["parent"] == ["gap/four"] and f.item("gap/four-2")["state"] == "open"
+    assert f.item("gap/three")["fields"]["groomed_why"] == "the rest applies"

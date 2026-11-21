@@ -1,8 +1,10 @@
 # The AI pools, ramped up on good results (the owner, 2026-11-20): one implementor and one reviewer to start. Each pool
 # is a setting with memory (a stock), stepped by the pool tuner: after three good gaps in a row (approved within one
 # fix round, not reverted after merging) it asks the coordinator to raise one by one (the gated action raise-pool);
-# a park, a second fix round or a reverted merge lowers them by one at once. The blocks' pool: is only the most each
-# may reach; the gates (implement-when, review-when) and each run hold the rest to the pool now (dev/bin/pools.py).
+# a park, a second fix round or a reverted merge lowers them by one at once. The implementor and reviewer blocks take
+# their pools from these stocks (pool: {now: stock.implementor-pool, most: 9}): the engine reads each at every dispatch
+# and holds the block to the pool now, never above its most; a lowered pool drains (nothing running is stopped). The
+# gates (implement-when, review-when) and each run (dev/bin/pools.py) also hold them to the machine's headroom.
 defaults:
   system: pools
 
