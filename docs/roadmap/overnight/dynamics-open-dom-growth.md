@@ -101,3 +101,11 @@ that something is collected. That would make a unit run with no Playwright "pass
 (lesson-3), so it was not done (most reversible: no change). Left: the factory should treat rc 5 from a test selection
 of browser files only as "nothing to run" (its own gap), or run this branch's unit suite whole. Then items 1, 3 and 4
 of round 1's list are still left, unchanged.
+
+After the same failure came back with the instruction to fix the code: the per-test skip is now done. The file imports
+Playwright in a `try` and skips every test with a module `pytestmark` when it is missing. On reflection this is no
+wider than before: the module skip was already a skip ("1 skipped"), and now it is 19 skips, each reported with its
+reason. It is not a pass, and the browser suite, which runs with Playwright, runs every test as before. The run that
+failed (`suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal tests/test_page_polling.py`) now gives
+19 skipped, rc 0. No bound, test body or page code changed. Items 1, 3 and 4 of round 1's list are still left: this
+container still has no Playwright, so nothing here has run in a browser.

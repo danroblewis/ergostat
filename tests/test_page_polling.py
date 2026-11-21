@@ -22,7 +22,11 @@ from pathlib import Path
 
 import pytest
 
-playwright = pytest.importorskip("playwright.sync_api")
+try:                           # collected without it too, each test skipped, so a run of this file alone is rc 0, not 5
+    from playwright import sync_api as playwright
+except ImportError:
+    playwright = None
+pytestmark = pytest.mark.skipif(playwright is None, reason="needs Playwright: uv run --with playwright==1.63.0")
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = "image-squeeze"
