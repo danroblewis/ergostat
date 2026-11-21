@@ -94,3 +94,22 @@ No core code changed.
   - `give_back` doing nothing, and the daily window never passing: the bound test and the window test failed;
   - no withdrawal, and `drain_holds` always False: the withdrawal test and the runs-under-way test failed;
   - the drain ending at once with runs still under way: the runs-under-way test and the bound test failed.
+
+## Where it stopped (after the factory's fast suites, round 1)
+
+The factory's `unit` run failed three tests in `tests/test_leases.py`: `test_a_lease_held_by_a_run_survives_a_model_edit`,
+`test_the_watchdog_renews_from_what_the_holder_does_elsewhere` and `test_leases_survive_a_restart_the_fold_is_the_truth`
+(3 failed, 1932 passed, 69 skipped). No code was changed for them here, per lesson-13. These are the reasons:
+- This branch does not touch the code they test. `git diff main -- ergostat/` is empty, so `ergostat/leases/` and
+  `ergostat/runner.py` are main's. The tests build their own models in `tmp_path` and do not read `ergostat.yaml`,
+  `dev/` or `run/drain.json`. Those are the only things this branch changes, apart from its own tests.
+- This branch's tests start no engine and stop none. The one real `live.py switch` they call exits on "not installed"
+  before `stop()`.
+- The failures depend on timing under load. Each test has a lease TTL of 1-1.5 s and a CLI start-up per event. Two of
+  them are already recorded as main's own flakes: the restart test in `main-broken.md` (the engine's shutdown race)
+  and the watchdog test in `continue-branch2.md` (the TTL against a CLI's start-up).
+- Run alone here, with nothing else running, they pass: the three named (3 passed), and all of `tests/test_leases.py`
+  (20 passed in 36 s). A run under `-n` load to reproduce them was not allowed in this session.
+
+Left: the factory's fast suites run again; the next step, if they fail again on these, is a gap of its own on
+`ergostat/leases` (the watchdog's expiry and the engine's give-back on stop under load).
