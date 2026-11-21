@@ -397,3 +397,30 @@ Size: about +14 net lines under `ergostat/`, so about 232 in all (budget 260). R
 touches no sampler code), `test_daemons.py` (28), `test_warm.py` (21), `test_daemon_docs.py` (29), `test_run_costs.py`
 (14) and `test_ticket_factory_daemons.py` (6), all passed. `ruff check ergostat tests scripts` is clean. The full unit
 suite and the four browser files were not run here.
+
+**Round 6: main (278666f7) merged in, and review 2's findings answered.**
+- *The merge.* It conflicted only in `docs/GAPS.md`. Main now has `daemons-across-the-engine-s-own-restarts` and has
+  removed that gap's open bullet. This branch had removed the "Daemons, left over" bullet. Both open bullets are gone,
+  and this gap's *Done recently* entry is kept. Main's `proc.py` and `supervise.py` changes (`GROUPS`, `CLOSING`,
+  `killpg`, `end_all`) merged without a conflict. `Supervisor.close` still kills each group, waits up to 1 s for the
+  readers, and only then flushes the observation windows.
+
+Each finding of `review/daemons-left-over-2` (lesson-12):
+1. *lesson-3: a line neither taken nor refused vanished.* An example is `{"message": "text", "sensor": "q.main"}`.
+   This is fixed. `Hands._observed` now runs `observations()` before the cap. A line that gives neither a seen nor a
+   refused observation returns False, so `Process.line` logs it as stray ("... not one in shape (an event, or a
+   message object) ..."). It opens no window and does not count against the cap. SPEC §9.7 says so. New test:
+   `test_an_observation_neither_taken_nor_refused_is_stray_and_not_counted`. With the check disabled (the old
+   behaviour) it fails (tried).
+2. *lesson-7.* Done this round, after the merge. `test_daemons.py`, `test_warm.py`, `test_daemon_observations.py` and
+   main's `test_daemons_restart.py` were all run again and passed (numbers below).
+3. *The `len(started) == 1` assertion was not shown to fail.* This stays as it is. A second take of the item happens
+   only under load, and forcing one would mean changing the test's daemon back to the round-4 flake. The batching it
+   might seem to cover is guarded by the `chunk`/`plan` tests.
+4. *SPEC §9.7 lines past the wrap width.* They are rewrapped (the Out-table paragraph and "Each item is still a run").
+
+Size: +4 net lines under `ergostat/` this round, about 236 in all (budget 260). Run here, one file per command:
+`test_daemon_lines.py` (7), `test_daemon_observations.py` (10), `test_sampler_ramp.py` (3), `test_daemons.py` (28),
+`test_daemons_restart.py` (6), `test_warm.py` (21), `test_daemon_docs.py` (29), `test_run_costs.py` (14) and
+`test_ticket_factory_daemons.py` (6), all passed. `ruff check ergostat tests scripts` is clean. The full unit suite
+and the four browser files were not run here. The factory runs them under the watchdog.

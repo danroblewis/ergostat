@@ -159,14 +159,17 @@ class Hands:
             s = self.observers.get((daemon, sensor)) if isinstance(sensor, str) else None
         if s is None:
             return False
+        from ..spec.engine import observations
+        seen, refused = observations(json.dumps({k: v for k, v in obj.items() if k != "sensor"}))
+        if not seen and not refused:                    # (neither taken nor refused, as {"message": "text"}: the log's,
+            return False                                # never lost unsaid)
         ok, closed = self.observed.admit(sensor, now)   # (counted only once routed: the windows are the sensors')
         if ok is None:
             return False
         if closed:
             self._dropped(sensor, closed)
         if ok:
-            from ..spec.engine import observations
-            self.e._observer(sensor)(*observations(json.dumps({k: v for k, v in obj.items() if k != "sensor"})))
+            self.e._observer(sensor)(seen, refused)
         return True
 
     def _dropped(self, sensor: str, n: int) -> None:

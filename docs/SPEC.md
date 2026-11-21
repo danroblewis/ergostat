@@ -2378,23 +2378,26 @@ Out, on its standard output, every line tagged with what it is for:
 | `{"heartbeat": true}` | It lives (any line says so) |
 
 A line that is not a JSON object, tags nothing, or names a run or request the daemon does not hold, is written to its
-log and dropped: never taken as another run's. So is an observation that also carries a `reading`, or that names a
-sensor this daemon does not serve (a warm daemon serves none): it is never recorded from another source. A sensor's
+log and dropped: never taken as another run's. So is an observation that also carries a `reading`, that names a
+sensor this daemon does not serve (a warm daemon serves none), or that a `run` sensor's would neither take nor
+refuse (`{"message": "text"}`): it is never recorded from another source, and never counted. A sensor's
 observations are taken at most 50 a second (accepted and refused alike, in one-second windows from the first); more
 are dropped and counted, not recorded, and each window's count is said once, as a `sensor.refused` with
 `{"why": "N observations dropped: more than 50 a second", "dropped": N}`, at the first of: its sensor's next
 observation after the window closes, the supervisor's next look once the window is a second old (every 0.2 s), or
 ergostat stopping (after its daemons have ended, or a second after they were killed; a line read later than that is
-written to the log and dropped, not counted). The lines of one read are judged at the time it was read. A line over 1 MiB is dropped (said once in the log), up to its newline, and never held. Lines are
-read as UTF-8, what is not UTF-8 replaced. A run's `done` is taken after its earlier lines; should taking a run's
-batch of lines fail as a whole, each line of it is said dropped in the log. The `env` of an item travels in its line and never in the process's
-environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
+written to the log and dropped, not counted). The lines of one read are judged at the time it was read. A line over
+1 MiB is dropped (said once in the log), up to its newline, and never held. Lines are read as UTF-8, what is not
+UTF-8 replaced. A run's `done` is taken after its earlier lines; should taking a run's batch of lines fail as a
+whole, each line of it is said dropped in the log. The `env` of an item travels in its line and never in the
+process's environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
 `ERGOSTAT_SOCKET`): a daemon passes an item's `env` to what it starts for that item, and never writes it into its own.
 
 **Each item is still a run**: `agent.started`, `agent.ran` or `agent.failed` (with `daemon`: its name), its lease
 and fencing, its lines taking effect in the order it printed them (a run's line may be taken after lines of the
-same read that are no run's, such as requests, readings and observations, printed after it). Its time is its wall time only: a process serving many items at
-once cannot say which CPU second was whose, so a daemon's CPU and memory are its own, sampled about 1 s after it
+same read that are no run's, such as requests, readings and observations, printed after it). Its time is its wall
+time only: a process serving many items at once cannot say which CPU second was whose, so a daemon's CPU and memory
+are its own, sampled about 1 s after it
 starts, then at doubling gaps up to every 30 s (never two samples within 1 s), and exact from its wait status when it
 ends (on `ergostat.daemon.restarted`), shown on the Agents page, and no run claims them. Lines that arrive together
 are taken together, per run, up to 500 at once, in the order printed.
