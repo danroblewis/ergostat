@@ -380,3 +380,22 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   1 failed (the test above, before its fix). After the fix, `tests/test_factory.py` alone: 113 passed, 2 skipped. Ruff
   is clean. The whole unit suite and the four browser files were not run here. The factory runs them under suite_watch.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 16 (2026-11-21): the `unit` run with one `F` at 26%.**
+- *The failing test is not named:* the tail shows one `F` at 26%, then the run stops at 34% partway through a line. There
+  is no summary, no `FAILED` line and no closing line from suite_watch. The run was ended from outside before pytest
+  named the test, as in rounds 6 and 10. This session's shell refused the whole-suite run under suite_watch
+  (`-n 4 -x -rf`) that would have named it.
+- *Every file that reads the branch's code, or that main's merge 6ad359c0 brought in, passes:*
+  `tests/test_factory_manager.py`, `test_factory.py`, `test_factory_knowledge.py`, `test_factory_times.py` and
+  `test_interventions.py` together gave 237 passed, 2 skipped. `test_pool_now.py`, `test_spec_schema.py` and
+  `test_backlog.py` (from main's merge) gave 71 passed. `test_eta.py`, `test_intent.py`, `test_leased_workspaces.py`,
+  `test_messages.py`, `test_recipes.py`, `test_run_costs.py`, `test_take_order.py`, `test_workspaces.py`,
+  `test_in_container.py`, `test_code_health_coverage.py`, `test_factory_resources.py`, `test_factory_sessions.py`,
+  `test_gated_actions.py` and `test_leases.py` gave 195 passed. Together these are every test file that names `dev/` or
+  the repo's `ergostat.yaml`.
+- *No code changed (lesson-13):* no test fails here, and without a name the failure can't be tied to this branch. It
+  may be the same failure as round 11's named one (`test_reload_safety.py`, a race in main's test). The factory should
+  run the unit suite to completion with `-rf`. If it names a test outside the files above, it should run that test on
+  clean main (`onmain.py`).
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
