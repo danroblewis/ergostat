@@ -437,7 +437,7 @@ on a read-only clone of main, its conversation kept as a session item related to
 
 **When it runs** (`dev/bin/watch.py`, the block `pipeline-watch`, a plain `every: 5m`; `[manager]` in the settings):
 
-- on a schedule, `every` (2h): the routine review;
+- on a schedule, `every` (2h, never under 15 minutes; `broken_minutes` never under 5): the routine review;
 - before the schedule is due when the merge pipeline has been broken past `broken_minutes` (30), but never sooner than
   `broken_minutes` after the last session of any kind (scheduled, broken or failed), so a break found just after a
   session waits up to that long again: the queue blocked, a pending push that

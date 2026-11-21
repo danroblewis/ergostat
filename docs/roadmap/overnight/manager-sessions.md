@@ -235,3 +235,21 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   Ruff is clean. The whole unit suite and the four browser files were not run here. The factory should run them again
   to completion.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 8 (2026-11-21): the merge of main 7c0e4a6 and review/manager-sessions-4.**
+- *Merge of main 7c0e4a6:* one conflict, in `dev/bin/measure.py`'s docstring. Main's text is kept: its size-accuracy
+  measures and its sentence naming the six measures with no value. The branch's manager measures stay listed. They read
+  0 with no session, so they are not among the six. No conflict markers are left.
+- *Decisions in the brief (review finding 2):* the merge brings main's "continue, not rebased" and "Deferred areas stay
+  deferred" into `dev/knowledge/decisions.md`. No test was added that the manager's brief carries them. Item 4 of the
+  definition says the brief carries them, and that relies on `knowledge.block` matching their Areas words, as before.
+- *The lock (finding 3, lesson-1):* `watch.broken` now holds an flock on `run/manager.lock` across the read of
+  `run/manager.json`, the decision and the write. Test: `test_the_broken_clocks_are_kept_under_a_lock`, where another
+  process tries to take the lock during the decision. With the flock removed, it failed (`['0'] == ['1']`).
+- *Floors (finding 4, lesson-4):* `every` is held to at least 15 minutes and `broken_minutes` to at least 5
+  (`watch.EVERY_FLOOR`, `BROKEN_FLOOR`). The README says so. Test: `test_every_and_broken_minutes_have_floors`. With
+  the floors set to 0, it failed (`[0.0, 0.0] == [15.0, 5.0]`).
+- *Not run (finding 1):* these ran here, one file at a time: `tests/test_factory_manager.py` 30 passed, and
+  `test_factory.py`, `test_factory_times.py` and `test_factory_knowledge.py` together 159 passed, 2 skipped. Ruff is
+  clean. The whole unit suite and the four browser files were not run here. The factory runs them under suite_watch.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.

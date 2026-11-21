@@ -18,6 +18,7 @@ and none when nothing changed since the last session (no new trigger, no new bro
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -38,6 +39,7 @@ DECISIONS = ("operator-decision", "factory-tuning", "queue")    # records of a d
 STUCK = {"ready": 6, "fix": 6, "leased": 3, "building": 5, "built": 2, "in-review": 2, "approved": 4, "queued": 3,
          "push-pending": 4, "queue-failed": 1}      # hours, the defaults of [manager.stuck_hours]
 MOST_ACTIONS = 12                                   # the ceiling of [manager] most_actions, whatever the settings say
+EVERY_FLOOR, BROKEN_FLOOR = 15.0, 5.0              # minutes: the floors of [manager] every and broken_minutes
 
 
 def minutes(v, default: float) -> float:
@@ -49,8 +51,9 @@ def settings(cfg: dict) -> dict:
     m = cfg.get("manager") or {}
     return {"open": int(m.get("open", 1)), "parked": float(m.get("parked_within_hours", 48)),
             "park_wait": max(1.0, float(m.get("park_wait_hours", 24))),
-            "intervention": float(m.get("intervention_hours", 12)), "every": minutes(m.get("every"), 120),
-            "broken": minutes(m.get("broken_minutes"), 30),
+            "intervention": float(m.get("intervention_hours", 12)),
+            "every": max(EVERY_FLOOR, minutes(m.get("every"), 120)),             # (each session is a paid one)
+            "broken": max(BROKEN_FLOOR, minutes(m.get("broken_minutes"), 30)),
             "most": min(MOST_ACTIONS, max(1, int(m.get("most_actions", 8)))),   # (each call can start paid sessions)
             "stuck": {**STUCK, **(m.get("stuck_hours") or {})}}
 
@@ -206,13 +209,18 @@ def broken(cfg: dict, gaps: dict, opened: list[dict], now: float) -> dict[str, d
     """The conditions broken past [manager] broken_minutes ({name: {why, since}}), with when each began kept in
     run/manager.json (a condition that clears starts again); `main-twice` counts at once."""
     p = fac.run_dir(cfg) / "manager.json"
-    was = json.loads(p.read_text()).get("since", {}) if p.exists() else {}
-    starts: dict = {}
-    now_on = conditions(cfg, gaps, opened, now, starts)
-    since = {k: float(starts.get(k) or was.get(k) or now) for k in now_on}
-    tmp = p.with_name(f"manager.{os.getpid()}.new")       # (the sensor and the block both keep it)
-    tmp.write_text(json.dumps({"since": since}))
-    tmp.replace(p)
+    with open(p.with_name("manager.lock"), "a") as lock:  # (the sensor and the block both keep it: read to write held)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            was = json.loads(p.read_text()).get("since", {}) if p.exists() else {}
+            starts: dict = {}
+            now_on = conditions(cfg, gaps, opened, now, starts)
+            since = {k: float(starts.get(k) or was.get(k) or now) for k in now_on}
+            tmp = p.with_name(f"manager.{os.getpid()}.new")
+            tmp.write_text(json.dumps({"since": since}))
+            tmp.replace(p)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
     return {k: {"why": why, "since": since[k]} for k, why in now_on.items()
             if k == "main-twice" or now - since[k] >= settings(cfg)["broken"] * 60}
 

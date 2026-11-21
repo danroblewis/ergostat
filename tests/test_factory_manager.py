@@ -328,6 +328,28 @@ def test_most_actions_has_a_floor_and_a_ceiling(tmp_path):
         assert Pipe(tmp_path / said, manager=f"most_actions = {said}\n").py(read) == held, said
 
 
+def test_every_and_broken_minutes_have_floors(tmp_path):
+    """`every = "0"` would start a paid session on each 5-minute tick the pipeline's shape changes."""
+    read = "import watch\ns = watch.settings(watch.fac.config())\nprint(json.dumps([s['every'], s['broken']]))"
+    for said, held in (('"0"', [15.0, 5.0]), ('"1m"', [15.0, 5.0]), ('"2h"', [120.0, 120.0]), ("40", [40.0, 40.0])):
+        f = Pipe(tmp_path / said.strip('"'), manager=f"every = {said}\nbroken_minutes = {said}\n")
+        assert f.py(read) == held, said
+
+
+def test_the_broken_clocks_are_kept_under_a_lock(tmp_path):
+    """The sensor and the block both read, decide and write run/manager.json: one holds the lock across all three."""
+    f = Pipe(tmp_path)
+    probe = ("import fcntl, sys\nf = open(sys.argv[1], 'a')\ntry:\n    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)"
+             "\n    print(0)\nexcept BlockingIOError:\n    print(1)")
+    code = ("import subprocess, sys, watch\ncfg = watch.fac.config()\nseen = []\n"
+            f"probe = {probe!r}\nlk = str(watch.fac.run_dir(cfg) / 'manager.lock')\n"
+            "def taken(*a):                              # (the decision, between the read and the write)\n"
+            "    seen.append(subprocess.run([sys.executable, '-c', probe, lk], capture_output=True, text=True)"
+            ".stdout.strip())\n    return {}\n"
+            "watch.conditions = taken\nwatch.broken(cfg, {}, [], 0.0)\nprint(json.dumps(seen))")
+    assert f.py(code) == ["1"]                                  # another process cannot take it while one decides
+
+
 def test_a_goal_the_watch_or_the_review_cannot_find_never_passes_silently(tmp_path):
     """The interlock's limits and the review's goals are read from the model by name: one renamed or reworded is a
     broken condition (the interlock's) or the binding constraint (the review's), said, never left out."""
