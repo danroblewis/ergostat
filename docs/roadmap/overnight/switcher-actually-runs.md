@@ -90,3 +90,30 @@ Still not found: why the whole run stopped with no failure and no `suite_watch` 
 nothing in pytest printed, fits a slot or container limit. That limit is not in this repository (`dev/factory.toml`
 gives `unit` no timeout). If the next run stops at the same place, run main's unit suite in the same slot and see
 whether it stops too. If it does, the stop does not come from this branch (lesson-13).
+
+### Round 2 (review/switcher-actually-runs-1 answered)
+
+main (7c0e4a60) is merged in. The one conflict, in `tests/test_factory.py`, was two new sections at the same place,
+and both are kept. Each finding of the review:
+- **Blocking: the note became an AI-tier request.** `schedule-removed` is now in `NOT_MODELLING`
+  (`ergostat/numbers/requests.py`). `check` still says it to the person running it (text and `--json`), but `sync`
+  raises no request for it at any tier. I chose this over `OWNER` because an owner-held request on plan-lint's
+  deliberate pace would stay open for good, a standing intervention that nothing could answer. It can be undone with
+  one line. New test: `test_a_paced_block_raises_no_modelling_request` runs `rq.sync` on a model with a paced block.
+  It asserts that `no-description` is still raised, so the loop is still fed, and that nothing is raised for
+  `schedule-removed`. With the code taken out of `NOT_MODELLING`, it fails (tried).
+- **The switch test wrote its events after the approval.** Now the request is held, then `upgrade.opened`,
+  `upgrade.installed` and `upgrade.switch-asked` are written, then it is approved: the live order. It passes.
+- **The note leaves out `takes:`/`on:` blocks, and SPEC said "any block".** I narrowed the claim instead of widening
+  the note. SPEC §12e and craft.py's docstring now say "a machine block with `every:` or `cron:`, no `takes:` or
+  `on:`". They also say that no modelling request is raised for the note.
+- **Not run by the reviewer.** Run here, one file at a time: the four acceptance tests and the new test pass. With
+  the switcher put back on `goal: drains-within-bound`, `test_the_switcher_is_on_the_engines_schedule` and
+  `test_an_approved_switch_drains_and_switches_through_the_engine` fail (tried, then restored). All of
+  `tests/test_factory.py`: passed. `test_modelling_core.py` and `test_modelling_ai_cap.py`: passed, but only alone.
+  Run in the same process after `test_factory.py`, `test_two_runs_cannot_both_take_the_last_of_the_cap` fails on
+  `from queue import Empty`: `dev/bin/queue.py` shadows the standard library once `dev/bin` is on `sys.path`. That
+  comes from running the files together, not from this branch (lesson-13), and under `-n` they run in separate
+  processes. Ruff is clean. The whole unit suite and the browser files were not run here (left to the factory under
+  `suite_watch.py`).
+Net code outside tests, docs and dev: +12 lines, within the budget.
