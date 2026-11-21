@@ -130,5 +130,8 @@ round 1 review's non-blocking findings (lesson-12):
   this session. The cost is bounded: 1 + (number of states) `items` listings per kind, each of up to 500 items.
   Timing `ergostat snapshot` once on a real project, with and without the kind loop, is left to someone who can.
 
+Lesson-9 check: with `snapshot.py` changed so it no longer asks for a kind's states, both tests fail. The left-out
+test fails on the new check that `items?kind=epic&state=underway` was asked. The change was then undone.
+
 Not run here: the browser tests (no playwright in this container, as in round 1). Run: `tests/test_graph_cli_web.py`,
 31 passed, and ruff clean.
