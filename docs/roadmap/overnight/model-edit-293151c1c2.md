@@ -326,3 +326,25 @@ The changes below, made to the instance's copy of the model while it ran 2388572
 ## Size budget
 
 0 net lines of core code (the model and dev/ only).
+
+## Where it stopped
+
+Nothing to change: every hunk of the diff above is already on main (2388572a "Bring the live instance's edits into
+main" and the plan-review, pools and queue work before it). Some of it was reworked along the way:
+
+- ergostat.yaml `opus: at-once: 24`; dev/factory.toml `kill_after = 6`, `suite_fix_rounds = 2`, `implementor_max = 9`,
+  `reviewer_max = 6`; dev/model/budget.yaml `<= 3000`; interlock.yaml `<= 6`, `<= 3000`, `<= 40`; building.yaml
+  pools 9 and 6; knowledge.yaml planner pool 12; pools.yaml `every: 7d`; reviewer.md's "The bar" and planner.md's
+  "Keep it small": these are as in the diff.
+- agents.py fetches `refs/remotes/<remote>/<base>`. queue.py fast-forwards to `<remote>/<base>` with `--ff-only` and
+  runs the suites in threads. review.py's gate 1 says "is not on the branch". These are as in the diff.
+- implement.py's KILL_HOURS and FAILS are now `[gates] build_hours = 12` and `build_failures = 6` in dev/factory.toml.
+- pools.py's `tune` is paused by `PAUSED = True`. The batch tuning still runs.
+- The plan review moved out of plan.py into dev/bin/planreview.py. It is advisory and never a gate, so the diff's
+  `fix`-to-`merge` rewrite, plan.py's KILL = 4 and the review knowledge.yaml pool 8 no longer apply. Its findings are
+  appended as "Notes from the plan review (answer each)". plan_reviewer.md says to block only for what would make the
+  build go wrong.
+
+Checked: tests/test_factory.py 52 passed, 2 skipped; ruff is clean. Not run: `ergostat check`, because this
+session's shell refused the command. The factory's suites should run it. Committing was also refused, so this
+section may be left uncommitted in the worktree.
