@@ -786,13 +786,15 @@ record is now: `ergostat item ID --near [N]`, `ergostat item A --path B`, `ergos
   `found`, `no path` (every item reachable was visited), or `none within the cap`.
 - **about**: the items linking to it by a declared relation (`declared`, with the relation), then those whose fields
   hold its id as a whole token (`inferred`, with the first such field): `ticket/1` is not in `ticket/12`,
-  `ticket/1/x` or `xticket/1`. The mentions are looked for among the items whose indexed text (*Search*: the first
+  `ticket/1/x` or `xticket/1`. Each string value of a field is matched, nested ones too, so an id at the start of a
+  line counts. The mentions are looked for among the items whose indexed text (*Search*: the first
   65,536 characters of their fields' strings) holds the id, newest first; a mention past that is not found.
 
 Each visits at most 2,000 items (`itemgraph.VISIT`), and says `capped` when it stopped there: a path not found
 within the cap is never said to be "no path"; a walk that runs out of items to visit exactly at the cap is.
 An unknown id is an error (the command exits 2, the API answers 404); a depth outside 1 to 4 or not a number, a path
-with no `to=`, or one of them with `--at` (`at=`) is refused (exit 2, 400), never answered with a default (only
+with no `to=`, more than one of `near=`, `path=` and `about=` (the CLI's flags likewise), or one of them with `--at`
+(`at=`) is refused (exit 2, 400), never answered with a default (only
 no depth at all is 1; the API reads an empty `depth=` as none).
 
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:

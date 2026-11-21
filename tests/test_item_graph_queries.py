@@ -141,6 +141,16 @@ def test_about_declared_and_inferred_whole_token(tmp_path):
     assert ig.about(p.events, p.model.spec, "ticket/1")["items"] == []       # ticket/12 is not ticket/1
 
 
+def test_about_finds_a_mention_after_a_newline_or_tab_or_nested(tmp_path):
+    _, p = _chain(tmp_path)
+    p.events.add("ticket.opened", item="ticket/5", data={"description": "Blocked on:\nticket/2\nfor now"})
+    p.events.add("ticket.opened", item="ticket/6", data={"notes": "see\tticket/2"})
+    p.events.add("ticket.opened", item="ticket/7", data={"extra": {"links": ["a", "ticket/2"]}})
+    p.events.add("ticket.opened", item="ticket/8", data={"description": "Blocked on:\nticket/22"})
+    got = {x["id"]: x.get("field") for x in ig.about(p.events, p.model.spec, "ticket/2")["items"] if x["how"] == "inferred"}
+    assert got == {"ticket/5": "description", "ticket/6": "notes", "ticket/7": "extra"}
+
+
 def _get(url):
     try:
         with urllib.request.urlopen(url, timeout=10) as r:
@@ -165,7 +175,8 @@ def test_unknown_id_is_an_error(tmp_path, capsys):
     try:
         for q in ("near=ticket/9", "path=ticket/9&to=epic/1", "path=ticket/2&to=ticket/9", "about=ticket/9"):
             assert _get(f"{url}/api/items-query?{q}")[0] == 404, q
-        for q in ("near=ticket/1&depth=5", "near=ticket/1&depth=x", "path=ticket/1", "", "near=ticket/1&at=100"):
+        for q in ("near=ticket/1&depth=5", "near=ticket/1&depth=x", "path=ticket/1", "", "near=ticket/1&at=100",
+                  "near=ticket/1&about=ticket/2", "path=ticket/2&to=epic/1&about=ticket/2"):
             assert _get(f"{url}/api/items-query?{q}")[0] == 400, q
     finally:
         server.shutdown()

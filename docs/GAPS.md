@@ -326,8 +326,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
     the merge commit; SPEC §5a *Graph queries*): `ergostat item ID --near [N]`, `item A --path B`, `item ID --about`
     and `/api/items-query`: the items within N hops (1 to 4), a shortest chain of relations (a backward step named by
     its inverse), and what links to an item (`declared`) or names its id as a whole token in a field (`inferred`);
-    each visits at most 2,000 items and says `capped` past that; an unknown id is an error. *Left*: `--about`'s
-    mentions read the items' fields (the newest 2,000) rather than the item index's text, which search now keeps.
+    each visits at most 2,000 items and says `capped` past that; an unknown id is an error. `--about`'s mentions are
+    the items the index's text holds the id in (its first 65,536 characters), checked as a whole token in each string
+    value of their fields.
 - **Light theme: the repeats toward the paper are low in contrast** (open; for a design pass, no colour work until
   then; found fixing the dark theme's): the third round of correspondence colours (`--g-fade`, 55% of the hue) stands
   1.6:1 to 2.5:1 on white, and `--g9` (gold) 2.4:1 as it is; WCAG asks 3:1 for graphics. Tried on `smallgaps`

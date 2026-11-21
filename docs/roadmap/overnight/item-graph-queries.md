@@ -131,3 +131,35 @@ which makes the code 8 lines shorter than round 1's 202.
 **Run here, after the merge:** tests/test_item_graph_queries.py (11), test_cli_fallback.py, test_relations.py and
 test_graph_cli_web.py: 77 passed together. tests/test_item_search.py: 8 passed. Ruff is clean. Not run: the full unit
 suite and the four browser files, which the factory runs under the watchdog.
+
+## Where it stopped, round 3
+
+Built, round 3. Every finding of review/item-graph-queries-2, blocking and not (lesson-12):
+- *`mentions` matched the field's JSON, so an id after a newline or tab was dropped* (blocking): `itemgraph.mentions`
+  now walks each field's string values, nested ones too, as `items.text_of` does, and matches the whole token in each
+  string. `json` is no longer imported. New test `test_about_finds_a_mention_after_a_newline_or_tab_or_nested` covers
+  a mention after `\n`, one after `\t`, one in a nested list, and `ticket/22` after a newline, which must not count.
+  lesson-9: putting back `json.dumps` of the field makes the test fail (only `ticket/7` is found).
+- *Size with no reason written* (blocking): **198 net lines of core code against 170 (28 over)**, by
+  `git diff --numstat main -- ergostat`: `itemgraph.py` 142, `cli/record.py` 34, `cli/__init__.py` 7, `web/server.py`
+  15, `goodmodel.py` 0 net. The reason is the same as round 2's (the plain-text printing of the three answers, about
+  12; the refusal of `at=` and of more than one query on the API, which keeps it in step with the CLI, about 5; the
+  docstrings that state each query's bounds, about 20). This round adds 5 lines: the string walk that replaces
+  `json.dumps`, which the blocking finding asked for. I did not shorten the docstrings to fit the budget, because they
+  hold the bounds that lesson-8 asks to have stated.
+- *GAPS.md's "Left" note was false*: removed. The entry now says what the code does: the index's text picks out the
+  candidate items, then each string value of their fields is checked for the whole token.
+- *The API answered the first of several queries and ignored the rest*: it now refuses with a 400 when it gets more
+  than one of `near=`, `path=` and `about=`, as the CLI already does (exit 2). `test_unknown_id_is_an_error` asserts
+  two such requests. lesson-9: allowing more than one makes that test fail with a 200.
+- *`at=` was parsed and the snapshot computed before items-query refused it*: the items-query branch now runs before
+  `at` and `live.snapshot`, so nothing is computed for a request it refuses or answers from the index.
+- SPEC §5a says that each string value is matched (so an id at the start of a line counts), and that more than one
+  query is refused.
+
+Merging main: local `main` is already an ancestor of the branch (45bfbb2e). This container has no network, so the
+coordinator should merge the real origin/main and run the suites again (lesson-7).
+
+**Run here:** tests/test_item_graph_queries.py (12), test_cli_fallback.py, test_relations.py and
+test_graph_cli_web.py: 78 passed together. tests/test_item_search.py: 8 passed. Ruff is clean. Not run: the full unit
+suite and the four browser files, which the factory runs under the watchdog.

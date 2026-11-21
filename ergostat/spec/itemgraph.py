@@ -15,7 +15,6 @@ never "not connected". An unknown id is ``Unknown``, a bad depth ``Bad``: never 
 
 from __future__ import annotations
 
-import json
 import re
 
 from .items import kind_of
@@ -116,10 +115,16 @@ def path(events, spec, a: str, b: str | None) -> dict:
 
 
 def mentions(fields, token: re.Pattern) -> str | None:
-    """The first field (by name) whose text holds ``token``."""
+    """The first field (by name) one of whose string values, nested ones too (as ``items.text_of`` reads them, never
+    their JSON, where a newline would be ``\\n``), holds ``token``."""
     for f in sorted(fields):
-        if token.search(json.dumps(fields[f], ensure_ascii=False, default=str)):
-            return f
+        todo = [fields[f]]
+        while todo:
+            v = todo.pop()
+            if isinstance(v, str) and token.search(v):
+                return f
+            if isinstance(v, (dict, list)):
+                todo += list(v.values()) if isinstance(v, dict) else v
     return None
 
 
