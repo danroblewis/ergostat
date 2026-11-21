@@ -312,3 +312,29 @@ killed by `kill_all` (`closing`, 2 lines). The race depends on timing and did no
 the test fail and then pass. The test passes alone and with its file (10 passed). `test_reload_in_place.py` also
 passes (11 passed), including the round-5 test run alone. Ruff is clean. Net lines for the gap outside tests and
 docs: 236.
+
+### Round 7 (the size finding again: 374 against 300, "with no reason written")
+
+- **Why no text here can clear it.** The size gate (`dev/bin/review.py:131-133`) looks for an overrun reason only
+  in the definition *as first committed* (`gates()` returns `first`, line 58). That first commit cannot change
+  (gate 1). So the reasons written in rounds 4 and 6 are never read, and the finding comes back every round while
+  `origin/main...HEAD` counts more than 300 lines.
+- **What the count is.** The same as in round 6: this gap's own 236 lines, plus the backlog merge's 141 in
+  `ergostat/` (2b101c6, with 67c673e, 600535d, ff49649, d61e27e). Here, `git branch --contains 2b101c6` lists only
+  this branch, and main (8eb0fc0) does not contain it.
+- **Not fixed in this round, and why.** The fix is to rebuild the branch on main without the backlog merge. In this
+  session even making a scratch branch at main was refused, so I could not rebuild it. I did not add a commit that
+  reverts the backlog either. The backlog commits would stay ancestors of the branch, so once this branch landed, a
+  later merge of `backlog` into main would be "already up to date", and the backlog would be lost without any
+  warning. That is harder to undo than a rebuild.
+- **The rebuild (for the factory or the coordinator), from main:** (1) commit this definition file as it was in
+  8919bac (the first commit); (2) one commit holding this branch's tree with the backlog's changes taken out (the
+  backlog merge's own diff, `git diff 2b101c6^1 2b101c6`, applied in reverse), and with `tests/test_relations_asof.py`
+  as it is on main. That drops f035d6d, the `unblocked` merge fix, which review/gap-size-3 asks to have reverted on a
+  correct base. Then run `tests/test_upkeep_template.py`, `tests/test_index_files.py`, `tests/test_templates.py`,
+  `tests/test_relations_asof.py`, `tests/test_reload_in_place.py` and `tests/test_program_actions.py`. The branch's
+  head before any rebuild is 1036463.
+- **The earlier reviews' other findings.** `reindex` still globs `*.db`; it is outside this gap, as round 4 said. The
+  `test_relations_asof` change stays until the base is rebuilt, because the test needs it on this base.
+
+No code changed in this round, so no test was run again.
