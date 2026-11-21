@@ -26,8 +26,10 @@ def main() -> int:
     fac.stop_on_term()
     cfg = fac.config()
     item = fac.read_input()["item"]
+    if fac.drain_holds(cfg):
+        return 0
     f = item["fields"]
-    name = fac.slug(item["id"].split("/", 1)[1], 64)
+    name =fac.slug(item["id"].split("/", 1)[1], 64)
     _, work = agents.clone(cfg, name, "researcher", at=f"origin/{cfg['git']['base']}")
     asked = {**item, "fields": {**f, "branch": name, "title": str(f.get("question") or "")}}
     text, context = brief.assemble(cfg, "researcher", asked, work, definition="", branch=name,

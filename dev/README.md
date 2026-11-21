@@ -108,7 +108,7 @@ ergostat event --add gap.requested --item gap/warm2-again \
 
 A branch carried on under a new name (its first commit is another name's definition, e.g. `warm.md` on `warm2`) names
 that file as its definition, `"definition": "factory/warm2:docs/roadmap/overnight/warm.md"`: the implementor commits no
-copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is the branch's first commit.
+copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is on the branch and unchanged since its first commit.
 
 The intake fetches it into the drop as `factory/NAME` (never over a `factory/NAME` already there, and refusing a name
 that is not lowercase words and dashes). It is not taken while another gap on the same branch is anywhere but parked or
@@ -119,8 +119,8 @@ read is taken, the other waits). Each run fetches its session's work to a side r
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
 (it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
 the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after. The reviewer's gate 1 takes the branch's own first commit (its first-parent line) as the definition (the file the
-gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
+after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
+that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
 between build and review is not a failed gate: the merge queue merges the branch into the main of its moment and runs
 the suites again. Its reviews are numbered past the branch's earlier ones (`review/NAME-3` after a parked gap's `-1` and
@@ -216,8 +216,8 @@ goals in `dev/model/resources.yaml` (change them there). `session-headroom` is h
 measured use of a session and its suite. **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
 the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
 (`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
-new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous) older
-than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
+new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous, nor
+one whose switch waits) older than `[resources] session_keep_hours`, by the factory's own names only: `python3 dev/bin/cleanup.py --dry-run` says
 which. `python3 dev/bin/resources.py line` (and `status.py`) prints it all on one line.
 
 ## Approve the push
@@ -305,9 +305,22 @@ one of its own open at a time, and never one whose branch exists.
 ## Upgrade and revert
 
 Each green merge opens an `upgrade` item; the upgrader installs it into `~/ergostat-live/<sha>` and checks the model
-with its own code, then asks for `switch-instance`. Approving it (the inbox, as above) stops the engine, points
-`current` at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record
-read, the merge queue in the model); unhealthy, it goes back to the previous version by itself. By hand:
+with its own code, then asks for `switch-instance`. Only the newest waits: the switcher (`dev/bin/drain.py`, every
+minute) withdraws a request for a version older than one waiting, or than the one running (its action denied by the
+switcher, saying which version supersedes it). Approving it (the inbox, as above; or standing, with `gate: auto` on the
+action in the instance's model) does not switch at once: the switch waits for a quiet moment (at most `[upgrade]
+quiet_runs` AI runs under way) or, at the latest, the daily window (`[upgrade] daily_at`, 04:00 local) passing; then it
+drains: `run/drain.json` is written and the AI blocks take no new item (each run gives its item back uncounted) while
+the runs under way finish, for at most `[upgrade] drain_minutes` (45); the runs still going then are given back
+uncounted (not a failure of their gaps) and stopped with the engine. The switch then stops the engine, points `current`
+at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record read, the
+merge queue in the model); unhealthy, it goes back to the previous version by itself. Either way it removes
+`run/drain.json`. A switch that ends with no outcome recorded (it failed before stopping the engine, as with a version
+no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
+never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
+runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
+`drain-minutes` stops counting once the switch begins. The groomer and the plan review start no session while
+`run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
 
 ```sh
 python3 dev/bin/live.py switch <sha>           # the same, in the foreground

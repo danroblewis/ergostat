@@ -39,7 +39,7 @@ def classed(findings: list[str]) -> list[dict]:
 
 def review_one(cfg: dict) -> int:
     marked = [g for g in fac.items("gap") if g["fields"].get("plan_review") == "wanted"]
-    if not marked:
+    if not marked or fac.draining(cfg):                 # (a switch drains the runs under way: next turn)
         return 0
     gap = sorted(marked, key=lambda g: (g["state"] != "ready", float(g["fields"].get("ready_at") or 0)))[0]
     if why := fac.may_spend(cfg, float(cfg["ai"]["plan_reviewer_session_usd"])):

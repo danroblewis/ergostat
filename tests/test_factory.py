@@ -50,7 +50,15 @@ elif args[0] == "item" and "/" in args[1]:
     else:
         sys.exit(f"no item {args[1]}")
 elif args[0] == "lease":
-    pass
+    if "--nack" in args:                                           # (a lease given back, as its run would: drain.py)
+        import os
+        db.setdefault("nacks", []).append({k: os.environ.get(f"ERGOSTAT_{k.upper()}") for k in ("item", "lease", "run")}
+                                          | {"count": "--no-count" not in args})
+        rec.write_text(json.dumps(db))
+elif args[0] == "actions" and "--deny" in args:
+    db["actions"][args[1]] = "denied"
+    db.setdefault("notes", {})[args[1]] = args[args.index("--note") + 1]
+    rec.write_text(json.dumps(db))
 else:
     sys.exit(f"the fake ergostat does not know {args}")
 '''
@@ -228,7 +236,7 @@ def test_the_factory_model_loads():
     assert {"ai-budget", "machine-quiet", "first-pass-good", "suites-in-time"} <= set(spec.goals)
     assert {"sessions-fit", "cpu-within", "memory-within", "disk-free-enough", "factory-disk-within"} <= set(spec.goals)
     assert {"machine-full", "disk-cleanup"} <= set(spec.blocks)
-    assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 4
+    assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 9
     assert {"implementor-pool", "reviewer-pool"} <= set(spec.stocks) and "raise-pool" in spec.actions
     assert spec.blocks["merge-queue"].pool == 1
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
@@ -546,6 +554,7 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
     (f.checkout / "broken").write_text("main's own failure\n")
     git(f.checkout, "add", "broken")
     git(f.checkout, "commit", "-q", "-m", "main breaks a test")
+    git(f.checkout, "push", "-q", "origin", "main")
     main = git(f.checkout, "rev-parse", "main")
     gid = ready(f)
     said, lines = f.run("implement.py", gid)
@@ -566,6 +575,7 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
     assert "gap.measured" not in said                                       # main has not moved: still waits
     git(f.checkout, "rm", "-q", "broken")
     git(f.checkout, "commit", "-q", "-m", "main fixed")
+    git(f.checkout, "push", "-q", "origin", "main")
     said, _ = f.run("intake.py")
     assert said == ["gap.measured"] and f.item(gid)["fields"]["waits_on_main"] is None
     said, _ = f.run("implement.py", gid)
@@ -1009,6 +1019,7 @@ def behind_main(f: Factory, conflict: bool = False, name: str = "warm") -> tuple
     (f.checkout / ("app.py" if conflict else "main.py")).write_text("print('main')\n")
     git(f.checkout, "add", "-A")
     git(f.checkout, "commit", "-q", "-m", "main moved on")
+    git(f.checkout, "push", "-q", "origin", "main")                             # (the drop's main is main as pushed)
     return tip, git(f.checkout, "rev-parse", "main")
 
 
@@ -1116,6 +1127,7 @@ def test_gate_one_accepts_a_continued_branch_definition(tmp_path):
     (f.checkout / "later.py").write_text("print('later')\n")                   # main moves on after the build
     git(f.checkout, "add", "-A")
     git(f.checkout, "commit", "-q", "-m", "main moved on again")
+    git(f.checkout, "push", "-q", "origin", "main")
     for n in (2, 3):                                                            # reviewed twice more: never parked
         f.fold([{"event": "gap.sent-back", "item": gid, "data": {}}], None)   # for main moving (the queue's to
         f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)       # settle), not past the kill rule
@@ -1164,12 +1176,16 @@ def test_gate_one_takes_a_continued_gaps_named_definition_first_committed_under_
         return json.loads(r.stdout.strip().splitlines()[-1])
 
     assert gate("docs/roadmap/overnight/warm.md") == []
-    assert gate("") == ["gate 1: docs/roadmap/overnight/warm2.md is not the branch's first commit"]   # (without it)
-    (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later\n")  # a file the branch added later
-    git(wt, "add", "-A")
-    git(wt, "commit", "-q", "-m", "a later file")
+    assert gate("") == ["gate 1: docs/roadmap/overnight/warm2.md is not on the branch"]   # (without it)
+    (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later\n")  # a definition the branch added
+    git(wt, "add", "-A")                                                        # later: its place in history is
+    git(wt, "commit", "-q", "-m", "a later file")                               # not checked
+    assert gate("docs/roadmap/overnight/later.md") == []
+    (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later, changed\n")
+    git(wt, "commit", "-qam", "the definition changed")                         # changed after it: still refused
     assert gate("docs/roadmap/overnight/later.md") == [
-        "gate 1: docs/roadmap/overnight/later.md is not the branch's first commit"]
+        "gate 1: docs/roadmap/overnight/later.md was changed after its first commit (other than a 'Where it "
+        "stopped' section)"]
 
 
 def test_a_branch_another_gap_still_holds_is_not_continued_until_it_stops(tmp_path):
@@ -1481,6 +1497,64 @@ def test_the_tuner_asks_for_a_bigger_batch_while_the_queue_waits(tmp_path):
     assert pools().returncode == 0 and not [a for a in f.db().get("acts", []) if "role=batch" in a]   # in its goal
 
 
+def test_the_drops_main_is_main_as_pushed_never_the_checkouts_own(tmp_path):
+    f = Factory(tmp_path)
+    pushed = git(f.checkout, "rev-parse", "origin/main")
+    (f.checkout / "unpushed.txt").write_text("a merge the queue has not pushed\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "merged, not pushed")
+    code = "import sys; sys.path[:0] = [sys.argv[1]]; import fac, agents; print(agents.drop(fac.config()))"
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True,
+                       timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert git(tmp_path / "live" / "drop.git", "rev-parse", "main") == pushed
+
+
+def test_the_queue_merges_onto_main_as_pushed_and_waits_on_unpushed_commits(tmp_path):
+    f = Factory(tmp_path)
+    other = tmp_path / "elsewhere"                                              # another queue pushes from elsewhere
+    subprocess.run(["git", "clone", "-q", str(f.origin), str(other)], check=True, capture_output=True, env=f.env)
+    (other / "theirs.txt").write_text("pushed from elsewhere\n")
+    git(other, "add", "-A")
+    subprocess.run(["git", "-C", str(other), "commit", "-q", "-m", "theirs"], check=True, env=f.env)
+    git(other, "push", "-q", "origin", "main")
+    theirs = git(other, "rev-parse", "HEAD")
+    approved_gaps(f, {"a": 1})
+    said, _ = f.run("queue.py", "gap/a")
+    assert said[1] == "gap.merged"
+    assert git(f.checkout, "rev-parse", "main^1") == theirs                     # merged onto main as pushed
+    (tmp_path / "two").mkdir()
+    f = Factory(tmp_path / "two")
+    (f.checkout / "mine.txt").write_text("not pushed\n")                      # the checkout ahead of the remote
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "unpushed")
+    other = tmp_path / "two" / "elsewhere"
+    subprocess.run(["git", "clone", "-q", str(f.origin), str(other)], check=True, capture_output=True, env=f.env)
+    (other / "more.txt").write_text("more\n")
+    git(other, "add", "-A")
+    subprocess.run(["git", "-C", str(other), "commit", "-q", "-m", "more"], check=True, env=f.env)
+    git(other, "push", "-q", "origin", "main")                                  # diverged: no fast-forward
+    head = git(f.checkout, "rev-parse", "main")
+    approved_gaps(f, {"b": 1})
+    said, lines = f.run("queue.py", "gap/b")
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert said == ["gap.queued"] and nack["count"] is False and "cannot fast-forward" in nack["why"]
+    assert git(f.checkout, "rev-parse", "main") == head                         # nothing merged
+
+
+def test_the_pool_tuner_is_paused_and_never_lowers_the_owners_pools(tmp_path):
+    f = Factory(tmp_path)
+    (f.model / "run").mkdir(exist_ok=True)
+    (f.model / "run" / "pools.json").write_text(json.dumps({"implementor": 3, "reviewer": 2, "since": 0}))
+    f.fold([{"event": "gap.parked", "item": "gap/hurt-by-main", "data": {"parked_at": time.time()}}], None)
+    r = subprocess.run([sys.executable, str(BIN / "pools.py"), "tune"], cwd=f.model, env=f.env, capture_output=True,
+                       text=True)
+    assert r.returncode == 0, r.stderr
+    got = json.loads((f.model / "run" / "pools.json").read_text())
+    assert got["implementor"] == 3 and got["reviewer"] == 2 and "pool.lowered" not in r.stdout
+    assert not [a for a in f.db().get("acts", []) if "role=implementor" in a or "role=reviewer" in a]
+
+
 def test_a_dead_letter_on_main_broken_tests_says_so(monkeypatch):
     monkeypatch.setitem(sys.modules, "fac", sys.modules.get("fac") or module("fac"))
     monkeypatch.setitem(sys.modules, "review", type(sys)("review"))     # (its park is not called here)
@@ -1489,3 +1563,183 @@ def test_a_dead_letter_on_main_broken_tests_says_so(monkeypatch):
     assert "fail on main too" in dead.on_main(f) and "aaaaaaaaaaaa" in dead.on_main(f)
     assert dead.on_main({**f, "suites_fast": {"tests": [T, "tests/test_z.py::test_own"]}}) == ""   # one is the gap's
     assert dead.on_main({"suites_fast": {}}) == ""
+
+
+# ---- switch-drain: an approved switch drains the runs under way, and older switch requests are withdrawn
+
+NOON = time.mktime(time.localtime()[:3] + (12, 0, 0, 0, 0, -1))              # today 12:00, local (no 04:00 near)
+
+
+def versions(f: Factory, n: int) -> list[str]:
+    """n commits on the checkout's main, oldest first, the first running."""
+    out = [git(f.checkout, "rev-parse", "HEAD")]
+    for i in range(1, n):
+        (f.checkout / f"v{i}.txt").write_text(f"{i}\n")
+        git(f.checkout, "add", "-A")
+        git(f.checkout, "commit", "-q", "-m", f"v{i}")
+        out.append(git(f.checkout, "rev-parse", "HEAD"))
+    live = f.tmp / "live"
+    live.mkdir(exist_ok=True)
+    (live / "current").symlink_to(out[0])
+    return out
+
+
+def asked(f: Factory, sha: str, action: str) -> str:
+    """An upgrade installed and its switch asked for, its action ``action`` (held, ran, denied)."""
+    db = f.db()
+    aid = f"ergostat.action/{len(db.get('actions', {})) + 1:010x}"
+    db.setdefault("actions", {})[aid] = action
+    f.record.write_text(json.dumps(db))
+    uid = f"upgrade/{sha[:12]}"
+    f.fold([{"event": "upgrade.opened", "item": uid, "data": {"sha": sha}},
+            {"event": "upgrade.installed", "item": uid, "data": {"check": "ok"}},
+            {"event": "upgrade.switch-asked", "item": uid, "data": {"switch": action, "switch_action": aid}}], None)
+    return uid
+
+
+def held(f: Factory, *gids: str, block: str = "implementor") -> None:
+    """These gaps' runs under way (their leases held by ``block``); every other gap's run ended."""
+    db = f.db()
+    for g in [*gids, *[i for i in db["items"] if i.startswith("gap/")]]:
+        it = db["items"].setdefault(g, {"id": g, "kind": "gap", "state": "building", "fields": {}})
+        it["fields"]["lease"] = {"block": block, "holder": f"run-{g[4:]}" if g in gids else None, "fence": 3}
+    f.record.write_text(json.dumps(db))
+
+
+def switcher(f: Factory, now: float, **upgrade) -> tuple[list[str], str, list[str]]:
+    """One step of the switcher at ``now``: (the events it said, why, the switches it started)."""
+    if upgrade:
+        with f.config.open("a") as c:
+            c.write("[upgrade]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in upgrade.items()))
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, live, drain; cfg = fac.config(); "
+            "live.detach = lambda cfg, sha: print(json.dumps({'detached': sha})); "
+            "print(json.dumps({'why': drain.step(cfg, float(sys.argv[2]))}))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), repr(now)], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    return (f.fold([x for x in lines if "event" in x], None), lines[-1]["why"],
+            [x["detached"] for x in lines if "detached" in x])
+
+
+def test_a_switch_waits_for_the_runs_under_way(tmp_path):
+    f = Factory(tmp_path)
+    a, b = versions(f, 2)
+    uid = asked(f, b, "ran")                                                     # approved
+    held(f, "gap/one", "gap/two")
+    said, why, started = switcher(f, NOON, quiet_runs=1)
+    assert said == ["upgrade.switch-approved"] and "waits" in why and started == []
+    flag = f.model / "run" / "drain.json"
+    assert not flag.exists() and f.item(uid)["state"] == "approved"
+    held(f, "gap/one")                                                           # a quiet moment: one run under way
+    said, why, started = switcher(f, NOON + 60)
+    assert said == ["upgrade.draining"] and "drains" in why and started == [] and flag.exists()
+    gid = ready(f)                                                               # the AI blocks take no new item
+    said, lines = f.run("implement.py", gid)
+    assert said == [] and lines == [{"nack": {"why": lines[0]["nack"]["why"], "count": False, "after": "5m"}}]
+    f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)
+    said, lines = f.run("review.py", gid)
+    assert said == [] and lines[0]["nack"]["count"] is False
+    held(f, "gap/one")
+    said, why, started = switcher(f, NOON + 120)
+    assert said == [] and started == [] and "1 run(s) under way" in why        # gap/one still runs
+    held(f)                                                                      # it finished
+    said, why, started = switcher(f, NOON + 180)
+    assert said == ["upgrade.drained"] and started == [b] and f.db().get("nacks") is None
+    assert f.item(uid)["fields"]["given_back"] == [] and f.item(uid)["state"] == "draining"
+    assert switcher(f, NOON + 240)[1:] == (f"switching to {b[:12]}", [])        # started once
+    said, why, started = switcher(f, NOON + 180 + 30 * 60)                       # its process never cleared the flag
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == []
+    assert f.item(uid)["state"] == "failed" and not flag.exists() and "no outcome recorded" in f.item(uid)["fields"]["why"]
+    assert switcher(f, NOON + 181 + 30 * 60)[::2] == ([], [])                    # never begun again
+    r = subprocess.run([sys.executable, "-c", "import sys, json; sys.path[:0] = [sys.argv[1]]; import drain; "
+                        "print(json.dumps(drain.AI))", str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    spec, _ = read(ROOT / "ergostat.yaml")
+    own = {"improver", "modeller", "redesigner"}         # (ergostat's own modelling, the template's: not drained)
+    assert set(json.loads(r.stdout)) == {n for n, x in spec.blocks.items() if x.type == "ai"} - own   # every other
+
+
+def test_a_drain_past_its_bound_gives_the_runs_back_uncounted(tmp_path):
+    f = Factory(tmp_path)
+    a, b = versions(f, 2)
+    uid = asked(f, b, "ran")
+    held(f, "gap/long", block="reviewer")
+    said, why, _ = switcher(f, NOON, drain_minutes=45)
+    assert said == ["upgrade.switch-approved", "upgrade.draining"]
+    said, why, started = switcher(f, NOON + 44 * 60)
+    assert said == [] and started == [] and "44 of 45 minutes" in why
+    said, why, started = switcher(f, NOON + 45 * 60)                             # the bound
+    assert said == ["upgrade.drained"] and started == [b]
+    assert f.db()["nacks"] == [{"item": "gap/long", "lease": "3", "run": "run-long", "count": False}]
+    assert f.item(uid)["fields"]["given_back"] == ["gap/long"] and f.item(uid)["fields"]["drain_minutes"] == 45
+    flag = f.model / "run" / "drain.json"
+    assert json.loads(flag.read_text())["switch_started"] == NOON + 45 * 60
+    r = subprocess.run([sys.executable, str(BIN / "live.py"), "switch", b], cwd=f.model, env=f.env,
+                       capture_output=True, text=True)
+    assert r.returncode != 0 and "not installed" in r.stderr and not flag.exists()   # a switch ends the drain,
+    # whatever becomes of it; one that recorded no outcome is failed, asked of the coordinator, and not begun again
+    said, why, started = switcher(f, NOON + 46 * 60)
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == [] and f.item(uid)["state"] == "failed"
+    assert switcher(f, NOON + 47 * 60)[::2] == ([], []) and not flag.exists() and len(f.db()["nacks"]) == 1
+    sensor = [sys.executable, "-c", "import sys; sys.path[:0] = [sys.argv[1]]; import drain; print(drain.gone("
+              "{'since': 0, 'switch_started': 60}, 3600), drain.gone({'since': 0}, 3600), drain.gone(None, 3600))", str(BIN)]
+    assert subprocess.run(sensor, cwd=f.model, env=f.env, capture_output=True, text=True).stdout.split() == [
+        "0.0", "60.0", "0.0"]                                                    # the switch's own time is not the drain's
+
+
+def test_an_older_switch_request_is_withdrawn(tmp_path):
+    f = Factory(tmp_path)
+    old, running, mid, new, newer = versions(f, 5)
+    (f.tmp / "live" / "current").unlink()
+    (f.tmp / "live" / "current").symlink_to(running)
+    u_old, u_mid, u_new = asked(f, old, "held"), asked(f, mid, "ran"), asked(f, new, "held")
+    held(f)
+    said, why, started = switcher(f, NOON)
+    assert said == ["upgrade.withdrawn", "upgrade.withdrawn"] and started == [] and why == "no switch approved"
+    assert f.item(u_old)["fields"]["superseded_by"] == f"the running {running[:12]}"
+    assert f.item(u_mid)["fields"]["superseded_by"] == u_new                      # approved, but older: withdrawn
+    assert [f.item(u)["state"] for u in (u_old, u_mid, u_new)] == ["withdrawn", "withdrawn", "installed"]
+    db = f.db()
+    aid_old, aid_mid, aid_new = (f.item(u)["fields"]["switch_action"] for u in (u_old, u_mid, u_new))
+    assert db["actions"][aid_old] == "denied" and f"superseded by the running {running[:12]}" in db["notes"][aid_old]
+    assert db["actions"][aid_mid] == "ran" and db["actions"][aid_new] == "held"  # (an action that ran is not undone)
+    assert switcher(f, NOON + 60)[0] == []                                       # only the newest waits
+    db = f.db()
+    db["actions"][aid_new] = "ran"
+    f.record.write_text(json.dumps(db))
+    said, _, started = switcher(f, NOON + 120)
+    assert said == ["upgrade.switch-approved", "upgrade.draining"] and started == []   # never in the same step
+    said, _, started = switcher(f, NOON + 180)
+    assert said == ["upgrade.drained"] and started == [new]
+    u_newer = asked(f, newer, "held")                                            # installed while the switch runs
+    said, why, started = switcher(f, NOON + 240)
+    assert said == [] and why == f"switching to {new[:12]}" and started == []   # nothing withdrawn meanwhile
+    assert f.item(u_new)["state"] == "draining" and f.item(u_newer)["state"] == "installed"
+
+
+def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeypatch):
+    f = Factory(tmp_path)
+    a, b = versions(f, 2)
+    uid = asked(f, b, "ran")
+    held(f, "gap/one", "gap/two", "gap/three")
+    day = time.localtime(NOON)
+    five = time.mktime(day[:3] + (5, 0, 0, 0, 0, -1))                           # today 05:00, past today's window
+    said, why, _ = switcher(f, five, quiet_runs=2, daily_at="04:00")
+    assert said == ["upgrade.switch-approved"] and "waits for at most 2 run(s) under way (3 now) or 04:00" in why
+    before = time.mktime((day.tm_year, day.tm_mon, day.tm_mday + 1, 3, 59, 0, 0, 0, -1))
+    assert switcher(f, before)[0] == []                                          # tomorrow 03:59: still waits
+    said, why, _ = switcher(f, before + 120)                                     # tomorrow 04:01: the window
+    assert said == ["upgrade.draining"] and f.item(uid)["fields"]["runs_at_drain"] == 3
+    g = Factory(tmp_path / "g")
+    _, b = versions(g, 2)
+    asked(g, b, "ran")
+    held(g, "gap/one", "gap/two")
+    assert switcher(g, five, quiet_runs=2)[0] == ["upgrade.switch-approved", "upgrade.draining"]   # quiet enough
+    monkeypatch.setitem(sys.modules, "fac", sys.modules.get("fac") or module("fac"))
+    monkeypatch.setitem(sys.modules, "live", sys.modules.get("live") or module("live"))
+    drain = module("drain")
+    assert drain.settings({}) == (1, (4, 0), 45.0)
+    for bad in ({"quiet_runs": 11}, {"quiet_runs": -1}, {"drain_minutes": 0}, {"drain_minutes": 241},
+                {"daily_at": "24:00"}, {"daily_at": "4am"}):
+        with pytest.raises(SystemExit):
+            drain.settings({"upgrade": bad})
