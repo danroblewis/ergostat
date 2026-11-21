@@ -434,10 +434,13 @@ def _gone(pid: int) -> bool:
 
 def test_l6_an_action_past_its_timeout_has_its_whole_process_group_killed(tmp_path):
     (tmp_path / "fork.py").write_text(textwrap.dedent("""\
-        import subprocess
+        import os, subprocess
         c = subprocess.Popen(["sleep", "60"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         open("pid.tmp", "w").write(str(c.pid))
-        __import__("os").rename("pid.tmp", "pid")
+        os.rename("pid.tmp", "pid")
+        null = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(null, 1)
+        os.dup2(null, 2)                       # (nothing holds the action's output open: a kill of one is seen at once)
         c.wait()
         """))
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(f"""\
@@ -448,7 +451,9 @@ def test_l6_an_action_past_its_timeout_has_its_whole_process_group_killed(tmp_pa
     m = mdl.load(tmp_path)
     p = Project(m)
     a = gate.request(p, m.spec, "slow", {}, {}, asker="program")
+    started = time.monotonic()
     got = gate.approve(p, m.spec, a["id"])
+    assert time.monotonic() - started < 30, "run_once came back long after the action's timeout"
     assert got["state"] == "failed" and got["output"].startswith("stopped after its timeout"), got
     deadline = time.monotonic() + 30
     while not (tmp_path / "pid").exists():
