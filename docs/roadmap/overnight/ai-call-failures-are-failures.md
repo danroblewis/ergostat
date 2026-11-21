@@ -131,3 +131,26 @@ of them turns into an endless "failed call". Every path for a failed call is bou
 Not run: the whole unit suite (again not permitted in this session) and the browser files. Left: the factory's full
 unit run with its output past the cut-off, or with `-o faulthandler_timeout=240` so a hanging test is named, and the
 fix if one is named.
+
+### Round 3: the merge of main, and fresh requests called without a failed one
+
+- The merge of main (4c21667b) conflicted in `library/run/modelling.py`. Kept main's side: `rq.for_ai` for what the
+  tier takes up, and the `rq.mark`/`rq.move` writes, refused when the request moved while the tier was working
+  (lesson-1). Kept the branch's side: the `fails() < FAILS` filter on top of `for_ai`, `error` on the request, and
+  the "its second call failed" wording. The branch's own writes were changed to match main's discipline. The tier's
+  failed-first-call write is now `rq.mark` (it was `rq.event`). The redesigner's `error` result is now
+  `rq.move(..., run)` (it was `rq.event`).
+- review/ai-call-failures-are-failures-2 (blocking, lesson-8/lesson-4): with a fresh request waiting, a request that
+  failed before was still put at the end of the same group, so it sank the fresh ones. The group is now
+  `[r for r in near if not fails(r)][:a.most] or near[:1]`. While any request with no failed call waits, only those
+  are called. After that, the one that failed least goes alone. SPEC §12e now says exactly that. New test:
+  `test_a_fresh_request_is_called_without_one_that_failed_before`. It marks one request as failed once, then checks
+  three things: the call is made without it, the fresh ones each use their try, and none of them is given a failed
+  count or an error. With the old line put back, it fails (all 4 requests sank, "no try used for 4 requests"). With
+  the fix, it passes.
+- The review's other finding (it could not run `tests/test_modeller.py`): run here, 16 of 16 pass.
+
+Size: 46 net lines outside `tests/` and `docs/` against `main` (68 added, 22 removed), within the 50 budget.
+Run here in one batch with `-p no:randomly -o faulthandler_timeout=240`: `test_modeller`, `test_modelling_ai_cap`,
+`test_modelreview`, `test_redesign`, `test_redesign_memory`, `test_modelling_core`, `test_modelling_core2`,
+`test_inbox`. 148 passed. Ruff is clean. Not run: the whole unit suite and the browser files (left to the factory).

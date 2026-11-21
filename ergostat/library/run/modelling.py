@@ -110,7 +110,7 @@ def ai(argv: list[str]) -> int:
         note("modeller: no request waiting for the ai tier")
         return 0
     near = sorted(_near(p, mine), key=fails)      # those that failed least first; one that failed before goes alone
-    group = near[:1] if fails(near[0]) else near[:a.most]
+    group = [r for r in near if not fails(r)][:a.most] or near[:1]   # never one that failed with fresh ones
     got = md.answer(p, group, a.model, timeout=md.per_call(a.timeout, 2), on_call=_said,
                     within=lambda text: sp.held(p, md.unsaid(text, a.model)["usd"], a.daily))
     c = got["cost"]
