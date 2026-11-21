@@ -1486,13 +1486,24 @@ def test_a_batch_mate_conflict_is_not_a_failed_gate(tmp_path):
     b = f.item("gap/b")
     assert b["state"] == "approved" and "failed_gates" not in b["fields"] and "findings" not in b["fields"]
     assert not [x for x in lines if "nack" in x]
-    # the run's own gap, behind a higher-ranked batch-mate it conflicts with: given back uncounted, no gate failed
+    # the run's own gap, behind a higher-ranked batch-mate it conflicts with: kept (its lease holds the push), and the
+    # batch-mate it conflicts with is the one left approved, no gate failed
     g = Factory(tmp_path / "g", unit=RED.format(runs=tmp_path / "g" / "runs"))
     approved_gaps(g, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"a": "app.py", "b": "app.py"})
     said, lines = g.run("queue.py", "gap/b")
-    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and merges(g) == ["a", "c"]
-    nack = next(x["nack"] for x in lines if "nack" in x)
-    assert nack["count"] is False and "app.py" in nack["why"] and "failed_gates" not in g.item("gap/b")["fields"]
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and merges(g) == ["b", "c"]
+    assert not [x for x in lines if "nack" in x] and g.item("gap/b")["state"] == "merged"
+    a = g.item("gap/a")
+    assert a["state"] == "approved" and "failed_gates" not in a["fields"] and "findings" not in a["fields"]
+
+
+def test_the_run_s_own_gap_ranked_below_a_full_batch_is_still_taken(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2)                       # all merge; the run is c's
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and merges(f) == ["a", "c"]
+    assert f.item("gap/c")["state"] == "merged" and f.item("gap/b")["state"] == "approved"
+    assert not [x for x in lines if "nack" in x]
 
 
 def test_batch_keeps_rank_order_among_mergeable_gaps(tmp_path):
