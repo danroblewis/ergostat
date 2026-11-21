@@ -8,7 +8,7 @@ import json
 import subprocess
 import sys
 
-from tests.test_factory import BIN, Factory, approved_gaps, main_moves, merges, suite_runs
+from tests.test_factory import BIN, ROOT, Factory, approved_gaps, main_moves, merges, set_action, suite_runs
 
 RED = "echo run >> {runs}"
 
@@ -100,3 +100,90 @@ def test_picks_says_why_its_batch_is_empty(tmp_path):
     assert out["gap/b"] == [[], "it was sent back: conflicts with main: app.py"]
     assert out["gap/c"][0] == [] and out["gap/c"][1].startswith("it was sent back: not merged: its branch moved")
     assert out["merging"] == [["gap/a"], ""]                                   # a batch that is not empty: no why
+
+
+class Engine:
+    """The factory's own model (ergostat.yaml and dev/model) in a project of its own, where a run's lines are recorded
+    under its lease and the lease is ended as the engine's dispatcher ends it, so its end can be seen (the fixture's
+    fold alone plays no lease)."""
+
+    def __init__(self, tmp):
+        from ergostat import model as mdl
+        from ergostat.spec.engine import Engine as Eng
+        from ergostat.store import Project
+        d = tmp / "engine"
+        d.mkdir()
+        (d / "ergostat.yaml").symlink_to(ROOT / "ergostat.yaml")
+        (d / "dev").symlink_to(ROOT / "dev")
+        self.p = Project(mdl.load(d))
+        self.spec, self.eng, self.n = self.p.model.spec, Eng(self.p, say=lambda s: None), 0
+
+    def approved(self, iid: str) -> None:
+        self.p.events.add("gap.approved", item=iid, source="t", data={"approved_by": "review"})
+
+    def run(self, lines: list[dict], iid: str | None = None) -> None:
+        """A run's lines: under a merge-queue lease on ``iid`` (ended as the dispatcher ends it), or holding none."""
+        from ergostat.leases import TAKEN
+        from ergostat.spec.engine import nack_of
+        self.n += 1
+        run = f"run-{self.n}"
+        if iid:
+            self.p.events.add(TAKEN, item=iid, source="ergostat", data={
+                "item": iid, "run": run, "block": "merge-queue", "fence": self.n, "ttl": 1800, "max": 3,
+                "back": "approved", "tier": "program"})
+        for x in lines:
+            if "event" in x:
+                self.p.events.add(x["event"], item=x.get("item") or iid, source="merge-queue", causedby=run,
+                                  data=x.get("data") or {})
+        if iid:
+            nack = next((nack_of(x["nack"]) for x in lines if "nack" in x), None)
+            self.eng.dispatch.finish(self.spec.blocks["merge-queue"], iid, self.n, run, {"exit": 0, "nack": nack})
+
+    def item(self, iid: str):
+        from ergostat.spec import items as its
+        return its.one(self.p.events, self.spec, iid)
+
+    def sent_back_by_queue(self) -> float:
+        from ergostat.spec import items as its
+        sensor = next(iter(self.spec.flows["sent-back-by-queue"].sensors.values()))
+        return its.measure(self.p.events, self.spec, sensor)[0] or 0.0
+
+
+def test_a_conflicting_own_gap_ends_in_fix_not_approved(tmp_path):
+    f, e = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs")), Engine(tmp_path)
+    approved_gaps(f, {"a": 1}, edits={"a": "app.py"})
+    main_moves(f, "app.py")                                                    # a, the run's only gap, conflicts
+    e.approved("gap/a")
+    said, lines = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.sent-back"] and merges(f) == ["main changes app.py"] and suite_runs(f) == 0
+    assert not [x for x in lines if "nack" in x]
+    assert e.sent_back_by_queue() == 0
+    e.run(lines, "gap/a")                                                      # its lease ends after its lines
+    a = e.item("gap/a")
+    assert a.state == "fix" and a.fields["lease"]["history"][-1]["how"] == "ack"   # not nacked back to approved
+    assert a.fields["sent_back_by"] == "queue" and a.fields["findings"] == ["conflicts with main: app.py"]
+    assert e.sent_back_by_queue() > 0                                          # the landing model's flow counts it
+
+
+def test_a_held_send_back_reaches_fix_after_the_run(tmp_path):
+    f, e = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs")), Engine(tmp_path)
+    approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"c": "app.py"})
+    main_moves(f, "app.py")                                                    # the run's own c conflicts with main
+    for g in "abc":
+        e.approved(f"gap/{g}")
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 + ["gap.push-pending"]
+    e.run(lines, "gap/c")                                                      # its send-back held for the push
+    c = e.item("gap/c")
+    assert c.state == "push-pending" and c.fields["lease"]["history"][-1]["how"] == "ack"
+    assert "sent_back_by" not in c.fields and e.sent_back_by_queue() == 0
+    set_action(f, "ran")                                                       # the push ran: settled by the settler
+    r = subprocess.run([sys.executable, str(BIN / "queue.py"), "settle"], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    settled = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    e.run(settled)                                                             # (a run that holds no lease on c)
+    c = e.item("gap/c")
+    assert c.state == "fix" and c.fields["sent_back_by"] == "queue"
+    assert c.fields["findings"] == ["conflicts with main: app.py"] and c.fields["failed_gates"] == 1
+    assert e.sent_back_by_queue() > 0
