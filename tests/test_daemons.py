@@ -748,3 +748,21 @@ def test_a_warm_run_whose_leader_cannot_be_read_when_it_ends_is_unknown_never_ze
     assert cpu is None, "its leader unread at the end: unknown, never the rest of the group (here none) as all"
     assert usage.charge({gone.pid: 0.5}, gone.pid, last=1.25)[0] == 0.75, "reaped with its CPU known: charged"
 
+
+def test_a_warm_run_s_resources_say_which_read_failed_and_hold_no_cpu():
+    import subprocess
+    import types
+
+    from ergostat.daemons.proc import Process
+    gone = subprocess.Popen(["true"], start_new_session=True)
+    gone.wait()                                  # (reaped by Popen, its rusage never read: unknown at the end)
+    p = Process.__new__(Process)                 # (no program: only charge)
+    p.pid, p.proc = gone.pid, types.SimpleNamespace(rusage=None)
+    p.before = {gone.pid: 0.5}
+    res, left = p.charge()
+    assert res == {"unmeasured": "its group's CPU could not be read when the run ended", "method": "warm"}, res
+    assert left == []
+    p.before = {}                                # (its hand-over's read failed)
+    res, _ = p.charge()
+    assert res == {"unmeasured": "its group's CPU could not be read when it was handed the run", "method": "warm"}, res
+

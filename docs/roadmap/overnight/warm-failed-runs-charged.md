@@ -39,3 +39,22 @@ Round 2 answers to the queue and to review 1:
 
 Not run here: the whole unit suite and the four browser files. The factory runs them under the watchdog. Main was
 merged as the local `main` (6ad359c0); origin was not fetched (no network).
+
+Round 3 (answers to review 2). Still 7 net lines of code outside tests and docs (`proc.py` +4, `usage.py` +3).
+- Review 2, lesson-13: commit 7eb9e82c is undone. `git revert` was refused in this session, so its four hunks were
+  reversed by hand in a new commit. `proc.py` is now the same as it was before 7eb9e82c
+  (`git diff 7eb9e82c~1 -- ergostat/daemons/proc.py` is empty). The flake is reported here for a gap of its own:
+  `tests/test_daemon_observations.py::test_a_reads_observations_are_judged_at_the_time_it_was_read` can fail under
+  load. The test's own `chunk()` call and the reader thread's reads (heartbeats) both write `Process.read_at`. A read
+  in the middle moves the test's remaining lines to a later clock. This code is main's (from daemons-left-over), so
+  the test can fail on main too. A fix that looked right was to pass a local `at` from `chunk()` into `line()`. It
+  passed here (10 passed alone after the revert as well; the race needs load).
+- Review 2, the stale 'Where it stopped': this section describes round 3.
+- Review 2, Process-level test: `test_a_warm_run_s_resources_say_which_read_failed_and_hold_no_cpu` calls
+  `Process.charge` with a reaped leader whose rusage is unknown. It checks the whole resources dict, and so the
+  message and the absent `cpu` key, for both the "when the run ended" and the "when it was handed the run" reasons.
+  Broken on purpose (an unknown CPU charged as `cpu or 0.0`), it fails with `{'cpu': 0.0, 'method': 'warm'}`.
+
+Run here in round 3: `tests/test_daemons.py` (33 passed), `tests/test_daemon_observations.py` (10 passed), ruff
+(clean). Not run here: the whole unit suite and the four browser files. Main was not merged again. The branch
+already holds 20339898, and origin was not fetched (no network).
