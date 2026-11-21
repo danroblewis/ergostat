@@ -343,3 +343,18 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   is clean. The whole unit suite and the four browser files were not run here. The factory should run them again to
   completion.
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 14 (2026-11-21): the `unit` run that ended after 24 dots.**
+- *The merge of main 1e9ecb1* was already committed (d0147de2). `git merge-base --is-ancestor 1e9ecb1 HEAD` holds, the
+  tree is clean, and no conflict markers are left in `ergostat.yaml`. Nothing was left to resolve.
+- *What the tail shows:* the build, the xdist nodes coming up, and 24 dots. There is no `F`, no error, no summary and no
+  closing line from suite_watch. As in rounds 2, 4, 6, 7, 10 and 13, the run was ended from outside. There is no failure
+  to fix, so no code changed (lesson-13).
+- *`do_ask` (the blocking finding):* this was answered in round 12 and is unchanged here. Every research item the asker
+  asked that is not `answered` counts as open (`dev/bin/manage.py` `do_ask`), and the test covers `leased` and `dead`.
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 31 passed; `test_factory.py`,
+  `test_factory_knowledge.py`, `test_factory_times.py` and `test_interventions.py` together 194 passed, 2 skipped. Ruff
+  is clean. The whole unit suite and the four browser files were not run here. The factory should run them again to
+  completion. Several runs in a row have been ended early, so the factory should check what is killing the suite
+  container (its memory or its time limit).
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
