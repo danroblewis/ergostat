@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ergostat.spec import load
+from ergostat.spec import ir, load
 from ergostat.spec.equation import parse as parse_equation
 from ergostat.spec.ir import Agent, Auxiliary, Block, Equation, Goal, ItemKind, Join, Ref, Relation, Sensor, Setpoint, Spec, Stock, Takes
 from ergostat.spec.shards import MAX_SHARDS, SAFE, plan
@@ -144,7 +144,37 @@ def test_goal_and_cascade_reads_are_wires():
     s.goals["b-ok"] = Goal("b-ok", Ref("stock", "b-q"), Setpoint("<=", 5), system="b")
     s.blocks["a-work"].inputs = {"e": Ref("goal", "b-ok", "error"), "u": Ref("block", "b-work", "out")}
     got = {(w.ref, w.source, w.target, w.kind) for w in plan(s).wires}
-    assert got == {("goal.b-ok.error", "b", "a", "goal"), ("block.b-work.out", "b", "a", "cascade")}
+    assert got == {("goal.b-ok.error", "b", "a", "goal"), ("block.b-work.out", "b", "a", "cascade"),
+                   ("goal.b-ok", "b", "a", "goal")}         # its hold and status, given with the goal (Engine.context)
+
+
+def test_estimate_reads_are_wires():
+    s = two()
+    s.blocks["a-work"].inputs = {"x": Ref("stock", "b-q", "estimate"), "u": Ref("stock", "b-q", "uncertainty"),
+                                 "n": Ref("stock", "b-q", "n")}    # its sensor: read from the measurements
+    p = plan(s)
+    got = {(w.ref, w.source, w.target, w.kind) for w in p.wires}
+    assert got == {("stock.b-q.estimate", "b", "a", "estimate"), ("stock.b-q.uncertainty", "b", "a", "estimate")}
+    assert p.of(Ref("stock", "b-q", "estimate")) == "b" and p.of("stock.b-q.uncertainty") == "b"
+    with pytest.raises(KeyError):
+        p.of("stock.nope.estimate")
+
+
+def test_served_goals_and_observed_flows_are_wires():
+    s = two()
+    s.flows["a-in"] = ir.Flow("a-in", target="a-q", system="a")
+    s.goals["a-ok"] = Goal("a-ok", Ref("stock", "a-q"), Setpoint("<=", 5), system="a")
+    s.blocks["a-work"].inputs = {"e": Ref("goal", "a-ok", "error")}
+    s.blocks["a-work"].outputs = {"out": [Ref("block", "b-work")]}
+    s.blocks["b-work"].outputs = {"out": [Ref("flow", "a-in")]}   # b-work acts in a-ok's loop, reading no goal
+    s.flows["b-out"] = ir.Flow("b-out", source="a-q", system="b", equation=Equation("stock.b-q * 0.1", parse_equation(
+        "stock.b-q * 0.1"), ["stock.b-q"]))
+    got = {(w.ref, w.source, w.target, w.kind) for w in plan(s).wires}
+    assert got == {("goal.a-ok", "a", "b", "goal"), ("block.b-work", "a", "b", "command"),
+                   ("flow.a-in", "b", "a", "command")}
+    s.stocks["a-q"].observe = True                         # now its observer adds up flow.b-out, worked out in b
+    s.lookups().kept.pop("observer.opted", None)
+    assert ("flow.b-out", "b", "a", "equation") in {(w.ref, w.source, w.target, w.kind) for w in plan(s).wires}
 
 
 def test_ceiling_merges_smallest():

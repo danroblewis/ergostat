@@ -78,3 +78,39 @@ sharding of the scale model unless it changes the generator or the seed rule.
 
 Not run here: the full unit and browser suites, because the factory runs them. Also not done: merging `origin/main`.
 This clone has no `origin`, and local `main` has nothing this branch lacks.
+
+### Round 2: the answers to review shards-from-systems-1
+
+- **Estimates (blocking).** A read of `stock.X.estimate` or `stock.X.uncertainty` (observer.PORTS, when X has no
+  sensor of that name) across shards is now a wire of kind `estimate`. `Plan.of` gives such a ref the stock's shard,
+  and still raises `KeyError` for an unknown stock. Test: `test_estimate_reads_are_wires`.
+- **Served goals and observed flows (blocking).** These readers are now counted as well. A block reads each goal it
+  reads or acts in as an actuator (`spec.loop(g).actuators`, as `Engine.served` does), and that goal's part
+  (`Engine.context` gives both). An estimated stock (`observer.opted(spec).stocks`) reads each flow in
+  `spec.flows_of`, with the usual rule: a sensed flow is no wire, a flow with an equation is an `equation` wire, and
+  any other flow is a `memory` wire. Test: `test_served_goals_and_observed_flows_are_wires`. SPEC §9.8 now names
+  every reader counted. A side effect: a block that reads `goal.x.error` across shards now also gets the wire
+  `goal.x`, which carries the hold and status the engine gives it. `test_goal_and_cascade_reads_are_wires` expects
+  that wire.
+- **The "never a wire" wording (not blocking).** SPEC §9.8 and the `_wires` docstring now say that *reading* a sensed
+  part is never a wire, and that writing to one (a command) still is.
+- **The ceiling's cost (not blocking).** The shard sizes are counted once and then added up at each merge. Each merge
+  sorts the shards that are left, and nothing recounts every part. `test_ceiling_merges_smallest` pins the merge order.
+  A change that stops adding a merged shard's size makes it fail.
+- **The earlier gap's findings (engine-shards-by-system-1).** A built-in that writes `out: block.X` is covered:
+  wires come from `Block.targets()` for every block, so it is a `command` wire (`test_cross_reads_are_wires_not_merges`
+  has a block's output to another block). The allowlist of Spec fields was a finding on that other gap's design. Here,
+  `test_every_part_in_exactly_one_shard` lists the parts independently of `shards.py`.
+- **Size: over budget.** `shards.py` is 223 lines, 23 over the 200 budget. The extra lines are the three readers the
+  review asked for (estimates, served goals, observed stocks' flows), the `Plan.of` rule for estimates, and the
+  ceiling's size counts. I did not squeeze code to fit, because that would make it harder to read.
+- **Which mutation each new test catches (lesson-9).** Each change below was made to `shards.py` and run, and the
+  named test failed:
+  - The `estimate` branch disabled: `test_estimate_reads_are_wires` failed.
+  - The `Plan.of` estimate rule disabled: the same test failed with `KeyError`.
+  - The served goals dropped from a block's goals: `test_served_goals_and_observed_flows_are_wires` failed.
+  - The observer's flow loop emptied: the same test failed at its `flow.b-out` assertion.
+  - A merged shard's size not added: `test_ceiling_merges_smallest` failed.
+  I did not repeat these mutation runs this round for the tests that were already there.
+- Not run here: the full unit and browser suites, and the scale model at N=300 timed. A timing command was refused in
+  this sandbox. Local `main` still has nothing this branch lacks.
