@@ -173,3 +173,63 @@ For each new test, the report says which break was made in the code and that the
 - A reservation time in the future (clock stepped back) counts in the window; add a test.
 - Killing the parent mid-call leaves the claude child running unlocked and uncharged beyond its reservation: kill the process group on parent death or timeout, or narrow the docs' claim.
 - Confirm no existing caller or test passes --tries above 3.
+
+## Where it stopped
+
+Built: items 1 to 7, with every acceptance test in `tests/test_modelling_ai_cap.py` (22 tests, all passing). About 218
+net lines of code outside tests and docs, within the 250 budget.
+
+**Lesson-9 breaks.** Each break below was made in the code, the named tests failed, and the code was put back:
+- cap as `spent >= daily`: `starts_only_within_the_days_cap`, `go_back_checks_the_cap_again`,
+  `next_run_checks_the_cap...` failed;
+- lock released after the check, before the reservation row: `two_runs_cannot_both_take_the_last_of_the_cap` failed;
+- settle row writes `min(usd, reserved)`: `costs_more_than_its_reservation...` failed;
+- an errored call charged 0, and an unsettled reservation counted as 0: `failed_call_is_not_tried_again`,
+  `call_left_unsettled_counts_whole`, `reservation_dated_in_the_future_counts` and
+  `half_written_last_line...` failed;
+- a settled id counted whatever its reservation's time: `charge_is_dated_by_its_reservation` failed;
+- an unreadable ledger read as empty: all 7 `unreadable_ledger` cases failed;
+- the go-back made outside the ledger: `go_back_checks_the_cap_again` failed. `go_back_is_made_within_the_cap` (added)
+  shows that the go-back is really reached when there is room;
+- a capped run still counting tries: `next_run_checks_the_cap_and_a_capped_run_burns_no_try` failed;
+- `--max-budget-usd` not passed: `reservation_is_claudes_budget` failed;
+- `ai-daily` max 2000, and separately `--most` max 1600: `ai_counts_and_dollars_have_a_ceiling` failed each time;
+- status said only when near the cap, not after a refusal: `status_says_the_cap` failed.
+
+**Answers to the plan review:**
+- Non-finite values (NaN and Infinity, rejected through `parse_constant` and `math.isfinite`), negative amounts,
+  strings, a missing `reserved`, and a duplicate reservation or settle row for one id all make the ledger unreadable.
+  Each kind of row is a parametrized case of `test_an_unreadable_ledger_means_no_call`.
+- A reservation that is not finite and above 0 raises `Capped` before the lock is taken.
+  `test_a_daily_of_0_or_a_reservation_of_0_makes_no_call` covers `--daily 0`, a 0 reservation, and a 0 reservation
+  with `--daily 20`.
+- The two-runs test uses two forked processes, each opening the lock file fresh. The parent probes with `LOCK_NB`
+  while the first is mid-call, and shows that the second blocks (bounded 1 s wait) until the first is released.
+- A refusal is recorded as a `{"refused": time, "reserved"}` row: the parser accepts it, and the spend ignores it.
+  "Within one reservation" means the latest reservation row in the file (file order, not time). The status reads
+  without the lock (`today`, `partial_ok`), and a last line with no newline yet is left out. Under the lock, the same
+  partial line counts as unreadable (fail closed); `test_a_half_written_last_line_is_left_out_by_the_status_only`
+  covers both.
+- A reservation dated in the future counts (`r["time"] > now - DAY` has no upper bound):
+  `test_a_reservation_dated_in_the_future_counts`.
+- Killing the parent mid-call: I took the reversible option and narrowed the claim, without adding process-group
+  handling. SPEC says the lock "does not reach a claude child that outlives a killed run". The run is still charged its
+  whole reservation, as no settle row is written.
+- `--tries`: no caller or test passes it at all (the template's run line does not), so none passes it above 3.
+
+**Deviations and decisions (no one to ask; each is the more reversible option):**
+- `tests/test_modelling_core.py::test_the_redesigner_and_the_ai_tier_print_result_lines` called `ml.ai` with no
+  `--daily`, which item 5 requires to exit 2. Its one call now passes `--daily 1`; the test is otherwise unchanged.
+- `ai-most` became `type: integer` (it was `number`), because `--most` is an int and 2.5 would have expanded to a run
+  line argparse refuses.
+- The status reads `ai_daily` from the `modeller` block's expanded run line (`--daily N`). A hand run with another
+  `--daily` is reported against the block's cap.
+- `docs/ADDING.md`'s example comment names the new bounds.
+
+**Not run here:**
+- `demo_check` on image-squeeze, alert-triage, ticket-factory and the-job: this sandbox denied the command (it starts
+  engines and a server). In its place, `tests/test_chains.py`, `tests/test_blockdiagram.py` and
+  `tests/test_modelling_template.py`, which load every example with the new template, pass (103 tests).
+- The full unit suite and the four browser files: left to the factory's watchdogged run, as the instructions say.
+- Merging origin/main: this clone has no `origin` remote, and local `main` is already in HEAD. The merge and the second
+  run of the suites are left to the factory.

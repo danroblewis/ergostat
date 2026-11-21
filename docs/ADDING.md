@@ -212,7 +212,7 @@ uses:
       run: ""                             # give it to claude -p (else the free stand-in); or a wrapper of your own
       rules: true                         # the rule tier (default on, free): mechanical fixes for what check finds
       ai: true                            # the AI tier (default off): what the rules cannot answer, on ai-model
-      ai-model: haiku                     # (default haiku); ai-every 10m, ai-most 8 requests a call
+      ai-model: haiku                     # (default haiku); ai-every 10m, ai-most 8 requests a call (at most 16), ai-daily $1 (at most 20)
       redesign: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2}   # with ai: true, the redesigner (auto|ask|off)
       accept:
         parameter: auto                   # a value the judge passes is written at once (else the owner accepts each)
