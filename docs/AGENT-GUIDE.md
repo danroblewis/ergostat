@@ -619,6 +619,9 @@ Add `use: repair` (once a model, like `modelling`; SPEC §12r) when the owner wa
 failed run becomes an `ergostat.failure` item, one per signature, counted; one whose block runs a program of the
 project's is fixed by an AI (haiku by default, with no tools: ergostat gives it the program and the files beside it) in
 a clone of the repository, tested in the sandbox, and proposed as the gated action `apply-fix` with its impact report.
+Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
+is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is

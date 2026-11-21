@@ -145,3 +145,58 @@ All in `tests/test_repair_traces.py`.
 ## Notes from the plan review (answer each; not blocking)
 
 - Rule 6 sends superseded old (block, program, how) items to `dismissed`, which never reopens, but that signature is still live: later failures of the block/program that end the same way with no readable trace (incl. rule 1d's header-cut traces) are counted into the dismissed item and never opened, hiding real failures (lesson-5). Use a distinct `superseded` state that `opened` may leave (moves_from opened includes it), add it to test 4c's table, and add test 6d: after superseding, a traceless failure with the same ending opens the old-signature item again.
+
+## Where it stopped
+
+Built, round 1. Every rule above is in the code and every acceptance test named above is in
+`tests/test_repair_traces.py`, passing (51 cases). Where the branch differs from the text above, and why. Each is the
+more reversible choice, made with nobody to ask:
+
+- **The plan review's note is adopted.** `superseded` moves an old item to a new state `superseded`, not to
+  `dismissed`. `opened` moves from `noted`, `applied` or `superseded`, and `superseded` moves from `noted` or `open`.
+  A dismissed item never reopens, so sending these items there would hide later traceless failures at the old
+  signature (lesson-5). A state that can be left is the more reversible choice. It has its own row in test 4c's
+  table. Test 6d is `test_a_traceless_failure_after_superseding_opens_the_old_signature_again`. Test 6a checks
+  `superseded` where the text says `dismissed`. A second reason: the template's `fixes-dismissed` flow counts items
+  entering `dismissed` as fixes an approver denied, and superseded items are not that.
+- **The engine part had already landed.** `repair-runlog` was merged before this branch, so the engine already read
+  only the run's own file through `rl.tail(TAIL)`, and there was no `lf.read()` left to remove. The branch reads
+  `TAIL + 1` characters and drops the first partial line (`capture.clip`). It also reads the tail of a good run, for
+  the swallowed check. The GAPS limit "two runs of one block share the block's log" was not added, because that is
+  no longer true. In its place GAPS says a daemon's run hands back little or no standard error, so what a daemon
+  swallows is not seen.
+- `capture.swallowed(p, spec, b, begun, tail, stdin="")` takes the run's input as a keyword argument, so a new noted
+  item gets its `repair/NAME.input` the way a failure does. The positional signature matches rule 3.
+- `spec/itemindex.kinds_key` includes `moves_from`, but only for a kind that has one, so the item index of every
+  other model keeps its key. Without it, an index folded under different `moves_from` rules could be reused.
+- Superseding writes nothing for an old item already `superseded` or `dismissed`. Neither can be moved by it, so
+  writing would only add a refusal on every failure. Every other state gets the event, and the fold decides.
+- Not done here: the repair template has no flow for `superseded`, so an item leaving `open-failures` that way has
+  no flow out of that stock. That is a follow-up for the template. The `repair2` tests cannot be run here.
+
+Lesson-9: each of these breaks was made, the named tests failed, and the break was reverted:
+- `moves_from` emptied: 4a, 4c, 6b and 6c failed.
+- the flock removed: 4b failed.
+- Python's frame chosen by the project rule: 1c failed.
+- Java's type taken from the outer exception: the three cause cases failed.
+- the walk cap lifted: 2c failed.
+- `Caused by:` accepted as a header: 1d[java] failed.
+- swallowed writing full fields on an existing item: the five swallowed-state cases and 4b[swallowed] failed.
+- the same-signature check dropped: 6b[other-trace] failed.
+- `superseded` mapped to `dismissed`: 6a, 6d and 4c failed.
+- the project-frame check dropped from swallowed: the library-only test failed.
+- the engine not reading a good run's tail: the swallowed end-to-end test failed.
+
+Not run here:
+- `tests/test_repair2.py`: all 32 tests skip in this container, which has no OS sandbox.
+- The four browser files: Playwright is not installed, and the network is off.
+- The full unit suite under the watchdog: left to the factory.
+- The merge of origin/main: this clone has no `origin` remote, and its local `main` is this branch's base.
+
+Run, file by file:
+- `test_repair_traces`, `test_item_index`, `test_spec_items`, `test_leases`, `test_runlog`, `test_item_about`,
+  `test_item_sets`, `test_spec_engine`, `test_engine_shard`, `test_lease_kill`, `test_leased_workspaces`: all pass.
+- `test_repair2`: skipped, as above.
+- Ruff: clean.
+
+Size: about 255 net lines outside tests and docs, within the 320 budget.

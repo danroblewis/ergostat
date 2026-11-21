@@ -212,7 +212,6 @@ def test_java_takes_type_from_the_root_cause_and_its_innermost_project_frame(pro
 
 def test_python_signatures_are_unchanged(proj):
     r = spec(proj).root
-    text = py(r).replace('  File "', '  File "/opt/tools/helper.py", line 21, in call\n    x()\n  File "', 1)
     text = py(r).replace(f'  File "{r}/.venv', '  File "/opt/tools/helper.py", line 21, in call\n    x()\n'
                                                 f'  File "{r}/.venv')
     tb = traces.last(text, r)
@@ -479,7 +478,8 @@ def _put(p, fid, state):
         ev(p, f"{FAILURE}.superseded", fid, by="x")
 
 
-def test_opened_moves_only_from_noted_applied_or_superseded(proj):
+def test_opened_moves_only_from_noted_or_applied(proj):
+    """(And from ``superseded``: the plan review's answer, so an old signature superseded hides no later failure.)"""
     states = spec(proj).items[FAILURE].states
     assert sorted(OPENED) == sorted(states), "every state of the compiled kind has a row"
     for s in states:
