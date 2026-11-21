@@ -2626,18 +2626,28 @@ def test_refused_tool_calls_are_recorded_on_the_session(tmp_path, monkeypatch, c
                {"permission_denials": []},
                {"permission_denials": [{"tool_name": "Bash", "tool_input": {"command": f"curl -H 'X: {tok}' h"}},
                                        {"tool_name": "Edit", "tool_input": {"old_string": "a" * 120 + tok}},   # (cut at 160)
-                                       f"odd {tok}"]}]
+                                       f"odd {tok}"]},
+               None]                                                            # a timeout: no result at all (out=None)
 
     def session(cfg, role, brief, work, keep=None):
         keep.copy.tok = tok                                                      # (as agents.session does)
+        answer = answers.pop(0)
+        if answer is None:
+            raise RuntimeError("the implementor session ran past 5400s and was killed")   # (as agents.py does)
         return {"type": "result", "subtype": "success", "is_error": False, "result": "Done", "total_cost_usd": 0.1,
-                "num_turns": 1, **answers.pop(0)}
+                "num_turns": 1, **answer}
     fake.session = session
     monkeypatch.setitem(sys.modules, "agents", fake)
     lines = []
-    for _ in range(4):
-        fac.session(cfg, "implementor", "brief", tmp_path)
+    for _ in range(5):
+        try:
+            fac.session(cfg, "implementor", "brief", tmp_path)
+        except RuntimeError:
+            pass
         lines.append([json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith('{"event"')])
+    timed_out = lines.pop()
+    err = next(x["data"] for x in timed_out if x["event"] == "session.errored")
+    assert err["tool_denials_unknown"] == 1 and "tool_denials" not in err and "ran past" in err["error"]
     end = [next(x["data"] for x in got if x["event"] == "session.ended") for got in lines]
     on_gap = [[(x["item"], x["data"]) for x in got if x["event"] == "gap.measured"] for got in lines]
     assert end[0]["tool_denials"] == 2 and end[0]["denied"] == ["Bash: rm x.py", "Bash: uv run python scripts/a.py"]
@@ -2648,16 +2658,24 @@ def test_refused_tool_calls_are_recorded_on_the_session(tmp_path, monkeypatch, c
     assert end[3]["tool_denials"] == 3 and end[3]["denied"][0] == "Bash: curl -H 'X: [token]' h"
     said = json.dumps(lines[3])                                                  # the token, nor a prefix of it, kept
     assert "s3cr3t" not in said and all("[token]" in d for d in end[3]["denied"]), end[3]["denied"]
-    lines.pop()                                                                  # (the folds below count the first three)
+    lines.pop()                                                       # (the folds below count the first three, the timeout)
+    lines.append(timed_out)
 
     (tmp_path / "f").mkdir()
     f = Factory(tmp_path / "f")                                                  # the gap and sessions, by the model's folds
-    f.fold([x for got in lines for x in got], None)
+    measure = lambda name: subprocess.run([sys.executable, str(BIN / "measure.py"), name], cwd=f.model,  # noqa: E731
+                                          env=f.env, capture_output=True, text=True)
+    f.fold([x for x in lines[1] + lines[3]], None)                     # only sessions whose refusals are unknown
+    r = measure("tool-denials")
+    assert r.returncode != 0 and "no value" in r.stderr and not r.stdout.strip()    # unknown, never 0
+    f.fold([x for got in (lines[0], lines[2]) for x in got], None)
     g = f.item("gap/alpha-thing")["fields"]
-    assert g["tool_denials"] == 2 and g["tool_denials_unknown"] == 1 and len(g["denied"]) == 2
-    r = subprocess.run([sys.executable, str(BIN / "measure.py"), "tool-denials"], cwd=f.model, env=f.env,
-                       capture_output=True, text=True)
-    assert r.returncode == 0 and float(r.stdout) == 3.0, r.stderr                # 2 refused, and 1 unknown as one
+    assert g["tool_denials"] == 2 and g["tool_denials_unknown"] == 2 and len(g["denied"]) == 2
+    r = measure("tool-denials")
+    assert r.returncode == 0 and float(r.stdout) == 2.0, r.stderr     # the 2 refused; the timeout and the silent one
+    assert "2 session(s) whose refusals are unknown" in r.stderr              # left out, said, not counted as refused
+    r = measure("tool-denials-unknown")
+    assert r.returncode == 0 and float(r.stdout) == 2.0, r.stderr
     goal = yaml.safe_load((BIN.parent / "model" / "measures.yaml").read_text())["goals"]["no-tool-denials"]
     assert (goal["auxiliary"], goal["hold"], goal["tolerance"]) == ("tool-denials", "<= 0", 0)
 
