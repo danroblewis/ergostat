@@ -86,3 +86,9 @@ Tests run (one file group at a time, not under the factory's watchdog):
 - ruff: clean.
 
 Not run here: the whole unit suite and the four browser files. The factory runs those under its watchdog. There is no `origin` remote in this clone; local `main` is already merged in.
+
+After the factory's `unit` run failed: its tail ends after 12 tests (the slow tests at the head of each worker) with no failing test, summary or traceback, so the run was cut off rather than failing on a named test. Nothing here could be matched to it, and no code was changed:
+- The whole unit suite, run serially in four file groups (`tests/test_[a-e]*`, `[f-l]`, `[m-r]`, `[s-z]`): 2,031 passed, 69 skipped, no failure.
+- Under `-n 8 --dist worksteal`: every `slow` test (41 passed), and `test_leases`, `test_lease_kill`, `test_daemons`, `test_streamed_output`, `test_triggers2` together (95 passed).
+- Every new wait in the fix is bounded: `close()` takes `Engine.lock` with a 5 s timeout, and the spawn-side kill and the take hold that lock only for set operations. `Dispatcher.lock` is now also held by `finish`, but the code under it waits on nothing that needs a run to end.
+The factory should run `unit` again and keep its full output. If it stops early again, the test it stops in is what to look at.
