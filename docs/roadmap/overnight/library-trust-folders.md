@@ -225,3 +225,19 @@ exactly where `one` used to. Ruff is clean.
 whole output, and name any failure. Three runs have now ended with no named failure from this branch (one
 `test_warm` timing failure outside the gap, then two cut-offs). If the next run is also cut off, look at the slot or
 the watchdog's kill (its JSON line says whether it killed the run and why), not at the code.
+
+### The factory's unit run after round 3
+
+1 failed, 2013 passed, 69 skipped (rc 1, not killed): `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere`.
+The lease history was `['expired', 'ack']`, not `['ack']`. Not fixed here (lesson-13). The brief said to fix the code,
+but the code at fault is outside this gap. `git diff main...HEAD --stat` on `ergostat/leases/`, `ergostat/spec/engine.py`,
+`ergostat/daemons/` and `tests/test_leases.py` is empty, and the test's model has no `library:` or `uses:` line. Run
+alone here, it passes (1 passed, 3.3 s). Its lease has a 1 s TTL. The only renewals are the events the run writes
+through `$ERGOSTAT_CMD event`, each a new Python process, 0.4 s apart. Under the whole suite at `-n 8`, one process
+start plus the sleep can go past 1 s of silence, and then the watchdog rightly expires the lease. That is
+lesson-10: either event writes really are slow under load, or the test's 1 s margin is too thin. It needs its own gap,
+not a lease change inside a library gap. This is the third unrelated timing result in three full runs
+(`test_warm`, a cut-off run, now `test_leases`), and each test passed alone.
+
+**Left:** run the unit suite and the four browser files again. If this lease test also fails on main under the same
+load, it is not this branch's.
