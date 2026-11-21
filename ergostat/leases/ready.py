@@ -82,3 +82,26 @@ def unblocked(d, b, got: list) -> list:
 
     from ..precedence import order_ready
     return order_ready(d.p.events, d.spec, b.takes.kind, got, time.time())
+
+
+def order_key(v, down: bool = False) -> tuple:
+    """A field's value as ``takes: {order: FIELD}`` sorts it (SPEC §9.5): numbers, then text, then nothing (last
+    either way); ``down`` (``-FIELD``): the highest first."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return (0, -float(v) if down else float(v), ())
+    if v is None or v == "":
+        return (2, 0.0, ())
+    return (1, 0.0, tuple(-ord(c) for c in str(v)) + (1,) if down else tuple(ord(c) for c in str(v)))
+
+
+def take_key(order: list[str], at: list[str], state: str, fields: dict, critical: float = 0.0) -> tuple:
+    """Where an item stands in a block's queue (SPEC §9.5), the one comparator of the dispatcher and the completion
+    estimates: by its ``order:`` fields, then the states of ``at`` in order, then the critical first; the caller's
+    order (oldest first) among equals."""
+    return (tuple(order_key(fields.get(f.lstrip("-")), f.startswith("-")) for f in order or ()),
+            at.index(state) if state in at else len(at), critical)
+
+
+def ordered(b, got: list) -> list:
+    """The items a block may take (oldest first, or the critical first: ``unblocked``), in its take order."""
+    return sorted(got, key=lambda i: take_key(b.takes.order, b.takes.at, i.state, i.fields)) if got else got
