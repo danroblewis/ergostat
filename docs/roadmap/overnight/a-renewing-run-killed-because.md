@@ -129,3 +129,23 @@ That is narrower than the code, not a contradiction.
 `tests/test_leased_workspaces.py` (13 passed), and `ruff check ergostat tests scripts` (clean). **Not run:** the
 unit suite and the four browser files under `scripts/suite_watch.py`. The brief leaves those to the factory's
 watched run after this session.
+
+**The factory's unit run (2026-11-21): one failure, unrelated to this branch, not fixed here (lesson-13).**
+`tests/test_reload_safety.py::test_a_reading_is_never_left_under_way_when_writing_it_fails` failed once (1 failed,
+1902 passed, 69 skipped; rc 1). Its first `e._readings(False)`, which the test expects only to hand the reading to the
+pool, raised the patched `RuntimeError("database is locked")` from `engine.py:1369` (`_take`'s `add_many`). On this
+branch's own rerun of `tests/test_reload_safety.py` alone, all 7 passed (3.35 s). The brief said to fix the code. I
+changed none, for three reasons. This branch touches no file under `ergostat/` or `tests/`. Its definition allows
+only this file and `docs/GAPS.md`. And lesson-13 says a failure the change did not touch is reported, not fixed in
+the branch.
+
+My reading of the cause (lesson-10), from the code, not reproduced. `Engine._begin` submits the sensor's `echo 10` to
+the read pool. In the same call, `_take` then drains `self.results` with `get_nowait()`. When the pool thread finishes
+the read and puts its result before that drain, which can happen when the main thread loses the GIL under `-n` load,
+the first call gathers the result itself, calls `add_many`, and raises. The engine's behaviour there looks right: the
+`finally` in `_take` lets go of the reading, which is what the test's docstring asks for. The fixed order is an
+assumption made by the test, that the pool's read lands only after the first drain. So I count this as a race in the
+test, not in ergostat. A fix would accept the raise on either call. For example, the test could hold the pool's read
+until the first `_readings` has returned and then assert the same end state. That belongs in its own gap. I tried to
+show the race deterministically in a scratch run (wrapping `ThreadPoolExecutor.submit` to wait on its future, from a
+plugin in `/tmp`), but the session's permissions denied it, so the race is unconfirmed.
