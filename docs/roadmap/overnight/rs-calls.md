@@ -219,3 +219,26 @@ Budget unchanged (about 7 net lines over 100). Refused this session: `git worktr
 restart tests (to look for processes they leave behind); and a heredoc append to this file chained with the commit.
 The next step needs the factory: the failed run's `rc`, its container's `OOMKilled`, and one unit run with
 `-o faulthandler_timeout=300`, which prints the stack of any test still running after 5 minutes.
+
+After round 5's second unit run failed (its tail: two `F`s at about 14% and 16%, then dots to 98%, mid-line, with no
+pytest summary and no `suite_watch` JSON line): not reproduced, and no code changed, because no defect was found.
+This session ran every test file in parallel for the first time, the way the factory runs them (`suite_watch.py`,
+`-n 8 --dist worksteal`, random order), in three alphabetical chunks:
+- `tests/test_[a-f]*.py`: 957 passed, 4 skipped, 414 s. Peaks: 168 threads, 948 MB, 26 processes.
+- `tests/test_[g-q]*.py`: 723 passed, 5 skipped, 1 xfailed, 190 s. Peaks: 157 threads, 1.3 GB, 38 processes.
+- `tests/test_[r-z]*.py`: 824 passed, 60 skipped, 148 s. Peaks: 400 threads, 1.5 GB, 164 processes.
+No failures, nothing killed, nothing left behind, 2504 tests in all (about as many as the factory's run). `/tmp` held
+505 MB of its 2 GB afterwards. The two `F`s therefore come from something these runs lack: the whole suite in one run
+(so test order across files: main's `dev/bin/queue.py` hiding the standard `queue`, above, fits) or the suite
+container's 4 CPUs (this machine has 24). Neither is shown.
+What reading ruled out this round: the factory's `fac.suite` strips every `ERGOSTAT_` variable, so no inherited
+socket reaches the suite, and the `home` fixture is autouse, so every run a test starts gets the 5 s bound. Nothing
+in `agents.suites` or `resources.sampled` kills a suite, and `suite_watch` prints a line before it kills one (none in
+the tail). The output cut mid-line with nonzero `rc`, from a container started with `--init`, fits the container
+being SIGKILLed as a whole (OOM against its 12 GB, with tmpfs `/tmp` counted, or `docker kill`) better than any hang.
+Refused this session: `uv run python -c "import os; print(sorted(k for k in os.environ if k.startswith('ERGOSTAT')))"`,
+an `ls tests/test_*.py | sed ...` splitting the files into lists under `/tmp`, and
+`taskset -c 0-3 uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal tests/test_[r-z]*.py 2>&1 | tail -25`
+(the 4 CPUs of the suite container). The next step still needs the factory: the run's `rc`, the container's
+`OOMKilled`, the names behind the two `F`s (`fac.failed_tests` of the whole log, not of its tail), and one run with
+`-o faulthandler_timeout=300`. Budget unchanged: about 7 net lines over 100.
