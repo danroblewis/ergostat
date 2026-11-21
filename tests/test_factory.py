@@ -228,7 +228,7 @@ def test_the_factory_model_loads():
     assert {"ai-budget", "machine-quiet", "first-pass-good", "suites-in-time"} <= set(spec.goals)
     assert {"sessions-fit", "cpu-within", "memory-within", "disk-free-enough", "factory-disk-within"} <= set(spec.goals)
     assert {"machine-full", "disk-cleanup"} <= set(spec.blocks)
-    assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 4
+    assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 9
     assert {"implementor-pool", "reviewer-pool"} <= set(spec.stocks) and "raise-pool" in spec.actions
     assert spec.blocks["merge-queue"].pool == 1
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
@@ -546,6 +546,7 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
     (f.checkout / "broken").write_text("main's own failure\n")
     git(f.checkout, "add", "broken")
     git(f.checkout, "commit", "-q", "-m", "main breaks a test")
+    git(f.checkout, "push", "-q", "origin", "main")
     main = git(f.checkout, "rev-parse", "main")
     gid = ready(f)
     said, lines = f.run("implement.py", gid)
@@ -566,6 +567,7 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
     assert "gap.measured" not in said                                       # main has not moved: still waits
     git(f.checkout, "rm", "-q", "broken")
     git(f.checkout, "commit", "-q", "-m", "main fixed")
+    git(f.checkout, "push", "-q", "origin", "main")
     said, _ = f.run("intake.py")
     assert said == ["gap.measured"] and f.item(gid)["fields"]["waits_on_main"] is None
     said, _ = f.run("implement.py", gid)
@@ -1009,6 +1011,7 @@ def behind_main(f: Factory, conflict: bool = False, name: str = "warm") -> tuple
     (f.checkout / ("app.py" if conflict else "main.py")).write_text("print('main')\n")
     git(f.checkout, "add", "-A")
     git(f.checkout, "commit", "-q", "-m", "main moved on")
+    git(f.checkout, "push", "-q", "origin", "main")                             # (the drop's main is main as pushed)
     return tip, git(f.checkout, "rev-parse", "main")
 
 
@@ -1116,6 +1119,7 @@ def test_gate_one_accepts_a_continued_branch_definition(tmp_path):
     (f.checkout / "later.py").write_text("print('later')\n")                   # main moves on after the build
     git(f.checkout, "add", "-A")
     git(f.checkout, "commit", "-q", "-m", "main moved on again")
+    git(f.checkout, "push", "-q", "origin", "main")
     for n in (2, 3):                                                            # reviewed twice more: never parked
         f.fold([{"event": "gap.sent-back", "item": gid, "data": {}}], None)   # for main moving (the queue's to
         f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)       # settle), not past the kill rule
@@ -1164,12 +1168,16 @@ def test_gate_one_takes_a_continued_gaps_named_definition_first_committed_under_
         return json.loads(r.stdout.strip().splitlines()[-1])
 
     assert gate("docs/roadmap/overnight/warm.md") == []
-    assert gate("") == ["gate 1: docs/roadmap/overnight/warm2.md is not the branch's first commit"]   # (without it)
-    (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later\n")  # a file the branch added later
-    git(wt, "add", "-A")
-    git(wt, "commit", "-q", "-m", "a later file")
+    assert gate("") == ["gate 1: docs/roadmap/overnight/warm2.md is not on the branch"]   # (without it)
+    (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later\n")  # a definition the branch added
+    git(wt, "add", "-A")                                                        # later: its place in history is
+    git(wt, "commit", "-q", "-m", "a later file")                               # not checked
+    assert gate("docs/roadmap/overnight/later.md") == []
+    (wt / "docs" / "roadmap" / "overnight" / "later.md").write_text("# later, changed\n")
+    git(wt, "commit", "-qam", "the definition changed")                         # changed after it: still refused
     assert gate("docs/roadmap/overnight/later.md") == [
-        "gate 1: docs/roadmap/overnight/later.md is not the branch's first commit"]
+        "gate 1: docs/roadmap/overnight/later.md was changed after its first commit (other than a 'Where it "
+        "stopped' section)"]
 
 
 def test_a_branch_another_gap_still_holds_is_not_continued_until_it_stops(tmp_path):
@@ -1479,6 +1487,64 @@ def test_the_tuner_asks_for_a_bigger_batch_while_the_queue_waits(tmp_path):
     db["acts"] = []
     f.record.write_text(json.dumps(db))
     assert pools().returncode == 0 and not [a for a in f.db().get("acts", []) if "role=batch" in a]   # in its goal
+
+
+def test_the_drops_main_is_main_as_pushed_never_the_checkouts_own(tmp_path):
+    f = Factory(tmp_path)
+    pushed = git(f.checkout, "rev-parse", "origin/main")
+    (f.checkout / "unpushed.txt").write_text("a merge the queue has not pushed\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "merged, not pushed")
+    code = "import sys; sys.path[:0] = [sys.argv[1]]; import fac, agents; print(agents.drop(fac.config()))"
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True,
+                       timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert git(tmp_path / "live" / "drop.git", "rev-parse", "main") == pushed
+
+
+def test_the_queue_merges_onto_main_as_pushed_and_waits_on_unpushed_commits(tmp_path):
+    f = Factory(tmp_path)
+    other = tmp_path / "elsewhere"                                              # another queue pushes from elsewhere
+    subprocess.run(["git", "clone", "-q", str(f.origin), str(other)], check=True, capture_output=True, env=f.env)
+    (other / "theirs.txt").write_text("pushed from elsewhere\n")
+    git(other, "add", "-A")
+    subprocess.run(["git", "-C", str(other), "commit", "-q", "-m", "theirs"], check=True, env=f.env)
+    git(other, "push", "-q", "origin", "main")
+    theirs = git(other, "rev-parse", "HEAD")
+    approved_gaps(f, {"a": 1})
+    said, _ = f.run("queue.py", "gap/a")
+    assert said[1] == "gap.merged"
+    assert git(f.checkout, "rev-parse", "main^1") == theirs                     # merged onto main as pushed
+    (tmp_path / "two").mkdir()
+    f = Factory(tmp_path / "two")
+    (f.checkout / "mine.txt").write_text("not pushed\n")                      # the checkout ahead of the remote
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "unpushed")
+    other = tmp_path / "two" / "elsewhere"
+    subprocess.run(["git", "clone", "-q", str(f.origin), str(other)], check=True, capture_output=True, env=f.env)
+    (other / "more.txt").write_text("more\n")
+    git(other, "add", "-A")
+    subprocess.run(["git", "-C", str(other), "commit", "-q", "-m", "more"], check=True, env=f.env)
+    git(other, "push", "-q", "origin", "main")                                  # diverged: no fast-forward
+    head = git(f.checkout, "rev-parse", "main")
+    approved_gaps(f, {"b": 1})
+    said, lines = f.run("queue.py", "gap/b")
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert said == ["gap.queued"] and nack["count"] is False and "cannot fast-forward" in nack["why"]
+    assert git(f.checkout, "rev-parse", "main") == head                         # nothing merged
+
+
+def test_the_pool_tuner_is_paused_and_never_lowers_the_owners_pools(tmp_path):
+    f = Factory(tmp_path)
+    (f.model / "run").mkdir(exist_ok=True)
+    (f.model / "run" / "pools.json").write_text(json.dumps({"implementor": 3, "reviewer": 2, "since": 0}))
+    f.fold([{"event": "gap.parked", "item": "gap/hurt-by-main", "data": {"parked_at": time.time()}}], None)
+    r = subprocess.run([sys.executable, str(BIN / "pools.py"), "tune"], cwd=f.model, env=f.env, capture_output=True,
+                       text=True)
+    assert r.returncode == 0, r.stderr
+    got = json.loads((f.model / "run" / "pools.json").read_text())
+    assert got["implementor"] == 3 and got["reviewer"] == 2 and "pool.lowered" not in r.stdout
+    assert not [a for a in f.db().get("acts", []) if "role=implementor" in a or "role=reviewer" in a]
 
 
 def test_a_dead_letter_on_main_broken_tests_says_so(monkeypatch):

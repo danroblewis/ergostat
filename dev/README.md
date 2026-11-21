@@ -108,7 +108,7 @@ ergostat event --add gap.requested --item gap/warm2-again \
 
 A branch carried on under a new name (its first commit is another name's definition, e.g. `warm.md` on `warm2`) names
 that file as its definition, `"definition": "factory/warm2:docs/roadmap/overnight/warm.md"`: the implementor commits no
-copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is the branch's first commit.
+copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is on the branch and unchanged since its first commit.
 
 The intake fetches it into the drop as `factory/NAME` (never over a `factory/NAME` already there, and refusing a name
 that is not lowercase words and dashes). It is not taken while another gap on the same branch is anywhere but parked or
@@ -119,8 +119,8 @@ read is taken, the other waits). Each run fetches its session's work to a side r
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
 (it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
 the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after. The reviewer's gate 1 takes the branch's own first commit (its first-parent line) as the definition (the file the
-gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
+after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
+that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
 between build and review is not a failed gate: the merge queue merges the branch into the main of its moment and runs
 the suites again. Its reviews are numbered past the branch's earlier ones (`review/NAME-3` after a parked gap's `-1` and
