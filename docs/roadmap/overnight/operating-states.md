@@ -392,3 +392,10 @@ clean). What the coordinator has to do, two commands with no other effect:
 `git rm docs/roadmap/overnight/operating-states.md.tail`, then commit it with this note. Nothing else in the
 branch waits on it. The other findings of review operating-states-5 were answered in round 7 and are unchanged.
 No demo is touched, so `demo_check` is not needed.
+
+## Where it stopped
+
+Parked by the factory (review/operating-states-6, 2026-11-21 00:31).
+
+Failed its gates 6 times (the kill rule). Blocking findings:
+- docs/roadmap/overnight/operating-states.md.tail: the stray scratch file (one line, 'x') is still committed and still in `git diff origin/main...HEAD --stat`. It was raised as blocking in rounds 3, 4 and 7, and neither commit since (ec632425, e9f9cada) touches it. A committed scratch file would land on main, which people install from. Fix: `git rm docs/roadmap/overnight/operating-states.md.tail`, by the coordinator if the implementor's tools refuse it.
