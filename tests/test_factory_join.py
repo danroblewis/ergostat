@@ -357,6 +357,23 @@ def test_split_overhead_leaves_out_a_parent_it_cannot_price(tmp_path):
     assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
 
 
+def test_split_overhead_prices_a_parked_sub_gap_and_its_continuation(tmp_path):
+    """parks.split_again unlinks the stopped sub-gap (parent set to []) and links its continuation by `parent` only,
+    leaving the parent's `children` as they were: the stopped one's cost counts, its lines do not."""
+    f = Instance(tmp_path)
+    unsplit(f)
+    now = time.time()
+    gap(f, "gap/p-one", parent=["gap/p"], ai_cost_usd=10, merged_lines=60)
+    f.fold([{"event": "gap.parked", "item": "gap/p-two", "data": {"parent": ["gap/p"], "ai_cost_usd": 2,
+                                                                  "merged_lines": 999}},
+            {"event": "gap.resumed", "item": "gap/p-two", "data": {"resumed_as": "gap/p-two-continued"}},
+            {"event": "gap.measured", "item": "gap/p-two", "data": {"parent": {"set": []}}}], None)
+    gap(f, "gap/p-two-continued", parent=["gap/p"], ai_cost_usd=6, merged_lines=50)
+    parent(f, "gap/p", ("covered", now), kids=("gap/p-one", "gap/p-two"), merged_at=now, ai_cost_usd=2)
+    r = measure(f, "split-overhead")
+    assert r.returncode == 0 and r.stdout.strip() == "2.0", r.stderr        # (2 + 10 + 2 + 6) / 10, class M (110)
+
+
 def test_the_split_measures_are_sensed_in_the_factory_model():
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []

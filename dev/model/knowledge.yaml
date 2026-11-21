@@ -133,7 +133,7 @@ auxiliaries:
   split-overhead:
     system: intake
     unit: ratio
-    description: of split parents merged in 14 days, the median of the parent's own AI cost plus its children's (join sub-gaps too) over the median cost of merged unsplit gaps of the children's summed size class; a parent that cannot be priced is left out
+    description: of split parents merged in 14 days, the median of the parent's own AI cost plus its children's (join sub-gaps and continuations too, a parked sub-gap's cost but not its lines) over the median cost of merged unsplit gaps of the children's summed size class; a parent that cannot be priced is left out
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py split-overhead, every: 10m, timeout: 1m, description: the factory's measures}
 

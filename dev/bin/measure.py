@@ -29,7 +29,8 @@ when nothing in the window to measure, but for the eight named at the end, which
                       counts as not covered)
   split-joins         split parents with at least one join verdict, over the whole record (no window)
   split-overhead      the median, over split parents merged in the window, of the parent's own ai_cost_usd plus
-                      each child's (join sub-gaps too) over the median ai_cost_usd of merged unsplit gaps (no
+                      each child's (join sub-gaps and continuations too; a stopped sub-gap a continuation replaced:
+                      its cost, not its lines) over the median ai_cost_usd of merged unsplit gaps (no
                       parent, no children, a counted merged_lines; whole record) in the size class of the children's
                       summed merged_lines. A parent with a child not merged, with no merged_lines (or an error) or
                       no ai_cost_usd, with no ai_cost_usd of its own, or whose class has no unsplit gap, is left out
@@ -186,6 +187,18 @@ def priced(f: dict) -> float | None:
     return float(v) if type(v) in (int, float) and math.isfinite(v) and v >= 0 else None
 
 
+def family(g: dict, by_id: dict) -> list[str]:
+    """A parent's sub-gaps: its recorded children, the gaps whose parent names it (parks.split_again links a
+    continuation only so), and what each was resumed as. One split_again unlinked (stopped, replaced) stays in."""
+    todo = fac.ids(g["fields"]["children"]) + [i for i, k in by_id.items() if g["id"] in fac.ids(k["fields"].get("parent"))]
+    seen: list[str] = []
+    while todo:
+        if (i := todo.pop(0)) not in seen and i != g["id"]:
+            seen.append(i)
+            todo += fac.ids((by_id.get(i) or {"fields": {}})["fields"].get("resumed_as"))
+    return seen
+
+
 def split_reading(name: str, gaps: list[dict], since: float) -> float:
     """The split parents (a gap with `children`): their join verdicts (plan.py join), and their cost against unsplit
     gaps of their size. Each parent's first verdict is the first of its join_verdicts, in record order, never by `at`."""
@@ -203,16 +216,17 @@ def split_reading(name: str, gaps: list[dict], since: float) -> float:
             base.setdefault(size_class(f["merged_lines"]), []).append(priced(f))
     by_id, ratios = {g["id"]: g for g in gaps}, []
     for g in [g for g in recent(parents, "merged_at", since) if g["state"] == "merged"]:
-        kids = [by_id.get(k) for k in fac.ids(g["fields"]["children"])]
+        every = [by_id.get(k) for k in family(g, by_id)]
+        kids = [k for k in every if k is None or g["id"] in fac.ids(k["fields"].get("parent"))]   # stopped: priced only
         why = ("a child not merged" if any(k is None or k["state"] != "merged" for k in kids) else "") or \
             ("a child with no merged_lines" if not all(counted(k["fields"]) for k in kids) else "") or \
-            ("a child with no ai_cost_usd" if any(priced(k["fields"]) is None for k in kids) else "") or \
+            ("a child with no ai_cost_usd" if any(priced(k["fields"]) is None for k in every) else "") or \
             ("no ai_cost_usd of its own" if priced(g["fields"]) is None else "")
         cls = "" if why else size_class(sum(k["fields"]["merged_lines"] for k in kids))
         if why or cls not in base:
             print(f"split-overhead: left out, {g['id']}: {why or f'no merged unsplit {cls} gap'}", file=sys.stderr)
             continue
-        ratios.append((priced(g["fields"]) + sum(priced(k["fields"]) for k in kids)) / statistics.median(base[cls]))
+        ratios.append((priced(g["fields"]) + sum(priced(k["fields"]) for k in every)) / statistics.median(base[cls]))
     if not ratios:
         raise SystemExit("split-overhead: no value (no split parent merged in the window could be priced)")
     return round(statistics.median(ratios), 3)

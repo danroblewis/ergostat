@@ -56,3 +56,22 @@ Built: everything above, the six acceptance tests passing. Notes for the review:
 - **Lesson-9.** I broke the guarded lines and the tests failed. Taking the last verdict failed the quality test. Dropping
   the window failed both quality tests. Dropping the parent's own cost failed both overhead tests. Letting an unmerged
   child through failed the leave-out test.
+
+### Round 2
+- **Main merged.** The factory's merge of main (e1e778c1) conflicted in `measure.py`'s docstring. Both sides were kept:
+  main's manager measures line and the branch's three split measures.
+- **The blocking finding (continued sub-gaps).** `split-overhead` now takes a parent's sub-gaps as its `children`,
+  plus the gaps whose `parent` names it, plus each one's `resumed_as` chain (`family`). A sub-gap whose `parent` no
+  longer names the parent is one `parks.split_again` unlinked: it is stopped and replaced. Its cost counts. Its lines
+  do not count, and it need not be merged. Every other sub-gap must still be merged, sized and priced. The docstring,
+  the model's description and the README say so. New test:
+  `test_split_overhead_prices_a_parked_sub_gap_and_its_continuation`. Lesson-9: with children only, it fails (exit 1,
+  "a child not merged"). Leaving out the stopped one's cost gives 1.8. Counting its lines gives class XL, which is left
+  out.
+- **The non-blocking finding (the import from `tests/test_factory_knowledge.py`).** Kept. That import came with
+  gap/split-verified-2 and is on main as it is. This gap only avoids editing that file, as its definition says.
+  Copying `Instance` here would duplicate a large fixture.
+- **Size, round 2.** 92 net lines in `dev/` (`measure.py` +68, `knowledge.yaml` +18, `dev/README.md` +6), 22 over
+  the 70. The fix adds 13: the `family` walk and the wording that names who is left out (lesson-8).
+- **Run.** `tests/test_factory_join.py` (13 passed) and ruff (clean). Not run: the unit suite and the four browser
+  files, which are left to the factory's suites. No origin remote here: main is the factory's merge above.
