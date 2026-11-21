@@ -109,3 +109,11 @@ Bash was refused on its first command (`git status --short && git rm .gitattribu
 is still committed and this paragraph is uncommitted. Nothing else changed. What is left is the same one command,
 `git rm .gitattributes && git commit`. Sending the gap back to the implementor again will not change this. The
 coordinator has to run that command, or give the session `git rm` and `git commit`.
+
+### Round 6
+The factory's merge of main (278666f7) conflicted in `tests/test_factory.py`, where both sides had added a section
+at the end of the file. I kept both: this branch's merge tests, then main's park-owns-resume tests. The merge is
+committed. Afterwards: `tests/test_factory.py -k "merge_cleanly or park"` 10 passed, `tests/test_backlog.py -k
+"fixture or duplicated"` 3 passed, and ruff is clean. The full unit suite and the browser files were not run here
+(the factory runs them). `git rm .gitattributes` was refused again, so the root `.gitattributes` is still
+committed. What is left is still one command: `git rm .gitattributes && git commit`.
