@@ -152,3 +152,10 @@ code changed. After the merge, test_resilience (31) and test_streamed_output + t
 `ruff check ergostat tests scripts` is clean. Not run: the full unit suite and the browser files. Still left, for a
 person or a session allowed to delete files: `git rm -r .bench && git commit -m "rs-detach: the stray benchmark
 removed"`, then the factory's suites. Sending the item back to an implementor with these permissions will not move it.
+
+Round 12 (the factory's "round 5" again): the twelfth refusal, and a wider one. This session's "don't ask" mode
+denied the shell itself (`git ls-files .bench && git rm -r .bench` was refused), so nothing could be deleted,
+committed, or run. This note was written with the file editor and is **not committed** (committing needs the shell).
+Nothing else was tried to delete the file. No code changed and no suites were run. Still left, for a person or a
+session allowed to use the shell and delete files: `git rm -r .bench && git commit -m "rs-detach: the stray benchmark
+removed"` (committing this note with it), then the factory's suites.
