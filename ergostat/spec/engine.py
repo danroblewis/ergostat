@@ -980,9 +980,12 @@ class Engine:
         finally:                                                 # its entry in the block's log, whole, as it ends
             if rl is not None:
                 from ..repair.capture import TAIL
+                try:                                             # (read first, whatever the block log's fate)
+                    tail = rl.tail(TAIL) if note else ""
+                except Exception as e:
+                    tail = f"(its run log {rl.rel} could not be read: {type(e).__name__}: {e})\n"
                 try:
                     runlog.finish(rl, begun["time"], why, self.p.storage.logs["block"])
-                    tail = rl.tail(TAIL) if note else ""
                 except Exception as e:
                     self.say(f"{b.name}: its log: {type(e).__name__}: {e}")
                 finally:

@@ -324,11 +324,15 @@ def test_prune_skips_a_running_runs_file_among_the_oldest(tmp_path):
 
 def test_a_run_starting_during_the_prune_is_not_pruned(tmp_path, monkeypatch):
     """A run with an old start seq (beyond runs: 1) stopped between its file's create and its shared lock, while a prune
-    runs on another thread: the prune waits for the directory's lock, then finds the file locked and keeps it."""
+    runs on another thread: the prune waits for the directory's lock, then finds the file locked and keeps it.
+
+    The run is held in its window as long as the prune could get anywhere: when the run holds the directory's lock, until
+    the prune is at that lock (it can go no further until the run lets go); when it does not, until the prune has
+    finished, so the prune's listing, its LOCK_NB and its unlink all fall inside the window. No sleeps: barriers."""
     p = SimpleNamespace(dir=tmp_path)
     for seq in (50, 60):
         runlog.open_run(p, "b", seq, f"{seq:032x}").close()
-    at_lock, done = threading.Event(), threading.Event()
+    at_lock, done, run_has_dir = threading.Event(), threading.Event(), threading.Event()
     result: dict = {}
     real_lock = runlog._lock
 
@@ -336,6 +340,8 @@ def test_a_run_starting_during_the_prune_is_not_pruned(tmp_path, monkeypatch):
         if threading.current_thread().name == "prune":
             at_lock.set()
         real_lock(fd, how)
+        if threading.current_thread().name != "prune" and how == fcntl.LOCK_EX:
+            run_has_dir.set()                                # (the run holds the block directory's lock)
 
     def prune():
         try:
@@ -347,10 +353,10 @@ def test_a_run_starting_during_the_prune_is_not_pruned(tmp_path, monkeypatch):
 
     def created(name):                                       # the prune started in the window
         t.start()
-        end = time.time() + DEADLINE
-        while not (at_lock.is_set() or done.is_set()) and time.time() < end:
-            done.wait(0.01)
-        assert at_lock.is_set() or done.is_set()
+        if run_has_dir.is_set():                             # it will block at the lock this run holds
+            assert at_lock.wait(DEADLINE)
+        else:                                                # nothing stops it: it lists, tries and unlinks now
+            assert done.wait(DEADLINE)
 
     monkeypatch.setattr(runlog, "_lock", lock)
     monkeypatch.setattr(runlog, "_created", created)
@@ -362,6 +368,31 @@ def test_a_run_starting_during_the_prune_is_not_pruned(tmp_path, monkeypatch):
         assert result["gone"] == [f"50-{'0' * 12}.log"]
     finally:
         r.close()
+
+
+def test_a_failed_block_log_append_still_gives_triage_the_runs_own_lines(tmp_path, monkeypatch):
+    """The block log's append raising (a link at logs/<block>.log, ENOSPC, trim failing) leaves the failure's stderr the
+    run's own file's tail, not empty (lesson-3, point 4)."""
+    (tmp_path / "w.py").write_text("import sys\nsys.stdin.read()\nsys.stderr.write('MARK-own boom\\n')\nsys.exit(1)\n")
+    p = project(tmp_path, """
+        blocks:
+          worker:
+            type: program
+            every: 1h
+            run: python3 w.py
+        """)
+
+    def finish(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(runlog, "finish", finish)
+    said: list[str] = []
+    Engine(p, say=said.append).run_block(p.model.spec.blocks["worker"], "test")
+    got = ended(p, "worker")
+    assert len(got) == 1 and got[0]["type"] == "agent.failed" and "MARK-own" in (p.dir / got[0]["data"]["log"]).read_text()
+    failed = p.events.query(n=None, type="ergostat.run.failed")
+    assert len(failed) == 1 and "MARK-own boom" in failed[0]["data"]["stderr"], failed
+    assert any("its log" in s and "No space" in s for s in said), said
 
 
 def test_an_existing_name_or_link_at_the_run_file_falls_back_and_writes_nothing_through_it(tmp_path):

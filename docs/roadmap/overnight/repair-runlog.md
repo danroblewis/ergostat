@@ -209,3 +209,56 @@ Each new test was seen to fail with this code broken:
 - existing name or link: `O_EXCL|O_NOFOLLOW` removed from the file's open;
 - unsafe path: `O_NOFOLLOW` removed from the directories' opens; capture given the block log;
 - runs range: the ceiling removed from parse.
+
+### Round 3: main merged, the previous review's findings answered
+
+**The merge of main (7b39bc9).** Committed as 825696ef. It conflicted only in factory files this gap does not touch
+(`dev/bin/agents.py`, `dev/bin/fac.py`, `dev/factory.toml`, `dev/model/knowledge.yaml`, `ergostat.yaml`,
+`tests/test_factory_knowledge.py`). Each conflict is resolved by keeping both sides: the backlog's `groomer` role,
+`[backlog]`, `rank/value/size` and `paused`, all from this clone's base, and main's `pipeline_manager` role, its
+`situation` kind and `[plan] review = "all"`. The planner's `takes.to` follows main and no longer lists `planned`. It
+keeps the backlog's `unblocked: true, order: rank`. `test_factory_knowledge.py`, `test_factory_manager.py`,
+`test_factory_sessions.py` and `test_backlog.py` pass after the merge.
+
+Each finding, what changed:
+
+1. **engine.py, the tail read in the same try as `finish` (lesson-3, point 4).** Fixed. `run_block` now reads
+   `rl.tail(TAIL)` in its own try, before `runlog.finish`. A failing append or trim therefore no longer empties what
+   triage gets. If the run's own file cannot be read, the tail is not `""`. It says so:
+   `(its run log <rel> could not be read: ...)`. New test:
+   `test_a_failed_block_log_append_still_gives_triage_the_runs_own_lines`. `runlog.finish` is monkeypatched to raise
+   `OSError(ENOSPC)` for a program that writes `MARK-own boom` and exits 1. The failure's `stderr` must still hold
+   that line, and the engine must say the log error. Seen to fail with the old order (the tail read after `finish`,
+   inside its try).
+2. **The suites not run; test_repair2 never run against the branch (lesson-7, lesson-9).** Partly answered. This
+   container has no OS sandbox, so `tests/test_repair2.py` skips as a module. Its three triage tests
+   (`test_a_failed_run_is_triaged_into_one_failure_a_signature_and_counted`, the one at :173 that pushes a real
+   `KeyError` traceback through `run_block` into triage; `..._timeout_or_a_failure_with_no_program_is_noted_not_opened`;
+   `..._repair_loops_own_runs_record_no_failures`) need no sandbox. I ran them here from a scratch file (git-ignored,
+   not committed) that imports them without the module's skip. All 3 pass: the traceback's type and file are parsed
+   from the run's own tail, and `KeyError: 'issues'` is in its `stderr`. `test_a_fix_that_fails_its_test_...` (:285)
+   tests the fix inside the sandbox and still has not run. It, the whole unit suite and the four browser files must be
+   run by the factory's watched run on a host with the sandbox. The implementor's brief forbids running the whole
+   suite itself. Run here after the merge, one file at a time, all passing: `test_runlog.py` (12),
+   `test_streamed_output.py`, `test_runner_and_state.py`, `test_resilience.py`, `test_daemons.py`,
+   `test_spec_engine.py`, `test_leases.py`, `test_storage.py`, `test_trial_stops.py`, `test_warm.py`,
+   `test_inbox.py`.
+3. **test_a_run_starting_during_the_prune_is_not_pruned could pass without the lock (lesson-9, lesson-10).** Fixed. The
+   window is now held for as long as the prune could get anywhere. If the run took the block directory's lock (seen
+   by the test's `_lock` wrapper), it waits only for the prune to reach that lock: the prune can go no further until the
+   run lets go. If the run did not, it waits until the prune has finished, so the prune's listing, its `LOCK_NB` and
+   its unlink all fall before the run's `LOCK_SH`. Both waits are on events with only a deadline, with no polling or
+   sleeps. With `_lock(dl, LOCK_EX)` removed from `open_run`, the test fails every time ("the new run's file was
+   pruned while it was being made"). With the lock in place it passes.
+4. **Where it stopped not updated (lesson-12).** This section.
+
+**Found, not fixed (lesson-13, lesson-7).** `tests/test_relations_asof.py::test_an_item_of_no_kind_changed_since_has_no_links_and_the_rest_answers`
+(both parameters) fails after the merge: it expects the derived status `"ready"`, and `ergostat/precedence.py` says
+`"unblocked"`. That rename is the backlog's (600535dc), which is in this clone's base `main` (dc0d5ac) but not in the
+merged main (7b39bc9). The test comes from main's relations-as-of. This branch does not touch `precedence.py`. It is
+a conflict between the backlog and relations-as-of. It belongs to whichever of them lands second, not to this gap.
+The same base also makes `git diff 7b39bc9...` show the backlog's files (precedence, eta, leases/ready, pages.js, ...).
+None of those files is this gap's.
+
+Size: 231 net lines of code outside tests and docs (runlog.py 201, engine.py +20, storage.py +7, capture.py +3),
+budget 240.
