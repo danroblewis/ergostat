@@ -58,7 +58,7 @@ def send_back(cfg: dict, gap: dict, why: list[str], **record) -> int:
         import review
         fac.say("gap.measured", gap["id"], plan_findings=why, **record)
         review.park(cfg, gap, f"Its plan failed the lint {n} times:\n" + "\n".join(f"- {w}" for w in why),
-                    "plan-lint", where="plan")
+                    "plan-lint", where="plan", kind="kill-rule")
     else:
         fac.say("gap.plan-sent-back", gap["id"], plan_findings=why, plan_sent_back_by="lint", plan_lint_failures=n,
                 **record)
@@ -224,7 +224,8 @@ def splits(cfg: dict) -> int:
         if stopped:
             review.park(cfg, g, "Its sub-gaps stopped:\n" + "\n".join(
                 f"- {c['id']} ({c['state']}): {str(c['fields'].get('where_it_stopped') or '').strip()[:600]}"
-                for c in stopped), "split-watch", where="split")
+                for c in stopped), "split-watch", where="split", kind="split",
+                until={"gaps": sorted(c["id"] for c in stopped)})
     return 0
 
 

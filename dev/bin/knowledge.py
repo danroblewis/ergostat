@@ -28,6 +28,7 @@ KINDS = ("component", "rule", "lesson", "finding", "question", "source")   # the
 DECISION = "ergostat.decision"       # the one other kind, and only decisions.md's: read as the owner's decisions
 STOP = set("a an the and or but of to in on for with at by from is are be it this that we i you our my as so "
            "not no do does don't dont never always should must".split())      # ergostat.decisions.kinds.STOP
+ABOUT = re.compile(r"^\*About:\*\s*(.+)$", re.M)      # the parts of the root model an entry bears on: goal.x, stock.y
 FILES = re.compile(r"\b((?:ergostat|dev|scripts|tests|docs|examples)/[\w./-]+\.(?:py|md|yaml|toml|sh))\b")
 MORE = {"implementor": ("decisions", "related", "findings", "modules"),   # beyond the rules and the lessons, in order
         "reviewer": ("decisions", "findings", "related", "modules"), "planner": ("decisions", "related", "findings",
@@ -67,7 +68,8 @@ def sections(path: Path) -> list[tuple[str, str, str, list[str]]]:
 
 def entries() -> list[dict]:
     """Every entry of dev/knowledge/ but decisions.md: {id (rules-process, lesson-3, <kind>-<slug of its heading>),
-    title, kind (the file's), file, text, areas}. Refused: a file whose kind is missing or not allowed, a lesson not
+    title, kind (the file's), file, text, areas, about (its *About:* line: the parts of the root model it bears on,
+    goal.x)}. Refused: a file whose kind is missing or not allowed, a lesson not
     headed `## N. Title`, two entries with one id."""
     out, ids = [], set()
     for p in sorted(p for p in (fac.HERE / "knowledge").glob("*.md") if p.name not in ("README.md", "decisions.md")):
@@ -80,8 +82,10 @@ def entries() -> list[dict]:
             if eid in ids or eid.endswith("-"):
                 raise Refused(f"{p.name}: {head!r} gives the id {eid!r}, empty or already another entry's")
             ids.add(eid)
+            about = ABOUT.search(text)
             out.append({"id": eid, "text": text, "title": n[2] if n else head, "kind": kind,
-                        "file": f"dev/knowledge/{p.name}", "areas": areas})
+                        "file": f"dev/knowledge/{p.name}", "areas": areas,
+                        "about": [x for x in re.split(r"[,\s]+", about[1].strip().rstrip(".")) if x] if about else []})
     return out
 
 
@@ -266,14 +270,17 @@ def sync() -> tuple[int, ...]:
     for e in es:
         iid = f"knowledge/{e['id']}"
         want = {"title": e["title"], "kind": e["kind"], "file": e["file"], "text": short(e["text"]),
-                "carried": counts.get(e["id"], 0), **({"areas": e["areas"]} if e["areas"] else {})}
+                "carried": counts.get(e["id"], 0), **({"areas": e["areas"]} if e["areas"] else {}),
+                **({"about": e["about"]} if e["about"] else {})}
         it = known.get(iid)
         if it is None or it["state"] != "active":
-            said.append(("knowledge.found", iid, {**want, "found_at": now}))
+            again = {"about": []} if it is not None and it["fields"].get("about") and not e["about"] else {}
+            said.append(("knowledge.found", iid, {**want, **again, "found_at": now}))  # found again: old about cleared
             continue
         diff = {k: v for k, v in want.items() if it["fields"].get(k) != v}
-        if it["fields"].get("areas") and not e["areas"]:
-            diff["areas"] = []
+        for k in ("areas", "about"):                                       # taken out of the file: cleared
+            if it["fields"].get(k) and not e[k]:
+                diff[k] = []
         if diff:
             said.append(("knowledge.changed", iid, {**diff, "changed_at": now}))
     held_ids = {f"knowledge/{e['id']}" for e in es}
