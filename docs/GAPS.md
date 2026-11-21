@@ -324,8 +324,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   only, so its every `check` runs them again.
 - **An engine per system; line routing for large diagrams** (open; `docs/proposals/scale.md`). Done of it: the plan
   (`shards-from-systems`, SPEC §9.8): every part assigned to one shard by top-level system, merged by a shared agent,
-  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Left: an
-  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements.
+  taken kind or daemon (a block's or a sensor's), with the in-memory values read across shards listed as wires; and
+  an engine of one shard (`engine-runs-its-shard-1`, SPEC §9.8): `Engine(project, shard=NAME)` works only on its
+  shard's built-ins, machine blocks, goals, clock, item work, triggers, joins, daemons, observer and readings, and a
+  swap clears what moved out. `ergostat run` still runs one engine for the whole model. Left: the owner's asks
+  followed only by the shard that owns them, and the lead's one-time duties (`engine-runs-its-shard-2`); the wires
+  carried between shards (`shard-wires`); a process per shard; and the measurements.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
