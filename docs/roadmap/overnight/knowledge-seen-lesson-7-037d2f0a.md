@@ -21,3 +21,13 @@ From:
 ## Size budget
 
 0 net lines of code (knowledge only).
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:11).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 3: ack
+- attempt 4: nack exited 1
+- attempt 5: nack exited 1
+- attempt 6: nack exited 1
