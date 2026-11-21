@@ -223,6 +223,9 @@ def test_a_finding_not_said_again_is_let_go_but_one_waiting_on_its_change_is_kep
     assert "no longer says it" in x["system.lab review-redesign"]["why"]
     assert x["system.big review-split"]["state"] == "answered"
     assert x["system.ops review-redesign"]["state"] == "proposed" and x["system.a review-redesign"]["state"] == "open"
+    arv.run(p, "sonnet", 5.0, now=t0 + 2 * DAILY + 2, call=said(("ops", "redesign", "again")))
+    o2 = mine(p)["system.ops review-redesign"]
+    assert o2["state"] == "proposed" and o2["change"] == "c1" and o2["review"] == o["review"]   # said again: still waits
 
 
 def test_a_redesign_does_not_mark_a_request_a_newer_review_re_raised(tmp_path, monkeypatch, capsys):
