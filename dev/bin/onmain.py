@@ -1,6 +1,7 @@
 """main-broken: the implementor's own triage of its fast suites (implement.py), before a failure counts against the gap.
 
-The tests that failed are run again alone on the branch: passing, they are flakes (`flake.seen`), and the fast suites
+The step is [suites] build when set (the small set, scripts/affected_tests.py), else the full unit suite; the triage is
+the same on either. The tests that failed are run again alone on the branch: passing, they are flakes (`flake.seen`), and the fast suites
 are run once more, uncounted, once per run. Those still failing are run once on clean main (the commit the branch
 merged), in a clone of the drop at it. Each run is in the same kind of suite container as the fast suites, in the
 suite slot. A test that fails on main too is main's, not the gap's (lesson 13: reported, not fixed): an item
@@ -24,7 +25,13 @@ LEAST = 60.0          # seconds a rerun is assumed to take at the least (a conta
 
 def room(suites: dict, deadline: float) -> bool:
     """Whether a rerun fits before the kill rule's building hours run out."""
-    return time.time() + max(LEAST, float((suites.get("unit") or {}).get("seconds") or 0)) < deadline
+    took = suites.get("unit") or suites.get("build") or {}
+    return time.time() + max(LEAST, float(took.get("seconds") or 0)) < deadline
+
+
+def step(cfg: dict) -> str:
+    """The implementor's test step: [suites] build (the small set) when set, else the full `unit` suite."""
+    return "build" if str(cfg["suites"].get("build") or "").strip() else "unit"
 
 
 def failing(cfg: dict, branch: str, main: str, tests: list[str], logs: Path, tag: str) -> dict:
@@ -43,9 +50,10 @@ def check(cfg: dict, gap: str, home: Path, branch: str, main: str, logs: Path, t
     failure that names tests, what they said gains `flakes` (passed alone), `on_main` (failing on main too, at
     `main_checked`), `main_broken` (every test still failing is main's), or `not_checked` (why no rerun). ``seen``: each
     test run on main in this run, and whether it failed there."""
-    out = agents.suites(cfg, home, ("ruff", "unit"), logs, tag)
+    unit = step(cfg)
+    out = agents.suites(cfg, home, ("ruff", unit), logs, tag)
     tests = list(out.get("tests") or [])
-    if out.get("failed") != "unit" or not tests:
+    if out.get("failed") != unit or not tests:
         return out, retried                                  # (ruff, or a watchdog kill: nothing to run alone)
     if not room(out, deadline):
         return {**out, "not_checked": "no building hours left under the kill rule for a rerun"}, retried
@@ -55,7 +63,7 @@ def check(cfg: dict, gap: str, home: Path, branch: str, main: str, logs: Path, t
             return {**out, "flakes": tests, "not_checked": "passed alone, and the run's one flake retry is spent"}, True
         for t in tests:
             fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=[gap], times=1, seen_at=time.time())
-        again = agents.suites(cfg, home, ("ruff", "unit"), logs, f"{tag}-retry")
+        again = agents.suites(cfg, home, ("ruff", unit), logs, f"{tag}-retry")
         return {**again, "flakes": tests}, True
     still = list(alone.get("tests") or tests)
     ask = [t for t in still if t not in seen]

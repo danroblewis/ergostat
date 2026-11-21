@@ -3513,3 +3513,107 @@ def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):
     assert resumed(f) == ["gap.measured", "gap.measured", "gap.split", "gap.resumed"]
     assert f.item("gap/whole")["state"] == "split" and f.item("gap/part")["fields"]["parent"] == []
     assert f.item("gap/part-continued")["fields"]["parent"] == ["gap/whole"]
+
+
+# ---- the implementor's small test set ([suites] build, scripts/affected_tests.py)
+
+def affected(tmp: Path, change: dict[str, str | None], base: str = "main") -> subprocess.CompletedProcess:
+    """scripts/affected_tests.py on a branch of a fixture repository that makes ``change`` (a path's new text, or None
+    to delete it), the command it runs being `echo given`: what it would hand pytest, printed."""
+    repo = tmp / "repo"
+    start = {"ergostat/foo.py": "x = 1\n", "ergostat/sub/baz.py": "y = 1\n", "ergostat/lone.py": "z = 1\n",
+             "tests/test_foo.py": "", "tests/test_bar.py": "", "tests/test_baz.py": "", "tests/test_gone.py": "",
+             "docs/a.md": "a\n"}
+    for rel, text in start.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "start")
+    git(repo, "checkout", "-qb", "factory/x")
+    for rel, text in change.items():
+        if text is None:
+            (repo / rel).unlink()
+        else:
+            (repo / rel).write_text(text)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "change")
+    return subprocess.run([sys.executable, str(ROOT / "scripts" / "affected_tests.py"), "--base", base, "--", "echo",
+                           "given", "--deselect", "tests/test_q.py::t"], cwd=repo, capture_output=True, text=True,
+                          timeout=60)
+
+
+def test_a_branch_changing_a_module_and_its_test_runs_only_those(tmp_path):
+    r = affected(tmp_path, {"ergostat/foo.py": "x = 2\n", "tests/test_bar.py": "# more\n", "ergostat/lone.py": "z = 2\n",
+                            "ergostat/sub/baz.py": "y = 2\n", "tests/test_gone.py": None})
+    assert r.returncode == 0, r.stderr                         # (lone.py has no test; test_gone.py is deleted: neither
+    given = r.stdout.splitlines()[-1]                          # is named, and the rest are still selected)
+    assert given == "given --deselect tests/test_q.py::t tests/test_bar.py tests/test_baz.py tests/test_foo.py"
+
+
+def test_a_docs_only_branch_runs_collection_only(tmp_path):
+    r = affected(tmp_path, {"docs/a.md": "b\n"})
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t --collect-only"
+
+
+def test_an_unreadable_diff_runs_the_full_suite(tmp_path):
+    r = affected(tmp_path, {"ergostat/foo.py": "x = 2\n"}, base="no-such-ref")
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t"   # as given: all
+    assert "cannot read the diff" in r.stderr
+
+
+def with_build(f: Factory, build: str) -> None:
+    f.config.write_text(f.config.read_text().replace("[suites]\n", f'[suites]\nbuild = "{build}"\n'))
+
+
+def test_build_unset_runs_the_full_unit_suite_in_the_implementors_step(tmp_path):
+    for case, build in (("unset", None), ("empty", "")):
+        (tmp_path / case).mkdir()
+        f = Factory(tmp_path / case, unit=str(suite_sh(tmp_path / case, "false")))
+        if build is not None:
+            with_build(f, build)
+        gid = ready(f)
+        assert f.run("implement.py", gid)[0] == ["gap.started", "gap.built"]
+        fast = f.item(gid)["fields"]["suites_fast"]
+        assert fast["unit"]["rc"] == 0 and "build" not in fast and len(runs(tmp_path / case)) == 1, case
+
+
+def test_build_set_is_the_implementors_step_with_its_quarantine_and_triage(tmp_path):
+    (tmp_path / "q").mkdir()
+    (tmp_path / "f").mkdir()
+    f = quarantined(tmp_path / "q", "PASSED x\n")             # unit.sh fails T unless T is deselected (main's list)
+    with_build(f, str(tmp_path / "q" / "unit.sh"))
+    f.config.write_text(f.config.read_text().replace(f'unit = "{tmp_path / "q" / "unit.sh"}"', 'unit = "false"'))
+    gid = ready(f)
+    assert f.run("implement.py", gid)[0][-1] == "gap.built"   # the full unit (`false`) never ran
+    assert f.item(gid)["fields"]["suites_fast"]["build"]["rc"] == 0
+    assert f"--deselect {T}" in (tmp_path / "q" / "runs.log").read_text()       # quarantined: deselected here too
+
+    sh = suite_sh(tmp_path, f"[ ! -e {tmp_path}/once ] && touch {tmp_path}/once")    # a flake: fails its first run
+    f = Factory(tmp_path / "f", unit="false", alone=str(sh))
+    with_build(f, str(sh))
+    gid = ready(f)
+    assert f.run("implement.py", gid)[0] == ["gap.started", "flake.seen", "gap.built"]   # run alone, then retried
+    assert f.item(gid)["fields"]["flakes"] == [T] and len(runs(tmp_path)) == 3
+
+
+def test_the_merge_queue_runs_the_full_suites_with_build_set(tmp_path):
+    unit = tmp_path / "unit.sh"
+    unit.write_text(f'#!/bin/sh\necho "unit $PWD" >> {tmp_path}/runs.log\necho "1 passed"\n')
+    unit.chmod(0o755)
+    f = Factory(tmp_path, unit=str(unit))
+    with_build(f, "true")                                     # (the implementor's step: never the unit suite)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    assert f.item(gid)["fields"]["suites_fast"]["build"]["rc"] == 0 and not runs(tmp_path)
+    f.run("review.py", gid)
+    assert f.run("queue.py", gid)[0][:2] == ["gap.queued", "gap.merged"]
+    assert [r for r in runs(tmp_path) if r.startswith("unit ")]                 # the full unit suite, in the queue
+    queue = f.item(gid)["fields"]["suites_queue"]
+    assert {"unit", "browser", "demo"} <= set(queue) and "build" not in queue
+
+
+def test_the_shipped_build_setting_runs_the_small_set():
+    import tomllib
+    s = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
+    assert "scripts/affected_tests.py -- " in s["build"] and s["build"].endswith(s["unit"].split(" -- ", 1)[1])

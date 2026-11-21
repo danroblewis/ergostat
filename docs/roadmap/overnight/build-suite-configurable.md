@@ -27,3 +27,42 @@ The owner (2026-11-21): "We only want to run a minimum set of specific tests dur
 
 ## Size budget
 80 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. About 78 net lines outside `tests/` and `docs/` (`scripts/affected_tests.py` 61 with its docstring,
+`dev/bin/onmain.py` +8, `dev/factory.toml` +5, `dev/README.md` +4; `agents.py` and `implement.py` net 0).
+
+- `[suites] build` (dev/factory.toml) wraps the pytest command:
+  `suite_watch.py -- affected_tests.py -- pytest -q -n 8 --dist worksteal`. The script adds the selected files, or
+  `--collect-only`, and replaces itself with pytest (`execvp`), so a kill of the suite reaches pytest. It names only
+  files that exist, so a deleted test file never fails the selection (risk 1). On an unreadable diff it runs the
+  command as given, which is the full unit suite, and says so on stderr.
+- `onmain.step()`: `build` when it is set and not blank, else `unit`. The first run, the alone triage, the run on main
+  and the flake retry all use the same step. Results are keyed `build` in `suites_fast`, and `implement.py`'s
+  `fast_seconds` now counts them. That is a one-word change in a file the definition did not list, made so the fast
+  time stays honest. `agents.suites` deselects quarantined tests from `build` as it does from `unit`, and runs them
+  beside it (risk 2).
+- The queue (`queue.py`) is unchanged. It reads `[suites] unit`, `browser` and `demo` and never `build`.
+- **Ready to delete:** the stopgap `[suites] unit` override (the shell selector) in the instance's
+  `factory.local.toml`. Note that a `build` key set there overrides this one key by key, and so does `build = ""`.
+
+Choices made alone (the reversible ones), and limits a reviewer may raise:
+- The diff is `main...HEAD` against the clone's local `main`, as the definition says. If a branch has merged a newer
+  main, the diff also includes main's changes. That runs more tests, never fewer.
+- Changes to `dev/bin/*.py`, `tests/conftest.py` or other test helpers select nothing, so only collection runs. The
+  definition maps only `ergostat/**` modules and test files. The merge queue's full run still covers them.
+- Inside the suite container, git may refuse the mounted work as "dubious ownership". That shows as an unreadable
+  diff, so the full suite runs (fail-safe, but the saving is lost). Not checked here: no Docker in this clone.
+- The small set keeps `-n 8`, the same as the full suite, so its fallback is exactly the `unit` command. pytest-xdist
+  does not distribute `--collect-only`.
+
+Tests (tests/test_factory.py): the five acceptance tests by name, plus
+`test_build_set_is_the_implementors_step_with_its_quarantine_and_triage` (quarantine deselected under `build`, a
+flake retried on the small set) and `test_the_shipped_build_setting_runs_the_small_set`. Broken to watch them fail:
+dropping the `isfile` filter, an unreadable diff read as empty, `build` not mapped to unit's deselection, and
+`build = ""` taken as set. Each failed its test, and the code was restored. The merge-queue test also passes on main:
+it guards against regression, and nothing in this branch changes the queue.
+Not run: the script by hand against this repository (the command was refused), and the unit and browser suites in
+full (left to the factory, as the brief says). `ruff check dev/bin` reports B023 in plan.py and E501 in review.py.
+Both files are untouched here and already on main.

@@ -221,7 +221,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
             continue
         suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
                                        deadline, seen, retried)
-        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in ("ruff", "unit"))
+        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in ("ruff", "unit", "build"))
         used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
         if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
             break
