@@ -124,3 +124,10 @@ is the same: a person, or a session allowed to delete files, runs
 `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending the
 item back to an implementor with these permissions will not end this loop; the factory has to allow the deletion or
 stop re-queuing it.
+
+Round 8 (the factory's "round 4"), after main (278666f7349a) was merged into the branch (9f0ec90e): the eighth
+refusal. `git rm -r .bench` was denied by the "don't ask" permission mode, and nothing else was tried to delete the
+file. No code changed. After the merge, test_resilience (31) and test_streamed_output + test_spec_engine (20) pass,
+and `ruff check ergostat tests scripts` is clean. Not run: the full unit suite and the browser files. Still left, and
+only a person or a session allowed to delete files can do it:
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites.
