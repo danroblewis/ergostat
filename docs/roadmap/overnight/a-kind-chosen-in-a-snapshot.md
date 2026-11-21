@@ -101,3 +101,13 @@ so `test_a_snapshot_lets_a_kind_and_its_state_be_chosen` and `test_a_snapshot_dr
 written and read against `pages.js`, but not run. The factory's browser run is the first real check of them.
 Unit tests: `tests/test_graph_cli_web.py` passes, 31 of 31. With the new code disabled (main's behaviour), the
 three snapshot tests fail. With a failure stored as an empty list, the left-out test fails.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:12).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 4: ack
+- attempt 5: nack exited 1
+- attempt 6: nack exited 1
+- attempt 7: nack exited 1
