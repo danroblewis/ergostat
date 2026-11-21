@@ -18,6 +18,7 @@ Inside, Claude Code still runs --restricted, with the role's narrow tools, in do
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shlex
@@ -175,6 +176,7 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = 
     """One session in its container; Claude Code's result message. Raises on a failure (a timeout kills it; so does
     any way out of this process: the container is killed in a finally). ``keep`` (sessions.Session): its transcript
     copied as it grows, the token scrubbed."""
+    import resources
     timeout = timeout or TIMEOUTS[role]
     tok = token(cfg)
     sweep(cfg)
@@ -188,8 +190,9 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = 
         keep.copy.tok = tok
         stop = keep.copy.follow()
     try:
-        r = subprocess.run(["docker", *run_args(cfg, role, work, name, keep)], input=brief, capture_output=True,
-                           text=True, timeout=timeout, env=env)
+        with resources.sampled(cfg, name, role) as use:
+            r = subprocess.run(["docker", *run_args(cfg, role, work, name, keep)], input=brief, capture_output=True,
+                               text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"the {role} session ran past {timeout}s and was killed") from None
     finally:
@@ -205,7 +208,7 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = 
     if not isinstance(out, dict):
         raise RuntimeError(f"the {role} session answered no result (exit {r.returncode}): "
                            f"{scrub(r.stderr or said, tok)[-300:]}")
-    return out
+    return out | ({"resources": use} if use else {})
 
 
 def scrub(text: str, tok: str) -> str:
@@ -308,6 +311,7 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *a
 def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, tests: list[str] | None = None) -> dict:
     """The fast suites on a session's work, each in a named container with no network, in a machine-wide slot;
     ``tests``: the test ids a suite's `{tests}` names (each shell-quoted)."""
+    import resources
     out: dict = {}
     for n in names:
         cmd, name = cfg["suites"][n], None
@@ -320,11 +324,12 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
                             shlex.quote(cmd)])
         log = logs / f"{tag}-{n}.txt"
         try:
-            rc, secs = fac.suite(cfg, n, home / "work", log, command=cmd)
+            with resources.sampled(cfg, name, "suite") if name else contextlib.nullcontext({}) as use:
+                rc, secs = fac.suite(cfg, n, home / "work", log, command=cmd)
         finally:
             if name:
                 killed(name)
-        out[n] = {"rc": rc, "seconds": round(secs)}
+        out[n] = {"rc": rc, "seconds": round(secs)} | ({"resources": use} if use else {})
         if rc:
             text = log.read_text()
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
