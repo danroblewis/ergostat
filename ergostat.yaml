@@ -126,6 +126,7 @@ items:
       sessions: sum
       ai_cost_usd: sum
       build_hours: sum
+      build_failures: sum            # one per failed build, over the gap's life: the kill rule (dev/README.md)
       review_hours: sum
       queue_wait_hours: sum
       queue_runs: append             # each queue run it was in: its id, whole minutes, end (merges-per-hour)

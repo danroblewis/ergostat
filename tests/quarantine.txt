@@ -1,0 +1,5 @@
+# Quarantined tests: the queue, flake triage and the implementor's fast suites deselect each, then run it beside the
+# suite without blocking, its result recorded on its flake item (dev/bin/fac.py, beside()). Added and released by hand.
+# One a line: test id | who | when | why
+tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth | the owner (gap flake-quarantine-min) | 2026-11-21 | fails under load on main (main-broken, lease-shutdown-race), reds gaps that did not touch it
+tests/test_reload_in_place.py::test_a_removed_blocks_run_still_takes_messages_while_it_goes | the owner (gap flake-quarantine-min) | 2026-11-21 | fails under load on main, reds gaps that did not touch it

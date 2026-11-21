@@ -1844,7 +1844,11 @@ nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest t
 and 10 s more, when that is longer: one still queued never lengthens it), a fresh pool takes over and the readings it held are asked for again; when no pass has
 finished for 30 s, the loop is started again; when there is still no pass 30 s after that, or the pool wedged three
 times in ten minutes, the process restarts in place (by the run loop, or by the watchdog itself if that has not
-happened within 20 s), which stops the runs under way (leased items are taken again when their leases end). Each
+happened within 20 s), which stops the runs under way (leased items are taken again when their leases end, the
+attempt not counted). Before it waits on the daemons' groups it closes dispatch as stopping does (its stop set under
+the lock a take checks it under, waiting at most 1 s for that lock): no lease is taken in that wait, and a run whose
+process starts from then on is killed at once, so no run of an item outlives the old process to run beside the new
+one's (one exception: a run whose process is being forked at the very moment of the exec). Each
 time every thread's stack is written to `<state>/stalls/` and `ergostat.engine.stalled` is recorded (`what`: pool or
 pass, `seconds`, `recovery`, `stacks`); the stacks begin with what holds the item index (the thread holding its lock,
 with its stack, and any other process with the file open). **Restarts back off** (`ergostat/restarts.py`): the first
@@ -2194,7 +2198,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 | `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
 | `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
-| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `item`, `state`, `terminal` | back to `back`, the attempt counted; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `count` (false: its holder was not a run this engine process took); `item`, `state`, `terminal` | back to `back`, the attempt counted unless `count` is false; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
@@ -2222,8 +2226,9 @@ back uncounted, unless what it printed before had already moved the item on (its
 them, section 9.1): that is an ack. Once ergostat has begun stopping it takes no lease; a take that raced the stop is
 given back uncounted before its run starts, and a run still going when ergostat has waited its last for it has its
 lease given back uncounted as ergostat exits. A lease that could not be given back (the write failed, or ergostat was
-killed) is expired by the next engine's watchdog on its TTL, so after a restart no item stays leased by a run that
-never ran. A
+killed, or restarted itself at once) is expired by the next engine's watchdog on its TTL, so after a restart no item
+stays leased by a run that never ran; that expiry counts no attempt (`count: false`), since its holder was not a run
+this engine process took (the dispatcher keeps, in memory, the runs it took whose leases have not ended). A
 lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
@@ -2477,7 +2482,8 @@ are taken at most one a second; more are dropped.
   On a restart for a new model the daemons were first sent `stop` as when ergostat stops; this catches what that
   left (a warm process being killed, a group still waiting for its SIGKILL). On the watchdog's restart they are sent
   no `stop` and not drained: their groups get SIGTERM, then SIGKILL after at most 3 s, their runs are not recorded by
-  the old process, and the items they leased are taken again when their leases end.
+  the old process, and the items they leased are taken again when their leases end, uncounted. Dispatch is closed
+  before the groups are signalled, so no item is handed to a daemon in that wait.
 
 Its state is written to `<state>/daemons.json` every 2 s (running, backoff, failed or stopped; its pid, restarts,
 last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
@@ -3658,8 +3664,7 @@ worse than the threshold that answers findings without making any; or one no wor
 parameters and terms) where the record replays what it touches. It **fails** one whose bound's high end is below no
 change and whose estimate is worse by the threshold, near it, elsewhere or on a goal's stock, and one no better that
 makes new findings. One the bound holds within the threshold both ways is **inconclusive** once it has three times
-the record it needs (the record tells it from the model as it is by less than the threshold), and one whose replay is
-the same as the model's on all the record waits for record in which what it touches moves. One the bound cannot
+the record it needs (the record tells it from the model as it is by less than the threshold). One the bound cannot
 decide yet stays under test and says **about how much more record it needs** (the bound narrows as one over the root
 of the record; on its testing event and in the judge's waiting list), looked at again each time the record it needs,
 or a quarter more, has come; after seven times the record it needs (a day at least) it is inconclusive, saying how
@@ -3668,10 +3673,43 @@ exercised (above: it does not vouch for a quiet part's rate). Measured (docs/roa
 queue drained over a day, filled at random and read every 15 minutes, the judge before this passed a change a fifth
 worse in 6 of 20 records and failed one a fifth better in 11 of 20; now it passes none of the worse, and a change
 halving a wrong drain within five days of record.
+
+**A change the replay cannot tell** (`numbers/unmoved.py`). A change whose replay is exactly the model's (both
+replays follow the same stocks, and every reading of each is equal as a float over all the record held out: no
+tolerance, and a NaN is never equal) is judged by structure, once it has the record it needs (to within the same
+second of grace the looks give, so a look due at the record it needs is not put off) and that record
+exercised what it touches: a stock of its neighbourhood the record reads at least 12 times and does not find quiet
+(`exercised.py`). A stock with no readings, or a change touching no stock, is never taken as exercised (a deliberate
+narrowing of the design's "any stock both replay" for a change whose neighbourhood holds no stock: a busy stock
+elsewhere says nothing of it, so it fails closed); such a change
+waits, as one any record replays the same, for record in which what it touches moves, and is inconclusive at the
+horizon. A change that moves any stock by any amount is judged by the record, through the bound, as above.
+Judged by structure, the model it leaves is compiled with what `check` finds; any error fails it ("the model it
+leaves no longer compiles"), with no scorecard. Otherwise the redesign scorecard (*Redesign*, below) is worked out for
+the model as read from disk and the model with the change, with the fit counting only against it: a fit made
+measurable or better never counts for it; worse, or behaviour lost, counts against it. Coherence that cannot be
+compared on a side (an error reading the record, or no kind compared) is marked unmeasurable, with why, and never
+counts for the change (no coherence gain counts then); a kind compared before and not after counts against it.
+Unmeasurable on the before side only, it never makes the change better, but mismatches the after side shows still
+count against it. **Better** (findings resolved, chains
+joined, coherence mismatches fewer or coherence up, craft notes closed, and nothing worse) is passed; mixed, or no
+better with anything worse, is failed. Nothing moving, with every measure measured, is inconclusive at once ("no
+structural measure moves, and the record cannot tell it from the model as it is"); nothing moving with coherence or
+the fit unmeasurable stays under test, its `undecided` naming which and why, worked out again at each look, until the
+horizon, then inconclusive, naming the same. The verdict carries `on: structure`, its `scorecard` and the `version`
+of the model the scorecard read, all inside `verdict` (replaced whole by every verdict, so a change made again under
+its id keeps none of them). It is judged inside the proposals' lock, which Accept takes too, so nothing ergostat
+writes comes between the scorecard's read and the verdict; a hand edit takes no lock, so a version read that is not
+the change's own records no verdict (the next pass, on the model read again, carries the change to it and judges it
+again, or supersedes it, as any change made against another version; until then it takes one of the pass's looks, as
+any judged change does), and a hand edit after the read leaves a verdict stamped with the version read, which Accept
+then refuses ("the model has changed"). An edit that cannot be tried on the model there (a `TrialError`) leaves the
+change under test, its `undecided` naming the error. A pass on structure
+alone is the owner's to write, whatever `accept` says, and waits in the review queue with its scorecard beside it.
 Each verdict keeps its windows (each one's span, and the scaled error
 before and after), its pooled estimate and bound, as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a
 passed change's kind, it writes the oldest, one a pass, so each is measured alone (never one that removes
-structure: that waits for the owner, whatever the policy): Accept's way (section 12b), the
+structure, nor one passed on structure alone: those wait for the owner, whatever the policy): Accept's way (section 12b), the
 smallest edit, refused and put back if `check` would then find an error, recorded as `.accepted` from the judge
 with its policy named, and `ergostat.model.changed`. Accepting writes the YAML at once; ergostat never commits it:
 the owner does.
@@ -3749,7 +3787,9 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   measured on the same record: `check`'s findings resolved and introduced (a finding about a renamed part is the same
   finding); each kind's state stocks in pieces no flow joins; the coherence score per kind and the mismatches (§12l),
   run again over the record as it is (what Blocks ↔ Process says of a block the change adds, or of a flow only such
-  blocks move, is left out and said as unseen: the record holds none of their runs, and cannot); the craft notes closed and opened; the fit, not worse beyond 10% over the stocks
+  blocks move, is left out and said as unseen: the record holds none of their runs, and cannot; coherence that cannot
+  be compared on a side, an error reading the record or no kind compared, is unmeasurable, says why, and never counts
+  for the change); the craft notes closed and opened; the fit, not worse beyond 10% over the stocks
   both replay where it can be worked out (made measurable counts for it); and **behaviour kept**: a stock whose replay
   followed the record (scaled error at most 0.5), or an equation that explained its flow (R² at least 0.5), is still
   there, or renamed, and no worse beyond the tolerance. The verdict is **better** when findings, chains and coherence

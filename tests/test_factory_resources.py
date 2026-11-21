@@ -129,6 +129,24 @@ def test_headroom(res):
     assert res.per_session(cfg, rows + rows[-1:]) == (4.0, 3.0)
 
 
+COSTS = {"resources": {"session_cpus": 0.5, "session_memory_gb": 1, "suite_cpus": 4, "suite_memory_gb": 4}}
+MEASURED = [{"role": "implementor", "cpu_max": 1.0, "memory_max": 0.5}] * 3 + \
+    [{"role": "suite", "cpu_max": 3.0, "memory_max": 2.5}] * 3
+
+
+def test_a_session_is_charged_only_its_own_cost_when_suites_have_slots(res):
+    cfg = COSTS | {"suites": {"slot": "/usr/local/bin/suite-slot.sh"}}
+    assert res.per_session(cfg, []) == (0.5, 1.0)                                   # unmeasured: the settings, not 0
+    assert res.per_session(cfg, MEASURED) == (1.0, 0.5)                             # measured suites not charged
+    assert res.headroom(CALM, SP, res.per_session(cfg, [])) > res.headroom(CALM, SP, res.per_session(COSTS, []))
+
+
+def test_a_session_is_charged_a_suite_without_slots(res):
+    for cfg in (COSTS, COSTS | {"suites": {}}, COSTS | {"suites": {"slot": ""}}):
+        assert res.per_session(cfg, []) == (4.5, 5.0)
+        assert res.per_session(cfg, MEASURED) == (4.0, 3.0)
+
+
 def test_a_session_is_sampled_into_the_ledger(res, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = {"paths": {"run": str(tmp_path / "run")}}
