@@ -126,7 +126,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    so each can be reviewed whole. It learns from what happened: its past change sets for the system with what
    became of each, and the interventions about it (approvals, denials, a person's requests, alarms, with their
    notes) as evidence of missing loops. So when you dismiss a redesign or deny an approval, give the reason
-   (`--note`): it is what the next one reads. Do not hand-write these parts.
+   (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
+   redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
+   change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
+   they say rather than proposing the same idea again. Do not hand-write these parts.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
@@ -548,7 +551,10 @@ blocks:
   `redesign`, or a proposal of the structure with the record of the burst as its evidence); value proposals on a
   model missing structure only chase the burst.
 - The proposals ergostat makes are the same items as the record grows: one revised in place (`revisions`) is not
-  churn. One superseded says why (what it was about was edited or removed, or it is no longer found).
+  churn. An edit elsewhere carries a waiting change, yours too (one passed goes back to testing); one superseded says
+  why: what it was about was edited or removed, its edit no longer applies (propose it again on the files as they are),
+  its finder no longer finds it, it was recorded without what it is about, it is no longer of its kind, or it would
+  change who decides.
 
 ## 3h. When will it be done: the items' completion estimates
 
