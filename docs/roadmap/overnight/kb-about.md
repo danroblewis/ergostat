@@ -105,3 +105,11 @@ lookup failing open to `{}` (both unknown tests); VERSION left at 3; found-again
 
 Not run here: the whole unit suite and the browser files (the factory runs them after). This clone has no
 origin/main to merge; main is already contained in the branch.
+
+After the factory's `unit` suite failed: its tail held only uv's build lines and no pytest output at all (no worker
+start-up, no failure, no watchdog JSON line), so no test was named. Run here again, one batch of files at a time,
+serially (`-p no:randomly -x`): every unit file outside the four browser files passed, 1,935 passed, 68 skipped, 0
+failed (a-c 426, d-g 284, i-m 371, n-r 428, s 289, t-z 137). The files this branch touches also pass with two xdist
+workers in random order (104 passed), and the new tests write only under `tmp_path` (`ERGOSTAT_HOME` set per test;
+`git status` clean after the runs). No code changed: no failure was found to fix. The whole suite at `-n 8` was not
+run here (the rules forbid it). If the next run fails again, its full output, not the tail, is needed to name the test.
