@@ -286,3 +286,17 @@ Tests run here, each file alone and serially (`-p no:randomly`): `test_item_abou
 `test_item_search.py` 8 passed, `test_item_index.py` 55 passed, `test_factory_knowledge.py` 36 passed,
 `test_relations_asof.py` + `test_relations.py` 27 passed, `test_factory.py` 57 passed and 2 skipped. Ruff is clean.
 Not run here: the whole unit suite and the four browser files. The factory runs them.
+
+After the factory's `unit` run failed (resumed, round 1): its tail stops at 59% with no failure, no `F` or `E`, no
+pytest summary and no `suite_watch` JSON line. This is the same as the two earlier runs that stopped this way. The
+whole process group was stopped from outside, not by a failing test. No test is named, so no code is changed
+(lesson-13). The merge of main (37bfdac6) was already committed, and `git status` was clean on arrival.
+- Run again here, serially (`-p no:randomly`), in batches of files. A whole-suite run was refused in this session.
+  `test_item_about.py` + `test_factory_knowledge.py`: 50 passed. Item index, sets, systems, index files and
+  relations (6 files): 107 passed. spec items, MCP explain, compile, schema, engine, coherence, counts, scale caches,
+  runner, model (10 files): 226 passed. gate, graph CLI/web, improve, observer, modelling core 1-2, goal per,
+  CLI fallback, exercised, extremes, decisions, self-improve, redesign (13 files): 248 passed. numbers, identify,
+  incremental, inbox, reload safety, bench, dynamics view, control, sd review/tools, take order, local settings
+  (12 files): 228 passed. 0 failed, ruff clean.
+- If the next run stops like this again, the cause of the stop is needed (the container's exit, or the output past
+  59%), not only the tail.
