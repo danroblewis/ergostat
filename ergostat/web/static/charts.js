@@ -462,7 +462,8 @@ function fanSaid(d, drawn) {
 /* a system's own measures (its show:, else its goals' measures), each a chart on one time axis: what its
    box used to draw as sparklines, now in its panel */
 function moduleCharts(n, group = chartGroup("module")) {
-  const refs = [...new Set((n.charted || n.measures || []).map((x) => x.part.replace(":", ".")))];
+  const refs = [...new Set((n.charted || n.measures || []).filter((x) => !x.missing && !x.unchecked)   // (nothing to ask for)
+    .map((x) => x.part.replace(":", ".")))];
   if (!refs.length) return null;
   const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
   api("series", { refs: refs.join(","), points: CHART_POINTS }).then((d) => {
