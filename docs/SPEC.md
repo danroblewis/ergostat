@@ -3766,8 +3766,25 @@ ergostat's own kinds are left out). Each records what it is about (`about`), why
 |---|---|
 | open | check finds it, and no change waiting cites it |
 | proposed | a change waiting cites it (its finding, `finding:CODE@ABOUT` or `coherence:CODE@ABOUT`, among its evidence) |
-| held | no tier enabled has a change for it, or its change was turned away (with why); the owner's when the owner dismissed it; opened again when the model's version changes |
+| held | no tier enabled has a change for it, or its change was turned away (with why); left to the owner (no tier takes it up) when the owner dismissed its change, or its finding is control; opened again when the model's version changes (unless left to the owner). It is in the inbox (§12o) |
 | answered | check no longer finds it |
+| dismissed | the owner denied it from the inbox with why (`--deny --note WHY`; the note and who are kept): not raised again while the part it is about is unchanged (its definition and description, hashed; a finding about the model, or about no part found, waits on the whole model); raised again (`reopened`) once that part changes, as a new finding: untried, not the owner's, its tier the finding's, its dismissal's note and who cleared. Counted as an answered intervention (denied), never a suppressed one |
+
+A held request **approved** from the inbox is `reopened`: open again, for the AI tier (`tier: ai`, its tries given
+back, `approved_by` kept); if the AI tier holds it again after its tries, it is back in the inbox. Approval is offered
+from an allowlist: only for a request the tiers take up (raised by check, a craft note, a coherence mismatch or the
+fit; never a redesign's, such as `too-large`), whose tier is the rule or the AI tier (not the owner's), whose finding is
+not one only the owner changes, and only when the model runs the AI tier. Otherwise the owner's own change citing it
+answers it, or a dismissal. A redesign's request the owner dismissed stays dismissed across the redesigner's passes
+while its unit is as it was (its own parts, hashed), and is held again once the unit changes.
+
+Every write of a request's state (the owner's answer, the collector's moves, a tier's word, the redesigner's holds and
+its run's end) is made under one lock (`requests.lock` in the project's state), the request read again inside it. A
+tier that read a request before calling its model writes its word only if the request has not moved since it read it
+(the record's seq of its last move, an event that changed its state or reopened it, is the one it read; the state alone
+is not enough, because held then approved is open again): an answer the owner gave meanwhile stands. A tier's own
+word in the same state (its tries and cost) and a refreshed wording from check are not moves. The redesigner's run writes its end only on a request still open (or
+answered as never ended), never over a dismissal.
 
 The **request collector** (`modelling requests`, the sensor of the template's `requests-raised`) reads check, raises
 what is new, answers what is gone and moves each to where its changes say it is. **The tiers**, each an ordinary
@@ -5017,6 +5034,11 @@ must reach the person and be quick to answer. **The inbox** is everything waitin
 | `advise` | an advised command (`block.advised`) is neither approved (`block.approved`) nor denied (`block.denied`) | `advise/BLOCK@SEQ` | `approve`, `deny` |
 | `steptest` | a step test was offered (`steptest.offered`, recorded when a loop's analysis first offers it, section 12d), is undecided, and the loop is as it was | `steptest/<id>` | `approve`, `deny` (accepted or dismissed) |
 | `change` | a change to the model awaits the owner (the review queue, section 12b; with a judge, the ones it passed) | `change/<id>` | `approve`, `deny` (accepted or dismissed) |
+| `request` | a modelling request is `held` (section 12e, *Requests*) | `request/<id>` | `approve` (`reopened`: open again for the AI tier, its tries given back; offered only for a request the tiers take up, never a redesign's, and when the model has the AI tier: section 12e), `deny --note WHY` (`dismissed`, with the note, until its part changes) |
+| `breaker` | a block started by events tripped its breaker (`trigger.tripped`, section 9.3) | `breaker/BLOCK@SEQ` | `approve` (`trigger.reset`) |
+
+An entry kind with no verb is not shown as answerable (`answer` says where it is settled instead); today every kind has
+one. `ergostat inbox`, the status and the notifications say the same command for each entry.
 
 A person's or an advised block's entry is **one ask**: `SEQ` is the event that asked. A newer ask before any answer
 replaces it (the older is superseded, and no longer waits); an answer is to exactly the ask shown, and is recorded
