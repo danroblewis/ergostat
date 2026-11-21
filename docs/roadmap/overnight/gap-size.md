@@ -145,3 +145,20 @@ covered" in a paragraph of its own.
 **Run here (round 2):** `tests/test_factory_knowledge.py` 29 passed, `tests/test_factory.py` 44 passed and 2 skipped
 (both need Docker and the agent image). `ruff check ergostat tests scripts dev/bin` is clean. Not run: the whole unit
 suite, the browser files, and a merge of origin/main (there is no remote here).
+
+### After round 2: the factory's `unit` suite failed
+
+The tail the factory gave shows only `bringing up nodes...` (twice) and a line of dots. It has no failing test, no
+pytest summary, and not the JSON line `suite_watch.py` always prints at its end. So the run was most likely stopped
+from outside (a timeout or a kill) rather than failed by an assertion. I could not reproduce a failure. This session
+refused a whole-suite run, even a serial one. These files passed, one run at a time:
+`test_factory_knowledge` (29), `test_factory` (44, 2 skipped for Docker), `test_backlog`, `test_architecture` and
+`test_take_order` (26), `test_relations`, `test_eta`, `test_numbers`, `test_cli_fallback`, `test_leases`,
+`test_spec_items`, `test_spec_compile`, `test_spec_schema` and `test_guide` (178), `test_intake`, `test_review`,
+`test_factory_sessions`, `test_factory_resources`, `test_daemon_docs`, `test_model`, `test_spec_discover` and
+`test_spec_auxiliaries` (117), and `test_leased_workspaces`, `test_lease_kill`, `test_lease_refused_cost`,
+`test_spec_engine`, `test_spec_structure`, `test_spec_systems`, `test_spec_blocks`, `test_item_systems` and
+`test_process` (79). Ruff is clean. With no failing test named, no code was changed: guessing at a fix would be less
+reversible than saying so. **Left:** rerun `unit` and read its full output, not only the tail. If a test fails, it
+is either this gap's (fix it here) or backlog's, which this branch still carries (see "Branch base" above: the replay
+onto `main` is still needed and still blocks the merge).
