@@ -262,6 +262,41 @@ def test_the_queue_scores_with_mains_script_and_survives_a_timeout(tmp_path):
     assert sorted(d.name for d in (inst.model / "run" / "coverage").iterdir()) == ["gap-mains-20261102T000000Z"]
 
 
+SUITES = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, queue; from pathlib import Path\n"
+          "ran, kept = {}, []\n"
+          "def suite(cfg, name, cwd, log, slot=True, command=None, **k):\n"
+          "    ran[name] = command; log.write_text(''); return 0, 1.0\n"
+          "fac.suite = suite\n"
+          "queue.coverage_kept = lambda cfg, repo, cov, rc, pre: kept.append([str(cov), rc, pre]) or 'reported'\n"
+          "logs = Path('logs'); logs.mkdir()\n"
+          "got = queue.suites(fac.config(), Path('.'), sys.argv[2], logs, 'PRE')\n"
+          "print(json.dumps({'ran': ran, 'kept': kept, 'got': got, 'named': bool(queue.COVERAGE_RUN.match(sys.argv[2]))}))")
+
+
+@pytest.mark.parametrize("on", [True, False])
+def test_the_queue_traces_only_its_unit_run(tmp_path, on):
+    """[suites] queue_coverage: the queue's unit run alone gets ERGOSTAT_COVERAGE, into run/coverage/<the run's tag>
+    (a bisecting run's -N tag too, so it is pruned by name), scored with the run's pre-merge main; off, nothing."""
+    inst = Instance(tmp_path)
+    with inst.config.open("a") as f:
+        f.write(f'[suites]\nunit = "UNIT"\nqueue_coverage = {"true" if on else "false"}\n')
+    tag = "gap-x-20261102T000000Z-2"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")} | {"FACTORY_CONFIG": str(inst.config)}
+    r = subprocess.run([sys.executable, "-c", SUITES, str(ROOT / "dev" / "bin"), tag], cwd=inst.model, env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert set(out["ran"]) == {"ruff", "unit", "browser", "demo"}
+    assert [out["ran"][n] for n in ("ruff", "browser", "demo")] == [None, None, None]
+    if not on:
+        assert out["ran"]["unit"] is None and out["kept"] == [] and "coverage" not in out["got"]["unit"]
+        return
+    cov = out["kept"][0][0]
+    assert Path(cov).parts[-3:] == ("run", "coverage", tag) and out["kept"][0][1:] == [0, "PRE"]
+    assert out["ran"]["unit"] == f"ERGOSTAT_COVERAGE={cov} UNIT"
+    assert out["got"]["unit"]["coverage"] == "reported" and out["named"]
+
+
 PROBE = """\
 import json, sys
 import ergostat.durations

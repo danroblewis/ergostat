@@ -217,3 +217,34 @@ Done: points 1, 2, 4, 5 and 6. These are the sys.monitoring tracer in tests/cove
 busy (9 implementors):** the fast unit suite without the tracer 273.0 s, with `ERGOSTAT_COVERAGE=run/coverage/probe`
 255.1 s (both rc 0) — no measurable overhead (the difference is the machine's noise). The report was written: 8 worker
 files combined into `coverage.json`, 346 modules. So `[suites] queue_coverage = true`.
+
+### Continued, round 1, by the implementor (gap/code-health-coverage-continued)
+
+**Point 3 is done.** The two numbers are the coordinator's, above: 273.0 s without the tracer and 255.1 s with it. That
+is within the machine's noise and well under 15%, so `dev/factory.toml` now ships `[suites] queue_coverage = true` and
+no nightly run is needed. `dev/README.md` (*Coverage*) says the tracer is on and gives the two times. The two commands
+stay there for measuring again after a change to the tracer.
+
+**Main merged in (0ecf249c).** The conflict was in `dev/bin/queue.py`. Main rewrote `suites()` to run unit and browser
+together, keyed by a run tag, and replaced the single merge in `take()` with `land()`, which batches and bisects. The
+merge keeps main's code. The branch's coverage step moves into `suites().one()`: only the `unit` suite gets the
+`ERGOSTAT_COVERAGE=run/coverage/<tag>` prefix, and its report is scored by `coverage_kept` with the `pre` that `land()`
+now passes in, which is main before the batch. So no merge in the batch scores its own coverage. A bisecting run's
+tag ends in `-N`. `COVERAGE_RUN` now accepts that ending, so those folders are pruned by name like the rest.
+
+**Decision taken alone (reversible):** during a bisect, every run, green or red, is traced. A red run's folder is
+removed (as before), and a green prefix's report is kept and ordered by its seq. That seq counts the commits of the
+prefix's head, which is not on main if that prefix never lands. `measure.py` already refuses a report whose commit is
+not on main (`test_a_report_of_a_commit_not_on_main_is_not_read`), so such a report never gives a value.
+
+**New test:** `test_the_queue_traces_only_its_unit_run` (on and off). It checks that only `unit` carries the prefix,
+that the folder is `run/coverage/<tag>` with a `-N` tag, that the report is scored with the run's `pre`, and that with
+the key off nothing is set. Each break below was made alone and then undone, and each failed the test:
+- the regex without `(-\d+)?`;
+- `"HEAD"` passed in place of `pre`;
+- the prefix put on every suite, not only `unit`.
+
+**Tests run here:** `tests/test_code_health_coverage.py` (11 passed) and `tests/test_factory.py` (57 passed,
+2 skipped: its Docker tests), each alone; `uv run ruff check ergostat tests scripts`, clean. This session did not run
+the unit suite or the four browser files (the factory runs them). The first report from the queue itself will exist
+after the first green queue run once this lands.
