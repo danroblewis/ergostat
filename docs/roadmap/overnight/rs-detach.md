@@ -111,3 +111,9 @@ The full unit suite and the browser files were not run here; those and the remov
 `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. A sixth
 implementor session with these permissions will not get further. This needs a person, or a session allowed to delete
 files.
+
+Round 6 (the factory's "round 3" again): the sixth refusal. `git rm -r .bench` was denied by the "don't ask"
+permission mode, and nothing else was tried to delete the file. Nothing changed: no code, and no suites were run. The
+only thing left is `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, run by a person or by
+a session that is allowed to delete files, then the factory's suites. Sending this item back to an implementor with
+the same permissions will not move it.
