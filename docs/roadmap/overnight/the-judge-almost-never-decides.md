@@ -424,3 +424,14 @@ origin/main merge.
 - Round 6, the scratch-file gate again: `git rm -q scratch_probe.py` was refused a seventeenth time ("don't ask"
   mode). No other route was tried. Nothing deleted, committed or run; this line is not committed by this session.
 - Round 6, the gate once more: refused an eighteenth time, the same way. Nothing deleted, committed or run.
+
+### Resumed, round 7 (2026-11-21)
+
+- The first Bash call (`git rm -q scratch_probe.py`) was refused ("don't ask" mode): the nineteenth refusal. No
+  other route was tried (revert, `--cached`, emptying the file), since each would get around the same refusal.
+  Nothing was deleted, committed or run; this note is **not committed** by this session.
+- Searched again: nothing in `ergostat/`, `tests/` or `scripts/` names `scratch_probe.py`. No code changed, so the
+  size and the last results stand. The non-blocking `TrialError` finding (`judge.py:556-560`) stays as resumed
+  round 3 describes, for a session that can run its test.
+- **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`, with the uncommitted doc edits.
+  Then the merge queue merges origin/main and runs the suites under `suite_watch.py`.
