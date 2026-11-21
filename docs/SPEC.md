@@ -363,11 +363,26 @@ storage:
   items:
     idle: 1d                       # an item with no event for this long is read from the item index, not kept in memory
   logs:                            # caps on what would otherwise grow without limit
-    block: 5MB                     # a block's log (logs/<block>.log) past this is cut to its last fifth, at its next run
+    block: 5MB                     # a block's log (logs/<block>.log) past this is cut to its last fifth, as a run ends
+    runs: 50                       # each block's run files (logs/runs/<block>/) kept, newest by start seq: 1 to 1000
     run: 5MB                       # run.log past this is copied to run.log.1 and emptied, at each start and each roll-up
     threads: 1MB                   # threads.txt (kill -USR1's stacks) past this is cut to its last fifth
     transcripts: 30d               # a transcript unchanged this long is forgotten by transcripts.json, not read again
 ```
+
+**Each run's own log.** Each run of a `program` or `ai` block (a daemon's run too) writes to a file of its own,
+`logs/runs/<block>/<seq>-<id>.log` (`<seq>` the seq of its `agent.started`, `<id>` the first 12 characters of the run's
+id): its standard error and the lines it printed that were not JSON, with no header, and nothing of any other run. Its
+`agent.ran` or `agent.failed` names it (`log`). It is opened relative to `logs/`, without following a link, and never
+over a file already there (the names tried next are `-2` to `-9`, then `run-<seq>-<fullid>.log`). A block name that is
+not a plain name, a link or something not a folder where `runs` or `runs/<block>` should be, or no start seq: the run
+does not start (`could not start: its run log: ...`). When the run ends (its process has exited, or its daemon has
+answered), its entry is added to the block's log, `logs/<block>.log`, in one write under `logs/<block>.log.lock`, with
+the trim: the header `--- <start time> run <id8> (<why>)`, then the last `block:` bytes of its file, after
+`(N bytes earlier: logs/runs/<block>/<file>)` when it is longer. So the block's log holds whole runs one after another
+and shows a run once it has ended; a run's output as it goes is in its own file. Then the block's files past `runs:` are
+removed, oldest by start seq first, but only names ergostat gives them and only a file no run still holds (a run holds a
+shared lock on its file for its whole life; so does a process its child left behind, which keeps the file).
 
 `ergostat compact --projects` lists the record folders under `~/.ergostat` whose `repo.json` names a repository
 that is gone (its parent folder is there and it is not: an unmounted drive is not gone) and where no engine runs,
@@ -2124,8 +2139,8 @@ moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved"
 `out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
 anything else that happened (an event about an item, section 5a: `data` holds its fields, folded by
 its kind's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`), each taken as it is printed
-(section 9.1). Lines that are not JSON go to its log (`logs/<block>.log` in the state
-directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
+(section 9.1). Lines that are not JSON go to the run's own log (`logs/runs/<block>/`, copied
+into `logs/<block>.log` when it ends: section 4b). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
 `ERGOSTAT_LEASE` (for a run holding a lease on an item: section 9.5), `ERGOSTAT_COMMAND` (the amount),
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
@@ -2414,6 +2429,7 @@ Either is a map, or the name of a top-level `daemons:` entry, so one process may
 daemons:
   probes:
     run: python3 probes.py             # started in the model's folder; its standard error goes to logs/daemon-probes.log
+                                       # (one stream for all its runs: never copied into a run's own log, section 12r)
     concurrency: 50                    # the most runs it holds at once (default 10; readings are not counted)
     heartbeat: 30s                     # restarted when it prints no line of any kind for this long (default: never)
     restart: {max: 5, within: 10m, backoff: [1s, 2m]}   # given up after more than 5 restarts within 10 minutes
@@ -2468,6 +2484,9 @@ UTF-8 replaced. A run's `done` is taken after its earlier lines; should taking a
 whole, each line of it is said dropped in the log. The `env` of an item travels in its line and never in the
 process's environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
 `ERGOSTAT_SOCKET`): a daemon passes an item's `env` to what it starts for that item, and never writes it into its own.
+Its standard error is one stream for all its runs: it stays in `logs/daemon-<name>.log` and is never split by run or
+copied into a run's own log (section 4b), which holds only what that run handed back that was not an event (usually
+nothing); so a daemon run's failure is triaged by how it ended (section 12r).
 
 **Each item is still a run**: `agent.started`, `agent.ran` or `agent.failed` (with `daemon`: its name), its lease
 and fencing, its lines taking effect in the order it printed them (a run's line may be taken after lines of the
@@ -5345,7 +5364,13 @@ item a **signature**: the block, its program (the first word of its `run:` that 
 exception's type and its innermost frame in the project (from Python's traceback); without a traceback, the block, its
 program and how it ended. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
-of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. A failure starts
+of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. The standard
+error is read only from the run's own file (`log`, `logs/runs/<block>/<seq>-<id>.log`, section 4b), never from the
+block's log, so a run that overlapped it adds nothing. A daemon's run (section 9.7) is the exception in what it can say:
+the daemon's standard error is one stream for all its runs, kept in `logs/daemon-<name>.log` and never copied into a
+run's file, so a daemon run's file holds only the lines it handed back that were not JSON (usually none), its `stderr`
+is usually empty, and it is triaged by how it ended. A run whose own file could not be made safely does not start (its
+note `could not start: its run log: ...`), so its failure stays `noted`. A failure starts
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
 timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
 (SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that
