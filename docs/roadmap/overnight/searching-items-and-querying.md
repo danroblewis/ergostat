@@ -59,47 +59,81 @@ True when done:
 
 ## Where it stopped
 
-**The parked branch was not available.** This clone holds only `main` and this branch: there is no
-`origin/factory/item-text-search` (no remote ref, and no commit of it reachable by `git log --all`), and the network is
-out of reach. So its four commits were not carried over. The search was **built again on current main from this
-definition's own restatement of the parked one** (point 1's list). It was not checked against the parked file or its
-review notes. For the same reason:
-- **Point 5 is not met.** `docs/roadmap/overnight/item-text-search.md` is not on this branch. Writing it from memory
-  would not be "unchanged", so it was left out. The factory, which has the ref, should copy it in from
-  `origin/factory/item-text-search` unchanged (`git checkout origin/factory/item-text-search -- docs/roadmap/overnight/item-text-search.md`).
-- **Why the earlier runs failed ("nack exited 1", attempts 4–6): not found.** Their logs and branch were not here to read.
-- **Point 3:** there was no merge to resolve. Main's `itemindex.py`, `items.py`, `cli/record.py` and `web/server.py` are
-  this branch's base, and each change is an addition next to them. The one change to main's own behaviour is
-  `VERSION` 3 → 4: every index file is built again once, from the record.
+**Correction (round 2): round 1's "the parked branch was not available" was wrong (lesson-8).** No ref names it
+(`git branch -a` shows only `main` and this branch, and `git for-each-ref --contains 0261d96d` lists none), but its
+four commits are in this clone's object store by hash: a7194e5b (definition), 590874f3 (code), bf82f148 (where it
+stopped, and the plan review's notes answered), 0261d96d (where it stopped: parked), on base 3adf48a6. Round 1 did not
+look them up by hash. Round 2 did:
+- **Point 5:** `docs/roadmap/overnight/item-text-search.md` is brought over unchanged from 0261d96d (`git diff --cached
+  0261d96d -- docs/roadmap/overnight/item-text-search.md` is empty).
+- **Point 1, checked against the parked definition, its answered notes and 590874f3's code.** Three of round 1's own
+  choices differed from what the parked branch settled. Each now follows the parked branch:
+  - only the **string** values of the fields are searched (parked DoD 1, "the string values of its fields"). Round 1
+    also searched numbers and booleans as JSON. Keys are not searched, the same as in the parked code;
+  - `ergostat item NAME --search ...` is **refused** (exit 2, "leave out NAME and --at"), as 590874f3 did. Round 1 showed
+    the item and silently ignored the search;
+  - `GET /api/items?search=…&at=…` is **refused** with 400, as 590874f3 did (parked DoD 5: not answered as of a
+    time). Round 1 answered as of `at`, which made SPEC's "as they are now" false (the review's SPEC finding).
+  - One choice stays different: `search=` together with a set's filters (`where`, `moved`, `alone`) is refused with 400.
+    590874f3 answered the search and silently dropped those filters. Refusing is the fail-closed choice (lesson-3), and
+    it is the more reversible one: allowing the combination later breaks no caller.
+- **Why the earlier runs failed ("nack exited 1", attempts 4–6): not found.** 0261d96d records only the outcome of each
+  attempt (3: ack; 4–6: nack exited 1). It holds no log, no failing test and no traceback. bf82f148 says the full suites
+  were never run there. Main's changes since 3adf48a6 to the files touched are `Index.stays(until=)`,
+  `items.late_cap` and `items.fold_all`. Reading the diff, none of them overlaps the parked hunks, and main's
+  `VERSION` was still 3, so a merge conflict does not look like the cause. A test merge (`git merge-tree`) was refused
+  in this environment, so this rests on reading the diff alone.
+- **Point 3:** main's `itemindex.py`, `items.py`, `cli/record.py` and `web/server.py` are this branch's base, and each
+  change is an addition next to them. The one change to main's own behaviour is `VERSION` 3 → 4: every index file is
+  built again once, from the record.
 
-**Done (commit a291d592):**
-- `items.text_of`: an item's field values (nested dicts and lists too; numbers and booleans as JSON, null left out),
-  one per line, the first `TEXT_MOST` = 65,536 characters, casefolded. It is stored as `items.text` on the index row,
+**Done (commit a291d592, then round 2):**
+- `items.text_of`: an item's string field values (nested dicts and lists too), one per line, the first `TEXT_MOST` =
+  65,536 characters, casefolded. It is stored as `items.text` on the index row,
   and every insert or update of the row writes it (each fold, a same-id `set`, a snapshot). A prune's reconcile deletes
   the row.
-- `VERSION` 4. An index file without the `text` column gets it added on open. Its old version stamp then resets it.
+- `VERSION` 4. The index file's name hashes `VERSION` (`index_for`), so a VERSION-3 file is never opened as the new
+  one: the new path is folded from the record. A file at the new path with an older stamp is reset by `_step`. Round
+  1's `alter table … add column text` on open could not be reached by a real old file, so round 2 removed it (review
+  finding).
 - A search that finds any row with NULL text first rebuilds the whole index (`Index._rebuild`: version cleared, folded
-  again). It never answers "no match" for that row.
+  again). It never answers "no match" for that row. Round 2: the probe (`where text is null`) is served by a partial
+  index (`items_untexted`, of the rows with NULL text only), so it no longer scans the table on each search. The test
+  checks the query plan (review finding).
 - `_where(words=)`: one `instr(text, ?) > 0` per word, joined with AND. The listing's late items (the API's `until`)
   are matched in Python on the same text.
 - `items.words_of`: casefolded, split on whitespace, 1 to `WORDS_MOST` = 8 words, otherwise `BadSearch`. In the CLI
   that is exit 2; in the API it is 400. The server reads `search=` with blanks kept, because `parse_qs` drops a blank
   `search=`, which would otherwise list everything.
-- CLI `item --search`: refused with `--at` (exit 2, with a message); `-n` clamped to 1..`items.LISTED`; `search` added
-  to `goodmodel.READ_FLAGS`.
-- API: `listing(search=)` gives the listing's usual shape. `per_kind` padding is skipped while searching.
-- Docs: SPEC §5a *Search*, the AGENT-GUIDE's tools, the `--search` help, and the GAPS entry.
-- 78 net lines of code (107 added, 29 removed), within the 90 budget.
+- CLI `item --search`: refused with `--at` or with an item's NAME (exit 2, with a message); `-n` clamped to
+  1..`items.LISTED`; `search` added to `goodmodel.READ_FLAGS`.
+- API: `listing(search=)` gives the listing's usual shape. `per_kind` padding is skipped while searching. `search=`
+  with `at=` or with a set's filters is refused with 400.
+- Docs: SPEC §5a *Search* (now naming string values only, and the refusals in both the CLI and the API, so "as they
+  are now" holds for both), the AGENT-GUIDE's tools, the `--search` help, and the GAPS entry.
+- 77 net lines of code (106 added, 29 removed), within the 90 budget.
 
 **Choices made without anyone to ask (the most reversible):**
-- Field **keys** are not searched, only values.
-- `search=` combined with a set's filters (`where`, `moved`, `alone`) is refused with 400, so neither filter is
-  silently dropped.
-- `ergostat item NAME --search ...` shows the item, as before. Search applies only to the listing.
+- `search=` combined with a set's filters is refused with 400 (see above: this differs from 590874f3).
 - The GAPS entry says done "on `factory/searching-items-and-querying`". The merge commit is not known until the factory
   merges.
 
-**Tests run:**
+**Tests run, round 2** (one process at a time, not under the watchdog):
+- `tests/test_item_search.py`: 8 passed. The old-index test now builds a real VERSION-3 file (the column dropped) and
+  shows that the new VERSION opens another path, leaves the old file alone and finds the items. It also shows a
+  new-path file with an old stamp being reset. The every-word test checks that numbers, booleans and keys are not
+  searched. The CLI/API test checks `search=&at=` → 400. The `--at` test checks `item NAME --search` → exit 2.
+- `test_item_index`, `test_cli_fallback`, `test_item_sets`, `test_spec_items` (96 passed together), then
+  `test_graph_cli_web`, `test_web_access`, `test_rollup`, `test_item_systems`, `test_daemon_docs` (139 passed together).
+  After the doc and help edits, `test_item_search`, `test_cli_fallback`, `test_daemon_docs` and `test_graph_cli_web`
+  passed again (83).
+- `ruff check ergostat tests scripts`: clean.
+- Round 2's breaks, each watched fail, then undone: the partial index made `where text is not null` → the NULL-text test
+  failed; `search=&at=` let through → the CLI/API test failed; numbers searched as JSON → the every-word test failed;
+  NAME let through → the `--at` test failed; `VERSION` left out of the file name's hash → the old-index test failed
+  (`no such column: text`).
+
+**Tests run, round 1:**
 - `tests/test_item_search.py`: 8 passed.
 - `test_cli_fallback`, `test_item_index`, `test_item_sets`, `test_graph_cli_web`, `test_spec_items`,
   `test_item_systems`, `test_web_access`, `test_daemon_docs`: all passed, run file by file and not under the watchdog.
@@ -109,14 +143,13 @@ review notes. For the same reason:
   - `text=coalesce(text, ?)` on update → the changed-field test failed;
   - no cap → the cap test failed;
   - blank `search=` dropped → the CLI/API test failed;
-  - no `alter table` → the old-index test failed;
+  - no `alter table` → the old-index test failed (that test and that path were replaced in round 2, see above);
   - no `--at` check → the `--at` test failed.
 
 **Left, for the factory:**
-1. Copy in the parked definition file (point 5).
-2. Run the unit suite and the four browser files under `scripts/suite_watch.py` after merging origin/main (point 6).
+1. Run the unit suite and the four browser files under `scripts/suite_watch.py` after merging origin/main (point 6).
    Neither was run here. No `origin` exists in this clone, and the brief leaves the full suites to the factory.
-3. Correct the graph's wrong "merged" status for gap/item-text-search.
+2. Correct the graph's wrong "merged" status for gap/item-text-search.
 
 **After the factory's unit run failed (same round):** the tail handed back holds only progress dots. It names no
 test and shows no traceback, so it looks like the run was cut off or killed. The fix round could not run a shell
@@ -125,3 +158,18 @@ hang found no cause: `_where` → `_rebuild` takes `begin immediate` only under 
 transaction, `text_of` never gives NULL, so the rebuild cannot loop, and nothing else writes `items` rows. No code was
 changed, because a guessed fix would break lesson-13. Left: run the unit suite again under `scripts/suite_watch.py`
 with the failing test's name and traceback kept, then fix what it names.
+
+**Round 2 still does not know the cause of that unit run's failure.** The full unit suite is not run here: the
+brief leaves it to the factory, under the watchdog. The touched test files all pass, one process at a time (above).
+Round 2 removed the `alter table` on open, and the probe now reads a partial index. Neither is known to be the cause.
+
+**The review's findings, round 1 → round 2 (lesson-12):**
+1. (blocking) Points 5 and 1: the parked commits were in the clone. → The parked file was brought over unchanged. The
+   rebuild was checked against the parked definition, its notes and its code, and three choices were aligned (above).
+   The cause of the nack runs was looked for in 0261d96d and is reported as not found. This section is corrected.
+2. The NULL probe scanned the table twice per listing. → It is now served by a partial index, and the test checks the
+   plan.
+3. The `alter table` path was dead code, and the old-index test simulated a case that cannot arise. → The path is
+   removed. The test now covers the real case (another path, the old file left alone) and the stamp reset.
+4. SPEC's "as they are now" was false for the API's `at=`. → The API refuses `search=` with `at=` (400). The test is in
+   `test_search_cli_and_api_agree`, and SPEC names both refusals.

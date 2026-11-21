@@ -37,8 +37,8 @@ class BadSearch(ValueError):
 
 
 def text_of(fields) -> str:
-    """What a search reads of an item: the text of its fields' values, nested ones too, one per line, casefolded;
-    the first ``TEXT_MOST`` characters."""
+    """What a search reads of an item: the string values of its fields, nested ones too, one per line, casefolded;
+    the first ``TEXT_MOST`` characters (keys, numbers and booleans are not searched)."""
     out: list[str] = []
 
     def walk(v) -> None:
@@ -48,8 +48,8 @@ def text_of(fields) -> str:
         elif isinstance(v, list):
             for x in v:
                 walk(x)
-        elif v is not None:
-            out.append(v if isinstance(v, str) else json.dumps(v))
+        elif isinstance(v, str):
+            out.append(v)
     walk(fields)
     return "\n".join(out)[:TEXT_MOST].casefold()
 

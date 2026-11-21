@@ -73,6 +73,7 @@ create table if not exists items (
 create index if not exists items_kind_state_last on items(kind, state, last);
 create index if not exists items_kind_last on items(kind, last);
 create index if not exists items_last on items(last);
+create index if not exists items_untexted on items(rid) where text is null;
 create index if not exists items_newest on items(newest);
 create table if not exists moves (rid integer, kind integer, t real, frm integer, dst integer, event text, type integer);
 create index if not exists moves_rid on moves(rid);
@@ -254,8 +255,6 @@ class Index:
                 c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
                 c.execute("pragma temp_store=memory")
                 c.executescript(SCHEMA)
-                if "text" not in {r[1] for r in c.execute("pragma table_info(items)")}:   # an older layout: its
-                    c.execute("alter table items add column text")                       # VERSION rebuilds it
             except BaseException:
                 c.close()
                 raise

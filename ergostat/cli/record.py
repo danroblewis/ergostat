@@ -69,6 +69,17 @@ def cmd_event(args) -> int:
 
 def cmd_item(args) -> int:
     from ..spec import items as its
+    search = getattr(args, "search", None)
+    if search is not None:
+        if args.name or getattr(args, "at", None):
+            print("--search lists the items as they are now: leave out NAME and --at", file=sys.stderr)
+            return 2
+        try:
+            search = its.words_of(search)
+        except its.BadSearch as e:
+            print(f"--search: {e}", file=sys.stderr)
+            return 2
+        args.n = max(1, min(args.n, its.LISTED))
     if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
         from ..calls.client import Refused
         from . import fast
@@ -79,17 +90,6 @@ def cmd_item(args) -> int:
             return 2
         if got is not None:
             return out_json(got["item"])
-    search = getattr(args, "search", None)
-    if search is not None and not args.name:
-        if getattr(args, "at", None):
-            print("--search reads the items as they are now: it does not take --at", file=sys.stderr)
-            return 2
-        try:
-            search = its.words_of(search)
-        except its.BadSearch as e:
-            print(f"--search: {e}", file=sys.stderr)
-            return 2
-        args.n = max(1, min(args.n, its.LISTED))
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
     if not args.name:

@@ -570,9 +570,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
-        words = its.words_of(one("search")) if "search" in q else None      # (SPEC §5a, *Search*)
-        if words and want is not None and (item_sets.asked(q) or one("alone")):
-            raise its.BadSearch("search= does not combine with a set's filters")
+        words = its.words_of(one("search")) if "search" in q else None      # (SPEC §5a, *Search*): as of now
+        if words and (one("at") or want is not None and (item_sets.asked(q) or one("alone"))):
+            raise its.BadSearch("search= lists the items as they are now: it takes neither at= nor a set's filters")
         if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
             if one("alone"):                              # the side panel's list: the set, and nothing of the page

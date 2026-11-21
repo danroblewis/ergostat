@@ -209,8 +209,8 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("-n", type=int, default=30, help="how many (default 30)")
     i.add_argument("--kind", help="only items of this kind")
     i.add_argument("--state", help="only items in this state")
-    i.add_argument("--search", metavar="WORDS", help="only items whose fields' text contains every word (any case, "
-                   "at most 8; the first 65,536 characters of each; no ranking or fuzzy match; not with --at)")
+    i.add_argument("--search", metavar="WORDS", help="only items whose text (string values) contains every word (any "
+                   "case, at most 8; the first 65,536 characters of each; no ranking or fuzzy match; not with --at)")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")

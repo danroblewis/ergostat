@@ -65,6 +65,8 @@ def test_search_finds_by_every_word(tmp_path):
     assert _found(p, "50%") == ["ticket/2"]                      # no LIKE: % and _ are only themselves
     assert _found(p, "a_b") == ["ticket/3"]
     assert _found(p, "alpha", kind="ticket", state="done") == []
+    p.events.add("ticket.opened", item="ticket/5", at=T0 + 4, data={"title": "count", "n": 4242, "ok": True})
+    assert _found(p, "4242") == _found(p, "true") == _found(p, "title") == []   # string values only, not keys
     got = its.listing(p.events, p.model.spec, search=["alpha"], n=1)
     assert got["total"] == 2 and [i["id"] for i in got["items"]] == ["ticket/2"]    # the latest first, paged
 
@@ -94,17 +96,27 @@ def test_forgotten_item_leaves_search(tmp_path):
     assert _found(p, "zeta") == ["ticket/1"]
 
 
-def test_old_index_rebuilt_and_searchable(tmp_path):
+def test_old_index_rebuilt_and_searchable(tmp_path, monkeypatch):
     p = _project(tmp_path)
     _three(p)
-    path = itemindex.index_for(p.events, p.model.spec, False).path
+    monkeypatch.setattr(itemindex, "VERSION", 3)          # main's previous layout: its own file, with no text
+    old = itemindex.index_for(p.events, p.model.spec, False).path
     _cold()
-    with sqlite3.connect(path) as c:                 # as main's previous layout left it: no text, its VERSION
+    with sqlite3.connect(old) as c:
+        c.execute("drop index items_untexted")
         c.execute("alter table items drop column text")
+    c.close()
+    monkeypatch.undo()
+    assert _found(p, "alpha beta") == ["ticket/1"]        # the new VERSION's file, folded from the record
+    new = itemindex.index_for(p.events, p.model.spec, False).path
+    assert new != old and "text" not in {r[1] for r in sqlite3.connect(old).execute("pragma table_info(items)")}
+    _cold()
+    with sqlite3.connect(new) as c:                       # and a file at the new path with an old stamp: made again
+        c.execute("update items set text = ''")
         c.execute("update meta set value = ? where key = 'version'", (itemindex.VERSION - 1,))
     c.close()
     assert _found(p, "alpha beta") == ["ticket/1"]
-    with sqlite3.connect(path) as c:
+    with sqlite3.connect(new) as c:
         assert c.execute("select value from meta where key = 'version'").fetchone()[0] == itemindex.VERSION
     c.close()
 
@@ -118,6 +130,8 @@ def test_a_row_without_its_text_is_rebuilt_not_read_as_no_match(tmp_path):
     assert _found(p, "alpha beta") == ["ticket/1"]
     with ix.lock:
         assert ix.db.execute("select count(*) from items where text is null").fetchone()[0] == 0
+        plan = ix.db.execute("explain query plan select 1 from items where text is null limit 1").fetchall()
+    assert "items_untexted" in str(plan)                    # the probe reads only rows without text, not the table
 
 
 def test_words_past_the_cap_are_not_searched(tmp_path):
@@ -149,6 +163,8 @@ def test_search_cli_and_api_agree(tmp_path, capsys):
         assert get("search=")[0] == 400 and get("search=+++")[0] == 400               # blank: refused, not all
         assert get("search=" + "+".join("abcdefghi"))[0] == 400                         # 9 words
         assert get("search=" + "+".join("abcdefgh"))[0] == 200                          # 8: taken
+        st, got = get(f"search=alpha&at={T0 + 10}")
+        assert st == 400 and "now" in got["error"]                                      # not answered as of at
     finally:
         srv.shutdown()
         srv.server_close()
@@ -174,3 +190,5 @@ def test_search_with_at_refused(tmp_path, capsys):
     d = p.model.path.parent
     assert main(["-C", str(d), "item", "--search", "alpha", "--at", "30m"]) == 2
     assert "--at" in capsys.readouterr().err
+    assert main(["-C", str(d), "item", "ticket/1", "--search", "alpha"]) == 2      # one item: not silently unsearched
+    assert "NAME" in capsys.readouterr().err

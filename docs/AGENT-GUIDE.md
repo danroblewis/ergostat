@@ -648,9 +648,9 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 
 - **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `remote`, `help TOPIC`.
   To find items by what they say: `ergostat item --search "WORDS" [--kind K] [--state S] [-n N] --json` (or
-  `GET /api/items?search=WORDS`) lists those whose fields' text contains every word, any case, at most 8 words, in
-  the first 65,536 characters of each item. No ranking or fuzzy matching: a word is a plain substring. Not with
-  `--at`; it answers while the YAML is broken, from the last good model.
+  `GET /api/items?search=WORDS`) lists those whose text (their fields' string values) contains every word, any
+  case, at most 8 words, in the first 65,536 characters of each item. No ranking or fuzzy matching: a word is a plain substring. Not
+  with `--at` or an item's name; it answers while the YAML is broken, from the last good model.
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.
