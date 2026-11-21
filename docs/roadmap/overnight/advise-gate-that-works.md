@@ -31,3 +31,10 @@ Built, round 1. Changes to the plan, each the most reversible choice, made with 
   (`in: block.P` on the taker, or `out: block.TAKER` on the person). It is direct only: a person block that feeds
   an expr gate is not followed.
 - docs/GAPS.md's entry for the earlier gap (mode-advise-on-a-block-that) is left as the record of what that gap did.
+
+After the factory's unit run: its output stops at 28% with no failure or error shown, which looks like a run that
+was cut off, not a test that failed. Nothing in the branch was found to change. These pass, one file at a time:
+tests/test_leases.py (31), tests/test_spec_schema.py and tests/test_parity.py (34), and the six other files with
+person blocks: test_blockdiagram, test_inbox, test_closedloop, test_incremental, test_triggers2, test_spec_watch
+(146). No example has a person block wired to a block that takes, so `person-gate` refuses none of them. The full
+unit suite was not run here; the factory's watched run must show it green.
