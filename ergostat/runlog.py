@@ -33,9 +33,10 @@ class RunLogError(Exception):
 def keep(n=None) -> int:
     """How many run files a block keeps (``storage: logs: runs:``), held to 1 to 1000 again when used."""
     try:
-        return min(max(int(n if n is not None else LOGS["runs"]), 1), MOST)
+        n = int(n if n is not None else LOGS["runs"])
     except (TypeError, ValueError):
-        return int(LOGS["runs"])
+        n = int(LOGS["runs"])
+    return min(max(n, 1), MOST)
 
 
 def _lock(fd: int, how: int) -> None:
