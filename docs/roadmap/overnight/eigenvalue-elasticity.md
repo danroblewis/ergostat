@@ -207,3 +207,14 @@ that point in collection order (test_act_risk through test_cloud_arrivals, 12 + 
 failure is still not identified and was not reproduced here. One more cost on the replay path was taken away: `rates()`
 now calls `jacobian(state, pad=False)`, so the zero columns are written only for modes (they add nothing to |row|
 sums). The spy in `tests/test_modes.py` forwards keywords; no assertion changed.
+
+**After main (e1e778c1) was merged in, round 2.** `docs/proposals/architecture.md` §4 conflicted with main's
+computed rung of aggregation. Both are kept: main's aggregation text, then the modes under *Computed today*;
+*Not computed* keeps elasticity over the replay and the AI rung's proposal to aggregate. Main's "Would read" was
+already gone on main, and it stays gone. GAPS' Modelling entry merged without a conflict but came out with both
+versions interleaved (two *Left* lists). It is now one entry: aggregation candidates and modes under done; *Left*
+keeps the relative gain array, the proposal to aggregate from loop dominance, elasticity over the replay and the
+rest. Eigenvalue elasticity is no longer on it. Main changed none of the code files this branch touches. Run again
+after the merge, one file at a time: test_modes (22), test_closedloop, test_extremes_closed, test_numbers,
+test_rates, test_aggregation, test_architecture, all passing; ruff clean. The full unit suite, the browser files and
+`demo_check` are left to the factory.
