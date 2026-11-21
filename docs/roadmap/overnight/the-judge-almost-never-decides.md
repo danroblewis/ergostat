@@ -438,3 +438,34 @@ origin/main merge.
 - Round 7, the scratch-file gate: `git rm -q scratch_probe.py` was refused a twentieth time ("don't ask" mode). No
   other route was tried. Nothing deleted, committed or run; this line is not committed by this session.
 - Round 7, the gate once more: refused a twenty-first time, the same way. Nothing deleted, committed or run.
+
+### Resumed, round 8 (2026-11-21, main 9acc11c2 merged in)
+
+- **The merge.** `judge.py` conflicted only in its imports: main added `version as ver` (for its new check, under the
+  lock, that the files on disk are the model loaded) and the branch added `unmoved as un`. Both kept, committed as
+  96f24c13. Main's check runs before the structural path in the same lock, and they do not interact.
+- **What main's merge broke, and why.** With main merged in, `test_a_model_edited_before_the_scorecard_reads_gets_no_verdict`
+  and `test_a_verdict_carries_the_version_the_scorecard_read` failed on their last assertion only: "the next pass
+  supersedes the change". Main's `proposals-superseded-by-any-edit` now *carries* an open change over a hand edit
+  that leaves its subject alone (here the edit is to `k`), so the next pass moves the change to the edited version,
+  clears its verdict and judges it again. That is lesson-7, and the right result: the old verdict is never used for
+  the new model. The two tests now assert main's behaviour: carried to the version on disk, judged again, the new
+  verdict stamped with that version, and (in the second) still not written by `auto`. Their first-pass assertions,
+  which guard this branch's lines, are unchanged. Seen failing again (lesson-9): stamping `ver.version(spec)` from
+  the pass start fails the first; re-reading `ver.version()` at event write fails the second. Both breaks reverted.
+  SPEC §12e and the `judge.py`/`unmoved.py` docstrings now say "carried or superseded" where they said "superseded".
+- **The review-6 `TrialError` finding (`judge.py:563-564`), fixed now that this session can run tests.** A
+  `TrialError` from `un.judged` now keeps the change under test with a `testing` event whose `undecided` says "its
+  edit could not be tried on the model (...)", where before it waited with no event. That is one line. New test:
+  `test_an_edit_that_cannot_be_tried_stays_under_test_saying_why`, seen failing with the old line back. SPEC says it.
+- **`scratch_probe.py`:** `git rm -q scratch_probe.py` was refused again ("don't ask" mode), the twenty-second time,
+  and no other route was tried. **Still blocking the merge:** a person runs `git rm scratch_probe.py && git commit`.
+- **Run here, one file set at a time:** `tests/test_unmoved.py` 18 passed; `test_slowjudge`, `test_redesign`,
+  `test_improve`, `test_gate`, `test_bench` with it, 111 passed; ruff clean. These 14 files run together:
+  `test_churn_carry`, `test_churn`, `test_review`, `test_backlog`, `test_modelling_core`, `test_modelling_core2`,
+  `test_modelling_ai_cap`, `test_exercised`, `test_extremes_closed`, `test_intent`, `test_parity`,
+  `test_redesign_bench`, `test_redesign_memory`, `test_self_improve`, 199 passed and 1 failed:
+  `test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`. Main added that file, and it tests
+  `modeller_spend`, which this branch does not touch. Run alone, the file passes 22 of 22, so the failure appears
+  only when it runs with other files (lesson-10/13). It is named here and left alone. Not run: the whole unit suite
+  and the four browser files under `suite_watch.py` (left to the factory).

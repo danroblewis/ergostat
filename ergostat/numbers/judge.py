@@ -40,7 +40,7 @@ the redesign scorecard of the model read from disk against the model it leaves, 
 failed, a model that no longer compiles failed; nothing moving, every measure measured, inconclusive at once; nothing
 moving with coherence or the fit unmeasurable, under test (saying which) until the horizon, then inconclusive. The
 verdict says ``on: structure``, its scorecard and the version of the model it read (one read that is not the change's
-own, a hand edit first, records nothing: it is superseded on the next pass); a pass on structure alone is the owner's
+own, a hand edit first, records nothing: the next pass carries or supersedes it); a pass on structure alone is the owner's
 to write (``owners``). Otherwise it waits, as a change any record replays the same: for record in which what it touches
 moves. One the bound cannot decide yet says **about how much more record it
 needs** (the bound narrows as one over the root of the record), and stays under test until seven times the record it
@@ -560,9 +560,9 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             if ev["same"] and held + 1.0 >= nd["needs"] and un.exercised_now(p, spec, nd, since, now):
                 try:                                          # the replay cannot tell it: judged by structure
                     verdict, why, card, v = un.judged(p, x, spec, nd, since, now)
-                except tr.TrialError as e:                    # its edit no longer applies to the files as they are
-                    verdict, why, card, v = None, str(e), None, None
-                if v != x.get("version"):                     # a hand edit came first: superseded on the next pass
+                except tr.TrialError as e:                    # its edit no longer applies: under test, saying why
+                    verdict, why, card, v = None, f"its edit could not be tried on the model ({e})", None, x.get("version")
+                if v != x.get("version"):                     # a hand edit came first: carried or superseded next pass
                     out["waiting"].append({"id": x["id"], "held": held, "needs": due(held, nd["needs"]), "why": why})
                 elif verdict is None:
                     pr.event(p, x["id"], "testing", {"looked": held, "undecided": why, "more": None})

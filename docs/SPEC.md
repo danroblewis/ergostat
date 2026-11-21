@@ -3630,9 +3630,11 @@ horizon, then inconclusive, naming the same. The verdict carries `on: structure`
 of the model the scorecard read, all inside `verdict` (replaced whole by every verdict, so a change made again under
 its id keeps none of them). It is judged inside the proposals' lock, which Accept takes too, so nothing ergostat
 writes comes between the scorecard's read and the verdict; a hand edit takes no lock, so a version read that is not
-the change's own records no verdict (the next pass, on the model read again, supersedes the change; until then it
-takes one of the pass's looks, as any judged change does), and a hand edit after the read leaves a
-verdict stamped with the version read, which Accept then refuses ("the model has changed"). A pass on structure
+the change's own records no verdict (the next pass, on the model read again, carries the change to it and judges it
+again, or supersedes it, as any change made against another version; until then it takes one of the pass's looks, as
+any judged change does), and a hand edit after the read leaves a verdict stamped with the version read, which Accept
+then refuses ("the model has changed"). An edit that cannot be tried on the model there (a `TrialError`) leaves the
+change under test, its `undecided` naming the error. A pass on structure
 alone is the owner's to write, whatever `accept` says, and waits in the review queue with its scorecard beside it.
 Each verdict keeps its windows (each one's span, and the scaled error
 before and after), its pooled estimate and bound, as its evidence, shown with the item in the review queue. Then, where `accept` says `auto` for a

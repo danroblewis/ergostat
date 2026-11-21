@@ -16,6 +16,7 @@ from ergostat.numbers import proposals as pr
 from ergostat.numbers import scorecard as sc
 from ergostat.numbers import trial as tr
 from ergostat.numbers import unmoved as un
+from ergostat.numbers import version as ver
 from ergostat.spec import read
 from ergostat.store import Project
 
@@ -243,6 +244,22 @@ def test_a_change_leaving_the_model_uncompilable_is_failed(tmp_path, monkeypatch
     assert not scored and x["verdict"]["scorecard"] is None
 
 
+def test_an_edit_that_cannot_be_tried_stays_under_test_saying_why(tmp_path, monkeypatch):
+    p, made = world(tmp_path / "w", DONE)
+    pid = submit(p, LEAVE, made)
+    real = tr.compiled
+
+    def compiled(main, texts, findings=False):                    # only the structural path's compile fails
+        if findings:
+            raise tr.TrialError("its lines are not there")
+        return real(main, texts, findings)
+    monkeypatch.setattr(tr, "compiled", compiled)
+    out = jd.run(p, "judge", at=made + 24 * H)
+    x = pr.stored(p)[pid]
+    assert x["state"] == "testing" and "verdict" not in x and not out["verdicts"], x.get("verdict")
+    assert "could not be tried" in x["undecided"] and "its lines are not there" in x["undecided"], x.get("undecided")
+
+
 def _same_after(monkeypatch, delta: float | None):
     """compare's second replay (with the change) read as exactly the first's, or with ``delta`` added to one reading."""
     real, calls = jd.readings, []
@@ -320,9 +337,12 @@ def test_a_model_edited_before_the_scorecard_reads_gets_no_verdict(tmp_path, mon
     assert "verdict" not in x and x["state"] == "testing" and not out["verdicts"], x.get("verdict")
     assert not [e for e in p.events.query(n=None) if e["type"].endswith(".passed")]
     monkeypatch.setattr(un, "_read", real)
-    q = reloaded(p)
+    q = reloaded(p)                                               # the next pass: carried to the edited model (the
+    was, now = pr.stored(q)[pid]["version"], ver.version(q.model.spec)   # edit leaves its subject alone), judged on it
+    assert was != now
     out = jd.run(q, "judge", at=made + 25 * H)
-    assert {"id": pid, "verdict": "superseded"}.items() <= out["verdicts"][0].items() and pid not in pr.stored(q)
+    y = pr.stored(q)[pid]
+    assert y["version"] == now and y["verdict"]["version"] == now and y["verdict"]["on"] == "structure", y.get("verdict")
 
 
 def test_a_verdict_carries_the_version_the_scorecard_read(tmp_path, monkeypatch):
@@ -345,8 +365,10 @@ def test_a_verdict_carries_the_version_the_scorecard_read(tmp_path, monkeypatch)
         pr.accept(q, pid, {"at": made + 24 * H, "window": 86400.0})
     assert pid not in [x["id"] for x in pr.pending(q)]
     monkeypatch.setattr(sc, "score", real)
-    out = jd.run(q, "judge", at=made + 25 * H)
-    assert not out["accepted"] and pid not in pr.stored(q) and out["verdicts"][0]["verdict"] == "superseded"
+    out = jd.run(q, "judge", at=made + 25 * H)                    # carried to the edited model, judged on it again,
+    y = pr.stored(q)[pid]                                         # and still never written by the judge
+    assert not out["accepted"] and y["version"] == ver.version(q.model.spec) != was, y.get("version")
+    assert y["verdict"]["version"] == y["version"] and y["state"] == "passed", y.get("verdict")
 
 
 def test_a_pass_on_structure_is_never_written_by_auto(tmp_path):
