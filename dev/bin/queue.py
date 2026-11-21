@@ -201,7 +201,11 @@ def main() -> int:
                 fac.git(repo, "merge", "--abort", check=False)
                 if not fac.git_ok(repo, "reset", "-q", "--keep", pre):
                     block(cfg, state(cfg), f"a failed merge of {branch} could not be undone (reset --keep to {pre[:12]})")
-    fac.say("gap.merged", merged_at=time.time(), main_sha=merged, pre=pre, **timing)
+        try:                                               # both always said: a merge again never keeps the old count
+            count = {"merged_lines": fac.net_lines(repo, pre, merged, core=False), "merged_lines_error": None}
+        except Exception as e:                             # the merge stands; its count unknown, never 0
+            count = {"merged_lines": None, "merged_lines_error": f"{type(e).__name__}: {e}"[-300:]}
+    fac.say("gap.merged", merged_at=time.time(), main_sha=merged, pre=pre, **count, **timing)
     try:
         rc, said = fac.act("push-main", key=merged, sha=merged)
         push = {0: "pushed", 1: "failed", 3: "held", 4: "denied"}.get(rc, f"refused ({rc})")
