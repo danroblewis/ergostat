@@ -346,5 +346,4 @@ main" and the plan-review, pools and queue work before it). Some of it was rewor
   build go wrong.
 
 Checked: tests/test_factory.py 52 passed, 2 skipped; ruff is clean. Not run: `ergostat check`, because this
-session's shell refused the command. The factory's suites should run it. Committing was also refused, so this
-section may be left uncommitted in the worktree.
+session's shell refused the command. The factory's suites should run it.
