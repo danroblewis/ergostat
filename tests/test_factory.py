@@ -2313,6 +2313,69 @@ def test_no_gap_is_leased_while_a_push_is_pending(tmp_path):
     assert f.run("queue.py", "gap/c")[0] == [] and waiting(f) == "1"
 
 
+def queue_when(pushing: float) -> float:
+    """block.queue-when of the factory's own model, as the engine computes it: gaps approved, the machine quiet."""
+    from ergostat.spec.blocks import Expr
+    spec, _ = read(ROOT / "ergostat.yaml")
+    b = spec.blocks["queue-when"]
+    vals = {"auxiliary.push-waiting": pushing, "goal.approved-gaps-landed.off": 1.0}
+    return Expr(b, spec).compute(lambda r: vals.get(str(r), 0.0), time.time())
+
+
+def nacked(lines: list[dict]) -> dict:
+    return next(x["nack"] for x in lines if "nack" in x)
+
+
+def test_a_waiting_push_puts_gaps_off_for_a_minute(tmp_path):
+    from ergostat.spec.engine import nack_of
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")                                                # a and b landed, their push asked
+    approved_gaps(f, {"c": 3}, batch=2)
+    for now in ("held", "requested", "approved"):                            # leased before the sensor saw the push
+        set_action(f, now)
+        said, lines = f.run("queue.py", "gap/c")
+        nack = nacked(lines)
+        assert said == [] and f"is {now}" in nack["why"]
+        assert nack["after"] == "1m" and nack["count"] is False                # a minute, and not an attempt
+        assert nack_of(nack)["after"] == 60
+        assert waiting(f) == "1" and queue_when(1.0) == 0                     # meanwhile the sensor holds it shut: no spin
+    assert f.item("gap/c")["state"] == "approved" and len(f.db()["acts"]) == 1
+
+
+def test_a_blocked_queue_still_puts_gaps_off_for_ten_minutes(tmp_path):
+    f = Factory(tmp_path)
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")
+    approved_gaps(f, {"c": 3}, batch=2)
+    set_action(f, "failed")                                                  # the push failed: the queue blocked
+    said, lines = f.run("queue.py", "gap/c")
+    assert "intervention.recorded" in said and nacked(lines)["after"] == "10m" and nacked(lines)["count"] is False
+    said, lines = f.run("queue.py", "gap/c")                                 # blocked, read again
+    assert said == [] and "blocked until" in nacked(lines)["why"] and nacked(lines)["after"] == "10m"
+    q = f.model / "run" / "queue.json"
+    q.write_text("{not json")                                                # any other reason: ten minutes too
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == [] and "cannot be read" in nacked(lines)["why"] and nacked(lines)["after"] == "10m"
+
+
+def test_the_next_batch_starts_once_the_push_has_run(tmp_path):
+    from ergostat.spec.engine import nack_of
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    f.run("queue.py", "gap/a")
+    approved_gaps(f, {"c": 3, "d": 4}, batch=2)                             # approved while the push waits
+    set_action(f, "requested")
+    _, lines = f.run("queue.py", "gap/c")
+    put_off = nack_of(nacked(lines))["after"]
+    set_action(f, "ran")                                                     # the approval runs the push
+    assert waiting(f) == "0" and queue_when(0.0) == 1                       # the sensor (every 1m) opens the block
+    assert put_off + 60 <= 120                                               # due again, and seen, within 2 minutes
+    said, lines = f.run("queue.py", "gap/c")                                 # no gap newly approved
+    assert not [x for x in lines if "nack" in x] and "gap.queued" in said
+    assert f.item("gap/c")["state"] == f.item("gap/d")["state"] == "merged"
+
+
 def test_a_gap_that_did_not_land_waits_for_the_push(tmp_path):
     from types import SimpleNamespace
 
@@ -2796,6 +2859,64 @@ def test_an_older_switch_request_is_withdrawn(tmp_path):
     said, why, started = switcher(f, NOON + 240)
     assert said == [] and why == f"switching to {new[:12]}" and started == []   # nothing withdrawn meanwhile
     assert f.item(u_new)["state"] == "draining" and f.item(u_newer)["state"] == "installed"
+
+
+def draining(f: Factory) -> tuple[list[str], str]:
+    """Versions running, older, draining and newer; the one draining asked for, approved, and drained while one run
+    goes on: (the versions, the draining upgrade)."""
+    vs = versions(f, 4)
+    uid = asked(f, vs[2], "ran")
+    held(f, "gap/one")
+    assert switcher(f, NOON)[0] == ["upgrade.switch-approved", "upgrade.draining"]
+    return vs, uid
+
+
+def test_a_newer_installed_version_leaves_the_drain_and_its_flag_in_place(tmp_path):
+    f = Factory(tmp_path)
+    (_, old, b, c), uid = draining(f)
+    u_old, u_c = asked(f, old, "held"), asked(f, c, "held")                      # installed during the drain
+    said, why, started = switcher(f, NOON + 60)
+    assert said == ["upgrade.withdrawn"] and started == [] and why == f"{uid} drains: 1 run(s) under way, 1 of 45 minutes"
+    assert f.item(u_old)["state"] == "withdrawn" and f.item(u_old)["fields"]["superseded_by"] == u_c   # older: as today
+    flag = f.model / "run" / "drain.json"
+    assert json.loads(flag.read_text()) == {"sha": b, "since": NOON}
+    assert f.item(uid)["state"] == "draining" and f.item(u_c)["state"] == "installed"
+    assert f.db()["actions"][f.item(u_c)["fields"]["switch_action"]] == "held"   # its request still open
+
+
+def test_the_drain_then_switches_to_the_version_it_was_draining_for_and_the_newer_one_still_waits(tmp_path):
+    f = Factory(tmp_path)
+    (_, _, b, c), uid = draining(f)
+    u_c = asked(f, c, "held")
+    assert switcher(f, NOON + 60)[0] == []
+    held(f)                                                                      # the run finished
+    said, why, started = switcher(f, NOON + 120)
+    assert said == ["upgrade.drained"] and started == [b] and why == f"switching to {b[:12]}"
+    assert switcher(f, NOON + 180)[1:] == (f"switching to {b[:12]}", [])
+    flag = f.model / "run" / "drain.json"                                        # the switch as live.py makes it
+    f.fold([{"event": "upgrade.switched", "item": uid, "data": {"switch": "ran"}},
+            {"event": "upgrade.kept", "item": uid, "data": {}}], None)
+    (f.tmp / "live" / "current").unlink()
+    (f.tmp / "live" / "current").symlink_to(b)
+    flag.unlink()
+    said, why, started = switcher(f, NOON + 240)
+    assert said == [] and why == "no switch approved" and started == []
+    assert f.item(u_c)["state"] == "installed" and "superseded_by" not in f.item(u_c)["fields"]
+    assert f.db()["actions"][f.item(u_c)["fields"]["switch_action"]] == "held"   # it waits, its request open
+
+
+def test_a_newer_approved_version_takes_over_the_drain_with_its_start_time(tmp_path):
+    f = Factory(tmp_path)
+    (_, _, b, c), uid = draining(f)
+    u_c = asked(f, c, "ran")                                                     # approved during the drain
+    said, why, started = switcher(f, NOON + 60)
+    assert said == ["upgrade.withdrawn", "upgrade.switch-approved", "upgrade.draining"] and started == []
+    assert f.item(uid)["state"] == "withdrawn" and f.item(uid)["fields"]["superseded_by"] == u_c
+    assert json.loads((f.model / "run" / "drain.json").read_text()) == {"sha": c, "since": NOON}
+    assert f.item(u_c)["state"] == "draining" and f.item(u_c)["fields"]["drain_began_at"] == NOON
+    held(f)
+    said, _, started = switcher(f, NOON + 120)
+    assert said == ["upgrade.drained"] and started == [c]
 
 
 def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeypatch):

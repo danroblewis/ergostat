@@ -569,7 +569,9 @@ continue by hand records one too, so a park is resumed once). `defect` and `kill
 Each green merge opens an `upgrade` item; the upgrader installs it into `~/ergostat-live/<sha>` and checks the model
 with its own code, then asks for `switch-instance`. Only the newest waits: the switcher (`dev/bin/drain.py`, every
 minute) withdraws a request for a version older than one waiting, or than the one running (its action denied by the
-switcher, saying which version supersedes it). Approving it (the inbox, as above; or standing, with `gate: auto` on the
+switcher, saying which version supersedes it), except that a drain under way is not withdrawn for a newer version
+only installed: the drain goes on to its switch and the newer one waits, its request open; a newer one approved takes
+the drain over, keeping its start. Approving it (the inbox, as above; or standing, with `gate: auto` on the
 action in the instance's model) does not switch at once: the switch waits for a quiet moment (at most `[upgrade]
 quiet_runs` AI runs under way) or, at the latest, the daily window (`[upgrade] daily_at`, 04:00 local) passing; then it
 drains: `run/drain.json` is written and the AI blocks take no new item (each run gives its item back uncounted) while
