@@ -219,5 +219,7 @@ supersedes it. Both are tested.
   `test_extremes_closed`, `test_intent`, `test_modelling_core`, `test_modelling_core2`, `test_parity`,
   `test_redesign_bench`, `test_redesign_memory`, `test_self_improve`): 171 passed, 0 failed.
 - `demo_check`: no example touched.
+- origin/main (lesson-7): this clone has no `origin` remote; the local `main` is an ancestor of the branch (nothing
+  to merge). The factory should merge the real origin/main and run the suites again.
 - An untracked `scratch_probe.py` is left at the worktree's root (a probe that could not be run; this session could
   not delete it). It is not committed; delete it.
