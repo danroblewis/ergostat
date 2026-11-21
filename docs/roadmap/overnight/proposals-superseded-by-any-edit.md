@@ -137,3 +137,40 @@ All of `tests/test_churn.py`, `tests/test_modelling_core*.py`, `tests/test_revie
 - Item 6: add a test where proposals.make's estimator runs, then a hand edit lands before the lock. Assert nothing is admitted and no events are written. Today only refresh has this test.
 - Item 4: add an assertion that a carried change that was testing stays testing, with verdict/looked cleared and rewires recomputed (for example, a structural change whose rewired set differs on the version now). The passed case alone does not cover the recompute of rewires.
 - Item 3: say whether a carried 'checked' change also gets verdict/looked cleared (they should already be null). Make the event shape one rule for all states, so the fold has no leftover fields.
+
+## Where it stopped
+
+Built: every item of the definition of done, in 75 net lines of code (budget 200). No `origin` remote in this
+clone; `main` is an ancestor of the branch, so there was nothing to merge (lesson-7: the coordinator merges with the
+in-flight branches named in the risks).
+
+Choices made alone (each the more reversible one):
+
+- **The carry's event.** One rule for every state (`proposals._carry`): one event with `version`, `structure`, `edit`,
+  `rebased`, `rewires` (recomputed) and `verdict`, `undecided`, `more`, `not_exercised`, `looked` all null, for a
+  carried `checked` change too (already null there). The event is `.revised` for `checked` and `testing`. For `passed`
+  it is `.testing` with the same fields, not `.revised` and then `.testing`. The fold takes the state from the event's
+  type, so this is the only way the state and the clearing land in one event.
+- **The judge writes only what is passed.** `_accept` with a `policy` (the judge's write) refuses a change no longer
+  `passed`. The judge reads its list of changes to write outside the lock, and a carry in between moves a passed
+  change back to testing (lesson-1).
+- **Accept needs the loaded model to be the files' model.** `_accept` refuses unless the files compile to the loaded
+  model's version and to the change's version. After writing, it reloads `p.model`, so `_supersede` gets the files'
+  model and carries in the same call (`test_improve.py::test_accepting_one_change_carries_or_supersedes_the_others_by_their_subject`).
+- **A deferred estimator pass returns `[]`**, not the changes pending on a model that is stale.
+- **The lock.** `proposals.locked` is `fcntl.flock` on a file opened anew on each call. flock locks belong to the open
+  file description, so two threads of one process block each other. This is why the dismissal tests test something.
+  With `dismiss` unlocked (as on main) both fail: the dismissal lands in the pass and `save` reopens it.
+- `review.refresh` reads `stored` outside the lock only to skip the fits of findings already made and not carried.
+  Under the lock, a finding with no fit computed is not admitted, and the next pass makes it.
+
+Each new test was seen to fail with its rule broken by hand: the governs and kind_of rules; the clearing; the
+rewires recompute; the clean remake in `save`; the judge's deferral; `_accept`'s check against the files;
+`current_now` (the finder's and the estimator's edit-in-the-gap tests); `_supersede`'s stale-caller check;
+the missing-subject rule; `dismiss`'s lock; the structural carry's found edit; a block's changes left out of
+the carry; and `files_now` failing open (it returns the loaded model when the files have errors).
+
+Not run here: the whole unit suite under `-n 8`, the four browser files and `demo_check` (no example touched). The
+brief leaves them to the factory. Run here, one invocation each: the seven named files (126 passed); 17 other files
+that use proposals, the judge or review (334 passed); test_spec_compile, test_item_systems and test_blockdiagram (100
+passed); ruff clean.
