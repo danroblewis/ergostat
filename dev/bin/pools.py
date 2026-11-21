@@ -1,7 +1,9 @@
 """The AI pools, ramped up on good results (the owner, 2026-11-20: start with one implementor, "the work from the first
-agent might come back awful"). Each role's pool (implementor, reviewer) starts at 1 and lives in run/pools.json;
-the blocks' `pool:` in the model is only its most ([pools] in dev/factory.toml), and the engine's gate and each run
-hold the rest to the pool now.
+agent might come back awful"). Each role's pool (implementor, reviewer) starts at 1 and lives in run/pools.json, read
+by the stocks implementor-pool and reviewer-pool. The blocks take their pools from those stocks (`pool: {now:
+stock.implementor-pool, most: 9}`): the engine holds each block to the pool now at every dispatch, never above its
+most ([pools] in dev/factory.toml sets the most this file allows). The gates and each run (`my_turn`) also hold them to
+the machine's headroom.
 
     pools.py read ROLE        the role's pool now (a sensor)
     pools.py streak           the good gaps in a row since the pools last changed (a sensor)
