@@ -233,3 +233,12 @@ net lines of code outside tests and docs, within the 250 budget.
 - The full unit suite and the four browser files: left to the factory's watchdogged run, as the instructions say.
 - Merging origin/main: this clone has no `origin` remote, and local `main` is already in HEAD. The merge and the second
   run of the suites are left to the factory.
+
+**After the factory's unit run (one failure):** `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`
+failed once in the factory's `-n` run (a lease still held after `close`). It passes alone and beside this gap's tests
+(77 and 20 passed). This branch changes nothing in leases, the engine or the runner, so the lease code is not changed
+here (lesson-13). The one way this branch could reach another test in the same worker was
+`test_two_runs_cannot_both_take_the_last_of_the_cap`, which `fork`ed the multi-threaded xdist worker (the
+DeprecationWarning in that run) and joined only its first child. It now uses `spawn`, joins and kills both children,
+and waits until the second is up before asserting it is held off by the lock. Broken again by releasing the lock
+before the call: it fails.
