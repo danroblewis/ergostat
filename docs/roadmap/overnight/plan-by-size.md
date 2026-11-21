@@ -141,3 +141,12 @@ lease from session events 0.4 s apart, the other expects a daemon sampled within
 `-n 8` with the rest of the suite running, so they depend on load (lesson-10). The cause may be a real race in the
 lease watchdog or the daemon sampler, or the tests' fixed timings. Finding out belongs in a gap of its own, not this
 branch. No code was changed for them. Left: the factory's rerun of the two tests on clean main.
+
+**Main merged (07f9b250).** There were two conflicts, and each was resolved by keeping both sides. In
+`dev/bin/plan.py`, main's join judge constants (`MOST_SHORT`, `VERDICT`, `MISSING`, `REASONS`) sit beside the branch's
+`TRUST`, `SMALL` and size helpers. In `dev/README.md`, main's join judge paragraph stays. The plan review sentence
+keeps the branch's *Planning by size* pointer and adds main's `all` mode. After the merge, these pass:
+`tests/test_factory_knowledge.py` (91 passed), `tests/test_factory.py` (126 passed, 2 skipped) and
+`ruff check ergostat tests scripts`. `ruff check dev/bin` reports two findings (B023 at the join judge's `listed` in
+plan.py, E501 at review.py:41). Both come from main unchanged. The unit suite and the browser files were not run here.
+The factory runs them.
