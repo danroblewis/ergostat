@@ -490,6 +490,7 @@ remotes:
     systems: [triage]                 # optional: only these of its systems (and what is inside them)
     within: support                   # optional: the system it is drawn inside
     every: 1m                         # how often its model and readings are read (default 1m, least 10s)
+    show: [stock.open]                # optional: what its closed box shows, in its own names
     description: the incident desk
 ```
 
@@ -501,6 +502,7 @@ remotes:
 | `within` | system name | the file's default | The local system it is drawn inside |
 | `every` | duration | `1m` | How often its model is checked and its readings read |
 | `description` | string | where it runs | |
+| `show` | list | its top systems' `show:` | The measures its closed box shows, each `stock.NAME`, `flow.NAME` or `auxiliary.NAME` in the **remote's own** names, as it serves them: `stock.open` is its `open`, drawn here as `incidents-open`, even when this model has an `open` of its own; a local part is never shown on a remote's box. It takes the place of the served tops' `show:`. Anything else is **bad-remote**, an error |
 
 **What it becomes here.** Each part it serves is put in under the remote's name (`stock.incidents-open`),
 as a template's instance names its parts (§2a), in the system `incidents` (its own systems inside it,
@@ -535,6 +537,21 @@ least) is stale and is not taken.
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
 in place like any system. In Process its kinds' maps are drawn beside ours, framed *remote incidents*.
+Its closed box shows, in this order of precedence: (a) the `show:` on its `remotes:` entry; else (b) the
+served `show:` of its top systems (those with no `within`, or with `systems:` the kept ones whose `within` is
+not kept), in the order it serves them, each part once, a part `systems:` leaves out cut; else (c) the
+measures of its goals that it serves (never a stand-in's); (d) a remote never read shows the parts its local
+`show:` names, each *never read*, and with none no measures at all, never a goal's. A system inside it shows
+its own served `show:`. The panel (Dynamics' module, the system panel) lists them under the remote note,
+and Blocks' box draws them as rows. A measure there is **stale**, dimmed, and says `last V · AGE old`
+(AGE: the snapshot's moment less its newest reading here) or *never read* when the remote is not answering,
+its readings fail, or it has not answered yet: then every measure is stale. When it answers, a measure is
+stale when its sensors' newest reading here is older than three of its sensor's periods (two minutes at
+least, also for a sensor with no period), and says *never read here* when they have none; a part with no
+sensor here is stale only when the remote is not answering. A local `show:` part it does not serve stays,
+dimmed, *not served*, and is a finding (**remote-show-unresolved**, on the `show:` key: the version it was
+checked against, as last read when the remote is not answering, and why: it serves no such part, `systems:`
+leaves it out, or the name is a local one); neither it nor a *never read* one is charted.
 The local residuals, coherence and attention leave its parts out: they are held to its own record, there.
 
 **Never edited here.** A model change (§12e) that would write a remote part is refused, as one that would
