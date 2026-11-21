@@ -423,3 +423,4 @@ origin/main merge.
   another automated round.
 - Round 6, the scratch-file gate again: `git rm -q scratch_probe.py` was refused a seventeenth time ("don't ask"
   mode). No other route was tried. Nothing deleted, committed or run; this line is not committed by this session.
+- Round 6, the gate once more: refused an eighteenth time, the same way. Nothing deleted, committed or run.
