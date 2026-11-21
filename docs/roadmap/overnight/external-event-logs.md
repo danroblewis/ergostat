@@ -192,3 +192,30 @@ size overrun: 260 counted + 55 = 315 lines, against a budget of 300.
   `tests/` and `docs/` is the 260 lines counted in round 1, within the 300 budget.
 - The script is not needed to check the guards. What each change broke is listed under "Breaking each guard" above.
 - Nothing else changed in this round: no code and no tests. The suites were not run again for this docs-only commit.
+
+## Where it stopped, round 3 (the unit suite failed after round 2)
+
+The tail the factory passed on has no failing test in it. It shows 64 dots, then nothing: no `[ N%]` at the end of
+the line and no closing JSON line from `suite_watch`. So the run was stopped from outside about 64 tests in. It was
+not a failing assertion, and not a watchdog kill, which would have printed its line. I could not find a cause in
+this branch, so **no code changed in this round**:
+
+- This sandbox refused a whole-suite run, even a serial one, and it refused shell loops. So I could not reproduce
+  the stop.
+- I ran these files one at a time, each with `-o faulthandler_timeout=200` (a stuck test would dump its stack), and
+  all passed: test_mirror (29 tests, 12 s, the slowest 5 s), test_mirror with test_spec_engine under `-n 4` (39),
+  test_templates with test_intake and test_rollup (103, 123 s), test_join, test_mended, test_spec_items and
+  test_spec_mcp_explain. test_repair2 skipped all 32 of its tests here, for want of its sandbox. Ruff is clean.
+- I read the branch's engine change for anything that could hang other tests. `read_sensor` now adds
+  `ERGOSTAT_SENSOR`. Every `Sensor` has `of` (ir.py), and nothing else reads that variable. `observations` and
+  `_observer` only add an id check, and the envelope change is one `Refused`. The collector's mirror mode runs only
+  with `--mirror`, and its copy-in path is the same code moved into `source()`. The segments lock is held for each
+  append only, so a mirror opening the record from inside a sensor cannot block the engine.
+- `test_mirror.py`'s fixtures undo everything they change: environment and cwd through `monkeypatch`, and the web
+  server through `shutdown()` and `server_close()`.
+- `.mut/mut.py` is still committed. This session's sandbox refused `git rm` and `git rm --cached` again. It still
+  needs `git rm .mut/mut.py && git commit` from the factory.
+
+Left: run the unit suite again (with `-o faulthandler_timeout=180`, so a hang names its test) and remove `.mut/`. If
+it stops again, the dump names the test. If that test is outside this branch's files, it is reported here, not fixed
+here (lesson-13).
