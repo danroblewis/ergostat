@@ -48,3 +48,14 @@ Round 2: built; nothing in the definition is left. Decisions taken with nobody t
   dev/model/landing.yaml put back for the timing (then restored), so the branch did not make it slower. The branch's own
   tests take at most 17 s (the wiring test, which reads the model) and 4 s. If the queue's run stops like this again,
   look at what stopped it (the lease, the container, memory) before looking at the branch.
+- Round 3: no new finding was given; the findings listed are round 1's, each answered in round 2 and checked again
+  here: push-settler is commanded by `push-settleable`, not `push-waiting` (landing.yaml); the wiring test
+  test_push_settler_is_commanded_by_push_settleable exists; the README describes this wiring; an unreadable action is
+  read again twice before it blocks; settle() and block() save before they say. main (e8d3e331) is an ancestor of
+  HEAD. Each guarded line was broken by hand and the test watched fail, then put back (lesson-9): settleable()
+  returning False fails test_a_push_settles_with_no_gap_approved; `in: auxiliary.push-waiting` fails the wiring test;
+  dropping the at-once limit for an uncarried push-pending gap in watch.stuck() fails
+  test_a_gap_pending_with_no_push_is_stuck. Run here: tests/test_factory.py (102 passed, 2 skipped, 242 s),
+  tests/test_factory_manager.py (18 passed), ruff clean. No code was changed this round. The whole unit suite and the
+  four browser files were not run here (the factory runs them under the watchdog); the two earlier queue runs that
+  failed named no test (see above).
