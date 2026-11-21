@@ -14,7 +14,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    bisected to the first failing merge (land()), which goes on to flake triage with what failed (`queue-failed`) and
-   the rest lands. On any error or stop, main is undone with `git reset --keep`.
+   the rest lands. On any error or stop, main is undone with `git reset --keep`. The push is asked under the run's
+   own gap's lease: when that gap does not land, its outcome waits for the push to settle (tell()), so no later lease
+   on it fences the approval out.
 
 It merges exactly the commit the reviewer approved, fetched from the drop (never the branch's name), and refuses a
 branch that moved since. A conflict is a failed gate (the second parks).
@@ -141,6 +143,36 @@ def pushed(p: dict | None) -> list[str]:
     return list(p.get("gaps") or [p["gap"]]) if p else []
 
 
+HELD: dict = {"own": None, "said": []}    # the run's own gap's outcome, kept back while its push waits (tell())
+
+
+def tell(event: str, gid: str, **data) -> None:
+    """A gap's outcome said, but the run's own gap's kept back: the push is asked under that gap's lease, which must
+    not be taken again (by the implementor, flake triage) before the push is approved, or the push is fenced out. Said
+    at the run's end, or once its push settles (``then`` in the pending record, release())."""
+    if gid == HELD["own"]:
+        HELD["said"].append({"event": event, "item": gid, "data": data})
+    else:
+        fac.say(event, gid, **data)
+
+
+def release(p: dict | None) -> None:
+    for e in (p or {}).get("then") or []:
+        fac.say(e["event"], e["item"], **e["data"])
+
+
+def waits(cfg: dict) -> str | None:
+    """Why the queue can take no gap now, read only: a push held for approval, or the queue blocked. Its sensor
+    (`queue.py waiting`) keeps the merge queue from leasing gaps only to give them back."""
+    st = state(cfg)
+    if st.get("blocked"):
+        return None if action_state(st["blocked"]["intervention"]) == "remedied" else "blocked"
+    p = st.get("pending")
+    if p and p.get("action") and action_state(p["action"]) in ("held", "requested", "approved"):
+        return f"the push of {p['sha'][:12]} waits"
+    return None
+
+
 def settle(cfg: dict, repo) -> str | None:
     """Before a merge: what became of the last merge's push. None when the queue may go on; else why it waits.
     Pushed: done. Held: wait (one unpushed merge at a time, so a denial undoes only its own). Denied: the merge undone
@@ -156,6 +188,7 @@ def settle(cfg: dict, repo) -> str | None:
         for gid in pushed(p):
             fac.say("gap.push-settled", gid, push="settled by the coordinator", settled_by=iid,
                     settled_at=time.time())
+        release(p)
         save(cfg, st)
         return None
     p = st.get("pending")
@@ -168,7 +201,7 @@ def settle(cfg: dict, repo) -> str | None:
     if now == "ran":
         for gid in pushed(p):
             fac.say("gap.pushed", gid, pushed_at=time.time(), push="pushed")
-        st.pop("pending")
+        release(st.pop("pending"))
         save(cfg, st)
         return None
     if now == "denied":
@@ -179,7 +212,7 @@ def settle(cfg: dict, repo) -> str | None:
         for gid in pushed(p):                          # one approval for the batch: a denial sends back all of it
             fac.say("gap.sent-back", gid, sent_back_by="queue", push="denied",
                     findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])
-        st.pop("pending")
+        release(st.pop("pending"))
         save(cfg, st)
         return None
     if now in ("held", "requested", "approved"):
@@ -236,7 +269,7 @@ def merge(cfg: dict, repo, g: dict, sha: str, began: float) -> bool:
         review.park(cfg, g, f"Failed its gates {fac.kill_after(cfg)} times (the kill rule); the last, a conflict in the "
                             f"merge queue: {findings[0]}", "merge-queue", where="queue")
     else:
-        fac.say("gap.sent-back", g["id"], sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,
+        tell("gap.sent-back", g["id"], sent_back_by="queue", findings=findings, failed_gates=1, fix_rounds=1,
                 queue_wait_hours=waited_hours(g, began))
     return False
 
@@ -282,7 +315,7 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             got = run()
             lo, hi, red, green = (lo, mid, got, green) if got.get("failed") else (mid, hi, red, got)
         g, onto = todo[hi - 1][0], heads[hi - 2] if hi > 1 else base
-        fac.say("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=onto,
+        tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=onto,
                 findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
                 + ([f"the first failing merge of a batch of {len(todo)}, found by bisecting"] if len(todo) > 1 else []),
                 **timing(g, red))
@@ -318,6 +351,14 @@ def main() -> int:
     gap = fac.read_input()["item"]
     repo = fac.path(cfg, "checkout")
     fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
+    HELD["own"] = gap["id"]
+    try:
+        return take(cfg, gap, repo)
+    finally:                                              # what was kept back and not handed to a pending push
+        release({"then": HELD["said"]})
+
+
+def take(cfg: dict, gap: dict, repo) -> int:
     with fac.queue_lock(cfg):
         why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
         if why:
@@ -329,7 +370,7 @@ def main() -> int:
             if sha:
                 batch.append((g, sha))
             else:
-                fac.say("gap.sent-back", g["id"], sent_back_by="queue", findings=[f"not merged: {why}"])
+                tell("gap.sent-back", g["id"], sent_back_by="queue", findings=[f"not merged: {why}"])
         if not batch:
             return 0
         waited = fac.wait_quiet(cfg)
@@ -339,6 +380,9 @@ def main() -> int:
         done = settled = False
         try:
             landed, merged = land(cfg, repo, batch, pre, began, waited)
+            if not landed:                                 # no push to wait for: the run's own gap's outcome now
+                release({"then": HELD["said"]})
+                HELD["said"] = []
             done = True                                    # the point of no return: main holds the landed merges
             ids = [g["id"] for g, _ in landed]
             save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": ids, "at": began, "landing": ids}})
@@ -373,9 +417,10 @@ def main() -> int:
         fac.say("gap.push-asked", gid, push=push, push_said=said[-600:])
     if push != "pushed":
         m = re.search(r"ergostat\.action/[0-9a-f]+", said)
+        then, HELD["said"] = HELD["said"], []           # the run's own gap's outcome waits for the push to settle
         save(cfg, {**state(cfg), "pending": {"sha": merged, "pre": pre, "gap": gids[0], "gaps": gids,
                                              "action": m.group(0) if m else "", "known": push.split(" ")[0],
-                                             "said": said[-600:], "at": time.time()}})
+                                             "said": said[-600:], "at": time.time(), "then": then}})
         with fac.queue_lock(cfg):
             settle(cfg, repo)                             # a push denied or failed at once is handled now
     return 0
@@ -392,4 +437,7 @@ def push(sha: str) -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["waiting"]:                   # the sensor push-waiting: 1 while the queue can take no gap
+        print(1 if waits(fac.config()) else 0)
+        sys.exit(0)
     sys.exit(push(sys.argv[2]) if sys.argv[1:2] == ["push"] else main())
