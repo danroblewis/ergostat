@@ -81,7 +81,7 @@ def record_tests(p, tests, G=G0, compensate=False, tau=30.0, noise=0.003, gap=20
                 p.events.add("steptest.started", item=g, source="ergostat", at=T - 1, data={
                     "test": f"x{n}", "amount": t["amount"], "hold": t["hold"], "plant": t.get("stamp", stamp(spec, g))})
                 p.events.add("steptest.stepped", item=g, source="ergostat", at=T, data={"test": f"x{n}", "phase": "up"})
-            if s == s0 + t["hold"]:
+            if s == s0 + t["hold"] and not t.get("no_back"):
                 p.events.add("steptest.stepped", item=g, source="ergostat", at=T, data={"test": f"x{n}", "phase": "back"})
             if s == s0 + 2 * t["hold"]:
                 p.events.add("steptest.finished", item=g, source="ergostat", at=T, data={
@@ -288,6 +288,13 @@ def test_a_test_stopped_early_is_left_out(tmp_path):
     r = rga.of(p, p.model.spec, "plant")
     assert r["computed"] and r["tests"] == 2
     assert r["left"] == [{"goal": "g1", "test": "x0", "why": "it did not finish done (stopped early: the error reached 2)"}]
+
+
+def test_a_test_with_no_step_back_recorded_is_left_out(tmp_path):
+    p = record_tests(load(tmp_path, model()), [{"loop": 0, "amount": 2.0, "hold": 400, "no_back": True}, *two_each()])
+    r = rga.of(p, p.model.spec, "plant")
+    assert r["computed"] and r["tests"] == 2
+    assert r["left"] == [{"goal": "g1", "test": "x0", "why": "it has no step up, step back or finish recorded"}]
 
 
 def test_a_step_not_settled_by_the_end_of_its_hold_is_left_out(tmp_path):
