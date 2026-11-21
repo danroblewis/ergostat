@@ -28,6 +28,7 @@ from .requests import evidence_of
 
 GUIDE = Path(__file__).resolve().parent.parent / "library" / "templates" / "modelling" / "modeller.md"
 MOST = 8                    # requests given to one call
+FAILS = 3                   # failed calls (``call``'s ``error``) on one item before it waits for the owner (no try counted)
 LINES = 40                  # lines of YAML shown for one part at most
 CODE_LINES = 60             # lines of a program a part runs shown at most
 TOOLS_OFF = "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit"

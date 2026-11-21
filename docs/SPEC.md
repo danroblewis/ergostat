@@ -3796,9 +3796,15 @@ block of the template, answer them, the cheapest first:
   said `is_error`, or said no cost that is a finite number of dollars, 0 or more) is an `error` with what it said
   (its result, or its standard error), charged its reservation, or what it said if more. The AI tier does not try again
   in that run; when its first call fails, its requests keep their tries and state, are charged their share, and say the
-  error (`why`, `error`), so the next run gives them to it again, within the cap. The reviewer counts no failed call
-  toward giving up on a change and stops its pass there; a redesigner run whose calls failed ends `error` (with the
-  error), not `nothing proposed`; its request stays open saying so, and the unit takes no rest for it. The lock covers the AI tier's own calls only, not the redesigner's or
+  error (`why`, `error`), so the next run gives them to it again, within the cap. When only its second (go-back) call
+  fails, its first answer was a real one, so the requests it did not answer use their try as before, held saying the
+  second call failed. Failed calls are counted apart from tries (`failed`) and bounded, since some fail the same way
+  every time (a prompt too long): a request that failed before goes behind those that failed less, alone in its call,
+  and after `modeller.FAILS` (3) failed calls it is held for the owner, saying the error. The reviewer counts no failed
+  call toward its tries and stops its pass there; the changes that failed least are read first, and one with
+  `FAILS` failed calls is `undecided`, the owner's. A redesigner run whose calls failed ends `error` (with the
+  error), not `nothing proposed`; its request stays open saying so, and the unit takes no rest for it until `FAILS`
+  runs in a row have failed, when it rests as after a run that made nothing. The lock covers the AI tier's own calls only, not the redesigner's or
   repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":

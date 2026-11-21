@@ -103,12 +103,15 @@ def ai(argv: list[str]) -> int:
     from ...numbers import modeller_spend as sp
     from ...numbers import requests as rq
     p = project()
+    def fails(r) -> int:                          # its failed calls: counted apart from its tries, and bounded
+        return int((r.get("failed") or {}).get("ai") or 0)
     mine = [r for r in rq.waiting(p, ("open", "held")) if r.get("tier") == "ai" and not r.get("owner")
-            and int((r.get("tried") or {}).get("ai") or 0) < a.tries]
+            and int((r.get("tried") or {}).get("ai") or 0) < a.tries and fails(r) < md.FAILS]
     if not mine:
         note("modeller: no request waiting for the ai tier")
         return 0
-    group = _near(p, mine)[:a.most]
+    near = sorted(_near(p, mine), key=fails)      # those that failed least first; one that failed before goes alone
+    group = near[:1] if fails(near[0]) else near[:a.most]
     got = md.answer(p, group, a.model, timeout=md.per_call(a.timeout, 2), on_call=_said,
                     within=lambda text: sp.held(p, md.unsaid(text, a.model)["usd"], a.daily))
     c = got["cost"]
@@ -122,9 +125,12 @@ def ai(argv: list[str]) -> int:
     cannot = {x.get("cannot"): x.get("why") for x in got["cannot"]}
     share = round(c["usd"] / max(len(group), 1), 6)
     if c.get("error") and not got["tried"]:      # its first call failed: charged, the error said, no try used
-        for r in group:
-            rq.event(p, r["id"], r["state"], {"why": f"the ai tier's call failed: {c['error']}"[:500], "error": c["error"][:500],
-                                              "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
+        for r in group:                          # past FAILS failed calls it is held for the owner
+            n = fails(r) + 1
+            gone = f" {n} times; it waits for the owner" if n >= md.FAILS else ""
+            rq.event(p, r["id"], "held" if gone else r["state"],
+                     {"why": f"the ai tier's call failed{gone}: {c['error']}"[:500], "error": c["error"][:500],
+                      "failed": {**(r.get("failed") or {}), "ai": n}, "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
         note(f"modeller ({a.model}): {c['error']}; ${c['usd']:.4f} charged, no try used for {len(group)} requests{said}")
         return 0
     for r in group:

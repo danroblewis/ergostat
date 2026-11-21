@@ -135,7 +135,8 @@ ENDED = ("failed", "refused", "dismissed", "superseded")
 def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, changes: dict | None = None) -> str | None:
     """Why this unit is not to be redesigned now, whatever is due: a redesign waiting, or the rest after one that was
     no better, dismissed, superseded, made nothing, or never ended, while the unit's own parts have not changed
-    since (``signature``)."""
+    since (``signature``), or after ``modeller.FAILS`` failed runs in a row."""
+    from . import modeller as md
     from . import redesign as rd
     if rd.waiting(p, spec, unit) is not None:
         return "a redesign of it is waiting already"
@@ -150,6 +151,10 @@ def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, chang
             return "resting: its last run never ended"
         if d.get("result") not in ("proposed", "started", "error") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
             return f"resting: its last redesign was {d.get('result')}, and its parts have not changed since"
+    ended = sorted((e for e in mine if (e.get("data") or {}).get("result") != "started"), key=lambda e: e["time"])[-md.FAILS:]
+    if len(ended) == md.FAILS and all((e.get("data") or {}).get("result") == "error" and now - e["time"] <= COOL
+                                      for e in ended):    # failed calls are no rest, but only so many in a row
+        return f"resting: its last {md.FAILS} runs' calls failed ({(ended[-1].get('data') or {}).get('why_not')})"
     for x in (changes if changes is not None else _changes(p)).values():
         if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ENDED and not _sent_back(x) \
                 and now - float(x.get("decided") or x.get("made") or 0) <= COOL and x.get("unit_sig") == sig:

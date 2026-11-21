@@ -123,13 +123,44 @@ def test_the_reviewer_says_a_failed_call_and_it_is_no_try(tmp_path):
         failed.n += 1
         return {"result": "", "usd": 0.02, "error": f"the call failed (exit 1): {OUTAGE}"}
     failed.n = 0
-    for _ in range(rv.TRIES + 1):                                # more failures than its tries: never given up
+    for _ in range(md.FAILS - 1):                                # failed calls: no try, and no verdict
         out = rv.run(p, call=failed)
         assert out["verdicts"] == [{"id": pid, "verdict": None, "why": f"the call failed (exit 1): {OUTAGE}"}]
         assert out["cost"]["usd"] == pytest.approx(0.02)         # charged
-    assert failed.n == rv.TRIES + 1 and rv.tries(p, pr.stored(p)[pid]) == 0
+    assert failed.n == md.FAILS - 1 and rv.tries(p, pr.stored(p)[pid]) == 0
+    assert rv.tries(p, pr.stored(p)[pid], failed=True) == md.FAILS - 1
     assert rv.review_of(pr.stored(p)[pid]) is None
     assert rv.run(p, call=answers(PASS))["verdicts"] == [{"id": pid, "verdict": "pass"}]
+
+
+def test_the_reviewer_gives_a_change_whose_calls_keep_failing_to_the_owner_and_reads_the_next(tmp_path):
+    from ergostat.numbers import improve as im
+    from ergostat.numbers import judge as jd
+    from ergostat.numbers import proposals as pr
+    from ergostat.numbers import reviewer as rv
+
+    from .test_modelreview import DESCRIBE, PASS, judged, passed_redesign
+    p = judged(tmp_path)
+    bad = passed_redesign(p)                                     # the oldest: first in the queue
+    good = im.submit(p, "modeller", DESCRIBE)["id"]
+    jd.run(p, "judge")
+    assert [x["id"] for x in rv.due(p, p.model.spec)] == [bad, good]
+    calls = []
+
+    def call(text, model, timeout=None):                        # fails every time on the redesign ('prompt too long')
+        calls.append('"title": "busy read"' in text)
+        if calls[-1]:
+            return {"result": "", "usd": 0.02, "error": "the call failed (exit 1): Prompt is too long"}
+        return {"result": json.dumps({"review": PASS}), "usd": 0.01}
+    assert rv.run(p, call=call)["verdicts"][0]["id"] == bad and calls == [True]     # failed: the pass stops
+    second = rv.run(p, call=call)["verdicts"]
+    assert second[0] == {"id": good, "verdict": "pass"}          # the one behind it gets through, the failing one behind
+    for _ in range(md.FAILS):
+        rv.run(p, call=call)
+    assert calls.count(True) == md.FAILS                         # bounded: no call on it after FAILS failed
+    v = rv.review_of(pr.stored(p)[bad])
+    assert v["verdict"] == rv.UNDECIDED and "Prompt is too long" in v["summary"] and f"{md.FAILS} failed" in v["summary"]
+    assert rv.read_for_owner(p.model.spec, pr.stored(p)[bad])
 
 
 def test_the_redesigner_says_a_failed_call_not_nothing_proposed(tmp_path):
@@ -148,3 +179,47 @@ def test_the_redesigner_says_a_failed_call_not_nothing_proposed(tmp_path):
     for result, rests in (("error", False), ("nothing proposed", True)):      # a failed run takes no rest
         ran = [{"time": now - 10, "data": {"system": "model", "result": result, "unit_sig": sig}}]
         assert bool(due.resting(p, p.model.spec, "model", now, ran=ran, changes={})) is rests
+
+    def runs(*results):                                          # each run: its start, then its end
+        return [{"time": now - 100 + i, "data": {"system": "model", "result": r, "unit_sig": sig, "why_not": OUTAGE}}
+                for i, r in enumerate(x for r in results for x in ("started", r))]
+    assert due.resting(p, p.model.spec, "model", now, ran=runs(*["error"] * (md.FAILS - 1)), changes={}) is None
+    assert OUTAGE in due.resting(p, p.model.spec, "model", now, ran=runs(*["error"] * md.FAILS), changes={})   # bounded
+    assert due.resting(p, p.model.spec, "model", now, ran=runs("error", "proposed", *["error"] * (md.FAILS - 1)),
+                       changes={}) is None                       # only so many in a row
+
+
+def test_a_request_whose_calls_keep_failing_does_not_starve_the_others(tmp_path, monkeypatch, capsys):
+    """One request that makes every call fail ('prompt too long') is called at most ``FAILS`` times, then held for the
+    owner, and the requests behind it are given calls meanwhile."""
+    from ergostat.library.run import modelling as ml
+    p = _project(tmp_path, monkeypatch)
+    order = ml._near(p, _waiting(p))
+    assert len(order) >= 2
+    bad, other = order[0]["id"], order[1]["id"]
+    calls = []
+
+    def call(text, model, timeout=600.0):
+        calls.append(f'"id": "{bad}"' in text)
+        if calls[-1]:
+            return {"result": "", "usd": 0.01, "error": "the call failed (exit 1): Prompt is too long"}
+        return {"result": "", "usd": 0.01, "tokens_in": 1, "tokens_out": 1}
+    monkeypatch.setattr(md, "call", call)
+    assert _run("--daily", "20") == 0 and calls == [True]      # the first call, all together: failed, no try
+    assert rq.stored(p)[other]["failed"] == {"ai": 1} and not rq.stored(p)[other].get("tried")
+    for _ in range(md.FAILS):
+        assert _run("--daily", "20") == 0
+    assert int((rq.stored(p)[other].get("tried") or {}).get("ai") or 0) >= 1      # the one behind it got its call
+    while len(calls) < 80 and _waiting_ai(p, bad):
+        _run("--daily", "20")
+    assert calls.count(True) == md.FAILS                         # bounded: no call on it after FAILS failed
+    x = rq.stored(p)[bad]
+    assert x["state"] == "held" and x["failed"] == {"ai": md.FAILS} and "waits for the owner" in x["why"]
+    assert "Prompt is too long" in x["error"] and not x.get("tried")
+    n = len(calls)
+    _run("--daily", "20")
+    assert calls.count(True) == md.FAILS and len(calls) <= n + 1
+
+
+def _waiting_ai(p, rid):
+    return any(r["id"] == rid and int((r.get("failed") or {}).get("ai") or 0) < md.FAILS for r in _waiting(p))
