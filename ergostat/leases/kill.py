@@ -1,10 +1,9 @@
 """A run whose lease expired is stopped (SPEC §9.5, *Fencing*; the owner, 2026-11-18): its item is back in the queue,
 so nothing it still does is wanted. Its process group and every descendant get SIGTERM, then SIGKILL after the grace
-(``ERGOSTAT_KILL_GRACE``, seconds) for whatever is left (``library/reap.py``): those its ``Watch`` saw too (one
-detached, its parent gone), each only while it is still the process seen (a pid used again is left alone, unless
-taken again within the second of its first start: ``ps`` reads start times to the second), and
-``ergostat.run.killed`` is recorded. Only a run this engine started is signalled (one left behind by an engine that stopped is not its to
-kill). The run then ends as any run does: ``agent.failed``, its note why, its resources and cost measured."""
+(``ERGOSTAT_KILL_GRACE``, seconds) for whatever is left (``library/reap.py``), with what its ``Watch`` saw while
+still the process seen (one detached too), and ``ergostat.run.killed`` is recorded. Only a run this engine started
+is signalled (one left behind by an engine that stopped is not its to kill). The run then ends as any run does:
+``agent.failed``, its note why, its resources and cost measured."""
 
 from __future__ import annotations
 
@@ -52,14 +51,10 @@ def _stop(eng, proc, run, why, item, fence, block) -> None:
         if eng.live.get(run) is not proc or proc.poll() is not None:
             return
     g, t0 = grace(), time.monotonic()
-    watch = getattr(proc, "watch", None)            # every process the run was seen to start, its own pid among them
-    if watch is not None:
-        watch.look()
-
-    def also() -> set[int]:                         # those still the process seen (no pid used again), and the run's own
-        mine = {proc.pid} if proc.poll() is None else set()   # while unwaited (never another's): even if ``ps`` fails
-        return (watch.still() if watch is not None else set()) | mine
+    watch = getattr(proc, "watch", None) or reap.Watch(proc.pid)    # (none yet: its tree as it is now)
+    also = lambda: watch.still() | ({proc.pid} if proc.poll() is None else set())  # noqa: E731 (own pid: never another's)
     pids = reap.stop(proc.pid, grace=g, also_group=True, also=also)   # (the run itself waited on too)
+    watch.close(look=False)
     sig = "TERM" if time.monotonic() - t0 < g else "KILL"     # (TERM was enough when it ended inside the grace)
     eng.p.events.add(KILLED, item=block, source="ergostat", causedby=run,
                      data={"run": run, "why": why, "signal": sig, "pids": sorted(pids), "grace": g,
