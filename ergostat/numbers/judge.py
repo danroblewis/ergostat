@@ -477,7 +477,8 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     from . import redesign_record as rr
     blind = None                                            # the record's mark could not be read: nothing written
     with pr.locked(p):
-        for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):
+        xs = sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0)
+        for x in xs:
             if x.get("kind") == REDESIGN:                    # a change set: judged as a whole, by its scorecard on the record
                 if x["state"] == "checked":
                     try:
@@ -551,7 +552,8 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                                                       "needs": nd["needs"], "scored": nd["stocks"]}})
             out[state] += 1
             out["verdicts"].append({"id": x["id"], "verdict": state, "why": why})
-        waiting = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN and y["state"] == "passed"]
+        waiting = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN and y["state"] == "passed"] \
+            if any(y.get("kind") == REDESIGN for y in xs) else []     # (no redesign pending: the record not folded again)
         try:                                                 # a redesign waiting for the owner, scored again as the
             if blind:                                        # record it was judged on moves (redesign_record)
                 raise rr.Unreadable(blind)

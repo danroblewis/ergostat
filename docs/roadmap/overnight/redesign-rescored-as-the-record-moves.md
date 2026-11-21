@@ -273,3 +273,27 @@ The review's findings, every one of them (lesson-12):
   lesson-13).
 - *`tests/test_probe_tmp.py`:* `git rm` was refused again in this session, so it is still in the branch. Someone
   with delete rights must run `git rm tests/test_probe_tmp.py && git commit`.
+
+### Round 8 (the unit suite cut off at 99%)
+
+- *The unit suite stopped at about 99%* (2042 of about 2049 tests), with no failing test, no summary and no
+  watchdog line. So the run was cut off from outside the suite, not stopped by an assertion. The tail names no test.
+  On the same code it stopped at 53% in round 3, finished in round 5 (322 s), stopped at 49% in round 7, and stopped
+  at 99% now. That spread points to the run's time or memory limit under load, not to one test that hangs. This is a
+  reading of the tails, not a confirmed cause.
+- *Changed:* this branch added one cost to every judge pass, redesign or not. After the verdict loop it ran a second
+  `pr.pending` (a fold of every model-change event) to find the passed redesigns. That fold now runs only when the
+  pass's pending list holds a redesign (`judge.py:554-556`). Any passed redesign was already in that list, so the
+  rescore sees the same redesigns as before. With no redesign pending, a judge pass now costs what it costs on main.
+- *Run here:* ruff is clean. Each command below ran on its own with `-o faulthandler_timeout=120`, and none hung:
+  - test_redesign_rescored, test_redesign, test_modelling_core, test_modelling_core2, test_slowjudge, test_improve,
+    test_gate, test_self_improve, test_intent, test_churn, test_exercised, test_extremes_closed and test_bench:
+    203 passed in 61 s.
+  - test_item_systems, test_decisions, test_parity, test_numbers, test_lease_kill, test_mended, test_reports,
+    test_control, test_modelling_template, test_review and test_sd_review: 222 passed in 48 s (these ran before the
+    change, which only touches the judge pass).
+  I asked to run the whole suite one test at a time under the watchdog, to name any test that hangs, and that was
+  refused in this session. If the factory's next run stops again, `-o faulthandler_timeout=180` on it will name the
+  stuck test.
+- *`tests/test_probe_tmp.py`:* `git rm` was refused again in this session. It is still in the branch and must be
+  removed before merge (`git rm tests/test_probe_tmp.py && git commit`).
