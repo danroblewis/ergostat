@@ -42,3 +42,18 @@ load-dependent race between close and a dispatch that has just started (lesson-1
 It is not fixed here because the definition says "nothing else changed" and allows 0 lines of code. The factory asked
 for a code fix; the more reversible choice is to leave the code alone and report the failure. The implementor could
 not re-run the test alone to see whether it is a flake: shell commands were refused in this session.
+
+After the fast suites, second time: `unit` failed on a different lease test,
+`tests/test_leases.py::test_a_lease_held_by_a_run_survives_a_model_edit` (1 failed, 1902 passed, 69 skipped), at :532:
+`swap` reported `runs == []` while the item was already `leased`. The code shows a window that explains it:
+`ergostat/leases/dispatch.py` `take` writes the lease event (:204), which makes the fold say `leased`, then re-reads the
+fold and records resources, and only then adds `"worker ticket/1"` to `engine.running` and pins the model (:218-220).
+The test waits for `leased` and then swaps. Under load the swap can land in that window, so the run is not carried
+over, and it is then pinned to the *new* model. That is a real race in ergostat (lesson-10), not a test timing
+problem. The likely fix is to add the run to `running` and pin the model under the engine lock before or with the
+lease event, and drop it again if the fold refuses the take. It is not fixed here. This branch changes only two
+markdown files, nothing in the lease or engine code reads them, the definition allows 0 lines of code and says
+"nothing else changed", and lesson-13 says an unrelated failure goes in a gap of its own. The factory asked for a code
+fix; leaving the code alone and reporting is the more reversible choice. The two lease failures so far (close, then
+swap) both come from dispatch's take/finish lifecycle and probably belong in one gap. The implementor could not re-run
+the test alone or commit this section: shell commands were refused in this session, so it is left uncommitted.
