@@ -8,7 +8,8 @@ hold the rest to the pool now.
     pools.py tune             the controller (a block): after [pools] streak good gaps in a row (approved within one fix
                               round, and not reverted after merging), an increase of one is asked as the gated action
                               raise-pool, for the coordinator; a park, a second fix round or a reverted merge lowers
-                              every pool by one at once, never below 1
+                              every pool by one at once, never below 1. PAUSED (operator, 2026-11-20): the role
+                              pools are neither raised nor lowered (pool-control replaces it); only the batch is tuned
     pools.py set ROLE N WHY   the action's command: set it (within 1 and its most)
 
 The merge queue's batch (`batch`: approved gaps it merges and tests together, dev/bin/queue.py) lives here too: [pools]
@@ -116,8 +117,15 @@ def decide(evidence: list[tuple[float, str, str]], since: float, pools: dict, cf
     return None, "", streak
 
 
+PAUSED = True     # the role pools' tuning (operator, 2026-11-20): it lowered the owner's pools on parks caused by main;
+                  # pool-control replaces it. The pools stay where `pools.py set` put them; the batch is still tuned.
+
+
 def tune(cfg: dict) -> int:
     st = state(cfg)
+    if PAUSED:
+        tune_batch(cfg, st)
+        return 0
     evidence = outcomes(fac.items("gap"), fac.items("upgrade"))
     what, why, streak = decide(evidence, st["since"], st, cfg)
     if what == "lower":
