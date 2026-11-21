@@ -139,6 +139,17 @@ except the staleness and the by-seq changes, made together because each touches 
 - the queue's reports pruned by folder name instead of by seq: `test_the_queue_keeps_the_last_reports_by_seq` (an
   addition) failed.
 
+**The factory's unit run after round 1 (suite fix round).** It was reported failed, but its log stops after uv's
+install lines. pytest's dots, xdist's "bringing up nodes" and suite_watch's closing `{"rc": ...}` line are all missing.
+`fac.suite` sets no timeout, so the run was stopped from outside before it finished. Output written to a file is
+block-buffered, so a killed run leaves nothing. No failing test is named, so nothing in the code was changed. Checked
+again in this round, one file at a time (the session may not start the whole suite):
+`tests/test_code_health_coverage.py` (8 passed, serial, and again with `-n 4 --dist worksteal` in random order next to
+`tests/test_factory_resources.py`, 16 passed), `tests/test_factory.py`, `tests/test_factory_resources.py` and
+`tests/test_ticket_factory_daemons.py` (55 passed, 2 skipped), and the full suite's collection (2002 tests, no error).
+Ruff is clean. With `ERGOSTAT_COVERAGE` unset, the branch adds one `os.environ.get` per pytest process to the unit run.
+If the unit suite fails again with a named test, that test is the next thing to look at.
+
 Also added: `test_a_report_of_a_commit_not_on_main_is_not_read`. `test_tracer_off_without_the_variable` also runs the
 tracer for real in a child pytest with the variable set, and checks that a module the probe imported
 (`ergostat/durations.py`) is in its file.
