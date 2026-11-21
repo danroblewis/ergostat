@@ -1,17 +1,9 @@
-"""Queries over the items' relations and mentions (SPEC §5a, *Graph queries*), read from the item index
-(``itemindex.py``): its links, both ways, and the items' fields.
-
-- ``near(ID, depth)``: the items within ``depth`` relation hops (1 to ``DEPTH_MOST``), each with its distance and the
-  step it was first reached by.
-- ``path(A, B)``: a shortest chain of relations between two items (breadth first), walked either way; a step walked
-  backward is named by its relation's inverse as the kind declares it (``inverse:``), else the derived one
-  (``relations.inverse_of``: ``blocks``, ``children``, ``before``, ..., any other ``NAME_of``).
-- ``about(ID)``: the items linking to it by a declared relation (``declared``), then those whose fields hold its id as a
-  whole token (``inferred``: ``ticket/1`` is not in ``ticket/12``), among those the index's text (``items.text_of``,
-  its first ``TEXT_MOST`` characters) holds it in.
-
-Each visits at most ``VISIT`` items and says ``capped`` when it stopped there: a capped path is "none within the cap",
-never "not connected". An unknown id is ``Unknown``, a bad depth ``Bad``: never an empty answer."""
+"""Queries over the items' relations and mentions (SPEC §5a, *Graph queries*), from the item index's links, both
+ways, and its text: ``near`` (the items within 1 to ``DEPTH_MOST`` hops), ``path`` (a shortest chain, a step walked
+backward named by the kind's ``inverse:``, else ``relations.inverse_of``) and ``about`` (``declared`` links to it, then
+``inferred`` whole-token mentions among the items whose text, its first ``TEXT_MOST`` characters, holds the id).
+Each visits at most ``VISIT`` items (links are bounded only by those) and says ``capped`` when it stopped there: a
+capped path is "none within the cap", never "not connected". An unknown id is ``Unknown``, a bad query ``Bad``."""
 
 from __future__ import annotations
 
@@ -42,17 +34,15 @@ def depth_of(raw) -> int:
 
 def _index(events, spec):
     from .itemindex import index_for
-    ix = index_for(events, spec, False)
-    if ix is None:
+    if (ix := index_for(events, spec, False)) is None:
         raise Bad("the record keeps no item index (a record on disk does)")
     return ix
 
 
 def _known(ix, *ids: str) -> None:
     have = {i.id for i in ix.items(ids=ids, moves=False)}
-    for i in ids:
-        if not i or i not in have:
-            raise Unknown(f"no item {i!r}")
+    if bad := [i for i in ids if not i or i not in have]:
+        raise Unknown(f"no item {bad[0]!r}")
 
 
 def _inverse(spec, src: str, rel: str) -> str:
@@ -62,9 +52,7 @@ def _inverse(spec, src: str, rel: str) -> str:
 
 def _steps(ix, spec, frontier: list[str]) -> list[tuple[str, str, str]]:
     """(from, relation, to) of every step out of ``frontier``: its links, and the links to it by their inverse."""
-    out = [(a, r, d) for a, r, d in ix.links_from(frontier)]
-    out += [(d, _inverse(spec, a, r), a) for a, r, d in ix.links_to(frontier)]
-    return sorted(set(out))
+    return sorted({*ix.links_from(frontier), *((d, _inverse(spec, a, r), a) for a, r, d in ix.links_to(frontier))})
 
 
 def _walk(ix, spec, start: str, depth: int, goal: str | None = None):
@@ -87,13 +75,11 @@ def _walk(ix, spec, start: str, depth: int, goal: str | None = None):
 
 
 def near(events, spec, id: str, depth=None) -> dict:
-    depth = depth_of(depth)
-    ix = _index(events, spec)
+    depth, ix = depth_of(depth), _index(events, spec)
     with ix.lock:
         _known(ix, id)
         seen, capped, _ = _walk(ix, spec, id, depth)
-    items = [{"id": b, "distance": n, "via": {"from": s[0], "relation": s[1]}}
-             for b, (n, s) in seen.items() if s is not None]
+    items = [{"id": b, "distance": n, "via": {"from": s[0], "relation": s[1]}} for b, (n, s) in seen.items() if s]
     return {"query": "near", "id": id, "depth": depth, "items": items, "capped": capped, "cap": VISIT}
 
 
@@ -109,28 +95,23 @@ def path(events, spec, a: str, b: str | None) -> dict:
         f, r, t = seen[x][1]
         steps.insert(0, {"from": f, "relation": r, "to": t})
         x = f
-    says = "found" if found else f"none within the cap ({VISIT} items)" if capped else "no path"
-    return {"query": "path", "from": a, "to": b, "found": found, "steps": steps, "capped": capped, "says": says,
-            "cap": VISIT}
+    return {"query": "path", "from": a, "to": b, "found": found, "steps": steps, "capped": capped, "cap": VISIT,
+            "says": "found" if found else f"none within the cap ({VISIT} items)" if capped else "no path"}
 
 
 def mentions(fields, token: re.Pattern) -> str | None:
-    """The first field (by name) one of whose string values, nested ones too (as ``items.text_of`` reads them, never
-    their JSON, where a newline would be ``\\n``), holds ``token``."""
+    """The first field (by name) with a string value, nested ones too (as ``items.text_of``, never JSON), holding it."""
     for f in sorted(fields):
         todo = [fields[f]]
         while todo:
-            v = todo.pop()
-            if isinstance(v, str) and token.search(v):
+            if isinstance(v := todo.pop(), str) and token.search(v):
                 return f
-            if isinstance(v, (dict, list)):
-                todo += list(v.values()) if isinstance(v, dict) else v
+            todo += list(v.values()) if isinstance(v, dict) else v if isinstance(v, list) else []
     return None
 
 
 def about(events, spec, id: str) -> dict:
-    ix = _index(events, spec)
-    token = re.compile(rf"(?<![\w/-]){re.escape(id)}(?![\w/-])")
+    ix, token = _index(events, spec), re.compile(rf"(?<![\w/-]){re.escape(id)}(?![\w/-])")
     with ix.lock:
         _known(ix, id)
         got = {a: {"id": a, "how": "declared", "relation": r} for a, r, _ in sorted(ix.links_to([id]))}

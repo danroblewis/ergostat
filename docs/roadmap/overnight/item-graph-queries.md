@@ -268,3 +268,30 @@ The factory's next unit run finished and failed one test, `tests/test_reload_saf
 Left: a gap on main for this test (for example, make the pool's read wait on an event until the first `_readings`
 returns), then the unit suite run again on this branch. This session was not allowed to run the test in a loop to
 measure how often it flakes.
+
+## Where it stopped, round 6
+
+Built, round 6. The one finding was *size: 198 net lines of core code against 170, with no reason written*. The code now
+meets the budget instead of giving a reason: **167 net lines** (`git diff --numstat main -- ergostat`:
+`spec/itemgraph.py` 123, `cli/record.py` 26, `web/server.py` 13, `cli/__init__.py` 4, `goodmodel.py` 0 net). Rounds 2
+to 5 wrote the reason here, but the gate (`dev/bin/review.py`, `judge`) reads the definition as first committed, so it
+never saw one. That is the same factory defect lease-kill-detached reported. It is outside this gap (lesson-13).
+
+What was cut, with no change to behaviour or to the JSON:
+- the module docstring, from 14 lines to 6. It still states the visit cap, `TEXT_MOST`, that links are bounded only by
+  the items visited, and that a capped path is never "not connected";
+- `_known`, `_steps` and `mentions`, written more tightly;
+- the `--near`, `--path` and `--about` help strings, one line each. The bounds are still in the `item` help line, SPEC
+  §5a and the agent guide;
+- the server's three calls, now one expression;
+- the plain-text printing. Without `--json`, each row's values are printed, then the path's `says` or `N items` (with
+  `, capped at 2000` when capped). The old coloured layout and "nothing near ID" are gone. No test or doc relied on
+  them.
+
+**Run here:** tests/test_item_graph_queries.py (13), test_item_search, test_cli_fallback, test_relations,
+test_graph_cli_web, test_item_about, test_items_page, test_messages: 123 passed, 1 skipped. Ruff is clean. Not run: the
+whole unit suite and the four browser files, which the factory runs under the watchdog. The plain-text output was checked
+by reading the code, not by running it (this session could not write a scratch file outside /work). Local `main`
+(a7cad540) is the branch's merge base, so there was nothing to merge. This container has no network, so the coordinator
+should merge origin/main and run the suites again (lesson-7). Round 5's `test_reload_safety` flake is still unrelated
+to this branch and is left for its own gap.

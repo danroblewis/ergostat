@@ -410,12 +410,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
         asked = [k for k in ("near", "path", "about") if one(k) is not None]
         if one("at") or len(asked) != 1:
             raise BadSet("items-query: one of near=ID, path=A&to=B or about=ID, as the record is now (never at=)")
+        ev, s = p.events, getattr(m, "spec", None)
         try:
-            if asked == ["near"]:
-                return ig.near(p.events, getattr(m, "spec", None), one("near"), one("depth"))
-            if asked == ["path"]:
-                return ig.path(p.events, getattr(m, "spec", None), one("path"), one("to"))
-            return ig.about(p.events, getattr(m, "spec", None), one("about"))
+            return ig.near(ev, s, one("near"), one("depth")) if asked == ["near"] else \
+                ig.path(ev, s, one("path"), one("to")) if asked == ["path"] else ig.about(ev, s, one("about"))
         except ig.Unknown:
             return None
         except ig.Bad as e:

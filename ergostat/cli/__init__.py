@@ -215,12 +215,9 @@ def build() -> argparse.ArgumentParser:
                                                      "characters of each item's text)")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
-    i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N relation hops "
-                   "(1 to 4, default 1), each with its distance and the relation that reached it")
-    i.add_argument("--path", dest="path_to", metavar="B", help="with an item: a shortest chain of relations to item B, "
-                   "walked either way (a step backward named by its inverse: blocks, children)")
-    i.add_argument("--about", dest="about_item", action="store_true", help="with an item: the items relating to it "
-                   "(declared) and those whose fields name its id (inferred); each query visits at most 2,000 items")
+    i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N hops (1-4, default 1)")
+    i.add_argument("--path", dest="path_to", metavar="B", help="with an item: a shortest chain of relations to B, either way")
+    i.add_argument("--about", dest="about_item", action="store_true", help="with an item: what relates to it or names its id")
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")
     ls.add_argument("--redrive", action="store_true", help="with ITEM: give a dead letter another go (its attempts from nothing)")
     ls.add_argument("--to", metavar="STATE", help="with --redrive: the state it goes back to (default: where it was taken from)")

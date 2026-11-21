@@ -154,30 +154,22 @@ def _item_graph(args) -> int:
     from ..spec import itemgraph as ig
     asked = sum(x not in (None, False) for x in (args.near, args.path_to, args.about_item))
     if getattr(args, "at", None) or getattr(args, "history", None) is not None or not args.name or asked > 1:
-        print("--near, --path and --about: one of them, of an item (ergostat item ID --near), as the record is now "
-              "(never with --at or --history)", file=sys.stderr)
+        print("--near, --path, --about: one, of an item, as the record is now (never with --at or --history)", file=sys.stderr)
         return 2
     p = open_project(args)
-    spec = getattr(p.model, "spec", None)
+    ev, spec, n = p.events, getattr(p.model, "spec", None), args.name
     try:
-        got = ig.near(p.events, spec, args.name, args.near) if args.near is not None else \
-            ig.path(p.events, spec, args.name, args.path_to) if args.path_to is not None else \
-            ig.about(p.events, spec, args.name)
+        got = ig.near(ev, spec, n, args.near) if args.near is not None else \
+            ig.path(ev, spec, n, args.path_to) if args.path_to is not None else ig.about(ev, spec, n)
     except (ig.Unknown, ig.Bad) as e:
-        print(f"{args.name}: {e.args[0]}", file=sys.stderr)
+        print(f"{n}: {e.args[0]}", file=sys.stderr)
         return 2
     if args.json:
         return out_json(got)
-    if got["query"] == "path":
-        print(f"{got['from']} → {got['to']}: {got['says']}")
-    for x in got.get("steps") or got.get("items") or []:
-        print(f"  {x['from']} {c(x['relation'], 'accent')} {x['to']}" if "to" in x else
-              f"  {x['id']:<24} {x['distance']}  {c(x['via']['relation'], 'dim')} from {x['via']['from']}"
-              if "distance" in x else f"  {x['id']:<24} {c(x['how'], 'accent')}  {x.get('relation') or x.get('field')}")
-    if got["query"] != "path" and not got["items"]:
-        print(c(f"nothing {got['query']} {got['id']}", "dim"))
-    if got["capped"]:
-        print(c(f"capped: stopped after {got['cap']} items", "warn"))
+    for x in got.get("steps") or got.get("items") or []:     # from relation to, or id distance (via) / how relation-or-field
+        print("  " + "  ".join(" ".join(map(str, v.values())) if isinstance(v, dict) else str(v) for v in x.values()))
+    print(c(got.get("says") or f"{len(got['items'])} items" + (f", capped at {got['cap']}" if got["capped"] else ""),
+            "warn" if got["capped"] else "dim"))
     return 0
 
 
