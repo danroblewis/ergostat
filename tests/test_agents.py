@@ -48,7 +48,6 @@ def test_implementor_environment_has_a_browser():
     # (UV_NO_SYNC: the project's .venv is left as it is; a sync here reinstalls ergostat under the other workers)
     r = subprocess.run(["sh", "-c", cfg["browser_ready"]], cwd=ROOT, capture_output=True, text=True, timeout=300,
                        env={**os.environ, "UV_NO_SYNC": "1"})
-    assert "Uninstalled" not in r.stderr, r.stderr[-1500:]                    # (ergostat never taken out mid-suite)
     assert r.returncode == 0, f"no browser here: {shlex.join(['sh', '-c', cfg['browser_ready']])}\n{r.stderr[-1500:]}"
 
 

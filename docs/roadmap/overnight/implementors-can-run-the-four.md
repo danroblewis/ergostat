@@ -163,3 +163,19 @@ Round 6, the round's unit suite failed; main (b24eb901) was already merged (f79d
   elsewhere: a container killed from outside (agents.sweep, implement.py's finally) leaves this same tail.
 - **Run here:** tests/test_agents.py (4 passed). Ruff is clean on ergostat, tests and scripts. The whole unit suite
   was not run by me (the brief says never in parallel yourself); the factory's fast suites run it.
+
+Round 7, merged; main (20339898) merged in first.
+
+- **Merge of main:** only dev/README.md conflicted, in the pipeline manager's section, which main rewrote (what the
+  session is given, `most_actions`, the routine review). It keeps main's text, plus the branch's words on `reapprove`:
+  a fast-suite failure is run again in a container, and a browser test with Playwright (`rerun`), where a skip is not
+  a pass.
+- **Review 5, `Uninstalled` assert (lesson 9):** removed. With `UV_NO_SYNC=1` it could not fail, so it guarded
+  nothing. `UV_NO_SYNC` stays. The cause of round 6's early stop is still unproven, as written above.
+- **Review 5, give-back every hour with no end:** left as it is. It is the same handling as a missing session token.
+  An intervention after N give-backs in a row would be new factory behaviour that this definition does not ask for,
+  so it belongs in its own gap. The nack's reason ("no browser: ... rebuild ...") says what to do.
+- **Review 5, not run by the reviewer, and main moved:** this merge settles the second. The first stays with the
+  factory's fast suites and the queue.
+- **Run here:** tests/test_agents.py (4 passed, before and after the assert was removed), tests/test_factory_manager.py (33 passed). Ruff is clean on ergostat, tests and scripts. The four browser
+  files and the whole unit suite were not run by me this round; the factory's fast suites run them.
