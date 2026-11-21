@@ -398,7 +398,11 @@ push, of its last merge, so one approval lands the batch, and a denial sends eve
 bisected (the suites again on the first half of the merges, and so on) to the first merge that fails; that gap goes to
 flake triage with its failures, the merges before it land, and those after it are merged again and run once more.
 When the red run named its failing tests (`FAILED`/`ERROR` lines), those are first run alone, serially
-(`[suites] rerun`, `-rA`), on the whole red tree. Only if one fails there too does each bisecting step run only those:
+(`[suites] rerun`, `-rA`), on the whole red tree. **A flake lands:** when it named 1 to 3 tests, none in
+`tests/test_page_polling.py`, and its failed suite skipped none, they are run alone there twice; each passing both
+times (a PASSED line, rc 0), the suites the red run did not finish (stopped by its failure, or never reached) run, and
+green there the batch lands with no bisect, each test a flake seen (`flake.seen` on `flake/<test>`: the run, the suite,
+`passed_alone`, the log; `excused` in each gap's `suites_queue`). Only if one fails alone does each bisecting step run only those:
 red when one of them fails, green only when the run passes and each says PASSED; a step that cannot tell (a test not
 found on that prefix, a run that never started) runs every suite instead. A failure that shows only in the full run
 (order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a

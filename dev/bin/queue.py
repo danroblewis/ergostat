@@ -19,7 +19,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    recorded and never blocking (fac.beside());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
-   bisected to the first failing merge (land(), on the failing tests alone when the run named any), which goes on to
+   when its 1 to 3 named tests each pass alone on the red tree twice and the suites it did not finish pass, it lands as
+   a flake (excusable(), excused()); else bisected to the first failing merge (land(), on the failing tests alone when
+   the run named any), which goes on to
    flake triage with what failed (`queue-failed`) and the rest lands, each merge only on a full green run. On any
    error or stop, main is undone with `git reset --keep`. The push is asked under the run's own gap's lease, and is
    not fenced by it (`fenced: false`: it pushes only that commit, only as a fast-forward), so it runs once approved

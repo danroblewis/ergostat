@@ -28,3 +28,38 @@ The owner (2026-11-20): "we can disable the flakey tests, or run them without bl
 
 ## Size budget
 50 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built. `dev/bin/queue.py` is +53 / -7 (46 net, docstrings included); `dev/README.md` +5 / -1.
+
+- **Choices (the most reversible ones, nobody to ask):**
+  - "Rerun them once more" is read as two runs alone on the red tree: the first `named()` (the one there today) and one
+    more. Both must be green (`passed()`: rc 0 and a PASSED line for each, lesson-3).
+  - When one suite fails, the suites beside it are stopped and demo never runs. So a run is not green just because its
+    failed tests passed alone. Before landing, the suites the red run did not finish (`rest()`) run on the same tree.
+    If they fail, the batch bisects in full. That is one more run than "lands with no bisect" strictly asks for, but
+    otherwise a flake would land code whose browser suite or demo_check never ran.
+  - A failed suite that also skipped tests (a page test skipped is a failure) is never excused.
+  - The flake is recorded the way triage and onmain record one: `flake.seen` on `flake/<test>`, with `times: 1`,
+    `gaps`, `run` (the batch id), `suite`, `passed_alone: 2` and `log`. Each landed gap's `suites_queue` also carries
+    `excused` (suite, tests, log).
+  - A batch of one now runs the named tests alone too, when they are excusable. Today it runs no rerun. If they fail
+    alone, the result is the same as today (queue-failed).
+- **Tests changed:** `test_a_named_rerun_green_on_the_red_tree_bisects_in_full` described exactly the case this gap
+  now lands. Its full-bisect path is kept by the new four-tests and page-polling tests. In
+  `test_a_branch_cannot_quarantine_its_own_failing_test`, T passed alone and so would now land as a flake. It is now
+  given a rerun where T fails alone, which keeps the test's point (the branch's own quarantine deselects nothing).
+- **Acceptance tests** (tests/test_factory.py): `test_a_batch_whose_one_failed_test_passes_alone_twice_lands_as_a_flake`,
+  `test_a_test_that_fails_alone_on_either_rerun_still_bisects` (the first rerun failing is the existing
+  `test_bisect_reruns_only_the_failing_tests`), `test_four_failed_tests_that_each_pass_alone_still_bisect`,
+  `test_a_page_polling_failure_is_never_excused`, `test_a_failure_naming_no_test_bisects_in_full` (existing, now also
+  checks that nothing is excused).
+- **Break-checked:** each guard was broken by hand and its test watched fail. The cap at 4: four-tests fails. No
+  page-polling exclusion: page-polling fails. The second rerun skipped, or `passed()` reading an unreadable run as
+  green: either-rerun fails. The rest of the run skipped: lands-as-a-flake fails (KeyError 'demo').
+- **Not run here:** the whole unit suite and the four browser files (the factory runs them under the watchdog).
+  origin/main could not be checked: the command `git branch -a ...; git merge-base --is-ancestor origin/main HEAD`
+  was refused. Also refused: `git checkout -q dev/bin/queue.py` (the breaks were undone by hand, and `git status` was
+  clean after) and a shell loop over the four other queue-using test files (they were run in one pytest call instead:
+  24 passed).
