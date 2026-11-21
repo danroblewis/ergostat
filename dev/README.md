@@ -142,6 +142,13 @@ failures in the queue), `build_failures = 6` failed fast-suite runs of the imple
 building over its rounds, park a gap; within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make
 its failing fast suites pass.
 
+**Scratch files are refused by a program, not a review.** After each session, before the fast suites, implement.py
+lists the files the branch adds against main and refuses any with a path part matching `[gates] scratch_patterns`
+(`.scratch*`, `scratch*`, `tmp*`, `_probe*`, `*_probe*.py`, `*.orig`, `*.rej`), or under a new top-level file or folder
+the definition's "Files to touch" does not name (checked only when the definition has that section). A file already on
+main is never refused. The list goes back to the session's next round (one of its `suite_fix_rounds`, not a review
+round); still there after the last, the run counts as a failed build.
+
 **A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
 runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
 suite slot). Passing alone, they are flakes (`flake.seen`) and the fast suites run once more, uncounted. Still failing,
