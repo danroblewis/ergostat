@@ -240,3 +240,19 @@ invocation (`test_churn`, `test_modelling_core`, `test_modelling_core2`, `test_r
 109 passed, 37.9 s). Ruff is clean. Not run here: the whole unit suite, the four browser files and `suite_watch` (the
 brief leaves them to the factory). The earlier factory failures (two runs cut short, then the lease and warm timing
 tests) are still outside this gap, as said above.
+
+**After the factory's fifth unit run failed.** Its tail stops at about 4% (some 104 tests) with no failing test, no
+traceback, no summary line and no watchdog JSON line. That last one matters: `suite_watch` prints its line whenever it
+kills a run or the run ends, so its absence means the watchdog was stopped from outside too (the slot or the
+container), not that it hit a limit. Earlier runs were cut short at 32% and 14%. A hang caused by this branch would
+stop in the same tests each time, and these runs stopped in different places. I read the code again for a hang it
+could cause:
+- **Lock order.** Inside every `proposals.locked` span (`_supersede`, `make`, `dismiss`, `accept`, `review.refresh`,
+  the judge), nothing takes the lock again (`pending`, `admit`, `save` and `files_now` take none). Nothing takes a
+  second lock in the other order either: `trial.compiled`, which `files_now` calls under the lock, takes no lock (its
+  `override` is a context variable).
+- **Accept.** `_accept` reloads `p.model` and calls `_supersede` (unlocked) inside `accept`'s lock, as on main.
+No code was changed, because I found no failing test and no cause in the code. Run here, one invocation each:
+`tests/test_churn_carry.py` (17 passed, 5.0 s), the six named files together (109 passed, 38.2 s), ruff clean. The
+shell refused the whole suite and `suite_watch` in this session, so the peaks were not seen. If the next run is cut
+short, check the slot's and the container's time limits and the watchdog's stderr before looking at this branch again.
