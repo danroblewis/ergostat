@@ -180,3 +180,56 @@ All are in `tests/test_remote_mtls.py`. The listener tests call `listen.start(ha
 - TLS 1.3 refusal timing: under 1.3 a certless client's handshake finishes and the refusal arrives as an alert on the first read, which can show up as an SSLError or a reset. In the refusal tests, assert status 0 and no body, not exact wording. Make sure `client.get` turns ConnectionResetError/SSLError raised during the read into `(0, None, None, reason)` rather than a traceback.
 - Stop race (lesson-1/lesson-6): register open sockets under one lock with a `stopping` flag. A connection accepted while a stop is running must see the flag inside the lock and close itself, otherwise it escapes the close-all snapshot. Shut down the underlying fd (`socket.socket.shutdown(sock, SHUT_RDWR)`), not `SSLSocket.shutdown`, which clears `_sslobj` under a thread blocked in `do_handshake`. Read the timeouts as `listen.HANDSHAKE`/`listen.IDLE` at use time, never as default arguments, or the monkeypatching won't take effect.
 - Rate limit: check that the requests in `test_only_get` and the end-to-end test stay under the 10/s token limit or are spaced out. A 429 must not hide a wrong 404/200, and the 404/405 paths must be shown never to reach `_remote` (e.g. with a call counter).
+
+## Where it stopped
+
+Built, round 1. All of the definition is in place: 383 net lines of code outside `tests/` and `docs/`
+(budget 400). Nobody could be asked, so these choices were made, each the more reversible one:
+
+- **`mtls-unreadable` for `web.mtls` is an error only to `ergostat check`.** When the model loads (run, web) it
+  is a finding. An error at load would stop `mdl.load`, and then "the loopback page still serves" could not
+  hold. `ergostat check` is the one place `compose.fresh()` is set, so compile asks `compose.checking()`. A
+  remote's `tls:` file that can't be read is an error at load, as the definition says.
+- **The page tests' port** (plan review, lesson-10): `web.serve(project, port, mtls_port=None)`. The test-only
+  override 0 binds any free port, and `server.mtls_port` gives it back. The stop test binds that same port
+  again. The unreadable-file test configures a port the test holds bound (and not listening), so nothing
+  else can take it. It also checks that `listen.start` is never called. There is no probe-then-reuse step.
+- **The stalled test** uses 3 s for `HANDSHAKE` and `IDLE`, not 0.5 s (plan review). It opens the 8
+  handshaken connections first and the 8 raw ones after. It checks the refusal only after
+  `held() == 16`. Recovery is polled with a 10 s deadline.
+- **Allowlist** (plan review): the query and fragment are cut off before splitting. Segments are decoded
+  with `unquote`. A segment holding `/` or `\` is refused, and so are `.`, `..` and an empty one (except a
+  trailing one). `/remote/v1/status%2F..%2F..%2Fapi%2Fstatus`, `/remote/v1/` and `/remote/v2/status` are in
+  the 404 list. Every other method is 405 through `__getattr__`, so none of them is ever 501.
+- **Each file is checked on its own** (plan review): `cert` loads as PEM certificates into a scratch
+  `SSLContext`. `key` goes through `load_cert_chain` only after the cert passed, so a mismatched pair is
+  `web.mtls.key …: KEY_VALUES_MISMATCH` (the fourth parametrised case). `client-ca` goes through
+  `load_verify_locations`. A missing file or a directory is caught by name before OpenSSL sees it. On the
+  client side every file is checked before any context is made, so a bad file never reaches
+  `create_default_context`.
+- **TLS 1.3 refusals** (plan review): the refusal tests check status 0 and no body. The one exception is
+  the wrong host, which checks for `mismatch`. `client.get` also catches `http.client.HTTPException`, so a
+  late alert or a reset gives `(0, None, None, why)` and never a traceback.
+- **Stop race** (plan review): sockets are registered under one lock with `stopping`. `process_request`
+  checks the flag inside that lock, and the thread starts inside it, so a stop's snapshot never holds an
+  unstarted thread. After `wrap_socket` the entry is swapped to the `SSLSocket`. If a stop has begun by
+  then, the connection closes itself. Stop calls `socket.socket.shutdown(sock, SHUT_RDWR)` on the fd,
+  joins for 2 s in all, and only then closes. `HANDSHAKE` and `IDLE` are read when used: the handler's
+  `timeout` is a property.
+- **Rate limit** (plan review): in `test_only_get` only three requests reach `_remote` (401, 200, events),
+  and a counter shows that none of the 404/405 paths reach it. The end-to-end test makes three requests.
+  Each test's consumer name is its own.
+- **A hand-written `type: ergostat` source** takes `tls:`, because the key was added to the source keys. A
+  `tls:` that is not a map is `bad-remote`. `client.get` with `tls` refuses a non-https url itself.
+- **Proxies**: `urllib` honours `HTTPS_PROXY` as it did before. This container sets one, so the test file
+  clears the proxy variables for its own tests. How the client treats proxies is not changed here.
+- `tests/test_remote.py`'s fake `client.get` gained the `tls=None` parameter, because `readings` now passes
+  it.
+
+Not done here:
+
+- origin/main was not merged. This clone has no `origin`, and local `main` has nothing past this branch's
+  base. The merge queue has to merge and run the suites again (lesson-7).
+- The unit suite and the four browser files were not run whole. This session ran the touched files
+  one at a time (the factory runs the suites under the watchdog). The browser run with Playwright was not
+  permitted here.
