@@ -127,3 +127,57 @@ Existing `tests/test_control.py` and the redesign tests pass unchanged.
 - Optionally stamp `plant` on steptest.finished as well and require started == finished, so a change accepted and then reverted during a hold doesn't count.
 - Show the line through the MCP explain tool once, and show that explain without a project prints no RGA line.
 - Test 22: build the λ>10 case with open-loop steps (the other u held) so the COND=100 guard doesn't fire first. Say which applies and why.
+
+## Where it stopped
+
+Built, round 1: every point of the definition, all 25 acceptance tests in `tests/test_rga.py` and 10 more (35 pass).
+208 net lines outside tests and docs (`rga.py` 182, `steptest.py` +13, `redesign_due.py` +5, `explain.py` +8,
+`loop.py` 0), within the 270 budget.
+
+The answers to the plan review, each choosing the more reversible option where nobody could be asked:
+
+- **Parameters.** `signature()` has no `parameter` kind: it already adds every parameter the unit's equations use, and
+  that stays true with `kinds=`. `test_a_parameter_change_in_the_system_leaves_old_tests_out` changes `leak-time`, a
+  parameter used by a flow in `plant` but outside `inner`, and the result is not computed.
+- **A controller rewired.** `plant_signature` is `signature(spec, S, kinds=("stock", "flow", "auxiliary"))` hashed
+  together with each of S's loops' `(goal, u)`. That is the "u names in the per-system signature" option, one place
+  instead of a second stamp. It goes past point 1's literal "=", and it is said in SPEC §12d. A gain or `process:`
+  change still keeps the tests (test 7). `test_a_controller_rewired_to_another_actuator_leaves_its_old_tests_out`.
+- **Test 9.** It asserts the exact why. Its second half has the signature now as a real string and the stamp
+  `{"plant": None}`, and both tests are left out with "it carries no stamp of system plant at its start".
+  `test_a_test_with_no_stamp_is_left_out` covers a null stamp, `{}`, a stamp without NAME, and NAME null.
+- **Test 23.** G = [[1, 2], [1, 1]] with unit open-loop steps: λ11 = −1, λ12 = 2. Both loops are said "never pair on a
+  negative relative gain".
+- **MOST_TESTS.** The cap is per system, as point 2 says: the latest 12 usable tests in record order across all the
+  system's loops. A loop whose only test is older is then named by guard 5. That is intended: it says to run a fresh
+  test of that loop rather than mixing in old ones.
+  `test_the_cap_is_for_the_whole_system_and_can_leave_a_loop_s_only_test_out` shows it.
+- **Guard 3, signals.known.** `test_a_loop_the_model_knows_is_an_integrator_is_not_computed`: a loop whose valve
+  fills its stock directly. Any `known` refuses the loop. Today `known` is only ever set for that integrator, so this
+  fails closed if something else comes to set it.
+- **Stamp at finish.** Done. `steptest.finished` carries `plant` too, and both stamps must equal the signature now
+  (`test_a_change_during_the_test_leaves_it_out`).
+- **MCP and no project.** `test_the_line_is_said_through_the_mcp_explain_tool_and_not_without_a_project`.
+- **Test 22.** It uses open-loop steps: ΔU is the identity, so the COND guard cannot fire first. G = [[1, 0.95],
+  [0.96, 1]], λ ≈ 11.4.
+
+Found while building, and said rather than changed:
+
+- **SETTLE is weak.** With W = hold/4, a first-order lag never moves the after window's two halves by more than about
+  a seventh of Δ. So SETTLE = 0.25 never calls a lagging response unsettled, however short the hold is against its
+  time constant. It catches a response that started late, behind a dead time near the hold (test 12 uses a dead time
+  of 320 s in a hold of 400). SPEC §12d says exactly this, and calls the gains "as held over the last quarter of each
+  hold", not a steady state. A tighter test is its own gap.
+- **Window edges.** Each window is read on its own span, ending just before `up` or `back`. A reading taken at the
+  moment of the step back was otherwise counted in the after window: Δu came out 1.82 for a step of 2.
+- **Valve loops.** For a valve loop, u is its openings as a rate (`record.read`). No opening in a window counts as a
+  rate of 0, which is what the record says, not a missing reading.
+- **Merge (lesson-7).** This clone has no `origin`. Local `main` is the branch's base (e8d3e331), so there was nothing
+  to merge. The factory's merge of origin/main and its suite runs are still to come.
+
+Each guard and left-out reason was broken in turn, and its own test failed: fewer than 2 loops (21), MOST_LOOPS (20),
+`process: integrating` (17), `known` (the signals.known test), the signature now (9, 10), `done` (11), up/back/finish
+(the no-step-back test), the stamp is a str (8, 9), the stamp equals now (5, the parameter and rewire tests, the change
+during the test), u in the signature (rewire), blocks left out (7), every enclosing system stamped (3), a failing stamp
+(4), a missing reading (13), SETTLE (12), the cap (25 and the per-system cap test), guard 4 (18), guard 5 (19 and 5),
+collinear (14), COND (15), singular G (16), and the three notes (22, 23, 24).
