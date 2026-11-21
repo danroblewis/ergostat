@@ -62,12 +62,15 @@ def up_to_date(cfg: dict, repo) -> str | None:
     return None
 
 
-def suites(cfg: dict, repo, tag: str, logs) -> dict:
+def suites(cfg: dict, repo, tag: str, logs, pre: str) -> dict:
     """ruff; then unit and browser at once; then demo (under the other two's load its pages drew nothing). The first
-    failure in that order is the one reported; a failure stops the later steps."""
+    failure in that order is the one reported; a failure stops the later steps. The quarantine is main's (``pre``),
+    never the batch's: a branch's own line in tests/quarantine.txt holds nothing back in its run."""
+    held = fac.quarantine(repo, pre)
+
     def one(name: str) -> dict:
         log = logs / f"{tag}-{name}.txt"
-        rc, secs = fac.suite(cfg, name, repo, log, slot=False)        # the queue's lock is its slot
+        rc, secs = fac.suite(cfg, name, repo, log, slot=False, quarantined=held)    # the queue's lock is its slot
         text = log.read_text()
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {})}
@@ -103,7 +106,7 @@ def suites(cfg: dict, repo, tag: str, logs) -> dict:
     for step in (("ruff",), ("unit", "browser"), ("demo",)):
         got = together(step)
         if step[0] == "unit":                          # the quarantined tests after them, whatever they said
-            fac.beside(repo, logs / f"{tag}-quarantined.txt", quarantined)
+            fac.beside(held, logs / f"{tag}-quarantined.txt", quarantined)
         for name in step:
             failure = got[name].pop("failure", None)
             out[name] = got[name]
@@ -294,7 +297,7 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
 
     def run() -> dict:
         runs[0] += 1
-        return suites(cfg, repo, tag + (f"-{runs[0]}" if runs[0] > 1 else ""), logs)
+        return suites(cfg, repo, tag + (f"-{runs[0]}" if runs[0] > 1 else ""), logs, pre)
 
     def timing(g: dict, got: dict) -> dict:
         return dict(queue_wait_hours=waited_hours(g, began), queue_minutes=round((time.time() - began) / 60, 1),

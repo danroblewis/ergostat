@@ -661,18 +661,22 @@ def test_no_reruns_past_the_building_hours(tmp_path):
     assert len(runs(tmp_path)) == 1 and "no building hours" in f.item(gid)["fields"]["suites_fast"]["not_checked"]
 
 
-def quarantined(tmp: Path, says: str, rc: int = 0) -> Factory:
-    """A factory whose main quarantines T: the unit suite fails T unless it is deselected, and the run of the
+def quarantined(tmp: Path, says: str, rc: int = 0, on_main: bool = True) -> Factory:
+    """A factory whose main quarantines T (``on_main``; else main has no list and T fails only where a
+    tests/quarantine.txt is in the tree): the unit suite fails T unless it is deselected, and the run of the
     quarantined tests (`alone`, and triage's `rerun`) prints ``says`` and exits ``rc``."""
     unit, alone = tmp / "unit.sh", tmp / "alone.sh"
-    unit.write_text(f'#!/bin/sh\necho "unit $*" >> {tmp}/runs.log\ncase "$*" in *"--deselect {T}"*) echo "1 passed";'
-                    f' exit 0;; esac\necho "FAILED {T} - boom"; exit 1\n')
+    guard = "" if on_main else '[ -f tests/quarantine.txt ] || { echo "1 passed"; exit 0; }\n'
+    unit.write_text(f'#!/bin/sh\necho "unit $*" >> {tmp}/runs.log\n{guard}case "$*" in *"--deselect {T}"*) echo'
+                    f' "1 passed"; exit 0;; esac\necho "FAILED {T} - boom"; exit 1\n')
     (tmp / "alone.out").write_text(says)
     alone.write_text(f'#!/bin/sh\necho "alone $*" >> {tmp}/runs.log\ncat {tmp}/alone.out\nexit {rc}\n')
     for sh in (unit, alone):
         sh.chmod(0o755)
     f = Factory(tmp, unit=str(unit), alone=str(alone))
     f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"', f'rerun = "{alone} {{tests}}"'))
+    if not on_main:
+        return f
     (f.checkout / "tests").mkdir()
     (f.checkout / "tests" / "quarantine.txt").write_text(f"# test | who | when | why\n{T} | t | 2026-11-21 | flaky\n")
     git(f.checkout, "add", "tests")
@@ -682,7 +686,7 @@ def quarantined(tmp: Path, says: str, rc: int = 0) -> Factory:
 
 
 def last_runs(lines: list[dict]) -> list[str]:
-    return [x["data"]["last_run"] for x in lines if x.get("event") == "flake.measured"]
+    return [x["data"]["last_run"] for x in lines if x.get("event") == "flake.measured" and "last_run" in x["data"]]
 
 
 def test_a_quarantined_test_does_not_block_the_queue(tmp_path):
@@ -711,7 +715,8 @@ def test_a_skipped_quarantined_test_is_not_a_pass(tmp_path, monkeypatch):
     assert fac.outcomes("", [T]) == {T: "unknown"}                                  # an empty log
     def gone(_):
         raise FileNotFoundError("no suite")
-    assert fac.beside(f.checkout, tmp_path / "never.txt", gone) == {T: "unknown"}   # a run that never ran
+    assert fac.quarantine(f.checkout, "main") == [T] and fac.quarantine(f.checkout, "nowhere") == []
+    assert fac.beside([T], tmp_path / "never.txt", gone) == {T: "unknown"}          # a run that never ran
 
 
 def test_a_quarantined_failure_is_recorded(tmp_path):
@@ -727,8 +732,32 @@ def test_a_quarantined_failure_is_recorded(tmp_path):
     f.fold([{"event": "gap.queue-failed", "item": gid, "data": {"failed_suite": "unit", "failed_tests": [T],  # from
                                                                  "pre": pre}}], None)                # before the list)
     said, lines = f.run("triage.py", gid)
-    assert said == ["flake.measured", "flake.seen", "gap.retried"] and last_runs(lines) == ["fail"]
+    assert said == ["flake.measured", "gap.retried"] and last_runs(lines) == ["fail"]   # no flake seen for it,
+    assert f.item(gid)["state"] == "approved" and not f.item(gid)["fields"].get("retries")   # and no retry spent
     assert [r for r in runs(tmp_path) if r.startswith("alone ")][-1] == f"alone {T} -rA"   # never rerun as blocking
+
+
+def test_a_branch_cannot_quarantine_its_own_failing_test(tmp_path):
+    f = quarantined(tmp_path, f"PASSED {T}\n", on_main=False)          # main lists nothing; T fails beside a list
+    f.fold([{"event": "flake.measured", "item": "flake/old", "data": {"test": "tests/old.py::test_z",  # released by
+                                                                       "quarantined": True}}], None)   # hand on main
+    gid = ready(f)
+    f.run("implement.py", gid)
+    assert f.item("flake/old")["fields"]["quarantined"] is False                  # no longer listed: released
+    work = tmp_path / "branch"                                                      # the branch quarantines T itself
+    git(tmp_path, "clone", "-q", "-b", "factory/alpha-thing", str(tmp_path / "live" / "drop.git"), str(work))
+    (work / "tests").mkdir()
+    (work / "tests" / "quarantine.txt").write_text(f"{T} | me | 2026-11-21 | in my way\n")
+    git(work, "add", "tests")
+    git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "quarantine my test")
+    git(work, "push", "-q", "origin", "factory/alpha-thing")
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"head": git(work, "rev-parse", "HEAD")}}], None)
+    f.run("review.py", gid)
+    assert f.item(gid)["fields"]["reviewed_head"] == git(work, "rev-parse", "HEAD")
+    said, _ = f.run("queue.py", gid)
+    assert said[:2] == ["gap.queued", "gap.queue-failed"] and f.item(gid)["fields"]["failed_tests"] == [T]  # red
+    unit = [r for r in runs(tmp_path) if r.startswith("unit ")]
+    assert "--deselect" not in unit[-1] and not [r for r in runs(tmp_path) if r.startswith("alone ")]
 
 
 def test_upgrades_follow_the_pushed_main(tmp_path):
