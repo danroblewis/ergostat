@@ -200,6 +200,35 @@ def test_equations_that_fault_only_when_a_stock_is_moved_say_which(tmp_path):
     assert ms.modes == []
 
 
+BLOWS = """
+name: blows
+stocks:
+  x: {{unit: litres, initial: {x}, sensor: {{manual: true}}}}
+flows:
+  out: {{from: x, equation: "{eq}", driven-by: [+stock.x]}}
+"""
+
+
+@pytest.mark.parametrize("x, eq", [
+    (100, "EXP(stock.x)"),                                                       # 2.7e43: clamped to 1e12
+    (700, "EXP(stock.x) * EXP(stock.x) - EXP(stock.x) * EXP(stock.x)"),          # inf - inf: NaN, taken as 0
+], ids=["overflow", "nan"])
+def test_an_equation_past_big_or_nan_at_the_start_is_said(tmp_path, x, eq):
+    st, state = ex._at_start(spec := _spec(tmp_path, BLOWS.format(x=x, eq=eq)), sim.plan(spec),
+                             ex.Condition("usual", "with everything as usual", usual=True), None)
+    st.evaluate()
+    assert st.faults() == [] and st.clamped == {"flow.out": 1}         # the stepper's faults alone would not say it
+    ms = md.at_start(spec)
+    assert ms.why.startswith("the equations fault at the start: flow.out: not a number or past ±1e+12")
+    assert ms.modes == []
+
+
+def test_an_equation_past_big_only_when_a_stock_is_moved_is_said(tmp_path):
+    ms = md.at_start(_spec(tmp_path, BLOWS.format(x=0, eq="EXP(stock.x * 30000000)")))   # 1 at 0; e^30 at the step
+    assert ms.why.startswith("the equations fault when a stock is moved a little from the start") and "flow.out" in ms.why
+    assert ms.modes == []
+
+
 PAIR = """
 name: pair
 parameters:

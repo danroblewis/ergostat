@@ -220,7 +220,8 @@ def at_start(spec) -> Modes:
         return Modes(NO_FEEDBACK, refs, [])
     try:
         st.evaluate()
-        bad = st.faults()
+        bad = st.faults() + [f"{r}: not a number or past ±{sim.BIG:.0e} {n} time{'s' if n > 1 else ''}, "
+                             f"taken as 0 or clamped" for r, n in sorted(st.clamped.items())]
         J, faulted = st.jacobian(state) if not bad else ({}, [])
     except (ArithmeticError, ValueError) as e:
         return Modes(f"the equations fail at the start: {e}", refs, [])
@@ -228,7 +229,7 @@ def at_start(spec) -> Modes:
         return Modes("the equations fault at the start: " + "; ".join(bad), refs, [])
     if faulted:
         return Modes("the equations fault when a stock is moved a little from the start (the difference step): "
-                     + ", ".join(faulted) + ", each fault taken as 0", refs, [])
+                     + ", ".join(faulted) + ", each fault taken as 0 (or clamped, past ±1e12 or not a number)", refs, [])
     return of_matrix([[J[(i, j)] for j in live] for i in live], refs)
 
 

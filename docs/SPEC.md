@@ -2996,7 +2996,8 @@ a stock's own; real modes show ε signed, complex ones |ε| and ε), and the sto
 v_k|). `explain system.NAME` lists those most in a stock of the system. Over 40 stocks, modes are not worked out.
 In place of numbers it says why: a λ = 0 mode (a conserved quantity, or a stock nothing drains) or a repeated one
 has no elasticities; an eigenvector not found is said; and "Modes: not worked out" is printed when no equation reads
-a stock, the equations fail or fault at the start (by name), an entry is not finite, or QR does not converge.
+a stock, the equations fail or fault at the start or when a stock is moved by the difference step (by name; a value
+that is not a number or is past ±10¹² counts as a fault), an entry is not finite, or QR does not converge.
 
 ## 12a. Feedback loops (system dynamics)
 

@@ -218,3 +218,25 @@ rest. Eigenvalue elasticity is no longer on it. Main changed none of the code fi
 after the merge, one file at a time: test_modes (22), test_closedloop, test_extremes_closed, test_numbers,
 test_rates, test_aggregation, test_architecture, all passing; ruff clean. The full unit suite, the browser files and
 `demo_check` are left to the factory.
+
+**Round 3: the review's finding (lesson-3, blocking).** The finding was right. `_Stepper.evaluate` takes a NaN as 0 and
+clamps a value past ±1e12, and it counts that only in `clamped`. Neither the start check nor `jacobian()`'s `faulted`
+read `clamped`, so a finite but wrong J came out. The fix:
+- `jacobian()` now also lists an equation whose `clamped` count grew during the perturbed evaluations. `rates()`
+  ignores `faulted`, so the replay path is unchanged, and `clamped` is not reset (the same as `errors`).
+- `at_start` adds each start clamp to the start faults, worded "flow.X: not a number or past ±1e+12 N time(s), taken as
+  0 or clamped". The words for a fault under the difference step now say "(or clamped, past ±1e12 or not a number)".
+- SPEC's Modes paragraph says a NaN or a value past ±10¹² counts as a fault, at the start and under the difference step.
+- New model tests: `test_an_equation_past_big_or_nan_at_the_start_is_said` (overflow: `EXP(stock.x)` at 100; nan:
+  `EXP(x)·EXP(x) − EXP(x)·EXP(x)` at 700, which is inf − inf). It also asserts that `faults()` alone is empty there.
+  `test_an_equation_past_big_only_when_a_stock_is_moved_is_said` uses `EXP(stock.x · 3e7)` at 0: it is 1 at the start
+  and e³⁰ at the step.
+- Each break was tried. Without the start-clamp check, both start cases fail. Without the `clamped` term in
+  `jacobian()`, the step case fails.
+- Check (d), a non-finite entry, is still reached in practice only through its monkeypatch: the stepper never leaves
+  a non-finite V. It stays as a backstop.
+
+Net code is now 311 lines (budget 330). Run one file at a time: test_modes (25), test_closedloop, test_extremes_closed,
+test_numbers, test_rates, test_aggregation, test_architecture, test_scale_caches, all passing; ruff clean. No newer
+main could be fetched (there is no origin remote and no network). The full unit suite, the browser files and
+`demo_check` are left to the factory.

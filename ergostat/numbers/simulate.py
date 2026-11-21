@@ -206,15 +206,15 @@ class _Stepper:
     def jacobian(self, state: dict[str, float | None], pad: bool = True) -> tuple[dict[tuple[str, str], float], list[str]]:
         """∂(net inflow of stock i)/∂(level of stock j), per hour, over the live stocks, by forward differences
         of the compiled equations at the moment's values (a column no equation reads is 0, written only with
-        ``pad``); and the equations that faulted or failed while a stock was moved (each fault is taken as 0, so
-        that entry is not to be trusted). The faults counted before are kept as they were."""
+        ``pad``); and the equations that faulted, failed, or gave NaN or a value past ±BIG while a stock was moved
+        (each taken as 0 or clamped, so that entry is not to be trusted). The faults counted before are kept."""
         live = [s for s in self.stocks if state.get(s) is not None]
         felt = [s for s in self.felt if state.get(s) is not None]
         J: dict[tuple[str, str], float] = {}
         faulted: list[str] = []
         if felt:
             saved = {r: dict(c.faults) for r, c in self.pl.eqs.items()}
-            errors = dict(self.errors)
+            errors, clamped = dict(self.errors), dict(self.clamped)
             for c in self.pl.eqs.values():
                 c.faults.clear()
             base = {s: self.net(s) for s in live}
@@ -226,7 +226,8 @@ class _Stepper:
                 for i in live:
                     J[(i, j)] = (self.net(i) - base[i]) / h
                 self.V[f"stock.{j}"] = x
-            faulted = [r for r, c in self.pl.eqs.items() if c.faults or self.errors.get(r, 0) > errors.get(r, 0)]
+            faulted = [r for r, c in self.pl.eqs.items() if c.faults or self.errors.get(r, 0) > errors.get(r, 0)
+                       or self.clamped.get(r, 0) > clamped.get(r, 0)]
             self.evaluate()
             for r, c in self.pl.eqs.items():
                 c.faults.clear()
