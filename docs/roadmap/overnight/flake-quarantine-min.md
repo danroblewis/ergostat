@@ -71,3 +71,12 @@ Round 2: every finding of review/flake-quarantine-min-1 answered; nothing of the
 - Not distinguished by a test: the implementor reading the drop's main rather than its work. In the test factory both
   hold the same list, because the work is cloned from main. Net code outside tests and docs: 74 lines (budget 80).
 - **origin/main**: still no `origin/main` ref and no network here. The branch was last merged with main 31cffd8f.
+- **After round 2, the fast `unit` suite failed** with no pytest output in its tail (killed before pytest flushed:
+  `suite_watch` always prints a last JSON line, and there was none). Not reproduced here: running the whole suite
+  was refused in this session. The one change that reached the unit run was the two quarantined tests running again,
+  since main has no list yet and round 2 reads only main's. Round 1, which deselected them, passed. Fix (the most
+  reversible one): the implementor's fast suites also deselect the work's own lines (`agents.suites`: main's list
+  run beside, plus the work's lines at `HEAD`, deselected and not run). That run lands nothing; the queue and triage
+  still read only `pre`, so a branch that quarantines its own test is still red there.
+  `test_a_branch_cannot_quarantine_its_own_failing_test` now asserts both; with the work's lines dropped, it fails
+  (checked). Until this branch is on main, the queue run for this branch itself still runs the two tests, blocking.

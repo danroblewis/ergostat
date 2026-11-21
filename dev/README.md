@@ -248,7 +248,9 @@ its pages drew nothing); the first failure in that order is the one reported.
 **The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
 triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
 queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a branch that adds
-its own failing test to the list is still red, and its line takes effect only once it is on main. After each unit run
+its own failing test to the list is still red in the queue, and its line takes effect only once it is on main. (The
+implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch that adds the list,
+or a line to it, is not held up on its own machine by a test it quarantines; the queue still runs it.) After each unit run
 (and each triage rerun) the quarantined tests run once more, with `-rA` (the queue and implementor: `[suites] alone`;
 triage: `rerun`), never blocking. Each result is said on `flake/<test>` (`flake.measured`: `quarantined`, `last_run`,
 `last_run_log`), read from that run's whole log: `pass` only on the test's own PASSED line with no FAILED or ERROR
