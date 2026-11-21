@@ -273,3 +273,13 @@ time), not a test failing. I could not find a failure to fix:
   limit it hit and its peak), which the tail didn't include.
 
 The stray `.tail` file is still in the branch: `git rm` was refused again this round.
+
+Round 4, after the fast suites a second time: `unit` was reported failed again. Its tail stops at 49% this time
+(45% before), again with no `F`, no `E`, no traceback and no summary line. A stop at a different point with no
+failing test looks like the run being killed by the watchdog or the slot's time limit, not like a test of this gap
+failing. This session could not look further, because every shell command was refused, including `git`, `pytest`
+and `ruff`. So no code changed, nothing was run, and this note is not committed (committing needs the shell). Reading
+`tests/test_operating.py` turned up no unbounded wait: every engine is closed, and every wait has a deadline
+(`wait_for`, 15 s). What is needed next: the watchdog's JSON line for this run (which limit it hit, and the peak
+threads and memory), or the suite's per-test durations, to find the test it stopped on. The `.tail` file and the
+branch base are still the coordinator's to fix (see above).
