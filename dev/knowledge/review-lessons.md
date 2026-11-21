@@ -53,6 +53,8 @@ containers; a test that cancels a hung step and shows the next item gets through
 ## 7. Two things merged that each passed alone
 Branches that pass their own suites conflict once merged: a new CLI flag not classified for the read-only fallback; a
 daemon fix racing another fix's start-up.
+Seen as: a gap's HEAD carrying another branch's merges (backlog) that origin/main lacks, so landing it ships the whole
+backlog feature.
 **Check:** before saying built, merge origin/main into the branch and run the suites again.
 *About:* goal.approved-gaps-landed, goal.queue-failures-triaged.
 
