@@ -297,3 +297,16 @@ The review's findings, every one of them (lesson-12):
   stuck test.
 - *`tests/test_probe_tmp.py`:* `git rm` was refused again in this session. It is still in the branch and must be
   removed before merge (`git rm tests/test_probe_tmp.py && git commit`).
+
+### Round 9 (the scratch file, the only finding)
+
+- *Blocking: `tests/test_probe_tmp.py` committed.* **Still not removed.** `git status` and `git log` ran in this
+  session (the tree was clean at 066bda1d), but `git rm tests/test_probe_tmp.py` was refused by the permission mode
+  ("don't ask" mode). I did not delete it by another route, because that would get around a refusal of the deletion
+  itself. This is the fifth implementor round refused the same command, so another round under the same permissions
+  cannot fix it. The operator must run `git rm tests/test_probe_tmp.py && git commit`, or grant this one command.
+- *The review's other findings* (not run by the reviewer; the mark's allowlist wider than item 1; an unreadable mark
+  stops every class's writes) are answered in round 2 and in the plan-review notes above: the allowlist is wider on
+  purpose and errs toward rescoring, and SPEC §12e says an unreadable mark stops writes of every class. Nothing in
+  code changed this round, so no test, ruff or suite was run.
+- This section may itself be left uncommitted if `git commit` is refused too.
