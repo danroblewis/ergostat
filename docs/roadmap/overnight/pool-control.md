@@ -345,3 +345,13 @@ The suite has grown to about 2,400 tests, and its wall time here (525 s) is abou
 earlier runs. If the factory's `unit` slot has a time limit near that, the limit stops the run, not this branch.
 That limit (or the suite's length) belongs to its own gap (lesson-13). No code changed. Ruff clean (`ergostat tests
 scripts dev/bin`). Not run here: the four browser files.
+
+Continued, round 3: main c5eb54e6 merged in (be5c85c0). The two conflicts, `dev/bin/pools.py` and
+`dev/model/pools.yaml`, were in the header comments only. Main's text says the blocks take their pools from the stocks
+(`pool: {now: stock.implementor-pool, most: 9}`), the engine holds each block to the pool now at every dispatch, and
+the gates and `my_turn` hold them to the headroom. That text is kept, along with the branch's risk wording. No code
+changed: `HARD = 9` already matches the blocks' `most: 9` and `most: 6`. Here: `tests/test_factory.py` 132 passed,
+2 skipped; `tests/test_factory_knowledge.py` and `tests/test_factory_resources.py` 85 passed; `ruff check ergostat
+tests scripts` is clean. With `dev/bin` added, ruff finds B023 at `dev/bin/plan.py:315` and E501 at
+`dev/bin/review.py:41`. Both files are identical to main's, so the fix is outside this gap (lesson-13). Not run
+here: the whole unit suite and the four browser files (the factory runs them).
