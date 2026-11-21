@@ -258,3 +258,22 @@ the watchdog.
 
 **Left:** run the unit suite and the four browser files under the watchdog. If the lease test fails again under load,
 compare it with a run on clean main before holding this branch on it.
+
+### Round 5
+
+- **The merge (lesson-7).** The factory's merge of main at 0216e0e5 conflicted in `docs/SPEC.md`'s findings list.
+  Resolved in b899163e, keeping both: main's new `about-missing-part`/`about-unknown` findings and the paragraph on
+  open items' ids, and this branch's wording of `template-library` (an untrusted template not used because a trusted
+  one has its name). Nothing else conflicted. Main added param `min`/`max` (templates.py, expand.py) and
+  `Problem.items` (load.py); none of it marks a library untrusted, so point 1's map form stands.
+- **The merge brought a key the allowlist did not classify.** Main's item `about:` (SPEC §5a, *About*) made
+  `test_every_compile_key_classified` fail with `items.about` unclassified, which is what that test is for. It is
+  now allowed as a scalar in `trust.ITEM`: it names a field holding the parts an item is about, compile checks it
+  is a field name folded by replace, and only `check` reads it to report findings; it starts and sends nothing. If
+  the owner would rather refuse it, it is one entry turned to `NO`.
+- **Run here, after the merge:** `tests/test_library_trust.py` (46 passed), `tests/test_templates.py` and
+  `tests/test_modelling_template.py` (40 passed, unchanged). Ruff is clean. **Not run here:** the whole unit suite
+  and the four browser files, left to the factory under the watchdog.
+  Size: 287 net lines outside tests and docs (budget 330).
+
+**Left:** run the unit suite and the four browser files under the watchdog.

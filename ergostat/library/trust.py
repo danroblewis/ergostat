@@ -82,6 +82,7 @@ ITEM = {**COMMON, "id": (S, "which ids are this kind"), "states": (L, "its state
         "on": (M, "which event moves it to which state"), "show": (L, "fields shown"), "formats": (M, "how fields are shown"),
         "fold": (M, "how events' fields fold into it"), "relations": (each(one_of(L, REL)), "relations to other items"),
         "join": (one_of(JOIN, list_of(JOIN)), "a parent moved on by its children's states"),
+        "about": (S, "the field naming the parts it is about; only check reads it"),
         "lease": (NO, "makes its items a work queue that blocks take and run")}
 STOCK = {**COMMON, **CLAIMED, **SENSORS, "unit": (S, "its unit"), "limit": (S, "its most"), "initial": (S, "its first value"),
          "cumulative": (S, "a running total"), "rate-unit": (S, "how its rate is shown"),
