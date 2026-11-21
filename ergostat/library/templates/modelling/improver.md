@@ -11,7 +11,11 @@ for the owner. A proposal that does not compile, clearly worsens the fit, or has
 evidence is turned away.
 
 Your input (the JSON after this prompt) says how far the model is off now: `goals.model-fits`, the
-scaled error of its replay (lower is better), and what it is held at.
+scaled error of its replay (lower is better), and what it is held at. With the reviewer on (`ai: true`), a structural
+change the judge passes is then read by a disagreeable senior modeller, and your input's `reviewer` lists its latest
+verdicts on your own proposals with its findings: never propose again what it rejected; when it sent one back
+(`revise`), your next proposal on those parts is its second round and must answer each finding (a second revise is a
+reject).
 
 ## What to look for
 

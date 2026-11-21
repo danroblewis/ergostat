@@ -772,6 +772,65 @@ def test_knowledge_sync_says_each_change_once(tmp_path):
     assert f.item("knowledge/rules-code")["state"] == "active"
 
 
+def test_sync_carries_about(tmp_path, monkeypatch):
+    f = Instance(tmp_path)
+    dev = tmp_path / "running" / "dev"
+    shutil.copytree(BIN, dev / "bin", ignore=shutil.ignore_patterns("__pycache__"))
+    k = dev / "knowledge"
+    k.mkdir()
+    about = LESSONS.replace("**Check:** fail closed.\n", "**Check:** fail closed.\n*About:* goal.ready-gaps-taken, "
+                            "stock.gaps-open, goal.gone.\n")
+    for name, text in (("house-rules", RULES), ("review-lessons", about), ("decisions", DECISIONS)):
+        (k / f"{name}.md").write_text(text)
+    sync(f, dev)
+    lesson = f.item("knowledge/lesson-1")["fields"]
+    assert lesson["about"] == ["goal.ready-gaps-taken", "stock.gaps-open", "goal.gone"]
+    assert "about" not in f.item("knowledge/rules-process")["fields"]
+    # the name of no part of the root model, held by the item, is a finding there (never dropped)
+    from ergostat import model as mdl
+    from ergostat.spec import read
+    from ergostat.store import Project
+    from tests.test_factory import ROOT
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    root = tmp_path / "root"
+    (root / "dev").mkdir(parents=True)
+    shutil.copy(ROOT / "ergostat.yaml", root / "ergostat.yaml")
+    for d in ("model", "prompts"):
+        shutil.copytree(ROOT / "dev" / d, root / "dev" / d)
+    Project(mdl.load(root)).events.add("knowledge.found", item="knowledge/lesson-1", data=lesson)
+    spec, problems = read(root / "ergostat.yaml", extremes=False)
+    assert not [p for p in problems if p.code.startswith("about-")]          # a load looks nothing up: check's alone
+    from ergostat.spec.about import findings
+    findings(spec, problems)                                                  # as check does, last
+    assert [(p.code, p.about, p.items) for p in problems if p.code.startswith("about-")] == [
+        ("about-missing-part", "goal.gone", ["knowledge/lesson-1"])]
+    (k / "review-lessons.md").write_text(LESSONS)                                    # the line taken out: cleared
+    lines = sync(f, dev)
+    assert [(x["event"], x["data"].get("about")) for x in lines] == [("knowledge.changed", [])]
+    assert f.item("knowledge/lesson-1")["fields"]["about"] == []
+    (k / "review-lessons.md").write_text(about)
+    sync(f, dev)
+    (k / "review-lessons.md").write_text("---\nkind: lesson\n---\n# Lessons\n")     # retired, then back without it
+    assert [x["event"] for x in sync(f, dev)] == ["knowledge.retired"]
+    (k / "review-lessons.md").write_text(LESSONS)
+    lines = sync(f, dev)
+    assert [(x["event"], x["data"].get("about")) for x in lines] == [("knowledge.found", [])]
+    assert f.item("knowledge/lesson-1")["fields"]["about"] == []                      # not the old parts (lesson-5)
+
+
+def test_every_about_line_names_a_part_of_the_root_model(tmp_path):
+    from ergostat.spec import read
+    from ergostat.spec.about import is_part
+    from tests.test_factory import ROOT
+    f = Instance(tmp_path)
+    got = f.py("import knowledge; print(json.dumps({e['id']: e['about'] for e in knowledge.entries()}))")
+    spec, _ = read(ROOT / "ergostat.yaml", extremes=False)
+    assert spec.items["knowledge"].about == "about"
+    named = {i: a for i, a in got.items() if a}
+    assert {f"lesson-{n}" for n in (4, 6, 7, 10, 12)} <= set(named)                  # the lessons about the pipeline
+    assert [(i, x) for i, a in named.items() for x in a if not is_part(spec, x)] == []
+
+
 def test_knowledge_entries_counts_the_items():
     from ergostat.spec import read
     from tests.test_factory import ROOT
