@@ -2,7 +2,7 @@
 the branch merged into the same main, in a worktree of the triage's own, under the queue's lock once the machine is
 quiet). If they pass alone, each is a `flake` item and the gap goes back to the queue (retried, not blamed), at most
 `RETRIES` times; if they fail again, or nothing names the tests (ruff, a watchdog kill, demo_check), the failure is the
-branch's: back to fix with what failed, or parked on its second failed gate."""
+branch's: back to fix with what failed, or parked on its `[gates] kill_after`-th failed gate."""
 
 from __future__ import annotations
 
