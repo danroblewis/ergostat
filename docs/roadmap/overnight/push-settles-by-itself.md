@@ -40,3 +40,11 @@ Round 2: built; nothing in the definition is left. Decisions taken with nobody t
   around 21% of the collection twice) all passed, with no F. No code was changed for it: without a named test there
   is nothing to fix, and a guessed change could hide a real race (lesson-10). If the queue's run fails again, its
   summary line names the test; that test is the next step.
+- The next `unit` run failed in another way: its tail ends partway through a line at about 97%, with no `F` or `E`
+  anywhere, no pytest summary and no `suite_watch` JSON line (which it prints on every exit, even when it kills a run). So
+  the run was stopped from outside before pytest finished, not failed by a test. Nothing names a test or a line to fix,
+  so no code was changed. Checked here: tests/test_factory.py alone passes (96 passed, 2 skipped, 172 s). Its slowest
+  test, test_the_factory_model_loads (60 s, reading ergostat.yaml), takes the same 60.6 s with main's
+  dev/model/landing.yaml put back for the timing (then restored), so the branch did not make it slower. The branch's own
+  tests take at most 17 s (the wiring test, which reads the model) and 4 s. If the queue's run stops like this again,
+  look at what stopped it (the lease, the container, memory) before looking at the branch.
