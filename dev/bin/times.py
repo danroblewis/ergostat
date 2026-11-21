@@ -25,7 +25,8 @@ import fac  # noqa: E402
 # Waiting on someone else (the cheapest to remove): open and replan for the planner, planned for the plan review, split
 # for its sub-gaps, ready and fix for the implementor, built for the reviewer, approved for the queue, queue-failed for
 # triage, dead for a park. Working, a run holds it: leased (the planner's, plan review's and triage's whole run, the
-# others' start), building, in-review, queued (the queue's run, from its gap.queued: the lock, the merge, its suites).
+# others' start and the queue's wait for its lock), building, in-review, queued (the queue's run, from its gap.queued:
+# the merge, its suites).
 WAITING = ("open", "replan", "planned", "split", "ready", "fix", "built", "approved", "queue-failed", "dead")
 WORKING = ("leased", "building", "in-review", "queued")
 GATES = ("implementor", "fast", "review", "unit", "browser", "demo", "push-wait")
