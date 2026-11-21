@@ -394,3 +394,5 @@ origin/main merge.
   deleted, committed or run, and this edit is **not committed** by this session.
 - Search again: nothing in `ergostat/`, `tests/` or `scripts/` names `scratch_probe.py`. No code changed.
 - **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`, along with this note.
+- Same gate, the next round: `git rm -q scratch_probe.py` was refused a twelfth time ("don't ask" mode). Nothing
+  deleted, committed or run; this line is not committed by this session.
