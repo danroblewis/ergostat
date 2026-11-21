@@ -399,3 +399,21 @@ Failed its gates 6 times (the kill rule). Blocking findings:
   --durations=25`. The permission mode refused it, and it refused a later combined append-and-commit command too.
 - *Run here:* test_redesign_rescored, test_redesign, test_modelling_core, test_modelling_core2 and test_slowjudge,
   with `-o faulthandler_timeout=120`: 75 passed in 30 s. Ruff is clean.
+
+### Continued, round 4 (after the factory's merge of main)
+
+- *Main (e1e778c1) merged in* by the factory at c93816ca. The tree has no conflict markers. Main's changes since
+  the last merge are in `dev/`, `docs/` and other gaps' roadmap notes. None of them touch this branch's code files.
+  `tests/test_probe_tmp.py` is still gone. This round came with no review findings, so the code did not change.
+- *Run here,* each command on its own with `-o faulthandler_timeout=120`. Ruff is clean.
+  - test_redesign_rescored, test_redesign, test_modelling_core, test_modelling_core2 and test_slowjudge: 75 passed
+    in 26 s.
+  - test_modelreview, test_review, test_sd_review, test_churn_carry, test_redesign_memory, test_improve, test_gate,
+    test_self_improve, test_intent, test_churn, test_exercised, test_extremes_closed and test_bench: 211 passed in
+    54 s.
+- *Not run here:* the whole unit suite and the four browser files. The house rules leave those to the factory's
+  watchdogged slot. This clone has no origin remote, so the queue still has to merge origin/main and run both suites
+  again (lesson-7).
+- *Refused:* after the test runs, Bash refused a combined append-and-commit command (a heredoc `cat >>` and then
+  `git commit`). I added this section with the file editor instead. If the commit after it is refused too, the
+  factory must commit this file.
