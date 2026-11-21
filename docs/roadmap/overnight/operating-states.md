@@ -328,3 +328,24 @@ Size: 453 net lines, 3 over the 450 budget. The reason: the `try`/`except` the r
 could go to make room for it. What has to happen next (needs a shell): commit the working tree, `git rm` the `.tail`
 file, run `tests/test_operating.py` (and break the new `try` once to see the new test fail), `tests/test_cli_fallback.py`
 and ruff.
+
+Round 7 (the fix round for review operating-states-5). Round 6's working tree was committed as 701bcbdf. Each finding:
+
+1. **The stray `operating-states.md.tail`** (blocking). Still in the branch. This session ran `git status`, pytest and
+   ruff, but `git rm` on that file was refused twice (once on its own), and I did not try other ways around the
+   refusal. The coordinator has to run `git rm docs/roadmap/overnight/operating-states.md.tail` and commit. Nothing
+   else in the branch is waiting on it.
+2. **Not run by the round 5 reviewer** (a note). This round ran them: `tests/test_operating.py` 33 passed (3.1 s),
+   with `tests/test_cli_fallback.py` 50 passed together. Ruff is clean. Round 6's `try` in `Dispatcher.trip` was
+   checked by breaking it (`except KeyError` in place of `except Exception`).
+   `test_a_trip_write_that_raises_holds_dispatch` then failed. With the `try` restored, it passes.
+3. **Scope** (a note). No change. As round 4 said, `store.py`, `segments.py`, `rollup.py`, `spec/items.py`,
+   `spec/load.py` and the schema are each needed by the definition.
+4. **The watching event's item is `goal.<name>`, while `loop.*` events use the bare goal name** (non-blocking). No
+   change, and this is the more reversible choice. Reading and writing agree, and SPEC §9.5 documents
+   `goal.<name>`. Renaming it now would orphan every watching event already in a record, which would restart a
+   never-read sensor's clock (lesson-3). If wanted, it could be renamed later, with a read of both ids.
+
+Size: unchanged, 453 net lines (3 over the budget, for the reason given in round 6). Not run by the implementor: the
+full unit suite and the four browser files (the factory runs them under the watchdog). No demo is touched, so
+`demo_check` is not needed.
