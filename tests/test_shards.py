@@ -237,3 +237,21 @@ def test_of_unknown_raises():
     for ref in ("stock.nope", "agent.nope", "kind.nope", Ref("block", "nope"), "stock.a-q.nope"):
         with pytest.raises(KeyError):
             p.of(ref)
+
+
+def test_daemon_shared_by_sensors_merges():
+    """A daemon is one process whoever it serves: sensors in two systems (or a sensor and a block) put them in one shard,
+    and the daemon is where they are; one serving nothing is the lead's."""
+    s = two()
+    s.daemons = {"probe": object(), "spare": object()}
+    for x in ("a", "b"):
+        s.stocks[f"{x}-q"].sensors["n"].daemon = "probe"
+    p = plan(s)
+    assert set(p.shards) == {"lead", "a"} and p.of("daemon.probe") == "a" and p.of("daemon.spare") == "lead"
+    assert p.why == {"a": [{"joined": "b", "because": "daemon", "via": "probe"}]}
+    assert not any(k.startswith("daemon.") for sh in p.shards.values() for k in sh.parts)
+    s = two()
+    s.daemons = {"probe": object()}
+    s.stocks["a-q"].sensors["n"].daemon = "probe"
+    s.blocks["b-work"].params["daemon"] = "probe"
+    assert plan(s).why == {"a": [{"joined": "b", "because": "daemon", "via": "probe"}]}
