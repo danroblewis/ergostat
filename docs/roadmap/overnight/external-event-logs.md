@@ -307,3 +307,14 @@ round 3. It did not fail an assertion. **No code changed in this round**:
 
 Left: remove `.mut/mut.py`, then run the unit suite again with `-o faulthandler_timeout=180`, so a hang names its
 test.
+
+## Where it stopped, round 8
+
+- **`.mut/mut.py` is still committed** (`git ls-files .mut` lists it). This session's sandbox refused
+  `git rm -q .mut/mut.py` and `git rm .mut/mut.py` (don't-ask mode). I did not get around the refusal another way
+  (a plain `rm` and `git add`, emptying the file), because that would defeat what the refusal is for. The branch
+  cannot pass review until someone whose sandbox allows it runs `git rm .mut/mut.py && git commit`. Nothing else is
+  needed: with the file removed, the code outside `tests/` and `docs/` is 262 lines, within the 300 budget.
+- No code and no tests changed. Ran: `tests/test_mirror.py` with `-o faulthandler_timeout=120` (30 passed, 12 s) and
+  ruff (clean). The whole unit suite and the browser files were not run by me. origin/main was not merged: this
+  clone has no `origin`.
