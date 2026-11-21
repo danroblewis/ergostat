@@ -90,3 +90,48 @@ row ~20).
 - Groups: 'maximal set joined by flows' and 'material order' are undefined for branches (a->b, a->c) and for material cycles. Define it: either linear chains only, or a stated order. Add a test for a branch.
 - lesson-5: the cache key relies on live.mtime, and a rewrite within the same second (or on a filesystem with coarse timestamps) can leave it unchanged. In the API test, set mtime explicitly (os.utime) or key the cache on the model's content, so the test cannot pass or flake because of timestamp resolution.
 - Report, for each disqualifying rule (multi-stock loop dominated, not named, tied bucket, steps 0, unscored, dominance missing), that removing the check makes its test fail, not only the 'never dominated' check.
+
+## Where it stopped
+
+Built: `ergostat/numbers/aggregation.py` (`candidates`, `qualifying`), `aggregate` in `GET /api/dominance`, the
+`aggregate` row on a system's Dynamics panel (`sdAggregate` in `dynamics.js`), SPEC §12c and §4a,
+`docs/proposals/architecture.md` §4, the GAPS architecture entry. About 109 net lines of code, within the 160 budget.
+Not run here, because this container refused the commands: the four browser files (playwright is not installed, and
+`uv run --with playwright==1.63.0 ...` was refused, so `test_the_system_panel_names_stocks_to_aggregate` is written
+but has never run), `node --check` on `dynamics.js`, `scripts/demo_check.py`, and the whole unit suite (run one file
+at a time as told). The clone has no `origin/main` ref and fetching would reach the network, so origin/main was not
+merged; local `main` is already in the branch. The factory has to run the browser files and `demo_check`.
+
+Answers to the plan review. Each was settled by taking the narrower option, the one easier to widen later:
+
+- **Rule 1's contradiction, and lesson-8's "one delay".** Both are settled the same way: every stock in a group must
+  have a **balancing loop of its own** (through no other stock: its drain). So "a stock that no loop runs through
+  qualifies structurally" no longer holds. A pure accumulator is never a stage, so "one delay" is only claimed for
+  chains of first-order stages, and the stock needs the dominance present, named and moved (steps > 0) like any
+  other. SPEC §12c says so. Tests: `test_a_stock_with_no_drain_of_its_own_is_not_a_stage_of_a_delay` (an
+  accumulator moving, not moving, and with the dominance missing: in no group; the same stock with its drain: in the
+  group; the same stock whose own loop is reinforcing: not in it).
+- **Unscored loops.** Any loop through the stock that is not scored disqualifies it, whether it runs through one
+  stock or more (`not_scored`, or not in the stock's `scored`). In `test_unknown_dominance_is_never_a_candidate` the
+  unscored loop runs c → decision (2 inputs) → feed → a → b → c, through three stocks. Its counterpart is the same
+  loop with the decision given 1 input (scorable), and it gives the group back.
+- **The dominant-loop test** asserts no group at all (`== []`), not only none with a.
+- **Groups** are linear chains only: a component, joined by flows between qualifying stocks of one system, with one
+  head and each stock at most one flow in and one out among them. A branch or a material cycle gives no group (not a
+  part of one). Material order runs from the head along the flows. Test: `test_a_branch_is_not_a_chain`.
+- **lesson-5, the cache key.** The API test sets the rewritten file's mtime 2 s ahead with `os.utime(ns=...)` and
+  asserts that `live.mtime` changed. As a second guard, `candidates` refuses a dominance whose loops are not the
+  model's loops now, so a stale cached result gives no group. Taking `live.mtime` out of the key makes the test fail
+  (checked).
+- **Each check, removed, fails its test** (each checked by editing the code and running `tests/test_aggregation.py`):
+  multi-stock loop dominated → `test_a_dominant_loop_...`; not named, tied bucket, unscored (`not_scored`; and not in
+  `scored`, apart) → `test_each_thing_the_dominance_does_not_know_disqualifies_on_its_own`; steps 0 →
+  `test_unknown_dominance_...` (and two others); the dominance of other loops (stale) → `test_unknown_dominance_...`;
+  no own balancing loop → `test_a_stock_with_no_drain_...`; the loop search at its cap →
+  `test_a_loop_search_at_its_cap_says_nothing`; the branch rule → `test_a_branch_is_not_a_chain`. The tie check
+  without its "while a loop through other stocks runs through it" condition fails two tests. Dominance missing (None
+  or `{}`) cannot be removed as a check without the code raising, so its test fails that way.
+  `test_each_thing_...` changes one field of a real dominance result at a time, because the dominance itself never
+  leaves `named` true beside an unscored loop. It shows that the guard in `aggregation.py` holds on its own.
+- **Not covered**: loops longer than 30 parts are never found (the same limit as `dominance.py`). SPEC narrows the
+  claim to "the loops of up to 30 parts that the loop search finds" instead of guarding against it.
