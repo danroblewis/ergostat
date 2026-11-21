@@ -131,3 +131,11 @@ file. No code changed. After the merge, test_resilience (31) and test_streamed_o
 and `ruff check ergostat tests scripts` is clean. Not run: the full unit suite and the browser files. Still left, and
 only a person or a session allowed to delete files can do it:
 `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites.
+
+Round 9 (the factory's "round 4" again): the ninth refusal. `git rm -r .bench` was denied by the "don't ask"
+permission mode, while a read-only `git status` in the same session was allowed. So the block is on deleting, not on
+the shell. Nothing else was tried to delete the file (no `rm`, revert, `git update-index`, or overwriting it with an
+empty file). No code changed, main was not merged again, and no suites were run. What is left has not changed: a
+person, or a session allowed to delete files, runs
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending the
+item back to an implementor with these permissions will be refused the same way.
