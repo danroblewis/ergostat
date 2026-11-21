@@ -672,6 +672,44 @@ def test_failing_fast_suites_park_the_gap(tmp_path):
     assert said[-1] == "gap.parked" and f.item(gid)["fields"]["parked_in"] == "building"   # never stuck
 
 
+def test_build_failures_add_up_in_the_real_fold(tmp_path):
+    """implement.py's own events, folded by ergostat's fold (spec.changes.fold_event) with the gap kind's rules from
+    ergostat.yaml: each failed build adds one, and a later successful build resets nothing (dev/README.md)."""
+    from ergostat.spec.changes import fold_event
+    passes = tmp_path / "passes"
+    f = Factory(tmp_path, unit=f"test -e {passes}", build_failures=6)
+    gid = ready(f)
+    rules, doc = read(ROOT / "ergostat.yaml")[0].items["gap"].fold, {}
+    assert rules.get("build_failures") == "sum"
+    for n in (1, 2, 3):
+        said, lines = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.measured"]
+        for e in lines:
+            if e.get("event") and (e.get("item") or gid) == gid:
+                assert fold_event(doc, e, rules)[1] is None
+        assert doc["build_failures"] == n == f.item(gid)["fields"]["build_failures"]
+    passes.write_text("")
+    said, lines = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    for e in lines:
+        if e.get("event") and (e.get("item") or gid) == gid:
+            fold_event(doc, e, rules)
+    assert doc["build_failures"] == 3                                     # a success resets nothing
+
+
+def test_the_sixth_failed_build_parks_the_gap(tmp_path):
+    f = Factory(tmp_path, unit="exit 1", build_failures=6)
+    gid = ready(f)
+    for n in range(1, 6):
+        said, lines = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.measured"] and any("nack" in x for x in lines)
+        assert f.item(gid)["fields"]["build_failures"] == n
+    said, _ = f.run("implement.py", gid)
+    gap = f.item(gid)
+    assert said[-2:] == ["gap.measured", "gap.parked"] and gap["state"] == "parked"
+    assert gap["fields"]["parked_for"] == "kill-rule" and "failed 6 times" in gap["fields"]["where_it_stopped"]
+
+
 def test_a_committed_scratch_file_is_refused_before_the_suites(tmp_path):
     log = tmp_path / "suite-runs.log"
     f = Factory(tmp_path, unit=f"echo ran >> {log}")
@@ -940,6 +978,23 @@ def test_a_skipped_quarantined_test_is_not_a_pass(tmp_path, monkeypatch):
         raise FileNotFoundError("no suite")
     assert fac.quarantine(f.checkout, "main") == [T] and fac.quarantine(f.checkout, "nowhere") == []
     assert fac.beside([T], tmp_path / "never.txt", gone) == {T: "unknown"}          # a run that never ran
+
+
+def test_the_quarantine_list_parses_with_who_when_why():
+    """Each line of the real tests/quarantine.txt is `test id | who | when | why`: an id naming a test that exists,
+    who added it, an ISO date and a reason, all four given; and the id is what fac.quarantine reads."""
+    import datetime
+    text = (ROOT / "tests" / "quarantine.txt").read_text()
+    lines = [x for x in text.splitlines() if x.strip() and not x.lstrip().startswith("#")]
+    for line in lines:
+        fields = [x.strip() for x in line.split("|")]
+        assert len(fields) == 4 and all(fields), line
+        test, who, when, why = fields
+        path, name = test.split("::")
+        assert f"def {name}(" in (ROOT / path).read_text(), test                    # a test that exists
+        datetime.date.fromisoformat(when)
+    ids = [x.split("|")[0].strip() for x in lines]
+    assert len(set(ids)) == len(ids)                                                # each test listed once
 
 
 def test_a_quarantined_failure_is_recorded(tmp_path):
@@ -1757,9 +1812,11 @@ def test_a_continued_branch_already_reviewed_gets_reviews_and_logs_of_its_own(tm
 RED = "echo run >> {runs}; if [ -e bad.txt ]; then echo 'FAILED tests/test_b.py::test_b - boom'; exit 1; fi"
 
 
-def approved_gaps(f: Factory, ranks: dict[str, int], bad: str = "", batch: int | None = None) -> dict[str, str]:
+def approved_gaps(f: Factory, ranks: dict[str, int], bad: str = "", batch: int | None = None,
+                  edits: dict[str, str] | None = None) -> dict[str, str]:
     """Gaps approved on branches of their own in the drop (each adds NAME.txt; ``bad`` adds bad.txt too, which fails the
-    unit suite), ranked as given; the queue's batch set when ``batch``. {name: its reviewed commit}."""
+    unit suite; ``edits`` {name: file} writes that file too, with the name), ranked as given; the queue's batch set when
+    ``batch``. {name: its reviewed commit}."""
     drop = f.tmp / "live" / "drop.git"
     if not drop.exists():
         subprocess.run(["git", "init", "-q", "--bare", str(drop)], check=True)
@@ -1769,6 +1826,8 @@ def approved_gaps(f: Factory, ranks: dict[str, int], bad: str = "", batch: int |
         (f.checkout / f"{name}.txt").write_text(name)
         if name == bad:
             (f.checkout / "bad.txt").write_text("breaks the suite")
+        if name in (edits or {}):
+            (f.checkout / edits[name]).write_text(f"{name}\n")
         git(f.checkout, "add", "-A")
         git(f.checkout, "commit", "-q", "-m", name)
         out[name] = git(f.checkout, "rev-parse", "HEAD")
@@ -1867,6 +1926,111 @@ def test_batch_of_one_is_todays_queue(tmp_path):
     said, _ = f.run("queue.py", "gap/b")
     assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and merges(f) == ["b"]
     assert {x.get("item") for x in lines if "event" in x} <= {None, "gap/a"}
+
+
+def main_moves(f: Factory, path: str) -> None:
+    """main as pushed changes ``path`` (after the gaps branched)."""
+    (f.checkout / path).write_text("main\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", f"main changes {path}")
+    git(f.checkout, "push", "-q", "origin", "main")
+
+
+def test_a_conflicting_gap_takes_no_batch_slot(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"a": "app.py"})
+    main_moves(f, "app.py")                                                    # a conflicts with main now
+    said, _ = f.run("queue.py", "gap/b")
+    assert said == ["gap.queued", "gap.sent-back"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2
+    assert merges(f) == ["main changes app.py", "b", "c"] and suite_runs(f) == 1   # c took the slot a would have
+    a = f.item("gap/a")["fields"]
+    assert a["failed_gates"] == 1 and a["findings"] == ["conflicts with main: app.py"]  # sent back at once, a gate
+
+
+def test_a_batch_mate_conflict_is_not_a_failed_gate(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"a": "app.py", "b": "app.py"})   # a, b: each other
+    said, lines = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and merges(f) == ["a", "c"]
+    b = f.item("gap/b")
+    assert b["state"] == "approved" and "failed_gates" not in b["fields"] and "findings" not in b["fields"]
+    assert not [x for x in lines if "nack" in x]
+    # the run's own gap, behind a higher-ranked batch-mate it conflicts with: kept (its lease holds the push), and the
+    # batch-mate it conflicts with is the one left approved, no gate failed
+    g = Factory(tmp_path / "g", unit=RED.format(runs=tmp_path / "g" / "runs"))
+    approved_gaps(g, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"a": "app.py", "b": "app.py"})
+    said, lines = g.run("queue.py", "gap/b")
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and merges(g) == ["b", "c"]
+    assert not [x for x in lines if "nack" in x] and g.item("gap/b")["state"] == "merged"
+    a = g.item("gap/a")
+    assert a["state"] == "approved" and "failed_gates" not in a["fields"] and "findings" not in a["fields"]
+
+
+def test_the_run_s_own_gap_ranked_below_a_full_batch_is_still_taken(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2)                       # all merge; the run is c's
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and merges(f) == ["a", "c"]
+    assert f.item("gap/c")["state"] == "merged" and f.item("gap/b")["state"] == "approved"
+    assert not [x for x in lines if "nack" in x]
+
+
+def test_batch_keeps_rank_order_among_mergeable_gaps(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"s": 4, "r": 3, "t": 5, "q": 2, "p": 1}, batch=3,         # (the record's order is not the rank's)
+                  edits={"p": "main.py", "q": "app.py", "r": "app.py"})        # p: with main; r: with q
+    main_moves(f, "main.py")
+    said, _ = f.run("queue.py", "gap/t")
+    assert merges(f) == ["main changes main.py", "q", "s", "t"] and suite_runs(f) == 1
+    assert json.loads((f.model / "run" / "queue.json").read_text())["pending"]["gaps"] == ["gap/q", "gap/s", "gap/t"]
+    assert f.item("gap/p")["fields"]["failed_gates"] == 1
+    r = f.item("gap/r")
+    assert r["state"] == "approved" and "failed_gates" not in r["fields"]
+
+
+def test_gaps_passed_over_for_the_own_gap_fill_its_slot_once_it_is_sent_back(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"c": "app.py"})
+    main_moves(f, "app.py")                                                    # the run's own c conflicts with main
+    f.run("queue.py", "gap/c")
+    assert merges(f) == ["main changes app.py", "a", "b"] and suite_runs(f) == 1   # b, passed over, fills the batch
+    assert f.item("gap/a")["state"] == f.item("gap/b")["state"] == "merged"
+    assert f.item("gap/c")["state"] == "push-pending"                          # its sending back waits for the push
+    then = json.loads((f.model / "run" / "queue.json").read_text())["pending"]["then"]
+    assert [(e["event"], e["data"]["failed_gates"]) for e in then] == [("gap.sent-back", 1)]
+
+
+def test_a_conflict_naming_no_file_is_still_a_conflict_with_main(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    code = ("import sys, json, subprocess; sys.path[:0] = [sys.argv[1]]; import queue\n"
+            "queue.subprocess = type('S', (), {'run': staticmethod(lambda *a, **k: subprocess.CompletedProcess("
+            "a, 1, '0' * 40 + '\\0', ''))})\n"
+            "print(json.dumps(queue.dry('.', 'x', 'y', 'm')))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    made, files = json.loads(r.stdout.splitlines()[-1])
+    assert made is None and files                                              # never read as "only a batch-mate"
+
+
+def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"a": 1, "b": 2}, edits={"a": "app.py"})
+    code = ("import sys, json, time; sys.path[:0] = [sys.argv[1]]; import fac, queue; cfg = fac.config(); "
+            "repo = fac.path(cfg, 'checkout'); pre = fac.git(repo, 'rev-parse', 'HEAD'); "
+            "own = next(g for g in fac.items('gap', 'approved') if g['id'] == 'gap/a'); "
+            "batch, dried = queue.picks(cfg, repo, own, 2, pre); out = {'moved': fac.git(repo, 'rev-parse', 'HEAD') != pre}; "
+            "alone = queue.dry(repo, pre, batch[0][1], 'a alone')[0]\n"
+            "try:\n queue.land(cfg, repo, batch, pre, time.time(), 0, alone)\n"
+            "except RuntimeError as e:\n out['raised'] = str(e)\n"
+            "landed, head = queue.land(cfg, repo, batch, pre, time.time(), 0, dried)\n"
+            "out.update(landed=[g['id'] for g, _ in landed], same=fac.git(repo, 'rev-parse', head + '^{tree}') == "
+            "fac.git(repo, 'rev-parse', dried + '^{tree}')); print(json.dumps(out))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.splitlines()[-1])
+    assert out["moved"] is False                                               # a dry merge leaves the checkout be
+    assert "differ from its dry merge" in out["raised"] and suite_runs(f) == 1  # never tested: only the true one ran
+    assert out["landed"] == ["gap/a", "gap/b"] and out["same"] is True
 
 
 def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
@@ -2373,6 +2537,149 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
                 {"daily_at": "24:00"}, {"daily_at": "4am"}):
         with pytest.raises(SystemExit):
             drain.settings({"upgrade": bad})
+
+
+# ---- switcher-actually-runs (docs/roadmap/overnight/switcher-actually-runs.md): the timed blocks on the engine's clock
+
+def instance_engine(f: Factory):
+    """The real engine on the factory's model in a disposable instance (``f.model``: dev/ linked, a record of its own),
+    its loop not started: (the engine, the blocks its clock starts on their own: its plan, as ``_schedule`` reads it)."""
+    from ergostat import model as mdl
+    from ergostat.spec.engine import Engine
+    from ergostat.store import Project
+    (f.model / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+    e = Engine(Project(mdl.load(f.model)), say=lambda s: None)
+    _, timed_blocks, _, crons, _ = e._plan(e.spec, {}, {})
+    return e, {b.name for b in timed_blocks} | {k.split("/", 1)[1] for k in crons if k.startswith("block/")}
+
+
+def on_the_clock(tmp_path, name: str, goal: str) -> None:
+    from ergostat.spec.ir import Ref
+    e, scheduled = instance_engine(Factory(tmp_path))
+    b = e.spec.blocks[name]
+    assert b.every and name in scheduled                                       # the clock starts it
+    assert e.spec.commanders_of(name) == [] and e.command_of(b) == (None, {})  # and nothing commands it: whether the
+    assert Ref("goal", goal) in b.reads() and name in e.spec.loop(goal).controllers   # goal holds or not; it is read
+
+
+def test_the_switcher_is_on_the_engines_schedule(tmp_path):
+    on_the_clock(tmp_path, "switcher", "drains-within-bound")
+
+
+def test_the_pipeline_watch_is_on_the_engines_schedule(tmp_path):
+    on_the_clock(tmp_path, "pipeline-watch", "no-stuck-gaps")
+
+
+def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
+    from ergostat.cli import main
+    model = textwrap.dedent("""\
+        name: t
+        stocks:
+          q: {unit: jobs, sensor: {run: echo 0, every: 1m}}
+        flows:
+          done: {from: q}
+        goals:
+          short: {stock: q, hold: "<= 0"}
+        blocks:
+          sweep: {type: program, run: echo 1, every: 1m, goal: short, out: flow.done}
+        """)
+
+    def found(text: str, where: Path) -> list[str]:
+        where.mkdir()
+        (where / "ergostat.yaml").write_text(text)
+        main(["-C", str(where), "check", "--json"])
+        return [x["about"] for x in json.loads(capsys.readouterr().out)["found"] if x["code"] == "schedule-removed"]
+    assert found(model, tmp_path / "goal") == ["block.sweep"]
+    assert found(model.replace("goal: short", "in: goal.short"), tmp_path / "read") == []
+    assert found(model.replace("every: 1m, goal", "goal"), tmp_path / "unscheduled") == []    # (paced by nothing)
+    assert found(model.replace("every: 1m, goal", "cron: '0 4 * * *', goal"), tmp_path / "cron") == ["block.sweep"]
+    old = tmp_path / "main"                                    # the factory's model as main had it: both caught
+    (old / "dev").mkdir(parents=True)
+    for x in (ROOT / "dev").iterdir():
+        if x.name != "model":
+            (old / "dev" / x.name).symlink_to(x)
+    (old / "dev" / "model").mkdir()
+    for x in (ROOT / "dev" / "model").iterdir():
+        (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.drains-within-bound", "goal: drains-"
+                                                    "within-bound").replace("in: goal.no-stuck-gaps", "goal: no-stuck-gaps"))
+    (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+
+    def noted(path: Path) -> set[str]:      # (a craft note, not an extremes finding: a second model's extremes, ~60 s
+        return {p.about for p in read(path, extremes=False)[1] if p.code == "schedule-removed"}   # of a worker, not run)
+    assert {"block.switcher", "block.pipeline-watch"} <= noted(old / "ergostat.yaml")
+    # the factory's now: only plan-lint, whose every: is meant as a pace (it sweeps while plans wait in planned); the
+    # modelling template's paced blocks are its own (parts a template made are not noted)
+    assert noted(ROOT / "ergostat.yaml") == {"block.plan-lint"}
+
+
+def test_a_paced_block_raises_no_modelling_request(tmp_path):
+    """``schedule-removed`` is said by check, never sent to the modelling loop: a goal: with every: is also a meant pace
+    (SPEC §9.1), so no tier (and above all not the ai tier) is asked to change it."""
+    from ergostat import model as mdl
+    from ergostat.numbers import requests as rq
+    from ergostat.store import Project
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
+        name: t
+        stocks:
+          q: {unit: jobs, sensor: {run: echo 0, every: 1m}}
+        flows:
+          done: {from: q}
+        goals:
+          short: {stock: q, hold: "<= 0"}
+        blocks:
+          sweep: {type: program, run: echo 1, every: 1m, goal: short, out: flow.done}
+        """))
+    p = Project(mdl.load(tmp_path))
+    assert "schedule-removed" in {x.code for x in read(tmp_path / "ergostat.yaml", extremes=False)[1]}   # check says it
+    rq.sync(p, coherence=False, extremes=False)
+    got = rq.stored(p).values()
+    assert any(r["code"] == "no-description" for r in got)          # the other notes still reach the loop
+    assert [r for r in got if r["code"] == "schedule-removed"] == []
+
+
+@pytest.mark.slow
+def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, monkeypatch):
+    from ergostat.actions import gate
+    f = Factory(tmp_path)
+    f.config.write_text(f.config.read_text().replace("[instance]\nport = 0\n", "[instance]\nport = 0\nhealth_wait = 1\n")
+                        .replace('run = "run"', f'run = "{f.model / "run"}"'))   # (the switch runs in live/instance)
+    monkeypatch.setenv("FACTORY_CONFIG", str(f.config))                        # (the engine's runs inherit it)
+    a, b = versions(f, 2)
+    live = tmp_path / "live"
+    fake_version(live, a, starts=True)
+    fake_version(live, b, starts=True)
+    (live / "instance").mkdir()
+    subprocess.run([sys.executable, str(BIN / "live.py"), "init"], cwd=live / "instance", env=f.env,
+                   check=True, capture_output=True)
+    e, scheduled = instance_engine(f)
+    p, spec = e.p, e.spec
+    held = gate.request(p, spec, "switch-instance", {"sha": b}, {"block": "upgrader"}, asker="program", key=b)
+    assert held["state"] == "requested"
+    uid = f"upgrade/{b[:12]}"
+    for ev, data in [("upgrade.opened", {"sha": b}), ("upgrade.installed", {"check": "ok", "previous": a}),
+                     ("upgrade.switch-asked", {"switch": "held", "switch_action": held["id"]})]:
+        p.events.add(ev, item=uid, source="upgrader", data=data)      # the live order: asked, then approved
+    assert gate.approve(p, spec, held["id"], by="coordinator")["state"] == "ran"   # approving runs drain.py approve
+    sw = spec.blocks["switcher"]
+    assert "switcher" in scheduled
+    try:
+        for _ in range(2):                                     # two of its minutes: it drains, then switches
+            assert e.start(sw, "schedule")                     # as the clock starts it (_schedule)
+            deadline = time.monotonic() + 120
+            while "switcher" in e.running and time.monotonic() < deadline:
+                time.sleep(0.2)
+            assert "switcher" not in e.running
+        said = [x["type"] for x in p.events.query(n=None, item=uid)]
+        assert said[-3:] == ["upgrade.switch-approved", "upgrade.draining", "upgrade.drained"], said
+        runs = p.events.query(n=None, type="agent.started", item="switcher")
+        assert len(runs) == 2 and all(r["data"]["trigger"] == "schedule" for r in runs)
+        deadline = time.monotonic() + 90                       # the switch, in its own process (live.py switch)
+        while (os.readlink(live / "current") != b or (f.model / "run" / "drain.json").exists()) \
+                and time.monotonic() < deadline:
+            time.sleep(0.5)
+        assert os.readlink(live / "current") == b and not (f.model / "run" / "drain.json").exists()
+    finally:
+        e.close()
 
 
 # ---- merges of the files many gaps edit at once (.gitattributes)

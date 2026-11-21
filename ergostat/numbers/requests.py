@@ -16,6 +16,11 @@ a missing loop, a block that moves nothing).
 | proposed | ``.proposed`` | a change citing it (its finding as evidence) waits for the judge or the owner |
 | held | ``.held`` | no tier enabled can answer it, or its change was turned away: it waits for the owner, the ai tier, or more record |
 | answered | ``.answered`` | check no longer finds it (a change written, or anything else) |
+| dismissed | ``.dismissed`` | the owner denied it from the inbox, with why: not raised again until its part changes |
+
+A held request approved from the inbox is ``.reopened`` (open again, for the ai tier, its tries given back), only
+when the tiers take it up (``approvable``: check's, not a redesign's; not the owner's alone) and the model has the ai
+tier; else only a dismissal is offered. Every write of a request's state is made under ``locked``, read again first.
 
 ``sync`` is the request collector: run by the modelling template's sensor on ``open-requests``, it raises what is
 new, answers what has gone, and moves each to where its changes say it is. The record is the only store."""
@@ -36,10 +41,23 @@ OWNER = {"queue-goal-tolerance": "a goal's setpoint and tolerance are what decid
 NOT_MODELLING = {              # said by check, but no change to the model answers it: the owner's
     "no-modelling-loop", "template-stand-in", "template-library", "yaml-1.1", "where-typed", "deprecated-name",
     "used-twice", "not-exercised",
+    "schedule-removed",        # a goal: with every: is also a meant pace (SPEC §9.1): only its author can say which
 }
 OPEN = ("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
 ENDED = ("refused", "failed", "dismissed", "inconclusive")
+DISMISSAL = ("note", "dismissed_by", "dismissed", "part", "approved_by")   # cleared when it is raised again
+TAKEN_UP = {"check", "craft", "coherence", "fit"}   # the sources the tiers take up (gather's): never a redesign's
+TIERS = {"rule", "ai"}
+
+
+def fresh() -> dict:
+    """What a dismissed request raised again starts from: a new finding, untried, not the owner's, no dismissal."""
+    return {"tried": {}, "owner": False, **dict.fromkeys(DISMISSAL)}
+
+
+class RequestError(ValueError):
+    pass
 
 
 def rid(source: str, code: str, about: str) -> str:
@@ -109,7 +127,8 @@ def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list
 
 
 def stored(p) -> dict[str, dict]:
-    """Every request in the record, folded: ``{id: {state, ...fields}}``."""
+    """Every request in the record, folded: ``{id: {state, ...fields, moved}}``; ``moved`` is the seq of its last move
+    (``_moved_at``), which a tier compares under the lock to know nobody moved it since it read it."""
     from ..spec import items as its
     from ..spec.ir import modelling_request_kind
     by: dict[str, list[dict]] = {}
@@ -120,8 +139,21 @@ def stored(p) -> dict[str, dict]:
     out = {}
     for item, evs in by.items():
         it = its.fold(item, evs, kind)
-        out[item.split("/", 1)[1]] = {**it.fields, "id": item.split("/", 1)[1], "state": it.state}
+        out[item.split("/", 1)[1]] = {**it.fields, "id": item.split("/", 1)[1], "state": it.state,
+                                      "moved": _moved_at(evs, kind)}
     return out
+
+
+def _moved_at(evs: list[dict], kind) -> int | None:
+    """The seq of the request's last move: an event that put it in another state, or any reopening (an approval
+    reopens a held request; a tier that read it open before it was held must not write over that)."""
+    at, was = None, None
+    for e in evs:
+        to = kind.on.get(e["type"])
+        if to is not None and (to != was or e["type"].endswith(".reopened")):
+            at = e.get("seq")
+        was = to if to is not None else was
+    return at
 
 
 def event(p, x: str, what: str, data: dict | None = None, source: str = "ergostat") -> dict:
@@ -149,6 +181,17 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
     spec = spec or p.model.spec
     now = now or time.time()
     found = {r["id"]: r for r in gather(p, spec, coherence, extremes)}
+    with locked(p):                                       # what it read is what it moves: no answer lands between
+        return _moved(p, spec, now, found)
+
+
+def locked(p):
+    """Held while a request is read, decided on and written: the owner's answer, the collector's moves, a tier's
+    word. Never taken inside ``proposals.locked``, nor that inside it."""
+    return pr.locked(p, "requests")
+
+
+def _moved(p, spec: Spec, now: float, found: dict[str, dict]) -> dict:
     have = stored(p)
     changes = pr.changes(p)
     cites = _citing(changes)
@@ -156,12 +199,15 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
     moved = {"raised": 0, "answered": 0, "proposed": 0, "held": 0, "reopened": 0}
     for k, r in found.items():
         x = have.get(k)
-        if x is None or x["state"] == "answered":
-            event(p, k, "raised" if x is None else "reopened",
+        if x is not None and x["state"] == "dismissed" and x.get("part") == ver.part(spec, r["about"]):
+            continue                                      # the owner dismissed it, and its part is as it was
+        if x is None or x["state"] in ("answered", "dismissed"):
+            new = fresh() if x and x["state"] == "dismissed" else {}
+            event(p, k, "raised" if x is None else "reopened",   # a dismissal's part changed: a new finding, untried
                   {**{a: b for a, b in r.items() if a != "id"}, **({"raised": now} if x is None else {}), "since": now,
-                   "version": v, "change": None, "why": None})
+                   "version": v, "change": None, "why": None, **new})
             moved["raised" if x is None else "reopened"] += 1
-            x = {**(x or {}), **r, "state": "open", "since": now, "version": v}
+            x = {**(x or {}), **r, **new, "state": "open", "since": now, "version": v}
             have[k] = x
             if r["code"] in OWNER:                        # control: no tier changes it; it waits for the owner
                 event(p, k, "held", {"why": OWNER[r["code"]], "owner": True, "tier": "owner", "version": v})
@@ -209,7 +255,47 @@ def sync(p, spec: Spec | None = None, now: float | None = None, coherence: bool 
         if x["state"] in OPEN and k not in found:
             event(p, k, "answered", {"answered": now, "why": "check no longer finds it"})
             moved["answered"] += 1
-    return {**moved, "open": sum(1 for k in found if (have.get(k) or {}).get("state") != "answered")}
+    return {**moved, "open": sum(1 for k in found if (have.get(k) or {}).get("state") not in ("answered", "dismissed"))}
+
+
+def approvable(spec: Spec, r: dict) -> bool:
+    """Whether approving a held request hands it to a tier that takes it, an allowlist: a finding of check's, a craft
+    note, a coherence mismatch or the fit (``TAKEN_UP``; never a redesign's, which the redesigner holds), its tier the
+    rule or the ai tier (never ``owner``), its code not one only the owner changes (``OWNER``), and the model running
+    the ai tier (a block whose run is ``... modelling ai``, the modelling template's ``modeller``)."""
+    def ai(b) -> bool:
+        w = str(b.params.get("run") or "").split()
+        return any(w[i:i + 2] == ["modelling", "ai"] for i in range(len(w)))
+    return (r.get("source") in TAKEN_UP and r.get("tier") in TIERS and r.get("code") not in OWNER
+            and any(ai(b) for b in spec.blocks.values()))
+
+
+def answer(p, spec: Spec, x: str, yes: bool, note: str | None = None, by: str = "owner") -> str:
+    """The owner's answer to a held request (the inbox): approved, it is open again for the ai tier, with its tries
+    given back (the tier skips a request whose tries are used, or held for the owner); denied, it is dismissed with
+    ``note``, until the part it is about changes. Approval is refused when no tier would take it up: it is then the
+    owner's own change (citing it) that answers it, or a dismissal. Read and written under ``locked``."""
+    with locked(p):
+        return _answer(p, spec, x, yes, note, by)
+
+
+def _answer(p, spec: Spec, x: str, yes: bool, note: str | None, by: str) -> str:
+    r = stored(p).get(x)
+    if r is None or r["state"] != "held":
+        raise RequestError(f"request {x} is not held (it is {r and r['state']})")
+    if yes:
+        if not approvable(spec, r):
+            raise RequestError(f"no tier of the modelling loop takes {r.get('code')} up: write the change (citing "
+                               f"{evidence_of(r)}), or --deny --note WHY")
+        event(p, x, "reopened", {"why": None, "change": None, "owner": False, "tier": "ai", "since": time.time(),
+                                 "tried": {**(r.get("tried") or {}), "ai": 0}, "version": ver.version(spec),
+                                 "approved_by": by}, source=by)
+        return "approved: open again, for the ai tier"
+    if not (note or "").strip():
+        raise RequestError("a dismissal says why: --note WHY")
+    event(p, x, "dismissed", {"note": note, "dismissed_by": by, "dismissed": time.time(),
+                              "part": ver.part(spec, r.get("about") or "model")}, source=by)
+    return f"dismissed: not raised again until {r.get('about') or 'the model'} changes"
 
 
 def waiting(p, states=("open",)) -> list[dict]:
@@ -220,18 +306,39 @@ def waiting(p, states=("open",)) -> list[dict]:
             if not any(c["state"] in LIVE for c in cites.get(evidence_of(r), []))]
 
 
+def for_ai(p, tries: int) -> list[dict]:
+    """What the ai tier takes up: open or held, its, not the owner's, and not yet tried ``tries`` times."""
+    return [r for r in waiting(p, ("open", "held")) if r.get("tier") == "ai" and not r.get("owner")
+            and int((r.get("tried") or {}).get("ai") or 0) < tries]
+
+
 def current(p, states=OPEN) -> list[dict]:
     """The requests in these states, oldest first."""
     return sorted((x for x in stored(p).values() if x["state"] in states), key=lambda x: x.get("raised") or 0.0)
 
 
-def mark(p, x: dict, what: str, why: str, **more) -> None:
-    """A tier's word on a request: held (it has nothing it can make), with why."""
-    event(p, x["id"], what, {"why": why, **more})
+def mark(p, x: dict, what: str, why: str | None = None, **more) -> bool:
+    """A tier's word on a request as it read it (``x``): held (it has nothing it can make), with why; or its tries
+    and cost, in the state it was in. Written only if, read again under ``locked``, the request has not moved since the
+    tier read it (the same ``moved`` seq, not only the same state): the owner's answer, or the collector's move, made
+    while the tier was working, stands, even when the request has come back to the state the tier read."""
+    return move(p, x["id"], what, {**({"why": why} if why is not None else {}), **more}, (x["state"],),
+                x.get("moved", -1))
+
+
+def move(p, x: str, what: str, data: dict, states, moved: int | None = None) -> bool:
+    """``what`` written on request ``x`` only if, read again under ``locked``, it is in one of ``states`` and, given
+    ``moved`` (the seq of its last move as it was read), it has not moved since."""
+    with locked(p):
+        now = stored(p).get(x)
+        if now is None or now["state"] not in states or (moved is not None and now.get("moved") != moved):
+            return False
+        event(p, x, what, data)
+        return True
 
 
 def counts(p) -> dict[str, int]:
-    out = {s: 0 for s in ("open", "proposed", "held", "answered")}
+    out = {s: 0 for s in ("open", "proposed", "held", "answered", "dismissed")}
     for x in stored(p).values():
         out[x["state"]] = out.get(x["state"], 0) + 1
     return out
