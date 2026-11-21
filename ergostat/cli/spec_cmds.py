@@ -84,6 +84,7 @@ def check_yaml(args, path: Path) -> int:
                          "notes": sum(1 for p in findings if p.level == "note"),
                          "found": [{"level": p.level, "code": p.code, "message": p.message, "about": p.about,
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
+                                    **({"items": p.items} if p.items else {}),
                                     "file": str(p.where.file) if p.where else None,
                                     "line": p.where.line if p.where else None} for p in problems],
                          "local": {k: str(w) for k, w in (getattr(spec, "local", None) or {}).items()},
