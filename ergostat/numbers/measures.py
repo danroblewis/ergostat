@@ -120,9 +120,9 @@ def _meta():
 
 READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
            "ergostat.model.unidentified-loops": loops_unidentified, "ergostat.model.open-findings": findings,
-           **{n: (lambda p, n=n: _meta()[n](p)) for n in ("ergostat.model.accepted-per-day", "ergostat.model.regressed",
-                                                          "ergostat.model.verified-share", "ergostat.model.fit-gained",
-                                                          "ergostat.model.cost-per-accepted")}}
+           **{n: (lambda p, n=n: _meta()[n](p)) for n in MODEL_MEASURES if n.startswith(("ergostat.model.accepted-per-day",
+              "ergostat.model.regressed", "ergostat.model.verified-share", "ergostat.model.fit-gained",
+              "ergostat.model.cost-per-accepted", "ergostat.model.review"))}}
 
 
 def measure(p, name: str) -> float | None:

@@ -299,8 +299,10 @@ def coerce(p: Param, v):
             raise ExpandError(f"{p.name}: a number (not {raw!r})") from None
         if t == "integer" and not n.is_integer():
             raise ExpandError(f"{p.name}: a whole number (not {raw!r})")
-        if (p.least is not None and n < p.least) or (p.most is not None and n > p.most):
-            raise ExpandError(f"{p.name}: from {p.least} to {p.most} (not {raw!r})")
+        if p.min is not None and not n >= p.min:                    # (NaN is outside either bound)
+            raise ExpandError(f"{p.name}: at least {p.min} (min: {p.min}; not {raw!r})")
+        if p.max is not None and not n <= p.max:
+            raise ExpandError(f"{p.name}: at most {p.max} (max: {p.max}; not {raw!r})")
         return int(n) if t == "integer" else _num(n)
     if t == "duration":
         hours(raw)

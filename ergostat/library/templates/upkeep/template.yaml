@@ -26,8 +26,8 @@ params:
   index-files:
     type: integer
     default: 6
-    least: 1
-    most: 64
+    min: 1
+    max: 64
     description: the most live item-index files kept (a few shapes of the model's kinds at once), from 1 to 64
   tidy-every:
     type: duration

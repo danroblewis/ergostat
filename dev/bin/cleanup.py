@@ -5,8 +5,8 @@ by name, and nothing else.
     [resources] session_keep_hours by their name and their time, and Claude Code's folder for each session,
     `<item>-<role>-<n>-claude-<8 hex>` (sessions.py: its transcript is already copied to run/sessions/), by its time;
   - installed versions, `<live>/<40-hex sha>` that are worktrees of the checkout (live.install), other than current,
-    previous, and any younger than the same hours (one installed and waiting for its switch): removed with
-    `git worktree remove`, never by hand.
+    previous, any younger than the same hours, and any whose switch waits (installed, approved or draining, read from
+    the record: an approved switch can wait a day): removed with `git worktree remove`, never by hand.
 
     cleanup.py [--dry-run]    remove them (or only say which), and say what was freed"""
 
@@ -27,6 +27,7 @@ import fac  # noqa: E402
 SESSION = re.compile(r"^[a-z0-9][a-z0-9-]*-(\d{14})-[0-9a-f]{6}$")
 CLAUDE = re.compile(r"^[a-z0-9][a-z0-9-]*-\d+-claude-[0-9a-f]{8}$")      # Claude Code's folder for one (sessions.py)
 SHA = re.compile(r"^[0-9a-f]{40}$")
+WAITING = ("installed", "approved", "draining")                         # an upgrade whose switch waits (drain.py's)
 
 
 def keep_seconds(cfg: dict) -> float:
@@ -100,9 +101,17 @@ def remove(cfg: dict, d: Path) -> None:
     shutil.rmtree(d, onexc=writable)
 
 
+def waiting() -> set[str]:
+    """The versions whose switch waits (installed, approved or draining: drain.py), from the record; one that cannot
+    be read stops the removal of installs (raised)."""
+    return {u["fields"].get("sha") for u in fac.items("upgrade") if u["state"] in WAITING}
+
+
 def main(argv: list[str]) -> int:
     cfg = fac.config()
-    gone = [*sessions(cfg), *installs(cfg)]
+    old = installs(cfg)
+    keep = waiting() if old else set()
+    gone = [*sessions(cfg), *(d for d in old if d.name not in keep)]
     freed = du(gone)
     for d in gone:
         print(("would remove " if "--dry-run" in argv else "removing ") + str(d), flush=True)
