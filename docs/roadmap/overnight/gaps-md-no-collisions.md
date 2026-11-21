@@ -171,3 +171,14 @@ The same: Bash was refused on its first command (`git status --short && git rm .
 `.gitattributes` is still committed and this paragraph is uncommitted. I did not delete the file with the file
 tools (the blocked removal by another route). No tests were run. What is left is the one command
 `git rm .gitattributes && git commit`, which the coordinator has to run, or give the implementor Bash.
+
+### Round 9
+The factory's merge of main (9acc11c2) conflicted in `tests/test_backlog.py`. Main had added
+`"Proposals superseded by any edit": "done"` to `test_intake_done_rule_on_the_real_gaps_md`, which this branch
+removes. I kept the branch's side, and so that main's addition is not lost, its shape (done, with "superseded" in
+the title and two branches joined by "and") is now a fixture entry, `Superseded in a done title`, in
+`test_the_done_rule_on_a_fixture`. The extra fixture line moves the *Done recently* line in
+`test_a_duplicated_gaps_entry_is_reported` from 44 to 45. The merge is committed (d656f10c). Afterwards
+`tests/test_backlog.py` 13 passed, `tests/test_factory.py -k merge_cleanly` 2 passed, and ruff is clean. The full
+unit suite and the browser files were not run here. `git rm .gitattributes` was refused again, so the root
+`.gitattributes` is still committed. What is left is still the one command `git rm .gitattributes && git commit`.
