@@ -88,3 +88,11 @@ test_spec_engine (10), test_run_costs + test_leases + test_lease_kill (53), test
 test_runner_and_state + test_daemons (88). `ruff check ergostat tests scripts` is clean. Checked again: a timeout or
 stop still sends SIGKILL to the run's group (`runner._kill`), so the wrapper's INT/TERM trap does not keep a killed
 run going (lesson-6).
+
+Round 3, after the factory's scratch-file gate refused `.bench/test_bench_detach.py`. Its removal was refused again
+this session: `git rm -r .bench` was denied by the session's permission mode, the third session in a row. I did not
+get around the denial another way (`rm`, `git update-index`, a revert of 1227723b). It reads as a deliberate block on
+deleting files, so the next step belongs to whoever can delete them. **What is left:** one command and a commit,
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`. This only deletes the file; nothing
+else in the gap needs to change. Nothing else changed this round. No code was touched, so the suites were not run
+again.
