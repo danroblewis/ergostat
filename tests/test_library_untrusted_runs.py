@@ -9,11 +9,15 @@ import json
 import textwrap
 import threading
 import time
+import types
+
+import pytest
 
 from ergostat import model as mdl
 from ergostat.leases import TAKEN
 from ergostat.library import bounds
 from ergostat.library.bounds import UNTRUSTED_EVERY, UNTRUSTED_RUNS
+from ergostat.spec import engine as engine_module
 from ergostat.spec import items as its
 from ergostat.spec.engine import Engine
 from ergostat.spec.load import Where
@@ -52,9 +56,28 @@ def project(tmp_path) -> Project:
     return Project(mdl.load(tmp_path))
 
 
+MADE: list[Engine] = []
+
+
+@pytest.fixture(autouse=True)
+def closed():
+    """Every engine a test made is closed when it ends (none left to this worker's later tests), after the stand-in
+    entries it put in ``running`` (no run of theirs exists) are taken out, so close does not wait on them."""
+    yield
+    while MADE:
+        e = MADE.pop()
+        with e.lock:
+            e.running.difference_update(GONE)
+            if "_run" in vars(e):                                 # its runs stood in for: none was ever done
+                e.running.clear()
+        e.stop.set()
+        e.close()
+
+
 def engine(tmp_path) -> tuple[Engine, Project]:
     p = project(tmp_path)
     e = Engine(p, say=lambda s: None)
+    MADE.append(e)
     return e, p
 
 
@@ -96,7 +119,6 @@ def test_take_reserves_before_lease(tmp_path):
         assert p.events.query(n=None, type=TAKEN) and f"t-work {it.id}" in e.running
     finally:
         e.running.clear()
-        e.close()
 
 
 def test_start_race_holds_cap(tmp_path, monkeypatch):
@@ -131,7 +153,6 @@ def test_start_race_holds_cap(tmp_path, monkeypatch):
         assert untrusted_running(e) == UNTRUSTED_RUNS
     finally:
         e.running.clear()
-        e.close()
 
 
 def blocked(e):
@@ -159,7 +180,6 @@ def test_draining_run_still_counts(tmp_path):
         assert e.start(blocks["b-work"], "t") is True, "once it has returned, the next starts"
     finally:
         go.set()
-        e.close()
 
 
 def test_reload_making_it_trusted_still_counts_its_draining_run(tmp_path):
@@ -179,7 +199,6 @@ def test_reload_making_it_trusted_still_counts_its_draining_run(tmp_path):
         assert e.start(e.spec.blocks["b-work"], "t") is False, "its run began untrusted: it still counts"
     finally:
         go.set()
-        e.close()
 
 
 def clocked(e, monkeypatch, rounds: list[float]) -> dict:
@@ -205,7 +224,11 @@ def clocked(e, monkeypatch, rounds: list[float]) -> dict:
             e.stop.set()
         return False
     monkeypatch.setattr(e.wake, "wait", wait)
-    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    # The engine module's clock only: patching time.monotonic itself would move every other thread of this worker
+    # (a wait worked out as a real deadline less this clock could last hours).
+    fake = types.SimpleNamespace(**{k: getattr(time, k) for k in dir(time) if not k.startswith("_")})
+    fake.monotonic = lambda: clock[0]
+    monkeypatch.setattr(engine_module, "time", fake)
     e._schedule(e.loop_gen)
     return got
 

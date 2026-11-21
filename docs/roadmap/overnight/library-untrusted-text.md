@@ -255,3 +255,20 @@ changed. What was run, all on `ee06bb7e`:
   `GONE` entries, which they never clear. That is slow but not wrong, and is left as it is.
 If the factory's log names the test, it should be checked against lesson-10, and against the `dev/bin/queue.py`
 shadowing above, before it is put down to this branch.
+
+**The factory's unit run after round 3.** Its tail stops at 88%, partway through a line, with no `F`, no summary and
+no test name. So the run was stalled or killed (by the watchdog or a time limit), not failed by an assertion. No test
+of this branch is known to cause it. Two things in this branch's own test file could disturb the other tests of one
+xdist worker, and both are changed (tests only, no code):
+- `clocked()` (used by the two pacing and judge tests) patched `time.monotonic` for the whole process while a real
+  scheduler pass ran. Another live thread of the same worker that works out a wait as a real deadline less
+  `time.monotonic()` (for example `daemons/work.py`, `spec/stream.py` or `session_echo.py`) would then wait for about
+  the container's uptime. It now patches only the engine module's clock (`ergostat.spec.engine.time`, a copy of `time`
+  whose `monotonic` is the test's clock). Broken once: `pace` returning `every` still fails
+  `test_engine_paces_untrusted_at_floor` and `test_a_block_run_by_its_readings_is_paced_too`.
+- Five tests never closed their engine. An autouse fixture now closes every engine a test made, after taking out the
+  stand-in `GONE` entries (and every entry, where the test stood in for `_run`). That also removes the two 5 s waits in
+  `close()`: the file runs in 4 s instead of 19 s.
+Run: `test_library_untrusted_runs` (8), and under `-n 4` with `test_library_untrusted`, `test_templates`,
+`test_reload_in_place` and `test_leases` (105 passed). ruff is clean. Not run here: the whole unit suite and the browser
+files. If the stall comes back, the factory's log of which worker stopped, and on which test, is needed to go further.
