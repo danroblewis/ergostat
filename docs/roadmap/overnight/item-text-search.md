@@ -38,3 +38,48 @@ depends-on: []
 - lesson-4: set a hard maximum on the number of search words and on the CLI's -n, not only the API's n.
 - Define the behaviour for an empty or whitespace-only --search (refuse it; don't list everything).
 - A 120-line budget is very tight for this scope; don't let it push tests out.
+
+## Where it stopped
+
+Built, round 1: every point of the definition, 64 net lines in `ergostat/` (90 added, 26 removed), within the
+120-line budget. Tests: `tests/test_item_search.py`, 8 tests, the six named plus
+`test_words_past_the_cap_are_not_searched` and `test_a_row_without_its_text_is_rebuilt_not_read_as_no_match`.
+
+Not done here: merging origin/main. This clone has no `origin` remote and no network. The branch contains local
+`main` (`git merge-base --is-ancestor main HEAD`). The factory's merge and suite run after this are still owed
+(lesson-7).
+
+Answers to the plan review's notes:
+- **Cap.** `items.TEXT_MOST = 65_536` characters of an item's casefolded text (its fields' string values, nested ones
+  too, in document order). A word past the cap is not found. I took the most reversible option: the docs state the
+  limit instead of refusing or flagging (SPEC §5a *Search*, the AGENT-GUIDE, `item --search` help). Test:
+  `test_words_past_the_cap_are_not_searched` (a word before a 65,536-character field is found, the word after it is not).
+- **Missing text row.** The text is a column of the item's own row (`items.text`), written by the same insert or update
+  as the row, so there is no separate text row to lose. If a row's text is NULL anyway (an older file given the column
+  by `alter table`, or a hand edit), a search rebuilds the index before it reads (`Index._where`). Test: the text is
+  set to NULL by hand and the item is still found.
+- **Wildcards.** No LIKE: each word is matched with `instr(text, ?) > 0`, a plain substring, so `%`, `_` and `\` are
+  only themselves. Test: `50%` finds only the item that holds it, and `_` finds nothing.
+- **Non-ASCII.** The stored text and the words both go through `str.casefold` (not `lower`, which keeps `ß`). Nothing
+  relies on SQLite's ASCII-only folding. Test: `ÄRGER strasse` finds `Ärger STRAẞE`.
+- **lesson-5.** The test replaces a title, remakes the item under the same id with `set`, and restores a snapshot. After
+  each, the old words are gone. It checks again after a cold start (read from disk).
+- **lesson-9 decoy.** `ticket/2` holds only `alpha` and `ticket/3` only `beta`. Neither is found by `alpha beta`.
+- **lesson-4.** At most `items.SEARCH_WORDS = 8` words, or the search is refused. The CLI's `-n` is clamped to 1 to
+  `items.LISTED` (500). The API's `n` is capped as before.
+- **Empty search.** An empty or whitespace-only search is refused: exit 2 in the CLI, HTTP 400 in the API. A blank
+  `?search=` would otherwise be dropped by `parse_qs` and answered as the full listing, so the server keeps it, and the
+  test checks it over HTTP.
+- **Budget.** It held, with no test dropped.
+
+Mutations tried (lesson-9). Each broke the test named here, and each was reverted:
+- the update keeping the old text broke `test_changed_field_stops_matching`;
+- the NULL-text guard turned off broke `test_a_row_without_its_text...`;
+- `lower` in place of `casefold` broke `test_search_finds_by_every_word`;
+- an old VERSION accepted broke `test_old_index_rebuilt_and_searchable`;
+- the blank `?search=` no longer kept broke `test_search_cli_and_api_agree`;
+- the `--at` refusal removed broke `test_search_with_at_refused`.
+
+Run here, one file at a time: `test_item_search`, `test_item_index`, `test_cli_fallback`, `test_spec_items`,
+`test_item_sets`, `test_graph_cli_web` and `test_rollup` all pass, and ruff is clean. Not run here: the full unit suite
+and the four browser files, which the factory runs under the watchdog.
