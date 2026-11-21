@@ -1,8 +1,8 @@
 # The factory: ergostat developing itself
 
 `ergostat.yaml` at the repository's root is the factory that develops ergostat: gaps (from `docs/GAPS.md`, or asked
-for) defined first, built by an AI implementor in their own worktrees, judged by a disagreeable AI reviewer, landed one
-at a time by a merge queue behind the four suites, and the new main installed and switched to, with a revert. Its
+for) defined first, built by an AI implementor in their own worktrees, judged by a disagreeable AI reviewer, landed by a
+merge queue behind the four suites (one batch of approved gaps a run, 1 gap to start), and the new main installed and switched to, with a revert. Its
 programs, prompts and model files are here, in `dev/`. The plan it automates is
 `docs/roadmap/overnight-2026-11-19.md`; what it is meant to do is `docs/roadmap/overnight/factory.md`.
 
@@ -108,7 +108,7 @@ ergostat event --add gap.requested --item gap/warm2-again \
 
 A branch carried on under a new name (its first commit is another name's definition, e.g. `warm.md` on `warm2`) names
 that file as its definition, `"definition": "factory/warm2:docs/roadmap/overnight/warm.md"`: the implementor commits no
-copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is the branch's first commit.
+copy, the parked note is appended to it, and the reviewer's gate 1 checks that file is on the branch and unchanged since its first commit.
 
 The intake fetches it into the drop as `factory/NAME` (never over a `factory/NAME` already there, and refusing a name
 that is not lowercase words and dashes). It is not taken while another gap on the same branch is anywhere but parked or
@@ -119,8 +119,8 @@ read is taken, the other waits). Each run fetches its session's work to a side r
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
 (it may run `git merge`, `git add`, `git commit`, `git status`), and a branch that comes back without main in it (say,
 the merge aborted), or with the merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after. The reviewer's gate 1 takes the branch's own first commit (its first-parent line) as the definition (the file the
-gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
+after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
+that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
 between build and review is not a failed gate: the merge queue merges the branch into the main of its moment and runs
 the suites again. Its reviews are numbered past the branch's earlier ones (`review/NAME-3` after a parked gap's `-1` and
@@ -230,7 +230,25 @@ ergostat inbox action/<id> --approve --as coordinator
 ```
 
 One merge waits for its push at a time. If you deny the push, the queue undoes that merge (`git reset --keep`) and
-sends the gap back. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
+sends the gap back.
+
+**The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
+its pages drew nothing); the first failure in that order is the one reported.
+
+**Batches.** The queue merges up to `batch` approved gaps onto main in turn (in rank order) and runs the suites once.
+The batch is 1 to start (`[pools] batch = 1`: one gap a run, the queue as it always was). A green batch asks for one
+push, of its last merge, so one approval lands the batch, and a denial sends every gap of it back. A red batch is
+bisected (the suites again on the first half of the merges, and so on) to the first merge that fails; that gap goes to
+flake triage with its failures, the merges before it land, and those after it are merged again and run once more. A
+batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
+`run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
+
+To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
+`queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
+`run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
+a batch of 4 whose every merge fails is at most 8 suite runs (about 1.5 hours at 12 minutes), and the block's 3 hour
+timeout also covers the wait for the lock and a quiet machine. `merges-per-hour` (gaps merged over the hours of every
+queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
 
