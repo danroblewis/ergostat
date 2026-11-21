@@ -21,3 +21,17 @@ From:
 ## Size budget
 
 0 net lines of code (knowledge only).
+
+## Where it stopped
+
+Done: lesson-8's existing "Seen as:" line in `dev/knowledge/review-lessons.md` now ends with a new shape, named for
+its gap (merge-batching) as lesson-12 and lesson-13 name theirs: merges-per-hour counting only runs that merged,
+stamped at land time, so failed, conflicted and tail suite runs were dropped while the docs said all of the queue's
+runs. No heading was added and nothing else in the file was changed. 0 lines of code.
+
+Not done: Bash was refused in this session, so nothing was run and nothing was committed. Both edits (this section and
+the lesson line) are left uncommitted in the worktree. `test_knowledge_files_parse` was judged by reading only: it
+checks ids, non-empty text, lesson-1..lesson-13 in order and 9 decisions, and adding wrapped lines under an existing
+heading changes none of those. Line lengths were checked by eye, not with a tool (each new line is under 120). Left:
+commit the two files, run `uv run python -m pytest -q tests/test_factory_knowledge.py` and ruff, and merge origin/main
+in. Leaving the work uncommitted was the most reversible option.
