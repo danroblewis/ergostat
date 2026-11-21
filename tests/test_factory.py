@@ -72,6 +72,17 @@ else:
     sys.exit(f"the fake ergostat does not know {args}")
 '''
 
+CHECK = r'''
+import json, pathlib, sys
+d = pathlib.Path("found")                       # (`ergostat check` played: each file found/CODE@PART is a finding)
+names = sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+if "broken" in names:
+    sys.exit("Traceback (most recent call last): the check crashed")
+print("Resolved 3 packages in 1ms {not json}")
+print(json.dumps({"ok": True, "errors": 0, "found": [{"level": "finding", "code": n.split("@")[0],
+                  "about": n.split("@")[1] if "@" in n else None} for n in names]}, indent=2))
+'''
+
 
 def git(repo: Path, *args: str) -> str:
     """git in a fixture repository, with an identity of its own: a machine with no global git config (the dev
@@ -158,7 +169,9 @@ class Factory:
             demo = "true"
             rerun = "echo again {{tests}}"
             alone = "{alone} {{tests}}"
+            check = "{sys.executable} {tmp / 'fake_check.py'}"
             """))
+        (tmp / "fake_check.py").write_text(CHECK)
         self.fake = tmp / "fake_ergostat.py"
         self.fake.write_text(FAKE)
         self.record = tmp / "record.json"
@@ -641,6 +654,87 @@ def test_a_new_top_level_file_not_in_the_definition_is_refused(tmp_path):
     bad = json.dumps({"gates": {"scratch_patterns": "tmp*"}})
     r = subprocess.run([sys.executable, "-c", code, str(BIN), drop, bad], capture_output=True, text=True, env=f.env)
     assert r.returncode and "scratch_patterns must be a list" in r.stderr     # a bad setting stops, never passes
+
+
+def on_main(f: Factory, *paths: str) -> None:
+    """Files committed on main and pushed (the main the drop's branches are made from)."""
+    for p in paths:
+        (f.checkout / p).parent.mkdir(parents=True, exist_ok=True)
+        (f.checkout / p).write_text("on main\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "main moves")
+    git(f.checkout, "push", "-q", "origin", "main")
+
+
+def test_a_build_adding_a_check_finding_is_sent_back(tmp_path):
+    log = tmp_path / "suite-runs.log"
+    f = Factory(tmp_path, unit=f"echo ran >> {log}")
+    on_main(f, "found/model-x@stock.a")
+    gid = ready(f)
+    writes = "found/model-x@stock.a,found/model-x@stock.b,found/unit-unknown"   # main's, its code on another part, new
+    said, lines = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=writes)     # (suite_fix_rounds 0: no next round)
+    assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert "new `ergostat check` findings: model-x stock.b, unit-unknown" in nack["why"]
+    assert f.item(gid)["fields"]["suites_fast"]["findings"] == ["model-x stock.b", "unit-unknown"]
+    assert not log.exists()                                                   # the suites never ran
+
+    f.config.write_text(f.config.read_text().replace("suite_fix_rounds = 0", "suite_fix_rounds = 1"))
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=writes)       # the next round is given the list:
+    gap = f.item(gid)["fields"]                                # (the stand-in removes a finding only if its brief lists it)
+    assert said == ["gap.started", "gap.built"] and gap["sessions"] == 1 + 2 and log.read_text() == "ran\n"
+
+    for side in ("main and the branch", "the branch"):        # lesson-3: a check that cannot run never passes
+        g = Factory(tmp_path / side.replace(" ", "-"), unit=f"echo ran >> {log}")
+        if side.startswith("main"):                           # (the branch holds main: broken on both)
+            on_main(g, "found/broken")
+        said, lines = g.run("implement.py", ready(g), FACTORY_STANDIN_WRITES="" if side.startswith("main") else "found/broken")
+        assert said == ["gap.started", "gap.measured"]
+        why = next(x["nack"] for x in lines if "nack" in x)["why"]
+        assert f"could not compare: `ergostat check` said nothing readable on {side}" in why, why
+    assert log.read_text() == "ran\n"
+
+
+def test_an_allowed_finding_passes_and_is_shown_to_the_reviewer(tmp_path):
+    f = Factory(tmp_path)
+    d = tmp_path / "instance" / "run" / "defs"
+    d.mkdir(parents=True)
+    (d / "alpha-thing.md").write_text("# alpha thing\n\nallows-findings: [model-x stock.b: its loop is the next gap, "
+                                      "model-y stock.c:]\n\n## Definition of done\n\nIt works.\n\n## Size budget\n\n"
+                                      "600 net lines.\n")
+    f.run("intake.py")
+    gid = "gap/alpha-thing"
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES="found/model-x@stock.b")
+    assert said == ["gap.started", "gap.built"]
+    assert f.item(gid)["fields"]["allowed_findings"] == ["model-x stock.b: its loop is the next gap"]
+    said, _ = f.run("review.py", gid)
+    assert said[-1] == "gap.approved"
+    text = (tmp_path / "instance" / "run" / "briefs" / "alpha-thing-reviewer-1.md").read_text()
+    assert "allowed by the definition (judge its reason): model-x stock.b: its loop is the next gap" in text
+    fac = module("fac")                                       # a reason left out allows nothing
+    assert fac.allowances((d / "alpha-thing.md").read_text()) == {"model-x stock.b": "its loop is the next gap"}
+    assert fac.allowances("# x\n\n## Definition of done\n\nIt works.\n") == {}
+    assert fac.allowances("allows-findings: [unit-unknown: a unit for later, a b: why]\n") == {
+        "unit-unknown": "a unit for later", "a b": "why"}                   # a finding about no part: its code alone
+
+
+def test_record_dependent_findings_are_not_counted(tmp_path):
+    f = Factory(tmp_path)
+    gid = ready(f)
+    writes = "found/calibration-worse-than-mean@flow.x,found/fit-unknown@model,found/extremes-running,found/takes-order-unset@block.b"
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=writes)
+    assert said == ["gap.started", "gap.built"]
+    fac = module("fac")
+    out = json.dumps({"found": [{"code": c, "about": "x"} for c in ("calibration-worse-than-mean", "calibrations")]})
+    assert fac.findings(f"uv: noise\n{out}\n", fac.RECORD_FINDINGS) == {"calibrations x"}   # by code, not prefix
+    assert fac.findings("Traceback: no output\n", fac.RECORD_FINDINGS) is None
+
+    for unfinished, built in (("branch", True), ("", False)):   # extreme-conditions tests finished in check's wait
+        g = Factory(tmp_path / f"x-{unfinished or 'none'}")        # differ with load (either side's note: the same)
+        on_main(g, "found/extreme-conditions@stock.a")
+        writes = "found/extreme-conditions@stock.b" + ",found/extremes-running" * (unfinished == "branch")
+        said, _ = g.run("implement.py", ready(g), FACTORY_STANDIN_WRITES=writes)
+        assert said == ["gap.started", "gap.built" if built else "gap.measured"], unfinished  # compared only when both
 
 
 T ="tests/test_x.py::test_y"
