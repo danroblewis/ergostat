@@ -318,8 +318,11 @@ def reviewed(cfg: dict, repo, gap: dict) -> tuple[str | None, str]:
 def dry(repo, onto: str, sha: str, msg: str) -> tuple[str | None, list[str]]:
     """`sha` merged onto `onto` without touching the checkout (`git merge-tree --write-tree`): (that merge as a commit
     on no branch, or None; the files in conflict). A commit, so the next dry merge finds the merge base a real one would."""
-    r = subprocess.run(["git", "-C", str(repo), "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z",
-                        onto, sha], capture_output=True, text=True, timeout=600)
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z",
+                            onto, sha], capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"git merge-tree {onto[:12]} {sha[:12]}: timed out after 600 s") from e
     m = re.match(r"([0-9a-f]{40,64})[\0\n]", r.stdout)
     if r.returncode not in (0, 1) or not m:
         raise RuntimeError(f"git merge-tree {onto[:12]} {sha[:12]}: {r.stderr.strip()[-400:]}")
@@ -354,7 +357,8 @@ def picks(cfg: dict, repo, gap: dict, n: int, pre: str) -> tuple[list[tuple[dict
         batch, head, own = [], pre, False
         for g in order:
             mine = g["id"] == gap["id"]
-            if len(batch) >= n or (not mine and not own and shas.get(gap["id"], 1) and len(batch) >= n - 1):
+            own_waits = not own and shas.get(gap["id"], 1)    # the run's own gap: not in yet, and not sent back
+            if len(batch) >= n or (not mine and own_waits and len(batch) >= n - 1):
                 continue                                  # (full, or the last slot kept for the run's own gap)
             if g["id"] not in shas:
                 shas[g["id"]], why = reviewed(cfg, repo, g)
