@@ -131,3 +131,65 @@ All are in `tests/test_diagram_rendering.py`. The pure tests load a served examp
 - The e2e hub test counts hubs by the view's lines while the rule counts by G's lines; equal only in a one-system view. State that, or compute per group.
 - Specify the axis choice when a component has no positioned parts or a zero span.
 - Add a mutation for free (>= vs > SHARED_CAP) and show a test fails.
+
+## Where it stopped
+
+Built, round 1: `routeparts.js` (97 lines), `avoid.js` (+15 −7), `index.html` (+1): 106 net lines, within the 220
+budget. `snapshot.py` is unchanged: it already inlines every script tag (`test_a_snapshot_page_still_routes_its_lines`
+checks it).
+
+**Decided alone, the most reversible way (no one to ask):**
+
+- **`""` is parted, and why that is not optional.** In a `system=X` view no part has an open system (`systems: []`),
+  so on main every line of a one-system view is in `""`, not in a group named for the system. Dropping the parting
+  of `""` (the plan review's first option) would leave the gap doing nothing for the view it is for. So `""` is
+  parted, first (name order, as item 1 says). To keep (ii) as written, instead of narrowing it, parting `""` adds one
+  rule: a line of `""` at a part that has a line of another group, as given, stays in `""`. Its pieces go to groups
+  `#k` (`${G}#k` with G = `""`). What the later groups set aside goes to `""` after its parting and is not parted
+  again. Test: `test_the_shared_group_over_the_cap_is_parted_and_keeps_its_lines_at_a_systems_parts` (a system's
+  group of 60 lines and a `""` of 130, 10 of them at the system's parts). This answers the plan review's first note.
+  To undo it, drop the `others` rule and the `""` parting together.
+- **The end-to-end group names are `#k`**, not `s0#k`, for the same reason.
+- **The other plan-review notes.** `avoidCore` never referred to `GROUP_CAP`; it reads only `spec.penalties`. The
+  header says `""` is not bounded by the parting (many lines can cross at one cut) and is bounded only by free
+  routing. The e2e hub count uses the view's lines; it says so, and in a one-system view they are the group's lines
+  (all start in `""`). The axis is x on a zero span. A component never has a part with no position (rule b takes
+  those lines out first), so that case cannot arise. The `>=` mutation of `free` is below.
+
+**Where the acceptance text could not hold as written:**
+
+- `test_one_long_chain_with_no_hub_is_routed_in_bands`: "every line in `""` has its two ends in two different
+  non-`""` groups' parts" is false under item 1d's own band rule on the laid-out chain. ELK wraps the 90 stocks into
+  rows, so a band edge falls where the chain runs across the axis. Parts there join a band with no line to its parts,
+  both their lines cross, and the part is in no group (11 lines crossed at one cut here). The test asserts what holds
+  instead: no line in `""` has both ends in one group, `""` ≤ 100, and at least 2 bands. The pure chain test keeps the
+  exact claim (one line per cut, bands of 100, 100 and 58).
+- `test_the_shared_group_over_its_cap_is_routed_free`, end-to-end model: 12 valves, each driving the 10 flows of a
+  chain of its own (384 lines, 144 at the hubs). It routes in 0.6 s with `invalid == 0`. Shapes tried and dropped:
+  each driven flow filling a stock of its own (weighed groups of 100 among 396 shapes: more than 4 minutes); each ten
+  filling one stock (more than 90 s even with every line free); one chain of 120 driven flows (1 line with no valid
+  route, with main's grouping too).
+- The chain inputs of the pure tests give parts and lines ids in no order of x. With ids in x order, sorting by id or
+  in line order passed the test (found by breaking it).
+
+**Broken on purpose, and what failed (lesson-9):** each run on the new tests, then restored.
+
+- crossing lines kept in the lower band: 4 failed (the chain, missing-position, `""`-parting and long-chain tests);
+- `HUB` ignored: 3 failed (the hub test, the free test, `test_one_systems_lines_are_routed_in_parts`);
+- `penalties` not set in `avoidSpec`: the free test failed;
+- packing with no cap: 6 failed;
+- `free` at `>= SHARED_CAP`: the free test failed (`""` of exactly 100);
+- the band cap off by one (`>=`): at first nothing failed, so the chain test now asserts the exact band sizes, and it
+  fails;
+- parts in line order, not by position: at first nothing failed, so the ids were scrambled, and the chain test fails;
+- the `""` rule for a system's parts removed: the `""`-parting test failed;
+- a missing position taken as (0, 0): at first nothing failed (its lines crossed bands anyway), so the part removed is
+  now one near the start, and the missing-position test fails.
+
+**Measured** (scale.md, *Routing one system in parts*): 0.25 s parted against 1.02 s with main's grouping on the
+12-chain model. On the 90-stock chain, 0.42 s against 0.40 s: not improved. Main's grouping was routed by the
+branch's core, not by a checkout of main. scale_model's `system=sys-001` was not measured.
+
+**Not done here:** this clone has no `origin` remote and local `main` has no commit past this branch's base, so
+"merge origin/main" was a no-op. If `line-routing-for-large-diagrams` lands first, its `spec.plain` pass must still
+bypass `groups` and `penalties` (lesson-7), and the suites must run again after the merge.
