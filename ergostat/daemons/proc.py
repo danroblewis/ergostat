@@ -271,7 +271,8 @@ class Process:
                 return self.stray(text, "a reading or an observation, not both")
             if self.on_observe(obj["sensor"], obj, self.read_at):
                 return None
-            return self.stray(text, "an observation for no sensor of its own, or after ergostat stopped")
+            return self.stray(text, "an observation for no sensor of its own, not one in shape "
+                                    "(an event, or a message object), or after ergostat stopped")
         if "sensor" in obj and "reading" in obj and self.on_push(obj["sensor"], obj["reading"]):
             return None
         return self.stray(text, "tagged with no run, request or push sensor of its own")

@@ -110,6 +110,26 @@ def test_an_observation_for_a_sensor_not_of_this_daemon_is_stray_not_recorded(tm
     assert "a reading or an observation, not both" in text
 
 
+def test_an_observation_neither_taken_nor_refused_is_stray_and_not_counted(tmp_path, clock):
+    """Lesson-3 (review 2): a line observations() neither takes nor refuses ({"message": "text"}) is the log's, and
+    never counts against the cap: with it counted, the 50 good lines after it would see drops."""
+    p = setup(tmp_path, say([{"message": "just text", "sensor": "q.main"}]))
+    e = start(p)
+    log = p.dir / "logs" / "daemon-sensor.q.main.log"
+    try:
+        assert wait_for(lambda: log.exists() and "not one in shape" in log.read_text(), 10)
+        d = mine(e)
+        for o in ({"message": 5, "sensor": "q.main"}, {"message": "text", "sensor": "q.main"}):
+            assert e.daemons._observed(d, "q.main", o) is False
+        for i in range(50):
+            e.daemons._observed(d, "q.main", met(i))
+        clock[0] = 101.0
+        e.daemons.flush_observed()
+        assert len(events(p, "case.met")) == 50 and not refused(p), "not counted, so nothing dropped"
+    finally:
+        e.close()
+
+
 def test_a_refused_observation_is_said_as_for_a_run_sensor(tmp_path, clock):
     p = setup(tmp_path, QUIET)
     e = start(p)
