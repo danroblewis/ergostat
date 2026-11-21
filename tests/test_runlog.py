@@ -456,7 +456,7 @@ def test_an_unsafe_run_log_path_refuses_the_run_and_writes_nothing_outside(tmp_p
         runlog.open_run(SimpleNamespace(dir=tmp_path), "ok", None, "e" * 32)
 
 
-def test_storage_logs_runs_has_a_floor_and_a_ceiling():
+def test_storage_logs_runs_has_a_floor_and_a_ceiling(monkeypatch):
     from ergostat.storage import parse
     for bad in (0, 5000, -1, "lots", True):
         problems: list[str] = []
@@ -466,6 +466,9 @@ def test_storage_logs_runs_has_a_floor_and_a_ceiling():
     assert parse({"logs": {"runs": 10}}, problems).logs["runs"] == 10 and not problems
     assert parse(None, problems).logs["runs"] == 50
     assert runlog.keep(0) == 1 and runlog.keep(5000) == 1000 and runlog.keep(None) == 50 and runlog.keep(10) == 10
+    monkeypatch.setitem(runlog.LOGS, "runs", 5000)
+    assert runlog.keep("lots") == 1000  # an unreadable value falls back to the default, clamped too
+    monkeypatch.undo()
     problems = []
     parse({"logs": {"nope": 1}}, problems)
     assert "runs" in problems[0]

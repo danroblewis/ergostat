@@ -285,3 +285,46 @@ The merge of main was already committed (825696ef). There was nothing left to re
   allowed in this session), so "unrelated" rests on that reading, not on a run.
 
 ruff is clean.
+
+### Round 4: the branch base is still wrong. Rebuilding the branch was refused in this session.
+
+The blocking finding is not fixed. It is right: the branch holds the backlog's commits c66dc8a5, 67c673ec and
+600535dc, which main (7b39bc94, the only main in this clone; there is no `origin` remote) does not have. The fix is to
+rebuild the branch on main from the gap's own commits only. In this session every command that makes or moves a
+branch was refused: `git branch <name> <commit>`, `git switch -c ... main` and `git checkout -B ... main`. I did not
+get around that with a forward commit that undoes the backlog's files in the tree, for this reason: the backlog's
+commits would still be in the branch's history. Once this branch is merged, git would count the backlog as merged
+while its content was undone, and a later merge of the real backlog branch would bring in nothing. That is harder to
+undo than leaving the branch as it is.
+
+What the factory (or a session allowed to move branches) must run, in `/work`:
+
+```
+git branch factory/repair-runlog-old-base HEAD          # keep the old head, so nothing is lost
+git checkout -B factory/repair-runlog main              # main = 7b39bc94 or a newer origin/main
+git cherry-pick 98d0af91 3b2a7396 e5d4b907 8becff97 f3498374 4c354b23 <this round's commit>
+```
+
+Leave out e3bda351. Its only code change is `tests/test_relations_asof.py` ('ready' -> 'unblocked'), which is right only
+on the backlog base. Its "Where it stopped" text (round 3, after the factory's unit run) has to be carried over by hand,
+or that commit cherry-picked with `-n` and the test file restored from main. The gap's own commits touch only
+`ergostat/{runlog,storage}.py`, `ergostat/spec/engine.py`, `ergostat/repair/capture.py`, `docs/{SPEC,GAPS}.md`, this
+file, `tests/test_runlog.py` and `tests/test_resilience.py`. None of the backlog's files are in them. Conflicts are
+possible only in `engine.py`, `storage.py` or the docs, if main changed them after 7b39bc94. Then run
+`test_runlog.py`, `test_streamed_output.py`, `test_runner_and_state.py`, `test_resilience.py`, `test_daemons.py`,
+`test_repair2.py`, `test_relations_asof.py` (which must then pass unchanged with 'ready'), the unit suite and the four
+browser files.
+
+**Size.** The gap's own code against main (`git diff --stat 7b39bc94 HEAD` on the four ergostat files) is +249/-17,
+which is 232 net lines (budget 240). The 372 the factory counts includes the backlog's code, which goes away with the
+rebuild.
+
+The other findings of review 3:
+
+- **runlog.keep() did not clamp its fallback.** Fixed. An unreadable value now falls back to `LOGS["runs"]` and is then
+  held to 1 to 1000 like any other value. `test_storage_logs_runs_has_a_floor_and_a_ceiling` now forces the default
+  to 5000 and asks `keep("lots")`, which must give 1000. I saw it fail with the old fallback put back.
+- **Suites, and the lease test called unrelated by reading only.** Still open. The unit suite, the four browser files
+  and main's copy of `test_leases.py` were not run in this session. They must be run on the rebuilt branch. The lease
+  test can be compared fairly only there, against main with only this gap on top.
+- **The reviewer could not run the tests.** Run here: `tests/test_runlog.py` 12 passed. ruff is clean.
