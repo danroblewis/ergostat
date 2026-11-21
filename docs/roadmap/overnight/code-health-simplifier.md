@@ -226,4 +226,4 @@ build their own project in `tmp_path` from an inline model, and neither reads `d
 `dev/model/code-health.yaml` (searched). The simplifier's tests start no engine, daemon or lease. Both look like load
 flakes of the engine (lesson-10), to be run again on clean main. A fix for either belongs in its own gap. Not run here:
 the two tests alone, on this branch or on main (the shell refused pytest in this session), so "they pass alone" is not
-shown. No code changed in this round. Not committed by the implementor either, if the shell also refused `git commit`.
+shown. No code changed in this round.
