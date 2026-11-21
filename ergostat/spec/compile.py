@@ -904,7 +904,7 @@ class Compiler:
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
-        from ..repair import BLOCKS, FAILURE, VERIFY_MAX, VERIFY_MIN, failure_kind   # (verify: clamped again in settle)
+        from ..repair import BLOCKS, FAILURE, VERIFY_MAX, VERIFY_MIN, failure_kind
         if BLOCKS[0] in self.doc.sections.get("blocks", {}):
             spec.items[FAILURE] = failure_kind()             # built in, under use: repair: failing runs (SPEC §12r)
             if "--approver ai" in str(self.doc.sections["blocks"][BLOCKS[0]].get("run")):
