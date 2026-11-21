@@ -143,3 +143,83 @@ Names used below:
 - Test 8: loop.identify may also call ident.identify for the loop-working candidate. Scope the counting monkeypatch to one identify_around call, and say that pass 0 (ident.around) counts as one of the PASSES_MAX fits.
 - Rule 4: the 'worse' comparison runs across different held-out windows, so -precision favours the longer window. That is intended, but write it in the SPEC as such, so it is not read as like-for-like (lesson-8).
 - Rule 2: say what happens to two steps on the same input within P buckets of each other. They are probably one burst's rise and fall. Keep outside_steps' existing behaviour and state it.
+
+## Where it stopped
+
+Built, in round 1. `ergostat/control/experiments.py` (new), with `loop.around_step` as a thin caller and `proposals._around`
+saying every step. `ident.around`'s window logic is now `ident.excursion`, and `around` calls it (behaviour unchanged).
+Net lines outside tests and docs: 219 of the 280 budgeted.
+
+**Not claimed: rule 8(ii) as written.** `test_a_slow_process_is_identified_from_its_own_window_not_ys_excursion`
+holds every assertion of 8(ii), not loosened, and is marked `xfail(strict=True)`: it fails today, and it turns red the
+day it passes. Every allowed setting was scanned: integral gain 0.1, 0.2, 0.3, 0.45, 0.6, 0.8, 1.0; burst width 30, 60
+and 120 s; n of 12000 and 15000 s. None gives a process window on all six seeds.
+- The best per seed was gain 0.8, width 30 s: 5 of 6 seeds reached a process window and 6 of 6 were within the K and θ
+  bounds, but the mean error was 0.51 against the 0.3 required.
+- The blocker is `ident.moves`, in `ident.identify`, which is outside this gap. Pass 1's longer window often fails with
+  "u did not move in the part of the record fitted": integral action ramps u, so no change from one bucket to the next
+  passes a twentieth of its range over the longer window.
+- When pass 1 is sized from pass 0's τ, which the excursion underestimates, the "spans less" line can also remain. Pass
+  2 would correct that, but it fails the same way.
+
+What does hold is in a separate, narrower test,
+`test_a_slow_process_mean_error_from_the_new_path_is_under_half_the_excursions`, at the definition's own fixture (gain
+0.3, width 60 s, n 12000 s):
+- the excursion's span line appears on every seed;
+- the mean error is 0.28 against the excursion's 0.57;
+- at least 3 of 6 seeds reach a process window.
+
+The SPEC claims only this. A gap for `ident.moves` (steps of u counted against its range, which misses a ramp) would be
+its own.
+
+**Decisions taken where the definition left a choice (each the more reversible option):**
+- *Pass 0 with several steps.* Each step's excursion is read only up to the next outside step found in the record, not
+  into it. Without that, the half-way point of the first of three bursts was found past the third, and all three became
+  one window. With several experiments, pass 0's windows are `[k − P, half)`, the last held out whole, as rule 3 does
+  for later passes.
+- *"Pass i−1" is the kept pass* (the plan review's safer reading). Pass i is sized from the kept pass's τ and compared
+  with it, and "not run: pass j found no process" names the kept pass. The early stop compares with every window
+  already fitted ("not run: its windows are pass j's"), so the same window is never fitted twice. After a "not kept"
+  or "not found" pass 1, pass 2 is sized from pass 0 again, gets pass 1's windows and stops. Test 5 checks this, with
+  two `ident.identify` calls in all.
+- *Short steps and an earlier pass.* When a later pass finds a step short that the kept pass fitted, the kept result
+  gets that line in its `why` and is not proposable, before the comparison ("a window the process says is too short is
+  not trusted from an earlier, shorter window either"). Without this, case (d) of test 6 kept pass 0, which had fitted
+  both short steps.
+- *`dropped`* holds one line per step: the kept pass's line, else the first pass that dropped it.
+- *Rule 6 in a pass ≥ 1 that leaves nothing* returns the `found: False` result, as rule 6 says, not the earlier pass.
+- *Rule 2 on one input:* `outside_steps` is unchanged. It keeps the larger of two steps within P, so a burst's rise and
+  fall are one step. Note that it measures the P from `k + 1`: two steps need 41 buckets between them.
+- *The rule 7 text with one step* is "identified around an outside step at 14:20 (flow.asked), its window from …". The
+  "excursion" form quotes the first pass line after pass 0 that is not "kept". `θ + 4τ` is the kept result's own.
+- *The two-step overlap case of test 4* uses bursts 500 s apart, not 300 s. At 300 s (30 buckets) two steps on one
+  input are one step by rule 2, so no overlap of two steps can occur. It uses seed 0, where pass 1 is kept, and
+  `PASSES_MAX` is set to 2 so the size ⌈S/h⌉ is known from pass 0. At 550 s, pass 0 often finds an integrator from two
+  short experiments, and no later pass runs.
+- *Test 6(a)* puts its burst 420 s before the end, not 400 s: `outside_steps` needs at least 41 buckets after a step.
+  *Tests 6(b), 6(c) and 6(d)* use τ = 120 s. With τ = 60 s, S = 260 s is shorter than the 400 s after a step that
+  `outside_steps` asks for, so with several experiments no step can be short.
+- *Test 7* uses an all-zero second input `d2`, missing over the second burst's window. A second burst input that moved
+  with d would be collinear with it.
+- *Settling and judge's span.* When S's second term binds, the fitted part spans one bucket less than 5 (τ + θ), as the
+  formula is written. It was not changed.
+- The excursion test of 8(ii) uses `ident.around` on its own, so it is unchanged by these pass-0 decisions.
+
+**Breaking each guarded line (lesson-9), each failing as it should:**
+- step choice restricted to the largest → test 3 fails (`experiments == 3`);
+- pass ≥ 1 reusing the excursion windows → the 8(ii)-narrow test, test 4, test 5 and test 6 fail;
+- forward-filling over the whole record instead of dropping → test 7 fails;
+- clipping to `n` instead of dropping → test 6 fails;
+- a failed later pass kept, or a worse one kept → test 5 fails.
+
+**Not run here:**
+- the whole unit suite and the four browser files under `scripts/suite_watch.py` (the factory runs them after);
+- `demo_check`.
+
+This clone has no remote, so origin/main could not be merged. Local `main` is this branch's base (8eb0fc0), so there
+was nothing to merge.
+
+Run here, and green: `tests/test_outside_experiments.py` (9 passed, 1 xfailed), `tests/test_churn.py`,
+`tests/test_control.py`, `tests/test_graph_cli_web.py`, `tests/test_sd_tools.py`. `ruff check` is clean.
+
+`tests/test_zz_scratch.py` is an untracked, empty scratch file that this session could not delete. Delete it.

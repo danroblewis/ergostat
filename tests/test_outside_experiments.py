@@ -70,7 +70,6 @@ def hm(t):
 SLOW = {"gain": 0.3, "width": 60, "n": 12000}
 
 
-@pytest.mark.slow
 @pytest.mark.xfail(strict=True, reason="not met by any setting in the ranges allowed: see the definition's Where it stopped")
 def test_a_slow_process_is_identified_from_its_own_window_not_ys_excursion():
     """Rule 8(ii): τ = 300 s, integral gain 0.3, a burst of 60 s at 3000 s, n = 12000 s, v quiet from 2000 s to the end.
@@ -96,7 +95,6 @@ def test_a_slow_process_is_identified_from_its_own_window_not_ys_excursion():
     assert sum(e1) / 6 <= 0.5 * sum(e0) / 6
 
 
-@pytest.mark.slow
 def test_a_slow_process_mean_error_from_the_new_path_is_under_half_the_excursions():
     """The part of 8(ii) that holds, on its fixture: over the six seeds the mean of |ΔK|/K + |Δτ|/τ is under 0.3 and at
     most half the excursion's (0.28 against 0.57 when written), though not every seed reaches a process window."""
@@ -257,6 +255,11 @@ def test_a_step_without_enough_record_after_it():
     assert o["window"] == "process" and r["experiments"] == 1, o["passes"]
     assert [s["at"] for s in o["steps"]] == [6300.0]
     assert len(_covers(o["dropped"])) == 2
+    with pytest.MonkeyPatch.context() as m:              # pass 1 found nothing: pass 0 stays, which fitted the short steps
+        _second_call(m, lambda *a, **kw: {"found": False, "proposable": False, "told_apart": False, "why": ["fake"]})
+        r = ex.identify_around(H, t, u, y, {"d": d})
+    assert r["outside_step"]["window"] == "excursion" and r["proposable"] is False
+    assert len(_covers(r["why"])) == 2
 
 
 def test_a_step_whose_input_has_no_readings_in_its_window_is_dropped():
