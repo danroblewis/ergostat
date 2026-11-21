@@ -18,10 +18,10 @@ import uuid
 from pathlib import Path
 
 SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-# $1: the run's command, $2: where its exit code goes (written whole, then moved into place). A signal to the group
+# $1: the run's command, $2: where its exit code goes (a line; an empty file is not yet an exit). A signal to the group
 # (a timeout, a stop, a lease's SIGTERM) leaves the wrapper waiting for its command (a caught signal is the default
 # again in the command); a command ended by a signal ends the wrapper by the same one, so its exit reads as before.
-WRAP = ('trap : INT TERM; rc=0; /bin/sh -c "$1" || rc=$?; printf "%s\\n" "$rc" > "$2.tmp" && mv -f "$2.tmp" "$2"; '
+WRAP = ('trap : INT TERM; rc=0; /bin/sh -c "$1" || rc=$?; printf "%s\\n" "$rc" > "$2"; '
         'if [ "$rc" -gt 128 ] && s=$(kill -l "$rc" 2>/dev/null); then trap - INT TERM; kill -s "$s" $$; fi; exit "$rc"')
 
 
@@ -71,5 +71,5 @@ def alive(rec: dict) -> bool:
 
 
 def remove(f: dict[str, Path]) -> None:
-    for p in (*f.values(), f["exit"].with_suffix(".exit.tmp")):
+    for p in f.values():
         p.unlink(missing_ok=True)

@@ -21,7 +21,7 @@ from .. import runner as old
 
 BATCH = 500                 # the most lines taken in one batch
 GRACE = 2.0                 # seconds its file is still read once it ended, while what it started lives on
-FIRST, SLOW = 0.005, 0.05   # seconds before the file is looked at again: soon after output, then less often
+FIRST, SLOW = 0.001, 0.05  # seconds before the file is looked at again: soon after output, then less often
 CHUNK = 65536
 
 

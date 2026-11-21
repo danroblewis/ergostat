@@ -1718,7 +1718,14 @@ saturation.
 **Lines take effect as they arrive.** A run's standard output is read while it runs, line by line, and each
 complete line is taken when it is printed, in the order printed; half a line waits for the rest (or for the end of
 the output). Its input is written, and its errors go to its log, beside the reading, so neither a large output nor
-a program that reads its input slowly stalls it. Event lines in a row are recorded together, in one write, before
+a program that reads its input slowly stalls it. **A run outlives its engine:** it starts in its own session, its
+input is a file and its output goes to its run log file (`runs/RUN.out` in the state folder), which the engine
+follows (looking again within 50 ms when nothing is new), so no pipe ties the run to the engine: an engine killed
+mid-run leaves the run going, and a small `sh` wrapper writes its exit code to `runs/RUN.exit` when it ends.
+`runs/RUN.json` is its record: pid, the process's start time (a pid reused by another process has another start
+time), run id, lease and block. The files are removed once the engine has read the run to its end. (Taking up a run
+left behind by a stopped engine is not built yet.) A run has ended when its process has and nothing it started is
+left in its process group, or 2 s after its process ended, whichever is first. Event lines in a row are recorded together, in one write, before
 anything printed after them, so a run printing thousands of lines a second costs a few writes. A program flushes
 each line for it to be seen at once (`print(..., flush=True)`, `python -u`; `echo` and `jq -c` in a shell already
 do); what it holds in its own buffer arrives when it flushes or ends. By line:
