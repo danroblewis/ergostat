@@ -219,3 +219,25 @@ this branch, so **no code changed in this round**:
 Left: run the unit suite again (with `-o faulthandler_timeout=180`, so a hang names its test) and remove `.mut/`. If
 it stops again, the dump names the test. If that test is outside this branch's files, it is reported here, not fixed
 here (lesson-13).
+
+## Where it stopped, round 4 (the unit suite failed on a warm-daemon test)
+
+The unit run that followed round 3 finished: 1971 passed, 69 skipped and 1 failed. The failure was
+`tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped`, at line 181 ("the stopped run's
+process replaced": `starts` never reached 3 within 5 s). **No code changed in this round** (lesson-13):
+
+- The test is outside this branch's files. It runs no sensor, no collector, no intake and no rollup, and this branch
+  changes nothing in `ergostat/daemons/` or `tests/test_warm.py`. The branch's engine changes are only in
+  `observations`, `_observer` and `read_sensor`.
+- It passes here when run alone, and so does its whole file (21 passed, 31 s).
+- What is likely (read in the code, not reproduced): `daemons/proc.py:hand` (l. 232-250). When the owner's stop
+  cancels a warm run after it is held but before its line is handed to the process, the run ends "stopped as the
+  owner asked" and `recycle` is not set. That is by design ("the process not blamed"), so the process is not
+  replaced and `starts` stays at 2. The test's `item(...).state == "doing"` can hold before the hand-over, and the
+  hand-over happens outside the supervisor's lock. Under `-n 8` load that window can be open when `stop_run` is
+  called. That would be a race between the test's wait and the hand-over (lesson-10). It would not be a fault of
+  this branch. Running it with `Process.hand` delayed by 1 s would settle it, but this sandbox refused that run.
+- The fix, whether it goes in the test's wait (wait for the run to be handed over) or in `hand` (replace the process
+  anyway), belongs in its own gap about warm daemons, not here.
+- `.mut/mut.py` is still committed. This sandbox refused `git rm .mut/mut.py` again. It still needs
+  `git rm .mut/mut.py && git commit` from the factory or the owner.
