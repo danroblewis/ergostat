@@ -96,3 +96,9 @@ deleting files, so the next step belongs to whoever can delete them. **What is l
 `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`. This only deletes the file; nothing
 else in the gap needs to change. Nothing else changed this round. No code was touched, so the suites were not run
 again.
+
+Round 4, the same refusal. `git rm -r .bench` was denied again by the session's permission mode, the fourth session
+in a row. As before, I did not get around it another way (`rm`, a revert, `git update-index`). Removing the file is
+the only thing left, and someone allowed to delete files has to do it:
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`. No code changed and no suites were run.
+Running another implementor session with the same permissions will be refused the same way.
