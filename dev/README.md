@@ -141,8 +141,11 @@ gap/NAME` shows each round, its reviews, the context each session was given and 
 
 **The kill rule** is in `[gates]` (dev/factory.toml): `kill_after = 6` failed gates (fix verdicts, queue conflicts, real
 failures in the queue), `build_failures = 6` failed fast-suite runs of the implementor's, or `build_hours = 12` of
-building over its rounds, park a gap; within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make
-its failing fast suites pass.
+building over its rounds, park a gap. The three count over the gap's whole life (each a `sum` in the gap kind's fold:
+each failed build adds one to `build_failures`): a later successful build or a review round resets none of them, and a
+gap continued from a park (`manage.py continue`, `parks.py resume`) is a new item, under an id not yet in the record,
+that starts from zero. Within a run the implementor gets `[ai] suite_fix_rounds = 2` sessions to make its failing fast
+suites pass.
 
 **Scratch files are refused by a program, not a review.** After each session, before the fast suites, implement.py
 lists the files the branch adds against main and refuses any with a path part matching `[gates] scratch_patterns`
@@ -150,6 +153,20 @@ lists the files the branch adds against main and refuses any with a path part ma
 the definition's "Files to touch" does not name (checked only when the definition has that section). A file already on
 main is never refused. The list goes back to the session's next round (one of its `suite_fix_rounds`, not a review
 round); still there after the last, the run counts as a failed build.
+
+**A gap may not add findings to the model.** Next, still before the fast suites, implement.py runs `[suites] check`
+(`ergostat check --json --no-coherence`) on the branch and on a clone of the main it merged, and compares their
+findings by code and part (`code part`, or the code alone for a finding about no part). Every level counts, notes
+too, but codes matching `fac.RECORD_FINDINGS` (`calibration-*`, `fit-*`, `takes-order-unset`), which depend on the
+record rather than the change. Check waits only 5 s for its extreme-conditions tests, each side from cold, so how many
+finish depends on load: when either side says some did not finish (an `extremes-running` or `extremes-skipped`
+note), no `extreme-conditions` finding is compared on either side. A new one is then missed until a run where both
+sides finish. A finding new on the branch goes back to the
+session's next round with the list, as scratch files do. A side whose check printed no readable JSON is a failure to
+compare, sent back the same way, never "no new findings". A definition may allow a named finding with a reason, one
+line near its top: `allows-findings: [code part: why, ...]` (`code: why` for one about no part; no comma inside a reason; one with no reason allows
+nothing). The allowances used are recorded on `gap.built` as `allowed_findings`, and the reviewer's brief lists each
+allowance of the definition among the gates, to judge its reason.
 
 **A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
 runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
@@ -207,6 +224,25 @@ python3 dev/bin/ask.py "How does the queue decide a flake?"  # answered in run/r
 python3 dev/bin/lesson.py add "Title" --check "the check"   # or: retire N "why"; proposals wait in the inbox
 ```
 
+**Size classes.** Each plan's `## Size budget` holds `size: S|M|L|XL (confidence: low|medium|high)`, a class of the
+net lines that will merge outside `tests/` and `docs/` (everything else counts: `dev/`, `scripts/`, `examples/`,
+root files): S 50 or fewer (a net removal is S), M 51-150, L 151-400, XL over 400. A definition without it, or with
+another class or confidence, is sent back like any other planner problem, never given a default; each sub-gap of a
+split has its own. A replan replaces the size, and clears the lines of any earlier merge. At each merge the queue
+counts the net lines from main before it to the merged head (in a batch, each gap's own merge, not the batch's) and
+records `merged_lines` on `gap.merged`; when that count cannot be read the merge stands, `merged_lines` is null and
+`merged_lines_error` says why (a merge again always writes both, so no older count survives).
+
+`measure.py size-accuracy` is, over 14 days by each gap's latest merge, the share of merged gaps the planner sized
+whose lines fell inside their class; `size-accuracy-high` is the same for high-confidence gaps. The class scored is
+`planned_size` (with `size_confidence`), which only the planner writes. The planner never writes `size`: that is the
+groomer's (`gap.groomed`, S/M/L or hours), which the solver ranks by, and it is never scored. A sized gap with no
+count is left out of the share (never a hit) and named on stderr; with nothing measurable either one has no value
+(exit 1), and `-high` too when only low or medium gaps can be measured.
+
+**Not covered:** gaps whose definitions you wrote (no planner, no size; a plan that finds your definition already
+there records no size either), and split parents (they merge nothing; a split clears an earlier size).
+
 ## The pools: one at a time, raised on good results
 
 One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 4 and 2, in
@@ -222,7 +258,8 @@ The machine is measured every 30 s (`dev/bin/resources.py`, `dev/model/resources
 disk and threads, the Docker VM's limits and use, and each factory container's CPU and memory, kept on its gap
 (`resources`: each session's and suite's peak and mean) and in `run/resources/sessions.jsonl`. The setpoints are the
 goals in `dev/model/resources.yaml` (change them there). `session-headroom` is how many more sessions fit, from the
-measured use of a session and its suite. **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
+measured use of a session and its suite (of the session alone when `[suites] slot` is set: the slots cap the suites,
+and the readings include those running). **The effective pool is `min(pool, busy + headroom)`**: the pool stock is
 the risk target (the tuner's, or whatever sets it), the headroom a separate cap in the gates and in each run
 (`pools.my_turn`); it only ever lowers what the pool allows. A resource past its goal, or a headroom not known, holds
 new sessions (`machine-full`). `disk-cleanup` removes session folders and installs (never current or previous, nor
@@ -286,6 +323,21 @@ If you deny the push, the queue undoes that merge (`git reset --keep`) and sends
 **The suites in the queue:** ruff, then unit and browser at once, then demo_check alone (under the other two's load
 its pages drew nothing); the first failure in that order is the one reported.
 
+**The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
+triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
+queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a branch that adds
+its own failing test to the list is still red in the queue, and its line takes effect only once it is on main. (The
+implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch that adds the list,
+or a line to it, is not held up on its own machine by a test it quarantines; the queue still runs it.) After each unit run
+(and each triage rerun) the quarantined tests run once more, with `-rA` (the queue and implementor: `[suites] alone`;
+triage: `rerun`), never blocking. Each result is said on `flake/<test>` (`flake.measured`: `quarantined`, `last_run`,
+`last_run_log`), read from that run's whole log: `pass` only on the test's own PASSED line with no FAILED or ERROR
+line, `fail` on either, `unknown` otherwise (skipped, not collected, a run that never started or left no log). A
+skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
+released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
+sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
+a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.
+
 **Batches.** The queue merges up to `batch` approved gaps onto main in turn (in rank order) and runs the suites once.
 The batch is 1 to start (`[pools] batch = 1`: one gap a run, the queue as it always was). A green batch asks for one
 push, of its last merge, so one approval lands the batch, and a denial sends every gap of it back. A red batch is
@@ -293,6 +345,20 @@ bisected (the suites again on the first half of the merges, and so on) to the fi
 flake triage with its failures, the merges before it land, and those after it are merged again and run once more. A
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
+
+The batch is filled with gaps that merge. The queue walks the approved gaps in rank order and dry-merges each onto the
+batch so far (`git merge-tree --write-tree`, which leaves the checkout alone) until the batch is full. A gap that
+conflicts with main is sent back at once, as a failed gate, and takes no slot. A gap that conflicts only with a
+batch-mate stays `approved`, with no gate failed, and waits for a later run. The run's own gap is always in its batch
+unless it is sent back: the last slot is kept for it, however low it ranks, and when it conflicts only with a
+batch-mate the walk is made again with the own gap first, so the batch-mate is the one left `approved`. Its lease is
+never given back while others land, since the batch's push is asked under it. When the own gap is sent back, the walk
+is made again in rank order, so gaps passed over for its slot fill the batch. Whether a gap conflicts is git's exit
+code, not the files it names. The real merges then make the batch's first run: when they all succeed, their tree must
+be the dry-merged one, or the run stops before any suite. A real merge that conflicts (one merged again after
+bisecting, or one where the dry merge was clean) is undone and sent back as a failed gate, and the rest go on to the
+suites, so what is tested is still what lands. If git cannot make a dry merge at all, the run fails there: gaps
+already sent back stay sent back, the rest stay `approved`.
 
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
