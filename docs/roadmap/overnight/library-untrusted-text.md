@@ -222,3 +222,36 @@ makes it fail at `got["vend"].untrusted is True`. Net code +22 lines (about 246 
 Run: `test_library_untrusted` (21), `test_library_untrusted_runs` (8), `test_templates` with
 `test_modelling_template` (40), all passing. ruff is clean. Not run here: the whole unit suite and the browser files
 (left to the factory). This clone has no `origin`, and local `main` is already an ancestor, so there was nothing to merge.
+
+**The factory's unit run after round 2.** It showed one `F` at about 11%, as after round 1, and its tail held no test
+name, so the failing test is still not known. Nothing failed that this branch could be shown to cause, so no code was
+changed. What was run, all on `ee06bb7e`:
+- *The whole unit suite, serially, under `scripts/suite_watch.py`* (`-p no:randomly -rfE`): 2,471 passed, 69 skipped,
+  1 xfailed and 6 failed in 37 min (peak 367 threads, 757 MB). The 6 are `test_index_files` (4),
+  `test_modelling_ai_cap::test_two_runs_cannot_both_take_the_last_of_the_cap` and
+  `test_store_conformance::test_a_second_instance_threads_and_processes_lose_nothing[sqlite]`. Each failed in a
+  spawned child with `module 'queue' has no attribute 'LifoQueue'`. `test_backlog`, `test_factory` and
+  `test_factory_times` put `dev/bin` on `sys.path`, and `dev/bin/queue.py` then shadows the standard library's `queue`
+  in children spawned later in the same process. That only happens in a one-process run and lies outside this branch,
+  which touches neither `dev/` nor `conftest.py`. Those three files pass on their own (65 passed, 7 skipped). Under
+  lesson-13 this is reported here, not fixed.
+- *Under `-n 8 --dist worksteal`* each worker starts on a contiguous eighth of the 2,541 collected tests, so an `F` at
+  11% lies in the first tens of tests of some slice. These files, at or near each slice's start, were run serially and
+  all passed: `test_act_risk`, `test_architecture`, `test_changesets` through `test_control`, `test_engine_shard`,
+  `test_eta`, `test_extlaw`, `test_dynamics_view`, `test_gate`, `test_gated_actions`, `test_goal_per`,
+  `test_lease_kill`, `test_leases`, `test_leased_workspaces`, `test_lease_refused_cost`, both new files (run twice),
+  `test_observer`, `test_outside_experiments`, `test_parallel_runs`, `test_parity`, `test_pool_now`, `test_resilience`,
+  `test_review`, `test_spec_causal`, `test_spec_compile`, `test_spec_discover`, `test_spec_engine`, `test_spec_items`,
+  `test_spec_mcp_explain`, `test_spec_schema`, `test_guide`, `test_daemon_docs`, `test_exercised` and `test_mended`.
+- *Not run:* the suite under `-n 8`, or any slice of it under `-n 8`. That command, and a loop of repeated runs, were
+  refused in this session.
+- *Read for a change on the trusted path, none found.* `due`, `start`, the scheduler's intervals and the judge's pass
+  give main's values for a trusted part (`pace` returns `every` unchanged, and `room` returns True). Every `uses` entry
+  carries a bool `untrusted`, written only by `uses.one`. Remote parts carry `RemoteVia`, not `Via`. Only block keys go
+  into `engine.running`, so `room`'s rule that a missing block counts cannot catch any other key.
+- *Read for load-sensitivity in the new tests, none found.* The race test's barrier gives the same outcome when it
+  times out. A take with `inline=True` keeps its `running` entry. `done` is set only after `_run` drops its entry. Two
+  tests (`test_draining_run_still_counts` and the reload test) spend about 5 s in `e.close()` waiting on the made-up
+  `GONE` entries, which they never clear. That is slow but not wrong, and is left as it is.
+If the factory's log names the test, it should be checked against lesson-10, and against the `dev/bin/queue.py`
+shadowing above, before it is put down to this branch.
