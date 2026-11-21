@@ -28,7 +28,7 @@ import fac
 CAP = 20 * 1024 * 1024 - 4096         # bytes of one transcript (the page serves a file up to 20 MB)
 HOME = "/home/dev/.claude/projects"   # Claude Code's projects folder in the agent image (its user's home)
 SLUG = "-work"                        # Claude Code's folder for a session run in /work
-PARENTS = ("gap", "research", "review")   # the kinds a session is related to (its field of that name)
+PARENTS = ("gap", "research", "review", "situation")   # the kinds a session is related to (its field of that name)
 
 
 class Session:

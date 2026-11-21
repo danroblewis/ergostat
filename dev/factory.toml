@@ -40,10 +40,13 @@ researcher_model = "opus"            # research questions (dev/bin/research.py)
 researcher_session_usd = 5.0
 librarian_model = "haiku"            # the librarian's one step: a review's findings against the lessons
 librarian_session_usd = 0.25
+pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one situation at a time
+pipeline_manager_session_usd = 3.0
 
 [knowledge]                          # what a brief may carry beyond the house rules and the review lessons (always)
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
 plan_reviewer_chars = 12000          # (the lessons alone)
+pipeline_manager_chars = 12000
 librarian = false                    # ships off: true runs the librarian after each review (an AI step on haiku)
 
 [agents]                             # the sessions' containers (dev/bin/agents.py, dev/agent/)
@@ -56,6 +59,25 @@ token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude set
 implementor_max = 4                  # the most each may reach (the blocks' pool: in the model is this cap)
 reviewer_max = 2
 streak = 3                           # good gaps in a row before an increase is asked for
+
+[manager]                            # the pipeline manager's triggers (dev/bin/watch.py)
+open = 1                             # the switch managing-open: 0 pauses it
+parked_within_hours = 48             # a park this recent is looked at (older ones were the coordinator's)
+intervention_hours = 12              # an open defect (not a decision: operator-decision, factory-tuning, factory: false)
+                                     # unremedied this long is looked at
+interventions_per_hour = 3           # at most this many such looks an hour (the first run's backlog)
+heartbeat_minutes = 30               # a look at the whole pipeline, when it changed since the last
+
+[manager.stuck_hours]                # a gap this long in one state is stuck (states not named are never stuck)
+ready = 6
+fix = 6
+leased = 3
+building = 5
+built = 2
+in-review = 2
+approved = 4
+queued = 3
+queue-failed = 1
 
 [resources]                          # the machine (dev/model/resources.yaml holds the setpoints)
 session_cpus = 0.5                   # one session's use until three are measured (run/resources/sessions.jsonl)
