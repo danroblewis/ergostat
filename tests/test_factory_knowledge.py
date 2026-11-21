@@ -518,11 +518,12 @@ def test_sync_carries_about(tmp_path, monkeypatch):
     for d in ("model", "prompts"):
         shutil.copytree(ROOT / "dev" / d, root / "dev" / d)
     Project(mdl.load(root)).events.add("knowledge.found", item="knowledge/lesson-1", data=lesson)
-    _, problems = read(root / "ergostat.yaml", extremes=False)
+    spec, problems = read(root / "ergostat.yaml", extremes=False)
+    assert not [p for p in problems if p.code.startswith("about-")]          # a load looks nothing up: check's alone
+    from ergostat.spec.about import findings
+    findings(spec, problems)                                                  # as check does, last
     assert [(p.code, p.about, p.items) for p in problems if p.code.startswith("about-")] == [
         ("about-missing-part", "goal.gone", ["knowledge/lesson-1"])]
-    assert ["knowledge/lesson-1"] in [p.items for p in problems if p.about == "goal.ready-gaps-taken"] or not [
-        p for p in problems if p.about == "goal.ready-gaps-taken"]
     (k / "review-lessons.md").write_text(LESSONS)                                    # the line taken out: cleared
     lines = sync(f, dev)
     assert [(x["event"], x["data"].get("about")) for x in lines] == [("knowledge.changed", [])]

@@ -2582,8 +2582,11 @@ where the error is 0.
   message, all in `items`). Finished items are not checked. When the item index cannot be read, **about-unknown**
   says so instead, and nothing is said to be missing or not.
 
-Any finding about a part (`about`: `goal.x`) that has open items about it carries their ids: `items` in `check
---json` and MCP's `check`, and `(open items about it: a, b)` at the end of its message, at most 5 named there.
+A finding of `check` (CLI or MCP) about a part (`about`: `goal.x`) that has open items about it carries their ids:
+`items` in `check --json` and MCP's `check`, and `(open items about it: a, b)` at the end of its message, at most 5
+named there. This is done last, after the calibration and extreme-conditions findings, so those carry them too; the
+coherence report (section 12l) is apart and does not. These two findings and the ids are `check`'s alone: loading the
+model (any other command, the engine, a proposal's trial) does not open the item index for them.
 
 **Structure** (findings, the tests system dynamics makes of a model's structure before its
 behaviour: Sterman, *Business Dynamics*, ch. 21, structure assessment, dimensional consistency and

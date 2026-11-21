@@ -129,3 +129,49 @@ After the factory's second `unit` run failed, on `tests/test_leases.py::test_the
 - Run here alone with `-p no:randomly`: it passed (1 passed in 3.47 s).
 - Left for a gap of its own, outside this one: give that test a TTL that covers a CLI start-up under load, or have
   the watchdog's first look wait for the run's first event. This branch does neither.
+
+### Round 2 (after review/kb-about-1)
+
+Main (8eb0fc06) merged in first. The conflicts in `dev/bin/agents.py`, `dev/bin/fac.py`, `dev/factory.toml` and
+`ergostat.yaml` keep both sides: the groomer and `[backlog]` from the branch's history, and main's pipeline manager
+(its timeout, tools, stand-in, model and session cap, and `situation: [handled, failed]` in `done`). `gap: [merged,
+closed]` stays as the branch had it, because `parked` is in `paused` there and a status can't be both done and
+paused. The comment on `gap.closed` now names both ways a gap is closed.
+
+Each finding of that review, and what changed:
+- **Blocking: the about findings ran in `find()`, so on every model load.** Fixed. `about.findings` is no longer
+  called from `spec/findings.find`. It runs only where check's output is built: `cli/spec_cmds.check_yaml`, after
+  calibration, `order_unset` and `late`, and MCP's `check` after its `read`. Both run it only when the model has no
+  errors. A load (`mdl.load`, `spec.read`, so every CLI command, the engine, coherence and a proposal's trial) never
+  opens the item index for it now, and an unreadable index adds `about-unknown` only to check.
+  `test_loading_the_model_looks_nothing_up` patches `itemindex.index_for` and `about.open_about` to fail, then loads
+  and reads a model that declares `about:` and whose record holds an item naming `goal.gone`. When `about.findings`
+  was put back in `find()`, it failed (checked).
+- **The claim in round 1's notes is withdrawn.** "Every `ergostat event --add` starts no slower" was false for a
+  model that declares `about:`, because the load caught up the index. It is true now: the lookup moved out of the
+  load. It was always true of `test_leases.py`'s own models, which declare no `about:`.
+- **SPEC §12, "Any finding about a part ... carries their ids".** Narrowed, and now backed by a test. It says a
+  finding of `check` (CLI or MCP), with the calibration and extreme-conditions findings, because the ids are added
+  last. The coherence report is apart and does not carry them. It also says that these findings are check's alone.
+  `test_missing_part_is_a_finding_and_findings_carry_ids` now goes through `ergostat check --json` and MCP's `check`,
+  not `read()`. It patches `late` to add a finding about `goal.quiet` and asserts that the finding carries
+  `knowledge/fb`. With `about.findings` called before `late`, it failed (`KeyError: 'items'`, checked). With the
+  call taken out of `check_yaml`, it failed (checked).
+- **`test_sync_carries_about` had an assertion that could not fail** (`... or not [...]`). It is gone. The test now
+  also asserts that `read()` alone gives no `about-*` finding, and then applies `about.findings` as check does.
+- **Scope, lesson-7: the branch's history holds the backlog merge (2b101c6), which main does not.** Not fixed here,
+  and it is the one finding of that review left open. Taking it out means rewriting the branch's history (a rebase
+  or a reset), which this session can't do and which is not reversible. The size below is split so that the gap's
+  own lines can be judged apart from it. Measured against main (8eb0fc06), outside tests/, docs/ and dev/:
+  - The gap's own lines: about 198 net, within the budget of 220. `spec/about.py` 125, `spec/itemindex.py` 19,
+    `cli/status.py` 23, `spec/compile.py` 10 (its `about` key), `spec/explain.py` 5, `spec/ir.py` 4, `mcp.py` 4,
+    `cli/spec_cmds.py` 3, `schema/ergostat.schema.json` 4, `spec/load.py` 1, `spec/findings.py` 0.
+  - The backlog's lines: the other ~135 of the 333 the diff shows (`leases/compile.py`, `dispatch.py`, `ready.py`,
+    `numbers/eta.py`, `etamodel.py`, `precedence.py`, `web/static/*`, `order_unset` in `spec_cmds.py`, `paused` in
+    `compile.py`).
+  - The fix for this is to land backlog on main first, or to rebuild this branch from main without it. Either is
+    the coordinator's call.
+
+Tests run, each file alone, serially: `tests/test_item_about.py` 14 passed, `tests/test_factory_knowledge.py` 24
+passed. The files that use `check` and MCP's `check` are listed in the report. Ruff is clean. Not run: the whole unit
+suite and the browser files (the factory runs them).
