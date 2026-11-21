@@ -186,3 +186,15 @@ definition names (`Index.__init__`, `index_for`, `common.project`), and it still
 `.db`/`-wal`/`-shm` appears. `_cold(d)` closes only this test's own indexes, under `_OPEN_LOCK`. No change to the
 code under test. If the unit suite still stalls, that is not explained here, and the next step is to find the test
 that hangs.
+
+### The unit suite after the fix to the tests
+
+The factory's next unit run (`-n 8 --dist worksteal`) showed one `F` at about 40%, and its tail stopped at 50%
+without naming the test. Here, every unit test file was run serially, in batches, one file list at a time
+(`-p no:randomly`, about 2,000 tests over 128 files, the page tests skipped for want of a browser): all passed,
+none failed. That includes this branch's tests and every file that reaches `itemindex`, the measures, the
+templates, the library's programs, `compile` and the docs. The whole suite, any `-n` run and `--collect-only` were
+refused in this session, so I could not reproduce the load or map the 40% position to a file. The failure is
+unexplained, and no code changed in this round: a change made without knowing the failing test would be a guess
+(lesson-10, lesson-13). Next step: run the unit suite again with `-rf` (or read its full log) to name the test,
+then run it alone on this branch and on main (`alone`, `onmain.py`) to see whether this branch causes it.
