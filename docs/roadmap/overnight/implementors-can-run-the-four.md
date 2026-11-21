@@ -142,3 +142,24 @@ Round 5, merged; main (b24eb901) merged in first.
   (123 passed, 2 skipped: Docker-only, as on main), tests/test_factory_manager.py (19 passed). Ruff is clean on
   ergostat, tests and scripts. The whole unit suite under suite_watch was not run by me; the factory's fast suites
   run it. Net lines outside tests, docs and dev: still 0.
+
+Round 6, the round's unit suite failed; main (b24eb901) was already merged (f79d7087), so no merge was left to finish.
+
+- **What the failure showed:** the log stops after 22 dots, with no FAILED line, no pytest summary and no
+  suite_watch JSON line. So the run as a whole stopped. No single test reported a failure. The tail alone does not
+  say why, and this session could not read the full log (it is outside the clone).
+- **The likely cause, this branch's own:** test_implementor_environment_has_a_browser is the only unit test that
+  runs `uv run` inside the unit suite (`[suites] browser_ready`). In a fresh container, a `uv run` resyncs the
+  project's .venv and prints `Uninstalled 1 package ... Installed 1 package`: ergostat's editable install is taken
+  out and put back, under the seven other xdist workers that are starting `python -m ergostat` from that .venv. This
+  was seen here, in the first run of tests/test_agents.py.
+- **Fixed (decided alone, reversible, in tests/ only):** the test runs the real `browser_ready` command with
+  `UV_NO_SYNC=1`, so the .venv is left as it is. Playwright still comes from `--with`, and the factory's own
+  `browser_ready` (alone, in its own container) is unchanged. The test now also fails if the launch prints
+  `Uninstalled`. Undo: drop the `env=` argument.
+- **Not seen failing (lesson 9):** with `UV_NO_SYNC` removed, the test still passed here, because the warm .venv
+  needed no resync. Forcing one (`touch pyproject.toml && uv run python -m pytest ...`) was refused. So the cause
+  above is the likeliest one, not a proven one. If the round's unit suite stops early again, the cause lies
+  elsewhere: a container killed from outside (agents.sweep, implement.py's finally) leaves this same tail.
+- **Run here:** tests/test_agents.py (4 passed). Ruff is clean on ergostat, tests and scripts. The whole unit suite
+  was not run by me (the brief says never in parallel yourself); the factory's fast suites run it.
