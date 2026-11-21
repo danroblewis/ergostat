@@ -808,6 +808,7 @@ class ItemKind:
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
+    about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
 
     def matches(self, id: str) -> bool:
         import fnmatch
