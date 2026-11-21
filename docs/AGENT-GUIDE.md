@@ -442,7 +442,10 @@ readings again.
 
 Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `person` block, a change waiting for the
 owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
-is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p):
+is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p). `mode: advise` asks before a command or
+an event, never before each item, so `check` refuses it on a block with `takes:` (`advise-with-takes`); to have a
+person hold such a block's items, gate it with `goal:` or `in: block.X` from a block they command, and its items wait
+while that is off (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`), from the page's *Needs attention* (Approve / Deny inline) or by
@@ -655,6 +658,11 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 ## 5. Tools
 
 - **CLI**: `ergostat check`, `explain`, `run`, `status`, `item`, `lease`, `actions`, `remote`, `help TOPIC`.
+- **Items**: `ergostat item [--kind K] [--state S] [-n N]` lists them (newest first; `-n` at most 500),
+  `ergostat item ID [--history [FIELD]]` shows one, and `ergostat item --search "WORDS" [--kind K] [--state S]` lists
+  those whose fields' string values contain every word (1 to 8 words; a plain substring, case ignored, no ranking and
+  no fuzzy match; only the first 65,536 characters of an item's text are read; as of now, never with `--at`).
+  `--json` on each; `/api/items?search=WORDS` is the same list.
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.

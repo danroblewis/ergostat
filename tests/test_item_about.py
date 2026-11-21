@@ -211,9 +211,9 @@ def test_an_index_built_before_the_about_links_is_rebuilt(home):
     p = project(home)
     found(p, "knowledge/one", ["goal.a"], "One")
     ix = ii.index_for(p.events, p.model.spec, False)
-    with ix.lock:                                                          # as an index of layout 3 left it: no links
+    with ix.lock:                                          # as the layout before the @about links left it: no links
         ix.db.execute("delete from links")
-        ix.db.execute("update meta set value = 3 where key = 'version'")
+        ix.db.execute("update meta set value = ? where key = 'version'", (ii.VERSION - 1,))
     ix.close()
     ii._OPEN.clear()
     assert last_line(p, "goal.a") == "Open items about goal.a: knowledge/one (One)."
