@@ -116,13 +116,15 @@ def new_findings(cfg: dict, home: Path, branch: str, base_sha: str, definition: 
     if mine is None or theirs is None:
         sides = " and ".join(s for s, got in (("main", theirs), ("the branch", mine)) if got is None)
         return [f"could not compare: `ergostat check` said nothing readable on {sides}"], []
-    new = sorted(mine - theirs)
+    if fac.UNFINISHED & (mine | theirs):     # extreme-conditions compared only when both sides finished every test
+        mine, theirs = ({k for k in s if k.split()[0] != "extreme-conditions"} for s in (mine, theirs))
+    new = sorted((mine - fac.UNFINISHED) - theirs)
     return [k for k in new if k not in allowed], [f"{k}: {allowed[k]}" for k in new if k in allowed]
 
 
 def findings_brief(text: str, new: list[str]) -> str:
     return (f"{text}\n\n# New `ergostat check` findings\n\nSent back before the suites: `ergostat check` finds these on "
-            "the branch, not on main (by code and part):\n\n" + "\n".join(f"- `{k}`" for k in new) + "\n\nChange the "
+            "the branch, not on main (by code and part):\n\n" + "\n".join(f"- `{k}`" for k in new) +"\n\nChange the "
             "model so each goes, commit, and stop. Only the definition's `allows-findings` line allows one: never edit "
             "it; say so in your report.\n")
 
@@ -188,8 +190,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
     logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
     fast_seconds = 0.0                                  # every try's ruff and unit (times.py's gate `fast`)
-    mains: dict = {}                                            # main's check findings, by its sha
-    allowed: list[str] = []
+    mains, allowed = {}, []                       # main's check findings by its sha; the allowances the branch used
     seen: dict[str, bool] = {}                                # tests run on main in this run: failed there?
     retried, deadline = False, began + (hours - float(f.get("build_hours") or 0)) * 3600
     for i in range(1 + int(cfg["ai"]["suite_fix_rounds"])):

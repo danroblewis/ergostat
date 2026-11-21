@@ -680,8 +680,8 @@ def test_a_build_adding_a_check_finding_is_sent_back(tmp_path):
     assert not log.exists()                                                   # the suites never ran
 
     f.config.write_text(f.config.read_text().replace("suite_fix_rounds = 0", "suite_fix_rounds = 1"))
-    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=writes)       # the next round is given the list
-    gap = f.item(gid)["fields"]
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=writes)       # the next round is given the list:
+    gap = f.item(gid)["fields"]                                # (the stand-in removes a finding only if its brief lists it)
     assert said == ["gap.started", "gap.built"] and gap["sessions"] == 1 + 2 and log.read_text() == "ran\n"
 
     for side in ("main and the branch", "the branch"):        # lesson-3: a check that cannot run never passes
@@ -714,6 +714,8 @@ def test_an_allowed_finding_passes_and_is_shown_to_the_reviewer(tmp_path):
     fac = module("fac")                                       # a reason left out allows nothing
     assert fac.allowances((d / "alpha-thing.md").read_text()) == {"model-x stock.b": "its loop is the next gap"}
     assert fac.allowances("# x\n\n## Definition of done\n\nIt works.\n") == {}
+    assert fac.allowances("allows-findings: [unit-unknown: a unit for later, a b: why]\n") == {
+        "unit-unknown": "a unit for later", "a b": "why"}                   # a finding about no part: its code alone
 
 
 def test_record_dependent_findings_are_not_counted(tmp_path):
@@ -726,6 +728,13 @@ def test_record_dependent_findings_are_not_counted(tmp_path):
     out = json.dumps({"found": [{"code": c, "about": "x"} for c in ("calibration-worse-than-mean", "calibrations")]})
     assert fac.findings(f"uv: noise\n{out}\n", fac.RECORD_FINDINGS) == {"calibrations x"}   # by code, not prefix
     assert fac.findings("Traceback: no output\n", fac.RECORD_FINDINGS) is None
+
+    for unfinished, built in (("branch", True), ("", False)):   # extreme-conditions tests finished in check's wait
+        g = Factory(tmp_path / f"x-{unfinished or 'none'}")        # differ with load (either side's note: the same)
+        on_main(g, "found/extreme-conditions@stock.a")
+        writes = "found/extreme-conditions@stock.b" + ",found/extremes-running" * (unfinished == "branch")
+        said, _ = g.run("implement.py", ready(g), FACTORY_STANDIN_WRITES=writes)
+        assert said == ["gap.started", "gap.built" if built else "gap.measured"], unfinished  # compared only when both
 
 
 T ="tests/test_x.py::test_y"
