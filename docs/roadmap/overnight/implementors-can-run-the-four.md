@@ -216,3 +216,15 @@ Round 9, the round's unit suite stopped early a third time; no code changed (les
   VM's memory, and this session cannot read either.
 - **Run here:** tests/test_agents.py (4 passed, 86 s; Chromium launched). Ruff is clean on ergostat, tests and
   scripts. The whole unit suite and the four browser files were not run by me this round.
+
+Round 10, merged; main (5b6495a7) merged in first (ab261a66).
+
+- **Merge of main:** only dev/bin/implement.py conflicted, in its docstring. It keeps main's new path for a gap's
+  definition (`dev/records/<branch>.md`, `fac.DEFS`) and the branch's browser-ready step. This definition stays at
+  docs/roadmap/overnight/: main still reads that folder (`fac.OLD_DEFS`), and moving the file is not this gap's.
+- **No other finding was open:** the queue's only finding this round was the conflict. Review 6's points (the
+  Chromium launch inside the -n 8 unit run, and the early stops with nothing named) stay as written in rounds 8
+  and 9. Their cause belongs to the gap that owns the suite containers.
+- **Run here:** tests/test_agents.py (4 passed, 118 s; Chromium launched) and tests/test_factory.py (126 passed,
+  2 skipped: Docker-only, as on main). Ruff is clean on ergostat, tests and scripts. The whole unit suite and the
+  four browser files were not run by me this round; the factory's fast suites run them.
