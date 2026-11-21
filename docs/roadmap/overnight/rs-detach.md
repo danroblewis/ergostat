@@ -207,3 +207,16 @@ so nothing could be run, reproduced or committed. This note was written with the
 committed**. Still owed: the factory's unit suite run again. If it stops with no pytest output again, the cause is in
 the suite runner or the machine (slot, build, watchdog), not something this branch's code can change. Its full output,
 not only the tail, is what is needed to go further.
+
+Round 17 (review/rs-detach-1, one blocking finding): **fixed.** The wrapper raised again the signal behind any exit
+code from 129 to 159 except the four stop signals. That included the ones that dump core, so `exit 134` or `exit 139`
+crashed the wrapper's `sh` (a core file in the project where dumps are on, a crash report on macOS). The list is now
+an allowlist of signals that end a process with no core: HUP INT PIPE ALRM TERM USR1 USR2 KILL. Every other code from
+129 up, the stop signals and the core-dumping ones alike, exits with the code itself. The cost, chosen as the more
+reversible side: a command really *killed* by SEGV, ABRT or another core-dumping signal now reads 139/134
+(`returncode` positive), where main read -11/-6. A plain `exit 134` reads 134, as on main. New check in
+`test_the_run_wrapper_records_the_exit_under_each_shell` (`exit 134` and `exit 139`, under sh, bash and dash). With
+ABRT and SEGV put back on the list it failed (`assert (-6 == 134)`); with the fix it passes. Net lines outside tests
+and docs: +57 against main (`runrecord.py` +1 this round). Run one file at a time, all passing: test_resilience (31),
+test_streamed_output + test_spec_engine (20). `ruff check ergostat tests scripts` is clean. Not run here: the full
+unit suite and the browser files, which the factory runs.
