@@ -254,3 +254,41 @@ Its runs failed past their attempts (a dead letter):
 - attempt 5: ack
 - attempt 6: nack the run ended with gap/pool-control still parked
 - attempt 7: nack the run ended with gap/pool-control still parked
+
+## Where it stopped
+
+Continued (gap/pool-control-continued, round 1): main 39d47bf merged in (64c1848). Seven files conflicted. Each is
+resolved keeping main's changes and the branch's:
+- `dev/bin/pools.py`: main's merge-queue batch (`BATCH_MOST`, `wait_off`, `tune_batch`, `batch`/`batch_since` in
+  `run/pools.json`) sits beside the risk tuner. `tune` runs the risk law for the role pools, then `tune_batch`.
+  The batch goes through the same `raise-pool` action, so its ask now carries `was` and goes through `raise batch WAS
+  TO` (stale unless the batch is still WAS, under the lock; no risk check for it). `set` and `read` take `batch` too.
+  Main's streak tuner (`outcomes`, `decide`, `PAUSED`) stays removed, since this gap replaces it.
+- `dev/factory.toml`: main's operator values are kept (`implementor_max = 9`, `reviewer_max = 6`, `batch`,
+  `batch_max`), along with the branch's `probation` and `cycle_hours`. `HARD` goes from 8 to 9 so the operator's 9
+  (the block's `pool: 9` in `building.yaml`) is not cut short. It is still a hard ceiling (lesson-4).
+- `dev/model/pools.yaml`: the `queue-batch` stock and its flow sit beside the risk loop. The tuner's `in` takes
+  `goal.queue-wait-short.error` too and its `out` takes `flow.queue-batch-steps`. The action's args name `batch`.
+  The tuner runs every 10m again, not main's 7d pause.
+- `dev/bin/status.py`: main's backlog, switch, resources and times lines, plus the branch's `Pools` line.
+- `ergostat.yaml`, `dev/README.md`, `tests/test_factory.py`: both sides' text. In the test Factory, `streak` becomes
+  `probation` and `batch_max` is kept.
+
+The operator's pause, a choice made with no one to ask: main paused the role pools' tuning (operator, 2026-11-20:
+"it lowered the owner's pools on parks caused by main; pool-control replaces it"). Its test,
+`test_the_pool_tuner_is_paused_and_never_lowers_the_owners_pools`, failed on the merged tree. The risk tuner does
+not count parks, but it lowered the hand-set pool of 3 because 3 had never been run (the wide prior). On the live
+instance it would step the owner's hand-set pools down in the same way, with no gate. The more reversible option
+keeps the pause as a setting: `[pools] hold = true` in `dev/factory.toml`. While it is on, the tuner measures and
+says what it would do (`held` on `pool.measured`) and never moves the implementor or reviewer pool. The batch is
+still tuned. Setting `hold = false` is the operator's move that turns the control law on. A missing key counts as
+not held (the test Factory and the acceptance tests run the law). Any value other than `false` holds. Main's test
+now asserts the repo's `hold = true`, sets the hold in its Factory, and checks that the tuner says `lower` but does
+not do it. Unheld, the same record lowers 3 to 2. With `held()` broken (always false), the test was seen to fail,
+then restored (lesson-9). The README says how to lift the hold.
+
+Size: 328 net lines outside `tests/` and `docs/` against main (within 350; this counts `dev/README.md` and the YAML).
+Here: ruff clean (`ergostat tests scripts dev/bin`); `tests/test_factory.py` 90 passed, 2 skipped;
+`tests/test_factory_knowledge.py` 61 passed. Not run here: the whole unit suite and the four browser files (the
+factory runs them). The earlier unit failures (`tests/test_leases.py` restart and watchdog tests,
+`tests/test_factory_sessions.py` mount test) are main's code, which this branch does not touch (lesson-13).
