@@ -58,3 +58,37 @@ look). Both tests now pass, along with `test_leases.py`, `test_resilience.py`, `
 counted). The 21 over are the shared looker. A run with its own thread breaks the house rule that a run costs one
 thread (test_notify's bound), and this machine has panicked from thread exhaustion, so a thread per run is not a
 safe way to stay within budget. The rest is as counted in round 1.
+
+Round 2, answering review/lease-kill-detached-1 (every finding):
+
+- **Blocking, lesson-3 (`ps` fails, nothing signalled):** fixed. `kill.py` now passes `stop` a function that adds the
+  run's own pid while `proc.poll()` is None (an unwaited child of this engine, so never a reused pid) to the watch's
+  `still()`. `stop` looks under it and signals its group, taken from the kernel (`os.getpgid`) when `ps` gave
+  nothing. New test `test_a_lease_kill_still_stops_the_run_when_ps_fails` (with `reap.tree` returning `{}`, the run
+  and the child in its group are stopped). With the run's pid left out, it fails.
+- **SIGKILL round used only `also()`:** fixed in `reap.stop`. In callable mode each round keeps the pids it signalled
+  with their start times (from that round's `ps`), and the next round adds those still the same process, so a child
+  found by the TERM scan that ignores TERM gets SIGKILL even after its run has died. The reused-pid rule still holds.
+  No test of its own: the window (a child started between `look()` and the TERM scan) can't be hit reliably
+  without hooks into `stop`. This is stated here rather than claimed as tested.
+- **Watch opened before the try/finally (`engine.py`):** fixed. The `Watch` is now made immediately before the `try`
+  whose `finally` closes it, after `old._kill`, the lock block and `SAMPLER.track`. `reap._looker` adds a watch to
+  the open set only after the looker thread has started, so a failed thread start leaves nothing open. A kill that
+  arrives before the watch exists still stops the run and its tree (the run's own pid, above).
+- **Size, "no reason written":** the reason is restated below so the gate can find it.
+
+**Size overrun, the reason (round 2):** `ergostat/` counts +102 −32 = 70 net lines against 40 (+75%, docstrings and
+comments counted): `reap.py` +58, `kill.py` +9, `engine.py` +3. Over budget: the shared looker (about 21, so that a
+run costs one thread; the reason is above), the start-time check (lesson-5, without which a pid used again is
+signalled), and this round's fail-closed fixes (about 9: the run's own pid and its group when `ps` fails, and the
+SIGKILL round's re-check). Each is needed for a finding or a house rule. Without them the code would be smaller and
+not safe.
+
+Limits, unchanged: one look every 0.5 s; `lstart` is good to one second; between `still()`/`poll()` and the signal
+there is a window of microseconds to milliseconds (main had the same window for the run's own pid).
+
+Run, one file at a time: `test_resilience.py` (29 passed), `test_lease_kill.py` (10), `test_leases.py` (29),
+`test_trial_stops.py` (2), `test_notify.py` (4, 1 skipped: kqueue, macOS only; `test_a_run_costs_one_thread`
+passes), `test_run_costs.py` (14), `test_streamed_output.py` (10). Ruff is clean. Not run: the full unit suite and the
+browser files (the factory runs them). Local `main` has nothing this branch lacks (`git rev-list --count HEAD..main`
+is 0), and there is no `origin/main` in this clone, so nothing was merged.

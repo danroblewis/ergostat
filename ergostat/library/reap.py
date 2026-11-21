@@ -111,11 +111,11 @@ _LOOKER: list[threading.Thread] = []
 
 
 def _looker(w: Watch) -> None:
-    with _OPEN_LOCK:
-        _OPEN.add(w)
+    with _OPEN_LOCK:                                    # (open once the looker runs: a failed start leaves none open)
         if not (_LOOKER and _LOOKER[0].is_alive()):
             _LOOKER[:] = [threading.Thread(target=_look_all, daemon=True, name="reap-watch")]
             _LOOKER[0].start()
+        _OPEN.add(w)
 
 
 def _look_all() -> None:
@@ -141,21 +141,27 @@ def stop(pid: int, grace: float = 3.0, also_group: bool = False, also: set[int] 
     among them. Returns the pids it signalled."""
     mine = {os.getpgrp()}
     seen: set[int] = set() if callable(also) else set(also or ())
+    stamps: dict[int, str] = {}                         # (callable: those signalled, with the start times they had)
     for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 1.0)):
-        if callable(also):
-            known = set(also())
+        now: dict[int, str] = {}
+        procs = tree(now)
+        if callable(also):                              # (and those the last round found, while the same process)
+            known = set(also()) | {p for p, s in stamps.items() if now.get(p) == s}
             under = pid in known                        # (``pid`` used again by another: not looked under)
         else:
             if sig == signal.SIGKILL and seen and not _alive(seen - {os.getpid()}):
                 break                                   # all gone: ``pid`` may be another's now, so not looked under again
             known, under = (_alive(seen) if seen else set()), True
-        procs = tree()
         pids = (descendants(pid, procs) if under else set()) | known
-        groups = {procs[p][1] for p in pids if p in procs} - mine
-        if also_group and under and pid in procs and procs[pid][1] not in mine:
-            groups.add(procs[pid][1])
-        groups.discard(0)
+        groups = {procs[p][1] for p in pids if p in procs}
+        if also_group and under:                        # (from the kernel when ``ps`` failed)
+            try:
+                groups.add(procs[pid][1] if pid in procs else os.getpgid(pid))
+            except OSError:
+                pass
+        groups -= mine | {0}
         seen |= pids
+        stamps.update({p: now[p] for p in pids if p in now})
         if not pids and not groups:
             break
         _signal(pids - {os.getpid()}, groups, sig)

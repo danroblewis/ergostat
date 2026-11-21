@@ -2237,7 +2237,8 @@ to run on, and the item was back in the queue meanwhile): when its lease expires
 SIGTERM to its process group and every process it started (in whatever group or session; one whose parent has
 exited too, as the run's watch saw it: the run's processes are looked at every 0.5 s while it runs, so one started
 and left within a single look is not seen; a pid the watch saw is signalled only while its start time is still the
-one it saw, so a pid used again by another process is left alone), and SIGKILL after a grace
+one it saw, so a pid used again by another process is left alone; the run itself and its group are signalled while
+it is not yet waited on, even when the processes cannot be listed), and SIGKILL after a grace
 (`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records
 `ergostat.run.killed` (about its block; `run`, `item`, `fence`, `why`, `signal`: TERM or KILL, or `cancel` with no
 `pids` for a run a daemon holds, which is sent `cancel` instead: section 9.7, *Cancel*; `pids`, `grace`). The run

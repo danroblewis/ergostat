@@ -55,7 +55,10 @@ def _stop(eng, proc, run, why, item, fence, block) -> None:
     watch = getattr(proc, "watch", None)            # every process the run was seen to start, its own pid among them
     if watch is not None:
         watch.look()
-    also = watch.still if watch is not None else {proc.pid}   # (only those still the process seen: no pid used again)
+
+    def also() -> set[int]:                         # those still the process seen (no pid used again), and the run's own
+        mine = {proc.pid} if proc.poll() is None else set()   # while unwaited (never another's): even if ``ps`` fails
+        return (watch.still() if watch is not None else set()) | mine
     pids = reap.stop(proc.pid, grace=g, also_group=True, also=also)   # (the run itself waited on too)
     sig = "TERM" if time.monotonic() - t0 < g else "KILL"     # (TERM was enough when it ended inside the grace)
     eng.p.events.add(KILLED, item=block, source="ergostat", causedby=run,
