@@ -2534,6 +2534,31 @@ def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
     assert noted(ROOT / "ergostat.yaml") == {"block.plan-lint"}
 
 
+def test_a_paced_block_raises_no_modelling_request(tmp_path):
+    """``schedule-removed`` is said by check, never sent to the modelling loop: a goal: with every: is also a meant pace
+    (SPEC §9.1), so no tier (and above all not the ai tier) is asked to change it."""
+    from ergostat import model as mdl
+    from ergostat.numbers import requests as rq
+    from ergostat.store import Project
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""\
+        name: t
+        stocks:
+          q: {unit: jobs, sensor: {run: echo 0, every: 1m}}
+        flows:
+          done: {from: q}
+        goals:
+          short: {stock: q, hold: "<= 0"}
+        blocks:
+          sweep: {type: program, run: echo 1, every: 1m, goal: short, out: flow.done}
+        """))
+    p = Project(mdl.load(tmp_path))
+    assert "schedule-removed" in {x.code for x in read(tmp_path / "ergostat.yaml", extremes=False)[1]}   # check says it
+    rq.sync(p, coherence=False, extremes=False)
+    got = rq.stored(p).values()
+    assert any(r["code"] == "no-description" for r in got)          # the other notes still reach the loop
+    assert [r for r in got if r["code"] == "schedule-removed"] == []
+
+
 @pytest.mark.slow
 def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, monkeypatch):
     from ergostat.actions import gate
@@ -2552,11 +2577,11 @@ def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, mon
     p, spec = e.p, e.spec
     held = gate.request(p, spec, "switch-instance", {"sha": b}, {"block": "upgrader"}, asker="program", key=b)
     assert held["state"] == "requested"
-    assert gate.approve(p, spec, held["id"], by="coordinator")["state"] == "ran"   # approving runs drain.py approve
     uid = f"upgrade/{b[:12]}"
     for ev, data in [("upgrade.opened", {"sha": b}), ("upgrade.installed", {"check": "ok", "previous": a}),
                      ("upgrade.switch-asked", {"switch": "held", "switch_action": held["id"]})]:
-        p.events.add(ev, item=uid, source="upgrader", data=data)
+        p.events.add(ev, item=uid, source="upgrader", data=data)      # the live order: asked, then approved
+    assert gate.approve(p, spec, held["id"], by="coordinator")["state"] == "ran"   # approving runs drain.py approve
     sw = spec.blocks["switcher"]
     assert "switcher" in scheduled
     try:

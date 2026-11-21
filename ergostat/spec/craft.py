@@ -12,8 +12,9 @@ professional in its discipline would have drawn it, beyond being correct. ``chec
 - ``event-names-mixed``: an item kind whose events are not all ``KIND.verb-past``;
 - ``queue-goal-tolerance``: a goal served by a block that takes the items its stock counts, with a tolerance (or a
   setpoint above 0) that lets items wait unseen, since the block runs only while the goal is off;
-- ``schedule-removed``: a block with ``every:`` or ``cron:`` and a ``goal:``: the goal's implied controller commands
-  it, so the clock never starts it (the engine's ``_plan``): it runs only while the goal is off;
+- ``schedule-removed``: a machine block with ``every:`` or ``cron:``, no ``takes:`` or ``on:``, and a ``goal:``: the
+  goal's implied controller commands it, so the clock never starts it (the engine's ``_plan``): it runs only while the
+  goal is off. Said by check only: it raises no modelling request (``numbers/requests.py``, ``NOT_MODELLING``);
 - ``process-not-identified``: a goal whose ``process:`` has no ``identified:``, a claim nobody measured.
 
 Parts a template made are left out: they are changed only through the instance's ``with:`` or the template."""
