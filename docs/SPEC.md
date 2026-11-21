@@ -2582,7 +2582,8 @@ it never writes its own environment, and it reaps what it starts before `done`.
 
 A model can be divided into **shards**, each to be run by an engine of its own. The division is worked out from the
 model's graph, never written in it (invariant 8): `ergostat/spec/shards.py`'s `plan(spec, most=16)` reads the compiled
-model and changes nothing. Nothing on the running path uses it yet.
+model and changes nothing. `ergostat run` does not use it yet: it runs one engine for the whole model, and no shard
+runs as a process of its own.
 
 - **Seeds.** Each top-level system (the outermost system a part is within) starts a shard, named after the system,
   lowercased. A name that is not `^[a-z0-9][a-z0-9-]{0,63}$` becomes `s-` and the first 12 hex digits of the system
@@ -2593,11 +2594,14 @@ model and changes nothing. Nothing on the running path uses it yet.
   sensor is in its part's shard, an agent in the shard of the blocks that run on it, a kind in the shard of the
   blocks that take it, else in its system's, else in the lead. `Plan.of(ref)` names a part's shard and raises
   `KeyError` for one not in the model; it has no default. A stock's estimate or uncertainty is in the stock's shard.
+  A daemon (`daemon.NAME`) is in the shard of the blocks and sensors it serves, else in the lead; it is in
+  `Plan.where`, not in a shard's `parts`.
 - **Merges.** Two shards are merged when blocks in each run on the same agent (its `at-once` is counted in one
-  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon. Kinds
-  tied by a join (a parent kind and the kinds whose relation names it) count as one kind here. Nothing else merges
-  shards; in particular, reading a signal across them does not. Each merge is recorded in `Plan.why`: the shard that
-  joined, the rule (`agent`, `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
+  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon (a
+  block's `daemon:` or a sensor's: it is one process, started by one engine). Kinds tied by a join (a parent kind
+  and the kinds whose relation names it) count as one kind here. Nothing else merges shards; in particular, reading a
+  signal across them does not. Each merge is recorded in `Plan.why`: the shard that joined, the rule (`agent`,
+  `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
 - **Wires.** `Plan.wires` lists, sorted, each value a part in one shard reads from a part in another that exists only
   in memory, with the shard it comes from and the one that reads it: a goal's setpoint, error or off (`goal`), a
   block's output read by another block (`cascade`), a block's output to a goal's setpoint (`setpoint`) or to a block,
@@ -2610,6 +2614,23 @@ model and changes nothing. Nothing on the running path uses it yet.
 - **Ceiling.** `most` is clipped to 1 to 16. While there are more shards than that, the two smallest (counted in
   parts, ties broken by name) are merged (`ceiling`). With `most` 1 there is one shard, the lead, with every part.
 - **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
+- **An engine of one shard.** `Engine(project, shard=NAME)` works only on what `Plan.of` puts in that shard; with
+  `shard=None` (what `ergostat run` uses) it works on everything, as before. A name the plan does not have is a
+  `ValueError` when the engine is made. Its own are: the built-ins, the machine blocks and the goals a pass works out;
+  the clock's timed sensors, sensor crons, timed and cron blocks and judges, and the item-count sensors read when the
+  record moves; the blocks the dispatcher takes items for and the kinds whose leases it watches; the blocks an event
+  starts and the kinds whose joins move a parent; the daemons `Supervisor.sync` starts, with the sensors they serve;
+  and the stocks the observer estimates. A pass reads the newest measurements of its own stocks, flows and auxiliaries
+  and of those in other shards its parts read (a goal's part, a block's inputs, an equation's references, an estimated
+  stock's flows), and no others; an estimate read from another shard is a wire and is not carried yet. The shards of
+  one plan divide each of these between them: none twice, none left out. The plan is worked out once per model, so
+  whatever reads a model reads that model's plan. `swap` works out the new model's plan under the engine's lock; a
+  plan without the engine's shard is refused, and the last model keeps running. A part that moved to another shard
+  leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
+  readings, estimate and observer track, and its daemon (drained). Not yet by shard: the owner's asks (approvals,
+  stops, restarts, step tests, actions) are followed by every engine as before; a run a block's moving a flow asks
+  for reads that flow's stocks' sensors wherever they are; the lead's one-time duties (the start event, the
+  messages' sweep) are done by each; and an agent's `at-once` is counted in each engine.
 
 ## 10. Agents
 

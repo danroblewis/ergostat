@@ -28,6 +28,7 @@ systems:
 daemons:
   probe: {run: "sleep 60"}
   spare: {run: "sleep 60"}
+  solo: {run: "sleep 60"}
 items:
   epic:
     id: epic/*
@@ -46,6 +47,8 @@ items:
 stocks:
   a-q: {unit: things, system: a, sensor: {run: echo 1, every: 1h}}
   a-tank: {unit: things, system: a, sensor: {run: echo 5, every: 1h}}
+  a-d: {unit: things, system: a, sensor: {daemon: solo, every: 1h}}
+  a-jobs: {unit: items, system: a, sensor: {items: job, state: new, every: 1h}}
   b-q: {unit: things, system: b, sensor: {run: echo 2, every: 1h}}
   b-far: {unit: things, system: b, sensor: {run: echo 3, cron: "0 3 * * *"}}
   b-own: {unit: things, system: b, sensor: {run: echo 4, every: 1h}}
@@ -111,7 +114,8 @@ def lists(e: Engine) -> dict[str, set]:
             "judges": {b.name for b in judges}, "crons": set(crons),
             "dispatch_blocks": {b.name for b in e.dispatch.blocks}, "kinds": set(e.dispatch.kinds()),
             "observer": set(e.observer.tracks), "daemons": set(e.daemons.slots),
-            "observers": set(e.daemons.observers), "triggers": {b.name for b in e.spec.blocks.values()
+            "observers": set(e.daemons.observers), "item_sensors": {sensor_key(s) for x in e._item_sensors()[0].values()
+                                                                    for s in x}, "triggers": {b.name for b in e.spec.blocks.values()
                                                                  if b.on is not None and e.own(f"block.{b.name}")}}
 
 
@@ -137,7 +141,8 @@ def test_shards_partition_the_work(tmp_path):
         assert set().union(*each) == all_of, f"{k}: not the whole engine's"
     assert got["a"]["builtins"] == {"a-on", "a-est"} and got["b"]["builtins"] == {"b-est"}
     assert got["a"]["kinds"] == {"job", "epic"} and got["lead"]["kinds"] == {"loose"}
-    assert got["b"]["daemons"] == {"probe"} and not got["a"]["daemons"] and not got["lead"]["daemons"]
+    assert got["b"]["daemons"] == {"probe"} and got["a"]["daemons"] == {"solo"} and not got["lead"]["daemons"]
+    assert got["a"]["item_sensors"] == {sensor_key(s) for s in p.model.spec.stocks["a-jobs"].sensors.values()}
     assert got["a"]["observer"] == {"a-tank"} and got["b"]["observer"] == {"b-own"}
     assert got["a"]["goals"] == {"goal.a-low", "goal.a-far"} and got["b"]["goals"] == {"goal.b-low"}
     assert got["b"]["crons"] == {s.series for s in p.model.spec.stocks["b-far"].sensors.values()} | {"block/b-cron"}
@@ -169,12 +174,12 @@ def test_trigger_and_join_only_in_owning_shard(tmp_path, monkeypatch):
 def test_sync_starts_only_own_daemons(tmp_path, _quiet):
     p = project(tmp_path)
     _, by = engines(p)
-    by["a"].daemons.sync(p.model.spec)
     by["lead"].daemons.sync(p.model.spec)
-    assert _quiet == []
-    by["b"].daemons.sync(p.model.spec)
-    assert _quiet == ["probe"] and {d for d, _ in by["b"].daemons.observers} == {"probe"}
-    assert not by["a"].daemons.observers and not by["a"].daemons.push
+    assert _quiet == [], "spare serves nothing: never started"
+    by["a"].daemons.sync(p.model.spec)
+    assert _quiet == ["solo"] and {d for d, _ in by["a"].daemons.observers} == {"solo"}
+    by["b"].daemons.sync(p.model.spec)                      # probe, for b's sensor and c's, started once
+    assert _quiet == ["solo", "probe"] and {d for d, _ in by["b"].daemons.observers} == {"probe"}
 
 
 def test_measure_reads_own_and_read_parts(tmp_path):
@@ -185,7 +190,7 @@ def test_measure_reads_own_and_read_parts(tmp_path):
     _, by = engines(p)
     by["a"].measure()
     got = {k.split(".")[1] for k in by["a"].signals}
-    assert got == {"a-q", "a-tank", "b-far"}, got        # its own, and b's stock its goal a-far reads; never b-q, b-own
+    assert got == {"a-q", "a-tank", "a-d", "a-jobs", "b-far"}, got   # its own, and b's its goal a-far reads; never b-q
     assert "stock.b-far" in by["a"].signals and f"stock.b-far.{next(iter(s.stocks['b-far'].sensors))}" in by["a"].signals
     by["b"].measure()
     assert {k.split(".")[1] for k in by["b"].signals} == {"b-q", "b-far", "b-own", "b-p", "c-q"}
@@ -199,24 +204,27 @@ def test_swap_moves_part_out(tmp_path, monkeypatch):
     monkeypatch.setattr(e, "start", lambda *a, **k: False)
     e.evaluate(full=True)
     e.outputs["a-tick"] = {"out": 1.0}
+    e.daemons.sync(e.spec)
+    assert set(e.daemons.slots) == {"solo"}
     assert "block.a-on" in e.signals and "a-low" in e.status and "goal.a-low" in e.signals
     assert "a-tank" in e.observer.tracks and "stock.a-tank.estimate" in e.signals
     assert "a-tick" in {b.name for b in e.machines}
     moved = MODEL
-    for part in ("a-on: {type: onoff", "a-tick: {type: program", "a-tank: {unit", "a-low: {stock"):
+    for part in ("a-on: {type: onoff", "a-tick: {type: program", "a-tank: {unit", "a-low: {stock", "a-d: {unit"):
         line = next(x for x in moved.splitlines() if x.strip().startswith(part))
         moved = moved.replace(line, line.replace("system: a", "system: c"))
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(moved))
     new = mdl.load(tmp_path)
     before, after = shards.plan(p.model.spec), shards.plan(new.spec)
-    for k in ("block.a-on", "block.a-tick", "stock.a-tank", "goal.a-low"):
+    for k in ("block.a-on", "block.a-tick", "stock.a-tank", "goal.a-low", "daemon.solo"):
         assert before.of(k) == "a" and after.of(k) == "b", k
     e.swap(new)
+    assert not e.daemons.slots and not e.daemons.observers, "its daemon moved out: drained here"
     timed, timed_blocks, *_ = e._plan(e.spec, {}, {})
     assert "a-on" not in e.builtins and "a-tick" not in {b.name for b in e.machines}
     assert "a-tick" not in {b.name for b in timed_blocks} and "stock.a-tank" not in {f"stock.{s.of.name}" for s in timed}
     assert "a-low" not in e.status and "a-tick" not in e.outputs and "a-tank" not in e.observer.tracks
-    assert not [k for k in e.signals if k.split(".")[1] in ("a-on", "a-low", "a-tank", "a-tick")], e.signals
+    assert not [k for k in e.signals if k.split(".")[1] in ("a-on", "a-low", "a-tank", "a-tick", "a-d")], e.signals
     assert "a-est" in e.builtins and "goal.a-far" in e.signals            # what stayed, stays
 
 

@@ -1336,15 +1336,16 @@ class Engine:
 
     def _item_sensors(self) -> tuple[dict[bool, list[Sensor]], dict[str, bool]]:
         """The model's sensors that count items, by the fold they count from; and each one's fold."""
-        kept = self.spec.lookups().kept
+        spec = self.spec
+        kept = spec.lookups().kept
         got = kept.get(f"engine.item_sensors.{self.shard}")
         if got is None:
             from .counts import transcript_of
             by: dict[bool, list[Sensor]] = {False: [], True: []}
             flag = {}
-            for s in self.spec.sensors():
-                if s.items is not None and self.own(f"{s.of.kind}.{s.of.name}.{s.name}"):
-                    flag[s.series] = transcript_of(self.spec, s)
+            for s in spec.sensors():
+                if s.items is not None and self.own(f"{s.of.kind}.{s.of.name}.{s.name}", spec):
+                    flag[s.series] = transcript_of(spec, s)
                     by[flag[s.series]].append(s)
             got = kept[f"engine.item_sensors.{self.shard}"] = (by, flag)
         return got

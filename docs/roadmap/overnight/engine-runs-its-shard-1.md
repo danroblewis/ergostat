@@ -59,3 +59,44 @@ depends-on: [shards-from-systems]
 - test_swap_moves_part_out moves a block 'to another system', but if both systems already share an agent, kind or daemon they sit in one shard and nothing moves. Assert plan.of(...) changed before checking that the state is gone.
 - A 180 net-line budget for filters in seven source files, a new swap path, docs, and seven tests that each build a two-system model is tight. Use one small fixture model shared by all tests.
 - rs-adopt and lease-kill-detached are building in engine.py and dispatch.py. Merge origin/main before review, as the plan says, and before writing the swap changes, since those gaps may touch the same lines.
+
+## Where it stopped
+
+Built, round 1. Every point of the definition of done is in, the seven acceptance tests pass, and so does a new
+`tests/test_shards.py::test_daemon_shared_by_sensors_merges`. Size: 128 lines added and 42 removed in `ergostat/`,
+about 86 net, inside the 180 budget.
+
+How it is built: `Engine.own(key, spec)` is the only filter, and it asks `Plan.of` alone. The plan is worked out once
+per model and kept with that model's lookups (`shards.planned`). So whoever reads a model (the dispatcher, triggers,
+joins, the supervisor, a pass) reads that model's own plan, never the plan of the model before or after a swap.
+
+The plan review's notes, answered:
+- Sensor daemons: `shards.plan` puts a sensor's daemon in the `daemon` merge, next to a block's, and records
+  `daemon.NAME` in `Plan.where` (a daemon serving nothing goes to the lead). `Supervisor.sync` filters by
+  `Plan.of("daemon.NAME")`, and so do its `push` and `observers` maps. `daemon.*` keys are kept out of `Shard.parts`.
+  The reason: the existing `test_every_part_in_exactly_one_shard` lists parts without daemons, and no existing test
+  may be edited. The partition test covers the daemons (a daemon shared only by sensors in systems b and c, and one
+  only a's), and so does the new test in `test_shards.py`.
+- sync after the lock: `sync(new)` is given the model worked out under the lock. It reads that model's plan, kept
+  with the model. It reads nothing from the engine but `shard`, which never changes.
+- Moved parts: swap now clears by the new plan's shard, not by whether the part is in `new`. That covers built-ins and
+  their signals, status, `per`/`per_rows`, stale, setpoint, the goals' signals, outputs/commands, the observer's
+  tracks (`Observer(mine=...)`), the estimates, the readings of parts no longer read here, and the daemons (sync
+  drains them). Agent slots are kept on purpose (the reversible choice). Only `_follow`'s approvals could start a run
+  of another shard's block here, and `_follow` is unchanged until shard-2. With the slot dropped, such a run would
+  have no `at-once` limit at all (lesson-3).
+- `test_swap_moves_part_out` asserts `plan.of` moved from a to b for the block, built-in, goal, observed stock and
+  daemon before it checks that their state is gone.
+- One fixture model serves every test.
+- Merging origin/main: this clone has no `origin` remote, only a local `main`, and the branch is made from its tip
+  (505a93e9). It cannot be merged here; the factory has to merge before review.
+
+Checked by breaking the code (lesson-9). Each of these mutations made a test fail: no filter on the dispatcher's
+kinds; on the supervisor; on measure; on the item-count sensors; swap's status cleared by `new.goals`; swap not
+refusing a vanished shard; joins with no filter. The joins filter inside `_look` alone is not caught, because the
+guard in `look()` filters first.
+
+Not done by shard (said in SPEC §9.8): the owner's asks (`_follow`), the lead's one-time duties
+(`engine-runs-its-shard-2`), and wires (`shard-wires`). Two more are outside this definition's lists and are left as
+they are: a block's moving a flow asks for that flow's stocks' sensors to read (`after_acting`) wherever those stocks
+are, and an estimate read from another shard is not carried.
