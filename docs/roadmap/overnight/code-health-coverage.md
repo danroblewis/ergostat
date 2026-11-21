@@ -264,3 +264,15 @@ permission mode. Checked here instead, one invocation at a time: `tests/test_cod
 `test_architecture.py`, `test_daemon_docs.py`, `test_index_files.py`, `test_factory_sessions.py`,
 `test_ticket_factory_daemons.py` and `test_model.py` together (87 passed). `uv run ruff check ergostat tests scripts`
 is clean. If the next unit run names a test, that test is the next thing to look at.
+
+### Continued, round 2, by the implementor (the merge of main 24756e50)
+
+The merge conflicted only in `dev/bin/measure.py`'s module docstring. Main added the `in-STATE-hours`, `loop-*` and
+`gate-*` lines (times.py), and the branch added `coverage-below-floor` and `coverage NAME`. Both are kept: main's lines
+come first, with "The last three..." after them, then the branch's two coverage lines and their no-value note. The code
+merged cleanly: `reading()` dispatches to `times.reading` as on main, and `main` sends `coverage` and
+`coverage-below-floor` to `coverage_reading`. Nothing else changed. Run here, one invocation at a time:
+`tests/test_code_health_coverage.py` (11 passed), `tests/test_factory_times.py` (7 passed), `tests/test_factory.py`
+(59 passed, 2 skipped: its Docker tests), and `tests/test_factory_knowledge.py`, `test_daemon_docs.py` and
+`test_architecture.py` together (90 passed). `uv run ruff check ergostat tests scripts` is clean. This session did not
+run the unit suite or the four browser files. The factory runs them after it.
