@@ -71,3 +71,14 @@ The dispatch is still the engine's own. The race was not reproduced here (a prof
 so the fix is shown by reading. Run here: tests/test_factory.py (120 passed, 2 skipped), ruff clean. Separately, each
 test process spends about 60 s once in `Factory.__init__` reading ergostat.yaml (the extremes check). That is main's
 fixture, not this branch's.
+
+Round 4 (the fourth `unit` failure): the tail is 18 dots and then nothing. It has no `F`, no `E` and no summary line,
+so it names no failing test. `.pytest_cache/v/cache/lastfailed` in the worktree is `{}`. A run that stops after 18
+dots with no summary looks like the run was cut short (by suite_watch's limits, a timeout or the slot), not like a
+test that failed. Nothing points at this branch, so no code changed (the reversible choice). Run here, one file at a
+time: the acceptance tests (`-k "pool_full or highest_ranked or full_machine"`, 4 passed),
+tests/test_factory.py in full (120 passed, 2 skipped, 348 s), and `ruff check ergostat tests scripts` (clean). A
+command was refused this round:
+`git show --stat HEAD | head -20; cat .pytest_cache/v/cache/lastfailed ...; ls /tmp | head; grep ...` (the files were
+read with the file tools instead). Left: the factory's full `unit` log, to find out why the run stopped. If it shows a
+named failure outside this branch's files, it goes in a report against main (lesson 13).
