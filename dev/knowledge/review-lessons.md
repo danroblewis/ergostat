@@ -1,5 +1,5 @@
 ---
-kind: lessons
+kind: lesson
 about: the classes of mistake independent gate reviews keep finding in ergostat branches
 use: every implementor brief (check your branch against each before saying built); every reviewer brief (look for each)
 ---
