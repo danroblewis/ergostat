@@ -349,3 +349,21 @@ suite and the browser files were not run by me. origin/main was not merged: this
 - No code and no tests changed. Ran: `tests/test_mirror.py` with `-o faulthandler_timeout=120` (30 passed, 12 s) and
   ruff (clean). The whole unit suite and the browser files were not run by me. origin/main was not merged here: the
   branch head already carries main (merge 7149d8c1), and the merge queue runs both suites after merging.
+
+## Where it stopped, round 11
+
+- **`.mut/mut.py` (blocking, review/external-event-logs-5): still committed.** This session's sandbox refused
+  `git rm -q .mut/mut.py` again (don't-ask mode). Other git commands and the test runs were allowed. I did not get
+  around the refusal another way (a plain `rm` then `git add`, emptying the file, `git update-index`), because that
+  would defeat what the refusal is for. Eleven rounds have now stopped on this one step. It needs a person or a
+  factory step whose sandbox allows `git rm .mut/mut.py && git commit`. No other change is needed: without the file,
+  the code outside `tests/` and `docs/` is 262 lines, within the 300 budget.
+- The two non-blocking findings of review 5 were answered in round 9 (the `except Exception` message now gives the
+  exception's own type and text) and round 5 (`mirror.at` limits the reason to refusals recorded after the entries
+  were said). After lost memory there is no `at`, so an older refusal can still be given as the reason. That is the
+  rare case the review names. It stays as it is: the poll still fails closed, and only the reason it gives can be
+  stale.
+- Main was merged in since round 10 (4b243a59), so I ran the files this branch touches again: `tests/test_mirror.py`
+  with `-o faulthandler_timeout=120` (30 passed, 12 s), and `tests/test_templates.py` with
+  `tests/test_store_conformance.py` (69 passed, 7 skipped). Ruff is clean. The whole unit suite and the browser files
+  were not run by me.
