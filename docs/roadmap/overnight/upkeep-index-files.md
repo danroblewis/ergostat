@@ -299,3 +299,16 @@ state named ready). So the merge is finished by updating the test's two status a
 is the only change, made in its own commit ("merge fix"). If the branch is rebuilt on main without the backlog
 merge, that commit is left out with it. No code changed. Run: `tests/test_relations_asof.py`,
 `tests/test_relations.py`, `tests/test_upkeep_template.py`, `tests/test_index_files.py` (48 passed). Ruff clean.
+
+### The unit suite after the merge fix
+
+The merge of main (8eb0fc0) was already committed (49e4fca), with no conflict markers left in the four files.
+`tests/test_program_actions.py::test_a_full_pool_puts_the_item_off_uncounted` failed under `-n 8`: an
+`agent.failed` for `step`. The cause is round 5's own change in `Engine.run_block`. `close()` sets `self.stop`
+before `kill_all()` sets `runner.STOPPING`. A run spawned in that gap (here, `ticket/9`'s run, which holds the one
+workspace) was killed by the new check while `STOPPING` was still clear, so its note read `exited -9` and the run
+was recorded as the step's failure. The fix: a run that check kills is noted `stopped with ergostat`, like any run
+killed by `kill_all` (`closing`, 2 lines). The race depends on timing and did not happen here, so I could not watch
+the test fail and then pass. The test passes alone and with its file (10 passed). `test_reload_in_place.py` also
+passes (11 passed), including the round-5 test run alone. Ruff is clean. Net lines for the gap outside tests and
+docs: 236.
