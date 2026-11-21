@@ -682,10 +682,12 @@ def fake_remote():
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     now = time.time()
-    ev = {"seq": 1, "id": "e1", "type": "incident.opened", "item": "t-1", "time": now - 30, "data": {"title": "disk full"}}
+    from urllib.parse import unquote
+    ev = {"seq": 1, "id": "e1", "type": "incident.opened", "item": "incident/3", "time": now - 30,
+          "data": {"title": "disk full"}}
     answers = {"counts": {"kinds": {"incident": {"open": 1, "closed": 4}}, "total": 5},
-               "items": {"items": [{"id": "t-1", "kind": "incident", "state": "open"}], "total": 5, "kinds": []},
-               "items/t-1": {"id": "t-1", "state": "open", "fields": {"title": "disk full"}, "events": 1,
+               "items": {"items": [{"id": "incident/3", "kind": "incident", "state": "open"}], "total": 5, "kinds": []},
+               "items/incident/3": {"id": "incident/3", "state": "open", "fields": {"title": "disk full"}, "events": 1,
                              "moves": [{"time": now - 30, "from": None, "to": "open", "type": "incident.opened"}],
                              "record": [ev]},
                "status": {"last_seq": 1},
@@ -693,7 +695,9 @@ def fake_remote():
 
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
-            body = answers.get(self.path.split("?")[0].removeprefix("/remote/v1/"))
+            # as remote_api.answer: split on /, then each segment unquoted (an id's encoded / is one segment)
+            path = "/".join(unquote(x) for x in self.path.split("?")[0].removeprefix("/remote/v1/").split("/"))
+            body = answers.get(path)
             self.send_response(200 if body is not None else 404)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -707,11 +711,16 @@ def fake_remote():
 
 
 def test_a_remotes_items_and_events_are_shown_marked_remote(browser, tmp_path, monkeypatch):
+    import types
+
     from ergostat import model as mdl
     from ergostat.remote import events, items
     from ergostat.store import Project
     from ergostat.web import serve as web_serve
-    monkeypatch.setattr(items, "MOST", 1.0)            # the period clamped to a second: it passes without a wait of ten
+    clock = [time.time()]                              # the remote's clock (items.time, events.time), moved on by hand:
+    now = types.SimpleNamespace(time=lambda: clock[0])  # the period (10 s at least) passes without a real wait
+    monkeypatch.setattr(items, "time", now)
+    monkeypatch.setattr(events, "time", now)
     items._state.clear()
     events._kept.clear()
     remote, rurl = fake_remote()
@@ -726,19 +735,21 @@ def test_a_remotes_items_and_events_are_shown_marked_remote(browser, tmp_path, m
     try:
         pg.goto(f"{url}/items")
         sec = pg.locator('section.sys-group.remote[data-remote="r"]')
-        sec.locator("a", has_text="t-1").first.wait_for()
+        sec.locator("a", has_text="incident/3").first.wait_for()
         text = sec.inner_text()
         assert "remote r" in text and rurl in text and "incident" in text and "closed" in text
-        assert sec.locator(f'a[href="{rurl}/item/t-1"]').count() == 1
-        sec.locator('a[href="/item/t-1?remote=r"]').click()
+        assert sec.locator(f'a[href="{rurl}/item/incident%2F3"]').count() == 1
+        sec.locator('a[href="/item/incident%2F3?remote=r"]').click()
         pg.wait_for_function("() => document.body.innerText.includes('disk full')")
-        assert pg.url.endswith("/item/t-1?remote=r")
+        assert pg.url.endswith("/item/incident%2F3?remote=r")
         assert "remote r" in pg.locator("h1").inner_text() and pg.locator("textarea").count() == 0
         pg.goto(f"{url}/record?remote=r")
         pg.wait_for_function("() => document.body.innerText.includes('incident.opened')")
         assert pg.locator(".remote-links a", has_text="remote r").count() == 1
+        assert pg.locator('a[href="/item/incident%2F3?remote=r"]').count() >= 1   # its item, opened there
         remote.shutdown()
         remote.server_close()
+        clock[0] += 60                                  # past the period: the next poll asks again, and fails
         pg.wait_for_function("() => document.body.innerText.includes('r does not answer')", timeout=20000)
         body = pg.locator("#main").inner_text()
         assert "these were read" in body and "ago" in body and "Nothing recorded yet." not in body

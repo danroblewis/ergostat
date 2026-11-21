@@ -23,7 +23,8 @@ LEAST, MOST = 10.0, 600.0                # a remote's every, clamped, is the per
 KEPT = 32                                # listings, and details, cached per remote (the oldest goes first)
 N_MOST, OFFSET_MOST = 500, 100_000
 WAIT = 2 * cache.TIMEOUT + 1.0           # the longest a caller waits on a remote's lock (its holder asks twice at most)
-ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]{0,199}")
+ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]{0,199}")   # one /-separated segment of an id (``incident/3``)
+ID_MOST = 200
 
 _state: dict[str, dict] = {}
 _locks: dict[str, threading.Lock] = {}
@@ -56,8 +57,10 @@ def period(r: dict) -> float:
 
 
 def openable(item_id: str) -> bool:
-    """Whether a remote item can be opened here: its id fully matches ``ID`` and has no ``..`` (an allowlist)."""
-    return bool(ID.fullmatch(item_id or "")) and ".." not in item_id
+    """Whether a remote item can be opened here (an allowlist): at most ``ID_MOST`` characters, ``/``-separated
+    segments that each fully match ``ID`` (so none is empty), and no ``..`` anywhere."""
+    return (0 < len(item_id or "") <= ID_MOST and ".." not in item_id
+            and all(ID.fullmatch(s) for s in item_id.split("/")))
 
 
 class held:
@@ -146,7 +149,8 @@ def detail(spec, name: str, item_id: str) -> dict:
     """One remote item as the remote folds it; its id checked against ``ID`` before anything is sent."""
     r = remote(spec, name)
     if not openable(item_id):
-        raise RemoteRefused(400, f"{item_id[:60]!r} cannot be opened here: a remote item's id must match {ID.pattern}")
+        raise RemoteRefused(400, f"{item_id[:60]!r} cannot be opened here: a remote item's id is "
+                             f"/-separated segments each matching {ID.pattern}, {ID_MOST} characters at most, no ..")
     with held(name):
         got = _ask(spec, name, r, "details", item_id, f"items/{quote(item_id, safe='')}", None,
                    lambda b: isinstance(b, dict))

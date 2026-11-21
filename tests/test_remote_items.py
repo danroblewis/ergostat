@@ -127,13 +127,16 @@ def test_an_unconfigured_remote_is_refused_never_answered_locally(site):
 
 
 def test_a_traversal_id_is_refused_before_any_request(site):
-    for bad in ("../events", "a/b", "..", "%2e%2e", "x y", "a" * 201, "a..b", "-x"):
+    for bad in ("../events", "incident/../events", "incident/..", "a//b", "/a", "a/", "a/.b", "..", "%2e%2e",
+                "a/%2e%2e", "x y", "a/b c", "a\\b", "a" * 201, "a/" + "b" * 199, "a..b", "-x", "a/-x"):
         code, body = get(site, f"/api/items/{quote(bad, safe='')}?remote=r")
         assert code == 400, bad
         assert "item" not in body
         with pytest.raises(items.RemoteRefused) as e:
             items.detail(site.spec, "r", bad)
         assert e.value.code == 400
+    with pytest.raises(items.RemoteRefused):
+        items.detail(site.spec, "r", "")
     assert get(site, "/api/items/a/b?remote=r")[0] == 400                    # a second path segment: refused too
     assert site.fake.calls == []
     code, body = get(site, "/api/items/t-1?remote=r")
@@ -142,7 +145,10 @@ def test_a_traversal_id_is_refused_before_any_request(site):
     odd = "a:b@c#d+e=f"
     assert get(site, f"/api/items/{quote(odd, safe='')}?remote=r")[0] == 200
     assert site.fake.asked()[-1][1] == "items/" + quote(odd, safe="")
-
+    for real in ("incident/3", "a/b", "ergostat.model-change/x:1"):      # a kind's ids hold a / (spec/compile.py)
+        code, body = get(site, f"/api/items/{quote(real, safe='')}?remote=r")
+        assert code == 200 and body["item"]["remote"] == "r", real
+        assert site.fake.asked()[-1][1] == "items/" + quote(real, safe="")   # one segment, the / encoded
 
 def test_repeated_listings_in_one_period_ask_the_remote_once_each(site):
     for _ in range(20):

@@ -528,10 +528,10 @@ function remoteSaid(name, d) {
   if (d.failed || !d.ok) return h("p", { class: "note remote-says bad" }, d.code === 503 ? `${name}: ${d.why}` : `${name} does not answer (${d.why})${old}`);
   return d.why ? h("p", { class: "note remote-says" }, `${d.why}${old}`) : null;
 }
-/* the ids that may be opened here: as remote/items.py's ID, an allowlist */
-const REMOTE_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]{0,199}$/;
+/* the ids that may be opened here: as remote/items.py's openable, an allowlist (/-separated segments, no "..") */
+const REMOTE_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*(\/[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*)*$/;
 function remoteItemLink(id, name) {
-  return REMOTE_ID.test(id) && !id.includes("..") ? h("a", { href: `/item/${encodeURIComponent(id)}?remote=${encodeURIComponent(name)}` }, id)
+  return typeof id === "string" && id.length <= 200 && REMOTE_ID.test(id) && !id.includes("..") ? h("a", { href: `/item/${encodeURIComponent(id)}?remote=${encodeURIComponent(name)}` }, id)
     : h("span", { title: "its id cannot be opened here: on its own page only" }, id);
 }
 /* a remote's section of the Items page, framed and marked remote: its counts by kind and state, its newest items */

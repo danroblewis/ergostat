@@ -210,3 +210,41 @@ Python files were checked identical to the commit.
 (*Its items and events in the pages*). The Items section's filter table gains a `remote=NAME` row. The API tests
 run the page in-process over HTTP. Only `items.time` and `events.time` are replaced by a fake clock, never the
 process's `time.time`.
+
+## Where it stopped (round 2)
+
+The round-1 review's four findings, each answered (lesson-12):
+
+- **The id allowlist refused every real remote item (blocking).** Fixed as the review asked. This departs from
+  point 2's text ("an ID with `/` … is refused") and from the acceptance test's `a/b` in the refused list. The
+  definition is not edited, so the departure is recorded here. `items.openable` now accepts at most 200
+  characters of `/`-separated segments. Each segment fully matches `[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]{0,199}`, so
+  none is empty and none starts with `.`, and there is no `..` anywhere. It is still an allowlist, and still
+  checked before any request. The id is still sent as `quote(ID, safe="")` (`items/incident%2F3`), which
+  `remote_api.answer` unquotes after splitting. The page's `REMOTE_ID` (`pages.js`) matches it.
+  `test_a_traversal_id_is_refused_before_any_request` now refuses `../events`, `incident/../events`,
+  `incident/..`, `a//b`, `/a`, `a/`, `a/.b`, `a/%2e%2e`, `a/b c`, `a\b`, a 201-character id with a `/`, `a/-x`
+  and the empty id. It opens `incident/3`, `a/b` and `ergostat.model-change/x:1`, and each reaches `client.get` as
+  one encoded segment. The browser test uses `incident/3` for kind `incident`, and its fake remote parses paths
+  as `remote_api` does. Broken and shown failing: with the `..` check dropped it fails on `a..b`; with no split
+  on `/` it fails on `incident/3`.
+- **The browser test's period was not shortened (blocking).** `items.MOST = 1.0` did nothing, since `LEAST` is
+  10 s, and the round-1 answer ("the period is one second") was false. The test now replaces `items.time` and
+  `events.time` with a fake clock and moves it on 60 s after the fake remote is stopped. There is no real wait,
+  and the test waits only on page content.
+- **The CLI's `force=True` (blocking, a doc claim).** The round-1 answer was wrong. The CLI reads in its own
+  process, and `events._kept` is that process's memory, so the CLI's read never reaches the page server's cache.
+  SPEC §4c now says the CLI reads every time it is run, whatever the period, and leaves the pages' period
+  unaffected. No code changed.
+- **origin/main not merged (blocking).** This clone still has no `origin/main` ref, and the network is out of
+  reach. The factory merged local `main` (8eb0fc0) into the branch (81055a5). The review's origin/main dc0d5ac is
+  not in this clone, so that merge, and the suites after it, remain for the factory.
+
+**Still not run: the browser files.** Playwright is still not importable here (`could not import
+'playwright.sync_api'`). So `test_a_remotes_items_and_events_are_shown_marked_remote` and the page code have still
+never been executed, and by the house rules the gap is not done until they are. The whole unit suite was not run
+either.
+
+**Run here:** `tests/test_remote_items.py` (21 passed) and `ruff check ergostat tests scripts` (clean).
+
+**Size:** about 319 net lines under `ergostat/`, within 420.

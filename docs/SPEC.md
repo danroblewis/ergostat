@@ -573,11 +573,12 @@ local events are, their items linking to the remote's. Nothing of them reaches t
 | `/api/events?remote=NAME` (`n` ≤ 1,000, `type` a glob) | `remote`, `ok`, `why`, `read`, `age`, `events` from the cursor cache, in `seq` order, each marked `remote` |
 
 Without `remote=` these answer as before; `/api/items` also says `remotes` (each name and url) when the model has
-any. `NAME` must be a key of `remotes:` (else 400 *no remote NAME (this model's: …)*). An item `ID` must fully
-match `[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]{0,199}` and hold no `..`, checked before anything is sent (else 400; then it
-goes quoted whole as one path segment). This is an allowlist: an id with `/`, `%` or a space is refused, so a remote
-item whose id is outside it (an item id such as `incident/3`, since item kinds' ids hold a `/`) is listed but can be
-opened only on its own page.
+any. `NAME` must be a key of `remotes:` (else 400 *no remote NAME (this model's: …)*). An item `ID` (such as
+`incident/3`: item kinds' ids hold a `/`) must be at most 200 characters of `/`-separated segments, each fully
+matching `[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*` (so no segment is empty or starts with `.`), and hold no `..`. This is
+checked before anything is sent (else 400), and the id then goes quoted whole as one path segment
+(`items/incident%2F3`), which the remote unquotes after splitting its path. It is an allowlist: an id with `%`, a
+space, `\`, an empty segment or `..` is refused, and such an item is listed but can be opened only on its own page.
 
 - **Bounded.** A remote's period is its `every` clamped to 10 s..10 min. In one period at most **8 requests** go to
   one remote for its items, counts, listings and details together; the counter goes up before each request, and a
@@ -585,8 +586,8 @@ opened only on its own page.
   details (by id) up to 32 each a remote, the oldest dropped first; a cached answer younger than the period is
   served without asking. With the budget spent, a cached answer is served with its `age`; with none, 503 *NAME
   asked 8 times this period; again in Ts*. Its events are read at most once a period (a status call the first time,
-  then at most five pages of 1,000); `ergostat remote events NAME` reads now whatever the period, and that read is
-  the period's read for the pages.
+  then at most five pages of 1,000). `ergostat remote events NAME` reads in its own process, every time it is run,
+  whatever the period; it shares no cache with the page server, so the pages' period is unaffected by it.
 - **One lock a remote.** Each decision (fresh? failed this period? within the budget?), the request, the write and
   the trim are made under one lock per remote, so many pages polling ask once. Each request is bounded by 3 s; a
   caller waits at most 7 s for an items lock (19 s for the events lock, whose holder may make six requests), then
