@@ -57,3 +57,11 @@ Round 2, the review's findings answered: 5 net lines of code in all (no new line
   made it hold trivially.
 - Non-blocking, not run: still true. Playwright isn't installed here, so the two tests skip (`1 skipped` for
   `-k flows_only`). They rest on the factory's browser gate running `test_diagram_rendering.py`, not skipping it.
+
+Round 2, after the fast suites: `unit` was reported failed, but its tail names no failing test. It stops at 58% with
+only `.` and `s` marks and no `F`/`E` or summary line, which looks like a run that was cut off, not a test that failed.
+This branch changes no Python: only `diagram.js`, `style.css`, `docs/` and two browser tests that skip without
+Playwright. The unit tests that read the changed files pass here, one run each: `test_style_tokens.py`,
+`test_scale_caches.py`, `test_graph_cli_web.py` (69 passed), and `test_architecture.py`, `test_daemon_docs.py`,
+`test_web_access.py` (64 passed); ruff is clean. I could not run the whole unit suite (not permitted in this session),
+so no code was changed: no failure tied to this branch was found. If a rerun names a test, that test is what is left.
