@@ -22,9 +22,10 @@ class Refused(Exception):
 
 
 def call_of(req: dict) -> str | None:
-    """The call's own key (``client.call``), the same on every try: what it records is named by it."""
+    """The call's own key (``client.call``), the same on every try: what it records is named by it (hashed if long)."""
+    from hashlib import sha256
     k = req.get("call")
-    return f"call-{k}"[:72] if isinstance(k, str) and k else None
+    return f"call-{k if len(k) <= 64 else sha256(k.encode()).hexdigest()}" if isinstance(k, str) and k else None
 
 
 def act_key(cfg: dict, req: dict) -> str | None:

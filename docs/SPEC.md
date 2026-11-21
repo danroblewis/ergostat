@@ -1354,8 +1354,10 @@ A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no en
 connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
 120, at most 3600), then does what it does with no engine. A command from a shell does not wait. It does not wait
 where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
-the socket is removed (an engine that stopped cleanly; a killed one leaves it) it waits 10 s at most for it to be
-made again (a restart that is slower to listen falls back as with no engine). Each call carries a
+the socket is removed it waits 10 s at most for it to be made again. Only a final stop removes it: `ergostat run`
+starting itself again in place under the same name (a change of storage or format, or the watchdog's restart) leaves
+it, as a killed engine does, so its calls wait the whole bound for the new engine; a new name is a new state folder,
+so that restart removes it. Over-long keys are hashed, never cut short. Each call carries a
 key, `"call"`, made once by the command, the same on every try and in what the command records itself when it falls
 back: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
 renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again (its answer is

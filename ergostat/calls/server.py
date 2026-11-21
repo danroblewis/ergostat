@@ -48,6 +48,7 @@ class Server:
         self.parked: list[Parked] = []
         self.plock = threading.Lock()
         self.calls = 0
+        self.keep = False                                      # closed to start again (cli/running.py): the file left
 
     # ---- listening
 
@@ -86,15 +87,16 @@ class Server:
                 pass
         for _ in range(WORKERS):
             self.jobs.put(None)
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
-        (self.e.p.dir / POINTER).unlink(missing_ok=True)
+        if not self.keep:                                      # a restart's: left, so a run's call waits its whole bound
+            self.remove()
         with self.plock:
             for w in self.parked:
                 self._close(w.conn)
             self.parked = []
+
+    def remove(self) -> None:
+        self.path.unlink(missing_ok=True)
+        (self.e.p.dir / POINTER).unlink(missing_ok=True)
 
     def _accept(self) -> None:
         s = self.sock

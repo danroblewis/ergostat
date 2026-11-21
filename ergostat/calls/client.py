@@ -4,8 +4,7 @@ library only, so a step's own Python can use it as it is:
     from ergostat.calls.client import call
     call("event", events=[{"event": "ticket.noted", "item": "ticket/12", "data": {...}}])
 
-``Unavailable`` when no engine listens (the caller does what it did before), after a run's call has tried again for
-``bound()`` seconds (an engine restarting); its key makes what it records happen once (``ops.py``)."""
+``Unavailable`` when no engine listens (the caller does what it did before), a run's after ``bound()`` s of retries."""
 
 from __future__ import annotations
 
@@ -30,7 +29,7 @@ class Elsewhere(Unavailable):
 
 RETRY = 120.0                    # seconds a run's call tries again while no engine answers (ERGOSTAT_CALL_RETRY)
 MOST_RETRY = 3600.0
-GONE = 10.0                      # seconds a call waits for a socket removed (a clean stop) to be made again (a restart)
+GONE = 10.0                      # seconds a call waits for a socket removed (a final stop; a restart leaves it) to come back
 
 
 class Refused(Exception):
@@ -94,18 +93,15 @@ def state_of(start: Path) -> Path | None:
 
 def bound() -> float:
     """A run's call tries again for ``ERGOSTAT_CALL_RETRY`` s (default 2 min, at most 1 h); 0 with no ERGOSTAT_SOCKET."""
-    if not os.environ.get("ERGOSTAT_SOCKET"):
-        return 0.0
     try:
-        got = float(os.environ.get("ERGOSTAT_CALL_RETRY") or RETRY)
+        got = float(os.environ.get("ERGOSTAT_CALL_RETRY") or RETRY) if os.environ.get("ERGOSTAT_SOCKET") else 0.0
     except ValueError:
         return RETRY
     return min(max(got, 0.0), MOST_RETRY) if got == got else RETRY
 
 
 def call(op: str, path: str | None = None, timeout: float = 60.0, retry: float | None = None, **args) -> dict:
-    """Ask the engine; its answer. Unavailable when nothing listens after ``retry`` s (``bound()`` unless given) of
-    backoff, each try with the same key (``call``); Refused when it says no."""
+    """Ask the engine, retried for ``retry`` s (``bound()``) with one key; Unavailable, or Refused when it says no."""
     path = path or find()
     if not path:
         raise Unavailable("no engine socket")
@@ -115,12 +111,10 @@ def call(op: str, path: str | None = None, timeout: float = 60.0, retry: float |
     while True:
         try:
             return once(op, path, timeout, args)
-        except Elsewhere:
-            raise
-        except Unavailable:
+        except Unavailable as e:
             now = time.monotonic()
-            gone = None if os.path.exists(path) else gone or now      # (a killed engine leaves its socket behind)
-            if now >= end or gone is not None and now - gone >= GONE or not owner(path).is_dir():
+            gone = None if os.path.exists(path) else gone or now      # (a killed or restarting engine leaves it)
+            if isinstance(e, Elsewhere) or now >= end or gone is not None and now - gone >= GONE or not owner(path).is_dir():
                 raise
             time.sleep(min(pause, end - now))
             pause = min(pause * 2, 2.0)

@@ -252,6 +252,60 @@ def test_a_call_reconnects_across_a_restart(tmp_path):
     assert len(p.events.query(n=None, type="job.noted")) == 1
 
 
+def test_a_call_waits_its_whole_bound_across_a_restart_slower_than_gone(tmp_path, monkeypatch):
+    """``ergostat run`` restarting in place (its storage changed: the same name, so the same state folder and socket)
+    leaves its socket's file, so a run's call waits its whole bound, not ``GONE`` (cut to 0.2 s here, where the
+    restart takes seconds). Fails if the restart's close removes the socket (``Server.keep``): it gives up after GONE."""
+    p = project(tmp_path, f"{PY} -c pass")
+    path = str(path_for(p.dir))
+    monkeypatch.setattr(client, "GONE", 0.2)
+    down, once = [], client.once
+
+    def timed(*a):
+        try:
+            return once(*a)
+        except client.Unavailable:
+            down.append((time.monotonic(), os.path.exists(path)))
+            raise
+    monkeypatch.setattr(client, "once", timed)
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "run", "--foreground", "--no-web"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert wait_for(lambda: client.call("ping", path=path, retry=0) if os.path.exists(path) else None, 60)
+        down.clear()
+        main =tmp_path / "ergostat.yaml"
+        main.write_text(main.read_text() + "storage:\n  logs: {runs: 49}\n")      # taken once it settles: a restart
+
+        def stopped():
+            try:
+                return not once("ping", path, 5.0, {})
+            except client.Unavailable:
+                return True
+        assert wait_for(stopped, 60), "it never restarted"
+        t, got = asking(lambda: client.call("event", path=path, retry=60, root=str(tmp_path), events=NOTED))
+        t.join(60)
+        assert got.get("out", got)["recorded"] == 1
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    assert down and down[-1][0] - down[0][0] > client.GONE, f"the restart was not slower than GONE: {down}"
+    assert all(kept for _, kept in down), "the socket's file was removed during the restart"
+    assert len(p.events.query(n=None, type="job.noted")) == 1
+    assert len(p.events.query(n=None, type="ergostat.started")) == 2, "one restart"
+
+
+def test_long_keys_that_share_a_prefix_name_two_calls():
+    """Fails if an over-long key is cut short (two calls merged as one, lesson-5) rather than hashed."""
+    from ergostat.calls.ops import call_of
+    a, b = "k" * 80 + "a", "k" * 80 + "b"
+    assert call_of({"call": a}) != call_of({"call": b})
+    assert call_of({"call": a}) == call_of({"call": a}) and len(call_of({"call": a})) <= 72
+    assert call_of({"call": "abc"}) == "call-abc"
+
+
 def test_a_call_in_flight_at_the_stop_is_recorded_once(tmp_path):
     from ergostat.calls.server import Server
     p = project(tmp_path, f"{PY} -c pass")

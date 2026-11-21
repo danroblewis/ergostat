@@ -260,3 +260,38 @@ caused it, but it may be a timing window in that test (its 10 s `dropped.wait` o
 Lesson 10 says to find which, and this round did not. Not run here: the whole unit suite and the browser files.
 Refused this session: a `python3` heredoc doing the edits (done with the editor instead), a `for` loop running
 `test_calls` three times, and a run of `test_calls` saving its output under `/tmp`.
+
+Round 7 (review rs-calls-3), finding by finding:
+- **Blocking: the in-place restart was a clean stop, so `GONE` = 10 s replaced the 2-minute bound for the very
+  restart this gap is for.** Fixed as the review suggests: the socket's file is left in place. `cli/running.py` sets
+  `Server.keep` on the engine's call server before `r.close()` when this close is a restart (`reload` and no stop
+  asked). `Server.close` then closes the socket but leaves its file and pointer. A run's call sees the file still
+  there, as after a killed engine, and waits its whole bound (`ERGOSTAT_CALL_RETRY`) until the new process listens.
+  `Server.start` already replaces the file. `GONE` now applies only to a final stop. Two edge cases:
+  - A restart under a **new name** moves to a new state folder and a new socket, so nothing will come back at the old
+    path. That close still removes the file (`moved`), and its calls fall back after `GONE`.
+  - If a **stop is asked during the close**, the stop wins and there is no restart, so the left file is removed
+    afterwards (`Server.remove`).
+  - The watchdog's hard restart never closed the server, so it always left the file. Nothing changes there.
+  - If `execv` itself fails, the file stays and calls wait their bound (bounded) before falling back. That is my own
+    call, the most reversible one.
+  - New test `test_a_call_waits_its_whole_bound_across_a_restart_slower_than_gone`: a real
+    `ergostat run --foreground`, its `storage:` edited so it restarts in place, with `GONE` cut to 0.2 s in the caller.
+    It asserts that the time without an answer lasted longer than `GONE`, that the socket's file was there on every
+    failed try, that the event was recorded once, and that there were two `ergostat.started`. With `kept.keep = True`
+    changed to `False` it fails (seen: the call raised `Unavailable`, `KeyError: 'recorded'`).
+  - `docs/SPEC.md` and `docs/RUNTIME.md` now state the narrower rule (lesson-8).
+- **lesson-5: `ops.call_of` cut a key to 72 characters, so two long keys sharing a prefix were one call.** A key
+  longer than 64 characters is now replaced by its sha256 (`call-` plus 64 hex characters), never cut short. The 72
+  was this branch's own limit, not the store's. New test `test_long_keys_that_share_a_prefix_name_two_calls`.
+- **Not run by that reviewer.** Run here, one file or batch at a time, all passing: `test_calls` (17, twice), then
+  `test_leases`, `test_gated_actions`, `test_resilience`, `test_daemons_restart`, `test_program_actions`,
+  `test_lease_kill` (113, serially), then `test_reload_in_place`, `test_cli_fallback`, `test_daemons`,
+  `test_watchdog` (59, serially). ruff is clean. Not run here: the whole unit suite and the browser files.
+- Round 6's flake in `test_a_call_the_stopped_engine_recorded_is_recorded_once_by_the_commands_fallback` was not
+  seen this round, and its cause is still not found.
+Budget: **100 net lines** (148 added, 48 removed, `git diff --shortstat main` outside `tests/`, `docs/`, `dev/`). The
+fix's 10 lines were paid for by folds in `client.py` that change no logic: the module's and `call`'s docstrings
+shortened, `bound`'s early return folded into its `try`, and `except Elsewhere: raise` folded into the retry check.
+Refused this session: a `python3` heredoc doing the edits (done with the editor instead), and a `--numstat` sum in
+a shell `while` loop (`--shortstat` used instead).
