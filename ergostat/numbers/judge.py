@@ -555,7 +555,7 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
         try:                                                 # a redesign waiting for the owner, scored again as the
             if blind:                                        # record it was judged on moves (redesign_record)
                 raise rr.Unreadable(blind)
-            for y in rr.due_for_rescore({y["id"]: y for y in waiting}, rr.read(p, spec), now):
+            for y in rr.due_for_rescore({y["id"]: y for y in waiting}, rr.read(p, spec), now) if waiting else []:
                 judge_redesign(p, y, now, by, out)
         except rr.Unreadable as e:
             blind = unreadable(p, waiting, e)

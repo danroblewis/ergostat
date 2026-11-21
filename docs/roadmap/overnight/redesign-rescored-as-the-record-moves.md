@@ -193,3 +193,18 @@ The review's findings, every one of them (lesson-12):
   back.
 - *An unreadable mark stops every class's writes, and SPEC did not say so.* SPEC §12e now says "nothing is scored or
   written that pass, of any class (words and parameter changes too, not only redesigns)".
+
+### Round 3 (the unit suite after round 2)
+
+- *The unit suite failed.* The tail the factory gave stops at 53% with no failing test and no summary, so the run was
+  cut off (a hang or a timeout), not a named assertion. The one change in this branch that costs every judge pass,
+  redesign or not, was the mark: `judge.run` read it on every pass, even with no passed redesign waiting. That means
+  one event-store query for each block and each valve, and on the segment store each query is a scan. It is now read
+  only when a passed redesign is waiting. Nothing else changes, because with nothing waiting there is nothing to
+  rescore. This is my best reading of the cut-off tail, not a confirmed cause. If the next run still stops, the
+  watchdog's log names the test.
+- Run again here, one command at a time: test_redesign_rescored, test_redesign, test_modelling_core,
+  test_modelling_core2 and test_slowjudge (75 passed); test_redesign_memory, test_recipes and test_factory (79
+  passed, 2 skipped); test_modelling_template and test_bench (23 passed). Ruff is clean.
+- `tests/test_probe_tmp.py` is still committed: `git rm` was refused again in this session. It must be removed
+  before merge, as round 2 says.
