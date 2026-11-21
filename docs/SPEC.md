@@ -2338,9 +2338,8 @@ are dropped and counted, not recorded, and each window's count is said once, as 
 `{"why": "N observations dropped: more than 50 a second", "dropped": N}`, at the first of: its sensor's next
 observation after the window closes, the supervisor's next look once the window is a second old (every 0.2 s), or
 ergostat stopping. A line over 1 MiB is dropped (said once in the log), up to its newline, and never held. Lines are
-read as UTF-8, what is not UTF-8 replaced. Lines that arrive together are taken together, per run, up to 500 at once,
-in the order printed (a run's `done` after its earlier lines); should taking a batch fail as a whole, each of its
-lines is said dropped in the log. The `env` of an item travels in its line and never in the process's
+read as UTF-8, what is not UTF-8 replaced. A run's `done` is taken after its earlier lines; should taking a run's
+batch of lines fail as a whole, each line of it is said dropped in the log. The `env` of an item travels in its line and never in the process's
 environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
 `ERGOSTAT_SOCKET`): a daemon passes an item's `env` to what it starts for that item, and never writes it into its own.
 
