@@ -68,6 +68,10 @@ systems:
     within: factory
     description: questions from the coordinator or a planner, answered with a report and its sources
     show: [stock.research-asked]
+  managing:
+    within: oversight
+    description: the pipeline manager - an AI session per situation (a gap stuck, parked or dead, the queue blocked, an intervention left), acting through manage.py and recording each act as an intervention
+    show: [stock.situations-raised, auxiliary.stuck-gaps]
   knowledge:
     within: factory
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
@@ -78,7 +82,7 @@ items:
     id: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
     states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, queue-failed, merged,
-             parked]
+             parked, closed]
     on:
       gap.found: open                # intake: an entry of docs/GAPS.md
       gap.requested: open            # submitted: ergostat event --add gap.requested --item gap/NAME (or a planner's split)
@@ -96,6 +100,7 @@ items:
       gap.retried: approved          # triage: a flake, back to the queue
       gap.merged: merged
       gap.parked: parked             # the kill rule, or a park verdict: where it stopped
+      gap.closed: closed             # the pipeline manager's close, once the coordinator approved it (done elsewhere, a duplicate)
     show: [title, branch, net_lines, budget, failed_gates, ai_cost_usd, push, blocked_reason]
     relations:
       depends_on: gap                # precedence: ready to build once every gap it names is finished (dev/bin/deps.py);
@@ -154,6 +159,7 @@ items:
       gap: gap                       # the gap it worked on: the gap's page lists its sessions
       research: research
       review: review                 # (the librarian's step on a review)
+      situation: situation           # (the pipeline manager's)
     formats:
       transcript: claude-session     # Claude Code's own session file, the token scrubbed: shown as the conversation,
                                      # each line recorded as a claude.* event about the session (SPEC 5a)
@@ -178,8 +184,21 @@ items:
     on:
       intervention.recorded: open
       intervention.remedied: remedied
-    show: [reason, class, remedy]
+    show: [reason, class, by, remedy]
     fold: {tests: union, gaps: union}  # (class main-broken: one per main commit, every gap held by it)
+
+  situation:
+    id: situation/*
+    description: one thing the pipeline manager is asked to look at - the queue blocked, a gap dead, parked or stuck, an intervention unremedied, or its heartbeat - raised one at a time by pipeline-watch (dev/bin/watch.py)
+    states: [raised, handled, failed]
+    on:
+      situation.raised: raised
+      situation.handled: handled     # the session's calls run (manage.py), each with what it said
+      situation.failed: failed
+    show: [trigger, subject, why, summary, ai_cost_usd]
+    relations:
+      gap: gap                       # the gap it is about: the gap's page lists it
+    lease: {attempts: 2}
 
   pool:
     id: pool/*
@@ -237,7 +256,7 @@ items:
     show: [kind, title, file, areas, carried, text]
 
 messages:
-  done: {gap: [merged, parked], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, parked, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, retired], knowledge: [retired]}   # (finished, for the estimates)
 
 agents:
