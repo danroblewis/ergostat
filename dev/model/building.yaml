@@ -206,10 +206,13 @@ blocks:
     description: a headless Claude Code session per gap in its own worktree (~/ergostat-wt/<branch>) - the definition committed first, the work, the fast suites
     run: python3 dev/bin/implement.py
     prompt: dev/prompts/implementor.md
-    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, where: {waits_on_parked: null, waits_on_main: null}}
-    # (its dependencies finished, none of them parked; not waiting for main to move past tests failing on it; the
-    # critical first)
-    pool: 4                          # the most: the pool now is implementor-pool (dev/model/pools.yaml)
+    takes: {kind: gap, at: [fix, ready], to: [built], unblocked: true, order: rank,
+            where: {waits_on_parked: null, waits_on_main: null}}
+    # (its dependencies finished, none of them parked; not waiting for main to move past tests failing on it; by the
+    # backlog's rank, the critical first among equals)
+    # the engine reads implementor-pool (dev/model/pools.yaml) at each dispatch and takes no more than it, never
+    # more than 9; implement-when also holds it to the machine's headroom
+    pool: {now: stock.implementor-pool, most: 9}
     lease: {ttl: 90m, attempts: 2}
     timeout: 6h
     in: block.implement-when
@@ -234,7 +237,8 @@ blocks:
     run: python3 dev/bin/review.py
     prompt: dev/prompts/reviewer.md
     takes: {kind: gap, at: built, to: [approved, fix, parked]}
-    pool: 2                          # the most: the pool now is reviewer-pool (dev/model/pools.yaml)
+    # the engine reads reviewer-pool at each dispatch, never more than 6; review-when holds it to the headroom
+    pool: {now: stock.reviewer-pool, most: 6}
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h
     in: block.review-when

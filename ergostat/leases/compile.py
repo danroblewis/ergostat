@@ -4,10 +4,13 @@ itself, for its ``named``, ``keys``, ``err`` and ``duration``."""
 
 from __future__ import annotations
 
-from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Spec, Takes, own_kind
+import re
+
+from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Ref, Spec, Takes, own_kind
 
 TERMS_KEYS = {"ttl", "attempts"}
-TAKES_KEYS = {"kind", "at", "to", "where", "unblocked"}
+POOL_KEYS = {"now", "most"}
+TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order"}
 
 
 def terms(c, m, key: str, what: str) -> LeaseTerms:
@@ -76,28 +79,77 @@ def takes(c, m, what: str) -> Takes | None:
         c.err(f"{what}.takes.unblocked: true or false (true: only items whose precedence relations name only finished "
               f"items, the critical first)", raw.at("unblocked"), "bad-takes")
         unblocked = False
+    order = raw.get("order") or []
+    order = [order] if isinstance(order, str) else order
+    if not isinstance(order, list) or not all(isinstance(f, str) and re.fullmatch(r"-?[^\s-]\S*", f) for f in order):
+        c.err(f"{what}.takes.order: a field's name, or a list of them (lowest first; -FIELD: highest first; the items "
+              f"without it after those with it)", raw.at("order"), "bad-takes")
+        order = []
     where = dict(where)
     if where:
         c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
-    return Takes(kind, list(states), list(to), where, unblocked)
+    return Takes(kind, list(states), list(to), where, unblocked, order)
 
 
-def pool(c, m, what: str) -> int:
+def pool(c, m, what: str) -> tuple[int, Ref | None]:
+    """``pool: N``, or ``pool: {now: stock.S, most: N}`` (read from S at each dispatch, never above N): the most, and
+    the stock (None for a number). Whether S exists and is measured is ``check``'s, after the stocks."""
     n = m.get("pool", 1)
+    now = None
+    if isinstance(n, dict):
+        raw = n
+        c.keys(raw, POOL_KEYS, f"{what}.pool")
+        if "now" not in raw:
+            c.err(f"{what}.pool.now: the stock the pool is read from (now: stock.NAME)", m.at("pool"), "missing-key")
+        else:
+            now = c.ref(raw["now"], raw.at("now"), f"{what}.pool.now", ("stock",))
+        n = raw.get("most")
+        if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+            c.err(f"{what}.pool.most: a whole number, 1 or more (the most runs of it at once, whatever the stock says)",
+                  raw.at("most") or m.at("pool"), "bad-number")
+            return 1, now
+        return n, now
     if isinstance(n, bool) or not isinstance(n, int) or n < 1:
-        c.err(f"{what}.pool: a whole number, 1 or more (the most runs of it at once)", m.at("pool"), "bad-number")
-        return 1
-    return n
+        c.err(f"{what}.pool: a whole number, 1 or more (the most runs of it at once), or {{now: stock.NAME, most: N}}",
+              m.at("pool"), "bad-number")
+        return 1, None
+    return n, None
+
+
+def pool_now(c, spec: Spec, b) -> None:
+    """A pool read from a stock: the stock exists and something reads its level (else it would never be read)."""
+    r, what = b.pool_now, f"block {b.name}.pool.now"
+    st = spec.stocks.get(r.name)
+    if r.port:
+        c.err(f"{what}: the stock's level (stock.{r.name}), not one of its sensors", b.where, "bad-ref")
+        b.pool_now = None
+    elif st is None:
+        c.err(f"{what}: {r.name!r} is not a stock" + c.suggest(r.name, spec.stocks), b.where, "unknown-ref")
+        b.pool_now = None
+    elif not st.sensors:
+        c.err(f"{what}: nothing reads its level: stock {r.name} has no sensor (give it one, or write pool: N)", b.where,
+              "pool-unmeasured")
+        b.pool_now = None
+
+
+def person_gates(spec: Spec, b) -> list[str]:
+    """The person blocks wired to command ``b`` (either end of the wire): a person's --done never sets a command."""
+    return [g.name for g in spec.blocks.values() if g.type == "person" and g.name != b.name and (
+        any(r.kind == "block" and r.name == g.name for r in b.inputs.values())
+        or any(r.kind == "block" and r.name == b.name for rs in g.outputs.values() for r in rs))]
 
 
 def check(c, spec: Spec) -> None:
     """After the blocks: what each takes is a kind of the model's own, in its states; a kind taken gains the states a
     lease moves it through (``leased``, ``dead``) when it does not list them; a block that takes is started by its
-    items, so neither every: nor cron: (nor a pool without takes:)."""
+    items, so neither every: nor cron: (nor a pool without takes:), nor mode: advise (it asks per command, not per item)."""
     for b in spec.blocks.values():
         what = f"block {b.name}"
+        mapped = b.pool_now is not None
+        if mapped:
+            pool_now(c, spec, b)
         if b.takes is None:
-            if b.pool != 1:
+            if b.pool != 1 or mapped:
                 c.err(f"{what}.pool: only a block that takes items runs more than once at a time (takes: {{kind: K, at: S}})",
                       b.where, "pool-without-takes")
             continue
@@ -105,6 +157,14 @@ def check(c, spec: Spec) -> None:
             c.err(f"{what}.takes: only a program or an ai block takes items (a run of it per item)", b.where, "bad-takes")
             b.takes = None
             continue
+        if b.mode == "advise":                           # (before the kind's checks, which drop b.takes on a mistake)
+            c.err(f"{what}.mode: advise asks a person before a command or an event, never before each item it takes; to "
+                  f"have a person let its items through, gate it with in: block.X from an expr block reading a "
+                  f"sensor: {{manual: true}} (ergostat sensor STOCK --read 1 opens it for all its items at once, "
+                  f"--read 0 shuts it; not per item); otherwise leave mode out", b.where, "advise-with-takes")
+        for g in person_gates(spec, b):
+            c.err(f"{what}: a person block ({g}) never commands, so the items it gates would wait forever; gate it "
+                  f"with in: block.X from an expr block reading a sensor: {{manual: true}}", b.where, "person-gate")
         if b.every or b.cron:
             c.err(f"{what}: a block that takes items is started by them (each item that reaches "
                   f"{', '.join(b.takes.at)}), not by every: or cron:", b.where, "takes-with-schedule")

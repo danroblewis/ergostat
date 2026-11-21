@@ -56,13 +56,21 @@ function remoteNote(r) {
         ["missing", r.missing ? `${r.missing} part${r.missing > 1 ? "s" : ""} this model names that it no longer serves (ergostat check)` : null]]));
 }
 
-function openSystem(n) {                               // a system as one part: what goes in and out, and how its loops do
+/* a remote box's measures, each with its value as read here: dimmed when stale (then it says how old), not served
+   or never read (remote/measures.py) */
+function remoteMeasures(n) {
+  const ms = n.remote ? n.charted || n.measures || [] : [];
+  return ms.length ? h("table", { class: "remote-measures" }, ms.map((m) => h("tr", { class: m.stale || m.missing || m.unchecked ? "measure-stale" : "" },
+    h("td", {}, m.label), h("td", { class: "num" }, m.value || "")))) : null;
+}
+
+function openSystem(n) {                            // a system as one part: what goes in and out, and how its loops do
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, p.kind),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   showDetail(h("div", { class: "kind" }, n.remote ? "System, remote" : "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null),
     typeof moduleCharts === "function" ? moduleCharts(n) : null, whatIs("system"),
-    n.description ? h("p", { class: "muted" }, n.description) : null, remoteNote(n.remote),
+    n.description ? h("p", { class: "muted" }, n.description) : null, remoteNote(n.remote), remoteMeasures(n),
     dl([["loops", loopsText(n)], ["size", n.size], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
         ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),

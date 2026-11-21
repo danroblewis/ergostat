@@ -38,16 +38,18 @@ TOOLS = {
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
                     "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
-                    "Bash(mkdir:*)"],
+                    "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
+                    "Bash(uv run python scripts/suite_watch.py:*)"],   # (its own clone, in a container of its own)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
-            "plan_reviewer": 1200, "researcher": 3600, "librarian": 600,
+            "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "librarian": 600, "groomer": 3000,
             "pipeline_manager": 2400}   # seconds, each below its block's
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
-TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=["Read"], librarian=["Read"], pipeline_manager=TOOLS["reviewer"],
+TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
+             join_judge=TOOLS["reviewer"], pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
              researcher=TOOLS["reviewer"] + ["WebSearch"])      # all read-only: only the implementor writes; WebSearch is
                                                                  # run by the API itself
 
@@ -220,15 +222,35 @@ def scrub(text: str, tok: str) -> str:
 # ---- the work: clones made here, bundles back
 
 def drop(cfg: dict) -> Path:
-    """The factory's own bare repository: what sessions return lands here, never in the owner's."""
+    """The factory's own bare repository: what sessions return lands here, never in the owner's. Its main is the
+    checkout's ``refs/remotes/<remote>/<base>`` (main as pushed), never the checkout's own main. Under
+    <live>/drop.git.lock (sessions starting together fetched at once and failed on git's ref lock); a fetch that still
+    fails on a ref lock is tried again, at most DROP_TRIES times in all; any other error raises at once."""
+    import fcntl
     d = fac.path(cfg, "live") / "drop.git"
-    if not (d / "HEAD").exists():
-        d.parent.mkdir(parents=True, exist_ok=True)
-        fac.git(d.parent, "init", "-q", "--bare", str(d))
-    base = cfg["git"]["base"]
-    fac.git(d, "symbolic-ref", "HEAD", f"refs/heads/{base}")
-    fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")), f"+refs/heads/{base}:refs/heads/{base}")
+    d.parent.mkdir(parents=True, exist_ok=True)
+    with open(d.parent / "drop.git.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)              # (released when the file closes, on any way out)
+        if not (d / "HEAD").exists():
+            fac.git(d.parent, "init", "-q", "--bare", str(d))
+        base = cfg["git"]["base"]
+        fac.git(d, "symbolic-ref", "HEAD", f"refs/heads/{base}")
+        # main as pushed (the checkout's <remote>/<base>), never the checkout's own main, where the queue merges
+        # before testing: branches forked from that carried merges that later failed and were undone (2026-11-20)
+        remote = cfg["git"].get("remote", "origin")
+        for tried in range(1, DROP_TRIES + 1):
+            try:
+                fac.git(d, "fetch", "-q", str(fac.path(cfg, "checkout")),
+                        f"+refs/remotes/{remote}/{base}:refs/heads/{base}")
+                break
+            except RuntimeError as e:
+                if "cannot lock ref" not in str(e) or tried == DROP_TRIES:
+                    raise
+                time.sleep(0.2 * tried)
     return d
+
+
+DROP_TRIES = 3                           # a hard ceiling (lesson-4): fetches of the drop's main, in all
 
 
 def scratch(cfg: dict, branch: str, role: str) -> Path:
@@ -315,10 +337,13 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
     ``tests``: the test ids a suite's `{tests}` names (each shell-quoted)."""
     import resources
     out: dict = {}
-    for n in names:
+    held = fac.quarantine(fac.path(cfg, "live") / "drop.git", cfg["git"]["base"])    # main's list: run beside
+    own = [t for t in fac.quarantine(home / "work", "HEAD") if t not in held]   # the work's own lines: deselected
+    for n in names:                                    # here only (this run lands nothing; the queue reads main's)
         cmd, name = cfg["suites"][n], None
         if tests is not None:
             cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
+        cmd = fac.deselected(n, cmd, held + own)
         if cfg["ai"]["mode"] != "standin":
             name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"
@@ -333,6 +358,9 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             text = log.read_text()
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
+    if "unit" in out:                                  # the quarantined tests beside it, never blocking
+        fac.beside(held, logs / f"{tag}-quarantined-alone.txt",
+                   lambda ts: suites(cfg, home, ("alone",), logs, f"{tag}-quarantined", tests=ts))
     return out
 
 

@@ -426,7 +426,12 @@ class Explainer:
                  "auxiliary": self.s.auxiliaries}[r.kind]
         if r.name not in table:
             raise KeyError(f"no {r.kind} {r.name!r}")
-        return getattr(self, r.kind)(r.name)
+        text = getattr(self, r.kind)(r.name)
+        if self.p is not None:                   # with a project: the open items about it (SPEC §5a, *About*)
+            from .about import explain_line
+            said = explain_line(self.p.events, self.s, f"{r.kind}.{r.name}")
+            text += f"\n{said}" if said else ""
+        return text
 
 
 def explain(spec: Spec, what: str | None = None, project=None) -> str:

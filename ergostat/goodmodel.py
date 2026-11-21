@@ -21,7 +21,7 @@ ACTS = ("add", "redrive", "renew", "nack", "check", "about", "reopen", "now", "d
 # the other); what decides is the record, which the fallback opens refusing every write
 READ_FLAGS = ("n", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
               "to", "why", "after", "no_count", "all", "around", "depth", "list", "wiring", "blocks", "open", "note",
-              "command", "stats")
+              "command", "stats", "search", "near", "path_to", "about_item")
 WRITES = ("add", "add_many", "prune", "replace", "forget", "roll", "drop", "flush")
 
 

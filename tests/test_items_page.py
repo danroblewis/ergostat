@@ -136,6 +136,27 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
+def test_items_list_sorts_by_a_column(browser, site):
+    """A column's header sorts the list by its field (up, down, off), kept in the address (sort=FIELD, -FIELD)."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    rows = lambda: pg.locator('section[data-system="lab"] table tr td:first-child b').all_inner_texts()  # noqa: E731
+    pg.goto(f"{site}/items?kind=hypothesis&sort=-title")
+    pg.wait_for_selector('section[data-system="lab"] table button.sort')
+    assert rows()[:3] == ["hypothesis/8", "hypothesis/7", "hypothesis/6"]
+    head = pg.locator('section[data-system="lab"] table button.sort', has_text="title")
+    assert head.get_attribute("aria-sort") == "descending"
+    head.click()                                                                   # down, then off
+    pg.wait_for_function("() => !location.search.includes('sort=')")
+    pg.wait_for_function("""() => [...document.querySelectorAll('section[data-system="lab"] table button.sort')]
+                            .every((b) => b.getAttribute('aria-sort') === 'none')""")      # drawn again, unsorted
+    pg.locator('section[data-system="lab"] table button.sort', has_text="title").click()
+    pg.wait_for_function("() => location.search.includes('sort=title')")
+    pg.wait_for_function("""() => document.querySelector('section[data-system="lab"] table tr td:first-child b')
+                            ?.textContent === 'hypothesis/1'""")
+    assert rows()[:3] == ["hypothesis/1", "hypothesis/2", "hypothesis/3"]
+    pg.close()
+
+
 def test_a_folded_system_keeps_its_charts_not_its_lists_and_stays_folded(browser, site):
     ctx = browser.new_context(viewport={"width": 1500, "height": 1000})
     pg = ctx.new_page()
@@ -443,6 +464,26 @@ def open_view(browser, roadmap, route: str, ready: str):
     return pg, errors
 
 
+def test_the_graphs_status_counts_filter_it(browser, roadmap):
+    """Each status's count in the legend is a filter: a click shows only that status, again shows them all."""
+    pg, errors = open_view(browser, roadmap, "items?view=graph&frontier=0&collapse=0", ".rg-graph[data-drawn] .rg-node")
+    keys = pg.locator(".rg-legend button.rg-key")
+    assert keys.count() >= 2 and "ready" not in pg.locator(".rg-legend").inner_text().split()   # unblocked, not ready
+    key = keys.filter(has_text="blocked").first if keys.filter(has_text="unblocked").count() == 0 else \
+        keys.filter(has_text="unblocked").first
+    st = (key.get_attribute("class") or "").split("rg-")[-1].split()[0]
+    n = int(key.inner_text().split()[0])
+    key.click()
+    pg.wait_for_function(f"() => location.search.includes('status={st}')")
+    pg.wait_for_function(f"""() => document.querySelectorAll('.rg-graph .rg-node:not(.rg-hub)').length > 0 &&
+        [...document.querySelectorAll('.rg-graph .rg-node:not(.rg-hub)')].every((e) => e.classList.contains('rg-{st}'))""")
+    assert pg.locator(f".rg-graph .rg-node.rg-{st}:not(.rg-hub)").count() <= n
+    pg.locator(".rg-legend button.rg-key.on").click()
+    pg.wait_for_function("() => !location.search.includes('status=')")
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadmap):
     pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
     nodes = drawn(pg, ".rg-graph .rg-node")
@@ -453,7 +494,7 @@ def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadm
     assert not any("rg-done" in n["cls"] and "rg-hub" not in n["cls"] for n in nodes), nodes   # collapsed
     st = {n["id"]: n["cls"] for n in nodes}
     assert "rg-active" in st["ticket/e2-docs"] and "rg-queued" in st["ticket/e2-build-ui"]     # leased; waiting for review
-    assert "rg-blocked" in st["ticket/e2-integrate"] and "rg-ready" in st["ticket/e3-design"]
+    assert "rg-blocked" in st["ticket/e2-integrate"] and "rg-unblocked" in st["ticket/e3-design"]
     assert "rg-hub" in st["epic/e2"]                                                  # a parent, its children hang off it
     labels = pg.locator(".rg-graph .rg-elabel").evaluate_all("els => els.map((e) => e.textContent)")
     assert "via 1 done" in labels, labels                                             # v1 -> (v2, done) -> v3
@@ -589,6 +630,96 @@ def test_a_snapshot_draws_the_graph_and_timeline(browser, tmp_path):
     assert {"ticket/a", "ticket/b", "goal/g"} <= rows, rows
     assert pg.locator(".rg-timeline .rg-seg").count() >= 4                         # what happened, state by state
     assert "not in a snapshot" not in pg.locator(".page").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
+SNAP_IDS = """() => [...document.querySelectorAll('.page table td:first-child')].map((t) => t.textContent.trim())
+  .filter((t) => t.startsWith('ticket/'))"""
+
+
+def snapshot_page(browser, tmp_path):
+    from ergostat.web.snapshot import build
+    from tests.test_snapshot_sets import sets_project
+    (tmp_path / "m").mkdir(exist_ok=True)
+    f = tmp_path / "snapshot.html"
+    f.write_text(build(sets_project(tmp_path / "m")))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f.as_uri() + "#/diagram?view=dynamics")
+    pg.wait_for_function("() => S.graph && document.querySelectorAll('.node').length > 0", timeout=60000)
+    return pg, errors
+
+
+def test_a_snapshot_lists_a_parts_items_and_opens_its_set(browser, tmp_path):
+    """From the file (snapshot_sets.py): the stock's panel (where area is flags or billing: two values) and the flow's
+    list their items, and each one's Items page link shows those very items; nothing says "not in this snapshot"."""
+    pg, errors = snapshot_page(browser, tmp_path)
+    for node, ids in (("n.label === 'awaiting' && n.kind === 'stock'", ["ticket/2", "ticket/4"]),
+                      ("(n.flow || n.label) === 'completed' && n.kind !== 'stock'", ["ticket/1", "ticket/3"])):
+        pg.goto(pg.url.split("#")[0] + "#/diagram?view=dynamics")
+        pg.wait_for_function("() => S.graph && document.querySelectorAll('.node').length > 0", timeout=60000)
+        pg.evaluate(f"() => openNode(S.graph.nodes.find((n) => {node}))")
+        pg.wait_for_selector("#detail .item-set table.item-list")
+        listed = pg.locator("#detail .item-set table.item-list a").all_inner_texts()
+        assert sorted(listed) == ids, (node, listed)
+        assert "not in this snapshot" not in pg.locator("#detail").inner_text()
+        pg.locator("#detail .item-set a[href^='#/items?']").first.click()
+        pg.wait_for_selector(".set-chip", timeout=20000)
+        pg.wait_for_function(f"() => ({SNAP_IDS})().length >= {len(ids)}", timeout=20000)
+        assert sorted(pg.evaluate(SNAP_IDS)) == ids
+        assert "not in this snapshot" not in pg.locator(".page").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_set_left_out_of_a_snapshot_says_so(browser, tmp_path, monkeypatch):
+    """A set past the maximum is not held: its panel says so, as before, and nothing breaks."""
+    from ergostat.web import snapshot_sets
+    monkeypatch.setattr(snapshot_sets, "MOST", 0)
+    pg, errors = snapshot_page(browser, tmp_path)
+    pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.label === 'awaiting' && n.kind === 'stock'))")
+    pg.wait_for_function("() => /not in this snapshot/.test(document.querySelector('#detail .item-set')?.textContent || '')",
+                         timeout=20000)
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_snapshot_lets_a_kind_and_its_state_be_chosen(browser, tmp_path):
+    """The same snapshot, opened from its file with a kind chosen: its list, one of its states, and its Graph and
+    Timeline (a kind without relations too), each from what the snapshot holds; a set chosen is not held, and says so."""
+    from ergostat.web.snapshot import build
+    from tests.test_graph_cli_web import related_project
+    (tmp_path / "m").mkdir()
+    f = tmp_path / "snapshot.html"
+    f.write_text(build(related_project(tmp_path / "m")))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    listed = lambda: {t.strip() for t in pg.locator("table.items tr.click td:first-child").all_inner_texts()}   # noqa: E731
+    said = lambda: pg.locator(".page").inner_text()                                                         # noqa: E731
+    pg.goto(f.as_uri() + "#/items?kind=ticket")
+    pg.wait_for_function("() => document.querySelectorAll('table.items tr.click').length >= 2", timeout=20000)
+    assert listed() == {"ticket/a", "ticket/b"}, listed()
+    assert "epic/e1" not in listed() and "not in this snapshot" not in said()
+    pg.locator('.kind-flow:has(.kname.on) a.stbox', has_text="doing").first.click()      # the chart's state: its items
+    pg.wait_for_function("() => document.querySelectorAll('table.items tr.click').length === 1", timeout=20000)
+    assert listed() == {"ticket/a"}, listed()
+    assert "not in this snapshot" not in said()
+    for view, sel in (("graph", ".rg-graph[data-drawn] .rg-node"), ("timeline", ".rg-timeline[data-drawn] .rg-row")):
+        pg.goto(f.as_uri() + f"#/items?kind=ticket&view={view}")
+        pg.wait_for_selector(sel, timeout=20000)
+        assert {"ticket/a", "ticket/b"} <= {n["id"] for n in drawn(pg, sel)}, (view, drawn(pg, sel))
+        assert "not in this snapshot" not in said() and "not in a snapshot" not in said()
+    pg.goto(f.as_uri() + "#/items?kind=note&view=graph")                          # a kind without relations
+    pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
+    assert "note/n" in {n["id"] for n in drawn(pg, ".rg-graph[data-drawn] .rg-node")}
+    assert "not in this snapshot" not in said() and "not in a snapshot" not in said()
+    assert not errors, errors
+    pg.goto(f.as_uri() + "#/items?kind=ticket&moved=doing")                       # a set: not held, and said so
+    pg.wait_for_selector(".set-chip.bad", timeout=20000)
+    assert "items: not in this snapshot" in pg.locator(".set-chip.bad").inner_text()
     assert not errors, errors
     pg.close()
 

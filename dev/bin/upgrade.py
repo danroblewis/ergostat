@@ -3,14 +3,16 @@ the remote's pushed main (origin/main, fetched into the checkout), never for a m
 
 `upgrade.py` takes an upgrade (upgrade/<sha12>, available) under a lease, installs it into
 <live>/<sha> with its own environment (live.py install), checks the model with its own code, and asks for the gated
-action `switch-instance`. The switch itself (stop, point current at it, start, health-check, revert to the previous
-on failure) runs in a process of its own once the coordinator approves it (live.py switch --detach), since it stops
-the engine that runs it; it records switched, then healthy or reverted.
+action `switch-instance` (its id kept on the upgrade, switch_action). Approving it arms the switcher (drain.py): it
+waits for a quiet moment or the daily window, drains the runs under way, then runs the switch itself (stop, point
+current at it, start, health-check, revert to the previous on failure) in a process of its own (live.py switch
+--detach), since it stops the engine that runs it; it records switched, then healthy or reverted.
 
 An upgrade older than the version running, or than a newer one waiting, is superseded: only the newest is installed."""
 
 from __future__ import annotations
 
+import re
 import sys
 import time
 
@@ -57,8 +59,9 @@ def main() -> int:
     fac.say("upgrade.installed", **got, installed_at=time.time(), previous=running or "")
     try:
         rc, said = fac.act("switch-instance", key=sha, sha=sha)
-        fac.say("upgrade.switch-asked", switch={0: "started", 3: "held", 4: "denied"}.get(rc, f"exit {rc}"),
-                switch_said=said[-300:])
+        m = re.search(r"ergostat\.action/[0-9a-f]+", said)
+        fac.say("upgrade.switch-asked", switch={0: "approved", 3: "held", 4: "denied"}.get(rc, f"exit {rc}"),
+                switch_said=said[-300:], switch_action=m.group(0) if m else "")
     except FileNotFoundError:
         fac.say("upgrade.switch-asked", switch="not asked: not run by ergostat")
     return 0

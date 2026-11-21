@@ -3,12 +3,15 @@ events renew, that ends on ack or nack, or expires when it is silent past its TT
 dead letter; a run whose lease ended is refused (fencing); the fold is the truth, across a restart."""
 
 import json
+import os
 import textwrap
+import threading
 import time
 
 import pytest
 
 from ergostat import model as mdl
+from ergostat import runner as old
 from ergostat.leases import ENDED, EXPIRED, REDRIVEN, RENEWED, TAKEN
 from ergostat.leases.terms import terms
 from ergostat.spec import items as its
@@ -223,6 +226,164 @@ blocks:
     assert "leases.robot: a tier of the ladder" in said
 
 
+def read_model(tmp_path, text: str):
+    from ergostat.spec import read
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text))
+    return read(tmp_path / "ergostat.yaml")
+
+
+def test_mode_advise_on_a_block_that_takes_is_refused(tmp_path):
+    """advise asks before a command or an event, never per item: with takes: it is refused, before the kind is checked
+    (a mistyped kind would otherwise drop takes: and hide it)."""
+    spec, problems = read_model(tmp_path, KIND + """
+blocks:
+  bot:
+    type: program
+    run: "true"
+    takes: {kind: ticket, at: ready}
+    mode: advise
+  dev:
+    type: ai
+    prompt: do it
+    takes: {kind: ticket, at: ready}
+    mode: advise
+  typo:
+    type: program
+    run: "true"
+    takes: {kind: tickets, at: ready}
+    mode: advise
+""")
+    for name in ("bot", "dev", "typo"):
+        got = [x for x in problems if x.code == "advise-with-takes" and f"block {name}." in x.message]
+        assert len(got) == 1, (name, [str(x) for x in problems])
+        assert got[0].level == "error" and got[0].where == spec.blocks[name].where
+        assert "in: block." in got[0].message and "manual: true" in got[0].message, "it says to gate it instead"
+    assert len([x for x in problems if x.code == "advise-with-takes"]) == 3
+    assert [x for x in problems if x.code == "unknown-ref" and "block typo." in x.message], "its own error as well"
+
+
+def test_mode_advise_without_takes_and_takes_without_advise_compile(tmp_path):
+    from .test_triggers2 import MODEL as EVENTS
+    takers = KIND + """
+blocks:
+  plain:
+    type: program
+    run: "true"
+    takes: {kind: ticket, at: ready}
+  auto:
+    type: ai
+    prompt: do it
+    takes: {kind: ticket, at: ready}
+    mode: auto
+  c:
+    type: expr
+    in: {n: parameter.n}
+    expr: n
+  asked:
+    type: program
+    run: "true"
+    mode: advise
+    in: block.c
+parameters:
+  n: {value: 1}
+"""
+    advised = EVENTS.replace("    run: python3 triage.py", "    mode: advise\n    run: python3 triage.py")
+    assert "mode: advise" in advised
+    for i, text in enumerate((takers, advised)):
+        d = tmp_path / str(i)
+        d.mkdir()
+        spec, problems = read_model(d, text)
+        assert not [str(x) for x in problems if x.code == "advise-with-takes"]
+        assert spec.blocks["triage" if i else "asked"].mode == "advise", "what it would refuse is in the model"
+
+
+def test_a_block_that_takes_waits_while_what_commands_it_is_off(tmp_path):
+    """The gate the refusal points to: in: block.X from a block that is off, and its items wait (dispatch.py)."""
+    text = model('echo "{\\"event\\": \\"ticket.done\\"}"', extra="""
+  gate:
+    type: expr
+    in: {w: stock.waiting}
+    expr: "w >= 3"
+stocks:
+  waiting:
+    sensor: {items: ticket, state: ready, every: 0.2s}
+""").replace("    lease: {ttl: 1m}\n", "    lease: {ttl: 1m}\n    in: block.gate\n")
+    p = project(tmp_path, text)
+    opened(p, 2)
+    e = start(p)
+    try:
+        time.sleep(2)
+        assert all(item(p, f"ticket/{i}").state == "ready" for i in range(2)), "off: its items wait"
+        for i in range(2, 4):
+            p.events.add("ticket.opened", item=f"ticket/{i}", source="t")
+        assert wait_for(lambda: any(item(p, f"ticket/{i}").state == "done" for i in range(4)), 10), "on: it takes"
+    finally:
+        e.close()
+
+
+GATE = """
+  gate:
+    type: expr
+    in: {o: stock.open}
+    expr: o
+stocks:
+  open:
+    unit: switch
+    sensor: {manual: true}
+"""
+
+
+def gated(run: str, by: str, extra: str) -> str:
+    return model(run, extra=extra).replace("    lease: {ttl: 1m}\n", f"    lease: {{ttl: 1m}}\n    in: block.{by}\n")
+
+
+def test_the_documented_gate_opens_for_items(tmp_path):
+    """The form the advise-with-takes error and SPEC §9.5 name: an expr block reading a manual sensor, which a person
+    reads as 1 (`ergostat sensor open --read 1`) to let every item through at once, not one by one."""
+    from ergostat.cli.spec_cmds import read_manual
+    (tmp_path / "advised").mkdir()
+    _, problems = read_model(tmp_path / "advised", KIND + """
+blocks:
+  bot: {type: program, run: "true", takes: {kind: ticket, at: ready}, mode: advise}
+""")
+    said = next(x.message for x in problems if x.code == "advise-with-takes")
+    assert "expr block reading a sensor: {manual: true}" in said and "--read 1" in said and "not per item" in said
+    text = gated('echo "{\\"event\\": \\"ticket.done\\"}"', "gate", GATE)
+    _, problems = read_model(tmp_path, text)
+    assert not [str(x) for x in problems if x.level == "error"], "the documented form compiles"
+    p = project(tmp_path, text)
+    opened(p, 3)
+    e = start(p)
+    try:
+        time.sleep(2)
+        assert all(item(p, f"ticket/{i}").state == "ready" for i in range(3)), "no reading yet: its items wait"
+        assert read_manual(p, "open", 1) == 0
+        assert wait_for(lambda: all(item(p, f"ticket/{i}").state == "done" for i in range(3)), 10), "open: all of them"
+    finally:
+        e.close()
+
+
+PERSON = """
+  ok:
+    type: person
+    ask: let them through
+"""
+
+
+def test_check_refuses_a_person_block_as_a_gate(tmp_path):
+    """A person's --done records work and never sets a command: a person block gating a block that takes would leave
+    its items waiting forever, so check refuses it, whichever end the wire is written on."""
+    for i, text in enumerate((gated('"true"', "ok", PERSON), model('"true"', extra=PERSON + "    out: block.worker\n"))):
+        d = tmp_path / str(i)
+        d.mkdir()
+        _, problems = read_model(d, text)
+        got = [x for x in problems if x.code == "person-gate"]
+        assert len(got) == 1 and got[0].level == "error" and "block worker" in got[0].message, [str(x) for x in problems]
+        assert "manual: true" in got[0].message, "it names the form that works"
+    _, problems = read_model(tmp_path, gated('"true"', "gate", GATE))
+    assert not [str(x) for x in problems if x.level == "error"], "an expr gate is not refused"
+
+
 # ---- the engine: dispatch, the watchdog, fencing
 
 
@@ -413,27 +574,337 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
     first = Engine(p, say=lambda s: None)
     first.start_all()
     assert wait_for(lambda: item(p, "ticket/1").state == "leased", 5)
-    first.dispatch.finish = lambda *a, **k: None             # it dies: no lease is ended
+    first.dispatch.finish = lambda *a, **k: None             # it dies: no lease is ended (nor given back: no close)
     first.stop.set()
-    from ergostat import runner as old
     old.kill_all()
     held = item(p, "ticket/1").fields["lease"]
     second = start(Project(mdl.load(tmp_path)))
-    try:
-        time.sleep(0.6)
-        assert item(p, "ticket/1").fields["lease"]["holder"] == held["holder"], "the new engine reads the lease, and keeps it"
-        assert item(p, "ticket/2").state == "ready", "the pool is full: the lease held counts"
-        assert wait_for(lambda: item(p, "ticket/1").fields["lease"]["history"][0].get("how") == "expired", 5), \
-            "expired on its TTL"
-        assert wait_for(lambda: item(p, "ticket/2").state == "leased" or item(p, "ticket/1").state == "leased", 5)
+    try:                     # (no fixed sleep: what the record says, in its order, holds however late a look comes)
+        assert wait_for(lambda: p.events.query(n=None, type=EXPIRED, item="ticket/1"), 10), "expired on its TTL"
+        assert wait_for(lambda: len(p.events.query(n=None, type=TAKEN)) >= 2, 5), "then the next is taken"
+        expired = p.events.query(n=None, type=EXPIRED, item="ticket/1")[0]
+        assert not [x for x in p.events.query(n=None, type=ENDED) if x["seq"] < expired["seq"]]
     finally:
         second.close()
         old.STOPPING.clear()
+    ended = item(p, "ticket/1").fields["lease"]["history"][0]
+    assert ended.get("run") == held["holder"] and ended.get("how") == "expired", \
+        "the new engine reads the lease, and keeps it: nothing ends it but its expiry"
+    expired = p.events.query(n=None, type=EXPIRED, item="ticket/1")[0]
+    assert expired["data"]["expires"] == held["expires"], "expired on the expiry it was taken with"
+    # The second engine's first pass looks (and only marks it overdue) before its first take; the expiry needs a second
+    # look a grace later. So a take that ignored the lease held would come before the expiry in the record.
+    taken = [ev["seq"] for ev in p.events.query(n=None, type=TAKEN) if ev["data"]["run"] != held["holder"]]
+    assert taken and min(taken) > expired["seq"], "the pool is full: the lease held counts, till it expired"
     for i in (1, 2):                                         # stopped with ergostat: given back, not counted
         lease = item(p, f"ticket/{i}").fields["lease"]
         assert lease["holder"] is None
     assert any(h.get("why") == "stopped with ergostat" and h["counted"] is False
                for i in (1, 2) for h in item(p, f"ticket/{i}").fields["lease"]["history"])
+
+
+# ---- the engine closing: no lease taken, and no run left, after its stop (SPEC §9.5)
+
+
+def ends(p, id):
+    return [x for x in p.events.query(n=None, type=ENDED) if x["item"] == id]
+
+
+def stopped_at(p) -> int:
+    return p.events.query(n=None, type="ergostat.stopped")[-1]["seq"]
+
+
+def given_back_once(p, id):
+    """The item's lease ended once, uncounted, stopped with ergostat, before the engine recorded its stop (by seq)."""
+    got = ends(p, id)
+    assert len(got) == 1, got
+    assert got[0]["data"]["how"] == "nack" and got[0]["data"]["why"] == "stopped with ergostat"
+    assert got[0]["data"]["count"] is False and got[0]["seq"] < stopped_at(p)
+    lease = item(p, id).fields["lease"]
+    assert lease["holder"] is None and lease["history"][-1]["counted"] is False
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.killpg(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def test_no_lease_is_taken_once_close_has_begun(tmp_path, monkeypatch):
+    p = project(tmp_path, model("sleep 30"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    real = e.command_of
+    monkeypatch.setattr(e, "command_of", lambda b: (e.close(), real(b))[1])   # (past the look's own stop check)
+    try:
+        e.dispatch.tick()
+        assert not p.events.query(n=None, type=TAKEN), "nothing taken once close() set the stop"
+        assert item(p, "ticket/0").state == "ready" and not e.running
+    finally:
+        old.kill_all()
+        old.STOPPING.clear()
+
+
+def test_a_take_racing_close_s_stop_is_given_back_before_it_is_recorded(tmp_path, monkeypatch):
+    p = project(tmp_path, model("sleep 30"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    real = p.events.add
+
+    def add(type, *a, **k):                                  # close()'s stop, inside the take's write
+        if type == TAKEN:
+            with e.lock:
+                e.stop.set()
+            old.kill_all()
+        return real(type, *a, **k)
+    monkeypatch.setattr(p.events, "add", add)
+    try:
+        e.dispatch.tick()
+        e.close()
+    finally:
+        old.STOPPING.clear()
+    assert len(p.events.query(n=None, type=TAKEN)) == 1
+    given_back_once(p, "ticket/0")
+    assert not p.events.query(n=None, type="agent.started"), "no run started"
+    assert not e.running
+
+
+def spawning(monkeypatch, then):
+    """The spawn in ``run_block``, with ``then`` done just after each process starts; the processes started."""
+    from ergostat.spec import engine as em
+    procs, real = [], em.Measured
+
+    def spawn(*a, **k):
+        procs.append(real(*a, **k))
+        then()
+        return procs[-1]
+    monkeypatch.setattr(em, "Measured", spawn)
+    return procs
+
+
+def test_a_run_spawned_after_kill_all_is_killed(tmp_path, monkeypatch):
+    p = project(tmp_path, model("sleep 30"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+
+    def stop():                                              # close()'s stop and kill_all, before it is in LIVE
+        with e.lock:
+            e.stop.set()
+        old.kill_all()
+    procs = spawning(monkeypatch, stop)
+    e.start_all()
+    try:
+        assert wait_for(lambda: procs, 10)
+        assert wait_for(lambda: not alive(procs[0].pid), 5), "its process group is killed, not left to run"
+    finally:
+        e.close()
+        old.STOPPING.clear()
+    given_back_once(p, "ticket/0")
+
+
+def test_one_engine_closing_does_not_kill_another_engines_run(tmp_path, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    pa, pb = project(tmp_path / "a", KIND), project(tmp_path / "b", model("sleep 30"))
+    a = start(pa)
+    opened(pb, 1)
+    procs = spawning(monkeypatch, a.close)                  # (STOPPING set by the first engine's kill_all)
+    b = start(pb)
+    try:
+        assert wait_for(lambda: b.live, 10)
+        assert old.STOPPING.is_set() and a.stop.is_set() and not b.stop.is_set()
+        assert not wait_for(lambda: procs[0].poll() is not None, 1.0), "the other engine's run goes on"
+        assert alive(procs[0].pid) and item(pb, "ticket/0").fields["lease"]["holder"]
+    finally:
+        b.close()
+        old.STOPPING.clear()
+
+
+def stuck(tmp_path):
+    """An engine whose run ended but whose own end of the lease failed (so the lease stays held), and the calls made
+    to its ``finish``."""
+    p = project(tmp_path, model("true"))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    real, calls = e.dispatch.finish, []
+
+    def finish(*a):
+        calls.append(a)
+        if len(calls) == 1:
+            raise OSError("the record was busy")
+        return real(*a)
+    e.dispatch.finish = finish
+    e.start_all()
+    assert wait_for(lambda: calls and not e.running, 10)
+    assert item(p, "ticket/0").fields["lease"]["holder"] == calls[0][3]
+    return p, e, calls
+
+
+def test_close_gives_back_every_lease_still_going(tmp_path):
+    p, e, _ = stuck(tmp_path)
+    try:
+        e.close()
+    finally:
+        old.STOPPING.clear()
+    given_back_once(p, "ticket/0")
+
+
+def test_a_runs_own_end_inside_close_s_give_back_ends_it_once(tmp_path):
+    p, e, calls = stuck(tmp_path)
+    real, late = e.dispatch.after, []
+
+    def after(*a, **k):                                      # between the give-back's read and its write
+        if not late:
+            late.append(threading.Thread(target=e.dispatch.finish, args=(*calls[0][:4], {})))
+            late[0].start()
+            late[0].join(0.5)
+        return real(*a, **k)
+    e.dispatch.after = after
+    try:
+        e.close()
+        late[0].join(5)
+    finally:
+        old.STOPPING.clear()
+    given_back_once(p, "ticket/0")
+
+
+def test_no_lease_is_taken_once_the_engine_is_stopping(tmp_path):
+    p = project(tmp_path, model('sleep 30'))
+    opened(p, 2)
+    e = Engine(p, say=lambda s: None)
+    ready = e.dispatch.ready
+
+    def stopping_now(*a, **k):                     # the stop lands after the look began, before it takes
+        got = ready(*a, **k)
+        e.stop.set()
+        return got
+    e.dispatch.ready = stopping_now
+    try:
+        e.dispatch.tick()
+    finally:
+        e.close()
+    assert not p.events.query(n=None, type=TAKEN), "nothing is taken once the engine is stopping"
+    assert not p.events.query(n=None, type="agent.started") and not e.running
+    assert all(item(p, f"ticket/{i}").state == "ready" for i in range(2))
+
+
+def test_a_take_racing_the_stop_is_given_back_uncounted(tmp_path):
+    p = project(tmp_path, model('sleep 30').replace("pool: 2", "pool: 1"))
+    opened(p, 2)
+    e = Engine(p, say=lambda s: None)
+    add = p.events.add
+
+    def racing(type_, *a, **k):                    # the stop lands between the take's look and its write
+        if type_ == TAKEN:
+            e.stop.set()
+        return add(type_, *a, **k)
+    p.events.add = racing
+    try:
+        e.dispatch.tick()
+    finally:
+        p.events.add = add
+    assert p.events.query(n=None, type=TAKEN, item="ticket/0"), "the take was written: it raced the stop"
+    it = item(p, "ticket/0")
+    lease = it.fields["lease"]
+    assert it.state == "ready" and lease["holder"] is None and lease["attempts"] == 0
+    assert [(h["how"], h["why"], h["counted"]) for h in lease["history"]] == [("nack", "stopped with ergostat", False)]
+    assert not p.events.query(n=None, type="agent.started"), "its run never started"
+    assert not e.running and not e.dispatch.going_items()
+    # a run still going when the engine has waited its last: its lease is given back as it exits, not counted
+    e.stop.clear()
+    e.dispatch._work = lambda *a, **k: None        # (a run that never ends)
+    e.dispatch.tick()
+    (going,) = e.dispatch.going_items()
+    assert item(p, going).state == "leased"
+    e.running.clear()                              # (not waited for: close's five seconds)
+    e.close()
+    lease = item(p, going).fields["lease"]
+    assert lease["holder"] is None and lease["attempts"] == 0 and lease["history"][-1]["counted"] is False
+
+
+def test_a_run_whose_process_starts_as_the_engine_stops_is_killed_and_given_back(tmp_path, monkeypatch):
+    """The stop lands between a run's process starting and its joining LIVE (close's kill_all missed it): killed at once."""
+    from ergostat.spec import engine as eng
+    p = project(tmp_path, model('sleep 30'))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+
+    class StopsAsItStarts(eng.Measured):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            e.stop.set()
+    monkeypatch.setattr(eng, "Measured", StopsAsItStarts)
+    try:
+        e.dispatch.tick()
+        assert wait_for(lambda: item(p, "ticket/0").state == "ready", 8), "killed at once, not left to sleep 30s"
+    finally:
+        e.close()
+    assert p.events.query(n=None, type="agent.started"), "its process started"
+    (h,) = item(p, "ticket/0").fields["lease"]["history"]
+    assert (h["how"], h["why"], h["counted"]) == ("nack", "stopped with ergostat", False)
+
+
+def test_a_run_whose_thread_starts_after_the_stop_is_not_started(tmp_path):
+    p = project(tmp_path, model('sleep 30'))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: e.stop.set() if "took" in s else None)      # the stop lands after the take, before its run
+    try:
+        e.dispatch.tick()
+        assert wait_for(lambda: item(p, "ticket/0").state == "ready", 8)
+    finally:
+        e.close()
+    assert not p.events.query(n=None, type="agent.started"), "its run never started"
+    (h,) = item(p, "ticket/0").fields["lease"]["history"]
+    assert (h["how"], h["why"], h["counted"]) == ("nack", "stopped with ergostat", False)
+
+
+def test_close_returns_when_its_locks_are_held_for_good(tmp_path):
+    """A pass or a look wedged with the engine's or the dispatcher's lock held (the watchdog's case): close still stops
+    and returns, at most its wait for each lock later, and nothing is taken after."""
+    import threading
+    p = project(tmp_path, model('sleep 30'))
+    opened(p, 1)
+    e = Engine(p, say=lambda s: None)
+    e.lock_wait = 0.3
+    held, done = threading.Event(), threading.Event()
+
+    def wedged():
+        with e.lock, e.dispatch.lock:
+            held.set()
+            done.wait(30)
+    threading.Thread(target=wedged, daemon=True).start()
+    assert held.wait(5)
+    closing = threading.Thread(target=e.close, daemon=True)
+    closing.start()
+    closing.join(10)
+    try:
+        assert not closing.is_alive(), "close waited for good on a lock held by something wedged"
+        assert e.stop.is_set() and p.events.query(n=None, type="ergostat.stopped")
+    finally:
+        done.set()
+    e.dispatch.tick()                               # the wedge let go: what was waiting for the lock sees the stop
+    assert not p.events.query(n=None, type=TAKEN)
+
+
+def test_another_engines_run_survives_this_engines_close(tmp_path):
+    """One engine's stop is its own: an engine closing (runner.STOPPING set, process-wide) kills no run another engine
+    starts afterwards."""
+    from ergostat import runner as old
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    b = project(tmp_path / "b", model('sleep 0.3; echo "{\\"event\\": \\"ticket.done\\"}"'))
+    other = start(b)
+    try:
+        Engine(project(tmp_path / "a", model("true")), say=lambda s: None).close()
+        assert old.STOPPING.is_set()
+        opened(b, 1)
+        assert wait_for(lambda: item(b, "ticket/0").state == "done", 10), "its run went to its end"
+    finally:
+        other.close()
+        old.STOPPING.clear()
+    assert [h["how"] for h in item(b, "ticket/0").fields["lease"]["history"]] == ["ack"]
 
 
 # ---- measures, attention, the command line
