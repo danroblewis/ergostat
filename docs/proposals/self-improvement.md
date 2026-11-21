@@ -33,6 +33,16 @@ Notes are listed after the findings, grouped by code, never counted as findings.
   (`library/templates/modelling/modeller.md`, about 820 words; a prompt with eight requests and their neighbourhood is about 12,000 characters). Each answer is tried as `try_change` tries it, and
   what would be turned away goes back once with why. Its cost is recorded on the requests.
 
+**The AI tier's daily cap** (`ai-daily`, $1 by default, at most $20; `ergostat/numbers/modeller_spend.py`). Every call,
+the go-back included, reserves the most its prompt and longest answer could cost, and that reservation is also claude's
+`--max-budget-usd`. A call starts only when the day's spend plus its reservation stays within `ai-daily`; one call at
+a time; a call that reports more than its reservation is charged what it reported, so the day can end above `ai-daily`
+by that one call's overrun, and none starts after it until the day's spend is back under. (Neither the reservation nor
+claude's budget is a ceiling: claude checks its budget after a turn, and the reservation does not count Claude Code's
+own system prompt.) A call not yet settled, or killed mid-call, counts its whole reservation; a spend ledger that cannot
+be read means no call. A run the cap stops counts no try against the requests. `ai-most` (1 to 16) and `--tries` (1 to
+3) bound what one run sends and how often a request is tried.
+
 **Change classes, the gate and the judge.** `description`, `unit` and `rename` join `parameter`, `equation`,
 `structure`, `measurement` and `control`, decided by what the edit does (`improve.kind_of`). A change of words skips the
 replay and is judged by `check` alone (passed when it makes no new finding or note); values, equations and structure are

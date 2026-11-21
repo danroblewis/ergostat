@@ -684,6 +684,10 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
                 ver.changed_words(spec, after) if kind == "description" else ver.changed_units(spec, after))), *parts]))
         if moved_ctl:
             x["parts"] = list(dict.fromkeys([*moved_ctl, *parts]))
+    joins = [f"stock.{s}" for n in set(after.flows) - set(spec.flows) for s in (after.flows[n].source, after.flows[n].target) if s]
+    about = [r for r in [*refs, *joins, *x["gone_parts"]] if pr._part(spec, r) is not None]
+    if about:                                            # what it is about, as the model has it: held to it when carried
+        x["subject"] = pr.subject(spec, about)
     x["key"] = mem.key(x)
     return x
 
