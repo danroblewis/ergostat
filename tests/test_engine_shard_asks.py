@@ -4,8 +4,11 @@ done once for the model."""
 
 from __future__ import annotations
 
+import io
 import textwrap
+import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +16,7 @@ from ergostat import history, runner, transcripts
 from ergostat import model as mdl
 from ergostat.actions import record
 from ergostat.control import steptest
+from ergostat.daemons.proc import Handle
 from ergostat.daemons.supervise import Supervisor
 from ergostat.messages import deliver
 from ergostat.spec import shards
@@ -178,12 +182,28 @@ def test_unplaced_ask_goes_to_lead_once(tmp_path, monkeypatch):
         monkeypatch.setattr(e, "stop_run", lambda name, n=n, real=real: got.setdefault(n, real(name)))
     follow(p, fresh, after=p.events.query(n=None, type=STOP_ASKED)[-1]["seq"] - 1)
     assert killed == [proc] and got == {"b": True, "lead": False} and "removed" in fresh["b"].stopping_runs
+    # a removed block's run held by b's daemon (never in procs): b's daemon cancels it; the lead's real stop finds none
+    held = by_shard(p)
+    h = Handle(block="removed")
+    daemon = SimpleNamespace(lock=threading.Lock(), runs={"run1": h}, log=io.StringIO())
+    held["b"].daemons.draining.append((None, daemon))
+    got = {}
+    for n, e in held.items():
+        real = e.stop_run
+        monkeypatch.setattr(e, "stop_run", lambda name, n=n, real=real: got.setdefault(n, real(name)))
+    follow(p, held, after=p.events.query(n=None, type=STOP_ASKED)[-1]["seq"] - 1)
+    assert got == {"b": True, "lead": False} and h.asked and h.cancelled is not None
 
 
 def test_ask_after_swap_goes_to_new_owner(tmp_path, monkeypatch):
     p = project(tmp_path)
+    said: list[str] = []
     by = by_shard(p)
+    by["a"].say = said.append
+    a_start = by["a"].start                              # (a's real start: the act, under the model as it is then)
     acts = watched(monkeypatch, by)
+    monkeypatch.setattr(by["a"], "start", a_start)
+    monkeypatch.setattr(by["a"], "_run", lambda b, *args: acts.append(("a", "run", b.name)))
     moved = MODEL.replace('a-work: {type: program, run: "true", out: flow.a-made, system: a}',
                           'a-work: {type: program, run: "true", on: {event: other.thing}, out: flow.a-made, system: b}')
     new = project(tmp_path / "next", moved).model
@@ -201,7 +221,9 @@ def test_ask_after_swap_goes_to_new_owner(tmp_path, monkeypatch):
     follow(p, {"a": by["a"]})
     assert swapped and by["a"].spec is new.spec
     follow(p, {"b": by["b"], "lead": by["lead"]})        # (these two still under the model before)
-    assert acts == [("a", "start", "a-work")], "judged and acted on under the model it was read with"
+    time.sleep(0.1)
+    assert acts == [], "judged a's under the model read, but never started outside a's shard as it is now"
+    assert "a-work" not in by["a"].running and any("approve it again" in s for s in said)
     by["b"].swap(new)
     by["lead"].swap(new)
     acts.clear()

@@ -1649,10 +1649,11 @@ class Engine:
 
     def _ask(self, e: dict) -> None:
         """One owner's ask, followed only by the engine whose shard owns what it names (SPEC §9.8), judged and acted on
-        under the one model read for it: a swap meanwhile changes neither."""
+        under the one model read for it. A run it approves still starts only under the model as it is then: when a
+        swap has moved the block meanwhile, ``start`` refuses it here and the owner approves it again."""
         spec, t, name = self.spec, e["type"], e.get("item") or ""
-        if t == STOP_ASKED:                                   # (and by the engine holding its run, whoever owns it now)
-            if self.follows(f"block.{name}", spec) or name in self.procs:
+        if t == STOP_ASKED:                                   # (and by an engine holding its run, itself or in a daemon,
+            if self.follows(f"block.{name}", spec) or name in self.procs or self.daemons.holds(name):  # whoever owns it)
                 self.stop_run(name)
         elif t == RESTART_ASKED:                              # the owner reviving a daemon (SPEC §9.7)
             if self.follows(f"daemon.{name}", spec):
@@ -1675,7 +1676,8 @@ class Engine:
                 if cmd == 0:                                # nothing to approve: its command fell back meanwhile
                     self.say(f"{b.name}: approved, but its command is 0 now; nothing to run")
                     return
-                self.start(b, "approved")
+                if not self.start(b, "approved") and not self.follows(f"block.{name}"):
+                    self.say(f"{b.name}: approved before it moved to another shard; not run, approve it again")
 
     def _asker(self, aid: str) -> str:
         """The block whose run asked for an action ("" when it cannot be read: then the lead's, as an unknown block)."""
