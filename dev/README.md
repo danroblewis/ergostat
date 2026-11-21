@@ -195,7 +195,13 @@ python3 dev/bin/backlog.py pin GAP 1              # or: pin GAP --off
 python3 dev/bin/backlog.py dep add GAP ON         # or: dep rm GAP ON (kept: GAPS.md does not add it again)
 python3 dev/bin/backlog.py close GAP --done --why "landed in abc1234"   # or --duplicate-of OTHER
 python3 dev/bin/backlog.py propose                # the solver's order and why, writing nothing
+python3 dev/bin/backlog.py propose FILE           # a proposal as the program checks it, writing nothing
+python3 dev/bin/backlog.py refuse-link GAP ON --why "its definition names no need of ON"
 ```
+
+A refused link (run/backlog/refused-links.jsonl) is dropped from every later grooming proposal, shown among its
+refusals with the reason; `dep add` of the same pair adds it and clears the refusal. An unreadable file refuses
+nothing and says so in the proposal.
 
 A GAPS.md entry whose head (its opening parenthetical, or the clause after its colon) begins with "done" or
 "superseded by" is never found as open, and one the record holds not yet started is closed.
