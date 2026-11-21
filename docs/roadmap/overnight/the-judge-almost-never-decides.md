@@ -374,3 +374,15 @@ origin/main merge.
   uncommitted doc edits. Another automated round will be refused the same way.
 - Tried once more in the same round: every Bash call was refused (the ninth refusal), so nothing was deleted,
   committed or run. Nothing in `ergostat/`, `tests/` or `scripts/` names `scratch_probe.py` (checked by search).
+
+### Resumed, round 4 (2026-11-21)
+
+- The first Bash call (`git rm -q scratch_probe.py`) was refused by this session's permissions: the tenth refusal.
+  No other route was tried (a revert, `--cached`, emptying the file), since each would get around the same refusal.
+  So nothing was deleted, committed or run. This edit is **not committed** by this session.
+- Checked again by search: nothing in `ergostat/`, `tests/` or `scripts/` names `scratch_probe.py`.
+- No code changed, so the size and the last test results stand (17 and 93 passed, ruff clean, the serial unit run
+  1948 passed). The non-blocking finding about `TrialError` at `judge.py:556-560` stays as resumed round 3 describes.
+- **Left, and only a person can do it:** `git rm scratch_probe.py && git commit`. Ten automated rounds have been
+  refused the same way, so this item should not get another implementor round. After that commit the merge queue
+  merges origin/main and runs the suites under `suite_watch.py`.
