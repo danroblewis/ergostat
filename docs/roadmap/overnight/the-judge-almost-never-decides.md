@@ -310,3 +310,14 @@ The implementation is done and, read without running it, meets the definition of
   `uv run ruff check ergostat tests scripts` clean. No code changed in this round.
 - Not run here: the whole unit suite and the four browser files under `suite_watch.py` (left to the factory). This
   clone has no `origin`, so the real origin/main merge is also left to the merge queue.
+
+### Resumed, round 2 (2026-11-21)
+
+- Checked again: nothing in `ergostat/`, `tests/` or `scripts/` names `scratch_probe.py`.
+- `git rm -q scratch_probe.py` was refused by this session's permissions (the sixth refusal). Other routes (a revert,
+  `--cached`, emptying the file) were not tried: they would get around the same refusal. No code changed, no test was
+  re-run (nothing changed since resumed round 1).
+- **Still blocking the merge, and only a person can do it:** `git rm scratch_probe.py && git commit`. Every factory
+  session so far has been refused file deletion, so another automated round will not clear it. After that commit,
+  the branch can go to review for merge, and the merge queue runs the suites under `suite_watch.py` after merging the
+  real origin/main.
