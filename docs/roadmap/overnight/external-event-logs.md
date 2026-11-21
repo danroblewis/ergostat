@@ -318,3 +318,23 @@ test.
 - No code and no tests changed. Ran: `tests/test_mirror.py` with `-o faulthandler_timeout=120` (30 passed, 12 s) and
   ruff (clean). The whole unit suite and the browser files were not run by me. origin/main was not merged: this
   clone has no `origin`.
+
+## Where it stopped, round 9
+
+Each finding of review/external-event-logs-3 is answered here (lesson-12):
+
+- **`.mut/mut.py` (blocking): still committed.** This session's sandbox refused `git rm -q .mut/mut.py` again (in
+  don't-ask mode). I did not get around the refusal with another command. It is still the one thing left before
+  review: `git rm .mut/mut.py && git commit`, run by the factory or the owner. Without it, the code outside `tests/`
+  and `docs/` is 262 lines, within the 300 budget.
+- **The `except Exception` message could point the owner the wrong way: reworded.** The catch-all stays. Any failure
+  during the poll must stop it (fail closed, lesson-3), and the source's errors can't all be listed in advance. A
+  narrowed list would let an unlisted error escape as a bare traceback. Its message no longer guesses the cause. It
+  now reads "cannot mirror LOG, nothing said: TYPE: MESSAGE", so the exception's own type and text say what failed.
+  The line count is unchanged.
+- **The restart check after roll-up:** the review accepts it as a stated limit (SPEC's "Not claimed", round 5). No
+  change.
+- **The reviewer could not run test_mirror.py:** I ran it here, and all 30 passed.
+
+Ran: `tests/test_mirror.py` with `-o faulthandler_timeout=120` (30 passed, 12 s) and ruff (clean). The whole unit
+suite and the browser files were not run by me. origin/main was not merged: this clone has no `origin`.

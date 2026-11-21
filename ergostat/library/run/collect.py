@@ -251,8 +251,8 @@ def mirrored(a, mem: dict, keep_fields) -> str | None:
                 return f"{log} went back: its entry at the cursor {cursor} is not the one recorded there (restarted?)"
     except mi.MirrorError as e:
         return str(e)
-    except Exception as e:                                    # the record unreadable: never "from the beginning"
-        return f"cannot mirror {log} (the record or the source unreadable): {type(e).__name__}: {e}"
+    except Exception as e:                                    # any failure stops the poll: never "from the beginning"
+        return f"cannot mirror {log}, nothing said: {type(e).__name__}: {e}"
     new = sorted(x for x in entries if cursor is None or x > cursor)[:MOST]
     arrivals: list = mem.setdefault("arrivals", [])
     t = now()
