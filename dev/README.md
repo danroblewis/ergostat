@@ -198,13 +198,16 @@ planner problem, never given a default; each sub-gap of a split has its own. A r
 lines of any earlier merge. At each merge the queue counts the net lines from main before it to the merged head and
 records `merged_lines` on `gap.merged`; when that count cannot be read the merge stands, `merged_lines` is null and
 `merged_lines_error` says why (a merge again always writes both, so no older count survives).
+
 `measure.py size-accuracy` is, over 14 days by each gap's latest merge, the share of merged gaps the planner sized
-whose lines fell inside their class; `size-accuracy-high` is the same for high-confidence gaps. A sized gap with no
-count is left out of the share (never a hit) and named on stderr; with nothing measurable either one has no value
-(exit 1), and `-high` too when only low or medium gaps can be measured. **Not covered:** gaps whose definitions you
-wrote (no planner, no size), and split parents (they merge nothing; a split clears an earlier size). The groomer's
-own `size` (`gap.groomed`) carries no confidence and is never measured, but a groomer that regrades a gap after its
-plan replaces the planner's class, and that regrade is then what is scored.
+whose lines fell inside their class; `size-accuracy-high` is the same for high-confidence gaps. The class scored is
+`planned_size`, which only the planner writes (it writes `size` too); the groomer's `size` (`gap.groomed`, its own
+scale) is never scored, even when it regrades a planned gap. A sized gap with no count is left out of the share (never
+a hit) and named on stderr; with nothing measurable either one has no value (exit 1), and `-high` too when only low
+or medium gaps can be measured.
+
+**Not covered:** gaps whose definitions you wrote (no planner, no size), and split parents (they merge nothing; a
+split clears an earlier size).
 
 ## The pools: one at a time, raised on good results
 

@@ -131,11 +131,12 @@ def planner(cfg: dict, gap: dict) -> int:
                     parent=[gap["id"]], depends_on=deps_of(body), requested_at=now)
         fac.say("gap.planned", gap["id"] if name == branch else f"gap/{name}", plan=fac.rel(p), planned_at=now, risks=sorted(set(re.findall(
             r"\blesson-\d+\b", body))), replanned=name == branch and bool(f.get("plan_failures")),
-            **size_of(body), merged_lines=None, merged_lines_error=None,     # a new size, never scored on old lines
+            **(s := size_of(body)), planned_size=s["size"],  # planned_size: the planner's own, no groomer regrades it
+            merged_lines=None, merged_lines_error=None,          # a new size, never scored on old lines
             **(record if name == branch else {}))
     if defs[0][0] != branch:                             # a split parent merges nothing: no size of its own
         fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, size=None, size_confidence=None,
-                **record)
+                planned_size=None, **record)
     return 0
 
 

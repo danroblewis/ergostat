@@ -18,7 +18,7 @@ own measures do).
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
-  size-accuracy       of merged gaps the planner sized (a size and its confidence), the share whose merged_lines fall
+  size-accuracy       of merged gaps the planner sized (planned_size and its confidence), the share whose merged_lines fall
                       inside their class: S <= 50 (a net removal too), M 51-150, L 151-400, XL > 400. The window is
                       on the latest merge (merged_at). A gap whose latest merge has no merged_lines is left out of
                       the share, never a hit, and named on stderr.
@@ -99,14 +99,14 @@ def size_class(lines: int) -> str:
 
 
 def size_accuracy(name: str, since: float) -> float:
-    """Only gaps with the planner's confidence: the groomer's `size` (gap.groomed) carries none."""
+    """The planner's planned_size, never `size`: the groomer (gap.groomed) regrades `size` on its own scale."""
     sized = [g for g in recent(fac.items("gap"), "merged_at", since) if g["state"] == "merged"
-             and g["fields"].get("size") and g["fields"].get("size_confidence") in (
+             and g["fields"].get("planned_size") and g["fields"].get("size_confidence") in (
                  ("high",) if name == "size-accuracy-high" else ("low", "medium", "high"))]
     counted = lambda f: type(f.get("merged_lines")) is int and not f.get("merged_lines_error")  # noqa: E731
     if left := [g["id"] for g in sized if not counted(g["fields"])]:
         print(f"{name}: left out, no merged_lines: {', '.join(left)}", file=sys.stderr)
-    return share([size_class(g["fields"]["merged_lines"]) == g["fields"]["size"] for g in sized
+    return share([size_class(g["fields"]["merged_lines"]) == g["fields"]["planned_size"] for g in sized
                   if counted(g["fields"])], name)
 
 

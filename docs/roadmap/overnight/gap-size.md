@@ -102,3 +102,46 @@ That is within the 110 budget and is class M.
 
 **Not run here.** The whole unit suite and the browser files (the factory runs them under the watchdog). There is no
 remote in this container, so origin/main could not be fetched. Local `main` has not moved past the branch base.
+
+### Round 2
+
+**Not fixed: the branch base (blocking; needs the coordinator).** `main` does not contain the backlog merge 2b101c6,
+and this branch is built on it (merge base with `main`: 05c6dc9). Merging the branch as it stands would land all of
+backlog with it. The fix the review asks for is to replay this gap's three commits onto `main`. This session's
+permissions refused every command that does that: `git checkout --detach main`, `git cherry-pick` and
+`git rebase --onto main 2b101c6 factory/gap-size`. I did not try to get around the refusal. I did not revert the
+backlog merge on the branch either: a revert landed on main would make git treat backlog's commits as already
+merged, and that would quietly drop them when backlog itself merges later. That is far harder to undo than a replay.
+The replay, for someone allowed to run it (it has no backlog-only conflicts; the gap's files do not depend on
+backlog):
+
+    git rebase --onto main 2b101c6 factory/gap-size   # picks d3cd937, 860a76f, c7e0faf and the round-2 commit
+
+The old head (1a5cd15) stays in the reflog. **Do not merge this branch until that replay is done.**
+
+**The size finding (141 core lines against 110).** All 141 lines come from backlog, the same base problem. This
+gap's own changes have 0 core lines (`ergostat/` is untouched) and about 80 net lines in `dev/`. The replay fixes this
+too. No other reason for an overrun is claimed.
+
+**The groomer collision, fixed in code whatever the base.** `gap.planned` now also writes `planned_size`, a field
+that only the planner writes, and `gap.split` clears it. `size-accuracy` selects and scores on `planned_size` with
+`size_confidence`, never on `size`. A groomer regrade of `size` (`gap.groomed`) after a plan therefore changes
+nothing that is scored, and a gap with a `size` but no `planned_size` is never measured. `size` is still written
+because the definition of done names it. README: the groomer paragraph is replaced by this rule. Tests:
+`test_size_accuracy_counts_hits_over_measured` now regrades a planned S gap to L with `gap.groomed` and still reads
+0.667. It also has a `size` with high confidence and no `planned_size`, which is not counted. The plan tests assert
+`planned_size` on the whole gap, on each sub-gap, as cleared on a split parent, and as replaced on a replan.
+Lesson-9: scoring `size` in place of `planned_size` failed the measure test (0.333 != 0.667). Selecting on `size`
+failed it as well (the unplanned gap was let in).
+**Left, outside this gap's files:** `solve.py`'s `POINTS` has no `XL`, so on a branch that also has backlog, a gap
+the planner sized XL is ranked as M. The fix belongs to whichever of the two branches merges second (add `XL` to
+`POINTS`, or have the solver read `planned_size`). On `main` without backlog the case does not arise.
+
+**The non-blocking notes of round 1, answered.** The `except Exception` around the count was judged right by the
+review and stays. The count runs under the queue lock: it is one `git diff --numstat` per merge, and it is kept there
+because `pre` and the merged head are only certain under that lock. The README's long paragraph is split, with "Not
+covered" in a paragraph of its own.
+
+**Run here (round 2):** `tests/test_factory_knowledge.py` 29 passed, `tests/test_factory.py` 44 passed and 2 skipped
+(both need Docker and the agent image). `ruff check ergostat tests scripts dev/bin` is clean. Not run: the whole unit
+suite, the browser files, and a merge of origin/main (there is no remote here).
