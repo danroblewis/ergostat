@@ -65,3 +65,26 @@ on main the value was in effect 0. Not run here: the whole unit suite and the br
 file at a time and pass: `test_calls`, `test_warm`, `test_daemons`, `test_daemons_restart`,
 `test_ticket_factory_daemons`, `test_leases`, `test_lease_kill`, `test_resilience`, `test_gated_actions`,
 `test_program_actions`, `test_spec_engine`. Net lines outside tests and docs: about 75 of 100.
+
+Round 3 (review rs-calls-1), finding by finding:
+- **Blocking: the key was lost when the command fell back.** Now the command makes the key once (`cli/fast.py`
+  `key()`) and passes it both to the socket call and to its own fallback: the event's id (`call-KEY.0`, the same id the
+  engine gives it), the renewal's or nack's id, and the act's key. The act's key follows one rule for both paths
+  (`ops.act_key`: the caller's `--key`, else this call's for a run with no item). New test
+  `test_a_call_the_stopped_engine_recorded_is_recorded_once_by_the_commands_fallback`: the engine records the call and
+  drops its answer, then is closed and not started again. The CLI falls back after `GONE` and the record holds one
+  event, one renewal, one act. Each of the three asserts was seen to fail with its fallback's key removed. The nack's
+  fallback uses the same key the same way, but no test covers it.
+- **Not run by that reviewer.** These were run one file at a time here and pass: `test_calls`, `test_leases`,
+  `test_gated_actions`, `test_program_actions`, `test_lease_kill`, `test_resilience`, `test_intake`, `test_storage`.
+  ruff is clean.
+- **`GONE` = 10 s narrows the 2-minute bound for a clean stop.** This departs from the definition of done: after a
+  clean stop a run's call waits 10 s, not up to 2 minutes, before it falls back. It stays, as the most reversible
+  choice. With the fallback now keyed, a restart slower than 10 s still records each call once, so what is lost is
+  only the engine answering it rather than the command.
+- **A repeated id returned the newly built event.** `leases/acts.py` (`again`), `intake/envelope.py`'s one-event path
+  and the CLI's event fallback now return the stored event (its first time and seq). `envelope.py` is outside the
+  files named (3 lines). `test_a_lease_call_asked_again_is_recorded_once` asserts it, and was seen to fail without it.
+
+Not run here: the whole unit suite and the browser files. Net lines outside tests, docs and dev: 100 of 100 (131
+added, 31 removed).

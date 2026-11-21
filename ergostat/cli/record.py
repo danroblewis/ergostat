@@ -171,9 +171,11 @@ def add_event(p, args) -> int:
     one = {"event": t, "item": args.item, "data": data, **{k: got[f] for k, f in (("patch", "--patch"), ("set", "--set"))
                                                              if f in got}}
     from ..calls.client import Refused
+    from ..calls.ops import call_of
     from . import fast
+    once = fast.key()                                    # the same whoever records it: recorded once (calls/ops.py)
     try:                                                 # the running engine records it, when one listens (calls/)
-        sent = fast.call(args, "event", events=[one], source=args.by or "user", causedby=run)
+        sent = fast.call(args, "event", events=[one], source=args.by or "user", causedby=run, call=once)
     except Refused as e:
         print(str(e), file=sys.stderr)
         return e.code
@@ -193,7 +195,8 @@ def add_event(p, args) -> int:
         return 2
     try:
         ev = p.events.add(t, item=args.item, source=args.by or "user", data=data, causedby=run, patch=got.get("--patch"),
-                          set=got.get("--set"))
+                          set=got.get("--set"), id=f"{call_of({'call': once})}.0")
+        ev = ev if ev["seq"] is not None else p.events.get(ev["id"]) or ev
     except ChangesetError as e:
         print(f"not recorded: {e}", file=sys.stderr)
         return 2

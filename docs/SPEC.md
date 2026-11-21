@@ -1285,8 +1285,10 @@ connection, or one closed before its answer), it asks again with backoff for `ER
 where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
 the socket is removed (an engine that stopped cleanly; a killed one leaves it) it waits 10 s at most for it to be
 made again (a restart that is slower to listen falls back as with no engine). Each call carries a
-key, `"call"`, the same on every try: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
-renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again; an `act` with
+key, `"call"`, made once by the command, the same on every try and in what the command records itself when it falls
+back: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
+renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again (its answer is
+the event recorded the first time); an `act` with
 no `--key` from a run with no item is keyed by it, so one held for the owner is asked once (a run with an item already
 finds its held action again, by its action and arguments). An `act` asked again after a restart waits for its `wait`
 again, from when it is asked.

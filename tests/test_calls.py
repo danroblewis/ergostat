@@ -318,8 +318,56 @@ def test_a_lease_call_asked_again_is_recorded_once(tmp_path):
     finally:
         e.close()
     assert got and got[0]["event"]["id"] == got[1]["event"]["id"] and got[2]["event"]["id"] == got[3]["event"]["id"]
+    assert got[1]["event"] == got[0]["event"] and got[3]["event"] == got[2]["event"], "asked again: the one recorded"
     assert len([x for x in p.events.query(n=None, type="ergostat.lease.renewed") if x["data"].get("seen") == "asked"]) == 1
     assert len([x for x in p.events.query(n=None, type="ergostat.lease.ended") if x["data"].get("how") == "nack"]) == 1
+
+
+HOLDS = ("import json, os, time; json.dump({k: os.environ[k] for k in ('ERGOSTAT_ITEM', 'ERGOSTAT_LEASE', "
+         "'ERGOSTAT_RUN')}, open('held.json', 'w')); time.sleep(20)")
+
+
+def test_a_call_the_stopped_engine_recorded_is_recorded_once_by_the_commands_fallback(tmp_path, monkeypatch):
+    """Recorded, its answer lost, the engine stopped and not started again: the command records it itself (as with no
+    engine), under the same key, so once (an event, a renewal, a no-item run's act)."""
+    from ergostat.calls.server import Server
+    from ergostat.cli import main
+    p = project(tmp_path, f"{PY} -c {shlex.quote(HOLDS)}")
+    cfg = tmp_path / "actions.json"
+    cfg.write_text(json.dumps({"block": "probe", "run": "r1", "actions": ["noop", "ask"], "runner": "ergostat"}))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(client, "GONE", 0.3)
+    monkeypatch.setenv("ERGOSTAT_CALL_RETRY", "30")
+
+    def lost(argv, seen, env=None):
+        e = started(p)
+        if env is not None:
+            p.events.add("job.arrived", item="job/1", source="test")
+            got = wait_for(lambda: written(tmp_path / "held.json"))
+            for k, v in got.items():
+                monkeypatch.setenv(k, v)
+        monkeypatch.setenv("ERGOSTAT_SOCKET", e.socket)
+        dropped = threading.Event()
+
+        def stopped_before_answering(conn, out):                  # recorded, then the engine stopped before it answered
+            Server._close(conn)
+            dropped.set()
+        e.calls._answer = stopped_before_answering
+        t, out = asking(lambda: main(argv))
+        assert dropped.wait(10)
+        assert len(seen()) == 1, "recorded by the engine, unanswered"
+        e.close()
+        t.join(15)
+        assert not t.is_alive()
+        assert len(seen()) == 1, "and not again by the command's own fallback"
+        return out.get("out", out)
+
+    assert lost(["event", "--add", "job.noted", "--item", "job/9"], lambda: p.events.query(n=None, type="job.noted")) == 0
+    monkeypatch.setenv("ERGOSTAT_ACTIONS", str(cfg))
+    lost(["act", "ask"], lambda: list(rec.stored(p).values()))
+    monkeypatch.delenv("ERGOSTAT_ACTIONS")
+    assert lost(["lease", "--renew"], lambda: [x for x in p.events.query(n=None, type="ergostat.lease.renewed")
+                                               if x["data"].get("seen") == "asked"], env=True) == 0
 
 
 def test_a_call_past_the_bound_fails(tmp_path, monkeypatch):

@@ -27,6 +27,13 @@ def call_of(req: dict) -> str | None:
     return f"call-{k}"[:72] if isinstance(k, str) and k else None
 
 
+def act_key(cfg: dict, req: dict) -> str | None:
+    """An act's key: the caller's; else, for a run with no item (whose requests are never the same act), this call's,
+    so one asked again after a restart is one. A run with an item finds its own by action and arguments."""
+    key = req.get("key")
+    return call_of(req) if key is None and not cfg.get("item") else key
+
+
 def event(eng, req: dict) -> dict:
     from ..intake import envelope
     from ..spec import items as its
@@ -93,10 +100,7 @@ def act_start(eng, req: dict) -> tuple[dict, dict]:
         args = req.get("args") or {}
         if not isinstance(args, dict):
             raise program.AskError("args: a map of NAME to VALUE")
-        key = req.get("key")                             # (an item's: the same act already, asked again)
-        if key is None and not cfg.get("item") and call_of(req):
-            key = call_of(req)                           # none: this call's, so asked again after a restart it is one
-        return program.start(eng.p, eng.spec, cfg, str(req.get("name") or ""), args, key=key), cfg
+        return program.start(eng.p, eng.spec, cfg, str(req.get("name") or ""), args, key=act_key(cfg, req)), cfg
     except program.AskError as e:
         raise Refused(f"refused: {e}") from None
 
