@@ -50,7 +50,15 @@ elif args[0] == "item" and "/" in args[1]:
     else:
         sys.exit(f"no item {args[1]}")
 elif args[0] == "lease":
-    pass
+    if "--nack" in args:                                           # (a lease given back, as its run would: drain.py)
+        import os
+        db.setdefault("nacks", []).append({k: os.environ.get(f"ERGOSTAT_{k.upper()}") for k in ("item", "lease", "run")}
+                                          | {"count": "--no-count" not in args})
+        rec.write_text(json.dumps(db))
+elif args[0] == "actions" and "--deny" in args:
+    db["actions"][args[1]] = "denied"
+    db.setdefault("notes", {})[args[1]] = args[args.index("--note") + 1]
+    rec.write_text(json.dumps(db))
 else:
     sys.exit(f"the fake ergostat does not know {args}")
 '''
@@ -1555,3 +1563,183 @@ def test_a_dead_letter_on_main_broken_tests_says_so(monkeypatch):
     assert "fail on main too" in dead.on_main(f) and "aaaaaaaaaaaa" in dead.on_main(f)
     assert dead.on_main({**f, "suites_fast": {"tests": [T, "tests/test_z.py::test_own"]}}) == ""   # one is the gap's
     assert dead.on_main({"suites_fast": {}}) == ""
+
+
+# ---- switch-drain: an approved switch drains the runs under way, and older switch requests are withdrawn
+
+NOON = time.mktime(time.localtime()[:3] + (12, 0, 0, 0, 0, -1))              # today 12:00, local (no 04:00 near)
+
+
+def versions(f: Factory, n: int) -> list[str]:
+    """n commits on the checkout's main, oldest first, the first running."""
+    out = [git(f.checkout, "rev-parse", "HEAD")]
+    for i in range(1, n):
+        (f.checkout / f"v{i}.txt").write_text(f"{i}\n")
+        git(f.checkout, "add", "-A")
+        git(f.checkout, "commit", "-q", "-m", f"v{i}")
+        out.append(git(f.checkout, "rev-parse", "HEAD"))
+    live = f.tmp / "live"
+    live.mkdir(exist_ok=True)
+    (live / "current").symlink_to(out[0])
+    return out
+
+
+def asked(f: Factory, sha: str, action: str) -> str:
+    """An upgrade installed and its switch asked for, its action ``action`` (held, ran, denied)."""
+    db = f.db()
+    aid = f"ergostat.action/{len(db.get('actions', {})) + 1:010x}"
+    db.setdefault("actions", {})[aid] = action
+    f.record.write_text(json.dumps(db))
+    uid = f"upgrade/{sha[:12]}"
+    f.fold([{"event": "upgrade.opened", "item": uid, "data": {"sha": sha}},
+            {"event": "upgrade.installed", "item": uid, "data": {"check": "ok"}},
+            {"event": "upgrade.switch-asked", "item": uid, "data": {"switch": action, "switch_action": aid}}], None)
+    return uid
+
+
+def held(f: Factory, *gids: str, block: str = "implementor") -> None:
+    """These gaps' runs under way (their leases held by ``block``); every other gap's run ended."""
+    db = f.db()
+    for g in [*gids, *[i for i in db["items"] if i.startswith("gap/")]]:
+        it = db["items"].setdefault(g, {"id": g, "kind": "gap", "state": "building", "fields": {}})
+        it["fields"]["lease"] = {"block": block, "holder": f"run-{g[4:]}" if g in gids else None, "fence": 3}
+    f.record.write_text(json.dumps(db))
+
+
+def switcher(f: Factory, now: float, **upgrade) -> tuple[list[str], str, list[str]]:
+    """One step of the switcher at ``now``: (the events it said, why, the switches it started)."""
+    if upgrade:
+        with f.config.open("a") as c:
+            c.write("[upgrade]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in upgrade.items()))
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, live, drain; cfg = fac.config(); "
+            "live.detach = lambda cfg, sha: print(json.dumps({'detached': sha})); "
+            "print(json.dumps({'why': drain.step(cfg, float(sys.argv[2]))}))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), repr(now)], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    return (f.fold([x for x in lines if "event" in x], None), lines[-1]["why"],
+            [x["detached"] for x in lines if "detached" in x])
+
+
+def test_a_switch_waits_for_the_runs_under_way(tmp_path):
+    f = Factory(tmp_path)
+    a, b = versions(f, 2)
+    uid = asked(f, b, "ran")                                                     # approved
+    held(f, "gap/one", "gap/two")
+    said, why, started = switcher(f, NOON, quiet_runs=1)
+    assert said == ["upgrade.switch-approved"] and "waits" in why and started == []
+    flag = f.model / "run" / "drain.json"
+    assert not flag.exists() and f.item(uid)["state"] == "approved"
+    held(f, "gap/one")                                                           # a quiet moment: one run under way
+    said, why, started = switcher(f, NOON + 60)
+    assert said == ["upgrade.draining"] and "drains" in why and started == [] and flag.exists()
+    gid = ready(f)                                                               # the AI blocks take no new item
+    said, lines = f.run("implement.py", gid)
+    assert said == [] and lines == [{"nack": {"why": lines[0]["nack"]["why"], "count": False, "after": "5m"}}]
+    f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)
+    said, lines = f.run("review.py", gid)
+    assert said == [] and lines[0]["nack"]["count"] is False
+    held(f, "gap/one")
+    said, why, started = switcher(f, NOON + 120)
+    assert said == [] and started == [] and "1 run(s) under way" in why        # gap/one still runs
+    held(f)                                                                      # it finished
+    said, why, started = switcher(f, NOON + 180)
+    assert said == ["upgrade.drained"] and started == [b] and f.db().get("nacks") is None
+    assert f.item(uid)["fields"]["given_back"] == [] and f.item(uid)["state"] == "draining"
+    assert switcher(f, NOON + 240)[1:] == (f"switching to {b[:12]}", [])        # started once
+    said, why, started = switcher(f, NOON + 180 + 30 * 60)                       # its process never cleared the flag
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == []
+    assert f.item(uid)["state"] == "failed" and not flag.exists() and "no outcome recorded" in f.item(uid)["fields"]["why"]
+    assert switcher(f, NOON + 181 + 30 * 60)[::2] == ([], [])                    # never begun again
+    r = subprocess.run([sys.executable, "-c", "import sys, json; sys.path[:0] = [sys.argv[1]]; import drain; "
+                        "print(json.dumps(drain.AI))", str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    spec, _ = read(ROOT / "ergostat.yaml")
+    own = {"improver", "modeller", "redesigner"}         # (ergostat's own modelling, the template's: not drained)
+    assert set(json.loads(r.stdout)) == {n for n, x in spec.blocks.items() if x.type == "ai"} - own   # every other
+
+
+def test_a_drain_past_its_bound_gives_the_runs_back_uncounted(tmp_path):
+    f = Factory(tmp_path)
+    a, b = versions(f, 2)
+    uid = asked(f, b, "ran")
+    held(f, "gap/long", block="reviewer")
+    said, why, _ = switcher(f, NOON, drain_minutes=45)
+    assert said == ["upgrade.switch-approved", "upgrade.draining"]
+    said, why, started = switcher(f, NOON + 44 * 60)
+    assert said == [] and started == [] and "44 of 45 minutes" in why
+    said, why, started = switcher(f, NOON + 45 * 60)                             # the bound
+    assert said == ["upgrade.drained"] and started == [b]
+    assert f.db()["nacks"] == [{"item": "gap/long", "lease": "3", "run": "run-long", "count": False}]
+    assert f.item(uid)["fields"]["given_back"] == ["gap/long"] and f.item(uid)["fields"]["drain_minutes"] == 45
+    flag = f.model / "run" / "drain.json"
+    assert json.loads(flag.read_text())["switch_started"] == NOON + 45 * 60
+    r = subprocess.run([sys.executable, str(BIN / "live.py"), "switch", b], cwd=f.model, env=f.env,
+                       capture_output=True, text=True)
+    assert r.returncode != 0 and "not installed" in r.stderr and not flag.exists()   # a switch ends the drain,
+    # whatever becomes of it; one that recorded no outcome is failed, asked of the coordinator, and not begun again
+    said, why, started = switcher(f, NOON + 46 * 60)
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == [] and f.item(uid)["state"] == "failed"
+    assert switcher(f, NOON + 47 * 60)[::2] == ([], []) and not flag.exists() and len(f.db()["nacks"]) == 1
+    sensor = [sys.executable, "-c", "import sys; sys.path[:0] = [sys.argv[1]]; import drain; print(drain.gone("
+              "{'since': 0, 'switch_started': 60}, 3600), drain.gone({'since': 0}, 3600), drain.gone(None, 3600))", str(BIN)]
+    assert subprocess.run(sensor, cwd=f.model, env=f.env, capture_output=True, text=True).stdout.split() == [
+        "0.0", "60.0", "0.0"]                                                    # the switch's own time is not the drain's
+
+
+def test_an_older_switch_request_is_withdrawn(tmp_path):
+    f = Factory(tmp_path)
+    old, running, mid, new, newer = versions(f, 5)
+    (f.tmp / "live" / "current").unlink()
+    (f.tmp / "live" / "current").symlink_to(running)
+    u_old, u_mid, u_new = asked(f, old, "held"), asked(f, mid, "ran"), asked(f, new, "held")
+    held(f)
+    said, why, started = switcher(f, NOON)
+    assert said == ["upgrade.withdrawn", "upgrade.withdrawn"] and started == [] and why == "no switch approved"
+    assert f.item(u_old)["fields"]["superseded_by"] == f"the running {running[:12]}"
+    assert f.item(u_mid)["fields"]["superseded_by"] == u_new                      # approved, but older: withdrawn
+    assert [f.item(u)["state"] for u in (u_old, u_mid, u_new)] == ["withdrawn", "withdrawn", "installed"]
+    db = f.db()
+    aid_old, aid_mid, aid_new = (f.item(u)["fields"]["switch_action"] for u in (u_old, u_mid, u_new))
+    assert db["actions"][aid_old] == "denied" and f"superseded by the running {running[:12]}" in db["notes"][aid_old]
+    assert db["actions"][aid_mid] == "ran" and db["actions"][aid_new] == "held"  # (an action that ran is not undone)
+    assert switcher(f, NOON + 60)[0] == []                                       # only the newest waits
+    db = f.db()
+    db["actions"][aid_new] = "ran"
+    f.record.write_text(json.dumps(db))
+    said, _, started = switcher(f, NOON + 120)
+    assert said == ["upgrade.switch-approved", "upgrade.draining"] and started == []   # never in the same step
+    said, _, started = switcher(f, NOON + 180)
+    assert said == ["upgrade.drained"] and started == [new]
+    u_newer = asked(f, newer, "held")                                            # installed while the switch runs
+    said, why, started = switcher(f, NOON + 240)
+    assert said == [] and why == f"switching to {new[:12]}" and started == []   # nothing withdrawn meanwhile
+    assert f.item(u_new)["state"] == "draining" and f.item(u_newer)["state"] == "installed"
+
+
+def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeypatch):
+    f = Factory(tmp_path)
+    a, b = versions(f, 2)
+    uid = asked(f, b, "ran")
+    held(f, "gap/one", "gap/two", "gap/three")
+    day = time.localtime(NOON)
+    five = time.mktime(day[:3] + (5, 0, 0, 0, 0, -1))                           # today 05:00, past today's window
+    said, why, _ = switcher(f, five, quiet_runs=2, daily_at="04:00")
+    assert said == ["upgrade.switch-approved"] and "waits for at most 2 run(s) under way (3 now) or 04:00" in why
+    before = time.mktime((day.tm_year, day.tm_mon, day.tm_mday + 1, 3, 59, 0, 0, 0, -1))
+    assert switcher(f, before)[0] == []                                          # tomorrow 03:59: still waits
+    said, why, _ = switcher(f, before + 120)                                     # tomorrow 04:01: the window
+    assert said == ["upgrade.draining"] and f.item(uid)["fields"]["runs_at_drain"] == 3
+    g = Factory(tmp_path / "g")
+    _, b = versions(g, 2)
+    asked(g, b, "ran")
+    held(g, "gap/one", "gap/two")
+    assert switcher(g, five, quiet_runs=2)[0] == ["upgrade.switch-approved", "upgrade.draining"]   # quiet enough
+    monkeypatch.setitem(sys.modules, "fac", sys.modules.get("fac") or module("fac"))
+    monkeypatch.setitem(sys.modules, "live", sys.modules.get("live") or module("live"))
+    drain = module("drain")
+    assert drain.settings({}) == (1, (4, 0), 45.0)
+    for bad in ({"quiet_runs": 11}, {"quiet_runs": -1}, {"drain_minutes": 0}, {"drain_minutes": 241},
+                {"daily_at": "24:00"}, {"daily_at": "4am"}):
+        with pytest.raises(SystemExit):
+            drain.settings({"upgrade": bad})

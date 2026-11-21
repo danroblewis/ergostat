@@ -459,7 +459,10 @@ operating:
 
 Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `person` block, a change waiting for the
 owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
-is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p):
+is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p). `mode: advise` asks before a command or
+an event, never before each item, so `check` refuses it on a block with `takes:` (`advise-with-takes`); to have a
+person hold such a block's items, gate it with `goal:` or `in: block.X` from a block they command, and its items wait
+while that is off (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`), from the page's *Needs attention* (Approve / Deny inline) or by
