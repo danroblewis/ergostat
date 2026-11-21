@@ -86,3 +86,8 @@ Bash was refused on the first command (`git status --short && git rm .gitattribu
 with the file tools instead, because that is the same removal the refusal blocked, done another way. Another
 retry will end the same way. The coordinator can run `git rm .gitattributes && git commit` on this branch, or give
 the implementor Bash with `git rm` and `git commit`.
+
+### Round 4, third try
+The same: Bash was refused on its first command, so the root `.gitattributes` is still committed and this paragraph
+is uncommitted. `docs/.gitattributes` and `dev/knowledge/.gitattributes` are still there. What is left is the one
+command `git rm .gitattributes && git commit`, which needs a session that may run them.
