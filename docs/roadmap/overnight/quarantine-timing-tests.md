@@ -24,3 +24,16 @@ On 2026-11-21 the merge queue spent most of its time re-testing batches: in 4 ho
 
 ## Size budget
 0 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+- Done in the working tree: the five lines are added to `tests/quarantine.txt`, after the existing quarantined line,
+  in its `test id | who | when | why` format, with `the coordinator` as who, `2026-11-21` as when and the given why.
+  Grep confirms that each id names a test function that exists (test_daemons.py:296 and :613, test_leases.py:407,
+  test_runlog.py:254, test_spec_auxiliaries.py:111). No test file and no code changed: 0 net lines outside `tests/` and
+  `docs/`.
+- `fac.quarantine` (dev/bin/fac.py:481) takes the id before the first `|` of each line that is not a `#` comment, so
+  these five ids are read as written. It reads the list at the base ref (main), not from the branch, so they are
+  deselected only once this lands on main. That is the existing design, not a gap.
+- Not done: the implementor's shell was refused for every command (`git -C /work status --short` and a grep loop
+  were both denied), so nothing was committed, and neither pytest nor ruff was run. The factory has to commit these two
+  files (`tests/quarantine.txt` and this section) and run the suites itself.
