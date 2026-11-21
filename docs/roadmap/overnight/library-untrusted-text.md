@@ -197,3 +197,10 @@ leaves those to the factory under the watchdog. `demo_check` was not run either,
 **Merge:** this clone has no `origin` remote and no network. Local `main` is already an ancestor of the branch, so
 there was nothing to merge. lesson-7 (`library-provenance`) is still open for the factory's merge, which meets on
 `Template.untrusted`. `doc.library` is still `list[Path]`.
+
+**The factory's unit run after round 1.** It showed one `F` at about 11% and the tail held no test name, so the
+failing test is not known. The failure did not come back here. Every `tests/test_*.py` file was run in four batches
+under `-n 4` (a–co, cr–g, h–p, q–z): 2,383 passed, 69 skipped, 1 xfailed, none failed. The files near that position
+in collection order (changesets to counts, with chains, calls, bench and backlog) were also run serially: 288 passed.
+No code was changed, since nothing failed that could be fixed. If the factory's log names the test, it should be
+checked against lesson-10 (a race under `-n 8`, or a sleep in the test) before it is put down to this branch.
