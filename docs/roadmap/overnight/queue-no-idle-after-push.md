@@ -45,3 +45,12 @@ Round 1's non-blocking findings: the `Waits(str)` subclass stays, because the ch
 file that often conflicts, and `test_a_waiting_push_puts_gaps_off_for_a_minute` fails if anything wraps it. The
 next-batch test still does the dispatcher's timing by hand and does not drive `ergostat/leases/dispatch.py` end to end.
 That is a narrower claim, written down here rather than widened.
+
+Round 3: the merge of main (b24eb901) was already committed (024ff190), so there was nothing left to resolve. The
+`unit` tail I was given names no failing test. On this tree `tests/test_factory.py` passes (119 passed, 2 skipped) and
+ruff is clean. Run in a fixed order, `tests/test_backlog.py` followed by
+`tests/test_index_files.py::test_two_processes_one_tidying_never_corrupt_an_index_another_has_open` fails as before
+(`cannot import name 'Empty' from 'queue' (/work/dev/bin/queue.py)`). That is the `sys.path` leak on main described
+above, and this branch touches neither file. Running the same pair on a clean worktree of main was refused
+(`git worktree add -q --detach /tmp/mainchk main && ...`), so the claim that main fails too rests on reading the code,
+not on a run. Under lesson-13 the leak is left for its own gap; nothing in this gap's code needs fixing.
