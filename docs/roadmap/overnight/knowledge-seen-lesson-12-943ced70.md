@@ -43,3 +43,9 @@ something outside pytest killed the run. Possible killers: the suite container's
 against main is still just `dev/knowledge/review-lessons.md` (+3/-1) and this file. Following lesson-13, I changed no
 code or tests. What is left is outside this gap: find out why the `unit` container is being killed (its exit code
 and the watchdog's log will show which limit) in its own gap, then run `unit` again on this branch.
+
+Round 2: there were no review findings to answer. The branch already holds main (8dcc6e97), and the diff against main
+is still only `dev/knowledge/review-lessons.md` (+3/-1) and this file. Run again after the merge:
+`tests/test_factory_knowledge.py` gave 34 passed, and `ruff check ergostat tests scripts` is clean. Following
+lesson-13, I changed no code or tests. What is left is the factory's `unit` run on this branch under the watchdog. If
+it is cut off again, finding out why its container is killed belongs in its own gap.
