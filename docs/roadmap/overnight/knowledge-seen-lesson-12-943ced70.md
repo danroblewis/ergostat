@@ -34,3 +34,12 @@ partway through a line of passing dots, so it reads like a run that was killed o
 branch changes no code and no tests, so no code here could have caused it. Following lesson-13, I changed nothing to
 "fix" it. The reversible option is to run `unit` again under the watchdog. If it fails again, the failing test's name
 belongs in its own gap.
+
+Round 1, second report: `unit` failed again, and its tail is cut off the same way: passing dots, then nothing. pytest
+always prints a summary line when it ends, even on failure, and `fac.suite` (dev/bin/fac.py:376) sets no timeout. So
+something outside pytest killed the run. Possible killers: the suite container's limits (dev/bin/agents.py:48:
+`--memory 12g`, `--pids-limit 4096`) or `suite_watch`'s 6 GB / 1,500-thread watchdog. Run alone again here,
+`tests/test_factory_knowledge.py` gave 34 passed, and `ruff check ergostat tests scripts` is clean. The branch diff
+against main is still just `dev/knowledge/review-lessons.md` (+3/-1) and this file. Following lesson-13, I changed no
+code or tests. What is left is outside this gap: find out why the `unit` container is being killed (its exit code
+and the watchdog's log will show which limit) in its own gap, then run `unit` again on this branch.
