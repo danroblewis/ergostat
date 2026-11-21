@@ -70,6 +70,7 @@ class Dispatcher:
         self.ours: set[str] = set()                   # the runs this engine took whose leases have not ended
         self.holding = False                          # whether the last watch found a lease held (one outlives its block)
         self.lock = threading.RLock()
+        self.ends = threading.Lock()                  # finish's read and its write of lease.ended, as one
         self.seq = 0
         self.kept = Ready()                           # the items a look needs, followed as events arrive (ready.py)
         self.stale = True                             # read the record again before the next use: once a look, and after a take
@@ -310,32 +311,39 @@ class Dispatcher:
         if not self.lock.acquire(timeout=self.e.lock_wait):    # (a look wedged: close never waits for good; the
             self.e.say("leases: not given back (the dispatcher is busy); they expire")   # next watchdog expires them)
             return
-        try:                                                   # claimed and ended under the lock (as finish is)
+        try:                                                   # claimed under the lock (as _work does), ended outside it
             back = [(g["block"], i, g["fence"], g["run"]) for name, runs in self.going.items() for i in list(runs)
                     if (block, item) in ((None, None), (name, i)) and (g := runs.pop(i))]
             if block is None:                                  # and every lease taken here not ended yet (its run's
-                back += [(b, i, f, run) for run, (b, i, f) in self.mine.items()]   # own end failed, or is under way)
-            for b, i, fence, run in back:
-                try:
-                    self.finish(b, i, fence, run, {"stopped": True})
-                except Exception as e:                         # (the next engine's watchdog expires it)
-                    self.e.say(f"{b.name}: giving back {i}: {type(e).__name__}: {e}")
+                back += [(b, i, f, run) for run, (b, i, f) in self.mine.copy().items()]   # own end failed, or under way)
         finally:
             self.lock.release()
+        for b, i, fence, run in back:
+            try:
+                self.finish(b, i, fence, run, {"stopped": True})
+            except Exception as e:                             # (the next engine's watchdog expires it)
+                self.e.say(f"{b.name}: giving back {i}: {type(e).__name__}: {e}")
 
     def finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
         """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired). Read and
-        written under the lock, so close()'s give-back and the run's own end never both end it."""
-        with self.lock:
-            self._finish(b, item, fence, run, out)
+        written under one lock of its own (never waited on for good), so close()'s give-back and the run's own end
+        never both end it; a look never waits on it."""
+        if not self.ends.acquire(timeout=self.e.lock_wait):
+            raise TimeoutError("another end of a lease is wedged")
+        try:
+            ev = self._finish(b, item, fence, run, out)
             self.mine.pop(run, None)
+        finally:
+            self.ends.release()
+        if ev is not None:
+            self.resources(ev)
 
-    def _finish(self, b, item: str, fence: int, run: str, out: dict) -> None:
+    def _finish(self, b, item: str, fence: int, run: str, out: dict) -> dict | None:
         it = its.one(self.p.events, self.spec, item)
         lease = held(it.fields) if it else None
         if not lease or lease.get("fence") != fence or lease.get("holder") != run:
             self.ours.discard(run)                       # (ended already: expired, or given back from outside)
-            return
+            return None
         data = {"run": run, "fence": fence, "exit": out.get("exit"), **({"note": out["note"]} if out.get("note") else {})}
         nack = out.get("nack")
         stopping = self.e.stop.is_set() or out.get("stopped")
@@ -350,12 +358,13 @@ class Dispatcher:
             data.update({"how": "nack", "why": out.get("note") or f"the run ended with {item} still {it.state}"})
         data.update(self.after(it, lease, data["how"] == "nack" and data.get("count", True) is not False,
                                it.state if data["how"] == "ack" else None))
-        self.resources(self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data))
+        ev = self.p.events.add(ENDED, item=item, source=SOURCE, causedby=run, data=data)
         self.ours.discard(run)
         if data["how"] == "nack":
             after = its.one(self.p.events, self.spec, item)
             dead = after is not None and after.state == DEAD
             self.e.say(f"{b.name}: gave {item} back ({data['why']})" + (": a dead letter now" if dead else ""))
+        return ev
 
     def resources(self, ev: dict) -> None:
         """What holds a resource as long as a lease, told at once (the engine's clock sweeps the same events later, for
