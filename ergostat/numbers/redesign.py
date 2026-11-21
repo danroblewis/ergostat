@@ -5,7 +5,9 @@ kind ``redesign``.
 A change set is written ``{"title", "system", "summary", "edits": [...], "confidence"}``: the edits are made in order on
 a scratch copy, it must compile, and it is measured against the record as it is; what it adds says ``inferred:`` (the
 change's own id once recorded). Its verdict is the scorecard's, said again by the judge on the record when it takes it
-up. It is never written by the judge unless the owner promoted the class by name (``accept: {redesign: auto}``).
+up, and again while it waits whenever the record its scorecard reads has moved (``redesign_record``). It is never
+written by the judge unless the owner promoted the class by name (``accept: {redesign: auto}``), and then only on a
+scorecard of the record as it is.
 
 When one is made: the owner asks (``ergostat improve --redesign [SYSTEM]``, the Model page's button), and the
 redesigner block takes the ask up on its next run. At most one waits for each system, and its runs stop for the day
@@ -259,19 +261,24 @@ def waiting(p, spec: Spec, system: str) -> dict | None:
     return None
 
 
-def judged(p, x: dict, at: float | None = None) -> tuple[str, str, dict]:
+def judged(p, x: dict, at: float | None = None) -> tuple[str, str, dict, dict]:
     """The judge's verdict on a redesign: its scorecard worked out again on the record as it is now; passed when it
-    is better, failed otherwise (the scorecard kept either way)."""
+    is better, failed otherwise (the scorecard kept either way); and what it read (``scored``: the record's mark, read
+    just before scoring, ``redesign_record.mark``; the store's last seq, for order only; and when). Called under the
+    proposals' lock. Raises when the mark cannot be read."""
     from ..spec import read
+    from . import redesign_record as rr
     from . import scorecard as sc
     from . import trial as tr
     spec = p.model.spec
+    scored = {"mark": rr.read(p, spec), "seq": p.events.last_seq(), "at": at or time.time()}
     after, problems = tr.compiled(p.model.path, tr.texts_after(tr.edits_of(x)), findings=True)
     if any(e.level == "error" for e in problems):
-        return "failed", "the model it leaves no longer compiles: " + "; ".join(str(e) for e in problems if e.level == "error")[:300], {}
+        errs = "; ".join(str(e) for e in problems if e.level == "error")[:300]
+        return "failed", "the model it leaves no longer compiles: " + errs, {}, scored
     _, before = read(p.model.path)
     card = sc.score(p, spec, before, after, problems, at=at)
-    return ("passed" if card["verdict"] == "better" else "failed"), card["why"], card
+    return ("passed" if card["verdict"] == "better" else "failed"), card["why"], card, scored
 
 
 # ---- when one is made

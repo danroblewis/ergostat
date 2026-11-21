@@ -327,7 +327,8 @@ def redesign_view(x: dict) -> dict:
     card = x.get("scorecard") or {}
     return {"system": x.get("system") or "model", "summary": x.get("summary"), "edits": r.get("edits") or [],
             "parts": r.get("parts") or card.get("parts") or {}, "scorecard": card, "cost": r.get("cost"),
-            "rounds": r.get("rounds"), "rescoring": bool(x.get("rescoring"))}
+            "rounds": r.get("rounds"), "rescoring": bool(x.get("rescoring")),
+            "rescore_error": x.get("rescore_error")}
 
 
 def _by(x: dict) -> dict:
