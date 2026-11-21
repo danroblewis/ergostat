@@ -409,3 +409,24 @@ and the later overwrites the earlier's `prints`. The ids need something unique; 
   were not run here. The factory should run them again to completion with `-rf`. Many runs in a row have been ended
   early, so it should also find out what is stopping the suite container (its memory or its time limit).
 - *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
+
+**The implementor, round 18 (2026-11-21): the merge of main b24eb901.**
+- *Merge of main b24eb901* (0bc848e2): conflicts in four files. Main brought two changes into them: the coordinator's
+  park fields `deferred: true` / `cancelled: true` as non-triggers, and the measures `tool-denials` /
+  `tool-denials-unknown`.
+  - `dev/bin/measure.py`: both kept (the branch's manager measures, and main's tool-denials).
+  - `dev/bin/watch.py`: the branch's side is kept. It already excludes both fields and both park kinds, so main's
+    line is the same rule in the old one-trigger loop.
+  - `tests/test_factory_manager.py`: the branch's side is kept. Main had added the two fields to the old one-trigger
+    test (`test_dead_and_parked_gaps_are_raised_but_not_old_or_carried_on_ones`), which the branch replaced. The
+    branch's `test_deferred_and_cancelled_parks_are_not_triggers` already puts both fields.
+  - `dev/README.md`: the branch's "When it runs" is kept, and its trigger list now names the fields as well as the
+    kinds.
+  No conflict markers are left.
+- *`do_ask` (the blocking finding):* built in round 12 and unchanged. It counts every research item the asker asked
+  that is not `answered` (`dev/bin/manage.py`), and the test covers `leased` and `dead`.
+- *Ran here, one command at a time:* `tests/test_factory_manager.py` 32 passed; `test_factory.py`,
+  `test_factory_knowledge.py`, `test_factory_times.py` and `test_factory_sessions.py` 203 passed, 2 skipped;
+  `test_interventions.py`, `test_gated_actions.py`, `test_leases.py` and `test_backlog.py` 70 passed. Ruff is clean.
+  The whole unit suite and the four browser files were not run here.
+- *Only on fixtures:* still never run on the live instance, a real session or the real load probe.
