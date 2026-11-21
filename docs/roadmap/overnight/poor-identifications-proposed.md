@@ -255,3 +255,16 @@ session could not delete it either. It should be removed before merging.
 
 Run in round 2, green: `tests/test_outside_experiments.py` and `tests/test_churn.py` (16 passed, 1 xfailed), and
 `ruff check ergostat tests scripts`. The whole unit suite, the browser files and `demo_check` were not run here.
+
+**Round 2, after the factory's second `unit` failure.** This tail ends at uv's "Installed 1 package", before pytest
+printed anything. It has no test line, no summary, and no JSON line from `suite_watch.py`, which prints one even when
+it kills a run. So the run was stopped from outside before any test reported, and no test of this branch is named in
+it. No code was changed, because nothing in the tail points to a fault.
+- `pytest --collect-only` collects 2041 tests without errors, so the failure is not at collection.
+- Run here, one file group at a time, all green: `test_outside_experiments` and `test_churn` (16 passed, 1 xfailed).
+  `test_control`, `test_items_page`, `test_factory`, `test_factory_knowledge`, `test_backlog`, `test_relations` and
+  `test_relations_asof` (the files the merge of main changed) gave 175 passed and 3 skipped.
+- `git rm tests/test_zz_scratch.py` was refused again in this session. The file is still tracked, and it must be
+  removed before merging.
+
+Left: the full `unit` output (a failing test's name, or the watchdog's line), and removing the scratch file.
