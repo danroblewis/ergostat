@@ -127,3 +127,28 @@ could break from this branch's changes, one call at a time:
 read SPEC, GAPS or the roadmap files. All passed: 242 tests, 2 skipped. Nothing on the running path imports
 `ergostat/spec/shards.py`, so the branch changes no other test's behaviour. No code changed this round. If the
 factory's next full run names a failing test, that test is the place to start.
+
+### Round 3: the queue's size finding
+
+- **Size (blocking): now within budget.** `ergostat/spec/shards.py` is 199 net lines against the budget of 200, down
+  from 218. The round-2 note said why it was over but never used the word the gate looks for. So rather than argue
+  the overrun, I made the module smaller. Nothing it does changed:
+  - one `TABLES` map in place of `PARTS` and `_table`;
+  - a part's sensors seeded in the same loop as the part;
+  - the three merge rules in one loop over `(because, via)` pairs;
+  - one union-find `_root`, shared by the shards and the joined kinds;
+  - the estimate branch of a read and the loop that picks names written shorter;
+  - two docstrings shortened.
+  The behaviour, the tests and SPEC §9.8 are unchanged.
+- **Lesson-9, for the lines rewritten.** Each change below was made to `shards.py` and run, then undone, and the named
+  test failed:
+  - the `agent` pair dropped from the merge loop: `test_shared_agent_merges` (and `test_same_plan_any_hash_seed`);
+  - the `kind` pair dropped: `test_shared_taken_kind_merges`;
+  - the `daemon` pair dropped: `test_shared_daemon_merges`;
+  - the sensors not seeded: `test_every_part_in_exactly_one_shard` (both models), `test_systems_apart_unless_shared`,
+    `test_ceiling_merges_smallest` and `test_names_safe`. These ran together with the agent mutation; run alone, the
+    agent mutation failed only the two tests named above;
+  - a name taken even when another shard has it: `test_names_safe`;
+  - the estimate case always false: `test_estimate_reads_are_wires`.
+- Run: `tests/test_shards.py` (14 passed), `tests/test_spec_systems.py`, and ruff (clean). Not run here: the full
+  unit and browser suites, which the factory runs. Local `main` still has nothing this branch lacks.

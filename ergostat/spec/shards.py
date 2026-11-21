@@ -1,15 +1,14 @@
 """Engine shards (SPEC §9.8): every part of the model assigned to one shard, by top-level system, worked out from the
 graph and never declared (invariant 8). Shards are merged where a process-local lock would be split (a shared agent, a
-taken kind, a daemon); every value one shard reads from another that exists only in memory is listed as a wire.
-
-Pure: ``plan(spec)`` reads the compiled model and changes nothing. Every loop runs over sorted names, so the same
-model gives the same plan whatever ``PYTHONHASHSEED`` is."""
+taken kind, a daemon); every value one shard reads from another that exists only in memory is listed as a wire. Pure:
+``plan(spec)`` changes nothing, and every loop runs over sorted names, so the plan is the same whatever the hash seed."""
 
 from __future__ import annotations
 
 import hashlib
 import re
 from dataclasses import dataclass, field
+from functools import partial
 
 from .ir import Ref
 from .observer import PORTS, opted
@@ -17,7 +16,7 @@ from .observer import PORTS, opted
 MAX_SHARDS = 16
 LEAD = "lead"
 SAFE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-PARTS = ("stock", "flow", "auxiliary", "goal", "block")
+TABLES = {"stock": "stocks", "flow": "flows", "auxiliary": "auxiliaries", "goal": "goals", "block": "blocks"}
 _LEAD = (0, "")                      # the lead shard's seed; a system's is (1, name): sorted, the lead comes first
 
 
@@ -70,39 +69,32 @@ def safe(name: str) -> str:
     return low if SAFE.match(low) else "s-" + hashlib.sha256(name.encode()).hexdigest()[:12]
 
 
-def _table(spec, kind: str) -> dict:
-    return {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries, "goal": spec.goals,
-            "block": spec.blocks}[kind]
+def _root(up: dict, x):
+    """Union-find: x's group's root (a root maps to itself or is absent)."""
+    while up.get(x, x) != x:
+        x = up[x]
+    return x
 
 
 def plan(spec, most: int = MAX_SHARDS) -> Plan:
     most = max(1, min(MAX_SHARDS, int(most)))
     seed: dict[str, tuple] = {}                  # a part's key → its seed
-    for kind in PARTS:
-        for name in sorted(_table(spec, kind)):
+    for kind, table in TABLES.items():
+        for name, part in sorted(getattr(spec, table).items()):
             chain = spec.chain(spec.owner(Ref(kind, name)))
             seed[f"{kind}.{name}"] = (1, chain[-1]) if chain else _LEAD
-    for kind in ("stock", "flow", "auxiliary"):
-        for name, part in sorted(_table(spec, kind).items()):
-            for s in sorted(part.sensors):
-                seed[f"{kind}.{name}.{s}"] = seed[f"{kind}.{name}"]    # not its series: a stock and a flow may share a name
+            for s in sorted(getattr(part, "sensors", None) or ()):   # by ref, not series: a stock and a flow share names
+                seed[f"{kind}.{name}.{s}"] = seed[f"{kind}.{name}"]
     tops = [*spec.systems, *(k.system for n, k in spec.items.items() if k.system and not n.startswith("ergostat."))]
     seeds = sorted({_LEAD, *seed.values(), *((1, spec.chain(s)[-1]) for s in tops)})
     parent = {s: s for s in seeds}
     why: dict[tuple, list[dict]] = {s: [] for s in seeds}
     names = {_LEAD: LEAD}
     for s in seeds[1:]:                          # each system's own name: safe, and never another's
-        n = cand = safe(s[1])
-        for i in range(2, len(seeds) + 2):
-            if cand not in names.values():
-                break
-            cand = f"{n}-{i}" if SAFE.match(f"{n}-{i}") else safe(f"{n}-{i}")
-        names[s] = cand
-
-    def find(s):
-        while parent[s] != s:
-            s = parent[s]
-        return s
+        n = safe(s[1])
+        tries = (n, *(f"{n}-{i}" if SAFE.match(f"{n}-{i}") else safe(f"{n}-{i}") for i in range(2, len(seeds) + 2)))
+        names[s] = next(c for c in tries if c not in names.values())
+    find = partial(_root, parent)
 
     def union(a, b, because, via):               # a root is its group's first seed: the lead, or its first system
         ra, rb = sorted((find(a), find(b)))
@@ -114,13 +106,10 @@ def plan(spec, most: int = MAX_SHARDS) -> Plan:
     joined = _join_kinds(spec)
     shared: dict[tuple, list] = {}
     for name, b in sorted(spec.blocks.items()):
-        s = seed[f"block.{name}"]
-        if b.agent:
-            shared.setdefault(("agent", b.agent), []).append(s)
-        if b.takes:
-            shared.setdefault(("kind", joined.get(b.takes.kind, b.takes.kind)), []).append(s)
-        if isinstance(b.params.get("daemon"), str):
-            shared.setdefault(("daemon", b.params["daemon"]), []).append(s)
+        taken = b.takes and joined.get(b.takes.kind, b.takes.kind)
+        for because, via in (("agent", b.agent), ("kind", taken), ("daemon", b.params.get("daemon"))):
+            if via and isinstance(via, str):
+                shared.setdefault((because, via), []).append(seed[f"block.{name}"])
     for (because, via), ss in sorted(shared.items()):
         for s in sorted(set(ss))[1:]:
             union(min(ss), s, because, via)
@@ -154,15 +143,9 @@ def plan(spec, most: int = MAX_SHARDS) -> Plan:
 
 
 def _join_kinds(spec) -> dict[str, str]:
-    """Kinds tied by a join (a parent and the kinds whose relation names it), each to its group's first kind by name:
-    a block taking one watches the others' moves."""
+    """Kinds tied by a join (a parent, and the kinds whose relation names it), each to its group's first kind by name."""
     up: dict[str, str] = {}
-
-    def find(x):
-        while up.get(x, x) != x:
-            x = up[x]
-        return x
-
+    find = partial(_root, up)
     for name, k in sorted(spec.items.items()):
         for j in k.join:
             for child, ck in sorted(spec.items.items()):
@@ -182,13 +165,11 @@ def _wires(spec, p: Plan) -> list[Wire]:
         if k not in p.where or p.where[k] == p.where[reader]:
             return
         if r.kind in ("stock", "flow", "auxiliary"):
-            part = _table(spec, r.kind)[r.name]
-            if r.kind == "stock" and r.port in PORTS and r.port not in part.sensors:
-                kind = "estimate"
-            elif r.port or part.sensors:
+            part = getattr(spec, TABLES[r.kind])[r.name]
+            estimate = r.kind == "stock" and r.port in PORTS and r.port not in part.sensors
+            if not estimate and (r.port or part.sensors):
                 return
-            else:
-                kind = "equation" if getattr(part, "equation", None) else "memory"
+            kind = "estimate" if estimate else "equation" if getattr(part, "equation", None) else "memory"
         else:
             kind = "goal" if r.kind == "goal" else "cascade"
         out.add(Wire(str(r), p.where[k], p.where[reader], kind))
@@ -196,7 +177,7 @@ def _wires(spec, p: Plan) -> list[Wire]:
     for name, g in sorted(spec.goals.items()):
         read(f"goal.{name}", g.of)
     for kind in ("flow", "auxiliary"):
-        for name, part in sorted(_table(spec, kind).items()):
+        for name, part in sorted(getattr(spec, TABLES[kind]).items()):
             for text in sorted(part.equation.refs if part.equation else []):
                 if (r := Ref.parse(text)) is not None:
                     read(f"{kind}.{name}", r)
