@@ -195,3 +195,17 @@ causes are load (a test that hangs only under `-n 8` while other suites are runn
 The serial runs show nothing in this branch's code that would cause either. Left: the factory should run the unit
 suite again and keep its whole output (or `-rf` and the watchdog's closing JSON line), so the output names the test
 that hangs or the reason the run was killed.
+
+## Where it stopped, round 4 (after main ca35e0bd was merged in)
+
+The factory merged main (ca35e0bd, with gap/kb-about) into the branch as 5b8e3ee2, with no conflicts. Main's
+kb-about writes each `about:` field's model parts into the item index's links as relation `@about`. That would
+reach this gap's queries, except that `itemindex.links_from` and `links_to` now drop `@about` rows, and
+`itemgraph` reads links only through those two. So near, path and about still walk item-to-item relations only. The
+`about` query's CLI dest stays `about_item`, apart from the messages' `--about`. No code changed this round.
+
+**Run here, on 5b8e3ee2:** tests/test_item_graph_queries.py (12 passed); test_item_about.py (16); test_item_search,
+test_cli_fallback, test_relations, test_graph_cli_web (74); test_items_page, test_messages, test_relations_asof,
+test_factory_knowledge, test_scale_caches (118 passed, 1 skipped). Ruff is clean. Not run: the whole unit suite and
+the four browser files, which the factory runs under the watchdog. Rounds 3 and 4 asked for the next run to keep its
+whole output, and that still stands: no failing test has been named yet.
