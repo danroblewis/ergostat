@@ -79,7 +79,7 @@ systems:
   knowledge:
     within: factory
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
-    show: [stock.knowledge-entries, stock.lessons-proposed, auxiliary.first-pass-with-lessons]
+    show: [stock.knowledge-entries, stock.lessons-proposed, stock.lessons-to-apply, auxiliary.first-pass-with-lessons]
 
 items:
   gap:
@@ -254,15 +254,17 @@ items:
 
   lesson:
     id: lesson/*
-    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, denied by the coordinator, or retired
-    states: [seen, proposed, requested, denied, retired]
+    description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
+    states: [seen, proposed, requested, approved, applied, denied, retired]
     on:
       lesson.seen: seen              # librarian: a class not listed, found in one review
       lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
-      lesson.requested: requested    # knowledge-change approved: a gap with the exact edit (lesson.py)
+      lesson.requested: requested    # before the knowledge queue: a gap with the exact edit (migrated by lesson.py settle)
+      lesson.approved: approved      # knowledge-change approved, or lesson.py add / retire
+      lesson.applied: applied        # lesson-apply: carried by the briefs from the record
       lesson.denied: denied          # knowledge-change denied: settled, never proposed again (lesson.py settle)
-      lesson.retired: retired        # lesson.py retire
-    show: [kind, lesson, name, text, times, gap, denied_by, why]
+      lesson.retired: retired        # lesson-apply, for lesson.py retire: no longer carried
+    show: [kind, lesson, name, entry, text, times, gap, denied_by, why]
     fold: {times: sum, reviews: union, findings: append}
 
   knowledge:
@@ -278,7 +280,7 @@ items:
 
 messages:
   done: {gap: [merged, closed], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
+         lesson: [requested, applied, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 

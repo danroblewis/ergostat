@@ -515,6 +515,104 @@ def test_a_run_waits_its_turn_in_the_pool(tmp_path):
     assert r.stdout.split() == ["True", "False"], r.stderr                     # a pool of 1: the first taken goes on
 
 
+def long_record(tmp_path, monkeypatch, n: int = 600):
+    """A real project (no fake ergostat) with gap/long: a build at its start, then ``n`` events after it, so the build
+    is outside the last 500 that `ergostat item --json` carries; and gap/short, three events."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    (tmp_path / "ergostat.yaml").write_text("name: timer\nitems:\n  gap:\n    id: gap/*\n    states: [ready, building, built]\n"
+                                            "    on: {gap.ready: ready, gap.started: building, gap.built: built}\n")
+    p = Project(mdl.load(tmp_path))
+    p.events.add("gap.ready", item="gap/long", source="test", at=100.0)
+    p.events.add("gap.built", item="gap/long", source="test", data={"build_hours": 0.5}, at=200.0)
+    for i in range(n):
+        p.events.add("gap.noted", item="gap/long", source="test", data={"i": i}, at=300.0 + i)
+    for t, e in ((100.0, "gap.ready"), (110.0, "gap.started"), (120.0, "gap.built")):
+        p.events.add(e, item="gap/short", source="test", data={"build_hours": 0.25} if e == "gap.built" else {}, at=t)
+    monkeypatch.setenv("ERGOSTAT_CMD", f"{sys.executable} -m ergostat -C {tmp_path}")
+    monkeypatch.setenv("ERGOSTAT_NO_SOCKET", "1")
+    sys.modules.setdefault("fac", module("fac"))
+    return module("times")
+
+
+def test_the_timer_reads_a_gap_past_500_events(tmp_path, monkeypatch):
+    """timer-long-records: past 500 events the record is read whole through the real `ergostat event` (it was
+    `ergostat events`, not a command), so the build at its start is counted."""
+    times = long_record(tmp_path, monkeypatch)
+    d = json.loads(times.fac.ergostat("item", "gap/long", "--json").stdout)
+    assert d["record_total"] == 602 and len(d["record"]) == 500                # cut short: the build is not in it
+    assert times.timing(d)["gates"]["implementor"] == {"minutes": 30.0, "at": 200.0}
+    marks = tmp_path / "times.json"
+    gaps = json.loads(times.fac.ergostat("item", "--kind", "gap", "--json").stdout)["items"]
+    assert times.write(gaps, marks) == 2
+    assert json.loads(marks.read_text())["gap/long"] == 603                     # read, and its own gap.timed counted
+
+
+def test_one_unreadable_gap_does_not_stop_the_timer(tmp_path, monkeypatch, capsys):
+    """timer-long-records: a gap that cannot be read (here: not in the record, `ergostat item` exits 2) keeps its
+    bookmark and fails the run by name, after every other gap was timed and the bookmark saved."""
+    times = long_record(tmp_path, monkeypatch, n=0)
+    gaps = json.loads(times.fac.ergostat("item", "--kind", "gap", "--json").stdout)["items"]
+    gone = {"id": "gap/gone", "kind": "gap", "state": "ready", "events": 4, "fields": {}}
+    marks = tmp_path / "times.json"
+    with pytest.raises(SystemExit) as e:
+        times.write([gone, *gaps], marks)                                       # the unreadable one is read first
+    assert "gap/gone" in str(e.value) and "gap/long" not in str(e.value)
+    said = {json.loads(x)["item"] for x in capsys.readouterr().out.splitlines()}
+    assert said == {"gap/long", "gap/short"}                                    # both others timed
+    assert json.loads(marks.read_text()) == {"gap/long": 3, "gap/short": 4}     # saved; gap/gone read again next run
+
+
+def test_a_long_gap_past_its_ceiling_or_a_full_page_is_unreadable_not_half_read(tmp_path, monkeypatch):
+    """timer-long-records: a gap past LONGEST is not read, and one whose record grows past the page while it is read
+    (here: 1,000 events said between `ergostat item` and `ergostat event`) is unreadable, not timed from a cut page."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    times = long_record(tmp_path, monkeypatch)
+    d = json.loads(times.fac.ergostat("item", "gap/long", "--json").stdout)
+    monkeypatch.setattr(times, "LONGEST", 601)
+    with pytest.raises(ValueError, match="past the 601"):
+        times.timing(d)
+    monkeypatch.setattr(times, "LONGEST", 100_000)
+    real = times.fac.ergostat
+
+    def growing(*args, **kw):
+        if args[:1] == ("event",):
+            p = Project(mdl.load(tmp_path))
+            for i in range(1000):
+                p.events.add("gap.noted", item="gap/long", source="test", data={"i": i}, at=5000.0 + i)
+        return real(*args, **kw)
+    monkeypatch.setattr(times.fac, "ergostat", growing)
+    with pytest.raises(ValueError, match="grew past 1602"):
+        times.timing(d)
+
+
+def test_setpoints_refuse_a_model_with_no_stamp_line(tmp_path, monkeypatch):
+    """timer-long-records: with its `# setpoints:` line gone, `times.py setpoints` fails and writes nothing, rather
+    than setting holds with no record of when."""
+    times = long_record(tmp_path, monkeypatch, n=0)
+    copy = tmp_path / "times.yaml"
+    copy.write_text(before := times.GOALS.read_text().replace("# setpoints:", "# set:"))
+    monkeypatch.setattr(times, "GOALS", copy)
+    monkeypatch.setattr(times.fac, "items", lambda kind, state=None: [])
+    with pytest.raises(SystemExit, match="no `# setpoints:` line"):
+        times.setpoints(time.time())
+    assert copy.read_text() == before
+
+
+def test_setpoints_record_when_they_were_derived(tmp_path, monkeypatch):
+    """timer-long-records: `times.py setpoints` rewrites the model's `# setpoints:` line (first guesses until then)."""
+    times = long_record(tmp_path, monkeypatch, n=0)
+    copy = tmp_path / "times.yaml"
+    copy.write_text(times.GOALS.read_text())
+    assert "# setpoints: first guesses, never derived" in copy.read_text()
+    monkeypatch.setattr(times, "GOALS", copy)
+    monkeypatch.setattr(times.fac, "items", lambda kind, state=None: [])
+    times.setpoints(time.mktime((2026, 11, 21, 12, 0, 0, 0, 0, -1)))
+    assert "# setpoints: derived from the record on 2026-11-21, over 0 gaps: 0 holds set" in copy.read_text()
+    assert "first guesses, never derived" not in copy.read_text()
+
+
 def fac_module(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     return module("fac")
