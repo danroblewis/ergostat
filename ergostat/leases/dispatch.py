@@ -74,6 +74,7 @@ class Dispatcher:
         self.due = float("inf")                       # when the first item put off (not_before) may be taken
         self.due_now: set[str] = set()                # items put off that may be taken now (their daemon revived)
         self.overdue: dict[tuple, float] = {}         # (item, fence, expires) → when (monotonic) a pass first found it overdue
+        self.hold: str | None = None                  # why the last trip check could not read its inputs: pool 0 till one can
 
     @property
     def spec(self):
@@ -104,7 +105,9 @@ class Dispatcher:
                     self.due = float("inf")
                     if mono - last >= EVERY:
                         last = mono
-                        if self.blocks or self.holding:      # (a model with no block that takes: nothing to watch)
+                        if self.spec.operating:              # the trips, once a second (SPEC §9.5, operating states)
+                            self.trip()
+                        if self.blocks or self.holding:     # (a model with no block that takes: nothing to watch)
                             self.watch()
                     self.tick()
             except Exception as e:                             # the next look tries again
@@ -116,6 +119,48 @@ class Dispatcher:
             was, mark = mark, board.wait(mark, wait)
             if mark != was:
                 self.e.stop.wait(GAP)
+
+    # ---- operating states (SPEC §9.5)
+
+    def trip(self, now: float | None = None) -> None:
+        """The trips looked at, under the lock across their read, decision and write. Inputs that cannot be read hold
+        dispatch at pool 0 until a look reads them cleanly."""
+        from ..operating import trips
+        with self.lock:
+            self.hold = trips.check(self.p, self.spec, now, say=self.e.say)
+        if self.hold:
+            self.e.say(f"operating: {self.hold}")
+
+    def cap(self) -> tuple[int | None, str]:
+        """The pool the operating state in force allows each block that takes items (None: no cap), and why. A model
+        that declares no state reads nothing."""
+        if not self.spec.operating:
+            return None, ""
+        if self.hold:
+            return 0, self.hold
+        from ..operating.fold import in_force
+        _, pool, why = in_force(self.p, self.spec)
+        return pool, why
+
+    def flying(self, b, but: str) -> int:
+        """The block's runs in flight, from the fold and here, besides the item ``but``."""
+        self.stale = True
+        every, _ = self.items_of(b.takes.kind)
+        mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
+        return len((mine | set(self.going.get(b.name, {}))) - {but})
+
+    def entered_meanwhile(self, b, it, lease: dict, run: str, fence: int, inline: bool) -> bool:
+        """Read again just after the lease was written (everything recorded before it is seen): when the cap leaves
+        no room for this run now, counting those in flight, the lease ends at once, uncounted, and no run starts. A
+        run by hand (``inline``) ignores the block's pool, so only pool 0 gives it back."""
+        pool, why = self.cap()
+        if pool is None or (pool > 0 and (inline or self.flying(b, it.id) < pool)):
+            return False
+        self.p.events.add(ENDED, item=it.id, source=SOURCE, causedby=run,
+                          data={"run": run, "fence": fence, "how": "nack", "why": why, "count": False,
+                                **self.after(it, lease, False)})
+        self.e.say(f"{b.name}: gave {it.id} back at once: {why}")
+        return True
 
     # ---- dispatch
 
@@ -151,6 +196,7 @@ class Dispatcher:
         look waiting on the item index behind every reading's count (docs/proposals/scale.md)."""
         now = time.time()
         self.stale = True
+        cap = self.cap()[0] if self.blocks else None       # (read once a look: a state never raises a block's pool)
         for b in self.blocks:
             if self.e.stop.is_set() or b.name in self.e.held:
                 return
@@ -160,7 +206,7 @@ class Dispatcher:
             with self.lock:
                 every, ix = self.items_of(b.takes.kind)
                 mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-                room = b.pool - len(mine | set(self.going.get(b.name, {})))
+                room = min(b.pool, b.pool if cap is None else cap) - len(mine | set(self.going.get(b.name, {})))
                 if b.params.get("daemon"):           # the daemon's room, shared by every block it serves (SPEC §9.7)
                     room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
                 if room <= 0:
@@ -185,7 +231,12 @@ class Dispatcher:
 
     def once(self, b, why: str) -> list[str]:
         """A run asked for by hand (``ergostat block NAME --now``): it leases the next item the block would take, and
-        runs here, at once, whatever its pool; with nothing to take, nothing runs."""
+        runs here, at once, whatever its pool; with nothing to take, nothing runs; under an operating state's pool 0,
+        nothing runs either."""
+        cap, capwhy = self.cap()
+        if cap == 0:
+            self.e.say(f"{b.name}: not run: {capwhy} (pool 0)")
+            return []
         with self.lock:
             got = ordered(b, unblocked(self, b, self.ready(b, its.project(self.p.events, self.spec, b.takes.kind, transcript=False),
                                                           time.time())))
@@ -209,6 +260,8 @@ class Dispatcher:
         now = its.one(self.p.events, self.spec, it.id)
         got = held(now.fields) if now else None
         if not got or got.get("holder") != run:                   # someone else took it first: the fold refused this one
+            return None
+        if self.spec.operating and self.entered_meanwhile(b, now, got, run, fence, inline):
             return None
         self.resources(ev)
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence}

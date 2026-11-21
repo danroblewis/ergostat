@@ -1021,6 +1021,8 @@ class Compiler:
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
+        from ..operating import compile as operating
+        operating.section(self, spec)                        # operating: the states, their pools and trips (SPEC §9.5)
         from . import triggers
         triggers.check(self, spec)                           # blocks started by an event, and their loops (SPEC §9.3)
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]

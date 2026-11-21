@@ -69,6 +69,7 @@ see it
   loop           The feedback loops: what each holds, how far off, each part along it
   item           The items (ticket/12): each one's kind, state and fields, folded from its events
   lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
+  operating      The operating states: rank, pool, entered or left (enter NAME --why TEXT, leave NAME --why TEXT)
   decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
   corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
   context        A session's starting context: context decisions --scope X, context corrections --kind Y
@@ -354,6 +355,8 @@ def build() -> argparse.ArgumentParser:
     remote_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
+    from .operating import register as operating_topics
+    operating_topics(sub, common)
     return ap
 
 

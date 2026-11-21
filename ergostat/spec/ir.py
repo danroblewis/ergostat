@@ -846,6 +846,19 @@ class NamedLoop:
 
 
 @dataclass
+class OperatingState:
+    """An operating state (SPEC §9.5): its rank (higher takes precedence), the most runs at once of each block that
+    takes items while it is entered (None: no cap), and its trips, goal → the silence after which an unread goal trips
+    it (None: only its crossing)."""
+    name: str
+    rank: int
+    pool: int | None = None
+    description: str = ""
+    trips: dict[str, float | None] = field(default_factory=dict)
+    where: Where | None = None
+
+
+@dataclass
 class Spec:
     name: str
     root: Path
@@ -878,6 +891,7 @@ class Spec:
     workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
     daemons: dict[str, Daemon] = field(default_factory=dict)           # the long-lived runners (SPEC §9.7)
+    operating: dict[str, OperatingState] = field(default_factory=dict)  # the operating states declared (SPEC §9.5)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
