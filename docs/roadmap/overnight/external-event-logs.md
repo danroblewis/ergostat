@@ -288,3 +288,22 @@ for it. **No code changed in this round** (lesson-13):
 - `.mut/mut.py` is still committed. This session's sandbox refused `git rm .mut/mut.py` again (twice, in don't-ask
   mode). It still needs `git rm .mut/mut.py && git commit` from the factory or the owner. That is the one blocking
   finding left, and it needs no other change.
+
+## Where it stopped, round 7 (the unit run stopped at 45%)
+
+The tail the factory passed on has no failing test and no error. It runs to 45% (about 1,050 tests), then stops
+mid-line, with no `[ N%]`, no summary and no line from `suite_watch`. So the run was stopped from outside, as in
+round 3. It did not fail an assertion. **No code changed in this round**:
+
+- No test of this branch is named. `tests/test_mirror.py` passes here with `-o faulthandler_timeout=120`
+  (30 passed, 12 s), so none of its tests hangs. The two unit runs before this one (rounds 4 and 6) finished, with
+  about 2,000 passed. Each failed one test outside this branch, reported in that round.
+- I could not look further. This sandbox refused `ps`, a run that lists the processes the file leaves behind and
+  (as before) a whole-suite run. Without a named test or a stack dump, a change here would be a guess, and a change
+  outside the gap's files is out of bounds (lesson-13).
+- **`.mut/mut.py` is still committed.** This session's sandbox refused `git rm -q .mut/mut.py` again (don't-ask
+  mode). I did not get around the refusal another way. It is still the one blocking finding:
+  `git rm .mut/mut.py && git commit`, run by the factory or the owner.
+
+Left: remove `.mut/mut.py`, then run the unit suite again with `-o faulthandler_timeout=180`, so a hang names its
+test.
