@@ -42,3 +42,15 @@ to ask, each the most reversible reading:
   to `{unlisted}` in reviewer.md. Without that the prompt could not show them. reviewer.md again tells the reviewer to
   judge each listed file and to block on a stray. With no Files to touch section, every new file is listed (worst
   case). The branch's own definition file is listed too; hiding it would need the branch name inside unlisted().
+
+## Where it stopped
+
+The factory reported `unit` failed, but the tail it gave has no FAILED or ERROR line and no summary: it ends in the
+middle of a line of dots, which reads as a run cut off (killed or timed out), not a failing test. Re-run here, a group
+of files at a time: tests/test_factory.py (118 passed, 2 skipped); the files that touch the factory, its reviewer, its
+prompts or factory.toml (test_factory_manager, _knowledge, _resources, _sessions, test_improve, test_modelreview,
+test_recipes, test_interventions: 214 passed; test_review, test_factory_join, test_gate, test_templates, test_churn,
+test_churn_carry, test_agents_page, test_goal_per, test_inbox: 146 passed, 1 skipped; test_code_health_coverage: 11
+passed). None failed, so no code changed in this round. The watched suite (`uv run python scripts/suite_watch.py --
+uv run python -m pytest -q -n 8 --dist worksteal`) was refused in this session, so the whole unit suite was not run
+here. What is left: the factory's next unit run; if it fails again with a named test, that test.
