@@ -139,3 +139,9 @@ empty file). No code changed, main was not merged again, and no suites were run.
 person, or a session allowed to delete files, runs
 `git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending the
 item back to an implementor with these permissions will be refused the same way.
+
+Round 10 (the factory's "round 4" again): the tenth refusal. `git rm -r .bench` was denied by the "don't ask"
+permission mode. Nothing else was tried to delete the file. No code changed, main was not merged again, and no suites
+were run. What is left is still one command and a commit, for a person or a session allowed to delete files:
+`git rm -r .bench && git commit -m "rs-detach: the stray benchmark removed"`, then the factory's suites. Sending this
+item back to an implementor with these permissions has now failed ten times in a row.
