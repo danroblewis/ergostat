@@ -235,9 +235,10 @@ def _segments(it, now: float, finished) -> list[list]:
     return out
 
 
-def build(events, spec, kinds: list[str], now: float, since: float, ix=None) -> dict:
+def build(events, spec, kinds: list[str], now: float, since: float, ix=None, until: float | None = None) -> dict:
     """The items of ``kinds`` (unfinished, and finished since ``since``) and the items their relations reach, with
-    their links, each one's status, expected duration, its place on the critical path and its schedule."""
+    their links, each one's status, expected duration, its place on the critical path and its schedule. With
+    ``until``, as they stood then: every read of the index through ``spec/asof.py``."""
     from .spec.itemindex import index_for
     ix = ix if ix is not None else index_for(events, spec, False)
     out = {"now": now, "since": since, "kinds": [], "items": [], "edges": [], "cycles": [], "critical": [], "end": now,
@@ -245,6 +246,9 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None) -> 
     if ix is None:
         out["note"] = "this record keeps no item index: relations are read from it"
         return out
+    if until is not None:
+        from .spec.asof import AsOf
+        ix = AsOf(ix, events, spec, until)
     info = Kinds(spec, ix)
     kinds = [k for k in kinds if k in spec.items]
     got: dict[str, object] = {}
