@@ -531,7 +531,52 @@ def test_failing_fast_suites_park_the_gap(tmp_path):
     assert said[-1] == "gap.parked" and f.item(gid)["fields"]["parked_in"] == "building"   # never stuck
 
 
-T = "tests/test_x.py::test_y"
+def test_a_committed_scratch_file_is_refused_before_the_suites(tmp_path):
+    log = tmp_path / "suite-runs.log"
+    f = Factory(tmp_path, unit=f"echo ran >> {log}")
+    gid = ready(f)
+    scratch = "tests/_probe_test.py,.scratch/floors.py,tests/test_a_probe.py,app.py.orig"
+    said, lines = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=scratch)   # (suite_fix_rounds 0: no next round)
+    assert said == ["gap.started", "gap.measured"] and f.item(gid)["fields"]["build_failures"] == 1
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert "refused before the suites" in nack["why"] and all(p in nack["why"] for p in scratch.split(","))
+    assert f.item(gid)["fields"]["suites_fast"]["stray"] == sorted(scratch.split(","))
+    assert not log.exists()                                                   # the suites never ran
+
+    f.config.write_text(f.config.read_text().replace("suite_fix_rounds = 0", "suite_fix_rounds = 1"))
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=scratch)      # the next round is told, and removes them
+    gap = f.item(gid)["fields"]
+    assert said == ["gap.started", "gap.built"] and gap["sessions"] == 1 + 2 and gap["build_failures"] == 1
+    assert not gap.get("failed_gates") and log.read_text() == "ran\n"         # no review round counted; suites ran once
+    files = git(tmp_path / "live" / "drop.git", "ls-tree", "-r", "--name-only", "factory/alpha-thing").splitlines()
+    assert not set(scratch.split(",")) & set(files) and "standin/work.txt" in files
+
+
+def test_a_new_top_level_file_not_in_the_definition_is_refused(tmp_path):
+    f = Factory(tmp_path)
+    d = tmp_path / "instance" / "run" / "defs"
+    d.mkdir(parents=True)
+    (d / "alpha-thing.md").write_text("# alpha thing\n\n## Definition of done\n\nIt works.\n\n## Files to touch\n\n"
+                                      "- `standin/work.txt` (new)\n- `newdir/x.py` (new)\n- `app.py`\n\n"
+                                      "## Size budget\n\n600 net lines.\n")
+    f.run("intake.py")
+    gid = "gap/alpha-thing"
+    said, lines = f.run("implement.py", gid, FACTORY_STANDIN_WRITES="newdir/x.py,docs/more.md,notes.txt,extra/y.py")
+    assert said == ["gap.started", "gap.measured"]
+    assert f.item(gid)["fields"]["suites_fast"]["stray"] == ["extra/y.py", "notes.txt"]   # named, or under main's: kept
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import implement; from pathlib import Path; "
+            "no_files = '# x\\n\\n## Definition of done\\n\\nIt works.\\n'\n"
+            "print(json.dumps(implement.strays(json.loads(sys.argv[3]), Path(sys.argv[2]), 'main', "
+            "'factory/alpha-thing', no_files)))")
+    drop = str(tmp_path / "live" / "drop.git")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), drop, "{}"], capture_output=True, text=True, env=f.env)
+    assert json.loads(r.stdout) == []                                         # no Files to touch: nothing to compare
+    bad = json.dumps({"gates": {"scratch_patterns": "tmp*"}})
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), drop, bad], capture_output=True, text=True, env=f.env)
+    assert r.returncode and "scratch_patterns must be a list" in r.stderr     # a bad setting stops, never passes
+
+
+T ="tests/test_x.py::test_y"
 
 
 def suite_sh(tmp: Path, fails: str) -> Path:
