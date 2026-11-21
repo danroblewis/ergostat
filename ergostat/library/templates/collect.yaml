@@ -1,5 +1,5 @@
 template: collect
-description: The event collector. Polls a command or an HTTP endpoint and records each new record as an event about an item, de-duplicated and from a cursor.
+description: The event collector. Polls a command or an HTTP endpoint and records each new record as an event about an item, de-duplicated and from a cursor; with mirror, each entry of an outside log once, under an id citing its position (SPEC §2, Mirroring an outside log).
 reading: |
   Control: an instrument, not a controller. It is the sensor on an arrival flow: it measures what came in (the
   new items per hour, over ten minutes) and records each record it saw as an event, so the items fold from them

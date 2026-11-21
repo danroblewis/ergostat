@@ -10,7 +10,11 @@ feed made up at RATE records an hour, free and offline). Each record is about th
 ``K.<its event-field, or --event>`` with the record as its data, and never again (de-duplicated by id and event,
 the last 20,000 kept), unless ``--changes`` and the record changed (``K.changed``). With ``--cursor-field`` only
 records past the greatest cursor seen are taken. The number printed last is the new items per hour over
-``--window`` (what the flow's rate is)."""
+``--window`` (what the flow's rate is).
+
+``--mirror`` (with ``--cursor-field``, the entry's position, and ``--position int|text``): each entry of an outside
+log said once, under ``cite:$ERGOSTAT_SENSOR:<type>:<position>`` (``mirror.py``), the cursor confirmed against the
+record and recovered from it (``mirrored``)."""
 
 from __future__ import annotations
 
