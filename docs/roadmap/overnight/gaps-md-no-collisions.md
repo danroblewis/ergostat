@@ -165,3 +165,9 @@ Bash was refused on its first command (`git status --short && git rm .gitattribu
 `.gitattributes` is still committed and this paragraph is uncommitted. I did not delete the file with the file
 tools (the blocked removal by another route). No tests were run. What is left is the same one command,
 `git rm .gitattributes && git commit`, on `factory/gaps-md-no-collisions`.
+
+### Round 8, third try
+The same: Bash was refused on its first command (`git status --short && git rm .gitattributes`). The root
+`.gitattributes` is still committed and this paragraph is uncommitted. I did not delete the file with the file
+tools (the blocked removal by another route). No tests were run. What is left is the one command
+`git rm .gitattributes && git commit`, which the coordinator has to run, or give the implementor Bash.
