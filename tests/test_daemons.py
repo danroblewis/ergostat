@@ -697,6 +697,17 @@ blocks:
         assert wait_for(lambda: events(p, "agent.failed"), 20)
     finally:
         e.close()
+    groups = [x["data"]["pid"] for x in events(p, "ergostat.daemon.started")]
+
+    def gone(g: int) -> bool:
+        try:
+            os.killpg(g, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        return False
+    assert groups and wait_for(lambda: all(gone(g) for g in groups), 5), f"nothing it started outlives close: {groups}"
     return events(p, "agent.failed")[0]["data"]
 
 

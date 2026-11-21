@@ -88,3 +88,27 @@ Refused here: listing processes after the two acceptance tests (`ps -A -o pid,pp
 see whether the hung `burn.py hang` daemon outlives `e.close()`. Listing `/tmp` for the suite's log was refused too.
 The full log of the cut-off unit run, not its tail, should name the test still running at 84%. If that test is not in
 the files above, it should be run on clean main (lesson-13).
+
+Round 4. No new review finding. The only one listed is review 2's (7eb9e82c), already answered in round 3: that
+commit is undone and its flake is reported above. No code changed, so it is still 11 net lines outside tests and docs
+(`proc.py` +8, `usage.py` +3).
+- The open question from round 3 is answered: the acceptance tests leave no daemon behind. `ps` was refused again.
+  So `_failed_warm_run` now checks it itself. After `e.close()` it signals each process group named in an
+  `ergostat.daemon.started` event (`os.killpg(g, 0)`) and asserts that each is gone within 5 s. Both acceptance tests
+  pass with this check. To check the check (lesson-9), `supervise.py` was broken by hand and then restored (`git
+  diff` is empty for it). With only `close`'s `killpg` removed, the hang test still passed, because the timeout
+  path's `_kill` had already ended the hung group. With `_kill` removed too, it failed: "nothing it started outlives
+  close: [1078]".
+- The broken run left that `burn.py hang` group (pgid 1078) asleep. `kill -KILL -- -1078` was refused. Its input
+  pipe is closed, so it ends on its own once its `time.sleep(600)` is over.
+- `scripts/suite_watch.py` cannot see such a leftover. Daemons get an environment without `ERGOSTAT_SUITE_WATCH`
+  (`proc.py` keeps only `SHARED` among the `ERGOSTAT_` variables). An orphaned daemon is reparented to init, so
+  `left_behind` does not count it. That is main's code, so it is reported here, not changed (lesson-13).
+- The two cut-off unit runs are still unexplained. Neither printed suite_watch's JSON line, which it prints even when
+  interrupted by SIGTERM, so something outside suite_watch ended it, most likely the factory's own time limit. They
+  stopped at different points (28 dots; 84%). Nothing found here ties that to this branch. The full log is still
+  what would name the test.
+
+Run here in round 4: `tests/test_daemons.py` (34 passed, also under `suite_watch.py`: rc 0, 60 s, peak 68 threads),
+ruff (clean). Not run here: the whole unit suite and the four browser files. Main was not merged again (no network;
+the local `main` is still 20339898, which the branch already holds).
