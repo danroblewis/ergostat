@@ -763,6 +763,43 @@ def test_a_run_record_detects_a_reused_pid(tmp_path):
     assert not runrecord.alive(rec)                                           # ended
 
 
+@pytest.mark.parametrize("program, state", [
+    ("import os, resource, signal\nresource.setrlimit(resource.RLIMIT_CORE, (0, 0))\n"
+     "os.kill(os.getpid(), signal.SIGSEGV)\n", "noted"),                       # as `kill -SEGV $$`, no core left
+    ("import sys\nsys.exit(7)\n", "open")])                                   # a plain failing exit: the code's to fix
+def test_a_run_killed_by_a_core_dumping_signal_is_triaged_as_a_signal(tmp_path, program, state):
+    import sys
+
+    from ergostat.repair import FAILURE
+    from ergostat.runner import STOPPING
+    from ergostat.spec import items as its
+    from ergostat.spec.engine import Engine
+    d = tmp_path / "rz"
+    d.mkdir()
+    (d / "crash.py").write_text(program)
+    (d / "ergostat.yaml").write_text(textwrap.dedent(f"""\
+        name: crash
+        blocks:
+          crasher: {{type: program, run: {sys.executable} crash.py, every: 1h}}
+        uses:
+          repair: {{use: repair, with: {{count-every: 1h, approver: person}}}}
+        """))
+    m = mdl.load(d)
+    assert not [x for x in m.problems if x.level == "error"], [str(x) for x in m.problems]
+    p = Project(m)
+    STOPPING.clear()
+    e = Engine(p, say=lambda s: None)
+    try:
+        e.run_block(p.model.spec.blocks["crasher"], "test")
+    finally:
+        e.close()
+        STOPPING.clear()
+    got = its.project(p.events, p.model.spec, FAILURE)
+    assert len(got) == 1 and got[0].fields["program"] == "crash.py", got
+    assert got[0].fields["exit"] == (128 + 11 if state == "noted" else 7)     # SEGV: the wrapper's 128+N (SPEC §9.1)
+    assert got[0].state == state                                              # a signal is never opened (SPEC §12)
+
+
 @pytest.mark.parametrize("shell", ["sh", "bash", "dash"])
 def test_the_run_wrapper_records_the_exit_under_each_shell(tmp_path, shell):
     import shutil
@@ -787,6 +824,12 @@ def test_the_run_wrapper_records_the_exit_under_each_shell(tmp_path, shell):
     for code in (128 + signal.SIGABRT, 128 + signal.SIGSEGV):                 # a core-dumping signal's code: no crash
         got = subprocess.run([path, *runrecord.command(f"exit {code}", f)[1:]], timeout=10, start_new_session=True)
         assert got.returncode == code and f["exit"].read_text() == f"{code}\n"
+        assert runrecord.by_signal(got.returncode)                             # and still filed as a signal's end
+    segv = 128 + signal.SIGSEGV                                                # really killed by one: the same code
+    got = subprocess.run([path, *runrecord.command("ulimit -c 0; kill -SEGV $$", f)[1:]], timeout=10,
+                         start_new_session=True, cwd=tmp_path)
+    assert got.returncode == segv and f["exit"].read_text() == f"{segv}\n" and runrecord.by_signal(segv)
+    assert not runrecord.by_signal(5) and not runrecord.by_signal(128 + signal.SIGTSTP) and runrecord.by_signal(-15)
     import sys
     import time
     deaf = f"{sys.executable} -c \"import signal, time; signal.signal(15, signal.SIG_IGN); time.sleep(1); print('late')\""

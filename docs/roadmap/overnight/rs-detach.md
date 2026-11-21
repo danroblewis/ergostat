@@ -220,3 +220,30 @@ ABRT and SEGV put back on the list it failed (`assert (-6 == 134)`); with the fi
 and docs: +57 against main (`runrecord.py` +1 this round). Run one file at a time, all passing: test_resilience (31),
 test_streamed_output + test_spec_engine (20). `ruff check ergostat tests scripts` is clean. Not run here: the full
 unit suite and the browser files, which the factory runs.
+
+Round 18 (review/rs-detach-2, its findings one by one):
+- **Blocking (lesson-8 / lesson-12): SPEC did not say how the wrapper changes exit codes, and triage filed a segfault
+  as the code's to fix.** Both fixed. (a) Triage now agrees with main for a real crash: `runrecord.by_signal(code)` is
+  true for -N and for 128+N where N is a signal that dumps core (QUIT ILL TRAP ABRT BUS FPE SEGV SYS XCPU XFSZ, read
+  from Python's `signal` module, so macOS's numbers are its own). `repair/capture.py` files such a run as `signal`, so
+  a segfaulting or aborting program is noted, never opened, as on main. (b) SPEC §9.1 now states the mapping and its
+  cost, the `exit` row (§9.1's table) points to it, and §12's triage paragraph says what counts as a signal. What
+  still differs from main, now written in SPEC: a command that *exits* 129–159 on purpose. Those in the allowlist
+  read -N; the core ones read 128+N but are filed as `signal`. Either way the run is noted, where main opened it. A
+  compound `run:` whose last command segfaults read 139 on main too (main's own `sh` could not tell), and was opened;
+  it is now noted. `capture.py` is outside the definition's files to touch. It is the only
+  reader of the exit's sign in ergostat (searched), and the review named it as one of the two fixes. Choosing to
+  change triage rather than only document the difference was the reversible option: undoing it is one line.
+- **Non-blocking: no test of a command really killed by a core-dumping signal.** Added. The wrapper test runs
+  `ulimit -c 0; kill -SEGV $$` under sh, bash and dash and checks it reads 139 (and `by_signal` of 5, 147, -15).
+  New `test_resilience.py::test_a_run_killed_by_a_core_dumping_signal_is_triaged_as_a_signal`: a project program
+  that sends itself SEGV (core limit 0) is filed with exit 139 and stays `noted`, and one that exits 7 is `open`. With
+  capture.py's old `code < 0` put back it failed (`assert 'open' == 'noted'`); with the fix it passes. It sits in
+  test_resilience because `test_repair2.py` is skipped wholesale where bwrap cannot make namespaces (here).
+- **Fixed earlier (round-1 finding):** unchanged.
+
+Net lines outside tests and docs: +67 against main (`runrecord.py` +88, `engine.py` +13/-4, `stream.py` +44/-75,
+`capture.py` +2/-1), inside the 150 budget. Run, one file at a time or a few: test_resilience (35), and
+test_streamed_output + test_spec_engine + test_repair2 + test_impact (32 passed, 32 skipped for no bwrap namespaces).
+`ruff check ergostat tests scripts` is clean. Not run here: the full unit suite and the browser files, which the
+factory runs. Main was not merged again this round.

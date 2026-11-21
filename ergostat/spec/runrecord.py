@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import uuid
@@ -27,6 +28,14 @@ SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 WRAP = ('trap : INT TERM; rc=0; /bin/sh -c "$1" || rc=$?; printf "%s\\n" "$rc" > "$2"; '
         'if [ "$rc" -gt 128 ] && s=$(kill -l "$rc" 2>/dev/null); then case "$s" in '
         '*HUP|*INT|*PIPE|*ALRM|*TERM|*USR1|*USR2|*KILL) trap - INT TERM; kill -s "$s" $$ ;; esac; fi; exit "$rc"')
+CORE = {int(getattr(signal, n)) for n in ("SIGQUIT", "SIGILL", "SIGTRAP", "SIGABRT", "SIGBUS", "SIGFPE", "SIGSEGV",
+                                          "SIGSYS", "SIGXCPU", "SIGXFSZ") if hasattr(signal, n)}
+
+
+def by_signal(code) -> bool:
+    """Whether a run's exit code says a signal ended it: -N, or 128+N for a signal that dumps core (the wrapper exits
+    with that code instead of raising it; a plain ``exit 139`` reads the same and is taken as a signal too)."""
+    return isinstance(code, int) and not isinstance(code, bool) and (code < 0 or code - 128 in CORE)
 
 
 def files(state_dir: Path, run_id: str) -> dict[str, Path]:
