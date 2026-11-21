@@ -221,5 +221,30 @@ def test_a_request_whose_calls_keep_failing_does_not_starve_the_others(tmp_path,
     assert calls.count(True) == md.FAILS and len(calls) <= n + 1
 
 
+def test_a_fresh_request_is_called_without_one_that_failed_before(tmp_path, monkeypatch):
+    """While a request that failed before still waits, a fresh one arrives: its call is made without the failed one,
+    so it neither fails with it nor takes a failed count that is not its own."""
+    from ergostat.library.run import modelling as ml
+    p = _project(tmp_path, monkeypatch)
+    order = ml._near(p, _waiting(p))
+    assert len(order) >= 2
+    bad = order[-1]
+    assert rq.mark(p, bad, bad["state"], failed={"ai": 1})       # it failed before; the others are fresh
+    calls = []
+
+    def call(text, model, timeout=600.0):
+        calls.append(f'"id": "{bad["id"]}"' in text)
+        if calls[-1]:
+            return {"result": "", "usd": 0.01, "error": "the call failed (exit 1): Prompt is too long"}
+        return {"result": "", "usd": 0.01, "tokens_in": 1, "tokens_out": 1}
+    monkeypatch.setattr(md, "call", call)
+    assert _run("--daily", "20") == 0
+    assert calls and True not in calls                           # the fresh ones called, the failed one not with them
+    for r in order[:-1]:
+        x = rq.stored(p)[r["id"]]
+        assert not x.get("failed") and not x.get("error") and (x.get("tried") or {}).get("ai") == 1
+    assert rq.stored(p)[bad["id"]]["failed"] == {"ai": 1}
+
+
 def _waiting_ai(p, rid):
     return any(r["id"] == rid and int((r.get("failed") or {}).get("ai") or 0) < md.FAILS for r in _waiting(p))
