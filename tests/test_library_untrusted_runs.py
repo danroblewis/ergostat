@@ -220,6 +220,24 @@ def wait_for(cond, seconds=5.0):
     return cond()
 
 
+def test_a_block_run_by_its_readings_is_paced_too(tmp_path):
+    """A block changed after it was compiled to run on its inputs' readings (no every:, cron: or takes:): due no
+    faster than the floor since its last run began."""
+    from ergostat.spec.ir import Ref
+    e, p = engine(tmp_path)
+    b = e.spec.blocks["a-work"]
+    b.every, b.inputs = None, {"x": Ref("stock", "a-waiting")}
+    e.last_reading = time.time()
+    e.began["a-work"] = time.time() - (UNTRUSTED_EVERY - 10)
+    assert e.due(b) is False, "a new reading, but its last run began under the floor ago"
+    e.began["a-work"] = time.time() - (UNTRUSTED_EVERY + 10)
+    assert e.due(b) is True
+    own = e.spec.blocks["go"]
+    own.every, own.inputs = None, {"x": Ref("stock", "mine")}
+    e.began["go"] = time.time() - 1
+    assert e.due(own) is True, "the owner's own block runs on its readings, unpaced"
+
+
 def test_judge_pass_counted_at_ceiling(tmp_path, monkeypatch):
     e, p = engine(tmp_path)
     e.running |= set(GONE)

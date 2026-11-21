@@ -103,3 +103,97 @@ Then the unit suite, the four browser files (rc 0, no skips for want of a port),
 ## Notes from the plan review (answer each; not blocking)
 
 - bounds.room classifies a running entry's trust by looking the block up in the current engine.spec. After a reload that keeps a block's name but makes it trusted (folder trust flipped, or the owner's own block reusing the name), an untrusted run that is still draining stops counting and the UNTRUSTED_RUNS cap can be passed (lesson-5, plus lesson-4/6 'counting the ones still draining'). Record untrusted on the running entry when it is added under e.lock, count an entry if the recorded flag OR the current spec says untrusted (a missing block still counts), add lesson-5 to Risks, and add a test: an untrusted run is blocked in run_block, a spec reload makes the same name trusted, and the cap still counts it. The test must fail if trust is looked up only in engine.spec.
+
+## Where it stopped
+
+Built, round 1. Net code 224 lines of the 340 budgeted. Nobody was there to ask, so each choice the definition left
+open, or got wrong, was settled the most reversible way, and is listed here (the definition above is unchanged).
+
+**The plan review's note: answered.** `Engine.untrusted_runs` records, under `engine.lock` and in the same hold that
+adds a run (`bounds.hold`, called by `start`, by `dispatch.take` and by the judge's pass), whether each `running`
+entry was untrusted when it began. `bounds.room` counts an entry when that record says so, or when the current spec
+says so, or when the spec no longer has its block. `test_reload_making_it_trusted_still_counts_its_draining_run`
+blocks an untrusted run in `run_block`, swaps in a spec where that block is trusted, and shows the cap still holds.
+It fails when `room` ignores the record. The note asked for lesson-5 to be added to *Risks*. The definition is not
+edited except here, so it is answered here: the remade-under-the-same-name case is the one that test covers, and a
+stale record is pruned on every hold (`untrusted_runs` is cut to what is in `running`). A stale record can only make
+a run count as untrusted, which fails closed.
+
+**Where this differs from the definition.**
+- *Cron in words.* The definition says the minute-set rule "works for cron in words too" and names `every minute`
+  and `daily at 03:00` in a test. The compiler's `cron:` reads only five-field cron (`ergostat/cron.py`). Words are
+  only how the badges *show* a cron (`model.cron_words`). So `daily at 03:00` is a `bad-cron` error for any part,
+  not a pass. `test_untrusted_cron_hourly_only` uses `* * * * *` and `0 3 * * *` for those two cases and asserts
+  that `every minute` is `bad-cron`.
+- *Attempts.* The effective attempts (`leases.terms`, so the owner's `leases:` tier counts) are checked on an
+  untrusted block that takes items or that writes its own `lease: {attempts}`. A timed block holds no leases, so the
+  owner's tier reaching it is not an error. Without this, `leases: {program: {attempts: 10}}` would break every
+  untrusted timed block for a number it never uses.
+- *The judge's pass* goes through the same `room`/`hold` under `engine.lock`, and its interval through `pace`. The
+  definition counts judges in the total but names only `start` and `take` as gates. Without the gate, the total
+  could not be enforced at run time. Tested by `test_judge_pass_counted_at_ceiling` and the judge in
+  `test_engine_paces_untrusted_at_floor`.
+- *The sentence.* The fixed sentence is the output's `markers` key (list form, and the full form of an untrusted
+  template). It appears only when an untrusted template or an untrusted folder's note is present, so a model with
+  no untrusted folder gets main's output byte for byte. The key is not `untrusted`, because in the full form each
+  entry's `untrusted: true` is already at that level.
+- *A "does not exist" note* for an untrusted folder says `untrusted library folder PATH does not exist`, with nothing
+  marked. No library text is in it.
+- *The label of a trusted template nested in an untrusted chain* is `template NAME` when NAME matches the name
+  pattern, else `library file`. A trusted folder's names are not checked, so this keeps a label from ever holding
+  unchecked text.
+- *The snapshot.* "A trusted template's output equals main's" is checked against
+  `tests/fixtures/library-trust/trusted-snapshot.json`, captured from main's code before any change. It covers a
+  fixture template (`owners/plain.yaml`) with its `from` path normalised, rather than a built-in, so that it does
+  not break when a built-in template is edited.
+
+**Not built (outside the definition):** marking what an untrusted template makes in the model, and the `unknown-key`
+and `no template X` messages a nested untrusted entry gives (library text, unmarked, not claimed in SPEC). A block's
+`daemon:` param is not bounded (not in the listed fields; its pool and the total are). Gating `ask:` and
+`query`/`source` is left in GAPS, *Shared libraries*.
+
+**Each test broken once (lesson-9).** Each change below was made to the code, and the named tests were seen to
+fail. Changes that touched different tests were run in batches.
+- `untrusted_part` as `.get("untrusted", False)`: `test_recheck_missing_trust_is_untrusted`.
+- Folders read in their listed order: `test_untrusted_never_shadows_trusted`.
+- Names not checked: `test_untrusted_names_validated`.
+- A list written with `str`, not JSON: `test_templates_tool_marks_every_string`.
+- Cron rule always true: `test_untrusted_cron_hourly_only`.
+- Attempts from the block's own `lease:` only: `test_untrusted_attempts_ceiling`.
+- `library:` map's `untrusted` not required to be a bool: `test_library_map_declares_untrusted`.
+- `trusted`/`untrusted` added to `USE_KEYS`: `test_use_entry_cannot_set_trust`.
+- No `⟦⟧` escape: `test_marker_escapes_open_and_close`, `test_bad_param_message_marked`,
+  `test_template_library_note_marked`, `test_stand_in_finding_marked`.
+- No every floor: `test_untrusted_every_floor` (and `test_use_entry_cannot_set_trust`, `test_with_cannot_loosen_limits`).
+- No start-less check: `test_untrusted_block_needs_a_start`. Separately, `on:` allowed and `daemon:` allowed: the same test.
+- No total: `test_untrusted_pool_and_total_ceilings`, `test_with_cannot_loosen_limits`.
+- No per-block pool cap: `test_untrusted_pool_and_total_ceilings`, both nested tests, `test_recheck_missing_trust_is_untrusted`.
+- `uses.one`'s messages unmarked: `test_bad_param_message_marked`, `test_stand_in_finding_marked`,
+  `test_untrusted_nested_under_trusted`.
+- `author.marked` a no-op: `test_templates_tool_marks_every_string`, `test_marker_escapes_open_and_close`.
+- Notes unmarked: `test_template_library_note_marked`, `test_untrusted_names_validated`.
+- Chain flag not passed down: `test_trusted_nested_under_untrusted`.
+- Only the chain, not the template's own flag: `test_untrusted_nested_under_trusted`, `test_library_map_declares_untrusted`.
+- Untrusted sensor default left at 60 s, and no judge default: `test_defaults_within_limits`.
+- `pool: many` quietly 1 (its `bad-number` removed): `test_unparseable_value_is_error`.
+- `room` ignores the recorded flag: `test_reload_making_it_trusted_still_counts_its_draining_run`.
+- A missing block counted as trusted: `test_start_refused_at_ceiling` (and four others).
+- `start` counting before taking `engine.lock`: `test_start_race_holds_cap`. The test's first version waited on its
+  barrier *before* counting, so one thread could count after the other had added. It passed under this break and
+  was fixed to count, then wait.
+- `take` counting before taking `e.lock`: `test_start_race_holds_cap`.
+- `take` not gated: `test_take_reserves_before_lease`.
+- The slot freed as `run_block` begins: `test_draining_run_still_counts` and the reload test.
+- `pace` returning `every`: `test_engine_paces_untrusted_at_floor`.
+- The readings path of `due` unpaced: `test_a_block_run_by_its_readings_is_paced_too`.
+- The judge not gated and not paced: `test_judge_pass_counted_at_ceiling`, `test_engine_paces_untrusted_at_floor`.
+
+**Run, and not run.** The two new files passed (28 tests), each alone. These existing files also passed, run
+serially one batch at a time: `test_templates`, `test_cron`, `test_control`, `test_observer`, `test_incremental`,
+`test_modelling_ai_cap`, `test_modelling_template`, `test_reload_in_place`, `test_runner_and_state`, `test_spec_blocks`
+(263), then `test_leases`, `test_resilience`, `test_trial_stops`, `test_chains`, `test_daemons_restart` and
+`test_process` (121). ruff is clean. **Not run here:** the whole unit suite and the four browser files. The brief
+leaves those to the factory under the watchdog. `demo_check` was not run either, since no example was touched.
+**Merge:** this clone has no `origin` remote and no network. Local `main` is already an ancestor of the branch, so
+there was nothing to merge. lesson-7 (`library-provenance`) is still open for the factory's merge, which meets on
+`Template.untrusted`. `doc.library` is still `list[Path]`.
