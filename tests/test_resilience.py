@@ -468,3 +468,167 @@ def test_compact_projects_skips_a_folder_an_engine_runs_in(tmp_path, home, monke
     shutil.rmtree(gone)
     monkeypatch.setattr("ergostat.runner.running_pid", lambda project, wait=True: 123 if project.dir == p.dir else None)
     assert projects.orphans() == []
+
+
+# ---- 6. a run no longer depends on the engine that started it (docs/roadmap/overnight/rs-detach.md)
+
+def _blocked(tmp_path, run: str, extra: str = ""):
+    return Project(mdl.load(_repo(tmp_path, MODEL + textwrap.dedent(f"""
+        blocks:
+          worker:
+            type: program
+            run: {json.dumps(run)}
+            every: 1h
+        """) + extra)))
+
+
+def _until(cond, seconds: float = 15.0):
+    import time
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        got = cond()
+        if got:
+            return got
+        time.sleep(0.02)
+    return cond()
+
+
+def test_a_run_keeps_going_when_its_engine_is_killed(tmp_path):
+    import os
+    import signal
+    import subprocess
+    import sys
+
+    from ergostat.spec import runrecord
+    marker = tmp_path / "finished"
+    p = _blocked(tmp_path, f"echo begun; sleep 1; echo still here; echo done > {marker}")
+    engine = subprocess.Popen([sys.executable, "-c", textwrap.dedent("""
+        import sys
+        from pathlib import Path
+        from ergostat import model as mdl
+        from ergostat.spec.engine import Engine
+        from ergostat.store import Project
+        p = Project(mdl.load(Path(sys.argv[1])))
+        Engine(p, say=lambda s: None).run_block(p.model.spec.blocks["worker"], "schedule")
+        """), str(tmp_path / "rz")])
+    rec, pid = None, None
+    try:
+        found = _until(lambda: [f for f in (p.dir / "runs").glob("*.json")] if (p.dir / "runs").is_dir() else [])
+        assert found, "no run record written"
+        rec = json.loads(found[0].read_text())
+        pid = rec["pid"]
+        assert rec["block"] == "worker" and rec["run"] == found[0].stem and rec["lease"] is None and rec["start"]
+        assert runrecord.alive(rec) and os.getsid(pid) == pid                    # its own session
+        assert _until(lambda: b"begun" in found[0].with_suffix(".out").read_bytes())
+        engine.send_signal(signal.SIGKILL)                                      # the engine dies mid-run
+        engine.wait(10)
+        assert _until(marker.exists), "the run died with its engine"
+        assert _until(lambda: found[0].with_suffix(".exit").exists())
+        assert found[0].with_suffix(".exit").read_text() == "0\n"               # its exit, written by no engine
+        assert found[0].with_suffix(".out").read_text() == "begun\nstill here\n"
+        assert _until(lambda: not runrecord.alive(rec))
+    finally:
+        engine.kill()
+        engine.wait()
+        if pid and rec and runrecord.alive(rec):
+            os.killpg(pid, signal.SIGKILL)
+
+
+def test_a_detached_runs_output_and_exit_are_recorded_once(tmp_path, monkeypatch):
+    from ergostat import runner as old
+    from ergostat.spec import runrecord
+    from ergostat.spec.engine import Engine
+    run = ("printf 'half'; sleep 0.3; echo ' whole'; i=0; while [ $i -lt 1200 ]; do i=$((i+1)); echo line $i; done; "
+           "printf 'no newline at the end'; exit 3")
+    p = _blocked(tmp_path, run)
+    exits = []
+    real = runrecord.remove
+    monkeypatch.setattr(runrecord, "remove",
+                        lambda f: exits.append(f["exit"].read_text() if f["exit"].exists() else None) or real(f))
+    e = Engine(p, say=lambda s: None)
+    try:
+        e.run_block(p.model.spec.blocks["worker"], "schedule")
+    finally:
+        e.close()
+    logged = old.log_path(p, "worker").read_text().splitlines()
+    assert logged.count("half whole") == 1                                     # a partial line waits for its rest
+    assert [x for x in logged if x.startswith("line ")] == [f"line {i}" for i in range(1, 1201)]   # each once, in order
+    assert logged.count("no newline at the end") == 1
+    ended = p.events.query(n=None, type="agent.*", item="worker")
+    assert [x["type"] for x in ended] == ["agent.started", "agent.failed"]
+    assert ended[-1]["data"]["exit"] == 3 and ended[-1]["data"]["note"] == "exited 3"
+    assert exits == ["3\n"]                                                    # the wrapper's own record of its exit
+    assert not list((p.dir / "runs").iterdir())                                # nothing left to take again
+
+
+def test_a_runs_timeout_and_stop_still_end_it(tmp_path):
+    import threading
+    import time
+
+    from ergostat.spec.engine import STOPPED_BY_OWNER, Engine
+    p = _blocked(tmp_path, "echo first; sleep 30; echo never", "    timeout: 1s\n")
+    e = Engine(p, say=lambda s: None)
+    try:
+        t0 = time.monotonic()
+        e.run_block(p.model.spec.blocks["worker"], "schedule")
+        assert time.monotonic() - t0 < 10
+        ended = p.events.query(n=1, type="agent.failed", item="worker")[-1]["data"]
+        assert ended["note"] == "stopped after its timeout of 1s"
+        e.spec.blocks["worker"].timeout = None
+        t = threading.Thread(target=e.run_block, args=(e.spec.blocks["worker"], "schedule"))
+        t.start()
+        assert _until(lambda: "worker" in e.procs)
+        assert e.stop_run("worker")
+        t.join(10)
+        assert not t.is_alive()
+        assert p.events.query(n=1, type="agent.ran", item="worker")[-1]["data"]["note"] == STOPPED_BY_OWNER
+    finally:
+        e.close()
+
+
+def test_a_run_record_detects_a_reused_pid(tmp_path):
+    import os
+    import subprocess
+
+    from ergostat.spec import runrecord
+    proc = subprocess.Popen(["sleep", "30"])
+    try:
+        rec = {"pid": proc.pid, "start": runrecord.start_time(proc.pid)}
+        assert rec["start"] and runrecord.alive(rec)
+        reused = {"pid": os.getpid(), "start": rec["start"]}                  # its pid now another process's
+        assert runrecord.start_time(os.getpid()) and not runrecord.alive(reused)
+        assert not runrecord.alive({"pid": proc.pid, "start": None})          # its start unread: not taken as it
+    finally:
+        proc.kill()
+        proc.wait()
+    assert not runrecord.alive(rec)                                           # ended
+
+
+@pytest.mark.parametrize("shell", ["sh", "bash", "dash"])
+def test_the_run_wrapper_records_the_exit_under_each_shell(tmp_path, shell):
+    import shutil
+    import subprocess
+
+    from ergostat.spec import runrecord
+    path = shutil.which(shell)
+    if path is None:
+        pytest.skip(f"no {shell} here")
+    f = runrecord.files(tmp_path, "r1")
+    got = subprocess.run([path, *runrecord.command("echo said; exit 5", f)[1:]], capture_output=True, text=True)
+    assert (got.returncode, got.stdout, f["exit"].read_text()) == (5, "said\n", "5\n")
+    got = subprocess.run([path, *runrecord.command("exit 0", f)[1:]])
+    assert got.returncode == 0 and f["exit"].read_text() == "0\n"
+    got = subprocess.run([path, *runrecord.command("kill -TERM $$", f)[1:]])
+    assert got.returncode == -15 and f["exit"].read_text() == "143\n"          # ended by a signal: as without it
+    import os
+    import signal
+    import sys
+    import time
+    deaf = f"{sys.executable} -c \"import signal, time; signal.signal(15, signal.SIG_IGN); time.sleep(1); print('late')\""
+    with open(f["out"], "wb") as out:
+        proc = subprocess.Popen([path, *runrecord.command(deaf, f)[1:]], stdout=out, start_new_session=True)
+    time.sleep(0.3)
+    os.killpg(proc.pid, signal.SIGTERM)                                       # the group told to stop: as a lease's kill
+    proc.wait(10)
+    assert f["exit"].exists()                                                  # the wrapper lived to write its exit
+    assert _until(lambda: f["out"].read_text() == "late\n", 10)               # and the command carried on
