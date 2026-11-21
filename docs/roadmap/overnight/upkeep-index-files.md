@@ -376,3 +376,9 @@ was refused in this session. These ran here and passed: `tests/test_upkeep_templ
 test, a fix would be a guess (lesson-10, lesson-13). Next step, for whoever can run it: the unit suite with `-rf`,
 `-o faulthandler_timeout=120` and its full log, then the named test alone on this branch and on main. The base still
 holds the backlog merge (round 7).
+
+## Where it stopped
+
+Parked by the factory (review/upkeep-index-files-3, 2026-11-20 18:56).
+
+Done, by reading: the gap's own work, about 236 core lines. That is the upkeep template, upkeep tidy, the ergostat.upkeep.* measures, _tidy with keep, the name allowlist, the resolve-under-items check and the age re-check under the lock, the engine standing down under use: upkeep, the SPEC, agent guide and GAPS text, and tests/test_upkeep_template.py. Left: the branch must be rebuilt on origin/main without the backlog merge 2b101c6, following round 7's steps in the definition file: (1) the definition as first committed in 8919bac; (2) the gap's tree with backlog's diff (`git diff 2b101c6^1 2b101c6`) reversed, tests/test_relations_asof.py as on main, and the engine.py change of 6afe19d6/10364633 left out and filed as its own gap. Then run test_upkeep_template, test_index_files, test_templates, test_relations_asof and the unit suite with -rf and its full log. Why stop: after eight rounds the blocking findings come from the base, not the code. The implementor's session cannot create branches, so another round inside this branch changes nothing. Only the rebuild can clear them.
