@@ -91,3 +91,9 @@ the implementor Bash with `git rm` and `git commit`.
 The same: Bash was refused on its first command, so the root `.gitattributes` is still committed and this paragraph
 is uncommitted. `docs/.gitattributes` and `dev/knowledge/.gitattributes` are still there. What is left is the one
 command `git rm .gitattributes && git commit`, which needs a session that may run them.
+
+### Round 5
+Read-only Bash and the tests worked this time, and `git rm .gitattributes` was refused again, so the root
+`.gitattributes` is still committed. The four acceptance tests pass (`tests/test_backlog.py -k "fixture or
+duplicated"`: 3 passed; `tests/test_factory.py -k merge_cleanly`: 2 passed), and ruff is clean. What is left is
+still one command: `git rm .gitattributes && git commit`, run by the coordinator or by a session allowed `git rm`.
