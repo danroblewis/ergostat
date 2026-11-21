@@ -138,6 +138,11 @@ def test_the_build_review_loop_counts_rounds_and_its_span():
     assert times.loop(again) == {"loop_rounds": 2, "loop_hours": 6.0, "loop_ended": T0 + 7 * H}
     going = moves(("ready", 0), ("leased", 1), ("building", 1.5), ("built", 3), ("in-review", 3.5), ("fix", 4))
     assert times.loop(going) == {"loop_rounds": 1, "loop_hours": 3.0, "loop_ended": None}     # still going round
+    # sent back by the queue after its approval, not rebuilt yet: going round again, then parked from fix
+    reopened = again[:9]
+    assert times.loop(reopened) == {"loop_rounds": 1, "loop_hours": 3.5, "loop_ended": None}
+    parked = reopened + moves(("parked", 6))[:1]
+    assert times.loop(parked) == {"loop_rounds": 1, "loop_hours": 5.0, "loop_ended": T0 + 6 * H}
     assert times.loop(moves(("open", 0), ("ready", 1)))["loop_hours"] is None                 # never taken
     # a reviewer's lease (from built) does not start the loop; the implementor's (from ready) does
     assert times.loop(moves(("built", 0), ("leased", 1), ("in-review", 1.1), ("approved", 2)))["loop_hours"] is None

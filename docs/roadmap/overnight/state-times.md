@@ -112,3 +112,24 @@ Round 4, merging main (8eb0fc0) and answering the review's one finding:
   `tests/test_factory_knowledge.py` 22, `tests/test_ticket_factory_daemons.py` 6, `tests/test_factory_resources.py`
   8, `tests/test_factory_sessions.py` 5, `tests/test_factory_manager.py` 18; ruff clean. The whole unit suite and the
   browser files were not run here.
+
+Round 5, merging main (512f08e) and answering review/state-times-3's three non-blocking findings (lesson-12):
+
+- **The merge.** `dev/bin/status.py`'s docstring: main's backlog and switch lines and the branch's time table, both
+  kept (the code had merged cleanly: backlog, `drain.describe`, resources, then the time table). `ergostat.yaml`'s gap
+  kind: main's new `gap.closed` comment and `show:` (rank, value, size) with the branch's `loop_rounds`, `loop_hours`
+  appended and its `gap.timed` comment.
+- **A send-back after an approval (lesson-8): fixed.** `loop()` looked for the loop's end after the last build only,
+  so a gap sent back by the queue and not yet rebuilt read as ended at its old approval. The end is now looked for
+  after the last build and the last move to `fix`: while it waits at fix `loop_ended` is empty, and a park or close
+  straight from fix ends the loop there. dev/README.md says so. Test: two new asserts in
+  `test_the_build_review_loop_counts_rounds_and_its_span` (they fail with the old rule; checked).
+- **`gates: null` for good on a gap rolled up before it was timed: kept, said.** Starting from `{}` once a later gate
+  event comes would sum only its later rounds and read as its whole gate time (an undercount, lesson-3). Unknown is
+  kept; dev/README.md now says it stays so if the gap is built again.
+- **The carried-over merge guessed from the snapshot: kept** (the review called it acceptable; documented already).
+- After the merge, each file alone: `tests/test_factory_times.py` 7, `tests/test_factory.py` 56 passed with 2 skipped,
+  `tests/test_factory_knowledge.py` 34, `tests/test_factory_manager.py` 18, `tests/test_factory_resources.py` 8,
+  `tests/test_factory_sessions.py` 5, `tests/test_ticket_factory_daemons.py` 6; ruff clean. The whole unit suite and
+  the browser files were not run here. The setpoints are still first guesses until `times.py setpoints` runs in the
+  instance's folder.
