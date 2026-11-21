@@ -250,3 +250,26 @@ The review's findings, every one of them (lesson-12):
   implementor round under the same permissions cannot fix it, so the branch should wait for that one commit and not
   go through another fix round.
 - Nothing else changed this round. No test, ruff or suite was run, because nothing but this note changed.
+
+### Round 7 (the unit suite stopped at 49%)
+
+- *The unit suite stopped at 49%,* with no failing test and no summary in the tail. As in round 3, this means the run
+  was cut off. It was not an assertion. The code has not changed since round 3. Round 5's run of that same code went
+  to the end (1979 passed, and the one failure was the unrelated lease test). So the stop is intermittent. The tail
+  does not name a test, and I could not find one by reading or running:
+  - Every file that drives the judge or a redesign ran here, one command at a time, and each finished quickly:
+    - test_redesign, test_modelling_core, test_modelling_core2 and test_slowjudge: 63 passed in 29 s, slowest 8 s.
+    - test_redesign_memory, test_redesign_bench, test_improve, test_gate, test_self_improve, test_intent,
+      test_churn, test_exercised, test_extremes_closed and test_bench: 139 passed in 47 s, slowest 8 s.
+    - test_redesign_rescored: 12 passed in 3 s.
+  - Ruff is clean.
+  - By reading: no path takes `pr.locked` twice. `pr._accept` and `_supersede` take no lock. `mark` and
+    `due_for_rescore` have no loops that wait. One branch path could stall a polling test: an unreadable mark makes
+    `judge.run` return before any write. But it raises only when the store itself raises, and no test log shows it.
+- I did not run the whole unit suite myself. The house rules leave that to the factory's slot and watchdog. So I made
+  no code change for this round: a guess at a fix would be a change with no failing test behind it. If the next run
+  stops again, the watchdog's log (or `-o faulthandler_timeout=120` on the factory's run) has to name the test that
+  hangs. If that test is in this branch's paths, it gets fixed here. If it is not, it gets its own gap (lesson-10,
+  lesson-13).
+- *`tests/test_probe_tmp.py`:* `git rm` was refused again in this session, so it is still in the branch. Someone
+  with delete rights must run `git rm tests/test_probe_tmp.py && git commit`.
