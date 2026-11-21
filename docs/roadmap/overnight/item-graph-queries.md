@@ -163,3 +163,15 @@ coordinator should merge the real origin/main and run the suites again (lesson-7
 **Run here:** tests/test_item_graph_queries.py (12), test_cli_fallback.py, test_relations.py and
 test_graph_cli_web.py: 78 passed together. tests/test_item_search.py: 8 passed. Ruff is clean. Not run: the full unit
 suite and the four browser files, which the factory runs under the watchdog.
+
+## Where it stopped, round 3 (the unit suite's failure)
+
+The factory's unit run after 45a57cc2 stopped at 89% with no failure or summary in its tail, which reads as a run
+that was killed or hung rather than a test that failed. No failing test is named, so no code was changed. Run here,
+each group passing: test_item_graph_queries, test_item_search, test_graph_cli_web, test_cli_fallback (68 passed);
+test_items_page, test_relations, test_relations_asof, test_scale_caches, test_storage, test_web_access, test_remote,
+test_calls, test_numbers (169 passed, 1 skipped); test_workspaces, test_templates, test_program_actions,
+test_gated_actions, test_factory_manager (81 passed, 2 min 47 s); test_daemon_docs, test_guide, test_spec_*,
+test_item*, test_relations*, test_take_order, test_resilience (307 passed, 1 skipped). Not run: the whole unit suite
+(this session was not permitted to run it). Left: the factory should run the unit suite again and name the test that
+fails or hangs; if it is one this branch's code does not reach, it is unrelated (lesson-13).
