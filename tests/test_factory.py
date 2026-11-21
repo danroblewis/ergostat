@@ -7,6 +7,7 @@ the kinds the root model declares, so a line the model does not know fails here.
 
 from __future__ import annotations
 
+import fcntl
 import importlib.util
 import json
 import os
@@ -206,14 +207,14 @@ class Factory:
         return said
 
     def run(self, program: str, iid: str | None = None, argv: tuple = (), lease: dict | None = None, fails: bool = False,
-            **env) -> tuple[list[str], list[dict]]:
+            timeout: float = 120, **env) -> tuple[list[str], list[dict]]:
         """A run of a block: (the events it said, every JSON line it printed). ``lease``: more of its lease (its
         attempt); ``fails``: it is expected to exit non-zero (a counted attempt)."""
         it = self.item(iid) if iid else None
         given = {"trigger": "item", "item": it,
                  "lease": {"fence": 1, "back": it["state"], **(lease or {})} if it else None}
         r = subprocess.run([sys.executable, str(BIN / program), *argv], input=json.dumps(given), cwd=self.model,
-                           capture_output=True, text=True, timeout=120,
+                           capture_output=True, text=True, timeout=timeout,
                            env={**self.env, **({"ERGOSTAT_ITEM": iid, "ERGOSTAT_LEASE": "1"} if iid else {}), **env})
         assert (r.returncode != 0) == fails, r.stderr
         self.stderr = r.stderr
@@ -378,6 +379,64 @@ def test_flake_retried(tmp_path):
     assert f.item("flake/tests-test-x-py-test-y")["fields"]["times"] == 1
     said, _ = f.run("queue.py", gid)
     assert said[:2] == ["gap.queued", "gap.merged"]
+
+
+def queue_failed(tmp_path) -> tuple[Factory, str]:
+    """A gap whose queue run failed on tests/test_x.py::test_y, waiting for triage; its rerun prints the commit it
+    stands on (HEAD, with the branch merged uncommitted on it) to rerun-head and passes."""
+    red = tmp_path / "red"
+    f = Factory(tmp_path, unit=f"if [ -e {red} ]; then echo 'FAILED tests/test_x.py::test_y - boom'; exit 1; fi")
+    f.config.write_text(f.config.read_text().replace(
+        'rerun = "echo again {tests}"', f'rerun = "git rev-parse HEAD > {tmp_path / "rerun-head"}; echo again {{tests}}"'))
+    gid = ready(f)
+    f.run("implement.py", gid)                                                 # the implementor's fast suite passes
+    f.run("review.py", gid)
+    red.touch()                                                                # the queue's unit run fails
+    said, _ = f.run("queue.py", gid)
+    assert said[-2:] == ["gap.queue-failed", "gap.measured"], said
+    return f, gid
+
+
+def test_triage_runs_while_the_queue_holds_its_lock(tmp_path):
+    f, gid = queue_failed(tmp_path)
+    pre = f.item(gid)["fields"]["pre"]
+    (f.checkout / "later.txt").write_text("main moved on\n")                   # main moves while triage waits
+    git(f.checkout, "add", "later.txt")
+    git(f.checkout, "commit", "-q", "-m", "later")
+    with open(tmp_path / "queue.lock", "a") as lock:                           # the queue's run, holding its lock
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        said, _ = f.run("triage.py", gid, timeout=30)
+    assert said == ["flake.seen", "gap.retried"] and f.item(gid)["state"] == "approved"
+    assert (tmp_path / "rerun-head").read_text().strip() == pre                # judged on the main it failed on (lesson-1)
+    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "later"      # and main left as the queue has it
+
+
+def test_triage_waiting_on_load_does_not_block_the_queue(tmp_path, monkeypatch, capsys):
+    f, gid = queue_failed(tmp_path)
+    monkeypatch.setenv("FACTORY_CONFIG", str(f.config))
+    monkeypatch.syspath_prepend(str(BIN))                                      # (triage.py imports review beside it)
+    sys.modules.setdefault("fac", module("fac"))
+    triage = module("triage")
+    taken = []
+
+    def busy(cfg, why=""):                                                     # the machine busy: the queue comes by
+        with open(tmp_path / "queue.lock", "a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                taken.append(True)
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            except BlockingIOError:
+                taken.append(False)
+        return 0.0
+
+    monkeypatch.setattr(triage.fac, "read_input", lambda: {"item": f.item(gid)})
+    monkeypatch.setattr(triage.fac, "wait_quiet", busy)
+    monkeypatch.setattr(triage, "rerun", lambda *a: (0, {"seconds": 0, "tests": []}))
+    capsys.readouterr()
+    assert triage.main() == 0
+    assert taken == [True]                                                     # the queue took its lock while triage waited
+    said = [json.loads(x)["event"] for x in capsys.readouterr().out.splitlines() if x.startswith("{")]
+    assert said == ["flake.seen", "gap.retried"]
 
 
 def pools_module():
