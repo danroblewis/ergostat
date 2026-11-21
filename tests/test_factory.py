@@ -2265,17 +2265,18 @@ def test_the_queue_runs_unit_and_browser_at_once_and_reports_the_first_failure(t
     t = tmp_path / "t"
     f = Factory(tmp_path, unit=f"echo unit-start >> {t}; sleep 1; echo unit-end >> {t}; echo 'FAILED tests/test_u.py::test_u'; exit 1")
     f.config.write_text(f.config.read_text().replace(
-        'browser = "true"', f'browser = "echo browser-start >> {t}; sleep 1; echo browser-end >> {t}; exit 1"').replace(
+        'browser = "true"', f'browser = "echo browser-start >> {t}; sleep 5; echo browser-end >> {t}; exit 1"').replace(
         'demo = "true"', f'demo = "echo demo >> {t}"'))
     approved_gaps(f, {"a": 1})
     said, _ = f.run("queue.py", "gap/a")
     got = t.read_text().split()
     assert sorted(got[:2]) == ["browser-start", "unit-start"] and "demo" not in got    # together; demo not after red
     fields = f.item("gap/a")["fields"]
-    assert said[1] == "gap.queue-failed" and fields["failed_suite"] == "unit"           # the first, in order
+    assert said[1] == "gap.queue-failed" and fields["failed_suite"] == "unit"           # the first to fail
     assert fields["failed_tests"] == ["tests/test_u.py::test_u"]
-    assert fields["suites_queue"]["browser"]["rc"] == 1 and fields["suites_queue"]["unit"]["rc"] == 1
-    f.config.write_text(f.config.read_text().replace("exit 1", "exit 0"))
+    assert fields["suites_queue"]["unit"]["rc"] == 1 and fields["suites_queue"]["browser"]["stopped_by"] == "unit"
+    assert "browser-end" not in got                                                     # stopped by unit's failure
+    f.config.write_text(f.config.read_text().replace("exit 1", "exit 0").replace("sleep 5", "sleep 1"))
     t.unlink()
     approved_gaps(f, {"b": 1})
     said, _ = f.run("queue.py", "gap/b")
