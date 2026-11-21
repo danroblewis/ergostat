@@ -213,3 +213,22 @@ timing waits in tests of process start-up and lease renewal under eight workers 
 gap of their own (the parked lease-shutdown-race gap or a new warm-restart one), not here (lesson-13), so no code was
 changed. In this session the shell was refused, so neither test could be run alone or the suite run again; the
 factory's next run is what will show whether they pass.
+
+**After the factory's fourth unit run failed.** Its tail stops at 14% with no failing test, no traceback and no
+summary line, as the first run's stopped at 32%. The run was cut short from outside, not failed by a test. In this
+session the whole suite could not be run under `scripts/suite_watch.py` (the shell refused it, and the brief leaves
+it to the factory), so the peaks were not seen. I looked for a cause in this branch's code and found none:
+- **A lock taken twice.** `proposals.locked` is `fcntl.flock` on a file opened anew, as on main. A thread that takes it
+  again would deadlock. No path does: inside each locked span (`supersede`, `make`, `dismiss`, `accept`,
+  `review.refresh`, the judge's pass, `improve.submit`, `redesign.submit`), nothing calls another locked function.
+  The judge calls `pr.accept` only after it has let go of its own lock.
+- **A fork holding the lock.** Nothing in `ergostat` forks, and subprocesses close their fds.
+- **`files_now` across threads.** It compiles through `spec.load.texts`, a context variable, so each thread has its own.
+- **Slow tests.** Run alone here, one file at a time: `tests/test_churn_carry.py` (17 passed, 4.9 s; the slowest is
+  1.3 s, one of the two dismissal tests that hold the lock up to 1 s by design), `tests/test_review.py` (22 passed,
+  2.9 s) and `tests/test_improve.py` (28 passed, 3.9 s). Nothing hangs or is slow.
+
+No code was changed: no test failed, and I found nothing in the code to fix. The factory's four runs stopped in four
+different places (cut short at 32%, a lease test, a lease test and a warm test, cut short at 14%). None of them is in
+a test this branch touches. If the next run is cut short again, read the watchdog's JSON line (which limit was hit,
+the peak threads and RSS) first.
