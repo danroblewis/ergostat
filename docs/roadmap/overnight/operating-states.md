@@ -368,3 +368,17 @@ I found no failing test to fix, so no code changed:
 
 The stray `.tail` file: `git rm` was refused once more this round. The coordinator has to run
 `git rm docs/roadmap/overnight/operating-states.md.tail`.
+
+Round 7, after the fast suites a second time: this time `unit`'s tail showed two real `F`s (at about 3%), so the
+cause was found. The whole of `tests/` was run serially (`-p no:randomly`): 6 failed, 2011 passed, 69 skipped, plus
+the 41 `slow` tests (41 passed, 6 skipped). The failures were
+`test_index_files.py` (four tests that spawn a second process), `test_store_conformance.py::test_a_second_instance_threads_and_processes_lose_nothing[sqlite]`
+and `test_runner_and_state.py::test_a_run_past_its_timeout_is_stopped_with_what_it_started`. Each spawned process
+dies with `AttributeError: module 'queue' has no attribute 'LifoQueue'`. Those three files pass on their own (86
+passed). Running `tests/test_backlog.py` before them reproduces the failures (5 failed). The cause is
+`tests/test_backlog.py:24`. It does `sys.path.insert(0, dev/bin)` and never takes it out again, so a process spawned
+later in the same pytest worker imports `dev/bin/queue.py` in place of the standard library's `queue`. Under `-n 8`,
+any worker that runs a backlog test before a spawning test fails this way. Neither file is in this branch's diff
+(`git diff 512f08ef...HEAD --stat`), so main fails the same way. It belongs in its own gap (lesson-13), and no code
+changed here. The fix: `test_backlog.py` loads `dev/bin` modules without leaving the path changed (monkeypatch
+`sys.path`, or load them by file path as the other factory tests do).
