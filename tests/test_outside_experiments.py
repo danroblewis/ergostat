@@ -286,6 +286,46 @@ def test_a_step_whose_input_has_no_readings_in_its_window_is_dropped():
     assert r["experiments"] == 2 and f"the step at {hm(5000.0)}: u has no readings in its window" in r["outside_step"]["dropped"]
 
 
+def test_a_drop_in_a_pass_not_kept_is_not_said():
+    """Round-2 review: ``dropped`` holds the kept pass's drops only. d2 has no readings over pass 0's window of the second
+    burst (to its half-way point) and readings after it, so pass 0 drops that step and pass 1's longer window fits it.
+    Pass 1 is kept, so the result must not say the step was dropped."""
+    u, y, d = burst_loop(0, n=11000, bursts=THREE)
+    t = times(u)
+    k, nxt = [s["k"] for s in ex.steps_of({"d": d})][1:3]
+    half = ident.excursion(y[:nxt], k)[1]                # pass 0's window, read up to the next step as around_steps does
+    assert half < k + 150
+    d2 = [None if k - ident.POINTS_MIN <= i < half else 0.0 for i in range(len(u))]
+    r = ex.identify_around(H, t, u, y, {"d": d, "d2": d2})
+    o = r["outside_step"]
+    assert o["passes"][0] == "kept" and o["passes"][1] == "kept", o["passes"]
+    assert o["window"] == "process" and [s["at"] for s in o["steps"]] == [2000.0, 5000.0, 8000.0]
+    assert not any("has no readings" in x for x in o["dropped"]), o["dropped"]
+    with pytest.MonkeyPatch.context() as m:               # the same record, pass 1 not found: pass 0's drop is said
+        _second_call(m, lambda *a, **kw: {"found": False, "proposable": False, "told_apart": False, "why": ["fake"]})
+        r = ex.identify_around(H, t, u, y, {"d": d, "d2": d2})
+    assert r["outside_step"]["window"] == "excursion"
+    assert f"the step at {hm(5000.0)}: d2 has no readings in its window" in r["outside_step"]["dropped"]
+
+
+def test_the_record_of_several_experiments_draws_only_the_held_out_one(monkeypatch):
+    """Round-2 review: ``around_step`` concatenates the experiments, as ``_test_windows`` does, and like it marks the
+    last (held-out) one as ``last``, so ``loop.py`` draws that one and not all of them joined across their gaps."""
+    from types import SimpleNamespace as NS
+
+    from ergostat.control import loop
+    n = 100
+    d = {"h": H, "t": [k * H for k in range(n)], "u": [0.0] * n, "y": [0.0] * n, "e": [0.0] * n, "others": {},
+         "since": 0.0, "until": n * H}
+    exps = [{"buckets": [10, 30]}, {"buckets": [50, 65]}, {"buckets": [80, 90]}]
+    fake = {"found": True, "outside_step": {"since": 100.0, "until": 890.0, "experiments": exps}}
+    monkeypatch.setattr(ex, "identify_around", lambda *a, **kw: fake)
+    r = loop.around_step(NS(model=NS(spec=None)), NS(y="aux.y", u="aux.u", path=()), d, None)
+    assert len(r["record"]["t"]) == 20 + 15 + 10
+    assert r["record"]["last"] == (35, 45)
+    assert r["record"]["t"][35] == 800.0
+
+
 def test_steps_and_passes_are_bounded(monkeypatch):
     heights = [3.0, 9.0, 4.0, 8.0, 5.0, 7.0, 6.0, 10.0, 3.5]
     bursts = tuple((500 + 1000 * i, x) for i, x in enumerate(heights))
