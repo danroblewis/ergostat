@@ -364,3 +364,15 @@ reasons round 7 gives, I did not add a commit that reverts the backlog either. T
 rebuild that round 7 sets out, step by step, for the factory or the coordinator. The gate cannot read a reason
 added after the first commit (`dev/bin/review.py:58,131-133`). If no one rebuilds it, a further round here
 changes nothing. The branch's head before this round is bc09afd.
+
+### The unit suite after round 8
+
+The tail stops at 53% with no `F` and no assertion. It also lacks the closing JSON line that `scripts/suite_watch.py`
+always prints unless it is killed itself, so the run was again stopped from outside the watchdog and the tail names no
+test. A serial run of the whole suite with `-o faulthandler_timeout=60 -rf`, which would name a hung or failing test,
+was refused in this session. These ran here and passed: `tests/test_upkeep_template.py` and `tests/test_index_files.py`
+(21 passed, 12.7 s; the slowest is main's own, unchanged
+`test_two_processes_one_tidying_never_corrupt_an_index_another_has_open`, 8.9 s). No code changed: without a named
+test, a fix would be a guess (lesson-10, lesson-13). Next step, for whoever can run it: the unit suite with `-rf`,
+`-o faulthandler_timeout=120` and its full log, then the named test alone on this branch and on main. The base still
+holds the backlog merge (round 7).
