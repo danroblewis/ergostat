@@ -692,3 +692,41 @@ def test_a_lease_kill_leaves_a_reused_pid_alone(tmp_path, monkeypatch):
         for x in procs:
             x.kill()
             x.wait()
+
+
+def test_a_lease_kill_still_stops_the_run_when_ps_fails(tmp_path, monkeypatch):
+    """``ps`` failing (``tree`` empty, so the watch knows of nothing live) does not leave the run going (lesson-3): its
+    own pid, an unwaited child of this engine and so never another's, is signalled, and its group with it."""
+    import os
+    import signal
+    import subprocess
+    import threading
+    import types
+
+    from ergostat.leases import kill
+    from ergostat.library import reap
+
+    from .test_lease_kill import alive, pid_in
+    from .test_leases import wait_for
+    monkeypatch.setattr(kill, "GRACE", 1.0)
+    run = subprocess.Popen(["sh", "-c", "sleep 30 & echo $! > kid.pid; wait"], cwd=tmp_path, start_new_session=True)
+    kid = pid_in(tmp_path / "kid.pid")
+    said = []
+    eng = types.SimpleNamespace(lock=threading.Lock(), live={"r1": run}, say=lambda *a: None,
+                                p=types.SimpleNamespace(events=types.SimpleNamespace(add=lambda *a, **k: said.append(k))))
+    monkeypatch.setattr(reap, "tree", lambda started=None: {})
+    try:
+        run.watch = reap.Watch(run.pid)
+        kill._stop(eng, run, "r1", "its lease expired", "ticket/1", 1, "worker")
+        assert run.wait(5) is not None, "the run is stopped, though ps saw nothing"
+        gone = lambda: not alive(kid) or subprocess.run(["ps", "-o", "stat=", "-p", str(kid)], capture_output=True,  # noqa: E731
+                                                        text=True).stdout.strip().startswith("Z")    # (reaped, or a zombie)
+        assert wait_for(gone, 5), "and its group with it"
+        assert run.pid in said[0]["data"]["pids"]
+    finally:
+        run.watch.close(look=False)
+        if run.poll() is None:
+            run.kill()
+            run.wait()
+        if alive(kid):
+            os.kill(kid, signal.SIGKILL)

@@ -956,14 +956,14 @@ class Engine:
                     note = refused or f"could not start: {e}"
                 else:
                     old.LIVE.add(proc)
-                    from ..library.reap import Watch
-                    proc.watch = Watch(proc.pid)                 # what it starts, kept for a lease kill (leases/kill.py)
                     if self.stop.is_set():                       # this engine stopping (set before its kill_all): it may
                         old._kill(proc)                          # have missed this run (not STOPPING: process-wide)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
+                    from ..library.reap import Watch
+                    proc.watch = Watch(proc.pid)                 # what it starts, kept for a lease kill (leases/kill.py)
                     try:
                         if stream.pump(proc, stdin, b.timeout, take):
                             note = f"stopped after its timeout of {b.timeout:g}s"
