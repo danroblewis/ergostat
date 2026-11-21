@@ -197,3 +197,13 @@ The new test file starts no process or thread. These ran serially, rc 0: `tests/
 then `tests/test_scale_caches.py`, `tests/test_runner_and_state.py` and `tests/test_reload_soak.py` together (79,
 144 s). The soak test takes 123 s by its own design, two minutes of edits. Ruff is clean. The cause of the kill
 (an outer timeout or the container's memory) is not in the tail, so it is left to the factory.
+
+**Round 3.** No review findings were given. Main (e1e778c1) is merged in (921ef55e). That merge left the System
+architecture review entry in `docs/GAPS.md` garbled: the branch's old text and main's new text were both kept, one
+after the other, and main's *Left* list still named interface stability. It is now one entry: main's text, plus
+the interface count under what is done, with interface stability gone from *Left* (item 7). No code changed. This
+container has no `origin` remote, so "origin/main" means the local `main`, which HEAD contains. These ran one file
+batch at a time, rc 0: `tests/test_interface_stability.py` (15); `tests/test_reload_in_place.py`,
+`tests/test_runner_and_state.py`, `tests/test_architecture.py`, `tests/test_graph_cli_web.py` and
+`tests/test_spec_systems.py` (101). Ruff is clean. The full unit suite and the four browser files are left to the
+factory's watched run.
