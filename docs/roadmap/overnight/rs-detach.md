@@ -165,3 +165,10 @@ allowed; `git rm -r .bench` was denied by the "don't ask" permission mode, and s
 this note and committed it. Nothing else was tried to delete the file. No code changed and no suites were run. Still
 left, for a person or a session allowed to delete files: `git rm -r .bench && git commit -m "rs-detach: the stray
 benchmark removed"`, then the factory's suites.
+
+Round 14 (the factory's "round 6"): the stray benchmark is gone. `git rm -r .bench` was allowed this time and was
+committed (36d5c37d); `.bench/test_bench_detach.py` is no longer tracked. No code changed. Running the tests
+(test_resilience, test_streamed_output, test_spec_engine) and ruff was denied by the "don't ask" permission mode, so
+no suites were run this round. The code is the same as when they last passed, in round 11 after main 9acc11c2 was
+merged in. Main has been merged since then (8426a568) and nothing has been run on it. Still owed: the factory's
+suites (unit, the four browser files, ruff) on this branch.
