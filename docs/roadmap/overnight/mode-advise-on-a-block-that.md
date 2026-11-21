@@ -135,3 +135,13 @@ Answers to the plan review:
 
 The most reversible choice made alone: the refusal, the narrower of the GAPS entry's two options, rather than asking
 once per item. Lifting it later is a one-line removal.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-20 18:11).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 6: ack
+- attempt 7: nack exited 1
+- attempt 8: nack exited 1
+- attempt 9: nack exited 1
