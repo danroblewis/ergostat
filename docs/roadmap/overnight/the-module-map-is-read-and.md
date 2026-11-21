@@ -46,3 +46,15 @@ across threads); the partial-file test checks the mode, and removing fchmod fail
 and named no test" and "first failing merge of a batch of 2" carry no test name and no log is reachable from /work;
 this branch touches no browser or ergostat code (only dev/bin/knowledge.py, its test and the agent guide), so nothing
 was changed for them (lesson-13). Size: dev/bin/knowledge.py is +31 -6 against main, 25 net, within the budget of 30.
+
+After round 2's unit run, which the factory counted as failed: its tail ends with pytest's summary `2494 passed, 69
+skipped, 1 xfailed in 585.47s` and no failure. The JSON line that scripts/suite_watch.py always prints on exit, even
+when it kills a run or is interrupted, is missing. So the non-zero rc came from the run's process tree dying after
+pytest finished, not from a test. A SIGKILL from outside fits this, for example the container's 12 GB cgroup limit,
+which also counts the /tmp tmpfs and the page cache. The two earlier runs died the same way, cut off silently at 28%
+and 74%. The branch's change cannot cause that kill: it starts no thread, process or signal handler, and its tests
+build one tiny git repo each. No code changed in this round (lesson-13: the cause is in the suite's environment, not
+the gap). Run here: tests/test_knowledge.py (4 passed), tests/test_factory_knowledge.py (75 passed) and ruff (clean).
+Running the tests under suite_watch, to see its exit line, was refused (the command was `uv run python
+scripts/suite_watch.py -- uv run python -m pytest -q -n 2 tests/test_knowledge.py tests/test_factory_knowledge.py`).
+The next run needs the suite's rc and the container's exit state (`docker inspect` OOMKilled) from the factory's log.
