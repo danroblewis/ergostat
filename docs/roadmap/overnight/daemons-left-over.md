@@ -342,3 +342,27 @@ Not verified here: a run of this test on plain `main` under the same load. In th
 `main` beside the branch, so the claim that the test is unrelated rests on the reading above. The coordinator should
 run the lease-shutdown-race gap, or rerun the unit suite. If this test fails on `main` under `-n 8` as well, the
 branch is clear of it.
+
+**Round 4: main (a0dc0ec9) merged in, and a flake in this gap's own test fixed.**
+- *The merge.* It conflicted only in `docs/GAPS.md`. Main had moved "A renewing run killed because the engine was
+  busy recording its renewal" from the open list to *Done recently*, and this branch had done the same with "Daemons,
+  left over". Both open bullets are gone. Both done entries are kept, with this gap's first, as point 4 asks. Main
+  changed nothing under `ergostat/daemons/` or `ergostat/costs/`. Its code changes since round 3 are the take order
+  (`leases/ready.py`, `dispatch.py`) and `mode: advise` with `takes:` refused (`leases/compile.py`).
+  `daemons-across-the-engine-s-own-restarts` is still not on main (no `GROUPS` or `CLOSING` in
+  `ergostat/daemons/`). When it lands, the daemon suites must be run again (lesson-7).
+- *The flake (lesson-10: the test, not ergostat).* After the merge,
+  `tests/test_daemons.py::test_a_daemon_runs_1200_lines_are_all_recorded_in_order` failed once, when it ran in one
+  command with `test_warm.py`, `test_run_costs.py` and `test_daemon_docs.py`. It recorded 2,400 `x.seen`, not 1,200.
+  Alone, it passed. The cause is in the test's own daemon (`MANY`), which never moved its item out of `ready`. After
+  the run's `agent.ran`, the dispatcher could take `ticket/1` again. Under load, a second run's 1,200 lines were
+  recorded before `e.close()`. The reader takes each buffer once (`Process.chunk` splits the buffer and plans each
+  line once), so no line was taken twice. The fix is in the test only. `MANY` prints `ticket.done` for its run before
+  `done`, so the item reaches `done`. The test also asserts exactly one `agent.started`, so a second take fails as
+  its own assertion and doesn't look like a line counted twice. This assertion was not shown to fail on purpose: a
+  second take happens only under load. No code under `ergostat/` changed in this round.
+- *Run here, after the merge, one command each:* the three new test files (17 passed); `tests/test_daemons.py`,
+  `tests/test_warm.py`, `tests/test_run_costs.py` and `tests/test_daemon_docs.py` (92 passed, after the fix);
+  `ruff check ergostat tests scripts` (clean). The full unit suite and the four browser files were not run here. The
+  factory runs them under the watchdog. Round 3's lease failure (`test_leases_survive_a_restart_the_fold_is_the_truth`)
+  is outside this gap, as said above.

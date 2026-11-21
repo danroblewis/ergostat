@@ -638,7 +638,8 @@ for line in sys.stdin:
     if m["op"] == "item":
         r = m["run"]
         sys.stdout.write("".join(json.dumps({"event": "x.seen", "item": m["item"], "data": {"i": n}, "run": r}) + "\n"
-                                 for n in range(1200)) + json.dumps({"done": 0, "run": r}) + "\n")
+                                 for n in range(1200)) + json.dumps({"event": "ticket.done", "run": r}) + "\n"
+                         + json.dumps({"done": 0, "run": r}) + "\n")      # (done: the item leaves ready, never taken again)
         sys.stdout.flush()
     elif m["op"] == "stop":
         break
@@ -656,6 +657,7 @@ def test_a_daemon_runs_1200_lines_are_all_recorded_in_order(tmp_path):
         e.close()
     assert events(p, "agent.ran")[0]["data"]["exit"] == 0
     started = events(p, "agent.started")
+    assert len(started) == 1, "one run of the item (a second take would print its 1,200 lines again)"
     seen = events(p, "x.seen")
     assert [x["data"]["i"] for x in seen] == list(range(1200)), "every line, in the order printed"
     assert {x["causedby"] for x in seen} == {started[0]["id"]} and {x["item"] for x in seen} == {"ticket/1"}
