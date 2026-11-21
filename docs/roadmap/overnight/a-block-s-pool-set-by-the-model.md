@@ -322,3 +322,34 @@ browser. The whole suite under `-n 8` and the four browser files were not run: t
 Parked by the factory (review/a-block-s-pool-set-by-the-model-3, 2026-11-20 20:21).
 
 Done, judged by reading: DoD points 1-7 for the pool-now feature itself. Compile with both forms and every error code, poolnow.now/read_at/said, dispatch reading the stock under self.lock and failing closed with one 'has no reading' message, estimates and the Blocks view at the pool now (held at 1 and said why), the block box's pool row, the factory's implementor and reviewer on implementor-pool and reviewer-pool, and SPEC/help/GAPS updated. The acceptance tests exist and assert numbers that tell the pool now from the most. Left: the branch is built on a local main holding the unreviewed backlog merge (2b101c6), which is not on origin/main, so merging it would land the backlog feature too, and building.yaml and the relations-as-of test now depend on it. It stops because this is round 4 and the rule parks after two failed reviews. Resolving the base is the coordinator's call: either the backlog is reviewed and lands on main first and this branch is rebuilt on it, or the gap's commits (d1532eb4, ae5e4563, 251058f4 and the pool parts of 578cc5ad) are carried onto a fresh branch from origin/main, without `order: rank` in building.yaml and without the test_relations_asof.py rename. Then the full unit suite and the four browser files are run.
+
+### Round 4 (continued)
+
+**The base is settled.** main (a1d1b94) now holds the backlog merge (2b101c6 is its ancestor). So `git diff
+a1d1b94 HEAD` carries only this gap: the files of the definition, plus `schema/ergostat.schema.json`,
+`docs/spec-examples/relations.yaml`, `tests/test_spec_schema.py` (round 2's schema finding) and the 2 lines in
+`ergostat/spec/engine.py` (round 2's start-up gate). The `order: rank` in building.yaml and the relations-as-of
+rename are main's now, not the branch's.
+
+**The merge of main (a1d1b94).** It conflicted in five files. Each keeps main's change and the branch's:
+- `dev/factory.toml`: main moved the pipeline manager's lines after the groomer's, so the branch's copy was dropped.
+- `dev/model/knowledge.yaml`: main's planner `where: {continues: null}` and `pool: 12`.
+- `ergostat.yaml`: main's `parked_for`, `loop_rounds` and `loop_hours` columns and its closed comment, and main's
+  `denied` among the lessons that are done.
+- `docs/GAPS.md`: the branch's done entry for this gap, and main's done entry for `mode: advise`.
+- `dev/model/building.yaml`: the branch's mapping form, with **main's ceilings**: main's operator raised the
+  implementor's `pool:` to 9 and the reviewer's to 6 (with `[pools] implementor_max = 9`, `reviewer_max = 6` in
+  factory.toml and in pools.yaml's stock descriptions). So the factory is `pool: {now: stock.implementor-pool, most:
+  9}` and `pool: {now: stock.reviewer-pool, most: 6}`, not the definition's 4 and 2. Writing 4 and 2 back would have
+  undone the operator's change on main. Keeping main's numbers is the more reversible choice, and only a number
+  differs. `tests/test_factory.py::test_the_factory_blocks_take_their_pools_from_the_pool_stocks` asserts 9 and 6.
+  The comments in building.yaml and pools.yaml and the docstring in `pools.py` say 9. The acceptance tests in
+  `tests/test_pool_now.py` still use most 4 with a pool now of 1 or 2, so they still tell the pool now from the most.
+
+**Run after the merge, one file at a time:** `test_pool_now.py` (25 passed), `test_factory.py` (71, 2 skipped),
+`test_leases.py` (29), `test_eta.py` (13), `test_spec_schema.py` (27), `test_spec_compile.py` (26),
+`test_factory_knowledge.py` (54), `test_take_order.py` (4), `test_blockdiagram.py` (67), `test_closedloop.py` (15),
+`test_relations_asof.py` (9), `test_backlog.py` (13). `uv run ruff check ergostat tests scripts` is clean.
+
+**Not run here:** the whole unit suite under `-n 8` and the four browser files. This session may not run them; the
+factory runs them after it. No example under `examples/` was touched.
