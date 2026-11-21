@@ -58,3 +58,32 @@ under the block's lease the item is `leased` (its lease's `back` is `approved`),
 state: nothing). Neither this edit nor the test has been run or committed. Next: commit, then run
 `tests/test_factory_knowledge.py` and `tests/test_factory.py` one at a time to find the unit failure, if it is
 something else.
+
+Round 2 (answering review/knowledge-queue-1, every finding):
+- IN_FLIGHT omitted `leased` (blocking): the migration now uses an allowlist, `QUIET` (open, planned, replan, ready,
+  fix, parked, closed). A gap in any other state, or one whose `lease.holder` is set, is left for a later run. For
+  ready/fix, which a block can take between the read and the close, the migration reads the gap again after
+  `gap.closed`. If the lease fence moved, the lesson stays `requested`: if that run then merges the gap, the file
+  carries the lesson and the record does not. This is detection after the write, not a lock, because the record has
+  no conditional write. The cost is a gap closed under a run that had just taken it; its lesson is never carried
+  twice. The test covers a leased gap, a ready gap held by a lease, and a lease taken as the close is written (the
+  fake's `take_on_close`).
+- A seed/record number clash (blocking): `number()` keeps one number for each new lesson (`kind: entry`) still
+  `requested` as a gap that has not merged or closed (a gap not in the record counts as open: lesson-3). Each such
+  gap numbers itself next in the file when it merges. `knowledge.applied()` also catches a clash that happens
+  anyway: the record's entry is carried as `lesson-N-record` and stderr says so, so no heading or sync item appears
+  twice. Not handled: `retire N` still retires both sides of such a clash. With the reservation it should not
+  happen. New test: `test_a_new_lesson_never_takes_a_number_the_seed_will`.
+- number() in two programs with no shared lock: the migration no longer numbers or applies. It records
+  `lesson.approved` (with `migrated_from`), and only lesson-apply (pool 1, under its lease) numbers. Tests apply each
+  migrated lesson through the real `lesson.py apply` run.
+- gap/knowledge-retire-N gaps without a `lesson.requested` link: left as they are, as the definition says ("named by
+  that link only"). The owner may want to close them by hand (`backlog.py`) rather than have an implementor build them.
+- Mutation checks (lesson-9), each run and failing as expected: no lease-holder check, `leased` made closable, no
+  fence re-read after the close, no reservation, no clash check.
+- Size: net lines outside `tests/` and `docs/` are now 167 (238 added, 71 removed), 17 over 150. Answering the two
+  blocking findings added about 14 lines: the reservation, the clash check and the fence re-read. Under this round's
+  brief, which also leaves out `dev/`, the count is 0. The overrun is these fixes, not new scope.
+- Run: `tests/test_factory_knowledge.py` (68 passed), `tests/test_factory.py` (91 passed, 2 skipped), ruff clean.
+  Main has no commits past this branch. The four browser files and the whole unit suite were not run here: the
+  factory runs them.
