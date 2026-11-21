@@ -30,3 +30,67 @@ switch: older ones stay waiting in the inbox after a newer version supersedes th
 ## Size budget
 
 200 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built in round 1; all four acceptance tests pass. Nobody was there to answer questions, so each choice below is the
+one easiest to undo.
+
+**What was built.** `dev/bin/drain.py` is the switcher, a program block that runs every minute. It does every step
+under `run/switch.lock`:
+- It reads the approval of `switch-instance` from the record. The upgrader now keeps the action's id on the upgrade
+  as `switch_action`.
+- It withdraws older requests: a held action is denied `--as switcher` with the note "withdrawn: superseded by ...",
+  and the upgrade moves to `withdrawn`.
+- It waits for a quiet moment or the daily window. Then it writes `run/drain.json`. While that file exists, every AI
+  run gives its item back uncounted (`fac.drain_holds`, called first in implement, review, plan, plan review,
+  research and the pipeline manager).
+- At the bound it gives back each run still going with `ergostat lease --nack --no-count`, using that run's own
+  item, fence and run id. Then it starts `live.py switch --detach`, which removes the flag whatever the outcome.
+
+The action's command is now `drain.py approve SHA`, which does nothing: the approval only arms the switcher. A
+standing approval means `gate: auto` on the action in the instance's model. The model gains:
+- the states `approved`, `draining` and `withdrawn`;
+- the stocks `upgrades-approved` and `upgrades-draining`;
+- the flows `switches-approved`, `switches-withdrawn`, `drains-begun` and `upgrades-switched` (now from draining);
+- the auxiliary `drain-minutes`, measured by `drain.py minutes`, with the goal `drains-within-bound`;
+- the block `switcher`.
+
+`status.py` prints a line on the switch.
+
+**Choices to look at.**
+- *A withdrawal is a denial by the switcher.* The inbox's ladder therefore counts it against the `switch` class, which
+  holds back the "ready for gate: auto" suggestion. The other option was denying as `gate`, which would hide that a
+  person was asked. A "withdrawn" answer in the gate itself would be a core change, outside this gap.
+- *An approved action that is withdrawn has still run.* An approval cannot be undone, but its command does nothing,
+  so it arms nothing.
+- *ergostat's own modelling AI blocks are not drained.* These are `improver`, `modeller` and `redesigner`, from the
+  modelling template. They cannot read the flag without a core change, so the switch's stop ends them as before. The
+  test checks that `drain.AI` names every other `type: ai` block.
+- *A drain flag that cannot be read counts as a drain under way* (fail closed). A switch started more than 30 minutes
+  ago whose process never cleared the flag is given up, so a dead switch process cannot stop the factory for good.
+- *"Newest" is decided by git ancestry, never by time.* If two waiting versions are not ancestors of each other
+  (impossible on a main that only fast-forwards), nothing is switched, and the switcher says so.
+- *The bounds are refused when set outside them, not clamped:* quiet_runs 0-10, drain_minutes 1-240, daily_at HH:MM.
+- *The 46-minute hold of `drains-within-bound` repeats the default 45 by hand.* Changing `[upgrade] drain_minutes`
+  means changing it too.
+
+**Size: over budget.** This gap's code lives in `dev/` and the root model: about 250 net Python lines in `dev/bin/`
+(`drain.py` is 214) plus about 70 lines of model YAML and TOML. That is over the 200 if dev/ counts. The factory's
+own count (`fac.net_lines` excludes `dev/` and `ergostat.yaml`) is 0. Why it is over:
+- withdrawal, the quiet-or-window wait, the drain, the uncounted give-back and the stale-switch guard each need a
+  read-decide-write under the lock;
+- the definition also asks for the model's drain state, the goal and `status.py`.
+No core code changed.
+
+**Not done or not run.**
+- origin/main is not merged: this clone has no remote, and local `main` is already in the branch. The factory's
+  queue merges it.
+- The unit suite and the browser files were not run here, only `tests/test_factory.py` (45 passed, 2 Docker tests
+  skipped) and the other factory files plus `test_local_settings.py` (56 passed). Ruff is clean.
+- `ergostat check` on the root model was not run, because this session's shell refused it. The model loads with no
+  errors (`test_the_factory_model_loads`), but warnings were not read.
+- Lesson-9 checks, each run and then reverted. Every test failed with its code broken:
+  - `give_back` doing nothing, and the daily window never passing: the bound test and the window test failed;
+  - no withdrawal, and `drain_holds` always False: the withdrawal test and the runs-under-way test failed;
+  - the drain ending at once with runs still under way: the runs-under-way test and the bound test failed.
