@@ -186,7 +186,7 @@ unit suite and the browser files were not run here. `git rm .gitattributes` was 
 ### Round 9, second try
 Read-only Bash worked once: the tree was clean, the merge of main already committed (d656f10c), no conflict
 markers left in `tests/test_backlog.py`, and the three `.gitattributes` files unchanged. Then `git rm
-.gitattributes` was refused, so the root `.gitattributes` is still committed and this paragraph is probably
-uncommitted. I did not delete the file with the file tools (the blocked removal by another route). No tests were
+.gitattributes` was refused, so the root `.gitattributes` is still committed (`git commit` worked, so this
+paragraph is committed). I did not delete the file with the file tools (the blocked removal by another route). No tests were
 run. What is left is the one command `git rm .gitattributes && git commit`, for the coordinator or a session
 allowed `git rm`.
