@@ -116,7 +116,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **A set chosen in a snapshot** (open; found on `a-kind-chosen-in-a-snapshot`): a set (`where`, `moved`, a process
   map's `through`/`followed`/`caused`) chosen in a snapshot says "items: not in this snapshot". Which sets to hold
   is open: their parameters are free (any field, any span), so they cannot all be taken ahead. Also: a kind with
-  more than 500 items is held as its first 500, and the page's "All N" link then shows the same 300.
+  more than 500 items is held as its first 500, and the page's "All N" link then shows the same 300. And an item's
+  own page (`items/<id>`) is held only for the first 40 of the no-kind list, so most rows of a kind chosen open to
+  "not in this snapshot".
 - **Resource levelling and completion estimates** (done, on `eta`; SPEC §5a, *Completion estimates*): the
   projection levels resources now: each open item's p50 and p90 finish from a Monte Carlo over every open item (a
   block's capacity, its recorded runs and rework, time in a state by Kaplan–Meier given the item's age, the
