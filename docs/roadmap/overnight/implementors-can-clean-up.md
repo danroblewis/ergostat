@@ -93,3 +93,16 @@ tests/test_factory.py: 94 passed, 2 skipped; ruff clean. No code was changed thi
 The four browser files were not run here. Refused this round: a compound `cat >> ... <<EOF; git add && git commit`
 that appended this note. It was not worked around in the shell; the note was added with the editor and committed with
 separate commands.
+
+Round 8: main (e8d3e331) merged in (fdcbd0ac). Its one conflict, tests/test_factory.py, was again two independent
+additions in the same place: this branch's three acceptance tests, and main's switcher-actually-runs tests
+(instance_engine, on_the_clock and the four tests after them). Both are kept, unchanged. After the merge:
+tests/test_factory.py 100 passed, 2 skipped; ruff clean. `unit` under suite_watch.py ran to the end with rc 1: 2309
+passed, 69 skipped, 1 xfailed, 1 failed (peak 325 threads, 1.6 GB, nothing killed). The failure was
+tests/test_lease_kill.py::test_the_killed_runs_item_returns_and_its_cost_is_recorded (`KeyError: 'how'` on a lease
+history read after a 15 s wait, under -n 8). Run again alone, tests/test_lease_kill.py passed (10 passed). This branch
+changes nothing under ergostat/ or in that test (`git diff main...HEAD -- ergostat` is empty), so it is unrelated
+(lesson-13), a load-timing failure for its own gap, and was left alone. No code was changed this round. Refused this
+round: `SPLIT_SHOTS=/tmp/split-shots uv run python scripts/suite_watch.py ...` (an environment variable before the
+allowed command) and a `ps ... | grep` check for running pytest. Neither was worked around; the browser files were run
+in the factory's own form instead.
