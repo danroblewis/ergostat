@@ -141,7 +141,8 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
                 f" with `git diff {base}...HEAD -- FILE`)")
     text, context = brief.assemble(
         cfg, "reviewer", gap, wt, definition=definition, diff=f"```diff\n{diff}\n```", net_lines=net,
-        gates="; ".join(blocking) or "all passed")
+        gates="; ".join(blocking + [f"`ergostat check` finding allowed by the definition (judge its reason): {k}: {why}"
+                                    for k, why in fac.allowances(definition).items()]) or "all passed")
     context["brief"] = brief.save(cfg, "reviewer", gap, text)
     try:
         got = fac.session(cfg, "reviewer", text, wt)

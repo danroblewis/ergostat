@@ -257,6 +257,32 @@ def budget_of(definition: str, default: int = 600) -> int:
     return int(nums[0].replace(",", "")) if nums else default
 
 
+def allowances(definition: str) -> dict[str, str]:
+    """The definition's `allows-findings: [code part: why, ...]`: each `ergostat check` finding it allows ("code part"),
+    with its reason (no comma in it); one with no reason allows nothing."""
+    m = re.search(r"^allows-findings:\s*\[(.*)\]\s*$", definition, re.M)
+    return {f"{c} {p}": why.strip() for c, p, why in re.findall(r"([\w.-]+) ([^\s:,\]]+):([^,\]]*)", m[1] if m else "")
+            if why.strip()}
+
+
+RECORD_FINDINGS = ["calibration-*", "fit-*", "extremes-running", "extremes-skipped", "takes-order-unset"]  # (record)
+
+
+def findings(text: str, record: list[str]) -> set[str] | None:
+    """The findings in `ergostat check --json`'s output (in a log), each "code part" (the code alone about no part), but
+    those whose code matches a glob of `record`; None when no output there says (the check could not run)."""
+    import fnmatch
+    for m in re.finditer(r"^\{", text, re.M):
+        try:
+            got = json.JSONDecoder().raw_decode(text[m.start():])[0]
+        except ValueError:
+            continue
+        if isinstance(got, dict) and isinstance(got.get("found"), list):
+            keys = [(str(x.get("code") or x.get("level")), x.get("about")) for x in got["found"] if isinstance(x, dict)]
+            return {f"{c} {a}" if a else c for c, a in keys if not any(fnmatch.fnmatchcase(c, p) for p in record)}
+    return None
+
+
 # ---- the daily cap, which fails closed
 
 CAP = re.compile(r"^\s*ai-budget:\s*$.*?^\s*hold:\s*\"<=\s*([\d.]+)\"", re.M | re.S)
@@ -532,7 +558,7 @@ def standin(role: str, brief: str, cwd: Path) -> dict:
             f.write(f"worked by the stand-in ({len(brief)} characters of brief)\n")
         said = f"wrote {note.relative_to(cwd)}"
         for p in filter(None, os.environ.get("FACTORY_STANDIN_WRITES", "").split(",")):   # (the tests' scratch files:
-            if "# Scratch files refused" in brief:                                       # removed once refused)
+            if re.search(r"^# (Scratch files refused|New `ergostat check` findings)", brief, re.M):  # removed once refused)
                 git(cwd, "rm", "-q", "--", p)
             else:
                 (cwd / p).parent.mkdir(parents=True, exist_ok=True)

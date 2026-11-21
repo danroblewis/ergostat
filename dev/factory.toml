@@ -123,3 +123,4 @@ demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-fac
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
 rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
+check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
