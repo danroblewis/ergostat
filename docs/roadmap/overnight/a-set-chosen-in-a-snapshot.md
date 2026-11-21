@@ -83,3 +83,17 @@ truncated to the second. A `BadSet` set still counts against the 400. The leased
 not held: the DoD names only `items.set`, and GAPS lists it as left. Lesson-9 note: a related line's set is its
 first end's node set, which is always held, so swapping its end passes `test_each_process_map_set_is_held`. The
 breaks that make that test fail are a skipped `caused` line and times written `+00:00`.
+
+Round 1, after the fast suites. `unit` failed one test,
+`tests/test_reload_safety.py::test_a_reading_is_never_left_under_way_when_writing_it_fails` (1 failed, 1946
+passed). It is not this gap's, and it is left unfixed here (lesson-13). This branch touches no file it runs: it
+changes `ergostat/web/snapshot.py`, `snapshot_sets.py`, docs and tests only, and the test runs
+`ergostat/spec/engine.py`. By reading, the failure is a race in the test's timing (lesson-10), not in the engine.
+The test expects its first `e._readings(False)` only to hand the reading to the pool. But `_begin` submits it, and
+`_take` then drains `self.results` (`engine.py:1351-1355`). Under `-n 8`, the pool thread can read the small
+model's sensor and put its result before that drain. Then the first call gathers it, and the patched `add_many`
+raises at test line 262, outside the `pytest.raises` meant for the second call. In both orders the engine does what
+the test is named for: `_take`'s `finally` (l.1370-1374) lets go of the reading. So no engine code is wrong to
+fix. The test needs a fix in its own gap: hold the pool's read until the first call returns, or accept the raise
+on either call. Not run here: the test alone, to confirm the race (Bash was refused this round). This note is not
+committed for the same reason.
