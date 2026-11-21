@@ -272,3 +272,18 @@ budget, class M.
 **Run here:** `tests/test_factory_knowledge.py` 41 passed; `tests/test_factory.py` 60 passed, 2 skipped (Docker).
 `ruff check ergostat tests scripts dev/bin` is clean. Not run (the factory runs them under the watchdog): the whole
 unit suite and the four browser files.
+
+**After this round: the factory's `unit` suite failed, with no test named.** The tail shows `bringing up nodes...`
+twice, then one line of dots. It has no `F`, no pytest summary, and not the JSON line `suite_watch.py` prints at its
+end, so the run was most likely stopped from outside (a timeout or a kill), not failed by an assertion. The same tail
+was seen once before on this branch (see "After round 2"). The merge of main was already committed (f891cffa), and
+nothing was left to resolve. I could not reproduce a failure. This session refused a whole-suite run, even a serial
+one, and I did not try to get around that. Every file that reads `dev/` or might be affected passed, run serially:
+`test_factory` (60, 2 skipped for Docker), `test_factory_knowledge` (41), `test_factory_manager`, `test_backlog`,
+`test_take_order`, `test_factory_resources` and `test_factory_sessions` (48), `test_messages`, `test_gated_actions`,
+`test_intent`, `test_eta`, `test_daemon_docs`, `test_model` and `test_architecture` (128), `test_in_container`,
+`test_recipes`, `test_run_costs`, `test_workspaces`, `test_leased_workspaces`, `test_ticket_factory_daemons`,
+`test_spec_auxiliaries`, `test_cli_fallback` and `test_relations_asof` (106), and `test_leases`, `test_daemons`,
+`test_intake` and `test_review` (92). Ruff is clean. No failing test was named, so I changed no code: a guessed fix
+would be less reversible than this note. **Left:** rerun `unit` and keep its full output, or at least its summary,
+not only the head. If a test then fails, fix it here only if it touches this gap's files (lesson-13).
