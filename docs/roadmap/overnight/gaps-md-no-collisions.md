@@ -207,3 +207,12 @@ so the branch no longer adds a top-level file. The net lines outside `tests/` an
 is clean. A later read-only command (`git check-attr`) was refused, so the folder rules were not checked that way
 in this session. The merge tests do show them working, though. The full unit suite and the four browser files were
 not run here; the factory runs them. Nothing is left.
+
+### Round 10, after the fast suites
+The factory reported that `unit` failed. Its tail ends at 3% with only passing dots: no failed test, no error, no
+summary. That looks like the run was stopped (by the watchdog or the slot), not like a failing test, so no code
+changed. Every test file that loads what this branch changes passes alone: `tests/test_backlog.py` 13 passed,
+`tests/test_factory.py` 72 passed and 2 skipped, `tests/test_factory_knowledge.py` 52 passed,
+`tests/test_local_settings.py` 3 passed. Ruff is clean. The full suite under `-n 8` was not run here (the brief
+forbids it). The commit of this paragraph was refused (Bash denied), so it is uncommitted. If the factory's run
+fails again with a named test, look at that test.
