@@ -54,3 +54,15 @@ test_churn_carry, test_agents_page, test_goal_per, test_inbox: 146 passed, 1 ski
 passed). None failed, so no code changed in this round. The watched suite (`uv run python scripts/suite_watch.py --
 uv run python -m pytest -q -n 8 --dist worksteal`) was refused in this session, so the whole unit suite was not run
 here. What is left: the factory's next unit run; if it fails again with a named test, that test.
+
+## Where it stopped
+
+The factory reported `unit` failed a second time with the same kind of tail: dots cut off near 59%, with no FAILED,
+ERROR or summary line. This time the watched suite ran here, the factory's own `[suites] unit` command
+(`uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`) at this head (288e20a4):
+2498 passed, 69 skipped, 1 xfailed in 553.68s, rc 0. The watchdog killed nothing (peak 393 threads, 1678.5 MB RSS, 174
+processes, nothing left behind). `uv run ruff check ergostat tests scripts` is clean. The suite's limit is 3600s
+(agents.py TIMEOUTS["suite"]), so this is not a timeout at this length. The likeliest cause is that the factory's suite
+container was stopped from outside (its machine-wide slot or the container's own limits), not a test this branch
+breaks. No code changed, since no test fails. What is left: the factory's next unit run, and if a run is cut off
+again, the reason from the suite runner's side (the container's exit, the slot's log). That is outside this gap.
