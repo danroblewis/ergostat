@@ -4770,6 +4770,7 @@ actions:
     wait: 15m                      # how long the session waits for the owner before going on (default 5m)
     timeout: 2m                    # how long it may run (default 2m)
     # fenced: false                # run once approved even after a later lease took the item (default true)
+    risk: {severity: 3, threshold: 8}   # one step stricter when this act is riskier than its class (below)
 blocks:
   developer:
     type: ai
@@ -4801,11 +4802,50 @@ where, and the block, run, session and work item), and then by its gate:
   input, with the actions still held. Each result given is `.delivered` (how: `session` or `context`). An action runs
   once: the first to take its lock runs it.
 
+**Act-risk.** An action may declare `risk: {severity: S, threshold: T}` (`ergostat/actions/risk.py`, plain
+arithmetic). Each request for it is then scored, and its gate moves one step stricter when the score reaches T:
+
+    act_risk = S × (1 + 4c) × (1 + n)        step  ⇔  act_risk ≥ T
+
+A step goes from `auto` to `approve` (held for the owner) or from `approve` to `deny`, never the other way; `deny`
+stays `deny`. An action without `risk:` is gated by its `gate:` alone. `S` is a whole number from 1 to 5 (not `true`);
+`T` a number above 1 and at most 50 (not NaN or infinite), default 8. Anything else is `bad-value`, said where it was
+written. Scores run from 1 to 50, and T is absolute, not a multiple of S, so severity alone can change the outcome.
+
+- `c` is the asking block's contradicted share of its checked claims over the last week (as
+  `ergostat.trust.contradicted` counts them). Each case where it cannot be read counts as the worst, c = 1, its reason
+  recorded: `claims record unreadable`, `no asking block`, `no claims on record`, `claims made, none checked`. A share
+  that is not a finite number counts as 1; any other is held to [0, 1]. A request that names no block (one the owner
+  makes) always has c = 1, so an owner's own `auto` request with S ≥ 2 is held for that owner: intended, since no
+  record vouches for it.
+- `n` is novelty: 0 only when the record holds another action of the same name that reached `ran` (exit 0) within the
+  last 90 days, else 1. One that only `failed` does not count; neither does an unreadable record (`action record
+  unreadable`, n = 1). It is keyed by the action's name: an action whose command was changed under the same name
+  counts as known, so "novel" never means "this command never ran".
+- The staleness of the state the act was planned on is **not** part of the score.
+
+The score is worked out before `requested` is written and recorded on it, `risk: {score, severity, threshold, c,
+c_why, n, n_why, gate}`, `gate` being the stepped gate, which then decides as `gate:` does. A stepped gate says so in
+its denied or held note ("act-risk 12 ≥ 8: its gate auto stepped to approve"), and the session is told it.
+
+**At the act**, for every action, inside its run lock, after the fence check and before the command starts, the
+model is read again (an in-memory model with no file: the one given). Unreadable, the action is **held again**: a
+`requested` event with `held_by: act-risk`, its note, and `approved_by` cleared, written before the lock this run
+took (`<short id>.run`) is removed by its name, so a sweep finds it held and the owner's later approval runs it.
+Gone from the model, it is `denied` by `gate`. Otherwise its gate and `risk:` as they are now are scored on the
+record as it is now, and the **effective gate** is the stricter of that and the request's stepped gate (the first
+`requested`'s `risk.gate`, which a re-hold never replaces; its `gate` without `risk:`): `deny` is denied, even when
+the owner approved it; `approve` runs if a person approved it and is held again if only `gate` did; `auto` runs. The
+act's reading is recorded on the event that ends it (`ran`, `failed`, `denied` or the re-held `requested`) as
+`risk_at_act`. So a gate is never looser than its `gate:`, at the request and at the act. A claim verdict, or the
+owner's edit, recorded between the request and the act is seen at the act; one recorded after the act's re-check, in
+the moment before the command starts, is not.
+
 Actions are counted by class: `ergostat actions` lists them and, per class, how many were held, approved by the
 owner, let through by the gate (auto), denied, ran and failed this week; a class the owner has approved five times or
 more and never denied is said to be ready for `gate: auto`. **Promoting** a class is the owner's edit to the model
-(`gate: auto`), never ergostat's, and takes effect at the next request: the refactor path (invariant 5) from a person
-approving to a rule.
+(`gate: auto`), never ergostat's, and takes effect at the next request; a gate made stricter takes effect at the act
+too, for what was approved before it (above): the refactor path (invariant 5) from a person approving to a rule.
 
 | Measure | What it is |
 |---|---|
