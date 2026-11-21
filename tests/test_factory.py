@@ -2007,6 +2007,8 @@ def test_bisect_reruns_only_the_failing_tests(tmp_path):
     assert r["failed_suite"] == "unit" and r["failed_tests"] == ["tests/test_b.py::test_b"]
     assert r["suites_queue"]["named"]["tests"] == 1                            # found by the named run
     assert merges(f) == ["p", "q", "s"] and not (f.checkout / "bad.txt").exists()
+    assert git(f.checkout, "cat-file", "-t", r["pre"]) == "commit"            # r's pre: kept, though p, q merged again
+    assert git(f.checkout, "rev-parse", f"{r['pre']}^{{tree}}") == git(f.checkout, "rev-parse", "main~1^{tree}")
 
 
 def test_a_failure_naming_no_test_bisects_in_full(tmp_path):

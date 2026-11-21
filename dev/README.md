@@ -349,8 +349,8 @@ When the red run named its failing tests (`FAILED`/`ERROR` lines), each bisectin
 that cannot tell (a test not found on that prefix, a run that never started) runs every suite instead. A failure that
 names no test (ruff, demo_check, a collection error, a killed run) is bisected with every suite, as before. A green on
 the named tests alone never lands anything: the merges before the failing one are merged again with those after it,
-and the lot lands only on a full green run of that very tree (the failing gap's `pre` is then a commit main no longer
-has; triage still checks it out, from the checkout's reflog). A batch is still at most `1 + ceil(log2 m)` runs per
+and the lot lands only on a full green run of that very tree (the failing gap's `pre` is then the first try's commit,
+which main may not hold; it stays in the checkout, with the tree of the one re-made). A batch is still at most `1 + ceil(log2 m)` runs per
 failing merge, but the bisecting ones are its failing tests, not the suites. A
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
