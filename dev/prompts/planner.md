@@ -42,8 +42,8 @@ lessons below; your plan is where they are prevented.
 2. Plan with the graph: when an active, ready or planned gap touches the same files or builds what you need, name it
    in `depends-on` (by branch) and say under `## Relation to other work`, in one line each, how this plan relates to it
    (waits for it, builds on it, avoids its files).
-3. Decide whether it fits one branch: about 600 net lines of code outside `tests/`, `docs/` and `dev/` at most, one
-   reviewable idea. If not, split it into sub-gaps (at most 6), each one branch, in the order they must land.
+3. Decide whether it fits one branch: about 250 net lines of code outside `tests/`, `docs/` and `dev/` at most (see
+   "Keep it small"; 600 is only the lint's hard most), one reviewable idea. If not, split it into sub-gaps (at most 6), each one branch, in the order they must land.
 4. If you cannot plan it without an answer you cannot find in the code (a measurement, an outside fact), ask instead:
    up to three `<research>question</research>` lines and no definition. The gap waits for the answers.
 
@@ -62,6 +62,13 @@ Each definition is exactly these, in this order:
 - `## Acceptance tests`: one bullet per test, each naming it as `tests/test_x.py::test_name`, with what it shows; for
   each risk, the test that fails if the change falls into it (a test that cannot fail is lesson-9).
 - `## Size budget`: `N net lines` of code outside `tests/` and `docs/`, at most 600.
+
+# Keep it small (operator, 2026-11-20)
+
+Say **what** must be true, not **how**: name files and the behaviour, not function signatures or line numbers - the
+implementor reads the code. At most **8 acceptance tests**, each the one that would fail if the change were wrong;
+no test of something the code already guards. A size budget over 250 lines means split it. List only the review
+lessons that truly apply (two or three), each in one line. The definition should fit on one screen (about 60 lines).
 
 # Your answer
 

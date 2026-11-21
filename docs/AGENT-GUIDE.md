@@ -76,6 +76,12 @@ Work through these steps in order. Ask the person only what you cannot infer.
    estimates: see "When will it be done", below); `examples/roadmap/` is a small model built this way. A parent that moves on
    when its children do (an epic shipped once every ticket is done) is a rule on its kind, never a block:
    `join: {children: parent, all: done, to: shipped}` (`any:` for the first child to start).
+   **To prioritise any queue**, give the items a field that says their order (a `rank`, a `priority`), set by the
+   events that groom them (`{"data": {"priority": 2}}`), and order the block that takes them by it: `takes: {kind:
+   ticket, at: todo, unblocked: true, order: [-priority, rank]}` (lowest first; `-FIELD` highest first; the items
+   without it after those with it; the critical first among equals). The completion estimates and the Timeline
+   project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
+   notes an order field no item holds yet (`takes-order-unset`).
 5. **One block per step that does the work**, taking items in its state:
    `takes: {kind: KIND, at: STATE, to: [NEXT]}`, with `pool:` (how many at once) and, for AI work, a
    prompt. A run leases its item, does the step, and prints the event that moves the item on.
@@ -428,7 +434,10 @@ readings again.
 
 Human approval (a gated action's `gate: approve`, a block's `mode: advise`, a `person` block, a change waiting for the
 owner) is for a system's **early stages**, while the person and you are still working out its feedback loops. Each one
-is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p):
+is evidence of a loop not yet modelled; plan for it to go (SPEC §12o, §12p). `mode: advise` asks before a command or
+an event, never before each item, so `check` refuses it on a block with `takes:` (`advise-with-takes`); to have a
+person hold such a block's items, gate it with `goal:` or `in: block.X` from a block they command, and its items wait
+while that is off (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`), from the page's *Needs attention* (Approve / Deny inline) or by
@@ -556,13 +565,15 @@ together, run 200 times from the record of the last two weeks:
 - a step no block takes (a person's review, CI that pushes its answer) is the time items stayed there, given how
   long this item has been there already (Kaplan–Meier: the ones still waiting count, as censored);
 - where an item goes next is where the record's items went (the rework loops too); what it waits on (`blocked_by`)
-  holds it in its first state.
+  holds it in its first state; a block's queue is in its `takes:` order (`order:` first), as the block takes them;
+- an item waiting for a block that is switched off now (a goal or a switch commanding it at 0) is projected not to
+  move, and says so, rather than drawn at the record's pace.
 
 The item page says why ("6 of 6 busy in dev; 34 ahead of it; a run takes 18m (median)"); the what-if beside a
 block's identified model (its pool, its share of failed runs) moves the estimates. **What makes them wrong**, and
 so what to model: a capacity no block declares (one reviewer for two kinds, an API's rate limit: give the step a
-`pool` or the agent an `at-once` that says it), a goal that switches a block off
-(the estimate assumes it takes whenever it has room), a process that changed in the last two weeks (the old runs
+`pool` or the agent an `at-once` that says it), a block switched on and off often (the estimate takes the gate as it
+is now, for the whole horizon), a process that changed in the last two weeks (the old runs
 still count), a step whose runs give the item back while they wait for something undeclared (the simulation
 takes each give-back as rework, so the estimates come out late), and a step nothing has
 left yet (its items are assumed to go to the next state in order). Under twenty runs no p90 is said. A block with

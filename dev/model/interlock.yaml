@@ -26,19 +26,19 @@ auxiliaries:
 goals:
   machine-quiet:
     auxiliary: suites-running
-    hold: "<= 3"
+    hold: "<= 6"                       # operator 2026-11-20: six suite slots now
     tolerance: 0
     on-stale: "off"                    # not knowing the load holds the suites
-    description: the machine's suite slots not all taken (three shared, and the queue's) when the queue or triage starts one
+    description: the machine's suite slots not all taken when the queue or triage starts one
   suite-threads-within:
     auxiliary: suite-threads
-    hold: "<= 1200"
+    hold: "<= 3000"                    # operator: 28 CPUs; the panic was at ~14k threads
     tolerance: 0
     on-stale: "off"
-    description: the suites' threads below the watchdog's 1,500, with room
+    description: the running suites' threads, together, well below the ~14k that panicked the machine
   suite-memory-within:
     auxiliary: suite-memory
-    hold: "<= 5"
+    hold: "<= 40"                      # operator: GB; 256 GB machine, each suite container capped at 12 GB
     tolerance: 0
     on-stale: "off"
-    description: the suites' memory below the watchdog's 6 GB, with room
+    description: the running suites' memory, together, in GB, with room on the machine
