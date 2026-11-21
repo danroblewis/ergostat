@@ -2721,13 +2721,15 @@ runs as a process of its own.
   the block's (`block.NAME`), a restart by the daemon's, a step test by its goal's (and at start each engine resumes
   only its own goals' tests), an approved program action by the shard of the block whose run asked for it. An ask
   about something the model does not have (a removed block, an unknown daemon, an action with no block) is the
-  lead's alone; besides, an engine still holding the run of the block a stop names stops it, whoever owns the block
-  now. Each ask is judged and acted on under the one model read for it, so after a `swap` the next ask about a moved
-  part goes to its new owner. `start` refuses a block outside the shard. Only the lead does what is done once: the
-  `ergostat.started` event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases,
-  actions and notices, the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket.
-  Not yet by shard: the wires are not carried; a run a block's moving a flow asks for reads that flow's stocks'
-  sensors wherever they are; and the calls socket is one per state directory, not one per shard process.
+  lead's alone; besides, an engine still holding the run of the block a stop names, itself or in a daemon, stops it,
+  whoever owns the block now. Each engine judges an ask under the one model it read for it, so after a `swap` the
+  next ask about a moved part goes to its new owner. `start` refuses a block outside the shard as the model is when
+  the run would start: an approval judged just before a swap moved its block is refused there, said, and must be
+  given again (the new owner judged it not its own). Only the lead does what is done once: the `ergostat.started`
+  event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases, actions and notices,
+  the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket. Not yet by shard: the
+  wires are not carried; a run a block's moving a flow asks for reads that flow's stocks' sensors wherever they are;
+  and the calls socket is one per state directory, not one per shard process.
 
 ## 10. Agents
 

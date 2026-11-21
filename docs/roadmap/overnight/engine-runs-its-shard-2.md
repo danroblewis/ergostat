@@ -69,3 +69,22 @@ These choices were made with nobody to ask. Each is the most reversible option:
 - **Removed from SPEC's "not yet".** The `at-once` clause was dropped, as the definition asks. An agent shared by
   blocks puts them in one shard, so its count is already in one engine.
 - **GAPS.** A stray, duplicated line was removed from the engine-per-system entry while "Left:" was rewritten.
+
+Round 2 (fix): about 45 net lines in all (`engine.py` +39, `steptest.py` +2, `daemons/work.py` +4). The review's
+three findings, each answered:
+- **A stop for a run a daemon holds.** A non-owner engine now also follows a stop when its own daemons hold a run of
+  that block (`Hands.holds`, which `stop_block` now uses too). `daemons/work.py` is not in "Files to touch". The
+  smallest change was to share the check `stop_block` already made rather than copy it into the engine.
+  `test_unplaced_ask_goes_to_lead_once` now holds a removed block's run in b's daemon (not in `procs`) and calls the
+  real `stop_run` in every engine: b's daemon cancels it, and the lead finds nothing.
+- **An approval judged before a swap.** The narrower claim was taken. Running the act under the judged model would
+  start a block outside the shard as it is now. That breaks the start guard, and when another engine has already
+  swapped, the approval runs twice. Refusing it can only cost the owner a second approval. SPEC §9.8 now says such an
+  approval is refused, said and must be given again. `_ask` says "approve it again" when `start` refuses a block that
+  moved. `test_ask_after_swap_goes_to_new_owner` uses the real `start` in the old owner. It fails when the guard in
+  `start` is removed (checked).
+- **GAPS wrap.** The over-long line was reflowed.
+Mutation checks: removing `self.daemons.holds(name)` from `_ask` fails `test_unplaced_ask_goes_to_lead_once`.
+Removing the `own()` guard in `start` fails `test_ask_after_swap_goes_to_new_owner` and
+`test_start_refuses_other_shards_block`. `git remote -v` was refused in this run, so it is still not known whether an
+`origin` exists; origin/main is not merged in (lesson-7, the factory's).
