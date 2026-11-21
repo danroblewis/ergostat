@@ -128,3 +128,16 @@ tests). Ruff is clean. Refused here: `ps -A -o command= | grep -E '^[^ ]*python[
 the whole unit suite run serially under the watchdog (`uv run python scripts/suite_watch.py -- uv run python -m pytest
 -q -p no:xdist -o faulthandler_timeout=120`, logged to `/tmp`), and a shell heredoc that appended this note. That
 serial run would name a hung test if there is one. It is the next thing to run if the factory's run is cut off again.
+
+Round 4, fourth suite failure. The factory's `unit` run was cut short again, this time at about 89% (67 dots into
+the line after 87%). As before there is no `F`, no pytest summary and no closing `suite_watch` JSON line. The four
+cut-offs stopped at about 1%, 84%, 11% and 89%. **No code was changed** (lesson-9, lesson-13). Read again for anything
+that can block: `charge` reads `self.proc.rusage`, an attribute `Measured._wait4` sets, not a `wait4` call. `usage.charge`
+reads `/proc` (or libproc). `fail_all` holds the lock only to copy and clear `runs` and `requests`, and ends every run
+outside it, even one whose charge raises. Nothing found here waits.
+Refused here: every shell command. The first one was `git log --oneline -8 && sed -n '/Round 4/,$p'
+docs/roadmap/overnight/warm-failed-runs-charged.md && git diff main --stat`, refused as "don't ask mode". So nothing was
+run in this round: no tests, no ruff, no serial suite. **This note is not committed** (`git commit` needs the shell).
+What is left: run the unit suite serially under the watchdog (`uv run python scripts/suite_watch.py -- uv run python -m
+pytest -q -p no:xdist -o faulthandler_timeout=120`) so that a hung test, if there is one, is named. Or read the full log
+of the cut-off run, not its tail. Then run that test on clean main (lesson-13).
