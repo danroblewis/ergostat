@@ -27,7 +27,6 @@ def call(cli, op: str, timeout: float = 60.0, **kw) -> dict | None:
 
 
 def key() -> str:
-    """A call's key (``calls/client.py``): the same on every try and in the command's own fallback, so recorded once."""
     import uuid
     return uuid.uuid4().hex
 

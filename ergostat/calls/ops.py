@@ -28,8 +28,7 @@ def call_of(req: dict) -> str | None:
 
 
 def act_key(cfg: dict, req: dict) -> str | None:
-    """An act's key: the caller's; else, for a run with no item (whose requests are never the same act), this call's,
-    so one asked again after a restart is one. A run with an item finds its own by action and arguments."""
+    """An act's key: the caller's, else this call's for a run with no item (one with finds its act by its arguments)."""
     key = req.get("key")
     return call_of(req) if key is None and not cfg.get("item") else key
 

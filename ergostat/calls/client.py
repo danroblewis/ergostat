@@ -4,11 +4,8 @@ library only, so a step's own Python can use it as it is:
     from ergostat.calls.client import call
     call("event", events=[{"event": "ticket.noted", "item": "ticket/12", "data": {...}}])
 
-``Unavailable`` when no engine listens (the caller does what it did before). A run's call (``ERGOSTAT_SOCKET`` set)
-first tries again with backoff for ``ERGOSTAT_CALL_RETRY`` seconds (default 2 minutes), so an engine restarting does
-not fail it (never where the run's state folder is gone: a socket of another machine, or of a project removed; and
-for ``GONE`` seconds only once its socket is removed, a clean stop, where a killed engine leaves it behind); each
-call's key makes what it records happen once however often it is asked (``ops.py``)."""
+``Unavailable`` when no engine listens (the caller does what it did before), after a run's call has tried again for
+``bound()`` seconds (an engine restarting); its key makes what it records happen once (``ops.py``)."""
 
 from __future__ import annotations
 
@@ -96,8 +93,7 @@ def state_of(start: Path) -> Path | None:
 
 
 def bound() -> float:
-    """How long a run's call tries again while no engine answers (an engine restarting): ``ERGOSTAT_CALL_RETRY``
-    seconds, default 2 minutes, at most an hour. 0 for a command not run by an engine (no ``ERGOSTAT_SOCKET``)."""
+    """A run's call tries again for ``ERGOSTAT_CALL_RETRY`` s (default 2 min, at most 1 h); 0 with no ERGOSTAT_SOCKET."""
     if not os.environ.get("ERGOSTAT_SOCKET"):
         return 0.0
     try:
@@ -108,9 +104,8 @@ def bound() -> float:
 
 
 def call(op: str, path: str | None = None, timeout: float = 60.0, retry: float | None = None, **args) -> dict:
-    """Ask the engine; its answer. Unavailable when nothing listens, after trying again with backoff for ``retry``
-    seconds (``bound()`` unless given); Refused when it says no. Every try carries the same key (``call``), so the
-    engine records what one call asks once, however often it is asked (``ops.py``)."""
+    """Ask the engine; its answer. Unavailable when nothing listens after ``retry`` s (``bound()`` unless given) of
+    backoff, each try with the same key (``call``); Refused when it says no."""
     path = path or find()
     if not path:
         raise Unavailable("no engine socket")
@@ -132,8 +127,7 @@ def call(op: str, path: str | None = None, timeout: float = 60.0, retry: float |
 
 
 def owner(path: str) -> Path:
-    """The folder whose engine answers at ``path``: the run's state directory when the socket is its own, else the
-    socket's folder. Gone: no engine comes back there (an inherited socket of another machine or container)."""
+    """The folder whose engine answers at ``path`` (the run's state dir, else the socket's); gone: none comes back."""
     from .server import path_for
     here = os.environ.get("ERGOSTAT_STATE_DIR")
     return Path(here) if here and str(path_for(Path(here))) == path else Path(path).parent
