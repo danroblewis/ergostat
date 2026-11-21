@@ -176,3 +176,64 @@ In `tests/test_pool_now.py` unless said otherwise:
 - most has a floor and no upper limit at config time (most: 5000 compiles); add an upper limit for the mapping form or state plainly why not (lesson-4).
 - read_at picks the newest reading across several sensors by timestamp; confirm it decides exactly as engine.measure does, including equal stamps (lesson-2), and test two sensors that disagree.
 - The lock test shows the read happens under this engine's lock; another engine's lease is counted because of the record, not this lock. The docs should claim no more than that.
+
+## Where it stopped
+
+Built: points 1 to 7, and the house checks in point 8 that this session is allowed to run. Not done here: the merge of
+origin/main (see the end).
+
+**The plan review's notes, answered:**
+- *Stale readings.* No age limit was added. The pool is the stock's newest reading whatever its age, and SPEC §9.5
+  says that plainly ("its newest reading, whatever its age"). The word "stale" is claimed nowhere in the docs or the
+  code. Only a missing or non-numeric reading reads as 0 (tested). This is the more reversible choice: an age limit
+  would need a setting and its own test, and a gap of its own. GAPS.md records it under "Not done".
+- *e.get under the lock.* `Engine.get` returns the value the engine's pass stored (`self.signals`). It never runs a
+  sensor (a dict lookup). `test_an_unread_pool_takes_nothing_new` uses a sensor that hangs (`sleep 30`, killed by its
+  1 s timeout) while the level file is missing. The dispatcher still counts 8 ticks, takes nothing, and says
+  "has no reading" exactly once. Once the file reads 1, it takes exactly 1.
+- *e.get only when pool_now is set.* `Dispatcher.pool_now` returns `b.pool` for the number form before calling `get`.
+  `etamodel` and `blockmodels` call `read_at` only when `b.pool_now` is set.
+- *A bool reading.* `poolnow.unread` refuses a bool. `True` and `False` are in `test_pool_now_clamps_and_fails_closed`.
+- *An upper limit on most.* None was added. `most` is the owner's written ceiling, the same number `pool: N` is today,
+  and the definition puts a global maximum for both forms outside this gap (lesson-4 bullet). A ceiling only on the
+  mapping form would make `pool: 5000` legal while `most: 5000` was refused. So that hole stays exactly as wide as
+  before, and the stock can never raise a block above what the owner wrote.
+- *read_at decides as engine.measure does.* Both loop over the stock's sensors in model order and keep a reading only
+  when its stamp is strictly later (`got[0] > best[0]`), so on equal stamps the sensor first in the model wins.
+  `read_at` passes `before=at` to `latest`. `test_read_at_picks_as_the_engine_measures` has two sensors that disagree,
+  checks the later stamp wins and the equal-stamp tie, and compares `read_at` with `Engine.measure` + `get`.
+- *What the lock covers.* SPEC §9.5 says: "The lock is this engine's: a lease another engine writes after the count
+  is held to the pool only by the record (the fold refuses a second lease on one item), as for a `pool:` number."
+  `test_the_pool_is_read_under_the_dispatch_lock` writes the other engine's lease on the item this engine would take
+  first. On another item, two engines could each take within their own room. That race is not new: it exists for
+  `pool: N` too, and fixing it is outside this gap.
+
+**A choice the definition left open:** `pool: {now: stock.S.port}` (one sensor's port) is refused (`bad-ref`). The
+pool reads the stock's level, as `read_at` and the engine pick it.
+
+**lesson-9, each guarded line broken in turn (then restored):**
+- the pool read moved before `with self.lock:`: `test_the_pool_is_read_under_the_dispatch_lock` failed;
+- the clamp removed (`max(0, floor(v))`): `test_pool_now_clamps_and_fails_closed` and
+  `test_the_pool_now_never_passes_its_most` failed;
+- an unread value mapped to the most: the clamp test, `test_an_unread_pool_takes_nothing_new`,
+  `test_estimates_read_the_pool_now` and `test_the_blocks_view_servers_are_the_pool_now` failed;
+- `b.pool` in dispatch: `test_dispatch_reads_the_pool_now_at_each_tick`, `test_a_lowered_pool_drains_and_stops_nothing`
+  and `test_an_unread_pool_takes_nothing_new` failed. In etamodel and blockmodels: the estimates and Blocks-view
+  tests failed.
+
+**Size:** about 113 net lines of code under `ergostat/` (budget 180), plus the `dev/` YAML comments and docstring.
+
+**Run, one file at a time, serially:** `tests/test_pool_now.py` (24 passed), `tests/test_leases.py` (20),
+`tests/test_eta.py` (13), `tests/test_closedloop.py` (15), `tests/test_blockdiagram.py` (67), `tests/test_factory.py`
+(42 passed, 2 skipped, neither of them this gap's), `tests/test_spec_compile.py` (26) and `tests/test_spec_schema.py`
+(17). `uv run ruff check ergostat tests scripts` is clean.
+
+**Not run here:**
+- The whole unit suite under `-n 8` and the four browser files: this session may not run suites in parallel. The
+  factory runs them after it, under the watchdog.
+- The dispatch tests under `-n 8` load (lesson-10). They wait on counted dispatcher ticks and on the record, never on
+  fixed sleeps.
+- The merge of origin/main: this clone has no `origin` remote. The local `main` (3adf48a) is already in the branch.
+  The factory's merge step (`implement.merge_main`) must merge origin/main, and the suites must run again before this
+  is called built (lesson-7).
+- No example was touched, so `demo_check` was not needed.
