@@ -58,3 +58,46 @@ The gap (`docs/GAPS.md`, *A kind chosen in a snapshot*). When a kind is chosen i
 - In the browser test, `#/items?kind=note&view=graph` must assert `.rg-graph[data-drawn]` contains `note/n`, not only 'no error', which passes if nothing is drawn.
 - Point 2 claims the Timeline with a kind chosen draws from the snapshot; add a browser assertion for the Timeline view with `kind=ticket`.
 - Lesson-8: back the SPEC sentence that sets are not held with a test (a set chosen in a snapshot says 'not in this snapshot' rather than showing wrong items), or narrow the sentence.
+
+## Where it stopped
+
+Built, round 1. These are the decisions taken with nobody to ask, each the most reversible one:
+
+- **`state=active` in the acceptance tests is not a state.** In `related_project` a ticket's states are
+  `todo, doing, done`, and `ticket.started` moves it to `doing` (`active` is the Graph's status, not an item's
+  state). So the tests use `items?kind=ticket&state=doing` (exactly `ticket/a`) and click the `doing` state. They
+  also check `state=todo` (exactly `ticket/b`).
+- **"Every kind in the `kinds` list" includes ergostat's own kinds** (`ergostat.decision`, `ergostat.claim`, ...),
+  because the page offers those too. So the exact `items-graph` key set in
+  `test_a_snapshot_holds_the_items_graph_the_page_asks_for` is the old four, plus `note`, plus one per
+  `ergostat.*` kind. The test says so.
+- **README** says what a snapshot holds. Its line was narrowed to name a kind chosen as held and a set as not
+  held (lesson-8). README is not in the list of files to touch; this is one line.
+- `pages.js` is not touched. In a snapshot the page asks for `items` with `{kind, state}` (no `per_kind`, `shown`,
+  `q` or `whatif`) and for `items-graph` with `{kinds: K}`. Those are exactly the keys `snapshot.key` makes.
+
+Answers to the plan review:
+
+- **States.** Each kind's states come from its own answer, `items?kind=K`, and its `kinds` entry for K: each
+  state it declares and each state it counts an item in (`_states`). They do not come from the no-kind list. If
+  the kind's own answer cannot be got, none of its states are asked for, so each says "not in this snapshot".
+  Declared states come from the model, so the same list appears in either answer. The counts come from the item
+  index, not from the listed items, so a state is not missed because the list was cut.
+- **First page.** `items?kind=K` is held as the server answers that request: no `n`, `offset`, `per_kind` or
+  `shown`, so up to `items.LISTED` (500) of the kind's items, newest first, with full fields. The page shows 300 of
+  them. With more than 300, its "All N" link asks for the same request again and shows the same 300. N counts at
+  most the 500 held. With more than 500 items, the rest are not in the snapshot. That is recorded in GAPS under
+  *A set chosen in a snapshot*. "Holds what the live server answers" is true of that exact request, checked by
+  equality in the acceptance test (only `now`/`since`/`at` dropped, the moment of asking).
+- **Left out.** The left-out test breaks `items?kind=ticket`, `items?kind=epic&state=underway` and
+  `items-graph?kinds=note`. Each is absent, ticket's states are absent too, and the rest is still held.
+- **Browser.** `kind=note&view=graph` asserts `note/n` among the drawn `.rg-node`s. The Timeline with
+  `kind=ticket` asserts `.rg-timeline[data-drawn]` rows for `ticket/a` and `ticket/b`. A set (`moved=doing`)
+  asserts the chip says "items: not in this snapshot". `where`, `through`, `followed` and `caused` reach the same
+  path: any extra parameter makes a key the snapshot never writes. Only `moved` is tested.
+
+Not run here: the browser tests. This container has no `playwright` (`tests/test_items_page.py` skips at import),
+so `test_a_snapshot_lets_a_kind_and_its_state_be_chosen` and `test_a_snapshot_draws_the_graph_and_timeline` were
+written and read against `pages.js`, but not run. The factory's browser run is the first real check of them.
+Unit tests: `tests/test_graph_cli_web.py` passes, 31 of 31. With the new code disabled (main's behaviour), the
+three snapshot tests fail. With a failure stored as an empty list, the left-out test fails.
