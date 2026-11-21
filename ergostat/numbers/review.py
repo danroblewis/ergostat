@@ -343,7 +343,7 @@ def _by(x: dict) -> dict:
     return {"made_by": x.get("made_by") or "ergostat", "made_by_rung": x.get("made_by_rung"), "by_block": block,
             "item": f"ergostat.model-change/{x['id']}", "state": x.get("state"),
             "reasons": x.get("reasons") or [] if block else [], "confidence": x.get("confidence"),
-            "findings": x.get("findings") or {}, "verdict": v or None}
+            "findings": x.get("findings") or {}, "verdict": v or None, "review": x.get("review")}
 
 
 def _systems(spec: Spec, parts: list[str]) -> list[str]:
