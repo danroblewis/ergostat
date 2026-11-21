@@ -66,3 +66,21 @@ it guards against regression, and nothing in this branch changes the queue.
 Not run: the script by hand against this repository (the command was refused), and the unit and browser suites in
 full (left to the factory, as the brief says). `ruff check dev/bin` reports B023 in plan.py and E501 in review.py.
 Both files are untouched here and already on main.
+
+### After round 1's fast suites
+
+The factory's `unit` run stopped early: about 60 tests passed, one skipped, then nothing. No test failed, no summary
+line was printed, and no watchdog message appeared in the tail. That is the same early stop with no failure named that
+reviews of implementors-can-run-the-four (rounds 5, 6, 8, 9), manager-sessions and a-queue-run-that-lands-nothing
+also reported. Their reviews call its cause unproven. The tail also shows `bringing up nodes...` twice.
+
+I read through the branch looking for a cause and found none. The new tests run `affected_tests.py` only as a
+subprocess, never in-process, so its `execvp` cannot replace an xdist worker. The fixture factories set
+`FACTORY_CONFIG` to their own `factory.toml`, which has no `build`, so no test runs the shipped `build` command (no
+nested pytest). The fixture repositories use `git -C <tmp>` and an identity of their own. One hardening, on reading
+only: the helper now strips `GIT_*` variables from the script's environment, so an inherited `GIT_DIR` cannot point
+its git at `/work`. That is not a proven fix.
+
+Not run: the Bash tool was refused at its first call (`git log --oneline -4 && git diff main...HEAD --stat && ...`).
+So pytest, ruff and git could not be run in this round, and this note and the edit are committed by hand only if git
+is allowed. If the next unit run stops the same way, the stop is not this branch's (lesson-13). It should be its own gap.

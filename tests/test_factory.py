@@ -3538,9 +3538,10 @@ def affected(tmp: Path, change: dict[str, str | None], base: str = "main") -> su
             (repo / rel).write_text(text)
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "change")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}   # (git sees only the fixture, never /work)
     return subprocess.run([sys.executable, str(ROOT / "scripts" / "affected_tests.py"), "--base", base, "--", "echo",
                            "given", "--deselect", "tests/test_q.py::t"], cwd=repo, capture_output=True, text=True,
-                          timeout=60)
+                          timeout=60, env=env)
 
 
 def test_a_branch_changing_a_module_and_its_test_runs_only_those(tmp_path):
