@@ -35,8 +35,10 @@ stocks:
 blocks:
   work: ${work}
 """
-TAKES = {"type": "program", "run": "true", "takes": {"kind": "t", "at": "ready"}, "pool": 2}
-MAIN = {"a": {"use": "bot"}, "b": {"use": "bot"}, "t": {"use": "bot", "with": {"work": TAKES}}}   # 1 + 1 + 2: the cap
+JUDGED = "template: judged\nblocks:\n  judge: {type: judge}\n"
+TAKES = {"type": "program", "run": "true", "takes": {"kind": "t", "at": "ready"}}
+MAIN = {"a": {"use": "bot"}, "b": {"use": "bot"}, "t": {"use": "bot", "with": {"work": TAKES}},
+        "j": {"use": "judged"}}                                   # 1 + 1 + 1 + 1: the cap
 OWN = "stocks:\n  mine: {unit: x, sensor: {run: 'echo 1'}}\nblocks:\n  go: {type: program, run: 'true', every: 1s}\n"
 GONE = [f"gone-{i} item/{i}" for i in range(UNTRUSTED_RUNS)]     # runs of blocks the model no longer has: untrusted
 
@@ -44,6 +46,7 @@ GONE = [f"gone-{i} item/{i}" for i in range(UNTRUSTED_RUNS)]     # runs of block
 def project(tmp_path) -> Project:
     (tmp_path / "lib").mkdir()
     (tmp_path / "lib" / "bot.yaml").write_text(textwrap.dedent(BOT))
+    (tmp_path / "lib" / "judged.yaml").write_text(JUDGED)
     (tmp_path / "ergostat.yaml").write_text("name: t\nlibrary:\n  - {folder: lib, untrusted: true}\n" + OWN
                                             + "uses: " + json.dumps(MAIN) + "\n")
     return Project(mdl.load(tmp_path))
@@ -179,18 +182,22 @@ def test_reload_making_it_trusted_still_counts_its_draining_run(tmp_path):
         e.close()
 
 
-def test_engine_paces_untrusted_at_floor(tmp_path, monkeypatch):
-    e, p = engine(tmp_path)
-    s, b = e.spec.stocks["a-waiting"].sensors["main"], e.spec.blocks["a-work"]
-    s.every = b.every = 1                                         # changed after it was compiled
-    clock, rounds = [1000.0], [1000.0, 1000.0 + UNTRUSTED_EVERY - 1, 1000.0 + UNTRUSTED_EVERY]
-    reads, starts = [], []
-    e.read_soon = lambda x: reads.append((clock[0], x.series))
-    e.start = lambda x, *a, **k: starts.append((clock[0], x.name))
+def clocked(e, monkeypatch, rounds: list[float]) -> dict:
+    """The scheduler's loop run once a time in ``rounds`` (its clock patched), recording what it reads and starts."""
+    clock, got = [rounds[0]], {"reads": [], "starts": [], "judged": []}
+    e.read_soon = lambda x: got["reads"].append((clock[0], x.series))
+    e.start = lambda x, *a, **k: got["starts"].append((clock[0], x.name))
     e._readings = lambda tick: False
     e._sweep = lambda: None
 
+    def judged(b):
+        got["judged"].append((clock[0], b.name))
+        with e.lock:
+            e.running.discard(b.name)
+    e.judge = judged
+
     def wait(_t=None):                                            # one round of the loop done: the clock moves on
+        assert wait_for(lambda: not any(n.endswith("-judge") for n in e.running)), "a judge's pass started this round ends"
         rounds.pop(0)
         if rounds:
             clock[0] = rounds[0]
@@ -200,8 +207,39 @@ def test_engine_paces_untrusted_at_floor(tmp_path, monkeypatch):
     monkeypatch.setattr(e.wake, "wait", wait)
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     e._schedule(e.loop_gen)
+    return got
+
+
+def wait_for(cond, seconds=5.0):
+    """Until ``cond`` holds (looked at again each 20 ms, an event's wait: time.monotonic may be patched)."""
+    tick = threading.Event()
+    for _ in range(int(seconds / 0.02)):
+        if cond():
+            return True
+        tick.wait(0.02)
+    return cond()
+
+
+def test_judge_pass_counted_at_ceiling(tmp_path, monkeypatch):
+    e, p = engine(tmp_path)
+    e.running |= set(GONE)
+    got = clocked(e, monkeypatch, [1000.0])
+    assert not got["judged"] and "j-judge" not in e.running, "at the cap, an untrusted judge's pass waits"
+    e.running.clear()
+    e.stop.clear()
+    got = clocked(e, monkeypatch, [2000.0])
+    assert [n for _, n in got["judged"]] == ["j-judge"]
+
+
+def test_engine_paces_untrusted_at_floor(tmp_path, monkeypatch):
+    e, p = engine(tmp_path)
+    s, b, j = e.spec.stocks["a-waiting"].sensors["main"], e.spec.blocks["a-work"], e.spec.blocks["j-judge"]
+    s.every = b.every = j.every = 1                               # changed after it was compiled
     t0, t1 = 1000.0, 1000.0 + UNTRUSTED_EVERY
+    got = clocked(e, monkeypatch, [t0, t1 - 1, t1])
+    reads, starts = got["reads"], got["starts"]
     assert [t for t, k in reads if k == s.series] == [t0, t1], reads
     assert [t for t, n in starts if n == "a-work"] == [t0, t1], starts
+    assert [t for t, _ in got["judged"]] == [t0, t1], got["judged"]
     mine = [t for t, k in reads if k == e.spec.stocks["mine"].sensors["main"].series]
     assert mine == [t0, t0 + UNTRUSTED_EVERY - 1], "the owner's own sensor keeps its own period (60s)"

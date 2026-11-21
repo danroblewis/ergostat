@@ -36,10 +36,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   untrusted library's scripts can now run in the allowlist sandbox, with no reads of the owner's files and network
   only to hosts the owner lists. *Still needed:* the trust gate rebuilt on **provenance** (a value counts as the
   owner's only if it arrived by substitution of a `type: command` parameter, the marks kept through nested uses;
-  equality to an owner's literal is not enough); the refusal not telling agents to copy commands into `with:`; a
-  library's `example:` and `reading:` marked untrusted wherever an agent reads them; `ask:`, `query`/`source` gated and
-  a minimum `every` for untrusted libraries; `fetch` refusing a lock entry without a tree, symlinks hashed explicitly;
-  then running untrusted library scripts through `ergostat.sandbox` and the rebase onto main.
+  equality to an owner's literal is not enough); the refusal not telling agents to copy commands into `with:`; the
+  text an untrusted template makes in the model marked too (its system's and parts' descriptions, prompts, commands,
+  equations and names, wherever `check`, the diagrams and the MCP model views show them: only the `templates` tool and
+  three kinds of `check` problem are marked, SPEC §2a, *Untrusted libraries*); `ask:` and `query`/`source` gated for
+  untrusted libraries (their schedules, pools, attempts and runs at once are bounded); `fetch` refusing a lock entry
+  without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
+  the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.

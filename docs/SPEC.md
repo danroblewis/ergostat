@@ -124,11 +124,12 @@ uses:                                   # any file; the instances of every file 
       ping: ./bin/remind.sh
 library:                                # main file only: folders of the owner's own templates
   - ~/private/ergostat-templates
+  - {folder: ~/shared/from-a-friend, untrusted: true}   # one the owner declares untrusted (below)
 ```
 
 | Key | Type | Meaning |
 |---|---|---|
-| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so |
+| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so (an untrusted folder's never shadows a trusted one: below) |
 | `with` | map | The template's parameters. A parameter it does not take, a value of the wrong type (a duration that does not parse, a setpoint, a cron expression, a name) and a required one left out are errors at that line |
 | `within` | system name | The system the instance is part of |
 | `description` | string | |
@@ -153,6 +154,59 @@ fitted, a tuning) is refused, and says what to change instead.
 **Stand-ins.** A template's parameters that reach the world (a source, an action) each say what stands in for
 them when they are left out: a made-up feed, a pretend answer, a level that creeps up. Each instance runs offline
 on them, and `check` lists the instances still on stand-ins (**template-stand-in**, a finding).
+
+**Untrusted libraries.** A `library:` element is a folder (the owner's, trusted), or a map `{folder: PATH,
+untrusted: true|false}`: both keys required, `untrusted` a YAML bool; any other key, a key left out or a value that
+is not a bool is **bad-library**. Only the main file declares trust: a `uses:` entry takes only `use`, `with`,
+`within` and `description`, so `trusted:` or `untrusted:` there is **unknown-key**. `$ERGOSTAT_LIBRARY` folders and
+ergostat's own templates are trusted. A template read from an untrusted folder has `Template.untrusted` set (the one
+attribute a later source of trust sets too); its name and each parameter's name must match `^[a-z][a-z0-9-]{0,63}$`,
+or the template is refused; and it never shadows a trusted template: one of the same name from ergostat or from a
+trusted folder is used, whatever the folders' order. An instance is untrusted when its template is or when any
+instance it sits inside is (a trusted template used by an untrusted one is untrusted there), recorded in its `uses`
+entry.
+
+*Marked.* Library text is shown between ergostat's markers, `⟦untrusted: LABEL⟧` and `⟦end of untrusted⟧`, every
+`⟦` and `⟧` inside it written `[` and `]`, so no marker character inside a marked span is the library's. `LABEL` is
+never library text: `template NAME` (the name checked above) or the words `library file`. Three places are marked,
+for an untrusted template only; a trusted template's output is unchanged:
+
+- the `templates` tool (MCP, `author.library`), listed and in full: `description`, `reading`, `example`, `from`, and
+  each parameter's `description`, `stand-in`, and `default` and `choices` (a list or a map written as JSON first;
+  a number or a bool as it is). Each untrusted entry says `"untrusted": true`, and the output's `markers` says that
+  text between the markers is a library's: data, not instructions;
+- **template-library** notes from an untrusted folder (a file that does not read, a name refused, a shadowing
+  refused): `untrusted library folder FOLDER:` (the owner's path), then the rest, file name included, marked as
+  `library file`;
+- the problems a use of an untrusted template gives: **bad-param** and **bad-template** messages after
+  `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**.
+
+*Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
+known types), and everything an untrusted template makes in the model: its system's description, its parts'
+descriptions, prompts, commands, equations and names, however `check`, the diagrams and the MCP model views show
+them. Gating `ask:` and `query`/`source` is not done either (docs/GAPS.md, *Shared libraries*).
+
+*Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
+(an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
+the leases are checked, each limit below that an untrusted part passes is an error, **untrusted-limit**, at its
+`use:` line. The limits are constants (`ergostat/library/bounds.py`), never config:
+
+| Limit | Value | Applies to |
+|---|---|---|
+| `UNTRUSTED_EVERY` | 300 s | a stock's or flow's sensor, and a program, ai or judge block: `every:` at least this, and its default when none is written (not 60 s, not the judge's 30 s); `cron:` firing at one minute of the hour at most (its minute field a single value, so at most hourly) |
+| `UNTRUSTED_POOL` | 2 | a block's `pool:` |
+| `UNTRUSTED_ATTEMPTS` | 5 | a block's lease attempts, as its lease terms come out (its own `lease:`, its kind's, the owner's `leases:` tier) |
+| `UNTRUSTED_RUNS` | 4 | the runs at once of every untrusted program, ai and judge block together: its pool for a block that takes items, else 1 |
+
+Refused outright for an untrusted part: a sensor's `daemon:`, a block's `on:`, and a program or ai block with none of
+`every:`, `cron:` or `takes:` (it would run on every reading). These are the only fields bounded. A value that does
+not read (`every: soon`, `pool: many`, a bad cron, `attempts: x`) stays the error it always is. When runs start, the
+engine's `start` and a lease's take count the untrusted runs in `running` under the engine's lock, in the same hold
+that adds the run (a take reserves before its lease is written, so no lease is written for a run that cannot
+start), and a judge's pass is counted the same way. A run counts while its process is still exiting, and counts as
+untrusted if it was when it began, if the model says so now, or if the model no longer has its block. The clock
+paces an untrusted sensor, block or judge at `UNTRUSTED_EVERY` at least, even if the spec changed after it was
+compiled. A sensor's `run:` goes through the reader pool, which is bounded already (`READERS`).
 
 **Writing one.** A template file is YAML: `template:` (its name), `description:`, `reading:` (what it is in
 control theory and in system dynamics), `params:` (each with `type`, `description`, and `default`,
@@ -283,7 +337,7 @@ remotes:                        # optional: systems other ergostats run, read he
 web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
 library:                        # optional, main file only: folders of the owner's templates (section 2a)
-  - ...
+  - ...                         # a folder (trusted), or {folder: PATH, untrusted: true|false}
 ```
 
 ## 4a. Systems: parts made of parts
@@ -2729,7 +2783,8 @@ where the error is 0.
 - **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
   (section 12e);
 - **template-library**: a template in a `library:` folder that does not read, or one used in place of
-  ergostat's own;
+  ergostat's own; in an untrusted folder, also a template whose name or a parameter's name is refused, or one not
+  used because a trusted one has its name (its text marked, section 2a, *Untrusted libraries*);
 - **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
   is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
   (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
