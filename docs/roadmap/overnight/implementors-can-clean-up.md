@@ -35,3 +35,10 @@ thread or container. I could not run the whole unit suite under the watchdog: th
 refuses `uv run python scripts/suite_watch.py ...`, the very permission this gap adds. Following this gap's own rule, I
 did not work around the refusal. No code was changed in answer (the most reversible option). What is left: run `unit`
 again under suite_watch, and if it fails with a test named, fix that.
+
+Round 3: main (9acc11c2) merged in; its one conflict, tests/test_factory.py, was two independent additions at the
+file's end (this branch's three acceptance tests, main's park-owns-resume tests), and both are kept. After the merge:
+tests/test_factory.py 69 passed, 2 skipped; ruff clean; and `unit` under suite_watch.py, which this round's allowlist
+allowed, rc 0 (2131 passed, 69 skipped, peak 294 threads, 1.6 GB). No code was changed this round. The four browser
+files were started under suite_watch; their result is in the session's report, not here. Refused this round: a
+`timeout ... sh -c 'while ...; sleep'` wait for that run's output, which was not worked around.
