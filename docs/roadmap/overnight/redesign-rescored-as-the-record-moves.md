@@ -96,3 +96,79 @@ All in `tests/test_redesign_rescored.py`, driving real `jd.run` passes on the `r
 - Lesson-8: 'an allowlist of exactly what scorecard.score reads' has no test. The implementor should list each record read in scorecard.score (and what it calls) next to a mark field and test that each one moves the mark.
 - Items 3 and 4 clash: say whether a redesign marked rescoring after an unreadable mark counts against RESCORE_MOST and whether it is rescored when its scored.mark equals the current mark. Test a recovery with two such redesigns.
 - Sensor readings will move the mark almost every pass, so in practice a waiting redesign is scored again every 30 minutes and most promoted ones are scored again at write time. The SPEC wording should say this, not suggest rescores are rare.
+
+## Where it stopped
+
+Built: items 1-6 and every acceptance test named above, plus two more that the plan review asked for. The work is in
+commits a179256 (code and tests), dc4a1d5 (SPEC, GAPS, proposal) and the commit that adds this section. 156 net lines
+of code against the budget of 200.
+
+**The plan review's notes, answered:**
+
+- *The model itself.* The mark has a third field, `model`: a hash of `version.whole` (dynamics, control, sensors), the
+  words, the units and the item kinds. The version alone was not enough. An accepted change of words leaves
+  `version.version` as it was, so the redesign is not carried, yet its scorecard's craft notes and findings change.
+  `test_accepting_another_change_has_a_waiting_redesign_scored_again_before_it_is_written` checks this: the owner
+  accepts a description, and the promoted redesign is scored again (one `rd.judged` call) before it is written. A
+  change that moves the version is caught twice: once by carrying (back to `checked`), and once by this field.
+- *The allowlist, read by read.* This is what `scorecard.score` reads from the record, next to the mark field that
+  covers it:
+  - `coherence.compare` reads the process window (`pm.Window`: every event in the window except `SKIP`). It uses the
+    moves of each kind's items, which `seq` (a) covers: `<kind>.*` and each kind's `on` types, for every kind but
+    ergostat's own and a `once` template's. That is wider than `chains._kinds` because coherence also reads the state
+    kinds that are not chained.
+  - It also uses the block runs in `ACTED`. `seq` (b) covers `agent.started`, `agent.ran`, `agent.failed` and
+    `person.asked` of the model's own blocks, wider than the definition's ran/failed so that it matches `ACTED`.
+  - `fit` goes through `observe.measured`. For readings (`bucketed`, `first`) the `readings` field covers it, through
+    `latest` of every sensor series of the model's own stocks, flows and auxiliaries. For `valve.opened` of the valves
+    on its flows, `seq` (c) covers it. For item moves of `items:` sensors, `seq` (a) covers it.
+  - `read(p.model.path)`, which gives findings and craft notes, is covered by `model`.
+  - Left out, as the module docstring says: an event a model block writes under its own `source` that is neither an
+    item's move nor a run event. Coherence counts such an event only as a sign that the block was active, and that
+    block's run also writes `agent.ran`. Also left out: a `once` template's parts' readings and valves, which the
+    judge's own work moves and a redesign cannot change.
+  - `test_the_mark_moves_with_what_the_scorecard_reads_and_not_with_the_judge` moves the mark once for each field:
+    a kind's item event, agent.started, agent.ran and agent.failed of a model block, valve.opened of a model valve, and
+    a model sensor reading. The accepted-words test moves `model`.
+- *Items 3 and 4.* A redesign marked `rescoring` (carried, or after an unreadable mark) is rescored without the 30-minute
+  wait and whatever its `scored.mark`, but it does count against `RESCORE_MOST`. The cap bounds every rescore
+  (lesson-4), so two such redesigns recover one per pass, least recently scored first.
+  `test_two_marked_rescoring_recover_one_a_pass_whatever_their_mark` tests this with an unmoved record. A promoted one
+  is not held back by the cap, because the write path scores it again itself.
+- *How often.* SPEC §12e says that sensors move the mark nearly every pass, so in practice a waiting redesign is scored
+  again about every 30 minutes, and most promoted ones are scored again when they are written.
+
+**Choices made alone, taking the reversible option:**
+
+- An unreadable mark stops every write in that pass (item 4 says "nothing is ... written"), not only the redesign's.
+  This is the fail-closed reading of the words, and widening it later is a one-line change.
+- A first judging whose mark cannot be read is left `checked`, with no event written, and is judged by the next pass
+  that can read the mark.
+- The write path calls `pr._accept` inside its own hold. `pr.accept` would take the flock a second time on a new file
+  descriptor and deadlock. So `tests/test_modelling_core.py::test_a_promoted_redesign_whose_edit_fails_is_superseded`
+  now injects its `ProposalError` at `pr._accept`, not `pr.accept`. The superseded path it tests is unchanged.
+
+**Broken on purpose, and each test failed (lesson-9):**
+
+- The mark's `seq` replaced by `p.events.last_seq()`: 10 of the 12 new tests fail.
+- The order changed to `-scored.seq`, or to id alone: the one-a-pass test and the two-recover test fail.
+- The 30-minute wait dropped: `..._after_thirty_minutes_not_before` fails.
+- The mark-equality check dropped: `test_no_new_events_no_rescore` and `..._unmoved_record_...` fail.
+- The clearing dropped from the judging event: the same-id remake, the unreadable-mark and two-recover tests fail, and
+  so does `test_carried_words_go_back_to_checked_and_a_redesign_says_rescoring`.
+- The write path's check skipped: `..._scored_again_before_written_...`, the lock test and the accepted-words test fail.
+- The write path's mark read before `rd.running`, that is, before the lock: `..._scored_again_before_written_...`
+  and the lock test fail.
+
+**Not run here:**
+
+- The unit suite as a whole, and the four browser files. The brief leaves the whole-suite runs to the factory, which
+  runs them under the watchdog. The files that drive the judge or the review queue were run one at a time and pass:
+  test_redesign_rescored, test_redesign, test_modelling_core, test_modelling_core2, test_self_improve, test_intent,
+  test_improve, test_gate, test_exercised, test_churn, test_extremes_closed, test_slowjudge, test_review and
+  test_sd_review.
+- The origin/main merge. This clone has no `origin` remote ref and the network is off limits. Local `main` (8eb0fc0)
+  is this branch's base, so it is already contained. The queue has to merge origin/main (`proposals-drawn-dashed-in-both`
+  touches `review.js`, lesson-7) and run both suites again.
+- An untracked scratch file, `tests/test_probe_tmp.py`, holds only a comment. `rm` was refused. It was never committed,
+  so delete it.
