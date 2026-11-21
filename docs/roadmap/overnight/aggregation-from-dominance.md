@@ -144,3 +144,14 @@ fails. One test fails when run with others:
 `tests/test_store_conformance.py::test_a_second_instance_threads_and_processes_lose_nothing[sqlite]`. A spawned
 process finds main's `dev/bin/queue.py` in place of the standard `queue` once another test has put `dev/bin` on
 `sys.path`. It passes alone, this branch does not touch it, and it is left alone (lesson-13).
+
+After the factory's second unit run failed: its tail again names no failing test. It ends at 17 dots after
+"bringing up nodes...", with no pytest summary, which is a run killed from outside (the watchdog or a time limit), not
+a test that failed. In this round every shell command was refused (the Bash tool, in "don't ask" mode), so nothing
+could be run or committed: not the tests, not ruff, not `git commit`. This note is left uncommitted in the worktree.
+Read without running, the branch's shared paths add no thread, process or unbounded memory: `causal.loops` in
+`aggregation.py` uses the same `longest`/`most` as `dominance.py`, so it hits the same per-model cache; the API keeps
+one tuple under its existing key (16 at most); `tests/test_aggregation.py` builds its projects the way
+`tests/test_sd_tools.py` does. No test outside the browser files reads `dynamics.js` or `numbers_api.py`. No code was
+changed, because nothing found by reading was wrong. The factory needs to run the unit suite with its full output
+(or `-x -rA` on `tests/test_aggregation.py` alone) to name the failure, if there is one.
