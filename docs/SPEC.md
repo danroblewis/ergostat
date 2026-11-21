@@ -2335,11 +2335,16 @@ dispatcher's next look. A run stopped with ergostat gives its item
 back uncounted, unless what it printed before had already moved the item on (its lines take effect as it prints
 them, section 9.1): that is an ack. Once ergostat has begun stopping it takes no lease; a take that raced the stop is
 given back uncounted before its run starts, and a run still going when ergostat has waited its last for it has its
-lease given back uncounted as ergostat exits. A lease that could not be given back (the write failed, or ergostat was
-killed, or restarted itself at once) is expired by the next engine's watchdog on its TTL, so after a restart no item
-stays leased by a run that never ran; that expiry counts no attempt (`count: false`), since its holder was not a run
-this engine process took (the dispatcher keeps, in memory, the runs it took whose leases have not ended). A
-lease that expired is not ended again when its run ends.
+lease given back uncounted as ergostat exits. Before the engine records `ergostat.stopped`, every lease it took and
+has not ended is given back uncounted (one whose run's own end failed too), each ended once. A process that a run of a
+block's own `run` starts while its engine stops is killed (its process group) before the engine exits; this keys on
+that engine's own stop, so another engine in the same process keeps a run it starts after the first one's kill (a run
+of another engine already going when one engine kills its runs is killed with them, and one that then exits non-zero
+is said to be stopped with ergostat). A daemon's item is stopped by the daemon's own close (section 9.7). A lease
+that could not be given back (the write failed, or ergostat was killed, or restarted itself at once) is expired by the
+next engine's watchdog on its TTL, so after a restart no item stays leased by a run that never ran; that expiry counts
+no attempt (`count: false`), since its holder was not a run this engine process took (the dispatcher keeps, in
+memory, the runs it took whose leases have not ended). A lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left

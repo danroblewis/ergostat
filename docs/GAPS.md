@@ -349,14 +349,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
-- **A lease taken while the engine closes outlives the close** (open; found by
-  `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`, which fails now and then on main).
-  `Dispatcher.take` (`ergostat/leases/dispatch.py`) writes `lease.taken` and folds it before adding the run to
-  `Engine.running`, so `Engine.close()` can find `running` empty and return while a lease is being taken. And
-  `runner.kill_all()` kills only what is already in `runner.LIVE`: a run spawned just after it is not killed, so its
-  process outlives `close()` and its lease stays held. A fix must not key on the process-wide `runner.STOPPING`
-  (one engine closing would kill another engine's new run in the same process), and needs its own test of the
-  `run_block` half.
 
 ## Interface
 
@@ -433,6 +425,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Done recently
 
+- **A lease taken while the engine closes outlives the close** (done on `factory/a-lease-taken-while-the-engine`;
+  found by `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`; SPEC §9.5,
+  `docs/roadmap/overnight/a-lease-taken-while-the-engine.md`): `Dispatcher.take` checks the engine's own stop and
+  counts the take in `Engine.running` under the lock `close()` sets the stop under, and gives back uncounted a take
+  whose write raced the stop, starting no run; a process `run_block` starts once this engine is stopping is killed
+  (keyed on its own stop, not `runner.STOPPING`); `close()` gives back every lease it still holds before
+  `ergostat.stopped`, each ended once (`finish` reads and writes under `Dispatcher.lock`). Left as it was:
+  `runner.kill_all()` still kills every engine's runs already in `runner.LIVE`, and `STOPPING` stays set after one
+  engine closes. Six window tests in `tests/test_leases.py`, beside main's own for the same race.
 - **Daemons, left over** (done on `factory/daemons-left-over`; SPEC §6 and §9.7,
   `docs/roadmap/overnight/daemons-left-over.md`): a daemon's lines that arrive together are taken together, per run,
   up to 500 at once, in the order printed (`ergostat/daemons/lines.py`), and a line over 1 MiB is dropped; a sensor
