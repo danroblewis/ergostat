@@ -598,6 +598,44 @@ def test_failing_fast_suites_park_the_gap(tmp_path):
     assert said[-1] == "gap.parked" and f.item(gid)["fields"]["parked_in"] == "building"   # never stuck
 
 
+def test_build_failures_add_up_in_the_real_fold(tmp_path):
+    """implement.py's own events, folded by ergostat's fold (spec.changes.fold_event) with the gap kind's rules from
+    ergostat.yaml: each failed build adds one, and a later successful build resets nothing (dev/README.md)."""
+    from ergostat.spec.changes import fold_event
+    passes = tmp_path / "passes"
+    f = Factory(tmp_path, unit=f"test -e {passes}", build_failures=6)
+    gid = ready(f)
+    rules, doc = read(ROOT / "ergostat.yaml")[0].items["gap"].fold, {}
+    assert rules.get("build_failures") == "sum"
+    for n in (1, 2, 3):
+        said, lines = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.measured"]
+        for e in lines:
+            if e.get("event") and (e.get("item") or gid) == gid:
+                assert fold_event(doc, e, rules)[1] is None
+        assert doc["build_failures"] == n == f.item(gid)["fields"]["build_failures"]
+    passes.write_text("")
+    said, lines = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    for e in lines:
+        if e.get("event") and (e.get("item") or gid) == gid:
+            fold_event(doc, e, rules)
+    assert doc["build_failures"] == 3                                     # a success resets nothing
+
+
+def test_the_sixth_failed_build_parks_the_gap(tmp_path):
+    f = Factory(tmp_path, unit="exit 1", build_failures=6)
+    gid = ready(f)
+    for n in range(1, 6):
+        said, lines = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.measured"] and any("nack" in x for x in lines)
+        assert f.item(gid)["fields"]["build_failures"] == n
+    said, _ = f.run("implement.py", gid)
+    gap = f.item(gid)
+    assert said[-2:] == ["gap.measured", "gap.parked"] and gap["state"] == "parked"
+    assert gap["fields"]["parked_for"] == "kill-rule" and "failed 6 times" in gap["fields"]["where_it_stopped"]
+
+
 def test_a_committed_scratch_file_is_refused_before_the_suites(tmp_path):
     log = tmp_path / "suite-runs.log"
     f = Factory(tmp_path, unit=f"echo ran >> {log}")
