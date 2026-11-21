@@ -221,11 +221,10 @@ def test_denial_after_ai_approval_stays_denied(tmp_path, monkeypatch):
 
 def test_remade_failure_clears_old_approval(tmp_path, monkeypatch):
     p, fid = opened(tmp_path, monkeypatch)
-    name, passed, action = proposed(p, fid)
-    review(p, fid, name, passed, action)
-    assert one(p, fid).fields["approval"]["verdict"] == "approve"
-    proposed(p, fid, program=FIXED + "print('again')\n")
-    assert one(p, fid).fields.get("approval", "missing") is None
+    assert run_fix(p, monkeypatch, fid).fields["approval"]["verdict"] == "approve"
+    it = run_fix(p, monkeypatch, fid, approver="person")         # made again, the same failure: no review this time
+    assert len(p.events.query(n=None, item=fid, type=f"{FAILURE}.passed")) == 2
+    assert it.fields.get("approval", "missing") is None
 
 
 # ---- counted apart
