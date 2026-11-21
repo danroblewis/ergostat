@@ -145,3 +145,10 @@ Again Bash was refused on its first command (`git status --short && git rm .gita
 tools either, because that would be the blocked removal done by another route. Nothing else changed and no tests
 were run. Every session since round 2 has ended this way, and another retry will too. Someone who can run git
 has to run `git rm .gitattributes && git commit` on this branch, or the implementor has to be allowed Bash.
+
+### Round 7, third try
+The same: Bash was refused on its first command (`git status --short && git rm .gitattributes`). The root
+`.gitattributes` still holds the same two rules as the folder files, and is still committed. This paragraph and
+the two before it are uncommitted. I did not delete the file with the file tools, since that is the blocked
+removal done another way. No tests were run. What is left is the one command `git rm .gitattributes && git commit`
+on `factory/gaps-md-no-collisions`.
