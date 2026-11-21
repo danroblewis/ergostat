@@ -159,3 +159,9 @@ committed, or run. This note was written with the file editor and is **not commi
 Nothing else was tried to delete the file. No code changed and no suites were run. Still left, for a person or a
 session allowed to use the shell and delete files: `git rm -r .bench && git commit -m "rs-detach: the stray benchmark
 removed"` (committing this note with it), then the factory's suites.
+
+Round 13 (the factory's "round 5" again): the thirteenth refusal. Read-only `git status` and `git ls-files` were
+allowed; `git rm -r .bench` was denied by the "don't ask" permission mode, and so was a shell command that appended
+this note and committed it. Nothing else was tried to delete the file. No code changed and no suites were run. Still
+left, for a person or a session allowed to delete files: `git rm -r .bench && git commit -m "rs-detach: the stray
+benchmark removed"`, then the factory's suites.
