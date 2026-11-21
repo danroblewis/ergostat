@@ -15,7 +15,8 @@ the machine's headroom.
     pools.py set ROLE N WHY   the action's command: set it (within 1 and its most)
 
 The merge queue's batch (`batch`: approved gaps it merges and tests together, dev/bin/queue.py) lives here too: [pools]
-batch to start (1, a gap a run), at most [pools] batch_max and never past BATCH_MOST. The tuner asks to raise it by
+batch to start (1, a gap a run), at most [pools] batch_max (8 when unset); a run past its time allowance stops
+bisecting (queue.py allowance()), so no batch size reaches the block's timeout. The tuner asks to raise it by
 one, the same gated action, while the goal queue-wait-short is off (dev/model/measures.yaml); it is not lowered on a
 bad gap (it changes how gaps are tested, not how many are built), only by hand (`set batch N`)."""
 
@@ -30,8 +31,6 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
 ROLES = ("implementor", "reviewer")
-BATCH_MOST = 4         # a batch of 4 with every merge failing is at most 8 suite runs (~1.5 h; the 3 h timeout
-                       # also covers the lock and quiet-machine waits)
 
 
 def state(cfg: dict) -> dict:
@@ -50,8 +49,7 @@ def save(cfg: dict, st: dict) -> None:
 
 
 def most(cfg: dict, role: str) -> int:
-    n = int(cfg.get("pools", {}).get(f"{role}_max", 1))
-    return min(n, BATCH_MOST) if role == "batch" else n
+    return max(1, int(cfg.get("pools", {}).get(f"{role}_max", 8 if role == "batch" else 1)))
 
 
 WAIT_GOAL = re.compile(r"^\s*queue-wait-short:\s*$.*?^\s*hold:\s*\"<=\s*([\d.]+)\"\s*$\s*tolerance:\s*([\d.]+)",

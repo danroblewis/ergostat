@@ -437,9 +437,12 @@ so it is never taken forever.
 
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
-`run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
-a batch of 4 whose every merge fails is at most 8 suite runs (about 1.5 hours at 12 minutes), and the block's 3 hour
-timeout also covers the wait for the lock and a quiet machine. `merges-per-hour` (gaps merged over the hours of every
+`run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max` (8). A run
+starts no suite run once `[pools] batch_minutes` (120, held to 150) have passed since it began, the wait for the lock
+and a quiet machine included: it stops bisecting, the prefix a full green run proved lands, and the gaps not yet settled
+go back to `approved` uncounted, for the next run. So the block's 3 hour timeout is reached only by a single suite run
+of over 30 minutes, whatever the batch. Each run's `queue_runs` entry says how many it `tried`, `landed` and
+`given_back`. `merges-per-hour` (gaps merged over the hours of every
 queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.

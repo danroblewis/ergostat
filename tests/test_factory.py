@@ -2184,7 +2184,7 @@ def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
             "alone = queue.dry(repo, pre, batch[0][1], 'a alone')[0]\n"
             "try:\n queue.land(cfg, repo, batch, pre, time.time(), 0, alone)\n"
             "except RuntimeError as e:\n out['raised'] = str(e)\n"
-            "landed, head = queue.land(cfg, repo, batch, pre, time.time(), 0, dried)\n"
+            "landed, head, _ = queue.land(cfg, repo, batch, pre, time.time(), 0, dried)\n"
             "out.update(landed=[g['id'] for g, _ in landed], same=fac.git(repo, 'rev-parse', head + '^{tree}') == "
             "fac.git(repo, 'rev-parse', dried + '^{tree}')); print(json.dumps(out))")
     r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
@@ -2310,6 +2310,117 @@ def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
     assert said == ["gap.queued"] and f.item("gap/b")["state"] == "approved"    # b never left approved
     assert git(f.checkout, "rev-parse", "main") == start                       # main as it was
     assert "running" not in json.loads((f.model / "run" / "queue.json").read_text())
+
+
+# ---- batches of up to 8, and the run's time allowance (dev/records/queue-batches-larger.md)
+
+ANY_BAD = ("echo run >> {runs}; if ls bad*.txt >/dev/null 2>&1; then echo 'FAILED tests/test_b.py::test_b - boom'; "
+           "exit 1; fi; git write-tree >> {greens}")                          # (each green run's tree in greens)
+EIGHT = {n: i for i, n in enumerate("abcdefgh", 1)}
+CLOCKED = """\
+import sys, time
+sys.path[:0] = [sys.argv[1]]
+import queue
+now, cost = [time.time()], float(sys.argv[2]) * 60
+time.time = lambda: now[0]                         # a clock each suite run (and each named run) moves by `cost`
+def costs(fn):
+    def call(*a, **k):
+        got = fn(*a, **k)
+        now[0] += cost
+        return got
+    return call
+queue.suites, queue.named = costs(queue.suites), costs(queue.named)
+sys.exit(queue.main())
+"""
+
+
+def eight(tmp: Path, minutes: float | None = None, **gaps) -> Factory:
+    """Eight approved gaps a..h (ranked so), the batch and its most 8, ``minutes`` the run's allowance."""
+    f = Factory(tmp, unit=ANY_BAD.format(runs=tmp / "runs", greens=tmp / "greens"))
+    text = f.config.read_text().replace("batch_max = 4", "batch_max = 8")
+    f.config.write_text(text.replace("batch_max = 8", f"batch_max = 8\nbatch_minutes = {minutes}") if minutes else text)
+    approved_gaps(f, EIGHT, batch=8, **gaps)
+    return f
+
+
+def clocked(f: Factory, gid: str, minutes_a_run: float) -> tuple[list[str], list[dict]]:
+    """The queue's run of ``gid``, each suite run costing ``minutes_a_run`` on the run's clock."""
+    driver = f.tmp / "clocked.py"
+    driver.write_text(CLOCKED)
+    return f.run(str(driver), gid, argv=(str(BIN), str(minutes_a_run)))
+
+
+def counts(f: Factory, gid: str) -> tuple:
+    run = f.item(gid)["fields"]["queue_runs"][-1]
+    return run["tried"], run["landed"], run["given_back"]
+
+
+def test_the_batch_s_most_is_batch_max_default_8(tmp_path):
+    f = Factory(tmp_path)
+    def put(n: int) -> int:
+        r = subprocess.run([sys.executable, str(BIN / "pools.py"), "set", "batch", str(n), "test"], cwd=f.model,
+                           env=f.env, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        return json.loads((f.model / "run" / "pools.json").read_text())["batch"]
+    assert put(9) == 4                                                          # [pools] batch_max = 4: held to it
+    f.config.write_text(f.config.read_text().replace("batch_max = 4", "batch_max = 12"))
+    assert put(12) == 12                                                        # no constant below it
+    f.config.write_text(f.config.read_text().replace("batch_max = 12\n", ""))
+    assert put(20) == 8 and put(3) == 3                                         # unset: 8
+    assert 'batch_max = 8 ' in (ROOT / "dev" / "factory.toml").read_text()
+
+
+def test_a_batch_of_8_all_green_lands_in_one_run(tmp_path):
+    f = eight(tmp_path)
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued"] + ["gap.merged"] * 8 + ["gap.push-asked"] * 8
+    assert suite_runs(f) == 1 and merges(f) == list("abcdefgh")
+    assert all(f.item(f"gap/{g}")["fields"]["batch_size"] == 8 for g in "abcdefgh")
+    assert counts(f, "gap/a") == (8, 8, 0) and len(f.db()["acts"]) == 1
+
+
+def test_one_bad_commit_of_8_is_found_and_the_other_7_land(tmp_path):
+    f = eight(tmp_path, bad="e")
+    said, _ = f.run("queue.py", "gap/a")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 7
+    # all 8 red; a..d green; a..f red; a..e red: e. Then f, g, h merged again onto a..d: green
+    assert suite_runs(f) == 5 and merges(f) == list("abcdfgh") and not (f.checkout / "bad.txt").exists()
+    assert f.item("gap/e")["state"] == "queue-failed" and counts(f, "gap/a") == (8, 7, 0)
+    assert git(f.checkout, "rev-parse", "main^{tree}") in (tmp_path / "greens").read_text().split()
+
+
+def test_a_run_past_its_allowance_lands_only_what_is_proven_and_gives_back_the_rest(tmp_path):
+    # 25 minutes a run, 60 allowed: all 8 red (25), the named check on them (50), a..d green (75); a..f never runs
+    f = eight(tmp_path, minutes=60, bad="g")
+    said, lines = clocked(f, "gap/h", 25)                                      # the run's own gap is among the rest
+    assert merges(f) == list("abcd") and suite_runs(f) == 2                    # (the named check is not the unit suite)
+    assert said.count("gap.merged") == 4 and "gap.queue-failed" not in said and "gap.sent-back" not in said
+    head = git(f.checkout, "rev-parse", "main")
+    assert git(f.checkout, "rev-parse", "main^{tree}") in (tmp_path / "greens").read_text().split()   # proven green
+    assert [a for a in f.db()["acts"] if f"sha={head}" in a] == f.db()["acts"] and len(f.db()["acts"]) == 1
+    for g in "efgh":                                                           # back, uncounted
+        it = f.item(f"gap/{g}")
+        assert it["state"] == ("queued" if g == "h" else "approved")           # (h: the run's own, given back below)
+        assert "failed_gates" not in it["fields"] and "findings" not in it["fields"]
+    nacks = [x["nack"] for x in lines if "nack" in x]
+    assert len(nacks) == 1 and nacks[0]["count"] is False and "allowance" in nacks[0]["why"]   # the own gap's lease
+    assert counts(f, "gap/h") == counts(f, "gap/e") == (8, 4, 4)
+    db = f.db()
+    db["items"]["gap/h"]["state"] = "approved"                                 # (the engine's nack, uncounted)
+    f.record.write_text(json.dumps(db))
+    set_action(f, "ran")
+    assert settle(f)[1] is None
+    said, _ = f.run("queue.py", "gap/e")                                       # the next run takes them
+    assert merges(f) == list("abcdefh") and f.item("gap/g")["state"] == "queue-failed"
+
+
+def test_a_batch_of_8_every_merge_failing_stays_inside_the_block_s_timeout(tmp_path):
+    f = eight(tmp_path, edits={n: f"bad-{n}.txt" for n in EIGHT})             # each merge breaks the suite
+    said, _ = clocked(f, "gap/a", 25)                                          # the default allowance, 120 minutes
+    assert "gap.merged" not in said and merges(f) == []
+    assert f.item("gap/a")["fields"]["queue_runs"][-1]["minutes"] <= 120 + 25 < 180
+    tried, landed, back = counts(f, "gap/a")
+    assert (tried, landed) == (8, 0) and back + said.count("gap.queue-failed") == 8 and back > 0
 
 
 def waiting(f: Factory) -> str:

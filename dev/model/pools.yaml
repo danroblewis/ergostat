@@ -19,7 +19,7 @@ stocks:
     sensor: {run: python3 dev/bin/pools.py read reviewer, every: 1m, timeout: 30s, description: the pools file}
   queue-batch:
     unit: gaps
-    description: approved gaps the merge queue merges and tests together (1 to start; at most [pools] batch_max, 4)
+    description: approved gaps the merge queue merges and tests together (1 to start; at most [pools] batch_max, 8)
     sensor: {run: python3 dev/bin/pools.py read batch, every: 1m, timeout: 30s, description: the pools file}
 
 auxiliaries:
