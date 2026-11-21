@@ -45,8 +45,8 @@ def _label(it, k) -> str:
 
 def open_about(events, spec, parts=None) -> dict[str, list[tuple[str, str, float]]]:
     """Per part named (of ``parts``; None: every name any item holds), the open (not finished) items about it, the
-    latest first: (id, title or first field, its last event's time). Reads the link rows and those items' rows only. Empty, and nothing looked
-    up, when no kind declares ``about:``. Raises ``Unknown`` when the index cannot be read."""
+    latest first: (id, title or first field, its last event's time). Reads the link rows and those items' rows only.
+    Empty, and nothing looked up, when no kind declares ``about:``. Raises ``Unknown`` when the index cannot be read."""
     if not declared(spec):
         return {}
     from .itemindex import done_states, index_for

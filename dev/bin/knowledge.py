@@ -25,6 +25,7 @@ PATTERNS = {"house-rules": (r"^\*\*(\w+).*?\*\*\n(.*?)(?=^\*\*|\Z)", "rules"),
             "review-lessons": (r"^## (\d+)\. (.+?)\n(.*?)(?=^## |\Z)", "lesson"),
             "decisions": (r"^- \*\*(.+?)\*\*(.*?)(?=^- |\Z)", "decision")}
 KINDS = {"rules": "rule", "lesson": "lesson", "decision": "decision"}
+ABOUT = re.compile(r"^\*About:\*\s*(.+)$", re.M)      # the parts of the root model an entry bears on: goal.x, stock.y
 FILES = re.compile(r"\b((?:ergostat|dev|scripts|tests|docs|examples)/[\w./-]+\.(?:py|md|yaml|toml|sh))\b")
 MORE = {"implementor": ("decisions", "related", "findings", "modules"),   # beyond the rules and the lessons, in order
         "reviewer": ("decisions", "findings", "related", "modules"), "planner": ("decisions", "related", "findings",
@@ -35,15 +36,17 @@ HEADS = {"decisions": "The owner's decisions this gap touches", "related": "Rela
 
 def entries() -> list[dict]:
     """Every entry of dev/knowledge/: {id (rules-process, lesson-3, decision-<slug>), title, kind (rule, lesson,
-    decision), file, text, areas}."""
+    decision), file, text, areas, about (its *About:* line: the parts of the root model it bears on, goal.x)}."""
     out = []
     for stem, (rx, kind) in PATTERNS.items():
         for m in re.finditer(rx, (fac.HERE / "knowledge" / f"{stem}.md").read_text().split("\n---\n", 1)[-1], re.M | re.S):
             areas = re.search(r"\*Areas:\s+(.+?)\.\*", m[0], re.S)
+            about = ABOUT.search(m[0])
             out.append({"id": f"{kind}-{m[1].lower() if kind != 'decision' else fac.slug(m[1], 32)}", "text": m[0].strip(),
                         "title": m[2] if kind == "lesson" else m[1], "kind": KINDS[kind],
                         "file": f"dev/knowledge/{stem}.md",
-                        "areas": [a.strip() for a in " ".join(areas[1].split()).split(",")] if areas else []})
+                        "areas": [a.strip() for a in " ".join(areas[1].split()).split(",")] if areas else [],
+                        "about": [x for x in re.split(r"[,\s]+", about[1].strip().rstrip(".")) if x] if about else []})
     return out
 
 
@@ -184,16 +187,19 @@ def sync() -> tuple[int, int, int]:
         iid = f"knowledge/{e['id']}"
         seen.add(iid)
         want = {"title": e["title"], "kind": e["kind"], "file": e["file"], "text": short(e["text"]),
-                "carried": counts.get(e["id"], 0), **({"areas": e["areas"]} if e["areas"] else {})}
+                "carried": counts.get(e["id"], 0), **({"areas": e["areas"]} if e["areas"] else {}),
+                **({"about": e["about"]} if e["about"] else {})}
         it = known.get(iid)
         if it is None or it["state"] != "active":
-            fac.say("knowledge.found", iid, **want, found_at=now)
+            again = {"about": []} if it is not None and it["fields"].get("about") and not e["about"] else {}
+            fac.say("knowledge.found", iid, **want, **again, found_at=now)    # (found again: an old about cleared)
             found += 1
             continue
         have = it["fields"]
         diff = {k: v for k, v in want.items() if have.get(k) != v}
-        if have.get("areas") and not e["areas"]:
-            diff["areas"] = []
+        for k in ("areas", "about"):                                       # taken out of the file: cleared
+            if have.get(k) and not e[k]:
+                diff[k] = []
         if diff:
             fac.say("knowledge.changed", iid, **diff, changed_at=now)
             changed += 1
