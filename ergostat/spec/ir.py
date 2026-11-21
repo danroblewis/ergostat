@@ -847,9 +847,7 @@ class NamedLoop:
 
 @dataclass
 class OperatingState:
-    """An operating state (SPEC §9.5): its rank (higher takes precedence), the most runs at once of each block that
-    takes items while it is entered (None: no cap), and its trips, goal → the silence after which an unread goal trips
-    it (None: only its crossing)."""
+    """An operating state (SPEC §9.5): rank, pool (None: no cap), trips (goal → unknown-after, None: crossing only)."""
     name: str
     rank: int
     pool: int | None = None

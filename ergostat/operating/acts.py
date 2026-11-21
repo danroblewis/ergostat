@@ -15,11 +15,6 @@ class OperatingError(ValueError):
     pass
 
 
-def _state(p, spec, name: str):
-    from ..spec import items as its
-    return its.one(p.events, spec, item_of(name))
-
-
 def enter(p, spec, name: str, why: str, env: dict | None = None) -> dict:
     env = os.environ if env is None else env
     if name not in spec.operating:
@@ -35,23 +30,20 @@ def leave(p, spec, name: str, why: str, env: dict | None = None) -> dict:
         raise OperatingError("only the owner leaves an operating state: refused from a run (ERGOSTAT_RUN is set)")
     if KIND not in spec.items:
         raise OperatingError("the model declares no operating states")
-    it = _state(p, spec, name)
+    from ..spec import items as its
+    it = its.one(p.events, spec, item_of(name))
     if it is None or it.state != "entered":
         raise OperatingError(f"{name}: not entered")
     return p.events.add(LEFT, item=item_of(name), source="owner", data={"by": "owner", "why": why})
 
 
 def listing(p, spec) -> list[dict]:
-    """Every state declared, and every state entered the model no longer declares: rank, pool, entered or left, by,
-    since, and the trips that entered it."""
+    """Every state declared, and every state entered the model no longer declares (pool 0), the highest rank first."""
     from ..spec import items as its
     got = {it.id.split("/", 1)[1]: it for it in its.project(p.events, spec, KIND, transcript=False)}
-    out = []
-    for name in sorted(set(spec.operating) | {n for n, it in got.items() if it.state == "entered"},
-                       key=lambda n: -(spec.operating[n].rank if n in spec.operating else float("inf"))):
-        st, it = spec.operating.get(name), got.get(name)
-        f = it.fields if it else {}
-        out.append({"state": name, "rank": st.rank if st else None, "pool": (st.pool if st else 0), "declared": bool(st),
-                    "now": it.state if it else "left", "by": f.get("by"), "why": f.get("why"), "since": f.get("since"),
-                    "trips": f.get("trips") or []})
-    return out
+    names = set(spec.operating) | {n for n, it in got.items() if it.state == "entered"}
+    return [{"state": n, "rank": st.rank if st else None, "pool": st.pool if st else 0, "declared": bool(st),
+             "now": it.state if it else "left", **{k: (it.fields if it else {}).get(k) for k in ("by", "why", "since")},
+             "trips": (it.fields.get("trips") if it else None) or []}
+            for n in sorted(names, key=lambda n: -(spec.operating[n].rank if n in spec.operating else float("inf")))
+            for st, it in [(spec.operating.get(n), got.get(n))]]

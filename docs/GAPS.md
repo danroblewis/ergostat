@@ -186,7 +186,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   closed-loop run; a model for a machine block that commands another (held); stochastic arrivals within a run
   (the risk varies their mean over the horizon, not their timing).
 - **Operating modes, regime-scheduled thresholds, interlocks, risk gating** (open; designed in
-  `docs/proposals/coordinator/08-modes-and-protection.md`).
+  `docs/proposals/coordinator/08-modes-and-protection.md`). Operating states and trips capping the pool: done
+  (`operating-states`; SPEC §9.5, *Operating states*); left: gates by state, bypass leases, act-risk, P3/T1, presence.
 - **Observer staleness and estimated stocks** (done, `observer`; SPEC §9.6, `coordinator/06-observer.md`): a reading's
   age, `stale` goals, `on-stale: act | hold | off` per goal or block; a scalar Kalman estimate per stock with an adaptive
   gain (`stock.X.estimate`, `.uncertainty`), its innovations as `observer/X/innovation`, and `model-disagrees`. All

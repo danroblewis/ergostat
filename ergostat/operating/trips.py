@@ -1,18 +1,7 @@
-"""Trips (SPEC §9.5, *Operating states*): a goal's condition entering a state, once per spell, judged from the record
-only, so a restart neither enters again nor resets a clock. Run by the dispatcher's thread once a second, under its
-lock, across the read, the decision and the write.
-
-A trip ``(state, goal)`` has a current spell:
-
-- **crossing**: the goal's newest unvoided ``loop.*`` event is ``loop.off``: ``off:<its id>``;
-- **unread** (with ``unknown-after``): each sensor of the goal's part has its newest reading; the clock starts at the
-  oldest of them (one live sensor never hides a dead one), or, when a sensor was never read, at this trip's
-  ``watching`` event (written by the first check that finds none). Past ``unknown-after``: ``unread:<sensor>:<its
-  reading's time>`` or ``unread:<sensor>:never``.
-
-A spell no earlier ``entered`` of the state names is recorded as ``entered`` by trip, whether the state is entered or
-not, so the owner's later ``leave`` covers it. Spells are compared for equality on what was read (ids, stored reading
-times), never as newer or older."""
+"""Trips (SPEC §9.5, *Operating states*): a goal's crossing (``off:<loop.off id>``) or its part unread past
+``unknown-after`` (``unread:<sensor>:<time>|never``, the clock at the oldest sensor's newest reading, or at the trip's
+``watching`` event) entering a state once per spell, judged from the record only. Spells are compared for equality on
+what was read, never as newer or older. Run in the dispatcher's thread under its lock, read to write."""
 
 from __future__ import annotations
 

@@ -26,12 +26,10 @@ def kind() -> ItemKind:
                     "SPEC §9.5)", sealed=True)
 
 
-def apply(it, e: dict, history: bool = False) -> str | None:
-    """An operating event folded onto its item: its fields and state. Returns why it was refused (None: applied).
-    An ``entered`` on an item entered keeps it entered and adds its trip; one after a ``left`` (or the first) starts
-    afresh: nothing of the earlier entry is kept."""
-    d = e.get("data") or {}
-    was, before = it.state, dict(it.fields)
+def apply(it, e: dict) -> str | None:
+    """An operating event folded onto its item: why it was refused, or None. An ``entered`` on an item entered adds
+    its trip; one after a ``left`` (or the first) starts afresh: nothing of the earlier entry is kept (lesson-5)."""
+    d, was = e.get("data") or {}, it.state
     if e["type"] == ENTERED:
         if it.state != "entered" or "since" not in it.fields:
             it.fields.clear()
@@ -51,7 +49,4 @@ def apply(it, e: dict, history: bool = False) -> str | None:
     if to != was:
         it.moves.append({"time": e["time"], "from": was, "to": to, "event": e["id"], "type": e["type"]})
         it.state, it.entered = to, e["time"]
-    if history:
-        it.changes.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "data", "op": "replace",
-                           "path": "", "before": before, "after": dict(it.fields)})
     return None

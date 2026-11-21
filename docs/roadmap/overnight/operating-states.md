@@ -124,3 +124,56 @@ All in `tests/test_operating.py`. The implementor breaks the guarded code for ea
 - Define how long 'that look's dispatch uses pool 0' lasts after unreadable trip inputs when tick runs more often than the once-a-second trip check: until the next trip check that reads cleanly.
 - test_owner_leave_in_trip_gap: name the bug it guards (check skipping its write because the fold read showed the state entered), break exactly that, and report that the test fails.
 - Docs: `pool-rises-with-rank` is for readability only, since in_force already takes the smallest pool among entered states. Don't present it as a safety guard (lesson-8).
+
+## Where it stopped
+
+Round 1: points 1 to 6 are built, and the acceptance tests pass (`tests/test_operating.py`, 29 tests, about 3 s).
+The implementor did not run the full unit suite or the four browser files: the house rules leave those to the factory,
+under the watchdog. No `origin` remote exists in this container. The branch is based on local `main` (dc0d5ac), so
+merging that is a no-op. origin/main still has to be merged and the suites run again before review. No demo is
+touched, so `demo_check` is not needed.
+
+Choices made alone (the most reversible):
+
+- **Removing the whole `operating:` section** (plan review, first note): documented, not refused. A model without the
+  section reads nothing (invariant 12, and the acceptance test that `in_force` is never called), so removing it
+  lifts every entered state with no `left` in the record. The record keeps the entries, so putting the section back
+  holds them again. SPEC and the agent guide say this, and they narrow "only the owner leaves a state" to the
+  CLI/fold check. Tested: `test_removing_the_whole_section_lifts_every_state_and_restoring_it_restores_them`.
+  Refusing such a model at reload would be the stricter option; it needs the engine's reload path to read the record,
+  and is left for a later gap if wanted.
+- **Unknown-after clock**: per sensor, as the review asked. The clock starts at the oldest of the newest readings. A
+  sensor never read uses the trip's `watching` event, which every `unknown-after` trip writes once on its first
+  check. The spell is `unread:<sensor>:<repr of the stored time>` or `unread:<sensor>:never`. A sensor added later
+  and never read starts from that old `watching` event, so it may trip at once (worst case, stated in SPEC).
+- **`Dispatcher.once` shares the post-`TAKEN` re-check**, but only pool 0 gives a `--now` run back. Tested with
+  pool 1 and one run in flight (`test_now_under_pool_one_with_a_run_in_flight_still_runs`).
+- **Unreadable trip inputs** hold dispatch at pool 0 until the next trip check that reads cleanly
+  (`Dispatcher.hold`).
+- **The fold hook** is in `ergostat/spec/items.py`, 6 lines, beside the lease fold. It was not in the files list,
+  but the item fold is where `entered`/`left` must be folded, so the item index and a direct fold agree. `operating`
+  is added to `spec/load.py`'s `SECTIONS`, and to `schema/ergostat.schema.json` so the schema matches the SPEC.
+- **The kind is `sealed`**: only `ergostat.*` event types fold into it.
+
+Each test was checked by breaking the code it guards; each failed:
+
+- the post-`TAKEN` re-read removed;
+- re-entry not clearing the old fields;
+- the newest reading used instead of the oldest;
+- the rank check removed;
+- the top state's pool used;
+- `--now` not refused;
+- check skipping its write when the fold showed the state entered (the bug `test_owner_leave_in_trip_gap` names);
+- a `left` caused by a run accepted;
+- an unreadable fold giving "none entered";
+- the trip hold ignored;
+- a `--now` run nacked for runs in flight;
+- an undeclared state given no cap;
+- `room = cap` in place of `min`;
+- the `watching` event ignored;
+- spells answered only while the state is entered (this broke both the crossing test and the restart test).
+
+Not broken separately: part (b) of the restart test. There is no engine-start clock in the code to switch to; the
+test pins the record clock with a fresh engine created 50 s after the reading.
+
+Size: 447 net lines outside tests and docs (the schema counted).

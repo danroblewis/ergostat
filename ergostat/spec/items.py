@@ -141,7 +141,7 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
                 it.state, it.entered = to, e["time"]
             continue
         if kind is not None and kind.name == OPERATING:      # an operating state entered or left (SPEC §9.5): ergostat's own
-            why = operating.apply(it, e, history)
+            why = operating.apply(it, e)
             if why is not None:
                 it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "operating", "why": why})
             continue

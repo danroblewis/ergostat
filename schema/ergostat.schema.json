@@ -477,6 +477,9 @@
     },
     "daemons": {"type": "object", "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/daemon"},
                 "description": "Long-lived runners several blocks and sensors may share (SPEC \u00a79.7)"},
+    "operating": {"type": "object", "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]{0,63}$"}, "description": "Operating states: entered by the owner or a goal's trip, capping the pool of every block that takes items (SPEC \u00a79.5)",
+                  "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["rank"], "properties": {"rank": {"type": "integer", "minimum": 1}, "pool": {"type": "integer", "minimum": 0}, "description": {"type": "string"},
+                    "trips": {"type": "object", "additionalProperties": {"type": ["object", "null"], "additionalProperties": false, "properties": {"unknown-after": {"type": "string"}}}}}}},
     "leases": {
       "type": "object",
       "additionalProperties": false,
