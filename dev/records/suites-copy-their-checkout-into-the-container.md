@@ -61,3 +61,9 @@ Built (round 1) in a Linux container with no Docker, so nothing here was measure
   gone. It failed with the block's `out:` removed.
 - Files outside the list: `dev/bin/resources.py` (the sensor's program is there) and one sentence in
   `dev/README.md`. `dev/bin/fac.py` needed no change. Net lines in `dev/bin` and `dev/model`: +38.
+
+## Where it stopped
+
+Parked by the factory (review/suites-copy-their-checkout-into-the-container-1, 2026-11-22 10:54).
+
+Done: definition item 1 (agents.queued pipes a tar of the checkout, minus .venv, with its git directory when inside it, into docker run -i, unpacked at /work; run/coverage still mounted; a failed unpack exits 125, NotStarted; tested with a fake docker that really unpacks) and item 4 (resources.py vm-open-files on macOS via pgrep and lsof, no reading elsewhere; auxiliary vm-open-files and goal vm-open-files-within <= 150000, feeding no gate; tested). Left: item 2, read `python3 dev/bin/resources.py vm-open-files` on the coordinator's Mac with this branch's queued() in use, let 10 queue runs go, read it again, and record both (must be within 1,000); item 3, measure the same count across session containers' runs and record how much it grows, naming the follow-up gap with that number. Both need Docker Desktop on the Mac, which the implementor's Linux build has no access to, so another fix round cannot close them.
