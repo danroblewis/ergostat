@@ -25,3 +25,30 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built (round 1), net −1 line of code (state.py +15/−14, dynamics.py +1/−4, diagram.js +3/−2).
+
+- Hidden until its verdict: under 10m of record, `ladder_hints` no longer adds the deferring hint; it sets
+  `diagnosis_in` on the loop, which `state.attention` copies onto that loop's Needs attention entry, and the side
+  list writes it as "· diagnosis in 8m". It applies on every page that reads the hints (/agents, the loop panel, the CLI).
+- Goal named once: a loop's suggestion is headed `loop NAME` (it was `controller NAME`) and its text drops the leading
+  `loop NAME `. The anti-windup hint's "Hold NAME back" became "Hold it back". The Evidence link now reads the
+  loop from the heading.
+- One cause phrase: each verdict now says its cause right after "of the time:" in words that no view rewrites
+  ("saturated, moving its most each run", "falling behind the load", "answering too late, though it keeps up on
+  average"). I removed the three Dynamics `_WORDS` rules that only rewrote the old phrases. `dynamics.attention` no
+  longer replaces a loop *hint's* text with the gap sentence (that is for the off-loop entry only).
+- Choices made without asking (the most reversible): "its goal's entry" is taken to be the loop's Needs attention
+  entry, so a loop off most of the window but holding right now shows no note until the verdict. The CLI's
+  `ergostat` status shows the new heading/text as well, and has no "diagnosis in" note.
+- Tests: new browser test `tests/test_diagram_rendering.py::test_a_suggestion_appears_when_it_has_a_verdict`
+  (Blocks and Dynamics on /diagram, and /agents). I watched it fail on four breaks: hint not held back; the prefix
+  not stripped (goal twice); "its valve keeps up" in the cause (pages differ); the diagnosis note not drawn.
+  New unit test `test_a_suggestion_waits_for_its_verdict_and_names_its_goal_once`. I updated the two unit tests that
+  pinned the old wording.
+- Not run: the whole of tests/test_diagram_rendering.py. A foreground run passed its 600s limit, was moved to the
+  background and was stopped at the time limit there, and a longer background run was refused. Six of its tests
+  were run by name and pass; the merge queue must run the whole file. The unit suite and the other browser files
+  were not run here (per the brief). main had not moved since the clone, so merging it changed nothing.
