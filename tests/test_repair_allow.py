@@ -207,6 +207,50 @@ def test_shaped_names_from_nothing_are_not_shaped():
     assert change("a = 1\nb = a\n", "a = 1\nb = a\nprint(b)\n") == []
 
 
+HEAD = "from pathlib import Path\n" + BROKEN
+CH = ("x = 1\n", "x = d[0].replace('a', '../x')\n")
+FILL = "def fill(y):\n    y.append(Path('v'))\n"
+EVIL = "class Evil:\n    def __eq__(self, o):\n        o.append(Path('v'))\n    def join(self, o):\n        o.append(Path('v'))\n"
+
+
+@pytest.mark.parametrize("bad, twin", [
+    ("d = []\nfor f in os.listdir('.'):\n    d.append(Path(f))\n",          # append
+     "d = []\nfor f in os.listdir('.'):\n    print(f)\n"),
+    ("d = json.loads(s)\nd[0] = os.environ\n", "d = json.loads(s)\ne = d[0]\n"),            # a subscript store
+    ("d = json.loads(s)\nd.update(os.environ)\n", "d = json.loads(s)\nprint(d.keys())\n"),  # a method outside (d)
+    (FILL + "d = []\nfill(d)\n", FILL + "d = []\nfill([])\n"),                             # a call that receives it
+    ("d = []\ne = d\ne.append(Path('v'))\n", "d = []\ne = d\nprint(e)\n"),                  # an alias
+    ("d = [[]]\ne = d[0]\ne.append(Path('v'))\n", "d = [[]]\ne = d[0]\nprint(len(e))\n"),   # an element alias
+    ("d = [[]]\nfor e in d:\n    e.append(Path('v'))\n", "d = [[]]\nfor e in d:\n    print(e)\n"),  # a loop's
+    ("d = [[]]\nes = [e for e in d]\nes[0].append(1)\n", "d = [[]]\nes = [e for e in d]\nprint(es)\n"),
+    (EVIL + "d = []\nif Evil() == d:\n    pass\n", EVIL + "d = []\nif [] == d:\n    pass\n"),  # obj.__eq__(d)
+    (EVIL + "d = []\nEvil().join(d)\n", EVIL + "d = []\n'-'.join(d)\n"),                   # obj.join(d)
+    ("d = []\ndef mk():\n    return d\nmk().append(Path('v'))\n",                          # returned, then filled
+     "d = []\ndef mk():\n    return d\nprint(mk())\n"),
+    ("class C:\n    d = []\nC.d.append(Path('v'))\nd = []\n",                              # a class's namespace
+     "class C:\n    k = []\nC.k.append(Path('v'))\nd = []\n"),
+    ("d = []\ncb = lambda: d\ncb().append(Path('v'))\n", "d = []\ncb = lambda: []\ncb().append(Path('v'))\n"),
+])
+def test_refuses_container_filled_by_unchanged_code(bad, twin):
+    """A shaped name's object can be changed through any name holding it, so names that may hold one object are read
+    as one: a store into it, a method outside (d), a call outside (a) to (d), or an operation with an unshaped part
+    makes none of them shaped (review round 5). Filling one in place, even with shaped values, goes to the person."""
+    assert change(*CH, base=HEAD + twin) == []
+    assert refused(change(*CH, base=HEAD + bad), "changed, line", "value not shaped")
+
+
+def test_refuses_the_reviews_container_traces():
+    paths = "paths = []\nfor f in os.listdir('.'):\n    paths.append(Path(f))\nfor p in paths:\n"
+    assert refused(change(paths + "    print(p)\n", paths + "    print(p.replace('../../victim'))\n", base=HEAD),
+                   "print of shaped")
+    plain = "paths = ['a']\nfor p in paths:\n"
+    assert change(plain + "    print(p)\n", plain + "    print(p.replace('../../victim'))\n", base=HEAD) == []
+    for fill, ok in (("d['env'] = os.environ\n", False), ("", True)):
+        prog = "d = json.loads(s)\n" + fill
+        why = change(prog + "print(d.get('a'))\n", prog + "print(d.get('env'))\n")
+        assert (why == []) is ok, (fill, why)
+
+
 @pytest.mark.parametrize("deco", ["", "import functools\n@functools.cache\n"])
 def test_refuses_module_function_call(deco):
     f = deco + "def parse(x):\n    return x\n"

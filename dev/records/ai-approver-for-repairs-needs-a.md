@@ -529,3 +529,52 @@ Refused in this round: an `awk` command that printed the conflict hunks. The sea
 Parked by the factory (review/ai-approver-for-repairs-needs-a-5, 2026-11-22 01:36).
 
 Done: approver: ai is wired through check, fix.run (passed and the request under held()), approve.py's stamped, locked, re-read approval, inbox stats, the docs, and the G0-G5 guard with 79 unit tests. Left: the guard's shaped-value premise is unsound under mutation and aliasing. A list or dict bound to a literal or json.loads can be filled with any object by the program's unchanged append, update, setdefault, subscript store, or a call that receives it, and a changed (d) method (`p.replace`, `x.get`) then runs that object's code: a file rename, a network call, an environment read printed out. What would end it: an escape and alias analysis (a container, and everything aliased with it or taken from it, is not shaped once anything stores into it by subscript, calls a method on it outside the read-only list, or passes it to a call outside forms (a) to (d)), or dropping trust in mutable containers. Each needs refusal tests for append, subscript store, a call that receives it, an alias and an element alias, each with an accepted twin. This is the sixth round to find a way past the same assumption (that unchanged code does not change what the guard relies on), so it needs a redesign before another fix round.
+
+## Where it stopped
+
+Continued, round 2 (brought back by the owner, 2026-11-22): the park's finding answered with the escape and alias
+analysis it named. Built, and ready for review.
+
+**The findings answered** (lesson-12: every one of them, blocking and not):
+- **Blocking: shaped values under mutation and aliasing** (`allow.py` `Shapes`). I chose the analysis over dropping
+  trust in containers, because dropping that trust would refuse the definition's own headline fix, `answer["values"]`
+  of a `json.loads` dict. It fails closed, as follows. `Shapes.escapes()` follows every read of every name to where its
+  value goes (`flows()`). Names that may hold one object form one group (union-find): `e = d`, `e = d['k']`,
+  `e = d.get(...)`, a loop or comprehension target, and a value returned from a plain module function to each of its
+  calls (`returns()`). A group escapes, and no member is shaped, when any member's read reaches a subscript store or
+  delete, a method outside (d) or any keyword, a call outside (a) to (d), an attribute, a lambda, default, walrus,
+  yield, raise or `with`, a return the guard cannot follow, or a class-body binding. A group's `needs` are the
+  operations its object meets: `obj == d`, `x in obj`, `obj[d]`, `obj + d`, `sep.join(d)`, and a form (a) to (d) call
+  given it. Each must be shaped, or the group is not. The least fixed point is then narrowed until every kept name's
+  bindings and needs are shaped under what is kept. Filling a container in place is refused even with shaped values.
+  That is the stricter choice, and the most reversible one: reading `append(v)` or `d[k] = v` as a binding of the group
+  could widen it later. SPEC §12r's S paragraph, SECURITY's opening paragraph, GAPS and AGENT-GUIDE say so.
+- **Blocking: no overrun reason found.** The size gate found no `Overrun reason:` line. One was written under
+  "Continued, round 1", but the factory's park section came after it, so this section ends with a new line of its own.
+- No other finding was raised in review 5.
+
+**Tests.** `test_refuses_container_filled_by_unchanged_code` has 13 cases, each with an accepted twin: append, a
+subscript store, `update`, a call that receives it, an alias, an element alias by subscript, by a loop and by a
+comprehension, `Evil() == d`, `Evil().join(d)`, a value returned then filled, a class attribute, and a lambda.
+`test_refuses_the_reviews_container_traces` holds the review's two traces (`paths.append(Path(f))` then a changed
+`p.replace`, and `d['env'] = os.environ` then a changed `d.get('env')`), each with its accepted twin.
+
+**Seen to fail with the code broken** (each mutation applied, then restored):
+- With the escape check in `widens` off, 12 tests fail: 11 container cases and the traces test. The two `needs` cases
+  are caught by the next rule.
+- With the `needs` narrowing off, the two `Evil` cases fail.
+- With a `return` read as a safe stop and the class-body rule off (applied together), the returned-then-filled and
+  class-attribute cases fail, one under each rule.
+
+Run: `tests/test_repair_allow.py`, `tests/test_repair_approver.py` and `tests/test_gaps_doc.py` gave 113 passed and
+1 skipped (sandbox). The 79 earlier guard tests pass unchanged. Ruff is clean. Not run here: the unit suite, the four
+browser files, and `test_repair2` (bwrap cannot make its namespaces in this container). The factory runs them. There is
+no `origin/main` in this clone, and the local `main` is an ancestor of the branch, so there was nothing to merge.
+
+Residual 5 still stands as written: the program's own unchanged code may rebind a builtin, `print` or `json` through
+a call the guard does not follow. This round closes the container path only.
+
+Refused in this round: `sed -i` on the test file (the edit tool was used instead), and a compound command
+(`git branch -a; git rev-parse main; git merge-base ...`), which was then run as separate commands.
+
+Overrun reason: 768 net lines against 450 (allow.py 658, +140 this round for the escape and alias analysis the park asked for; approve.py 83; approver.md 14; fix.py +6; stats.py +8; template +2; compile.py -3); every line beyond the plan's ~280 for allow.py is a fail-closed branch asked for at the plan review, review rounds 1 to 5 and this park, kept rather than cut as the review asked.

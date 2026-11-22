@@ -1,7 +1,8 @@
 """What the AI approver may be asked about (SPEC §12r): a positive allowlist of the changes a fix may make to one Python
 program, read from its text before and after. ``escalate`` returns the reasons a person must decide; an empty list means
 only that the AI may be asked. Every rule is "allowed only if", and anything it cannot parse, align or classify is a
-reason (it fails closed). G0 preconditions; G1 alignment; S shaped values; G2 allowed statements; G3 taint; G4 control;
+reason (it fails closed). G0 preconditions; G1 alignment; S shaped values (with the mutation and aliasing of what the
+program's unchanged code does with them); G2 allowed statements; G3 taint; G4 control;
 G5 exception paths. What it does not see (implicit raises, where standard output goes, other modules, time and memory,
 and a builtin, ``print`` or ``json`` rebound by a call of the program's own unchanged code) is SPEC §12r's residuals."""
 
@@ -17,6 +18,8 @@ CALLS = frozenset("len int float str bool abs min max round sorted list dict tup
                   "repr any all sum reversed".split())
 TYPES = frozenset("int float str bool list dict tuple set".split())          # isinstance's type argument
 METHODS = frozenset("get strip lower upper split startswith endswith replace join items keys values".split())
+FRESH = frozenset("len int float str bool abs round repr any all isinstance".split())  # (a): holds no part of its input
+STRS = METHODS - {"get", "items", "keys", "values"}                    # (d) of a str only: a new str, list or bool
 RAISES = frozenset("ValueError KeyError TypeError RuntimeError SystemExit".split())
 PRINT_KW, DUMPS_KW = frozenset({"sep", "end", "flush"}), frozenset({"indent", "sort_keys", "ensure_ascii"})
 TRUSTED = CALLS | RAISES | {"print", "json", "load", "loads", "dumps"}     # names whose meaning (a)-(c) rely on
@@ -140,17 +143,135 @@ class Shapes:
                                  for n in ast.walk(t))
                      and all(self.json_use(n, parent) for n in ast.walk(t) if isinstance(n, ast.Name)
                              and n.id == "json" and isinstance(n.ctx, ast.Load)))
+        self.escapes(t, parent)
         self.names: set[str] = set()
         while True:                                          # the least fixed point: from none shaped, widened
             more = {k for k, v in self.binds.items() if k not in self.names and self.widens(k, v)}
             if not more:
                 break
             self.names |= more
+        while drop := {k for k in self.names if not (all(self.bound(x) for x in self.binds[k])     # then narrowed:
+                                                     and all(self.shaped(e) for e in self.needs.get(self.grp[k], [])))}:
+            self.names -= drop                               # a value given to an operation with an unshaped part
+
+    def escapes(self, t, parent) -> None:
+        """Mutation and aliasing: names that may hold one object (``e = d``, ``e = d['k']``, ``for p in paths``) are one
+        group. A group escapes, and none of it is shaped, when any read of a member may reach code that can change or
+        keep the object: a subscript store, a method outside (d), a call outside (a) to (d), an attribute, a return to a
+        caller not followed, a class's namespace. Its ``needs`` are operations it meets (``x == obj``, ``sep.join(x)``),
+        each shaped or the group is not: the other part's code would be given the object."""
+        up: dict[str, str] = {}
+
+        def root(k):
+            while up.get(k, k) != k:
+                k = up[k]
+            return k
+        callees = {id(c.func) for c in ast.walk(t) if isinstance(c, ast.Call)}
+        self.calls: dict[str, list] = {}
+        for c in ast.walk(t):
+            if isinstance(c, ast.Call) and isinstance(c.func, ast.Name):
+                self.calls.setdefault(c.func.id, []).append(c)
+        self.loose = {n.id for n in ast.walk(t) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                      and id(n) not in callees}
+        out, needs = set(), {}
+        for n in ast.walk(t):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
+                got = self.flows(n, parent, frozenset())
+                if got is None:
+                    out.add(n.id)
+                    continue
+                for k in got[0]:
+                    up[root(k)] = root(n.id)
+                needs.setdefault(n.id, []).extend(got[1])
+            elif isinstance(n, ast.Name) and isinstance(scope(n, parent), ast.ClassDef):
+                out.add(n.id)                                # a class attribute, reached as C.x
+        keys = set(self.binds) | set(up) | set(needs) | out
+        self.grp = {k: root(k) for k in keys}
+        bad = {self.grp[k] for k in out}
+        self.escaped = {k for k in keys if self.grp[k] in bad}
+        self.needs: dict[str, list] = {}
+        for k, v in needs.items():
+            self.needs.setdefault(self.grp[k], []).extend(v)
+
+    def flows(self, n, parent, seen):
+        """Where the value read at ``n`` goes: (the names it is bound to, the operations that must be shaped), or None
+        when code the guard does not read may be given it."""
+        names, needs = set(), []
+        c, p = n, parent.get(id(n))
+        while True:
+            if isinstance(p, ast.Compare) or isinstance(p, ast.Subscript) and c is p.slice:
+                return names, needs + [p]                    # obj == x, x in obj, obj[x]: obj's code is given x
+            if isinstance(p, (ast.FormattedValue, ast.UnaryOp, ast.Slice)) or isinstance(p, ast.IfExp) and c is p.test \
+                    or isinstance(p, ast.comprehension) and c is not p.iter:
+                return names, needs                          # a new str, number or bool, or only its truth
+            if isinstance(p, ast.Subscript):
+                if not isinstance(p.ctx, ast.Load):
+                    return None                              # d['k'] = obj, del d['k']
+            elif isinstance(p, ast.Attribute):
+                g = parent.get(id(p))
+                if not (p.attr in METHODS and isinstance(g, ast.Call) and g.func is p and not g.keywords):
+                    return None                              # paths.append(obj), d.update(obj), o.x
+                if p.attr in STRS:
+                    return names, needs
+                c, p = g, parent.get(id(g))
+                continue
+            elif isinstance(p, ast.Call):
+                f = p.func
+                if c is f:
+                    return None
+                if isinstance(f, ast.Name) and f.id == "print" and self.free("print"):
+                    return names, needs                      # print is given only the strings it makes
+                a = isinstance(f, ast.Name) and self.free(f.id) and f.id in CALLS
+                m = isinstance(f, ast.Attribute) and f.attr in METHODS
+                if not (a or m or self.is_json(f, ("loads", "dumps"))):
+                    return None                              # a call that receives it: fill(d), Path(p)
+                needs.append(p)
+                if not (a and f.id not in FRESH or m and f.attr not in STRS):
+                    return names, needs
+            elif isinstance(p, ast.BinOp):
+                needs.append(p)                              # obj + x runs obj.__radd__(x)
+            elif isinstance(p, ast.comprehension):          # c is its iterable: its targets hold the elements
+                if (got := targets(p.target)) is None:
+                    return None
+                names |= got
+                c = parent.get(id(p))
+                p = parent.get(id(c))
+                continue
+            elif isinstance(p, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.For)):
+                if c is not (p.iter if isinstance(p, ast.For) else p.value):
+                    return None
+                got = [targets(x) for x in (p.targets if isinstance(p, ast.Assign) else [p.target])]
+                return None if None in got else (names.union(*got), needs)
+            elif isinstance(p, ast.Expr) or isinstance(p, (ast.If, ast.While, ast.Assert)) and c is p.test:
+                return names, needs
+            elif isinstance(p, ast.Return):
+                return self.returns(p, parent, names, needs, seen)
+            elif not isinstance(p, (ast.List, ast.Tuple, ast.Set, ast.Dict, ast.Starred, ast.BoolOp, ast.IfExp,
+                                    ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp, ast.keyword)):
+                return None                                  # lambda, walrus, yield, raise, with, a default, a base
+            c, p = p, parent.get(id(p))
+
+    def returns(self, r, parent, names, needs, seen):
+        """A value returned flows on from each call of its function, which must be a plain, undecorated module function
+        named only as a callee, holding no yield."""
+        f = scope(r, parent)
+        if not isinstance(f, ast.FunctionDef) or f.name in seen:
+            return (names, needs) if isinstance(f, ast.FunctionDef) else None
+        if f.decorator_list or isinstance(scope(f, parent), ast.ClassDef) or f.name in self.loose or any(
+                isinstance(x, (ast.Yield, ast.YieldFrom)) for x in ast.walk(f)):
+            return None
+        for call in self.calls.get(f.name, []):
+            if (got := self.flows(call, parent, seen | {f.name})) is None:
+                return None
+            names, needs = names | got[0], needs + got[1]
+        return names, needs
 
     def widens(self, k, v) -> bool:
         """Every binding of ``k`` is shaped, a binding that reads ``k`` itself (``n += 1``) taken as shaped when ``k``
         names no builtin and no dunder: before its first binding, reading ``k`` raises, so each value it holds was made
         from shaped ones. One binding must be shaped without it (``n = n`` alone, or ``a = b; b = a``, has no start)."""
+        if k in self.escaped:
+            return False
         own = k not in BUILTINS and not k.startswith("__")
         if own and not any(self.bound(x) for x in v):
             return False
@@ -278,6 +399,25 @@ class Shapes:
 
 def names_only(t) -> bool:
     return isinstance(t, ast.Name) or (isinstance(t, (ast.Tuple, ast.List)) and all(names_only(x) for x in t.elts))
+
+
+def targets(t) -> set[str] | None:
+    """The names a target binds, or None when it stores anywhere else (an attribute, a subscript)."""
+    if isinstance(t, ast.Name):
+        return {t.id}
+    if isinstance(t, ast.Starred):
+        return targets(t.value)
+    got = [targets(x) for x in t.elts] if isinstance(t, (ast.Tuple, ast.List)) else [None]
+    return None if None in got else set().union(*got)
+
+
+def scope(n, parent):
+    """The function, lambda, class or comprehension whose scope ``n`` is in (None: the module)."""
+    p = parent.get(id(n))
+    while p is not None and not isinstance(p, (*FUNCS, ast.Lambda, ast.ClassDef, ast.ListComp, ast.SetComp,
+                                               ast.GeneratorExp, ast.DictComp)):
+        p = parent.get(id(p))
+    return p
 
 
 def names_bound_other(n) -> list[str]:

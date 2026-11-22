@@ -6286,6 +6286,17 @@ reason.
   shaped, and a name never bound (`open`, `exit`) is not either. A binding that reads its own name (`n += 1`,
   `n = n + 1`) counts as shaped when another binding of it is shaped and the name is no builtin's and no dunder (before
   its first binding, reading it raises); so `n = 0; n += 1` is shaped, and `n = n` alone or `sum = 0; sum += 1` is not.
+  **Mutation and aliasing.** A shaped binding says what an object was made from, not what the program's unchanged
+  code later puts in it, so the guard follows every read of a name to where its value goes. Names that may hold one
+  object are one group: a name bound to a read of another (`e = d`, `e = d['k']`, `e = d.get('k')`), a loop or
+  comprehension target over it, a value returned from a plain module function to each of its calls. A group is not
+  shaped when a read of any member may reach code that could change or keep the object: a subscript store or delete
+  (`d['k'] = obj`), a method outside (d) (`append`, `update`, `setdefault`, any keyword), a call outside (a) to (d)
+  (`fill(d)`, `Path(p)`), an attribute read or store, a lambda, default, walrus, yield, raise, `with`, a return from a
+  decorated, nested-in-a-class, generator or passed-on function, or a binding in a class body (reached as `C.x`). An
+  operation that meets an object of the group (`obj == d`, `x in obj`, `obj[d]`, `obj + d`, `sep.join(d)`, a form (a)
+  to (d) call given it) must itself be shaped, or the group is not: the other part's code would be given the object.
+  So a list the program fills in place, even with shaped values, is not shaped, and a fix reading it goes to the person.
   No other attribute reads, no lambda, await, yield or walrus; a call of a function the module defines is not a form
   (it goes to the person).
 - **G2.** Each changed statement is one of: an assignment or augmented assignment of a shaped value to names (never an

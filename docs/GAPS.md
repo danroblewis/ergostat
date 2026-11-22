@@ -127,7 +127,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `print` or `json` through a call the guard does not follow (the refused spellings of rebinding are a list, not a
   proof; a fix cannot add such a call). Trusting forms (a) to (c) only in a module whose every call is classified
   would close it, but would refuse nearly every real program (`open(...).read()` alone). A program that stores any attribute has no trusted `print` or `json`
-  (bar `X.stdout = open(<constants>)`), so many real programs' fixes go to the person. *Left*:
+  (bar `X.stdout = open(<constants>)`), so many real programs' fixes go to the person. Likewise a list or dict the
+  program fills in place (`append`, `d['k'] = v`, even of shaped values) or hands to a call is not shaped, nor is
+  anything aliased with it or taken from it; reading such fills as shaped bindings would let more through. *Left*:
   `inbox/interventions.py` reads `stats.asked`, so an action the AI approved is still counted there as an
   intervention, as one answered through the MCP already is; a fix that calls one of the module's own functions always
   goes to the person (the plan's "pure function" form was dropped).
