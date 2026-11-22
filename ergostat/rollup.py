@@ -331,8 +331,7 @@ def upkeep(p, now: float | None = None) -> dict:
     with compaction(p) as held:
         if not held:
             return {"busy": True}
-        out = record(p, now)
-        me = measurements(p, now)
+        out, me = record(p, now), measurements(p, now)         # (in that order)
         return {**out, **({"measurements": me} if me is not None else {})}
 
 

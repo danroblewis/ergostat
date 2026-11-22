@@ -50,16 +50,13 @@ def _compactor(argv: list[str], what: str) -> int:
     ap.add_argument("--flow", choices=["rolled-up", "events-forgotten"], default="rolled-up")
     a = ap.parse_args(argv)
     try:
-        every = parse_duration(a.every, "--every")
+        if not EVERY[0] <= parse_duration(a.every, "--every") <= EVERY[1]:
+            raise DurationError(f"--every is 1m to 1d (not {a.every})")
     except DurationError as e:
         print(f"upkeep {what}: {e}", file=sys.stderr)
         return 2
-    if not EVERY[0] <= every <= EVERY[1]:
-        print(f"upkeep {what}: --every is 1m to 1d (not {a.every})", file=sys.stderr)
-        return 2
-    from ... import model as mdl
-    from ... import rollup
-    p = Project(mdl.load(common.root()), common.state_dir(), note=False)
+    from ... import model, rollup
+    p = Project(model.load(common.root()), common.state_dir(), note=False)
     with rollup.compaction(p) as held:
         if not held:                                 # (words, not JSON: the engine logs them, moves nothing)
             print(f"busy: another process holds {p.dir / rollup.LOCK}; nothing done", flush=True)

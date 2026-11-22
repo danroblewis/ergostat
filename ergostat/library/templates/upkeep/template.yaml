@@ -86,7 +86,9 @@ params:
   due-every:
     type: duration
     default: 10m
-    description: how often what is due in the record and the measurements is counted
+    min: 1m
+    max: 1d
+    description: how often what is due in the record and the measurements is counted (a dry roll-up), from 1m to 1d
   stale:
     type: integer
     default: 180

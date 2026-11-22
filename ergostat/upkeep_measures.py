@@ -67,6 +67,8 @@ def _none(name: str, why: str) -> None:
 
 def record(p, name: str) -> float | None:
     now = time.time()
+    if not name.endswith((".rollup-due", ".events-past-keep", ".measurements-due")):    # (an allowlist: no fall-through)
+        raise ValueError(f"{name}: not one of the record's upkeep measures")
     if name.endswith("rollup-due"):
         from .rollup import compact
         return float(compact(p, now, cap=p.model.keep, dry=True)["items"])

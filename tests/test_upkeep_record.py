@@ -245,6 +245,8 @@ def test_a_store_that_cannot_count_gives_no_reading(tmp_path, capsys):
     stub = SimpleNamespace(events=SimpleNamespace(), model=SimpleNamespace(keep=30 * DAY), measurements=p.measurements)
     assert um.measure(stub, "ergostat.upkeep.events-past-keep") is None
     assert "cannot count" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="not one of the record's"):    # (an allowlist: an unknown name falls to nothing)
+        um.record(p, "ergostat.upkeep.bogus")
 
 
 @pytest.mark.parametrize("upkeep", [True, False])
@@ -321,7 +323,7 @@ def test_compaction_stopped_grows_the_record_and_nothing_breaks(tmp_path):
 
 @pytest.mark.parametrize("every", ["30s", "2d"])
 def test_every_out_of_range_is_refused(tmp_path, monkeypatch, capsys, every):
-    for k in ("rollup-every", "retain-every", "rollup-timeout"):
+    for k in ("rollup-every", "retain-every", "rollup-timeout", "due-every"):    # (due-every: a dry roll-up each time)
         root = tmp_path / k
         root.mkdir()
         (root / "ergostat.yaml").write_text("name: x\nuses:\n  upkeep:\n    use: upkeep\n"
