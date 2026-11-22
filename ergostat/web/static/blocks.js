@@ -1004,6 +1004,7 @@ function mathml(tree, display = true) {
   const m = document.createElementNS(MATHML, "math");
   if (display) m.setAttribute("display", "block");
   m.append(build(tree));
+  m.setAttribute("alttext", m.textContent);         // read aloud, or copied, as its text
   return m;
 }
 
@@ -1020,9 +1021,19 @@ function openBlock(n) {
                                   ...(fn.arg ? [["mo", "("], ["mi", fn.arg], ["mo", ")"]] : [])], false) : (fn.name || n.label);
   const defs = (n.math || []).map((m) => h("div", { class: "bd-math" }, mathml(m)));
   const rows = (n.rows || []).filter(([, v]) => v != null && v !== "");
-  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, title)];
-  // a loop's comparator, controller or process output: its scope first (charts.js)
-  if (["comparator", "controller", "output"].includes(n.role)) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x])) {
+  const top = h("div", {}), procs = h("div", {}), ctl = n.role === "controller" && n.id?.startsWith("blk:");
+  const kids = [h("div", { class: "kind" }, kind), h("h2", {}, title), top];
+  // a controller's or process's loops first, a table each (control.js); then a controller's scope and closed loop, each
+  // loop's; a process's loops with no one process are left out when it has others (only its loops' text)
+  const mine = n.role === "process" ? n.y_of || [] : ctl ? (n.loops || []).filter((x) => S.status?.loops?.[x]) : [];
+  if (mine.length) Promise.all(mine.map((l) => loopControl(l))).then((ds) => {
+    const all = ds.filter(Boolean), held = all.filter((d) => !d.why);
+    top.replaceChildren(...held.map(loopTable), ...(!ctl ? [] : all.flatMap((d) => [all.length > 1 ? h("div", { class: "strip-title" }, h("b", {}, d.goal)) : null,
+      loopScope(d.goal), controlBox(d.goal, "controller", { block: n.id.slice(4) })].filter(Boolean))));
+    if (!ctl) procs.replaceChildren(...(held.length ? held : all).map((d) => controlBox(d.goal, "process")));
+  }).catch((e) => top.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
+  // a loop's comparator or process output: its scope first (charts.js)
+  if (["comparator", "controller", "output"].includes(n.role) && !ctl) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x])) {
     if ((n.loops || []).length > 1) kids.push(h("div", { class: "strip-title" }, h("b", {}, l)));
     kids.push(loopScope(l));
   }
@@ -1031,11 +1042,9 @@ function openBlock(n) {
   if (rows.length) kids.push(h("h3", {}, "In the model"), dl(rows.map(([k, v]) => [k, typeof v === "string" ? rich(op(v)) : v])));
   if (["output", "sensor", "process"].includes(n.role)) kids.push(partItemsSection(n.part));   // what goes through it (itemsets.js)
   // the loop it is the process of, identified (control.js); a controller's law with that process, and its tuning
-  if (n.role === "process") for (const l of n.y_of || []) kids.push(controlBox(l, "process"));
+  if (n.role === "process") kids.push(procs);
   if (n.role === "process" && !(n.y_of || []).length && !n.mimo)
     kids.push(h("p", { class: "muted small" }, "Not identified: no goal holds what comes out of it, so no loop's record or step test can tell its dynamics."));
-  if (n.role === "controller" && n.id?.startsWith("blk:")) for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x]))
-    kids.push(controlBox(l, "controller", { block: n.id.slice(4) }));
   for (const l of n.loops || []) {                      // a stale reading on its input (the observer: SPEC §9.6)
     const lp = S.status?.loops?.[l];
     if (lp?.stale != null && ["comparator", "controller"].includes(n.role)) kids.push(h("p", {}, h("b", { class: "lvl-warn" }, "Stale input: "),

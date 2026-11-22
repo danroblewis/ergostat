@@ -165,10 +165,29 @@ function controlProposal(x, goal, onDone) {
   const kind = { process: "Proposed process", tuning: "Proposed tuning", "step-test": "Proposed step test" }[x.kind] || "Proposed";
   return h("div", { class: "proposal" },
     h("div", { class: "proposal-title" }, h("span", { class: "muted small" }, kind), h("div", {}, x.title)),
-    h("p", { class: "muted small" }, x.reason),
+    test ? h("details", {}, h("summary", { class: "small" }, "how it is sized"), h("p", { class: "muted small" }, x.reason))
+      : h("p", { class: "muted small" }, x.reason),
     x.edit?.diff ? h("pre", { class: "diff" }, x.edit.diff.split("\n").map((l) => h("div", { class: l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "muted" }, l))) : null,
     SNAP ? h("p", { class: "muted small" }, "Answered where the model is, not in a snapshot.") : h("div", { class: "actions" }, accept, dismiss),
     said);
+}
+
+/* ---- the loop at a glance, first in its controller's and process's panels: the law, the process with ±σ, its fit
+   on the record fitted (estimation) and held out (validation), and how the loop is doing */
+const FIT = "NRMSE fit, 100% is perfect, below 0 is worse than the mean";
+const pcFit = (x) => (x == null ? "–" : `${Math.round(x)}%`);
+function loopTable(d) {
+  const c = d.controller || {}, r = d.identified || {}, se = r.found ? r.se || {} : {}, p = r.found ? r : d.process;
+  const pf = d.performance || {}, ex = pf.excursions || {}, off = S.status?.loops?.[d.goal]?.off_share;
+  const law = `${c.block ? c.block + ": " : ""}${c.says || "not known"}${c.law?.form === "I" ? `, gain ${fmt(c.law.g)} a step`
+    : c.law?.form === "PI" ? `, K_c ${fmt(c.law.Kc)}, τ_I ${secs(c.law.Ti)}` : ""}`;
+  const proc = p ? `K ${pmText(p.K, se.K)}, ${p.form === "integrating" ? "an integrator" : `τ ${pmText(p.tau, se.tau)} s`}, θ ${pmText(p.theta, se.theta)} s`
+    : "not identified: needs a step of u";
+  const rows = [["law", law], ["process", proc],
+    ["held-out fit", h("span", {}, `estimation ${pcFit(r.fit_est)}, validation ${pcFit(r.fit_val)} `, h("span", { class: "muted" }, `(${FIT})`))],
+    ["time off", off != null ? pcFit(off * 100) : "–"], ["settling", ex.count ? `${secs(ex.settling)}, typically` : "–"],
+    ["saturation", pf.saturation != null ? `${pcFit(pf.saturation * 100)} of the ${d.how === "valve" ? "openings" : "time"}` : "–"]];
+  return h("table", { class: "loop-table" }, h("caption", {}, `The loop ${d.goal}`), rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))));
 }
 
 /* ---- what is known of the process, in words */
@@ -178,7 +197,7 @@ function identRows(d) {
   if (!r.found) return [];
   return [["gain K", pmText(r.K, se.K)], ["time constant τ", r.form === "integrating" ? "none: an integrator" : `${pmText(r.tau, se.tau)} s`],
     ["dead time θ", `${pmText(r.theta, se.theta)} s`],
-    ["fit", r.fit_val != null ? `${Math.max(0, Math.round(r.fit_val))}% of the record held out, of the ${Math.max(0, Math.round(r.fit_best ?? 0))}% its noise allows; ${Math.max(0, Math.round(r.fit_est ?? 0))}% of what it was fitted to` : null],
+    ["fit", r.fit_val != null ? `NRMSE fit ${Math.round(r.fit_val)}% held out (${FIT})${r.fit_best != null ? `, of at most ${Math.round(r.fit_best)}% its noise allows` : ""}; ${pcFit(r.fit_est)} on what it was fitted to` : null],
     ["left", r.rms_val != null && r.noise ? `${fmt(r.rms_val / r.noise)} × the noise, of the record held out` : null],
     ["from", `${(r.tests_used || []).length > 1 ? `${r.tests_used.length} step tests, fitted together (open loop)` : r.test ? "a step test (open loop)" : "the loop working (closed loop)"}, ${dur(r.span)}, ${r.n_est} readings fitted, ${r.n_val} held out${r.moves ? `, u stepped ${r.moves} time${r.moves === 1 ? "" : "s"}` : ""}`],
     ["errors held out", r.whiteness ? `${r.whiteness.white ? "white" : "not white"} (Ljung–Box Q ${fmt(r.whiteness.q)} against ${fmt(r.whiteness.limit)}, ${r.whiteness.lags} lags)` : null],
