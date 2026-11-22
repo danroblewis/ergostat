@@ -157,13 +157,20 @@ def stuck(cfg: dict, gaps: dict, now: float) -> list[dict]:
 TIME_GOAL = re.compile(r'^  ([a-z0-9-]+): \{auxiliary: ([a-z0-9-]+), hold: "<= ([\d.]+)", tolerance: ([\d.]+)', re.M)
 
 
-def time_goals(gaps: dict, now: float) -> tuple[list[dict], dict]:
-    """The time-in-state goals (dev/model/times.yaml) off past their tolerance, as triggers (raised again only when
-    further off by a whole tolerance), and every goal's reading. One with no gap in its window is unknown (None on the
+def time_goals(gaps: dict, now: float, was: dict | None = None, began: dict | None = None) -> tuple[list[dict], dict]:
+    """The time-in-state goals (dev/model/times.yaml) off past their tolerance, as triggers, and every goal's reading.
+    A trigger's fingerprint holds when its episode began (``was``, by goal and off or unreadable; one not in it begins
+    now, and ``began`` gets those standing), so it is raised again when further off by a whole tolerance, with another
+    error, or off again after a reading on target, unknown or unreadable. One with no gap in its window is unknown (None on the
     situation) and raises nothing: an empty window is no fault. One that cannot be read (a value malformed or not
     finite, a measure times.py does not know) is None too, and a trigger naming the goal and the error, as is a goal in
     the file the watch cannot parse (or none at all)."""
     out, read, rows, since, text = [], {}, list(gaps.values()), now - measure.WINDOW, times.GOALS.read_text()
+    was, began = was or {}, {} if began is None else began
+
+    def episode(key: str) -> float:
+        began[key] = float(was.get(key, now))
+        return began[key]
     for name, aux, ceiling, tol in TIME_GOAL.findall(text):
         read[name] = None
         try:
@@ -173,7 +180,8 @@ def time_goals(gaps: dict, now: float) -> tuple[list[dict], dict]:
             if not all(math.isfinite(x) for x in vs):
                 raise ValueError(f"{sum(not math.isfinite(x) for x in vs)} of its values not finite")
         except (SystemExit, ValueError, TypeError, KeyError, AttributeError) as e:
-            out.append(sit("time", f"goal.{name}", f"goal {name} cannot be read: {aux}: {e}", "unreadable", str(e)))
+            out.append(sit("time", f"goal.{name}", f"goal {name} cannot be read: {aux}: {e}", "unreadable", str(e),
+                           episode(f"{name}/unreadable")))
             continue
         if not vs:
             continue
@@ -181,7 +189,8 @@ def time_goals(gaps: dict, now: float) -> tuple[list[dict], dict]:
         over, step = v - float(ceiling), max(float(tol), 1e-6)
         if over > float(tol):
             out.append(sit("time", f"goal.{name}", f"goal {name} is off: {aux} reads {v:g} against <= {ceiling} "
-                                                   f"(tolerance {tol}) over the last 14 days", math.floor(over / step)))
+                                                   f"(tolerance {tol}) over the last 14 days", math.floor(over / step),
+                           episode(f"{name}/off")))
     lost = [n for n in re.findall(r"(?m)^  ([a-z0-9-]+): \{auxiliary:", text) if n not in read]
     if lost or not read:                       # (a goal reworded past the pattern: unknown, never on target)
         out.append(sit("time", "dev/model/times.yaml", "time-in-state goals the watch cannot read in "
@@ -279,22 +288,32 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
     return out
 
 
-def broken(cfg: dict, gaps: dict, opened: list[dict], now: float) -> dict[str, dict]:
-    """The conditions broken past [manager] broken_minutes ({name: {why, since}}), with when each began kept in
-    run/manager.json (a condition that clears starts again); `main-twice` counts at once."""
+def kept(cfg: dict, part: str, decide):
+    """One part of run/manager.json read, decided (``decide(was) -> (result, new)``) and written with its lock held
+    across all three (the sensor and the block both keep it); the other parts kept as they were."""
     p = fac.run_dir(cfg) / "manager.json"
-    with open(p.with_name("manager.lock"), "a") as lock:  # (the sensor and the block both keep it: read to write held)
+    with open(p.with_name("manager.lock"), "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            was = json.loads(p.read_text()).get("since", {}) if p.exists() else {}
-            starts: dict = {}
-            now_on = conditions(cfg, gaps, opened, now, starts)
-            since = {k: float(starts.get(k) or was.get(k) or now) for k in now_on}
+            data = json.loads(p.read_text()) if p.exists() else {}
+            got, data[part] = decide(data.get(part, {}))
             tmp = p.with_name(f"manager.{os.getpid()}.new")
-            tmp.write_text(json.dumps({"since": since}))
+            tmp.write_text(json.dumps(data))
             tmp.replace(p)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
+    return got
+
+
+def broken(cfg: dict, gaps: dict, opened: list[dict], now: float) -> dict[str, dict]:
+    """The conditions broken past [manager] broken_minutes ({name: {why, since}}), with when each began kept in
+    run/manager.json (a condition that clears starts again); `main-twice` counts at once."""
+    def decide(was: dict) -> tuple:
+        starts: dict = {}
+        on = conditions(cfg, gaps, opened, now, starts)
+        clocks = {k: float(starts.get(k) or was.get(k) or now) for k in on}
+        return (on, clocks), clocks
+    now_on, since = kept(cfg, "since", decide)
     return {k: {"why": why, "since": since[k]} for k, why in now_on.items()
             if k in AT_ONCE or now - since[k] >= settings(cfg)["broken"] * 60}
 
@@ -302,7 +321,10 @@ def broken(cfg: dict, gaps: dict, opened: list[dict], now: float) -> dict[str, d
 def state_now(cfg: dict, now: float) -> dict:
     gaps = {g["id"]: g for g in fac.items("gap")}
     opened = [i for i in fac.items("intervention", "open") if i["fields"].get("by") != BY]
-    off, read = time_goals(gaps, now)
+    def decide(was: dict) -> tuple:                 # (each goal's episode: since when it has been off, or unreadable)
+        began: dict = {}
+        return time_goals(gaps, now, was, began), began
+    off, read = kept(cfg, "episodes", decide)
     return {"gaps": gaps, "triggers": triggers(cfg, gaps, opened, now) + off, "times": read,
             "broken": broken(cfg, gaps, opened, now),
             "shape": hashlib.sha1(json.dumps([sorted((g["id"], g["state"]) for g in gaps.values()

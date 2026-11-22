@@ -2,10 +2,11 @@
 # state*): the timer writes them on each gap (time_in, loop_rounds, loop_hours, gates), and each state and gate has a
 # measure, its median and its p90 over the gaps that left it in the last 14 days (dev/bin/measure.py, times.py). The
 # goals are setpoints the owner sets (hold:), each read by the pipeline watch (dev/bin/watch.py): a goal off past its
-# tolerance is a trigger of the pipeline manager's next session; one with no gap in its window is unknown, never on
-# target. The holds are first guesses: `python3 dev/bin/times.py setpoints`, run in the instance's folder, sets each to
-# today's reading. Waiting states (open, replan, planned, split, ready, fix, built, approved, queue-failed, dead) are
-# the cheapest time to remove; working ones are leased, building, in-review, queued.
+# tolerance is a trigger of the pipeline manager's next session; one with no gap in its window is None on the situation
+# and raises nothing, and one that cannot be read is None and a trigger naming the error. The holds are first guesses:
+# `python3 dev/bin/times.py setpoints`, run in the instance's folder, sets each to today's reading. Waiting states
+# (open, replan, planned, split, ready, fix, built, approved, queue-failed, dead) are the cheapest time to remove;
+# working ones are leased, building, in-review, queued.
 # Plain measures, with no goal (state-times-in-the-loop, 2026-11-22): every -p90 (its median's goal drives the same
 # action, and the watch's stuck trigger already takes each gap past its threshold; each p90 moves with its median);
 # in-open-hours (a gap waits open by the backlog's ranking, not a fault of the pipeline); in-split-hours (its time is

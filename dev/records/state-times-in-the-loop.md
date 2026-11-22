@@ -101,3 +101,31 @@ definition (it has no `allows-findings` line, and it was not edited). This super
   `uv run ruff check ergostat tests scripts` is clean. Not run: the unit suite and the browser files (the merge
   queue's job), and `ergostat check` itself. `ruff check dev/bin` reports B023 in plan.py and E501 in review.py,
   files this branch does not touch. The clone has no `origin/main`; local `main` has no commit the branch lacks.
+
+### Round 3: the review's findings, each answered
+
+- Blocking (watch.py time_goals, lesson-5 / lesson-3): each time trigger's fingerprint now also holds when its
+  episode began: since when the goal has been off (`NAME/off`) or unreadable (`NAME/unreadable`) without a break.
+  The starts are kept in `run/manager.json` under `episodes`, read, decided and written with `manager.lock` held
+  across all three (`watch.kept`, which `broken()` now uses too for its `since`; each keeps the other's part). A
+  goal on target, unknown or read again with no error ends its episode, so when it next goes off or becomes
+  unreadable it begins again with a new start and a new fingerprint, even at the same reading or with the same
+  error. The episodes are brought up to date on every state_now: the `watch.py broken` sensor's pass as well as the
+  block's, so a flip while a session is under way is still seen at the sensor's interval. The fingerprint keeps the
+  tolerance step (off) and the error text (unreadable), so a worse reading or another error is raised within one
+  episode as before. Tested in `test_a_time_goal_off_reaches_the_managers_session`: answered, the same reading is not
+  raised again; then on target, then off again by as much: raised with a new fingerprint; then unreadable, answered,
+  on target, then unreadable with the same error: raised again. With the episode start replaced by a constant, the
+  test failed at the off-again step (no trigger); with only the unreadable one replaced, it failed at the
+  unreadable-again step.
+- Wording (times.yaml header): it now says that an empty window is None on the situation and raises nothing, and that
+  one that cannot be read is None and a trigger. Reflowed.
+- Wording (dev/README.md, *Time in each state*): the paragraph is reflowed to the wrap width (no short line, no orphan
+  "as a table"), and says when an answered time trigger is raised again.
+- Refused by the shell this round: a `python3 - <<'EOF' ... EOF` script that would have made these edits to watch.py
+  (done with the editor instead), and `grep -n ... dev/model/times.yaml ...; sed -n 598,625p dev/README.md | awk ...`
+  (read with the reader instead).
+- Run: both acceptance tests and tests/test_factory_manager.py (35 together), and tests/test_factory_times.py (7):
+  all pass. `uv run ruff check ergostat tests scripts dev/bin/watch.py` is clean. Not run: the unit suite and the four
+  browser files (the merge queue's job), and `ergostat check` itself. Local `main` has no commit the branch lacks;
+  there is no `origin/main` in the clone.

@@ -3847,6 +3847,25 @@ def test_a_time_goal_off_reaches_the_managers_session(tmp_path):
     slow(4, 20.0)                                                              # median 6h: further off
     (t2,) = again()
     assert t2["subject"] == "goal.ready-short" and t2["print"] != t["print"]
+    assert again() == []                                                       # (answered: not again)
+
+    def ready(hours: float | str) -> None:                                     # every ready time made the same
+        for i in range(5):
+            f.put(f"gap/slow-{i}", "merged", branch=f"slow-{i}", merged_at=left,
+                  time_in={"ready": {"hours": hours, "visits": 1, "left": left}})
+    ready(1.0)
+    assert again() == []                                                       # back on target: the episode ends
+    ready(6.0)                                                                 # off again by as much as t2 was
+    (t3,) = again()
+    assert t3["subject"] == "goal.ready-short" and t3["print"] not in (t["print"], t2["print"])
+    ready("soon")                                                              # (lesson-5) unreadable, answered,
+    (u,) = again()                                                             # read again, then the same error:
+    assert "cannot be read" in u["why"] and again() == []                      # a new episode, raised again
+    ready(1.0)
+    assert again() == []
+    ready("soon")
+    (u2,) = again()
+    assert u2["why"] == u["why"] and u2["print"] != u["print"]
     # (lesson-3) a reading that fails is a trigger naming the goal and the error; an empty window stays silent
     code = ("import sys, json, pathlib; sys.path[:0] = [sys.argv[1]]; import watch, times; p = pathlib.Path(sys.argv[2])"
             "; arg = json.loads(sys.argv[3]); p.write_text(times.GOALS.read_text().replace(*arg['swap']) "
