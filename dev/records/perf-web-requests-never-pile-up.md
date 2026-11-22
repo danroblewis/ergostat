@@ -15,3 +15,21 @@ Acceptance tests: a unit test that opens a socket, sends a full GET, shuts down 
 Budget: 140 net lines outside tests.
 
 Milestone: pages-answer-fast. Owner items: 2. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. All five points are done, with the acceptance tests in tests/test_web_lanes.py and
+tests/test_page_polling.py::test_leaving_a_page_cancels_its_fetches_in_flight.
+
+Overrun reason: 172 net lines against 140. The lanes need the request's path before a worker takes the job, and nothing reads it at that point, so a small reception thread (one selector, ergostat/web/__init__.py `_reception`) holds each connection until its first bytes arrive, peeks at them and queues the connection by path. That is about 40 of the lines. It also means a browser's idle, pre-opened connections no longer tie up a worker each.
+
+What was built, and the choices taken without asking (each easy to undo):
+- The fast lane takes GETs of /static/*, the page's own addresses (/, /items, ...) and /api/projects. Every /api answer in `_answer` takes the snapshot except items-query (a record graph query, not cheap) and the proposal graph, so the only answer that "needs no snapshot" is /api/projects (the header's cached list). It is now answered before the snapshot is taken. /file/* stays in the API lane, because it can read up to 20 MB.
+- The fast-lane queue is bounded at 256 too. Connections still waiting for their first bytes are capped at 512 (503 past that) and closed after 10 s of silence (the handler's own timeout). The listen backlog is raised from the standard 5 to 128: at 5, the acceptance burst of 54 connects waited 1-3 s on SYN retries, so the hang-ups arrived only after workers were free.
+- A 503 reads what the client sent before closing, so the close sends FIN and not RST, which would discard the answer.
+- "Over 2 s" means queue wait plus work. A dropped GET writes one line too ('web: dropped GET /api/x: the client left after 3.1s in the queue', or 'too old'), and its count goes in `web.dropped` beside `web.slow`. `web` appears only when something was slow in the last 10 minutes. The counts come from the newest 2,000 slow-or-dropped records.
+- Aborted fetches: the header's own fetches (status, projects) are passed `kept` and belong to no page. A fetch of a page that has left never settles, so its page draws nothing and logs no error.
+- The drop check runs only on the pooled server: the mTLS remote listener (its own server class) is unchanged.
+- SPEC does not describe the page server's pool or /api/status's fields, so it needs no change. This gap is not in docs/GAPS.md.
+
+Not run here: the other three browser files (test_diagram_rendering, test_items_page, test_page_refresh), the full unit suite and demo_check (no example touched). The 54-connection test and the 200 ms test are marked serial and are timing-bound. On macOS they were not run: this clone is Linux only.
