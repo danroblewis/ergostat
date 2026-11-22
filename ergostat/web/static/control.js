@@ -280,7 +280,8 @@ function robustText(rb) {
 function performanceRows(d) {
   const pf = d.performance || {};
   const hr = pf.harris || {}, os = pf.oscillation || {}, ex = pf.excursions || {};
-  const harris = hr.index != null ? `${fmt(hr.index)}; at 1 it leaves no more variance than the best controller could, given the dead time` : hr.why;
+  const harris = hr.index != null ? `${fmt(hr.index)}; at 1 it leaves no more variance than the best controller could, given the dead time`
+    : hr.needs_theta ? "needs the loop's dead time" : hr.why;          // what is missing, not where to write it
   const osc = os.oscillating ? `yes: every ${secs(os.period)}, ±${fmt(os.amplitude)} (regularity ${fmt(os.regularity)})`
     : os.crossings != null ? "no" : null;
   const cn = pf.constraint;

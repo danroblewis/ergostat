@@ -1,6 +1,6 @@
 template: upkeep
 once: true
-description: ergostat's own upkeep as loops of the model (SPEC §2a, Upkeep) - its item-index files, the record's roll-up and forgetting, and the measurements' retention, each a stock held under a goal and done by a program on the rule rung instead of by the engine on its own; the interlocks stay in ergostat's code. The engine's watchdog, the outer watcher (with its heartbeat goal), and when asked lease expiry and a workspace pool, drawn as loops whose controllers stay ergostat's code.
+description: ergostat's own upkeep as loops of the model - its item-index files, the record's roll-up and forgetting, and the measurements' retention, each a stock held under a goal and done by a program on the rule rung instead of by the engine on its own; the interlocks stay in ergostat's code. The engine's watchdog, the outer watcher (with its heartbeat goal), and when asked lease expiry and a workspace pool, drawn as loops whose controllers stay ergostat's code.
 reading: |
   System dynamics: the item-index files (each an on-disk fold of the record for one shape of the model's item kinds)
   are a stock (index-files, read by ergostat's built-in measure ergostat.upkeep.index-files: the live

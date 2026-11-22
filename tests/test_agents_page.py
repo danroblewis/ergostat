@@ -188,5 +188,6 @@ def test_the_agents_page_lists_the_daemons(site, browser):
     assert "running" in row and "sensor.pages.main" in row and "2" in row and "1 of 10" in row
     assert "1.5s" in row and "21 MB" in row and "ago" in row
     assert "wall time only" in pg.inner_text(".page")
+    assert "SPEC §" not in pg.inner_text(".page")            # what a daemon is, said; not where SPEC says it
     assert not errors, errors
     pg.close()
