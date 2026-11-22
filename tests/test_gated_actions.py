@@ -262,3 +262,22 @@ def test_the_owner_may_promote_a_class_to_auto(tmp_path, capsys):
     p = Project(mdl.load(tmp_path))
     assert gate.request(p, p.model.spec, "push", {}, ctx(tmp_path))["state"] == "ran"
     assert record.counts(p, cls="outward")["auto"] == 1
+
+
+def test_each_action_names_who_asked_and_who_answered_in_the_list_and_the_items_page(tmp_path):
+    from ergostat.web.server import _as_listed
+    p = project(tmp_path)
+    spec = p.model.spec
+    auto = gate.request(p, spec, "note", {"text": "hi"}, ctx(tmp_path))
+    held = gate.request(p, spec, "push", {}, ctx(tmp_path, block=None))       # a session with no block
+    gate.approve(p, spec, held["id"], note="offline stand-in")
+    no = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gate.deny(p, no["id"], note="not now")
+    waits = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    want = {auto["id"]: ("dev", "gate (auto)"), held["id"]: ("session/dev-1", "owner (offline stand-in)"),
+            no["id"]: ("dev", "denied by owner (not now)"), waits["id"]: ("dev", "not yet answered")}
+    assert {a["id"]: (a["by"], a["approved by"]) for a in actions_api.listing(p)["actions"]} == want
+    got = {"kinds": [{"name": "ergostat.action", "show": ["by", "approved by"]}],
+           "items": [{"id": a["id"], "kind": "ergostat.action", "fields": a} for a in record.stored(p).values()]}
+    listed = _as_listed(got, None, 0, True)["items"]
+    assert {i["id"]: (i["fields"]["by"], i["fields"]["approved by"]) for i in listed} == want
