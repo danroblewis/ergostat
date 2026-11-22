@@ -18,6 +18,7 @@ import math
 import time
 from pathlib import Path
 
+from ..costs import budget
 from ..decisions import ai
 from ..spec import vsm
 from ..spec.ir import Spec
@@ -167,20 +168,24 @@ def latest(p, system: str) -> dict | None:
     return {**e["data"], "seq": e["seq"]} if e else None
 
 
-def _call(prompt: str, model: str, cap: float, spent: ai.Spent, seen: dict) -> str:
-    return ai.call(prompt, model, cap, spent, timeout=TIMEOUT, system=SYSTEM, group=True, seen=seen, capped=True)
+def _call(prompt: str, model: str, cap: float, spent: ai.Spent, seen: dict, permit: dict | None = None) -> str:
+    return ai.call(prompt, model, cap, spent, timeout=TIMEOUT, system=SYSTEM, group=True, seen=seen, capped=True,
+                   permit=permit)
 
 
-def review(p, spec: Spec, system: str, model: str = "haiku", cap: float = PER_CALL) -> dict:
-    """One system reviewed by one call, checked, recorded, and what it found held for the owner."""
+def review(p, spec: Spec, system: str, model: str = "haiku", cap: float = PER_CALL, permit: dict | None = None) -> dict:
+    """One system reviewed by one call, checked, recorded, and what it found held for the owner. ``permit``: the
+    day's budget's for the call (SPEC §9.9), closed at its end."""
     cap = min(float(cap), CEILING)
     before = _latest(p, system)
     stamp = {"system": system, "signature": signature(spec, system), "words": words(spec, system), "model": model}
     spent, seen = ai.Spent(), {}
     try:
-        text, why = _call(PROMPT.read_text(encoding="utf-8") + "\n\n" + brief(spec, system), model, cap, spent, seen), None
+        text, why = _call(PROMPT.read_text(encoding="utf-8") + "\n\n" + brief(spec, system), model, cap, spent, seen,
+                          permit=permit), None
     except Exception as e:                       # (a cost or a usage that is not a number, among others)
         text, why = "", f"{type(e).__name__}: {e}"[:300]
+    budget.done(permit, None)                    # (closed by its call; else, failed before it: charged its reserve)
     c = seen.get("cost")
     ok = isinstance(c, int | float) and not isinstance(c, bool) and math.isfinite(c) and c >= 0
     cost = {"cost_usd": round(float(c), 6) if ok else cap, "cost": "reported" if ok else "charged",
@@ -286,7 +291,11 @@ def review_all(p, spec: Spec, system: str | None = None, model: str = "haiku", m
             out["not_reviewed"][:0] = [{"system": x, "why": f"the cost cap (${max_cost:.2f}) would be passed"}
                                        for x in todo[i:MOST_SYSTEMS]]
             break
-        r = review(p, spec, s, model, PER_CALL)
+        permit, no = budget.ask(p, spec, "architecture-review", PER_CALL)
+        if no:                                   # (the day's budget, SPEC §9.9: this and the rest not reviewed)
+            out["not_reviewed"][:0] = [{"system": x, "why": f"budget: {no}"} for x in todo[i:MOST_SYSTEMS]]
+            break
+        r = review(p, spec, s, model, PER_CALL, permit=permit)
         out["reviews"].append(r)
         out["spent"] = round(out["spent"] + r["cost_usd"], 6)
     return out

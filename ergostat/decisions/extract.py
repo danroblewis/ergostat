@@ -116,7 +116,7 @@ def run(p, paths: list[str], since: str | None = None, model: str | None = None,
             if left is not None and left <= 0:
                 spent.stopped = spent.stopped or "the cost cap was reached"
                 break
-            s = ai.extract(exs, model, left, instructions, earlier, found)
+            s = ai.extract(exs, model, left, instructions, earlier, found, p, getattr(p.model, "spec", None))
             for k in ("calls", "tokens_in", "tokens_out", "dropped", "failed"):
                 setattr(spent, k, getattr(spent, k) + getattr(s, k))
             spent.cost_usd += s.cost_usd

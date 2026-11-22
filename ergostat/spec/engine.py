@@ -1298,8 +1298,9 @@ class Engine:
             from ..numbers import judge as jd
         ev = self.p.events
         spec, version = self.spec, self.version
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule", "model": version})
-        started = time.time()
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule", "model": version, **(
+            {"reserve": 0.0, "pid": os.getpid()} if spec.budget else {})})   # (its calls reserve, SPEC §9.9)
+        started, within = time.time(), budget.WITHIN.set((begun["id"], True))   # (its end sums its calls' costs)
         try:
             got = jd.run(self.p, spec, by=b.name) if b.judge_mode == "intent" else jd.run(self.p, by=b.name)
         except Exception as e:
@@ -1308,8 +1309,11 @@ class Engine:
             self.say(f"{b.name}: {type(e).__name__}: {e}")
             return
         finally:
+            budget.WITHIN.reset(within)
             with self.lock:
                 self.running.discard(b.name)
+        if got.get("refused"):
+            self.say(f"{b.name}: refused: {got['refused']}")
         if b.judge_mode != "intent":                   # nothing new to judge: it backs off (judge.pause)
             every = bounds.pace(spec, b, b.every or JUDGE_EVERY)
             wait = jd.pause(got, every, self.judge_idle.get(b.name, 0))

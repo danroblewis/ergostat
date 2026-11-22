@@ -113,11 +113,12 @@ def checked(d: dict, brief: dict) -> tuple[str, str, list[dict], int]:
     return verdict, why, kept, dropped
 
 
-def judge(brief: dict, model: str, cap: float | None, instructions: str | None = None) -> tuple[str, str, list[dict], dict]:
-    """(verdict, why, evidence, spent)."""
+def judge(brief: dict, model: str, cap: float | None, instructions: str | None = None,
+          permit: dict | None = None) -> tuple[str, str, list[dict], dict]:
+    """(verdict, why, evidence, spent). ``permit``: the day's budget's, taken by the pass (SPEC §9.9)."""
     spent = Spent()
     head = (instructions or PROMPT.read_text(encoding="utf-8")).rstrip()
-    text = call(head + "\n\n" + render(brief) + ANSWER, model, cap, spent, timeout=300, system=SYSTEM)
+    text = call(head + "\n\n" + render(brief) + ANSWER, model, cap, spent, timeout=300, system=SYSTEM, permit=permit)
     d = answer(text)
     cost = {"cost_usd": round(spent.cost_usd, 5), "tokens_in": spent.tokens_in, "tokens_out": spent.tokens_out,
             "calls": spent.calls}
