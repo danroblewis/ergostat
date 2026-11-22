@@ -192,8 +192,12 @@ function rateText(r, unit = "", flow = null) {
   const tail = (unit || "") + RATE_SUFFIX[u];
   return r == null ? "?" + tail : `${fmt(rateIn(r, u))}${unit ? " " : ""}${tail}`;
 }
-/* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠ */
-const op = (x) => x == null ? "" : String(x).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
+/* the record, when shorter than the page's window: how long it is (else null); a share "of the time" is over
+   that much (state.py's shares are over the time recorded), so it is said so */
+const recordedShort = () => { const st = S.status; return st?.window && st.first && st.recorded != null && st.recorded < st.window * 0.95 ? st.recorded : null; };
+const ofRecorded = (x) => { const r = recordedShort(); return r == null ? x : String(x).replaceAll("of the time", `of the ${dur(r)} recorded`); };
+/* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠; a share of the time, of what is recorded */
+const op = (x) => x == null ? "" : ofRecorded(String(x)).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
   .replace(/(^|[\s(=:])-(?=\.?\d)/g, "$1\u2212");                // and a negative number's real minus
 /* raw data, shown: every float to the precision that means something (the event's panel keeps it whole) */
 const tidy = (v) => typeof v === "number" && !Number.isInteger(v) ? +v.toPrecision(6)
@@ -354,14 +358,18 @@ async function refreshHeader() {
       sel.dataset.filled = "1";
       sel.replaceChildren(h("option", { value: "" }, st.name));
       sel.addEventListener("change", () => { if (sel.value) location.href = sel.value + location.pathname + location.search; });
-      // the other projects: once, and again when the reader comes to the list (each is a model loaded and a
-      // snapshot of its record on the server: not asked for while the page is only left open)
+      // the other projects: once, and again when the reader comes to the list (the server's last list, made every
+      // minute off the request path: not asked for while the page is only left open)
       const fresh = () => { if (Date.now() - (S.projectsAt || 0) > 30000) refreshProjects(sel); };
       sel.addEventListener("pointerenter", fresh);
       sel.addEventListener("focus", fresh);
       refreshProjects(sel);
     }
-    const off = Object.values(st.loops).filter((l) => l.status === "off").length;
+    // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
+    // the server's one count (state.goals_off); a status without it counts every goal off, as before
+    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => l.status === "off").length, own: {} };
+    const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
+    setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
     const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
     const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
@@ -371,25 +379,31 @@ async function refreshHeader() {
     if (run.title !== tip) run.title = tip;
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
-      : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
+      : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
+    if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
   } catch (e) { /* the server may be restarting */ }
 }
 
-/* the other projects on this machine, in the header's list: running ones to switch to, with what is off
-   or unknown; stopped ones shown, not offered. Not waited for, and not changed while the list is open */
+/* the other running projects on this machine, in the header's list, to switch to, with what is off or unknown; then
+   one muted line counting the stopped ones (the server lists them every minute, off the request path). Not waited
+   for, and not changed while the list is open */
 function refreshProjects(sel) {
   S.projectsAt = Date.now();
   api("projects").then((ps) => {
+    if (ps.at == null) S.projectsAt = 0;             // not listed yet: asked again the next time the reader comes to it
     const name = S.status?.name || "";
     const opts = [h("option", { value: "" }, name)];
-    for (const p of ps) {
+    for (const p of ps.running || []) {
       if (p.name === name) continue;
-      const bits = [p.off?.length ? `${p.off.length} off` : "", p.unknown?.length ? `${p.unknown.length} unknown` : "",
-                    p.web ? "" : "stopped"].filter(Boolean);
-      opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
+      const [off, unknown, upkeep] = [p.goals_off, p.unknown, p.upkeep_off].map((x) => (x || []).length);   // as its header
+      const bits = [off || upkeep ? `${off} off` : "", unknown ? `${unknown} unknown` : "", upkeep ? `model upkeep ${upkeep}` : "",
+                    p.error ? "cannot load" : p.web ? "" : "no page"].filter(Boolean);
+      opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "", title: p.error || null }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
     }
+    if (ps.stopped) opts.push(h("option", { value: "", disabled: "" }, `${ps.stopped} stopped (ergostat projects)`));
+    if (ps.age > 180) opts.push(h("option", { value: "", disabled: "" }, `listed ${Math.round(ps.age / 60)} min ago`));   // the lister has stopped updating
     if (document.activeElement !== sel) sel.replaceChildren(...opts);
   }).catch(() => { /* kept as it was */ });
 }
@@ -504,6 +518,7 @@ async function route() {
   closeDetail();
   if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
+  S.was = path === "/diagram" ? main.querySelector(":scope > .diagram") : null;   // the diagram left: shown, dimmed, until the next is drawn
   main.replaceChildren();
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
