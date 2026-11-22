@@ -80,3 +80,16 @@ The fast suites' `build` failure (rc 5), read and left alone (lesson 13):
   it here would be work outside this gap, and adding a unit test only to give the build something to run would be a
   test that cannot fail (lesson 9). So no code changed this round.
 - The browser runs above (rc 0, with Playwright) still stand. The merge queue runs the browser files in full.
+
+The fast suites' `build` failed again, the same way (rc 5, "2 skipped", read on 2026-11-22). Still no code changed:
+- The tail shows the same thing as before: `affected_tests.py` picked `tests/test_agents_page.py` and
+  `tests/test_inbox_page.py`, both skipped at import because the build has no Playwright, and pytest returned 5
+  because nothing ran. No test failed. No change to the page code can make a browser file run without Playwright.
+- I left two ways to make the build pass undone. Each is easy to do later in its own gap:
+  (a) Change `scripts/affected_tests.py`, or the `[suites] build` command, so rc 5 counts as a pass, or so it runs
+  `--collect-only` when every selected file is a browser file and the build has no Playwright. This is factory
+  tooling, outside this gap (lesson 13).
+  (b) Add a unit test only so that the build has something to run. That would be a test whose failure guards nothing
+  in this change (lesson 9).
+- What needs to happen: the factory runs this gap's two browser files with Playwright (`build_browser = true`, or the
+  merge queue). They passed with rc 0 in the first session (above).
