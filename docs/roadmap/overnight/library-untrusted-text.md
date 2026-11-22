@@ -351,3 +351,22 @@ Run here, on the merged head, one file batch at a time:
 - `test_resilience`, `test_chains`, `test_modelling_core` and `test_cli_fallback` (111).
 All passed, and ruff is clean. Not run here: the whole unit suite and the four browser files, which are left to the
 factory under the watchdog.
+
+**Round 5: the finding was "the push of its merge (ce282fdaf099) was denied: the merge is undone".** That merge is not
+in this clone (`git cat-file` does not know ce282fdaf099). The branch head is the factory's later merge of main,
+f7fff4e8 (main at 7c46bc6d, which is local `main`'s head and the merge base), so main is already merged in and there
+was nothing more to merge. That merge was read, not taken on trust (lesson-7). Of this branch's files it changed only
+`spec/engine.py` (main's mirror cite in observations and `read_sensor`, and the swallowed-error check after a run)
+and `spec/ir.py` (`ItemKind.moves_from`). Neither touches the gates: `start` and the judge's pass still call
+`bounds.room` and `bounds.hold` under `engine.lock`, the scheduler and `due` still use `bounds.pace`, and
+`dispatch.take` is unchanged from round 4. The docs did not splice: GAPS *Shared libraries* is one entry (main's
+text, this branch's *Built*, one *Still needed*), and SPEC §2a, SECURITY, AGENT-GUIDE and the skill read as one. No
+code was changed this round.
+
+Run on f7fff4e8, one batch at a time: `test_library_untrusted`, `test_library_untrusted_runs` and `test_library_trust`
+(78); `test_templates`, `test_spec_engine` and `test_leases` (82); `test_repair_traces`, `test_spec_compile` and
+`test_reload_in_place` (88); `test_mirror`, `test_modelling_template` and `test_upkeep_template` (53). All passed, and
+ruff is clean. Not run here: the whole unit suite and the four browser files, left to the factory and the merge queue.
+No break-once runs this round, since no code or test changed. Pushing is the factory's step, not this one. One
+command was refused this round: appending this section with a `cat >> … <<'EOF'` heredoc followed by `git commit` in
+the same shell call. It was written with the editor instead.
