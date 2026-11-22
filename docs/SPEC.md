@@ -1562,8 +1562,8 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 | View | What it shows |
 |---|---|
 | **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
-`status=` in the address) and says when the critical path is expected to end (until the completion estimates are worked out); a click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the forward pass), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend says when each kind's last open item is done (p50, p90). Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier by default, the finished kept as what happened |
+`status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the critical path's end, rounded up to the minute ("being worked out" until the completion estimates are; at a moment travelled to, when the critical path ends); a click opens the item |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the forward pass), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
@@ -2241,6 +2241,12 @@ goals:
 | `system`, `description` | | | |
 
 A goal exists whether or not anything serves it. A goal nothing serves is **missing feedback**.
+
+**Upkeep goals.** The API's `loops` are the goals' states, each with its `system` (null without a spec) and, for a
+goal a once library template among the owner's upkeep templates made (`modelling` alone for now: not `upkeep`,
+repair or interventions), `upkeep: <template>`: the modelling system's own work, counted beside the system's goals
+and not among them. `/api/status` carries `goals_off` (`system` off, `open`, `unknown`, and `own: {modelling: n}`,
+upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off`.
 
 **Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
 
@@ -3353,15 +3359,39 @@ spends more than its reserve is charged what it spent.
   call that started is closed (`budget.closed`, `run`: the call's id) with the cost it reported, or null (charged its
   reserve) when it raised, timed out, or reported none, or a cost that is NaN, infinite or negative. A call whose
   process died with it is closed by recovery, like a run.
+- **The modeller's calls** through `numbers/modeller` ask too (`modeller.ask`, `modeller.asked`): the redesigner's
+  rounds, the modelling reviewer, the `modelling ai` tier and the daily architecture review. Each reserves the call's
+  `unsaid` estimate. That is an estimate, not a bound: `claude -p` has no output limit, so a call can cost more, and
+  then it is charged what it said. The item is the block's name (`$ERGOSTAT_BLOCK`), else `modeller`. The call is
+  closed with the `usd` it reported. A failed call is closed with null, and charged its reserve, or what it said if
+  that is more. A refusal starts no process and is said `budget: …`. It is checked as well as the template's own
+  daily cap and the `redesign.held` hold, not in their place; the day's budget is asked first, so a refusal charges
+  neither. The redesigner stops its rounds and logs `stopped: budget: …`. A run refused before any round has the
+  result `no budget`, never `nothing proposed`. Nothing is submitted, its `redesign-due` request stays open, and the
+  system takes no rest for it. The reviewer stops its pass with no verdict, `why: budget: …`. The ai tier makes no
+  call, uses no try, and says `no call for N requests; budget: …`. The architecture review is recorded as `capped`
+  before the day's review is stamped.
 - **Counted once.** A call made inside a reserving run belongs to it (`within`): the judge's pass, whose
   `agent.started` (from `Engine.judge`) now carries `reserve: 0` and its `pid`, and whose end sums its verdicts'
   costs (`included: true`); or the run that `$ERGOSTAT_RUN` names, when it is a reserving start, whose end does not
-  include the call (`included: false`). The run is charged the larger of its end's charge and the sum of the calls it
+  include the call (`included: false`). A modeller call inside the run that `$ERGOSTAT_RUN` names is `included:
+  true`: the `modelling` programs print each call's cost as one of the run's Claude Code result lines, so the run's
+  end includes it. The run is charged the larger of its end's charge and the sum of the calls it
   includes, plus the calls it does not include. A call with no enclosing reserving run is charged on its own.
 - **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take` and the
-  calls above, and only those. It does not cover the calls through `numbers/modeller.call` (the redesigner, the
-  modelling reviewer, the `modelling ai` tier), or models in `ergostat.toml` (`runner.run_agent`), which have no
-  `budget:`; their ends count in spent as ends with no reserving run. A pid
+  calls above, and only those. It does not cover models in `ergostat.toml` (`runner.run_agent`), which have no
+  `budget:`; their ends count in spent as ends with no reserving run. "Every AI call asks" is only as wide as a
+  structural scan of `ergostat/` (`tests/test_modeller_budget.py::test_only_listed_ai_starts`). It finds each
+  function that starts a process (`subprocess`, `os` or `asyncio` spawns) in a module that names an AI command
+  (`ERGOSTAT_AI`, `ERGOSTAT_CLAUDE`, `claude` as a command, `AI_COMMAND`, `claude_command`, `decisions.ai.command`).
+  It allows only `decisions/ai.py` and `numbers/modeller.py`, plus this list:
+  - `bench/`: developer benchmarks.
+  - `session.py`: inside a run, which the run's permit covers.
+  - `supervisor.chat`: the owner's own chat.
+  - `spec/engine.py`: an `ai` block's run, which is the permitted run itself.
+  - `repair/fix.py`: inside `repair-fix`'s run, which the run's permit covers.
+
+  That list is the limit of the claim. A command name built at run time out of pieces is not seen. A pid
   reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
   drops out of reserved. Each permit reads 7 days of starts and ends.
 
