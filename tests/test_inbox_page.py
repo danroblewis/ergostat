@@ -1,4 +1,4 @@
-"""Acceptance: the inbox on the page (SPEC §12o). *Needs attention* lists what waits on the owner first, each with its
+"""Acceptance: the inbox on the page (SPEC §12o). *Waiting for you* lists what waits on the owner first, each with its
 answer inline: Approve on a held action approves it (an event from the owner) and the entry leaves the panel; a
 person's request takes a number and Done.
 

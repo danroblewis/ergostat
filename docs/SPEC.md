@@ -6204,7 +6204,7 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
 
 **The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
 you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
-map), listing only the symbols drawn, open unless the reader closed it in this browser (then it stays closed, until
+map; in Dynamics and Blocks it lists only the symbols the model drawn has), open unless the reader closed it in this browser (then it stays closed, until
 they open it again); then *Needs attention*, what is off; then Suggestions, the loop list (the Process view's kinds)
 and The model's edits, each folded with its count in its summary. No chart is shown until parts are chosen; a chosen
 part's panel is as before.

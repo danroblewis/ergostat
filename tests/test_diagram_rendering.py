@@ -2100,9 +2100,11 @@ def test_the_side_panel_with_nothing_waiting_opens_on_the_legend_and_folds_the_r
             assert r["open"] and r["heads"][0]["on"], r                                  # 1: first, open, on screen
             type_ = {"view=dynamics": "stock and flow diagram", "view=blocks": "block diagram", "view=process": "process map"}
             assert type_[view] in r["heads"][0]["text"], r["heads"][0]
+            if r["suggest"] is None:                      # (the queue model makes no controller hint: one given here)
+                pg.evaluate("""() => { (S.graph.attention || S.status.attention).push(
+                  { level: 'hint', what: 'controller q', says: 'loop queue-short: a hint' }); S.redrawSide(); }""")
+                r = pg.evaluate(SIDE)
             for f in ("loops", "model", "suggest"):                                       # 4: folded, with a count
-                if f == "suggest" and r[f] is None:
-                    continue                                                              # (no suggestion here)
                 assert r[f] and r[f]["open"] is False and re.search(r"\d", r[f]["sum"]), (f, r[f])
             assert r["charts"] == 0, r                                                    # 5: no chart
         # 3: closed, it stays closed after a reload; opened again, it stays open
@@ -2484,14 +2486,14 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
         assert "opened by worker" in pg.locator("#detail .chart-head").first.inner_text()
         opened(pg, "() => openNode(S.graph.nodes.find((n) => n.id === 'stock:pressure'))", "#detail", 2)
         assert hover_all(pg, "#detail") == (2, 2)
-        # parts chosen: each one's strip in the side panel, on one time axis; nothing chosen: the user's charts
+        # parts chosen: each one's strip in the side panel, on one time axis; nothing chosen: no chart there
         pg.evaluate("() => closeDetail()")
         opened(pg, "() => { S.sel = new Set(['stock.backlog', 'flow.arriving']); markInteraction(document.querySelector('svg.canvas')); }",
                ".side .side-charts", 5)
         charts, cursors = hover_all(pg, ".side .side-charts")
         assert charts == cursors == 5, (charts, cursors)
         pg.evaluate("() => { S.sel.clear(); markInteraction(document.querySelector('svg.canvas')); }")
-        pg.wait_for_function("() => document.querySelector('.side .side-charts h3')?.textContent === 'Your charts'", timeout=20000)
+        pg.wait_for_function("() => !document.querySelector('.side .side-charts')", timeout=20000)
         # the blocks view: the loop's comparator opens its scope
         drawn(pg, url, "view=blocks", 1)
         opened(pg, "() => openBlock(S.graph.nodes.find((n) => n.role === 'comparator'))", "#detail .scope", 3)
@@ -3959,7 +3961,8 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
       return { n: lines.length, nodes: lines[0]?.dataset.nodes, dash: path && getComputedStyle(path).strokeDasharray,
                ends: !!(a && b && inside(a, mine) && inside(b, theirs)),
                title: document.querySelector('.pm-frame[data-kind="incidents-incident"] .pm-title')?.textContent || "",
-               side: document.body.innerText };
+               side: (() => { for (const d of document.querySelectorAll('.side details.loops')) d.open = true;   // (folded)
+                              return document.body.innerText; })() };
     }""")
     assert got["n"] == 1, got["n"]
     assert got["nodes"] == "p:ticket:doing p:incidents-incident:fixing", got["nodes"]

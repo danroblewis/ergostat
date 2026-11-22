@@ -1320,7 +1320,11 @@ function inboxAnswer(a) {
   const said = h("span", { class: "note", "aria-live": "polite" });
   const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
   const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": "Why" }) : null;
-  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async () => {
+  // the row as it is on the page: a refresh keeps the row (keyed) and hands its buttons this handler, so what was
+  // built here may not be what the owner typed into
+  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async (ev) => {
+    const row = ev.currentTarget.closest(".inbox-act"), said = row.querySelector(".note");
+    const n = row.querySelector("input[type=number]"), why = row.querySelector("input[type=text]");
     for (const b of row.querySelectorAll("button")) b.disabled = true;
     const q = { ...(n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
     try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }

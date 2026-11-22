@@ -16,3 +16,42 @@ Acceptance tests: a browser test per view asserting 1-6 on a served fixture (one
 Budget: 80 net lines.
 
 Milestone: diagram-notation. Owner items: 9. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1: 22 net lines in ergostat/ (budget 80).
+
+- renderSide (diagram.js): with nothing chosen the panel is 'Not running' (a line, not a heading, as before), then
+  Waiting for you (the attention entries that carry an answer; above 3, one closed details 'N wait for you'), the
+  legend, Needs attention (what is left), then Suggestions, the loop list and The model as closed details whose
+  summaries carry their counts. Each is keyed, so a refresh never patches one fold's open state onto another. The
+  'charted last' fallback is gone (charts.js redraws the panel when the chosen parts change, as the panel no longer
+  always holds the chart box). The legend's summary is 'How to read it · the <diagram type>'; the first-visit
+  'closed' write is gone, and only a toggle on the legend in the page writes ergostat.legend.
+- blocksLegend lists a row only when the model drawn has that symbol (from S.graph, as sdLegend does).
+- Choices made alone (the most reversible): Q42's group and Q43's header link are not on main, so 'Waiting for you'
+  is built here from the entries that carry an answer, and there is no header link to keep. For the Process view,
+  'the loop list' is its Kinds list (the notes on what was read stay visible under 'The process map').
+- inboxAnswer's handlers now read the row as it is on the page. Keying the rows (lesson-5) made the old closures read
+  the inputs of a detached tree, so test_inbox_page.py failed (a typed 'how many' was lost); on main the test passed
+  only because the row's DOM happened to be rebuilt after the approve.
+- Tests (tests/test_diagram_rendering.py): test_the_side_panel_with_nothing_waiting_opens_on_the_legend_and_folds_the_rest
+  (DoD 1, 3, 4, 5; per view), test_what_waits_for_you_comes_first_and_the_legend_second_both_on_screen (DoD 2; per
+  view), test_more_than_three_waiting_fold_into_one_line_that_opens_them, test_each_blocks_legend_row_is_a_symbol_drawn
+  (DoD 6). Seen to fail with: the legend before Waiting for you, the charts fallback back, the toggle not remembered,
+  the loop list open, blocksLegend unfiltered. NOT caught: putting the first-visit 'closed' write back. In Chromium
+  the legend inserted open fires a toggle that writes 'open' over it, so that write alone does not close the legend
+  in this browser. Suggestions need controller hints, which the fixture's model makes none of, so the test adds one
+  hint to the page's attention and redraws.
+- Changed to follow the new panel: the SD-words test reads the panel but its legend, with the folds opened; the charts
+  test expects no chart with nothing chosen; the remote-lines test opens the Kinds fold before reading.
+- Whole tests/test_diagram_rendering.py, serially: 201 passed, 9 failed. Fixed: the 2 that followed the panel (above).
+  Not this gap: test_every_view_draws_cleanly_and_in_time[coordinator, image-squeeze] (routing 27-29 s over a 20 s
+  bound) and test_a_big_tangled_model_lays_out_in_time_and_cleanly (draw 3-4 s over 2.5 s). These are time bounds on
+  this container, in layout code not touched. test_every_lines_panel_links_to_the_parts_it_joins[coordinator,
+  image-squeeze, ticket-factory] ('link X opened nothing' in the part panel, a different link on a rerun) has a 5 s
+  wait, in code not touched. test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page ('Nothing
+  waiting.' on the Model page, pages.js, not touched) failed again alone. None could be run on main here (a
+  worktree of main was refused); the merge queue must judge them on main.
+- Not run: the unit suite, test_page_polling.py, test_page_refresh.py, test_items_page.py, demo_check (no example
+  touched). main had nothing new to merge.
