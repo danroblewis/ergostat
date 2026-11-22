@@ -121,3 +121,17 @@ review listed no non-blocking ones.
 - **Run here.** `tests/test_factory_measure_runs.py`: 8 passed, alone, serially. `tests/test_factory_manager.py`:
   32 passed, since `continue_gap` now shares `holders` and the lock helper. ruff is clean. **Not run here:** the unit
   suite, the four browser files and any real 30-run load. The factory runs those.
+
+### Round 3
+
+Main (7c46bc6d) is merged in. Its only conflict was in dev/factory.toml `[suites]`. Main had added `-rs` to `rerun`,
+and the branch had added `measure`, `load` and `load_stale_s` next to it. Both are kept: main's `rerun` line and
+the branch's three keys. This round changes no code. The queue's finding (the conflict with main) is the only one
+listed, and it is answered by this merge.
+
+- **Run here, after the merge.** `tests/test_factory_measure_runs.py`: 8 passed (this includes the test that runs the
+  real `[suites] load` read from the merged dev/factory.toml). `tests/test_factory_manager.py`: 33 passed. ruff is
+  clean. **Not run here:** the unit suite, the four browser files and any real 30-run load. The factory runs those.
+- Overrun reason: the code in dev/ is about 261 net lines, 81 over 180. The overrun is round 2's two review fixes: the
+  park checks under the continue lock, and the load heartbeat with its multi-line load program. The factory's own
+  count, which leaves out dev/, is 4.
