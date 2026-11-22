@@ -29,15 +29,17 @@ def value_of(n: dict) -> str:
 
 
 def default_open(spec, focus: str | None) -> set[str]:
-    """A system that is alone at its level is opened: a box with nothing beside it says nothing."""
+    """A system that is alone at its level is opened: a box with nothing beside it says nothing. A ``once``
+    library template's system (``use: modelling``) is not counted beside it: it is the template's, not the model's."""
     out: set[str] = set()
     level = [focus]
     while level:
         nxt = []
         for parent in level:
             kids = spec.subsystems(parent)
-            if len(kids) == 1 and kids[0] not in (getattr(spec, "remotes", None) or {}):   # a remote starts closed
-                out.add(kids[0])
+            own = [k for k in kids if not ((getattr(spec, "uses", None) or {}).get(k) or {}).get("once")] or kids
+            if len(own) == 1 and own[0] not in (getattr(spec, "remotes", None) or {}):   # a remote starts closed
+                out.add(own[0])
             nxt += [k for k in kids if k in out]
         level = nxt
     return out

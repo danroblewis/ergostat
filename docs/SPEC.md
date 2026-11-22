@@ -654,7 +654,8 @@ and trend (`show:`, or by default what its goals hold). With every system closed
 the model's control panel. A box opens in place (its parts, laid out
 together inside its outline, its own systems still boxed), or is drawn alone: its parts, and
 what it reaches outside as terminals at its edge, each naming the system it is in. A system alone
-at its level starts open; the others start as boxes.
+at its level starts open; the others start as boxes. A `once` library template's system (`use: modelling`) is not
+counted beside it: a model's one system and `modelling` start with the system open and `modelling` a box.
 
 ## 4b. Storage: where the record is kept
 
