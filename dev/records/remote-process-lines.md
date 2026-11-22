@@ -240,3 +240,22 @@ these pass: `tests/test_remote_lines.py`, `tests/test_remote.py`, `tests/test_re
 `tests/test_diagram_rendering.py::test_a_line_to_a_remote_is_drawn_dashed_between_the_frames` (Playwright, under
 the watchdog, rc 0). The full unit suite and the four browser files were not run here; they are left to the
 factory and the merge queue.
+
+Round 3, each finding answered:
+
+- **docs/GAPS.md, the spliced entry (blocking): fixed.** The *Remote systems* *Done* text is one coherent
+  paragraph again: the dangling "or the reading is not current." is gone, and the box-measures, Mutual TLS and
+  process-lines sentences each appear once and are complete. The *Left* clause is reflowed: "serving the IR beside
+  `ergostat-model/1`" is on one line, and the process-lines item is not in it.
+- **(a) The round 1 claim about `origin`: corrected.** The round 1 note said there was nothing to merge, and the
+  reason it gave (no `origin`, so `main` was already an ancestor) was wrong: the factory merged main 48b1481a in
+  round 2. What I checked in this clone is narrower. `git branch -a` lists only `main` and this branch, with no
+  remote-tracking refs. `git merge-base main HEAD` is `48b1481a`, which is `main` here. So the newest main this clone
+  holds is already merged in. Whether origin/main has moved past 48b1481a can't be seen from here: fetching is
+  outside what an implementor may do, so that merge is left to the factory.
+- **(b) The full unit suite and the four browser files: still not run, on purpose.** This round's instructions
+  forbid the implementor to run them ("never the whole unit suite or the four browser files yourself"). The factory
+  runs its build step and the merge queue runs the full suites. In this round I ran ruff (clean) and
+  `tests/test_remote_lines.py` (20 passed). This round changes only docs and this record, no code.
+- **(c) The duplicated "`examples/remote-pair/` and its two-instance test" in GAPS.md: fixed.** The second copy is
+  removed. It came from main, but it sat in the entry the definition asks this branch to edit.
