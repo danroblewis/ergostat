@@ -266,15 +266,11 @@ def test_the_factory_model_loads():
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
 
 
-LANDED = ("  gaps-landed:\n    unit: gaps\n    description: the gaps merged on main - a running total, never work waiting "
-          "(the queue's merges and the joins found covered)\n    cumulative: true\n"
-          "    sensor: {items: gap, state: merged, every: 1m}\n")
-
-
 def without_landed(text: str) -> str:
-    """A model file as main had it before gaps-landed-stock: no stock gaps-landed, gaps-merged and joins-covered to
-    clouds, gaps-merged counting every gap entering merged."""
-    return text.replace(LANDED, "").replace("    to: gaps-landed\n", "").replace(
+    """A model file as main had it before gaps-landed-stock: no stock gaps-landed (its block, whatever it holds),
+    gaps-merged and joins-covered to clouds, gaps-merged counting every gap entering merged."""
+    import re
+    return re.sub(r"(?m)^  gaps-landed:\n(?:    .*\n)*", "", text).replace("    to: gaps-landed\n", "").replace(
         "entering: merged, where: {merged_by: null}, over: 1d", "entering: merged, over: 1d")
 
 
@@ -349,9 +345,13 @@ def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, ca
     """gaps-landed-stock: `ergostat check` on the model with gaps-landed says nothing it did not say without it, and
     the Dynamics diagram draws the stock with the pipes into it."""
     from ergostat import model as mdl
-    from ergostat.cli import main
+    from ergostat.cli import main, spec_cmds
+    from ergostat.numbers import extremes_cache
     from ergostat.store import Project
     from ergostat.web.server import Live, api
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # (no extremes kept from another test's run)
+    monkeypatch.setattr(spec_cmds, "CHECK_WAIT", None)                # both sides' extreme-conditions tests run whole
+    monkeypatch.setattr(extremes_cache, "BOUND", 900.0)
 
     def found(where: Path) -> set[str]:
         main(["-C", str(where), "check", "--json"])
@@ -362,8 +362,8 @@ def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, ca
     old = "".join(x.read_text() for x in (before / "dev" / "model").iterdir())
     assert "\n  gaps-landed:" not in old and "to: gaps-landed" not in old and "merged_by: null" not in old
     now = found(factory_copy(tmp_path / "now"))
+    assert not [x for x in now if x.startswith(("extremes-running", "extremes-skipped"))]
     assert sorted(now - found(before)) == []
-    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     (tmp_path / "state").mkdir()
     live = Live(Project(mdl.load(tmp_path / "now"), directory=tmp_path / "state"))
     g = api(live, "graph", {"view": ["dynamics"], "open": ["*"]})
