@@ -56,3 +56,18 @@ waiting.' not on /model). They are reported, not fixed (lesson 13). Ruff is clea
 the-job` (the command `uv run python scripts/demo_check.py --shots /tmp/shots the-job` was refused; only that example's
 README changed). Also not run: tests/test_items_page.py (that page is not touched), the unit suite, and a merge of main
 (main is the base of this clone and has not moved). No screenshot of the box was taken.
+
+## Where it stopped (round 1, after the build)
+
+The factory's `build` step failed with rc 5: `affected_tests: 4 changed, running tests/test_diagram_rendering.py`,
+then `SKIPPED [1] tests/test_diagram_rendering.py:38: could not import 'playwright.sync_api'`, `1 skipped`. The build
+command (dev/factory.toml `[suites] build`) runs pytest without Playwright, and with `build_browser = false` the only
+test file this branch changes is a browser file. So no test ran, and pytest reports "no tests collected" (rc 5). No
+test failed. That is not a fault in the branch's code. The definition puts the acceptance test in
+tests/test_diagram_rendering.py, so any branch that changes only a browser test file will hit the same thing. Changing
+scripts/affected_tests.py or the build command is outside this gap (lesson 13) and is left for its own gap. One option
+is to treat a selection that is entirely skipped browser files as collection only.
+
+Run again with Playwright under the watchdog: `test_each_closed_system_box_says_what_the_system_is` (both cases) and
+`test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_and_draws_no_port_squares`, 3 passed, rc 0. Ruff is
+clean. No code changed in this step.
