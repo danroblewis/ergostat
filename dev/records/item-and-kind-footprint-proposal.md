@@ -19,3 +19,18 @@ Acceptance tests: review only.
 Budget: about 250 lines of proposal, 0 code.
 
 Milestone: kind-and-item-pages. Owner items: 15, 20. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Done: docs/proposals/item-and-kind-footprint.md settles 1-6 with a decision, an alternative and why it lost, and
+code cited by file:line (checked against main at cc75b443). No code changed. No owner was asked; the most
+reversible choices taken, and said in the proposal:
+- The filed fixes Q57, Q58 and Q61, "R12" and "intent decision 1" are not in this clone. Decision 1 is read as the
+  house rule "no new pages or panels". R12 is read as invariant 12, and the-kind-page checks it before building. Q57
+  and Q58 move by content (a kind's content to the-kind-page, an item's travel to item-page-says-where-it-went).
+- kind-and-item-footprint-api is not on main. The proposal treats the footprint as a set of part names (plus counts
+  for an item), and its decisions do not depend on the shape.
+- The cost on the 800-part dev/model was not measured (no code in this gap). The proposal makes measuring it, with a
+  150-shape fallback, part of diagram-draws-what-an-item-or-kind-touches.
+- Item page drawing: the proposal picks the smaller refactor (share the Guide's existing `guideDrawNow`) over a
+  per-mount renderer, and amends item-page-draws-its-path to that.
