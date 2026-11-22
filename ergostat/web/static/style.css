@@ -674,7 +674,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .toolbar { order: -1; gap: 0; }
   .toolbar button { padding: var(--sp-1) var(--sp-2); }
   .toolbar select { max-width: 8em; }
-  .toolbar .sep, .panhint { display: none; }
+  .toolbar .sep { display: none; }
   .zoom { order: 3; align-self: flex-end; margin-bottom: var(--sp-2); }
   svg.canvas { height: 420px; flex: none; }
   .page { padding: var(--sp-4); }

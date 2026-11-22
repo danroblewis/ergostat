@@ -3808,3 +3808,44 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+ON_PHONE = """() => {
+  // what a phone shows of the drawing: the canvas's box, each system box wholly inside it, and the parts in view
+  const c = document.querySelector("svg.canvas").getBoundingClientRect();
+  const inside = (r) => r.width > 0 && r.left >= c.left - 1 && r.right <= c.right + 1 && r.top >= c.top - 1 && r.bottom <= c.bottom + 1;
+  const label = (g) => S.graph.nodes.find((n) => n.id === g.dataset.id)?.label || g.dataset.id;
+  const boxes = [...document.querySelectorAll("svg.canvas g.node.k-system")];
+  const hint = document.getElementById("panhint");
+  return { canvas: [c.width, c.height], k: S.view.k, lay: [S.layout.width, S.layout.height], boxes: boxes.length,
+           whole: boxes.filter((g) => inside(g.querySelector(".hit").getBoundingClientRect())).map(label),
+           seen: [...document.querySelectorAll("svg.canvas g.node")].filter((g) => inside(g.getBoundingClientRect())).map(label),
+           hint: hint && !hint.hidden && hint.getBoundingClientRect().width > 0 ? hint.textContent : "" };
+}"""
+
+
+@pytest.mark.parametrize("example", ["the-job", "software-factory"])
+def test_on_a_phone_the_diagram_opens_with_a_whole_system_box_in_view(browser, tmp_path, example):
+    """At 390x844 the canvas showed nothing of the-job (neither box in view) and part of one box of
+    software-factory, and opened mid-drawing inside a system: on a narrow screen each view opens fitted to the
+    canvas, so a whole system box is in it, and inside a system its first part or which way the rest lies."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 390, "height": 844})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram", timeout=DRAWN_S * 1000)
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        got = pg.evaluate(ON_PHONE)
+        assert got["boxes"] and got["whole"], got
+        if example == "software-factory":
+            pg.goto(f"{url}/diagram?system=product", timeout=DRAWN_S * 1000)
+            pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+            got = pg.evaluate(ON_PHONE)
+            # (the acceptance asks for either; both hold: centred on its first stock, the hint says where the rest is)
+            assert "users" in got["seen"] and re.search("[←↑→↓]", got["hint"]), got
+            pg.get_by_role("button", name="Blocks").click()      # a change of view: fitted again
+            pg.wait_for_function(READY + " && S.graph.kind !== 'dynamics'", timeout=DRAWN_S * 1000)
+            got = pg.evaluate(ON_PHONE)
+            assert got["seen"] or got["hint"], got
+        pg.close()
+        assert not errors, errors
