@@ -196,3 +196,29 @@ changed this round. The test is outside this gap (lesson-13), so it is reported 
 - **Run this round:** tests/test_ai_calls_budget.py (14 passed), tests/test_run_budget.py (36 passed), and ruff (clean).
   Not run: the full unit suite and the browser files (house rules), and `demo_check` (no example is touched). The
   local `main` (5617e225) is the only ref of main in the clone, and it is already in HEAD.
+
+## Where it stopped
+
+Continued (gap/ai-calls-ask-the-budget-continued, round 4). The finding was the conflicts with main (2abe6348) in
+`docs/AGENT-GUIDE.md` and `ergostat/costs/budget.py`. They are resolved in e9914e7a, and no other code was changed.
+
+- **`ergostat/costs/budget.py`:** the conflict was only in the imports. Main's T1 needs `from pathlib import Path`
+  (for `ledger`), so it is kept. The branch's `ask`, `done`, `WITHIN` and the counted-once rule in `fold` merged
+  cleanly beside T1's `take`, `settle` and `remove`.
+- **`docs/AGENT-GUIDE.md`:** kept main's T1 sentence (a run is stopped once its reported cost reaches its reserve,
+  but can still end somewhat past it). Main's "the judge and ergostat's own AI calls are outside it" was replaced by
+  the branch's narrower list: the modeller's calls (the redesigner, the modelling reviewer and the ai tier).
+- **`docs/GAPS.md`** merged without a conflict, but it was spliced wrong (lesson-7). It still had main's "own AI calls
+  ... (open)" entry, which the branch had replaced, and the "T1 ... (open)" entry, which main had replaced with
+  "T1 ... (done)". Both stale entries are removed, so each gap now has one entry. SPEC §9.9 was read after the merge
+  and is consistent: P3, the calls and the counted-once rule are followed by T1.
+- **Size:** `git diff --shortstat HEAD^2 HEAD -- ergostat` gives 134 insertions and 31 deletions, which is 103 net
+  lines, within 140.
+- **The queue's `test_agents` finding from rounds 2–3 is still open on main.** `dev/bin/fac.py:481` still appends to
+  the `PYTEST_ADDOPTS` it inherits. It stays outside this gap (lesson-13).
+- **Refused command this round:** a `python3 - <<'EOF'` script to resolve the markers, so the editor was used. A
+  combined `git diff --numstat … | awk` line count was also refused, and `git diff --shortstat` was used instead.
+- **Run this round, after the merge:** tests/test_ai_calls_budget.py, tests/test_run_budget.py and
+  tests/test_run_budget_trip.py (62 passed); tests/test_decisions.py, tests/test_intent.py and
+  tests/test_vsm_review.py (60 passed); tests/test_architecture_review.py (18 passed); ruff (clean). Not run: the
+  full unit suite and the browser files (house rules), and `demo_check` (no example is touched).
