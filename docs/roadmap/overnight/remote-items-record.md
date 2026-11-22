@@ -491,3 +491,30 @@ clean.
 
 **Not run here:** the other three browser files, the whole unit suite and `demo_check` (`examples/remote-pair` is
 not touched). The merged ref is main 5617e225, as the factory gave it.
+
+## Where it stopped (continued, round 3)
+
+**The finding: the queue bisected a batch of 2 to this branch, and it failed again alone on
+`tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network`.** Reported,
+not fixed (lesson-13), because this branch does not touch what that test covers, and the test passes here.
+- *What the test covers.* It builds its own factory in `tmp_path` (`tests/test_factory.py::Factory`: a fresh origin
+  and checkout, its own `GAPS.md`, a fake ergostat and a fake `docker`). It then runs `dev/bin/queue.py` and checks
+  the `docker run` arguments that `dev/bin/fac.py` and `dev/bin/agents.py` build. From this checkout it reads only
+  `ergostat.yaml` (the item kinds) and the `dev/` folder (a symlink).
+- *What this branch changes.* `git diff --stat main...HEAD` lists 14 files: `ergostat/cli/remote.py`,
+  `ergostat/remote/{events,items}.py`, `ergostat/web/server.py`, three files under `ergostat/web/static/`, two test
+  files (`test_items_page.py`, `test_remote_items.py`), and docs (`docs/`). None of these is in `dev/`, `scripts/`,
+  `ergostat.yaml`, `tests/test_agents.py` or `tests/test_factory.py`. Nothing under `dev/` refers to `remote.items`
+  or `remote.events`.
+- *Run here, at HEAD 9c93f50b:* `uv run python scripts/named_tests.py
+  "tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network"`: 1 passed
+  (63 s). The failure could not be reproduced, so its cause is not known here. Two possibilities, neither confirmed:
+  a newer main, which this clone does not have (no `origin/main` ref), in which that test or `dev/bin/` changed
+  (`dev/records/a-queue-suite-that-stops-making.md` changed this test's `faulthandler_timeout` assertion), or a
+  failure under the queue's load. The factory should run the test again on clean main, as the house rules ask, and
+  hold or release the gap on that result.
+- *A command refused this round:* `git diff --name-only main...HEAD -- ergostat.yaml dev/ scripts/ factory/
+  tests/conftest.py tests/test_agents.py tests/test_factory.py; …` (Bash refused it). The `--stat` above and a Grep of
+  `dev/` were used instead.
+
+No code changed this round. Nothing else was run again, because nothing but this file has changed since round 2.
