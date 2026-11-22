@@ -2767,10 +2767,20 @@ runs as a process of its own.
   whatever reads a model reads that model's plan. `swap` works out the new model's plan under the engine's lock; a
   plan without the engine's shard is refused, and the last model keeps running. A part that moved to another shard
   leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
-  readings, estimate and observer track, and its daemon (drained). Not yet by shard: the owner's asks (approvals,
-  stops, restarts, step tests, actions) are followed by every engine as before; a run a block's moving a flow asks
-  for reads that flow's stocks' sensors wherever they are; the lead's one-time duties (the start event, the
-  messages' sweep) are done by each; and an agent's `at-once` is counted in each engine.
+  readings, estimate and observer track, and its daemon (drained). Each owner's ask in the record is followed by
+  the one engine whose shard `Plan.of` gives for what it names: an approval, a denial, a breaker reset or a stop by
+  the block's (`block.NAME`), a restart by the daemon's, a step test by its goal's (and at start each engine resumes
+  only its own goals' tests), an approved program action by the shard of the block whose run asked for it. An ask
+  about something the model does not have (a removed block, an unknown daemon, an action with no block) is the
+  lead's alone; besides, an engine still holding the run of the block a stop names, itself or in a daemon, stops it,
+  whoever owns the block now. Each engine judges an ask under the one model it read for it, so after a `swap` the
+  next ask about a moved part goes to its new owner. `start` refuses a block outside the shard as the model is when
+  the run would start: an approval judged just before a swap moved its block is refused there, said, and must be
+  given again (the new owner judged it not its own). Only the lead does what is done once: the `ergostat.started`
+  event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases, actions and notices,
+  the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket. Not yet by shard: the
+  wires are not carried; a run a block's moving a flow asks for reads that flow's stocks' sensors wherever they are;
+  and the calls socket is one per state directory, not one per shard process.
 
 ## 10. Agents
 
