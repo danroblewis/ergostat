@@ -125,7 +125,18 @@ itself: a clean merge is committed by the factory; a conflicted one is handed to
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
 `tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after. The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
+after: ruff, the unit suite and the four browser files, each under the watchdog in a suite container of the agent image
+and the suite slot; a browser test skipped fails them, as in the queue. **No browser stops the round:** before the
+session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
+missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
+starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with
+`uv run --with playwright==1.63.0` (inside its own container's limits: the host's slot is not reachable from there).
+The unit suite's tests/test_agents.py::test_implementor_environment_has_a_browser really launches Chromium that way, so
+every unit run (the queue's on the host, a developer's, an implementor's offline container) needs Playwright 1.63.0
+cached for `uv run --with` and its Chromium installed, or it fails: on purpose, a missing browser is a failure, not a
+skip.
+
+The reviewer's gate 1 takes the definition as first committed on the branch's own line (its first-parent line;
 that commit need not be the branch's first; the file the gap's `definition` names, for a continued gap), and for a continued branch also requires it to hold the main
 implement.py merged at its build (`built_main` on `gap.built`; current main when that is missing). Main moving on
 between build and review is not a failed gate: the merge queue merges the branch into the main of its moment and runs
@@ -176,7 +187,7 @@ nothing). The allowances used are recorded on `gap.built` as `allowed_findings`,
 allowance of the definition among the gates, to judge its reason.
 
 **A failure on main is not the gap's.** When the implementor's fast suites fail and name tests, `dev/bin/onmain.py`
-runs those tests again alone on the branch (the `[suites] alone` command, in the same kind of suite container, in the
+runs those tests again alone on the branch (the `[suites] alone` command, `rerun` for browser tests, in the same kind of suite container, in the
 suite slot). Passing alone, they are flakes (`flake.seen`) and the fast suites run once more, uncounted. Still failing,
 they run once on clean main (the commit the branch merged, `built_main`). A test that fails there too becomes
 `flake/<test>` in the state `main-broken` and the intervention `intervention/main-broken-<sha12>` (class `main-broken`,
@@ -468,7 +479,7 @@ or unreadable bookmark makes it read every gap again (and write only a changed t
   it ends at the approval after it, or at a park or close straight from fix. While it still goes round, `loop_ended` is
   empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
-  `build_hours`), `fast` (its ruff and unit suites, every try in a round, `fast_seconds`; a build recorded before it
+  `build_hours`), `fast` (its fast suites: ruff, unit and browser, every try in a round, `fast_seconds`; a build recorded before it
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
@@ -543,8 +554,9 @@ still `raised` is closed `superseded`, never run, and its trigger, if it still s
 situation's id ends in a random suffix, so two raised in one second are two items.
 
 **The tools** (`dev/bin/manage.py`, at most `most_actions` (8, held to 1..12) calls a session, each through its own checks). Directly:
-`continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, and must fail there too),
-`flake TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
+`continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, the checkout for the
+queue's or a container for the fast suites', browser tests with Playwright (`rerun`, a skip not a pass), and must fail
+there too), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
 in the inbox: `close GAP`, `park GAP`, `pool ROLE N`, `change --what` (dev/model, the settings, anything touching
 origin). Every call is an `intervention.recorded` with a class and `by: pipeline-manager`. By hand, as the coordinator:
 `python3 dev/bin/manage.py continue gap/NAME --why ...`. Pause it with `[manager] open = 0` in `factory.local.toml`.
