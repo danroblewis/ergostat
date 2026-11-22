@@ -50,3 +50,14 @@ Without Playwright that file skips, so the run ended rc 5 with nothing run. The 
 own. tests/test_runner_and_state.py::test_a_loop_off_now_says_since_when_and_whether_the_spell_began_before_the_window
 now covers `off_since` and `off_before_window`, and it was seen to fail when `<=` was broken to `<`. That file passes:
 44 tests.
+
+Round 2. The one finding (pages.js: 'off <duration>' measured to wall-clock now while the snapshot is as of a chosen
+past moment) is fixed: the duration now runs to `S.at || nowS()`, the moment the answer is as of (+1 net line in
+pages.js, so 16 net lines outside tests in all). The acceptance test now also sets a past moment half an hour back, as
+the time slider does (`S.at`, then `route()`), and expects '36 against ≤ 0 · off 6m · usually back in 30s'. It passes,
+and with the fix taken out (`nowS()` alone) it failed (the card read 'off 36m'). ruff is clean.
+Not run in round 2: the whole of tests/test_diagram_rendering.py. A first run was stopped at the session's 20-minute
+background time limit before it ended, with no result. The rerun with a longer limit
+(`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/drender.log 2>&1`)
+was refused in this session. The round-1 full-file result above is the latest. The other three browser files and the
+unit suite were not run.
