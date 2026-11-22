@@ -70,3 +70,22 @@ with Playwright, the file gives 23 passed, rc 0, nothing skipped. No code was ch
 the build's selection, or falls back to --collect-only when only browser files are picked. Adding a test that does
 not use a browser only to get past the build step would test nothing the change does, so none was added. The most
 reversible choice was to leave the code, the tests and the build step as they are and say so here.
+
+Round 2: the build step's rc 5 is answered the way the agents gap answered it on main (ab17bb6e): with a test that runs
+without a browser. `tests/test_graph_cli_web.py` now holds two of them, which check the server answers the page reads.
+`test_a_search_or_filter_that_matches_nothing_answers_empty_and_a_match_is_counted_whole` checks that `matched`, the
+source of the count beside the search box, is empty for a miss (so no kind is drawn) and counts every match of a kind
+beyond the newest per_kind listed. `test_the_record_answers_a_type_that_matches_nothing_with_no_events` checks that
+/api/events is empty for type 'zzz' and gives the event for a matching type. Because the branch changes that file, the
+build's selection now includes it, so pytest collects tests even without Playwright. The browser tests remain the
+acceptance check. No page code changed this round.
+
+- Breaks seen to fail (lesson 9): capping `matched` at per_kind failed the first test, and dropping the type filter in
+  /api/events failed the second. Both were put back.
+- Run: tests/test_graph_cli_web.py (34 passed). tests/test_graph_cli_web.py with tests/test_items_page.py without
+  Playwright, which is the build's selection: 34 passed, 1 skipped (the browser file at import), rc 0.
+  tests/test_items_page.py with Playwright under the watchdog: 23 passed, rc 0, nothing skipped. ruff is clean.
+- Refused here: running the build command as it is (`uv run python scripts/suite_watch.py -- uv run python
+  scripts/affected_tests.py -- uv run python -m pytest -q -rfEs -n 8 --dist worksteal`), so the selection was run
+  through named_tests instead. Not run: the unit suite and the other three browser files (the merge queue runs them),
+  and demo_check (no example was touched).
