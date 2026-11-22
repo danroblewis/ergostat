@@ -1368,6 +1368,29 @@ def test_every_process_view_draws_its_workflows_cleanly(browser, tmp_path, examp
         assert panels[0]["rework"] > 0, panels[0]
 
 
+def test_a_system_alone_at_its_level_beside_modelling_opens_at_first_load(browser, tmp_path):
+    """The-job at / on first load: 'job' open, its ten domains drawn as boxes, modelling closed (a once template's
+    system is not counted beside it); one click on Open draws a stock of incidents."""
+    with served("the-job", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/")
+        pg.wait_for_function(READY, timeout=60000)
+        boxes = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.node.k-system')].map((g) => g.dataset.id)")
+        domains = ["awareness", "delivery", "documents", "incidents", "messages", "rhythm", "safety", "stewardship",
+                   "support", "team"]
+        assert sorted(boxes) == sorted(["system:modelling", *(f"system:{d}" for d in domains)]), boxes
+        assert pg.evaluate("() => S.graph.open") == ["job"]
+        pg.locator('svg.canvas g.node[data-id="system:incidents"] g.sys-btn', has_text="Open").click()
+        pg.wait_for_function("""() => S.graph.open.includes('incidents') && S.graph.nodes.some((n) => n.kind === 'stock'
+          && (n.systems || []).includes('incidents')
+          && document.querySelector(`svg.canvas g.node.k-stock[data-id="${CSS.escape(n.id)}"]`))""",
+                             timeout=60000)                    # one click: a stock of incidents is drawn
+        pg.close()
+        assert not errors, errors
+
+
 def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_ones(browser, tmp_path):
     """Clicking a line of the process map lists the items that went along it, and links to the Items page
     filtered to exactly them; the Paths slider leaves out the lines rarer than its share; Times shows the median
