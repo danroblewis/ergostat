@@ -351,3 +351,26 @@ def test_fifty_short_runs_at_once_share_one_sampler_and_its_cost_stays_small(tmp
             break
         time.sleep(0.1)
     assert not SAMPLER.stats()["running"]
+
+
+# ---- an item's cost: the runs that took it (the item header, SPEC §9.5)
+
+def test_an_items_cost_is_the_sum_of_the_runs_that_took_it_and_none_when_none_did():
+    from types import SimpleNamespace as NS
+
+    from ergostat.web.server import _item_cost
+    ends = [{"type": "agent.ran", "time": 5.0, "causedby": "r1", "data": {"cost_usd": 0.25}},
+            {"type": "agent.failed", "time": 6.0, "causedby": "r2", "data": {"cost_usd": 0.5}},
+            {"type": "agent.ran", "time": 7.0, "causedby": "other", "data": {"cost_usd": 9.0}}]   # not this item's
+
+    class Events:
+        def query(self, item=None, since=0, until=0, **kw):
+            return [e for e in ends if item == "worker" and since <= e["time"] <= until]
+
+    def lease(run, t):
+        return {"type": "ergostat.lease.taken", "time": t, "data": {"run": run, "block": "worker"}}
+    p, m = NS(events=Events()), NS(agents={"worker": NS(rung="stand-in")})
+    got = _item_cost(p, m, [lease("r1", 1.0), lease("r2", 2.0), lease("r3", 3.0)], 10.0)
+    assert got["cost_usd"] == 0.75 and got["runs"] == 2 and got["failed"] == 1
+    assert got["taken"] == 3 and got["rung"] == "stand-in"          # r3 has not ended: counted as taken, not as $0
+    assert _item_cost(p, m, [{"type": "item.opened", "time": 1.0, "data": {}}], 10.0) is None
