@@ -14,3 +14,20 @@ Acceptance tests: review: every point has a decision; the counts are in an Evide
 Budget: about 200 lines of prose, no merged code.
 
 Milestone: diagram-notation. Owner items: 6. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Done: docs/proposals/dynamics-bundled-connectors.md answers (a)-(i), has before/after screenshots light and dark (and
+a sketch for product, which the prototype does not change), an Evidence section with the counts, and the build gaps
+confirmed with amendments; diagram-options.md and DISCIPLINES.md link to it. The branch's net diff is docs only.
+
+Choices taken alone, the most reversible each:
+- The prototype is an off flag (`?bundle=1`) committed at f903a477 and reverted by the next commit, not a branch of
+  its own: `git branch prototype-dynamics-bundled-connectors` was refused here.
+- The corpus counts were run from a test in f903a477 (tests/test_bundle_prototype.py, over layout_corpus's
+  `views_of` and layout_rules), because running `python -m tests.layout_corpus` was refused here. Connector crossings
+  are counted by that test: layout_rules has no such rule yet (the first build gap is to add one).
+- Definition 3 holds over the corpus (183 Dynamics views: crossings 2385 to 2195, sign collisions 875 to 861, lines
+  through parts 0 to 0). It does not hold on every view: ticket-factory with factory and modelling open goes 26 to 29,
+  software-factory's top level 0 to 1, and word collisions rise 1220 to 1278. All of this is stated in the Evidence
+  section, with the amendments it leads to.

@@ -9,7 +9,7 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 
 | Discipline | Diagram | |
 |---|---|---|
-| System dynamics | Stock-and-flow diagram: stocks, valves, clouds, connectors with polarity, R/B loop markers, goal-seeking structure | ✅ Dynamics view |
+| System dynamics | Stock-and-flow diagram: stocks, valves, clouds, connectors with polarity, R/B loop markers, goal-seeking structure; bundled connectors between modules proposed ([dynamics-bundled-connectors](proposals/dynamics-bundled-connectors.md)) | ✅ Dynamics view |
 | System dynamics | Causal loop diagram: causes and signs without the stock/flow plumbing | ◻ |
 | System dynamics | Loop list with polarity (reinforcing, balancing) | ✅ side panel |
 | Control engineering | Block diagram: controllers, actuators, processes, sensors, summing junctions, samplers and holds, MIMO processes, nested cascades | ✅ Blocks view |
