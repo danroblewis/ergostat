@@ -34,3 +34,18 @@ Every feature is already on main and nothing is rebuilt. Search merged in `512f0
 ## Size budget
 40 net lines (the branch's record under `dev/`; no code changes)
 size: S (confidence: medium)
+
+## Where it stopped
+Built; nothing left. No code changed: only `docs/GAPS.md`'s one entry, this record and `tests/test_item_search_gaps.py`.
+- The entry now opens `(done, both halves merged; `gap/item-search`)`; intake reads it as `done`. *Search* names
+  `512f08ef` and *near, path and about* names `c5eb54e6`. The limits sentence is unchanged.
+- Seen failing (lesson-9). On main's entry, `..._read_done_by_intake` failed (intake read `open`) and
+  `..._names_both_merge_commits` failed (no `512f08ef`). After the edit I broke the entry on purpose: I reworded the
+  limits to "the Items page's box" and added a second `- **Searching items and querying their graph** (open)`
+  bullet. All four tests failed, including `..._keeps_its_limits` (count 0) and `..._listed_once` (`intake.twice`
+  named lines 372 and 378). Then I reverted the break.
+- This clone has no `origin` remote and no `origin/main` ref, only local `main`, which is what the branch was made
+  from. So there was nothing newer to merge in. The tests' ancestry check fell back to `main`, and both hashes are on
+  it. This is the most reversible choice: the merge queue merges origin/main and runs the suites again.
+- Not this gap's: `intake.twice` also reports `gap/external-event-logs` listed twice on main (GAPS.md lines 51 and
+  60). I left it alone (lesson-13).
