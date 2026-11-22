@@ -76,7 +76,7 @@ class Watchdog:
         now = time.monotonic() if now is None else now
         if now - self.beat_at >= BEAT:
             self.beat_at = now
-            heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls)
+            heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls, self.e.shard)
 
     # ---- looking
 
@@ -276,11 +276,11 @@ def startup(state: Path, say, restart, deadline: float | None = None) -> threadi
     return done
 
 
-def heartbeat(state: Path, passed: float, stalls: int = 0) -> None:
-    """``heartbeat.json``: when the last pass finished (wall clock), and this pid. Written at start too, so a watcher
-    never reads a slow start by the last process's heartbeat."""
-    path = state / "heartbeat.json"
-    tmp = path.with_name(f"heartbeat.{os.getpid()}.tmp")
+def heartbeat(state: Path, passed: float, stalls: int = 0, shard: str | None = None) -> None:
+    """``heartbeat.json`` (a shard engine's: ``heartbeat.SHARD.json``, SPEC §9.8): when the last pass finished (wall
+    clock), and this pid. Written at start too, so a watcher never reads a slow start by the last process's heartbeat."""
+    path = state / ("heartbeat.json" if shard is None else f"heartbeat.{shard}.json")
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     try:
         tmp.write_text(json.dumps({"pass": round(passed, 3), "written": round(time.time(), 3), "stalls": stalls,
                                    "pid": os.getpid()}))

@@ -45,12 +45,18 @@ def stopped(d: Path) -> bool:
     return (d / STOPPED).exists()
 
 
-def beat(d: Path) -> dict | None:
+def beat(d: Path, name: str = "heartbeat.json") -> dict | None:
     try:
-        got = json.loads((d / "heartbeat.json").read_text())
+        got = json.loads((d / name).read_text())
         return got if isinstance(got, dict) else None
     except (OSError, ValueError):
         return None
+
+
+def beats(d: Path) -> list[dict]:
+    """``heartbeat.json`` and each shard engine's ``heartbeat.SHARD.json`` (SPEC §9.8), those that can be read."""
+    names = ["heartbeat.json", *sorted(f.name for f in d.glob("heartbeat.*.json"))]
+    return [hb for hb in map(lambda n: beat(d, n), names) if hb]
 
 
 def look(repo: Path, d: Path, extra: list[str], now: float | None = None) -> dict | None:
@@ -58,13 +64,15 @@ def look(repo: Path, d: Path, extra: list[str], now: float | None = None) -> dic
     from .runner import running_pid
     now = time.time() if now is None else now
     pid = running_pid(SimpleNamespace(dir=d), wait=False)
-    hb = beat(d)
     did = None
     if not pid:
         if not stopped(d):
             did = {"what": "dead"}
-    elif hb and hb.get("pid") == pid and now - float(hb.get("pass") or now) > STALE:
-        did = {"what": "stale", "pid": pid, "seconds": round(now - float(hb["pass"]), 1)}
+    else:                                              # (a beat left by another pid: not this engine's)
+        for hb in beats(d):
+            if hb.get("pid") == pid and now - float(hb.get("pass") or now) > STALE:
+                did = {"what": "stale", "pid": pid, "seconds": round(now - float(hb["pass"]), 1)}
+                break
     if did is None:
         return None
     left, n = restarts.wait(d, now)
