@@ -230,7 +230,7 @@ def _refused(d: Path, code: str) -> None:
     assert "hi-waiting" not in spec.stocks
 
 
-def test_missing_unlocked_and_treeless_refused(tmp_path, capsys):
+def test_missing_unlocked_and_treeless_refused(tmp_path, capsys, calls):
     """Five cases, each asserted: copy deleted; lock file deleted; entry removed; entry without tree; lock not JSON."""
     _, d = owned(tmp_path, capsys)
     lock, copy, save = d / "libraries.lock", d / ".libraries" / "a", tmp_path / "save"
@@ -250,6 +250,9 @@ def test_missing_unlocked_and_treeless_refused(tmp_path, capsys):
     _refused(d, "library-unlocked")
     lock.write_text(text[:-5])
     _refused(d, "library-lock-unreadable")
+    calls.clear()                                         # fetch stops too: never read as an empty lock
+    rc, _, err = run_fetch(d, capsys, "--update")
+    assert rc == 2 and "cannot be read" in err and calls == [] and lock.read_text() == text[:-5]
     lock.write_text(text)
     assert errors(d) == []
 

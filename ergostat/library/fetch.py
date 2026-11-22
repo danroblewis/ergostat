@@ -46,8 +46,9 @@ def _start(args: list[str], tmp: str, stdout) -> subprocess.Popen:
     """One git process: its own session (group), the file size cap, ergostat's git environment."""
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, **ENV, "GIT_ALLOW_PROTOCOL": "https:file",
            "GIT_DIR": os.path.join(tmp, "repo.git")}
-    return subprocess.Popen(argv(*args), cwd=tmp, env=env, stdin=subprocess.DEVNULL, stdout=stdout,
-                            stderr=open(os.path.join(tmp, "err"), "ab"), start_new_session=True, preexec_fn=_limits)
+    with open(os.path.join(tmp, "err"), "ab") as err:
+        return subprocess.Popen(argv(*args), cwd=tmp, env=env, stdin=subprocess.DEVNULL, stdout=stdout, stderr=err,
+                                start_new_session=True, preexec_fn=_limits)
 
 
 def _kill(p: subprocess.Popen) -> int:
@@ -231,7 +232,8 @@ def run(main_dir: str, cfg: dict, names: list[str], update: bool) -> int:
         for name in names or list(cfg):
             e, lk = cfg[name], entries.get(name)
             same = lk is not None and all(lk.get(k) == e[k] for k in ("git", "version", "path"))
-            locked = lk if same and lk.get("commit") and lk.get("tree") else None
+            locked = lk if same and sources.SHA.fullmatch(str(lk.get("commit"))) and isinstance(lk.get("tree"), str) \
+                else None                          # (a commit not 40 or 64 hex never reaches git: resolved again)
             dest = _within(root, os.path.join(root, name))
             if os.path.islink(dest):
                 raise FetchError(f"{dest} is a link: refused")
