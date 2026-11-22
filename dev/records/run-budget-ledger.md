@@ -179,3 +179,18 @@ Round 7 (the queue's merge of main 5617e225, conflicting in eight files):
 - Run here in round 7, after the merge: `tests/test_run_budget.py` (39 passed); test_spec_schema, test_local_settings
   and test_upkeep_watched (54 passed); test_run_costs, test_spec_structure and test_remote_mtls (48 passed). Ruff is
   clean. The unit suite and the four browser files were not run here (left to the factory and the merge queue).
+
+Round 8 (the round-7 review's findings):
+- The ref listings of round 6 (line 133) and round 7 (line 150) are withdrawn. Both said "refs in this clone
+  (`git for-each-ref`): `refs/heads/main` and this branch". Each described one clone's refs, and the review's
+  clone disproves it. This record makes no claim about which refs a clone holds.
+- What was checked in round 8, by commit: b0fbc839's second parent is 5617e225, the commit the review gives for
+  origin/main. 5617e225 is an ancestor of HEAD (`git merge-base --is-ancestor 5617e225 HEAD`), and `git log
+  HEAD..main` is empty with `main` at 5617e225. The review's own check, `git log HEAD..origin/main`, was also run
+  here. Git printed `unknown revision` for the name `origin/main`, so the commit checks above stand in for it.
+  Nothing on 5617e225 is missing from the branch. No code changed.
+- Tests and ruff (the review could not run them): see the last bullet.
+- GAPS's P3 entry still says "in progress" and names `factory/run-budget-reserve`. That is main's text and
+  outside this gap, so it is left for a follow-up on main (as in round 7).
+- Run here in round 8: `tests/test_run_budget.py` (39 passed). Ruff is clean. The unit suite and the four browser
+  files were not run here (left to the factory and the merge queue).
