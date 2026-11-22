@@ -32,3 +32,17 @@ ergostat/spec/relations.py, ergostat/spec/ir.py, ergostat/precedence.py, ergosta
 90 net lines.
 
 Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built in full; nothing is left. Choices made alone, each the more reversible one:
+- Only the target's current state counts. A target that moves on from a `starts_at` state to one not named (and not
+  finished) blocks again, and so does a target held under a lease (state `leased`), unless `leased` is named. So name
+  every state from which on the dependent may start. SPEC §5a and the agent guide say so.
+- "Finished" for the refusal means the states `messages: done:` declares, or the kind's last state when it declares
+  none (the item index's fallback is read at run time and cannot be checked statically). "Paused" means
+  `messages: paused:`.
+- A relation naming several kinds: a state is refused only when none of them has it.
+- `starts_at` also takes one state as a string (the schema agrees). Any other shape is `bad-relation`.
+- Codes: `starts-at-unknown-state`, `starts-at-not-precedence` (a group, `precedence: false`, or a remote's kind),
+  `starts-at-finished`.
