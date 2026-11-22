@@ -193,7 +193,10 @@ def test_drift_turns_simplify_when_on(tmp_path):
     assert str(when.inputs["drift"]) == "block.code-drift"
     asks = spec.blocks["code-health-off"]
     assert {str(r) for r in asks.inputs.values()} == {"block.code-drift", "goal.code-coverage-not-falling.off"}
-    assert {r.name for r in asks.outputs["out"]} == {"improve-factory"}
+    assert {r.name for r in asks.outputs["out"]} == {"factory-off"}
+    assert str(spec.blocks["factory-off"].inputs["code"]) == "block.code-health-off"
+    assert [c.name for c in spec.commanders_of("improve-factory")] == ["factory-off"]   # one commander, no competing
+    assert [p for p in problems if p.code == "competing-commands"] == []
 
     def run(b, **given) -> float:
         return eval_expr(compile_expr(b.params["expr"]), {k: given[k] for k in b.inputs})

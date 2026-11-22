@@ -167,7 +167,7 @@ blocks:
       drift: block.code-drift
       coverage: goal.code-coverage-not-falling.off
     expr: max(drift, coverage)
-    out: block.improve-factory
+    out: block.factory-off             # one of factory-off's inputs, so the coordinator has one commander
   simplifier:
     type: program
     description: picks one module by its evidence (skipping those under the coverage floor, touched by a gap in flight, or picked in 30 days) and asks for a gap that removes code from it - pool 1, under a lock

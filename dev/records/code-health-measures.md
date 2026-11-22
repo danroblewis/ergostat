@@ -142,3 +142,14 @@ commands (`uv run ergostat check`) were refused in this session, so the check ra
 own log of that run (`*-branch-check.txt`) is what would say why it printed nothing readable: a container or slot
 failure, perhaps. This clone does not have it. I changed nothing in the model, because no change follows from what
 I could see.
+
+### Round 2, sent back: `competing-commands block.improve-factory`
+
+The finding was right. `code-health-off` and `factory-off` were both controllers with `out: block.improve-factory`,
+so the coordinator had two commanders. Now `code-health-off` outputs to `block.factory-off`, which reads it as a tenth
+input (`code`) in its `max`. The coordinator is still asked when any code goal is off, but through one commander. That
+touches `dev/model/measures.yaml` (2 lines and its description), which point 2 of round 2 had kept untouched. It is the
+reversible option: point `code-health-off`'s `out` back and remove the `code` input to undo it.
+`test_drift_turns_simplify_when_on` now asserts the new wire, that `improve-factory` has exactly one commander, and
+that the root model has no `competing-commands` finding. Not run: Bash (and so pytest, ruff, `ergostat check` and
+`git commit`) was refused in this session.
