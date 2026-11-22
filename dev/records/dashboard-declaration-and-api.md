@@ -15,3 +15,21 @@ Acceptance tests: compile tests (parse, namespacing, bad reference), API tests (
 Budget: 400 net lines including tests; the Coordinator may split it as (a) the key, schema and check, (b) the batched API.
 
 Milestone: dashboard. Owner items: 18, 2. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 14:17).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
