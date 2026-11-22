@@ -2293,7 +2293,12 @@ A goal exists whether or not anything serves it. A goal nothing serves is **miss
 goal a once library template among the owner's upkeep templates made (`modelling` alone for now: not `upkeep`,
 repair or interventions), `upkeep: <template>`: the modelling system's own work, counted beside the system's goals
 and not among them. `/api/status` carries `goals_off` (`system` off, `open`, `unknown`, and `own: {modelling: n}`,
-upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off`.
+upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off` and carries the
+same counts as `goals`. That one count (`state.goals_off`) is the only one: the page's header, the project switcher,
+the side list's "Goals off" heading, the Loops page's heading and the diagram's caption (Blocks: `controlled_off`, of
+the goals a controller holds) print it as given and never count goals by status themselves; `ergostat` (and its
+`--json`, as `goals_off`) and `ergostat projects` print it in one form, `N goals off · M open · K unknown · model
+upkeep J` (a zero left out, but the first).
 
 **Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
 

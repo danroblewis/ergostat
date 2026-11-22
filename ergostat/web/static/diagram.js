@@ -1026,8 +1026,8 @@ function captionText(st, view) {
   if (st.top) parts.push(n(st.top, "system"));
   // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
   if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
-    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
-    const off = names.filter((x) => st.loops[x]?.status === "off").length;
+    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);   // off: the server's count (state.goals_off)
+    const off = view === "blocks" ? st.controlled_off ?? "?" : goalsOff(st).off;
     parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
   }
   return parts.join(" · ");
@@ -1408,7 +1408,8 @@ function renderSide(side, g, view) {
     return att;
   };
   side.append(h("h3", { class: "att-head" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you."));
-  side.append(h("h3", { class: "att-head" }, "Goals off", count(off)), list(off, "No goal is off."));
+  // (its count the header's, from the server: the system's goals off, the model's upkeep apart; never its rows counted)
+  side.append(h("h3", { class: "att-head" }, "Goals off", h("span", { class: "muted" }, ` ${goalsOffText()}`)), list(off, "No goal is off."));
   const house = h("details", { class: "housekeeping", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
       h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy."));

@@ -1180,3 +1180,74 @@ def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser
         for proc in procs:
             proc.terminate()
             proc.wait(timeout=10)
+
+
+def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_path, monkeypatch):
+    """A system goal off, the modelling goals off (upkeep) and a goal open, at one moment: the header, the side list's
+    'Goals off' heading, the Loops page's heading and this project's entry in another project's switcher all say
+    /api/status's goals_off (the system's, and model upkeep apart); a snapshot file says the counts it was saved with."""
+    import json
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    from tests.test_goal_upkeep import MODEL, seeded
+    monkeypatch.setattr("tests.test_goal_upkeep.MODEL", MODEL.replace(
+        "goals:\n", 'goals:\n  queue-watched: {stock: queue, hold: "<= 5", system: shop}\n'))
+    seeded(tmp_path, monkeypatch)                                  # (ERGOSTAT_HOME: tmp_path/home, for the servers too)
+    other = tmp_path / "other"
+    shutil.copytree(ROOT / "examples" / "first-loop", other)
+    y = other / "ergostat.yaml"
+    y.write_text(y.read_text().replace("name: first-loop", "name: other"))
+    urls, procs = {}, []
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        for name, d in (("small", tmp_path / "repo"), ("other", other)):
+            port = free_port()
+            procs.append(subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                                          env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            urls[name] = f"http://127.0.0.1:{port}"
+        for url in urls.values():
+            for _ in range(150):
+                try:
+                    urllib.request.urlopen(url + "/api/status", timeout=1)
+                    break
+                except Exception:
+                    time.sleep(0.2)
+            else:
+                pytest.fail("a page never came up")
+        st = json.loads(urllib.request.urlopen(urls["small"] + "/api/status", timeout=10).read())
+        g = st["goals_off"]
+        assert st["loops"]["queue-watched"]["status"] == "open" and g["open"] >= 1 and g["own"] == {"modelling": 2}, g
+        off = g["system"]
+        assert off >= 1 and off < sum(lp["status"] == "off" for lp in st["loops"].values()), g   # upkeep's not in it
+        pg.goto(f"{urls['small']}/diagram")
+        pg.wait_for_function("() => document.querySelectorAll('.side h3.att-head').length === 3 && "
+                             "/goals? off/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
+        assert re.match(rf"^{off} goals? off\b", pg.locator("#running").inner_text()), pg.locator("#running").inner_text()
+        assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
+        heads = [x.strip() for x in pg.locator(".side h3.att-head").all_inner_texts()]
+        assert heads[1] == f"Goals off {off} · model upkeep 2", heads
+        pg.goto(f"{urls['small']}/loops")
+        pg.wait_for_function("() => / · goals off /.test(document.querySelector('h1')?.textContent || '')", timeout=30000)
+        assert pg.locator("h1").inner_text() == f"Loops · goals off {off} · model upkeep 2"
+        pg.goto(f"{urls['other']}/items")
+        find = "[...document.querySelectorAll('#project option')].find((o) => o.text.startsWith('small ('))"
+        pg.wait_for_function(f"() => !!{find}", timeout=30000)
+        entry = pg.evaluate(f"() => {find}.text")
+        assert entry.startswith(f"small ({off} off") and "model upkeep 2" in entry, entry
+        snap = tmp_path / "snapshot.html"                        # saved now; opened later, it says what it was saved with
+        snap.write_text(build(Project(mdl.load(tmp_path / "repo"))))
+        pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:")) else rt.abort())
+        pg.goto(f"file://{snap}")
+        pg.wait_for_function("() => /^Snapshot/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
+        assert re.search(rf", {off} off$", pg.locator("#running").inner_text()), pg.locator("#running").inner_text()
+        assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
+        assert not errors, errors
+    finally:
+        pg.close()
+        for proc in procs:
+            proc.terminate()
+            proc.wait(timeout=10)

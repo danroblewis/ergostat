@@ -631,6 +631,12 @@ def goals_off(snap: dict, names: bool = False) -> dict:
                               "own": {t: len(v) for t, v in out["own"].items()}}
 
 
+def goals_said(g: dict) -> str:
+    """``goals_off``'s counts as the CLI says them (``ergostat`` and ``ergostat projects`` alike), as the header does."""
+    return " · ".join([f"{g['system']} goal{'' if g['system'] == 1 else 's'} off"] + [f"{g[k]} {k}" for k in ("open", "unknown") if g[k]]
+                      + ([f"model upkeep {sum(g['own'].values())}"] if sum(g["own"].values()) else []))
+
+
 def setpoint_text(lp: dict) -> str:
     return lp["setpoint"] + lp.get("band", "")
 

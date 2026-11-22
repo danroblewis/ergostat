@@ -229,6 +229,58 @@ def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_pat
     assert body["loops"]["model-fits"]["upkeep"] == "modelling" and "upkeep" not in body["loops"]["queue-short"]
 
 
+OPEN_GOAL = '  queue-watched: {stock: queue, hold: "<= 5", system: shop}\n'      # no block holds it: open
+
+
+def test_status_and_projects_print_the_one_count_api_status_gives(tmp_path, monkeypatch, capsys):
+    """A system goal off, the modelling upkeep goals off and a goal open: `ergostat`, `ergostat projects` and
+    /api/status say the same numbers, state.goals_off's, and the open goal is not counted off."""
+    from types import SimpleNamespace
+
+    from ergostat.web import serve
+    from tests.test_goal_upkeep import MODEL, seeded
+    monkeypatch.setattr("tests.test_goal_upkeep.MODEL", MODEL.replace("goals:\n", "goals:\n" + OPEN_GOAL))
+    p = seeded(tmp_path, monkeypatch)
+    server, url = serve(p, free_port())
+    try:
+        with urllib.request.urlopen(url + "/api/status", timeout=10) as r:
+            body = json.loads(r.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+    g = body["goals_off"]
+    assert body["loops"]["queue-watched"]["status"] == "open" and body["loops"]["queue-short"]["status"] == "off"
+    assert g["system"] >= 1 and g["open"] >= 1 and g["own"] == {"modelling": 2}, g
+    said = state.goals_said(g)
+    assert said.startswith(f"{g['system']} goal") and f"{g['open']} open" in said and "model upkeep 2" in said, said
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), capsys=capsys)
+    assert rc == 0 and said in out.splitlines(), out
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), "projects", capsys=capsys)
+    assert rc == 0 and said in out, out
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), "--json", capsys=capsys)
+    assert json.loads(out)["goals_off"] == g
+
+
+def test_no_page_code_counts_goals_by_their_status():
+    """The page prints the server's count (state.goals_off) and never makes its own: every comparison of a goal's
+    status or state with 'off' in util.js, pages.js and diagram.js is one of the allowed lines (row grouping or styling),
+    and no filter by 'off' is counted (.length, reduce)."""
+    import re
+    from pathlib import Path
+    static = Path(__file__).resolve().parent.parent / "ergostat" / "web" / "static"
+    allowed = {                                          # the line, as it is; why it is not a count
+        'const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);',  # rows grouped
+        'const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");',  # whether suggestions start open
+    }
+    seen = []
+    for f in ("util.js", "pages.js", "diagram.js"):
+        for line in (static / f).read_text().splitlines():
+            if re.search(r"""[=!]==?\s*["']off["']|["']off["']\s*[=!]==?|\[[^\]]*["']off["'][^\]]*\]\.includes""", line):
+                seen.append(line.strip())
+            assert not re.search(r"""filter\([^;]*["']off["'][^;]*\)\s*\.length""", line), (f, line)
+    assert set(seen) <= allowed, set(seen) - allowed
+
+
 def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_it_under(project):
     """The Agents page's group headings ('program · 1') and its summary line both count agents by their rung, named by
     RUNG_NAMES in util.js: the answer's rung must be the index of the agent's kind there (the browser half of this

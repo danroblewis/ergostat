@@ -19,7 +19,8 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 
 async function pageLoops(main) {
   const p = page(main, "Loops");
-  const box = h("div"), cap = h("p", { class: "note" });
+  const box = h("div"), cap = h("p", { class: "note" }), head = h("span", { class: "muted" });
+  p.firstChild.append(head);                             // the goals off, as the header has them (never its rows counted)
   const perf = {};
   let pts = {}, ptsAt = 0;
   p.append(box, cap);
@@ -36,6 +37,7 @@ async function pageLoops(main) {
       ptsAt = Date.now();
     }
     const w = windowNote();
+    setText(head, S.status ? ` · goals off ${goalsOffText()}` : "");
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
