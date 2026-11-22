@@ -33,3 +33,9 @@ Choices taken without asking, the more reversible each time:
   NOTES.md term). Deleting it is left to the owner.
 - Item 11 (the Node/Java/Go re-signing migration) is not written as a gap. It is worth about 7 lines, and it needs the
   owner's word on old records.
+
+## Where it stopped
+
+Parked by the factory (review/code-reduction-map-2, 2026-11-22 03:19).
+
+Done: docs/proposals/code-reduction.md, with 11 ranked items (≈1,157 net lines), the search method, what was looked at and not found removable, and 10 gap definitions. No code was changed. Left: item 2 and code-cut-toml-format must list all ~20 sites that only matter for a TOML model (or say which stay and why), handle the second mdl.parse caller at cli/spec_cmds.py:149, recount item 2's lines and score, and make the gap's Files list agree with its grep check. Parked because the review-1 finding was not answered and this is the second failed review.
