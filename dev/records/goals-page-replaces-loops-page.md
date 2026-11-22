@@ -25,3 +25,47 @@ Acceptance tests: the four tests visit /goals; one asserts /loops still answers 
 Budget: 70 net code lines (mostly strings), 35 of docs, 20 of tests.
 
 Milestone: goals-not-loops. Owner items: Decision: 'goal' instead of 'loop' for what is held or off; the Loops page becomes Goals; 'feedback loop' and 'control loop' stay (delivers R11 pieces 2-3). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built (round 1): /goals is the page (server and util.js UI_PAGES, split.js OTHER_PAGES, router, phone start); /loops is
+kept in both lists and redirects to /goals with its query, as /fit does to /model. Nav, h1, first column, tooltip,
+header ('N goal(s) off'), '… more on Goals', Blocks side list 'Goals and their control loops' / 'No goals in view.',
+legends ('a goal off', export 'goal holding'), goal panel kind 'Goal' / 'Goal, open loop' with WHAT.goal (WHAT.loop
+gone; the controller panel shows WHAT.goal too), control.js 'The control loop of goal X', review.js 'Control loops'.
+CLI: GOAL/GOALS headers, 'goal NAME' lines (show.py, system.py incl. `loop NAME` and the cycles line), 'no goals: a
+goal is a goals: entry holding a stock', 'no goal X; goals: …'. Docs as listed, plus every other 'Loops page' in docs/
+(MODEL-TOOLS.md, proposals/charts.md, proposals/coordinator/09-operator-interface.md, cli-rounds.md:337) so the DoD 4
+grep holds; vocabulary.md row, the "'loop' alone is never a goal" line and 'Items and leases'.
+
+Choices taken without asking (the most reversible):
+- blocks.js (not in Files): a controller block's panel heading 'In the loop of X' became 'In the control loop of X';
+  without it the Blocks controller panel did not say 'control loop' (DoD 3).
+- There is no `ergostat show` command; the CLI acceptance test is
+  tests/test_graph_cli_web.py::test_the_cli_calls_what_is_held_a_goal, over the commands that print through show.py
+  (`system host`, `system host --blocks`, `loop NAME`, `loop`).
+- Left alone, not in the definition: state.attention's 'loop NAME' ('what') lines and the diagram's /^loop (\S+)/ parse
+  of them (many tests read them); a system box's 'N loops: 2 holding' (diagram.js loopsText, details.js openSystem).
+  Both still call goals loops; a follow-up gap should rename them.
+
+Guide check (ergostat/guide.py): `grep -nw -E 'loops?' ergostat/guide.py` gives lines 21, 55, 65, 152, 166, 177, 185,
+197, 215, 220, 227, 257. Reader text: 166 'closes a loop. B balances', 185 'R reinforces … The loop that dominates', 215
+'Close the loop: a sensor H', 220 'the loop pushes it back', 227 'the inner loop's setpoint', 65 'the inner loop,
+holding the signup rate' are R/B feedback loops or control loops; the rest are code/keys. No goal is called a loop, so
+guide.py is unchanged.
+
+Tests run: ruff clean; tests/test_graph_cli_web.py 33 passed; tests/test_page_polling.py 18 passed (incl. the new
+test_the_goals_page_and_its_old_address, and test_leaving_a_page_stops_its_polling on /goals). The new browser test was
+seen to fail with the /loops redirect removed (TimeoutError) and with the panel kind put back to 'Loop'.
+tests/test_diagram_rendering.py in full: 195 passed, 5 failed. Rerun one at a time: the pinned-block test passed;
+test_every_view_draws_cleanly_and_in_time[coordinator] and [image-squeeze] failed again on time only (routing open=*
+24.5 s and 26.5 s, bound 20 s); test_a_big_tangled_model_lays_out_in_time_and_cleanly on time (2899 ms, bound 2500 ms);
+test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page on 'Nothing waiting.' missing from the
+Model page (pages.js:1093, untouched here; the same failure is reported in other branches' reviews). I believe all four
+are unrelated (load-dependent bounds and a main-side failure), but this is NOT proven: running them on clean main was
+refused here (`git checkout -q main && … named_tests.py …`). The merge queue should run them on main.
+Not run: the unit suite and the other browser files (left to the factory, as told).
+
+Overrun reason: tests are net +44 lines against a test budget of 20: the one browser acceptance test checks every
+point of DoD 1-3 (page, nav, redirect with query and same rows, header, goal panel, Blocks controller panel and side
+list, Dynamics heading) and the CLI test covers four commands; code is net +1 (budget 70), docs net +12 (budget 35).
