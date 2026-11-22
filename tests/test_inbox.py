@@ -160,6 +160,13 @@ def test_each_kind_is_answered_from_the_api(tmp_path):
     assert kinds(p) == ["steptest"]
 
 
+def test_an_answered_action_says_the_item_it_is_for(tmp_path):
+    p, _ = project(tmp_path)
+    a = gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "ticket/SCRUM-2"})
+    x = answer.answer(p, p.model.spec, f"action/{record.short(a['id'])}", "deny", note="not now")
+    assert (x["said"], x["item"]) == ("denied", "ticket/SCRUM-2") and "link" in x
+
+
 def test_the_mcp_lists_and_answers(tmp_path):
     from ergostat.mcp import Server
     p, snap = project(tmp_path)
