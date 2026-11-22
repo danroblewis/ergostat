@@ -63,6 +63,7 @@ AI sessions and programs: where they work and what they may do
   workspaces     The workspace pools: each workspace, the item it is for, free, in use, held or quarantined
   actions        The gated actions sessions asked for, counted per class; ID --approve or --deny: the owner's answer
   act            From a block's run: ask for one of its gated actions ($ERGOSTAT_CMD act NAME --arg K=V)
+  operating      The operating state and the owner's presence; freeze | incident | maintenance --for DUR | normal
 
 see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)

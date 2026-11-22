@@ -22,7 +22,7 @@ SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "che
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of",
             "daemons": "daemon"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
-       "defaults", "uses", "library", "remotes", "budget", *SECTIONS}
+       "defaults", "uses", "library", "remotes", "budget", "operating", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -139,6 +139,8 @@ class Document:
     notify: object = None            # notify: where what waits on a person is sent (main file only)
     budget: object = None            # budget: the day's AI budget runs reserve from (main file only, SPEC §9.9)
     budget_at: Where | None = None
+    operating: object = None         # operating: when the owner reads as away (main file only, SPEC §12k)
+    operating_at: Where | None = None
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
@@ -229,6 +231,12 @@ def load(main: Path) -> Document:
             else:
                 doc.problems.append(Problem("error", "budget: belongs in the main file only", data.at("budget"),
                                             "budget-in-include"))
+        if "operating" in data:
+            if top:
+                doc.operating, doc.operating_at = data["operating"], data.at("operating")
+            else:
+                doc.problems.append(Problem("error", "operating: belongs in the main file only", data.at("operating"),
+                                            "operating-in-include"))
         if "keep" in data:
             if top:
                 doc.keep = data["keep"]

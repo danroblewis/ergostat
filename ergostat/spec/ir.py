@@ -977,6 +977,7 @@ class Spec:
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
+    away_after: float = 7200.0       # operating.away-after: no event from the owner this long reads as away (SPEC §12k)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept

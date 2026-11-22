@@ -39,6 +39,12 @@
         "max-cost": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
       }
     },
+    "operating": {
+      "description": "The operating state's settings (SPEC 12k): away-after, how long with no event from the owner before they read as away (default 2h, from 5m to 7d). Main file only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"away-after": {"$ref": "#/$defs/duration"}}
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,

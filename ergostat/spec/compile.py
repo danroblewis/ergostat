@@ -1067,6 +1067,7 @@ class Compiler:
         pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
+        gated.operating(self, spec)                          # operating: when the owner reads as away (SPEC §12k)
         from ..inbox import config as notify
         notify.parse(self, spec)                             # notify: each channel a gated action notify.NAME (SPEC §12o)
         if spec.actions:
