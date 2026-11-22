@@ -1170,6 +1170,7 @@ async function pageDiagram(main, q) {
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
     S.graph = g;
+    if (typeof quietRefresh === "function") quietRefresh(g);   // an open system's panel: its quiet sentence (details.js)
     proposedBanner(wrap, g, proposal, go);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
       sysSel.dataset.tree = "1";

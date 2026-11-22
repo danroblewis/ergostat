@@ -506,16 +506,18 @@ def _answer(live: Live, path: str, q: dict, project=None):
             if getattr(m.spec, "remotes", None):     # when what remotes' boxes show last read (SPEC §4c)
                 from ..remote.measures import read_times
                 reads = read_times(p, m.spec, snap["at"])
-            if sd:
-                return {**finish(fold(dynamics(g, m), m, want, system, reads)), "attention": att}
-            return {**fold(g, m, want, system, reads), "attention": att}
+            g = finish(fold(dynamics(g, m), m, want, system, reads)) if sd else fold(g, m, want, system, reads)
+            for n in g.get("nodes", []):             # a closed system's sentence when every goal of it holds (state.quiet)
+                if n.get("kind") == "system":
+                    n["quiet"] = st.quiet(p, snap, n["label"])
+            return {**g, "attention": att}
         sel = graph.select(m, system, around, int(one("depth") or 1))
         g = graph.control(m, snap, sel, graph.readings(p, at))
         return {**(dynamics(g, m) if sd else g), "attention": att}
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",
-                 "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)]}
-                for s in m.system_names()]
+                 "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)],
+                 "quiet": st.quiet(p, snap, s)} for s in m.system_names()]
     if head == "loops":
         if name:
             lp = snap["loops"].get(name)

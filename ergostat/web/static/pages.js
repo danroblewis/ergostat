@@ -19,14 +19,14 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 
 async function pageLoops(main) {
   const p = page(main, "Loops");
-  const box = h("div"), cap = h("p", { class: "note" });
+  const box = h("div"), cap = h("p", { class: "note" }), qbox = h("div", { class: "quiet-systems" });
   const perf = {};
   let pts = {}, ptsAt = 0;
-  p.append(box, cap);
+  p.append(qbox, box, cap);
   const ans = answers();
   async function tick(force = true) {
     ans.begin();
-    const loops = await ans.api("loops");
+    const loops = await ans.api("loops"), systems = await ans.api("systems").catch(() => []);
     // the stocks' trends: every system open (or, where that is not at hand, a snapshot, each closed system's measures);
     // the whole graph is a large answer and a trend over the window hardly moves in seconds: asked for every 30s
     if (Date.now() - ptsAt > 30000) {
@@ -38,6 +38,9 @@ async function pageLoops(main) {
     const w = windowNote();
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
+    // each system whose goals all hold says so (state.quiet): until the rows are grouped by system, a line of its own
+    patch(qbox, ...(systems || []).filter((s) => s.quiet).map((s) => h("p", { class: "quiet-line", key: s.name, "data-system": s.name },
+      h("b", {}, s.name), `: ${s.quiet}`)));
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
     // how each loop is doing, as a control engineer reads its scope (control.js), over the last day of record: asked
     // for every 5 minutes, not every tick (each is an identification on the server, up to a second or two, for every loop)
