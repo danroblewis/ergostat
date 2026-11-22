@@ -14,7 +14,8 @@
   onmain.py) released once the checkout's main is another commit (what the drop gives the implementor, and what the
   queue pushes to origin), so the implementor takes it again;
 - a gap that `continues` an existing branch (`"continues": "NAME"`, e.g. a parked one): that branch fetched into the
-  factory's drop as factory/<branch> first, so its own definition file is found there.
+  factory's drop as factory/<branch> first, so its own definition file is found there; one that cannot be fetched
+  (the checkout lacks it, or the fetch fails) says so on the gap (`unfetched`), which the pipeline watch raises.
 
 It reads the checkout with commands that write nothing; the drop is the only repository it writes to (that fetch). Run
 as a block: its lines are the record's."""
@@ -149,17 +150,20 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
             print(f"intake: {gap['id']} continues {name!r}, which {other['id']} still holds ({other['state']}): "
                   "not taken until it is parked or merged", file=sys.stderr)
             return False
-    d = agents.drop(cfg)
+    d, repo = agents.drop(cfg), fac.path(cfg, "checkout")
     if fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{ref}"):
-        return True
-    repo = fac.path(cfg, "checkout")
-    if not fac.git_ok(repo, "rev-parse", "--verify", "-q", f"refs/heads/{name}"):
-        print(f"intake: {gap['id']} continues {name!r}, which the checkout does not have: not taken", file=sys.stderr)
-        return False
-    if fac.git_ok(d, "fetch", "-q", str(repo), f"refs/heads/{name}:refs/heads/{ref}"):
-        return True
-    print(f"intake: {gap['id']} continues {name!r}, which could not be fetched into the drop: not taken", file=sys.stderr)
-    return False
+        why = ""
+    elif not fac.git_ok(repo, "rev-parse", "--verify", "-q", f"refs/heads/{name}"):
+        why = "the checkout does not have"
+    elif fac.git_ok(d, "fetch", "-q", str(repo), f"refs/heads/{name}:refs/heads/{ref}"):
+        why = ""
+    else:
+        why = "could not be fetched into the drop"
+    if why != (gap["fields"].get("unfetched") or ""):        # said once as it changes: the watch raises it (watch.py)
+        fac.say("gap.measured", gap["id"], unfetched=why or None)
+    if why:
+        print(f"intake: {gap['id']} continues {name!r}, which {why}: not taken", file=sys.stderr)
+    return not why
 
 
 def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, str]) -> int:

@@ -1,9 +1,10 @@
 """pipeline-watch: when the pipeline manager runs, and what its session is given (dev/README.md, *The pipeline
 manager*). Every few minutes, while managing is open and no session is raised or under way, it raises one
 `situation/...` carrying every standing trigger an earlier session has not handled (by fingerprint): the queue blocked,
-a gap dead or parked (for a kind no program resumes: a defect, the kill rule, or a kind not said; never a deferred or
-cancelled park), a waits_on / needs park not cleared in [manager] park_wait_hours (parks.py), a gap stuck in its
-state, an aging defect. It raises one:
+a gap dead or parked (for a kind no program resumes: a defect, the kill rule, or a kind not said; an old park parks.py
+classified unknown whatever its age; never a deferred or cancelled park), a waits_on / needs park not cleared in
+[manager] park_wait_hours (parks.py), a continuing gap whose branch intake could not fetch, a gap stuck in its state,
+an aging defect. It raises one:
 
   broken     before the schedule, when the merge pipeline has been broken past [manager] broken_minutes (the queue
              blocked, a push pending, no merge while approved gaps wait, the same test failing on two main commits,
@@ -162,7 +163,11 @@ def triggers(cfg: dict, gaps: dict, opened: list[dict], now: float) -> list[dict
         elif parks.waiting(g, now, s["park_wait"]) and branch(g) not in holders:
             out.append(sit("waiting", g["id"], f"{g['id']} parked for {f['parked_for']} "
                            f"{json.dumps(f.get('parked_until'))[:300]} {(now - at) / 3600:.0f}h, not cleared", at))
-        elif (g["state"] == "parked" and now - at < s["parked"] * 3600 and branch(g) not in holders
+        elif g["state"] == "open" and f.get("unfetched"):                  # (intake.py: never only on stderr)
+            out.append(sit("unfetched", g["id"], f"{g['id']} continues {f.get('continues')!r}, which {f['unfetched']}",
+                           f["unfetched"]))
+        elif (g["state"] == "parked" and (now - at < s["parked"] * 3600 or f.get("parked_for") == "unknown")
+              and branch(g) not in holders
               and f.get("parked_for") not in (*parks.RESUMED, "deferred", "cancelled")
               and not (f.get("deferred") or f.get("cancelled"))):           # a coordinator's decision, not a stall
             out.append(sit("parked", g["id"], f"{g['id']} was parked ({f.get('parked_for') or 'its kind not said'}): "

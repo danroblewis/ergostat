@@ -2,17 +2,20 @@
 (docs/roadmap/overnight/park-owns-resume.md).
 
 Each park records `parked_for`, one of KINDS, and for the kinds this program resumes `parked_until`, the condition:
-{"gap": ID} or {"commits": [SHA, ...]} (waits_on: the gap merged, or the commits on main), {"action": WHAT, "who": WHO}
+{"gap": ID} or {"commits": [SHA, ...]} (waits_on: the gap's work, or its continuation's, or the commits, on main as
+pushed: a merge not pushed has not cleared), {"action": WHAT, "who": WHO}
 (needs: done once `gap.need-met` is recorded on the parked gap, with `need_met` saying what was done), {"gaps": [ID, ...]}
 (split: every stopped sub-gap resumed or closed). defect and kill-rule are never resumed here: they are the pipeline
 manager's (its park situations); deferred and cancelled are the coordinator's.
 
-  parks.py resume   (every 5m, no AI) each park whose condition cleared, resumed: a gap that continues its branch (as
+  parks.py resume   (every 5m, no AI) first each park from before kinds classified, once (classify()); then each
+                    park whose condition cleared, resumed: a gap that continues its branch (as
                     by hand, manage.continue_gap); a split one back to split, its sub-gaps' continuations its children.
                     Each resume is `gap.resumed` on the parked gap with the condition that cleared."""
 
 from __future__ import annotations
 
+import fcntl
 import re
 import sys
 import time
@@ -21,11 +24,15 @@ sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
 
-KINDS = ("defect", "waits_on", "needs", "kill-rule", "deferred", "cancelled", "split")
+KINDS = ("defect", "waits_on", "needs", "kill-rule", "deferred", "cancelled", "split", "unknown")  # unknown: classify()
 RESUMED = ("waits_on", "needs", "split")                          # resumed by this program
 WAITING = ("waits_on", "needs")                                  # past [manager] park_wait_hours: a situation
 GAP = re.compile(r"(?:gap/)?([a-z0-9][a-z0-9-]{0,63})")
 SHA = re.compile(r"[0-9a-f]{7,40}")
+HOPS = 20                                    # a hard ceiling (lesson-4): continuations followed from a gap waited on
+KILLERS = ("implementor", "plan-lint", "merge-queue", "dead-letters", "join-judge")   # parked_by of the kill rule's parks
+COORDINATORS = ("plan-review", "pipeline-manager")                   # parked_by of the cancelled and deferred parks
+CARRIED = re.compile(r"Merge branch '(?:factory/)?([a-z0-9][a-z0-9-]{0,63})'")
 
 
 def of_verdict(v: dict) -> dict:
@@ -49,16 +56,15 @@ def of_verdict(v: dict) -> dict:
 
 def cleared(cfg: dict, g: dict, gaps: dict) -> str:
     """What cleared the park (said in its resume), or "" while it stands. A gap that is not in the record, a commit not
-    found, or a condition missing has not cleared."""
+    found, a main not pushed, or a condition missing has not cleared."""
     f = g["fields"]
     kind, until = f.get("parked_for"), f.get("parked_until") if isinstance(f.get("parked_until"), dict) else {}
     if kind == "waits_on" and until.get("gap"):
-        return f"{until['gap']} merged" if gaps.get(until["gap"], {}).get("state") == "merged" else ""
+        by = landed(cfg, str(until["gap"]), gaps)
+        return f"{until['gap']} merged{f' as {by}' if by != until['gap'] else ''}, on {pushed(cfg)}" if by else ""
     if kind == "waits_on" and until.get("commits"):
-        drop, base = agents.drop(cfg), cfg["git"]["base"]
-        on = all(SHA.fullmatch(str(c)) and fac.git_ok(drop, "merge-base", "--is-ancestor", str(c), base)
-                 for c in until["commits"])
-        return f"{', '.join(str(c)[:12] for c in until['commits'])} on {base}" if on else ""
+        on = all(on_pushed(cfg, str(c)) for c in until["commits"])
+        return f"{', '.join(str(c)[:12] for c in until['commits'])} on {pushed(cfg)}" if on else ""
     if kind == "needs" and until.get("action") and f.get("need_met"):
         return f"needed {until['action']} ({until.get('who')}): done, {str(f['need_met'])[:300]}"
     if kind == "split" and until.get("gaps"):
@@ -66,6 +72,67 @@ def cleared(cfg: dict, g: dict, gaps: dict) -> str:
                  for c in until["gaps"]]
         return "its stopped sub-gaps resumed or closed: " + ", ".join(until["gaps"]) if all(ended) else ""
     return ""
+
+
+def pushed(cfg: dict) -> str:
+    return f"{cfg['git'].get('remote', 'origin')}/{cfg['git']['base']}"
+
+
+def on_pushed(cfg: dict, sha: str) -> bool:
+    """``sha`` is on main as pushed (the checkout's <remote>/<base>, which the queue's push and the upgrader's fetch
+    move), never a local merge not pushed; a sha not a sha, or not found, is not."""
+    return bool(SHA.fullmatch(sha)) and fac.git_ok(fac.path(cfg, "checkout"), "merge-base", "--is-ancestor", sha,
+                                                   f"refs/remotes/{pushed(cfg)}")
+
+
+def landed(cfg: dict, gid: str, gaps: dict) -> str:
+    """The gap whose work is on pushed main: ``gid`` merged with its merge (main_sha) on it, or else its continuation
+    (resumed_as, followed at most HOPS times; the original stays parked when it is continued); "" when none is."""
+    for _ in range(HOPS):
+        g = gaps.get(gid) or {"fields": {}}
+        if g.get("state") == "merged" and on_pushed(cfg, str(g["fields"].get("main_sha") or "")):
+            return gid
+        if not (nxt := g["fields"].get("resumed_as")) or nxt == gid:   # (a split resumed is resumed as itself)
+            return ""
+        gid = str(nxt)
+    return ""
+
+
+def classify(cfg: dict) -> list[str]:
+    """Each park from before kinds (no parked_for) given one once, under the continue lock (the resumer's and a
+    continue's): the kill rule's by who parked it; one whose branch carries exactly one other gap's merge, waits_on that
+    gap; any other, unknown (the pipeline manager's, raised by the watch whatever its age). A coordinator's park
+    (deferred or cancelled, or parked by the plan review or the pipeline manager) is left alone, with nothing written."""
+    import manage
+    done = []
+    with open(fac.run_dir(cfg) / "continue.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        gaps = {g["id"]: g for g in fac.items("gap")}
+        for g in gaps.values():
+            f = g["fields"]
+            if (g["state"] != "parked" or f.get("parked_for") or f.get("deferred") or f.get("cancelled")
+                    or f.get("parked_by") in COORDINATORS):
+                continue
+            by = str(f.get("parked_by") or "")
+            kind, until = ("kill-rule", None) if by in KILLERS or by.startswith("queue run") else carried(cfg, g, gaps)
+            manage.record("gap.measured", g["id"], parked_for=kind, parked_until=until, classified_by="park-classify",
+                          classified_at=time.time())
+            done.append(f"{g['id']} {kind}")
+    return done
+
+
+def carried(cfg: dict, g: dict, gaps: dict) -> tuple[str, dict | None]:
+    """waits_on the one other gap whose branch g's branch merged in and main lacks (read from the merge's subject, in
+    the drop); unknown for none, several, or a branch that cannot be read."""
+    try:
+        own = fac.branch_of(g)
+        log = fac.git(agents.drop(cfg), "log", "--merges", "--format=%s",
+                      f"{cfg['git']['base']}..refs/heads/{fac.git_branch(own)}", check=False)
+    except ValueError:
+        return "unknown", None
+    names = {m[1] for s in log.splitlines() if (m := CARRIED.match(s))} - {own, cfg["git"]["base"]}
+    roots = [x["id"] for x in gaps.values() if x["fields"].get("branch") in names and not x["fields"].get("continues")]
+    return ("waits_on", {"gap": roots[0]}) if len(names) == 1 and len(roots) == 1 else ("unknown", None)
 
 
 def resume(cfg: dict) -> list[str]:
@@ -116,4 +183,5 @@ if __name__ == "__main__":
         sys.exit(__doc__)
     cfg = fac.config()
     fac.cli(cfg)
+    print(f"parks: classified {', '.join(classify(cfg)) or 'nothing'}", file=sys.stderr)
     print(f"parks: resumed {', '.join(resume(cfg)) or 'nothing'}", file=sys.stderr)
