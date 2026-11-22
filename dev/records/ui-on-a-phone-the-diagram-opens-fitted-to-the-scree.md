@@ -25,3 +25,26 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1: about 26 net lines (diagram.js, style.css). Choices made alone, each easy to undo:
+- "Narrow" is style.css's own phone layout, `(max-width: 700px)` (where the toolbars move off the canvas), not the
+  canvas's width, so a desktop split pane under 700 px keeps the desktop fit.
+- "The minimum text size" is zoom 0.7 (11px text at 7.7px), the zoom the desktop first view already shows whole.
+- "The first part" is the first system box in the graph's order, else the first stock, else the first node; the view
+  is centred on it but kept from showing space beyond the drawing's edges.
+- The direction hint is the existing "More beyond the edge" (no longer hidden on a phone), with arrows for the ways
+  the rest lies (←↑→↓), at every width.
+- The acceptance's ":8792/" and ":8796/" are the-job and software-factory served by the test at /diagram (the bare
+  "/" on a phone goes to /loops by design, main.js). Unrun, the-job draws at 320x312 and fits whole even before this
+  change, so that half of the test cannot fail here; the software-factory ?system=product half failed before the
+  change (k 0.8, panned from the left, no hint), and fails with the centring disabled or the hint hidden again.
+
+Tests: tests/test_diagram_rendering.py::test_on_a_phone_the_diagram_opens_with_a_whole_system_box_in_view, 2
+passed. The whole tests/test_diagram_rendering.py (serial, watchdogged): 6 failed, 196 passed, none skipped. The 6 run
+at 1400-1600 px, where the narrow fit never runs: the routing and drawing time bounds (every_view[coordinator],
+[image-squeeze], a_big_tangled_model) and the 'Nothing waiting.' equation test, all reported on other branches before;
+the blocks-drag test passed when run again; every_lines_panel_links[ticket-factory] failed again, on different links
+each run (its 5 s wait for a panel), and the run on main's page code to compare was refused here, so the queue
+should confirm it on main.
