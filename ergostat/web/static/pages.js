@@ -151,7 +151,7 @@ async function pageRecord(main, q) {
     if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
       const d = await remoteApi("events", { remote, n: 80, ...(filt.value ? { type: filt.value } : {}) });
       if (!p.isConnected) return;
-      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
+      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false, true) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
       patch(box, ...[remoteSaid(remote, d), list].filter(Boolean));
       return;
     }
@@ -162,7 +162,7 @@ async function pageRecord(main, q) {
                                   ...(machine ? { machine } : {}), ...(item ? { item } : {}), ...(inWindow ? { window: 1 } : {}) });
     } catch (err) { patch(box, h("p", { class: "muted" }, String(err.message || err))); return; }
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
-    patch(box, evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
+    patch(box, evs.length ? eventsTable(evs, false, true) : h("p", { class: "muted" }, "Nothing recorded yet."));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
