@@ -1354,6 +1354,19 @@ function inboxAnswer(a) {
   return row;
 }
 
+/* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
+   its class's record and its suggestion up the ladder (SPEC §12o); its text in full, past three lines folded; the
+   exact command folded below */
+const ticked = (s) => String(s).split("`").map((x, i) => (i % 2 ? h("code", {}, x) : op(x)));
+function inboxBody(a, href) {
+  const ls = [a.first, a.more].filter(Boolean).join("\n").split("\n"), run = [a.run, a.cli].filter(Boolean).join("\n");
+  const first = h("span", { class: "ask" }, ticked(ls.slice(0, 3).join("\n")));
+  return [h("div", { class: "ask-first" }, href ? h("a", { href, class: "plain" }, first) : first, h("span", { class: "muted" }, ` waiting ${a.age}`)),
+    a.record || a.suggest ? h("div", { class: "muted ladder" }, [a.record, a.suggest].filter(Boolean).join(". ")) : null,
+    ls.length > 3 ? h("details", { class: "ask" }, h("summary", {}, "the rest"), h("span", { class: "ask" }, ticked(ls.slice(3).join("\n")))) : null,
+    run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
+}
+
 /* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
    or its summing junction (Blocks), the closed system holding it opened first (one level: the box drawn) */
 function goalButton(name, label) { return h("button", { class: "name", type: "button", onclick: () => showGoal(name) }, label); }
@@ -1403,7 +1416,9 @@ function renderSide(side, g, view) {
       const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
       const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
       const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
-      att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, h("span", { class: "att-word" }, `${word} · `),
+      const said = h("span", { class: "att-word" }, `${word} · `);
+      if (a.answer && a.first) { att.append(h("div", { "data-inbox": a.what }, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
+      att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, said,
         href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
         linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
     });

@@ -218,7 +218,10 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .more, .att .none { color: var(--muted); }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
 .att .inbox-act input { width: 6em; }
+.att .ask { white-space: pre-line; }
+.att details.cmd pre, .claim details.cmd pre { white-space: pre-wrap; margin: var(--sp-1) 0 0; }
 .att .att-word { color: var(--ink-2); }
+.att .att-word + .ask-first { display: inline; }
 .att hr.att-rule { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
 details.housekeeping > summary h3 { display: inline; }
 details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }

@@ -463,6 +463,8 @@ function messageView(d, refresh) {
    work item's page the actions asked for about it, with Approve and Deny on each one held; on an action's own page,
    its command, where it runs, its answer and its output */
 const ACTION_KIND = "ergostat.action";
+const actionSays = (f) => `${f.description || f.action}${Object.keys(f.args || {}).length ? ` (${Object.entries(f.args).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`;
+const commandBox = (c) => h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, c || ""));
 function actionAnswer(a, done) {
   if (a.state !== "requested" || SNAP) return null;
   const note = h("input", { type: "text", placeholder: "why (optional)", "aria-label": "Why" });
@@ -479,19 +481,20 @@ function actionAnswer(a, done) {
 function actionsAbout(as, done) {
   if (!as.length) return h("p", { class: "muted" }, "No gated actions asked for about it.");
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, a.action)), " ",
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), " ",
       h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
       h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` + (a.state === "requested" ? "" : a.state === "denied" ? `, ${a["approved by"]}` : `, approved by ${a["approved by"]}`))),
-    h("pre", { class: "mono small" }, a.command || ""),
+    commandBox(a.command),
     actionAnswer(a, done))));
 }
 function actionView(d, refresh) {
   const f = d.fields;
   const by = f.approved_by ? `approved by ${f.approved_by}` : f.denied_by ? `denied by ${f.denied_by}` : "";
   return h("div", { class: "claim" },
+    h("p", { class: "action-says" }, h("b", {}, actionSays(f)), f.item ? `, for ${f.item}` : "", f.block ? `, asked by ${f.block}` : ""),
     h("p", {}, h("span", { class: d.state === "requested" ? "s-open" : d.state === "denied" || d.state === "failed" ? "s-off" : "status" }, d.state === "requested" ? "waiting for approval" : d.state),
       h("span", { class: "muted" }, ` ${f.action}, class ${f.class}, gate ${f.gate}`), by ? `: ${by}` : "", f.note ? ` (${f.note})` : ""),
-    h("pre", { class: "mono small" }, f.command || ""),
+    commandBox(f.command),
     h("p", { class: "muted" }, `in ${f.in || "?"}`, f.item ? [", for ", itemLink(f.item)] : null, f.session ? [", asked by ", itemLink(f.session)] : f.block ? `, asked by block ${f.block}` : ""),
     actionAnswer(d, refresh),
     d.state === "ran" || d.state === "failed" ? [h("h3", {}, `Output (exit ${f.exit ?? "none"})`), h("pre", { class: "mono small" }, f.output || "")] : null,
