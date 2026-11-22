@@ -785,6 +785,8 @@ class Relation:
     precedence: bool = False        # its targets come first: this item is not ready until each is finished
     inverse: str = ""               # the other direction's name, derived (blocks, children)
     group: bool = False             # a parent: the Graph view groups by it
+    remote: str = ""                # names a remote's kind (incidents-incident): the remote; never precedence (§4c)
+    there: str = ""                 # the kind's name at that remote (incident)
 
 
 @dataclass

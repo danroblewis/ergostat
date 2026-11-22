@@ -395,6 +395,7 @@ svg.dragging-part .pm-node { cursor: grabbing; }
 .edge.pm-follows .info { stroke: var(--ink); stroke-linejoin: round; opacity: .82; }
 .edge.pm-caused .info { stroke: var(--muted); stroke-dasharray: 6 4; }
 .edge.pm-related .info { stroke: var(--muted); stroke-dasharray: 1.5 3; }
+.edge.pm-related.pm-remote .info { stroke-dasharray: 9 5; }   /* to a remote's item: dashed, as its frame is */
 .edge.pm-follows.rework .elabel { font-style: italic; }
 .edge.pm-follows .elabel, .edge.pm-caused .elabel, .edge.pm-related .elabel { fill: var(--muted); }
 .toolbar .pm-paths { width: 96px; accent-color: var(--ink); }
