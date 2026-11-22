@@ -125,8 +125,12 @@ itself: a clean merge is committed by the factory; a conflicted one is handed to
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
 `tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after: ruff, the unit suite and the four browser files, each under the watchdog in a suite container of the agent image
-and the suite slot; a browser test skipped fails them, as in the queue. **No browser stops the round:** before the
+after: ruff, `[suites] build` and the four browser files, each under the watchdog in a suite container of the agent
+image and the suite slot; a browser test skipped fails them, as in the queue. `build` is the small set
+(`scripts/affected_tests.py`: the test files the branch changed since main and `tests/test_<module>.py` of each
+`ergostat/**/<module>.py` it changed; only collection when there are none; the full suite when the diff cannot be
+read). With `build` commented out or empty, the full `unit` suite runs there instead. The merge queue never reads
+`build`: it runs `unit`, `browser` and `demo` in full. **No browser stops the round:** before the
 session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
 missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
 starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with

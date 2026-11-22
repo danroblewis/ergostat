@@ -122,13 +122,13 @@ uses:                                   # any file; the instances of every file 
       every: 1d
       limit: 3
       ping: ./bin/remind.sh
-library:                                # main file only: folders of the owner's own templates
+library:                                # main file only: folders of templates (a path: the owner's own)
   - ~/private/ergostat-templates
 ```
 
 | Key | Type | Meaning |
 |---|---|---|
-| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so |
+| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so; an untrusted folder's never does (below) |
 | `with` | map | The template's parameters. A parameter it does not take, a value of the wrong type (a duration that does not parse, a setpoint, a cron expression, a name) and a required one left out are errors at that line |
 | `within` | system name | The system the instance is part of |
 | `description` | string | |
@@ -198,6 +198,38 @@ one item a run, `pool` at once, and an item that fails every try is a dead lette
 for the instance like any part (`steps` makes `NAME-workspace`, and `NAME-push` for an action `push`), and a
 block's `workspace:` and `actions:` follow the names. A block's lease terms are its own (`lease:`, with `takes:`
 and `pool:`); `leases:`, each tier's terms, belongs to the model as a whole, as do `messages:` and `storage:`.
+
+**Folders the owner did not write.** A `library:` entry is a path (the owner's folder, trusted) or a map
+`{folder: PATH}`, which is **untrusted** unless it says `trust: owner` (`trust: untrusted` says so plainly):
+
+```yaml
+library:
+  - ~/private/ergostat-templates          # the owner's: trusted
+  - {folder: ~/shared/team-templates}     # not marked trusted: untrusted
+```
+
+A map with another key, no `folder:`, or a `trust:` other than `owner` or `untrusted` is an error at its line
+(**bad-library**), and its folder is not read at all. `$ERGOSTAT_LIBRARY` is the owner's. Trust is each file's: a
+template file inside any folder listed untrusted is untrusted, even when a trusted folder (its parent, whose
+`*/template.yaml` reaches it) is listed too. Each template's trust
+(`ergostat`, `owner` or `untrusted`) is shown by the authoring tools' `library`. An untrusted template never takes the
+place of ergostat's own or a trusted one of the same name, whatever order the folders are listed in: the trusted one is
+used and `check` names the file skipped (**template-library**); between untrusted folders the first wins.
+
+A use is **held** when its template, or any template it uses at any depth, is untrusted. Its whole chain is expanded
+before anything of it is put in the model, and every part made from the first untrusted template down (trusted and
+built-in templates it uses included), as expanded with every parameter's value in it, is checked against the allowlist
+in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`,
+`goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
+`onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
+`alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
+names); sensors only counting items (`items:`) or reading a stock's changes (`changes:`), with no `every` or `cron`.
+Anything else is refused: any other section, block type or key (a sensor's `run`, `query` or `daemon`, a block's
+`on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
+anywhere). One refused part refuses the whole
+use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
+nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
+*Libraries you did not write*).
 
 ### Upkeep
 
@@ -318,7 +350,7 @@ remotes:                        # optional: systems other ergostats run, read he
   ...
 web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
-library:                        # optional, main file only: folders of the owner's templates (section 2a)
+library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
   - ...
 ```
 
@@ -2839,7 +2871,12 @@ where the error is 0.
 - a `run`, `prompt` or `ask` on an external block, or a built-in block with an `agent`;
 - a block whose agent cannot run its type (an `ai` block on an agent of kind `person`);
 - units that disagree between a flow and its stocks, or a sensor and what it measures;
-- a cycle of built-in blocks with no delay (an algebraic loop).
+- a cycle of built-in blocks with no delay (an algebraic loop);
+- **bad-library**: a `library:` entry that is neither a path nor `{folder: PATH}` with an optional `trust: owner` or
+  `trust: untrusted` (its folder is not read; section 2a);
+- **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
+  `ergostat/library/trust.py` does not allow: at the owner's `use:` line, and nothing of the chain is in the model
+  (section 2a).
 
 **Findings** (reported, not errors):
 
@@ -2857,8 +2894,8 @@ where the error is 0.
   (section 2a);
 - **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
   (section 12e);
-- **template-library**: a template in a `library:` folder that does not read, or one used in place of
-  ergostat's own;
+- **template-library**: a template in a `library:` folder that does not read, one used in place of
+  ergostat's own, or an untrusted folder's template not used because a trusted one has its name;
 - **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
   is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
   (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
