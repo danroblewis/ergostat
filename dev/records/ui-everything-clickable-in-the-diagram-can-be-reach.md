@@ -60,3 +60,11 @@ Built, round 1. 59 net lines in `ergostat/web/static`: `keys.js` (48, new, loade
 - Not run here: the whole of `test_diagram_rendering.py` (it runs past the session's 10-minute command limit, and a
   background run was refused), the other three browser files, the unit suite. The merge queue must run them. `main`
   has no commits beyond the branch's base.
+- Build step, round 1: `[suites] build` failed with rc 5. Its only selected file was `tests/test_diagram_rendering.py`,
+  which `affected_tests.py` runs without Playwright, so the module skipped at import (line 38) and no test ran. That is
+  pytest's "no tests ran", not a failing test. No ergostat code was at fault, so none changed. With Playwright
+  (`suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+  tests/test_diagram_rendering.py::test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard`) the
+  acceptance test passed (1 passed, rc 0). ruff is clean. The build command, or `affected_tests.py`, does not add
+  Playwright for a browser file. That is the factory's own tooling and lies outside this gap (lesson 13), so it is left
+  for its own gap. Until then, any branch whose only affected tests are browser files fails the build step this way.
