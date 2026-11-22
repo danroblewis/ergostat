@@ -78,3 +78,11 @@ Runs (each under suite_watch with Playwright):
   main too; the factory's rerun on clean main should settle that.
 - Not run here: the unit suite, test_page_polling.py, test_page_refresh.py. No main merge was needed: the branch was
   made from main and main has not moved in the clone.
+
+### Round 1, after the factory's build step
+
+The build step failed with rc 5: it ran `tests/test_diagram_rendering.py` (via affected_tests) without Playwright
+installed, so the file was skipped at import (`could not import 'playwright.sync_api'`) and pytest collected no tests.
+No test failed and no code is at fault, so I changed no code. Run again with Playwright under suite_watch, the gap's
+test `test_items_links_each_kind_to_its_process_map_whose_states_say_how_many_are_there_now` passed (rc 0), and ruff
+is clean. To check this page change, the build needs Playwright (`build_browser = true` or `--with playwright`).
