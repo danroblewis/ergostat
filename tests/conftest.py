@@ -1,8 +1,13 @@
+import contextlib
 import fcntl
+import json
 import os
+import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -180,3 +185,49 @@ def project(repo):
 
 def here() -> Path:
     return Path(__file__).parent
+
+
+class FactoryState:
+    """scripts/factory_fixture.py's state directory: ``model`` (the repository), ``home`` (its ERGOSTAT_HOME),
+    ``record`` (its state directory), ``stats`` (what the script said it wrote), ``digests`` (each record file's
+    sha256 as built), ``project()``, and ``serve()``: a page server on it, a context manager giving its URL."""
+
+    def __init__(self, out: Path, stats: dict):
+        import hashlib
+        self.model, self.home, self.record, self.stats = out / "model", out / "home", Path(stats["record"]), stats
+        self.digests = {str(f.relative_to(self.record)): hashlib.sha256(f.read_bytes()).hexdigest()
+                        for f in sorted(self.record.rglob("*")) if f.is_file() and f.name != "repo.json"}
+
+    def project(self):
+        from ergostat import model
+        from ergostat.store import Project
+        return Project(model.load(self.model), self.record, note=False)
+
+    @contextlib.contextmanager
+    def serve(self):
+        from http.server import ThreadingHTTPServer
+
+        from ergostat.web.server import handler
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(self.project()))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            yield f"http://127.0.0.1:{srv.server_address[1]}"
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
+def build_factory_state(out: Path, *args: str) -> dict:
+    got = subprocess.run([sys.executable, str(here().parent / "scripts/factory_fixture.py"), str(out), *args],
+                         check=True, capture_output=True, text=True, timeout=900)
+    return json.loads(got.stdout)
+
+
+@pytest.fixture(scope="session")
+def factory_state(request, tmp_path_factory) -> FactoryState:
+    """A factory-size state directory (seed 1, its record ending at this hour), built once a session (tests/README.md).
+    Skipped under a ``-m fast`` run: it takes about a minute to build."""
+    if "fast" in (request.config.getoption("markexpr") or ""):
+        pytest.skip("the factory-size state directory is not built in a -m fast run")
+    out = tmp_path_factory.mktemp("factory") / "state"
+    return FactoryState(out, build_factory_state(out, "--seed", "1", "--end", str(int(time.time()) // 3600 * 3600)))
