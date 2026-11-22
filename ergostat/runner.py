@@ -17,6 +17,7 @@ a loop that crosses its setpoint (holding to off, or back) is recorded as ``loop
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import json
 import os
@@ -26,7 +27,9 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 from . import state as st
 from .reports import crash as reports_crash
@@ -283,10 +286,39 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
     if version is None:
         from .history import version as model_version
         version = model_version(project.model)
-    started = time.time()
-    begun = project.events.add("agent.started", item=agent.name, source=SOURCE,
-                               causedby=trigger.get("id") if trigger else None,
-                               data={"trigger": trigger["type"] if trigger else why, "model": version})
+    started, cmd, b = time.time(), agent.command, getattr(project.model, "budget", None)
+    run_id = uuid.uuid4().hex if b is not None else None
+
+    def write(more: dict | None = None) -> dict:
+        return project.events.add("agent.started", item=agent.name, source=SOURCE, id=run_id,
+                                  causedby=trigger.get("id") if trigger else None,
+                                  data={"trigger": trigger["type"] if trigger else why, "model": version, **(more or {})})
+    if b is None:
+        return _ran(project, agent, trigger, why, version, started, write(), cmd)
+    from .costs import ai as costs_ai
+    from .costs import budget
+
+    # the permissive (SPEC §9.9): asked under its flock; the run is the agent, typed by its kind
+    spec, blk = SimpleNamespace(budget=b, agents={agent.name: agent}), SimpleNamespace(
+        name=agent.name, agent=agent.name, type=agent.kind)          # (free only for budget.FREE's kinds)
+    begun, no = budget.permit(project, spec, blk, write, run_id)
+    if begun is None:
+        return {"budget_refused": no, "note": f"refused: budget: {no}"}
+    if costs_ai.is_claude(cmd):                     # T1: its reserve as its cap, ours wins
+        cmd = re.sub(r"\s--max-budget-usd(?:=|\s+)\S+", "", cmd) + f" --max-budget-usd {budget.reserve_of(spec, blk)}"
+    try:
+        return _ran(project, agent, trigger, why, version, started, begun, cmd)
+    except BaseException:
+        if begun["id"] in budget.OPEN:              # raised before its end: its reserve stays charged
+            with contextlib.suppress(Exception):
+                budget.close(project, agent.name, begun["id"], None, "the run raised before its end")
+        raise
+    finally:
+        budget.OPEN.discard(begun["id"])
+
+
+def _ran(project, agent, trigger, why, version, started, begun, cmd) -> dict:
+    """The run, once its ``agent.started`` is written: to its end."""
     rec = Recorder(project, agent, begun["id"])
     log = log_path(project, agent.name)
     from .storage import trim
@@ -299,7 +331,7 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
                  f"({trigger['type'] if trigger else why})\n")
         lf.flush()
         try:
-            p = subprocess.Popen(agent.command, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,
+            p = subprocess.Popen(cmd, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
             LIVE.add(p)
         except OSError as e:
@@ -439,6 +471,7 @@ class Runner:
             if model is not self.p.model:                    # swapped: the new model's schedules from now
                 model = self.p.model
                 timed, crons, next_cron = self._plan(model, crons, next_cron)
+            self._recover()
             now = time.monotonic()
             for a in timed:
                 if now >= due.get(a.name, 0):
@@ -454,6 +487,16 @@ class Runner:
                         next_cron[n] = None
                     self._due(n)
             self.stop.wait(TICK)
+
+    def _recover(self) -> None:
+        """Under ``[budget]``: a reserved run whose process is gone is closed (``budget.recover``: once a minute)."""
+        if getattr(self.p.model, "budget", None) is None:
+            return
+        from .costs import budget
+        try:
+            budget.recover(self.p, self.p.model)
+        except Exception as e:
+            self.say(f"budget: recovery: {type(e).__name__}: {e}")
 
     def _due(self, name: str) -> None:
         q = self.queues.get(name)

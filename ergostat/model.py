@@ -7,6 +7,7 @@ a flow of it. Systems are named selections that may overlap."""
 
 from __future__ import annotations
 
+import math
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -229,6 +230,7 @@ class Model:
     systems: dict[str, System] = field(default_factory=dict)
     keep: float = 30 * 86400.0                 # how long the record is kept (the model's history always)
     storage: object = None                     # storage.Storage (the YAML's storage:); None: the defaults
+    budget: object = None                      # spec.ir.RunBudget, from [budget] (SPEC §9.9); None: no budget
     _problems = None                           # a YAML model's problems as it compiled (not a field: never compared)
     _late = None                               # and how to find the rest, the first time they are asked for
 
@@ -402,12 +404,36 @@ def _take(row: dict, allowed: set[str], where: str) -> dict:
 COMMON = {"name", "description", "systems"}
 
 
+def _budget(raw):
+    """``[budget]``: ``daily`` and ``max-cost``, both required, finite numbers within ``RunBudget.problem``'s bounds."""
+    from .spec.ir import RunBudget
+    if not isinstance(raw, dict):
+        raise ModelError("[budget]: a table with daily and max-cost")
+    if extra := sorted(set(raw) - {"daily", "max-cost"}):
+        raise ModelError(f"[budget].{extra[0]}: unknown key (known: daily, max-cost)")
+    got = []
+    for k in ("daily", "max-cost"):
+        v = raw.get(k)
+        try:
+            ok = isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(float(v))
+        except OverflowError:                       # (an integer of hundreds of digits)
+            ok = False
+        if not ok:
+            raise ModelError(f"[budget].{k}: " + (f"a finite number of dollars, not {v!r}"[:120] if k in raw else "missing"))
+        got.append(float(v))
+    b = RunBudget(*got)
+    if why := b.problem():
+        raise ModelError(f"[budget] {why}")
+    return b
+
+
 def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") -> Model:
-    known = {"name", "keep", "stock", "flow", "disturbance", "valve", "sensor", "controller", "agent", "system"}
+    known = {"name", "keep", "budget", "stock", "flow", "disturbance", "valve", "sensor", "controller", "agent", "system"}
     if extra := sorted(set(data) - known):
         raise ModelError(f"unknown table {extra[0]!r} (known: {', '.join(sorted(known - {'name'}))})")
     m = Model(name=str(data.get("name") or default_name), path=path,
               keep=parse_duration(data["keep"], "keep") if data.get("keep") is not None else 30 * 86400.0)
+    m.budget = _budget(data["budget"]) if "budget" in data else None
     seen: dict[str, str] = {}
 
     def rows(key):
