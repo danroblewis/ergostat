@@ -83,8 +83,9 @@ function sdCloud(n, w, hgt) {                           // (a cloud a flow leave
 /* a system closed: a module (Stella) or a view (Vensim): its name, and its ports, what crosses its edge */
 function sdSystem(n, w, hgt) {
   const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
-  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote ? { "stroke-dasharray": "9 5" } : {}) }));
+  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote || n.upkeep ? { "stroke-dasharray": n.upkeep ? "6 4" : "9 5" } : {}) }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
+  if (n.upkeep) g.append(s("text", { x: 16, y: 58, class: "t-sub sys-upkeep" }, UPKEEP));   // apart from the system it models
   const inside = sdInside(S.graph, n.id).length;
   g.append(s("text", { x: 16, y: 42, class: "t-sub" + (n.remote ? " live" : "") }, n.remote ? n.remote.says   // run by another ergostat, read here
     : inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));

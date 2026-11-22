@@ -59,12 +59,19 @@ function bdSize(n) {
   } else if (frac) { w = Math.max(w, bdTextW(frac[0]) + 28, bdTextW(frac[1]) + 28); hgt = 64; }
   else if (fn.expr) { w = Math.max(w, bdTextW(fn.expr, true) + 24); hgt = 54; }
   if (n.role === "subsystem") { w += 18; hgt = Math.max(hgt, 54); }
+  if (n.upkeep) { w = Math.max(w, bdTextW(UPKEEP, true) + 20); hgt += BD_UPKEEP; }     // its line under its function
   if (n.tier) w = Math.max(w, bdTextW(BD_TIER[n.tier] || n.tier, true) + 12);
   return [Math.round(w), Math.max(hgt, (sideN + 1) * BD.PORT) + (n.tier ? BD.TIER : 0)];
 }
 /* who fills a block, on the ladder (SPEC §9.5): written small in its top-left corner, above its function */
 const BD_TIER = { person: "person", ai: "AI agent", "narrow-ai": "narrow AI", decision: "decision", program: "program", rule: "rule" };
 function bdFrameTitle(f) { return 30; }
+const BD_UPKEEP = 16;
+function bdUpkeep(g) {                                 // the modelling system closed, at the top, linked to nothing
+  const n = g.nodes.find((x) => x.upkeep && !x.parent);
+  return n && g.nodes.length > 1 && !(n.ins || []).length && !(n.outs || []).length &&
+    !g.edges.some((e) => e.source === n.id || e.target === n.id) ? n : null;
+}
 
 /* ---- the layout: ELK places the parts and the frames (open systems, the inner loops of cascades) */
 function bdPortPos(n, w, hgt) {                        // the ports of the parts that are drawn by hand: where they are
@@ -120,7 +127,8 @@ function bdElkGraph(g) {
   for (const n of g.nodes) lift(n.id, rank[n.id]);
   const items = [...g.nodes.map((n) => [n.id, n.parent]), ...(g.frames || []).map((f) => [f.id, f.parent])]
     .sort((a, b) => (fr[a[0]] ?? Infinity) - (fr[b[0]] ?? Infinity));
-  for (const [id, parent] of items) (parent && elkNodes[parent] ? elkNodes[parent].children : roots).push(elkNodes[id]);
+  const up = bdUpkeep(g)?.id;                          // (put after, below a rule: bdLayout)
+  for (const [id, parent] of items) if (id !== up) (parent && elkNodes[parent] ? elkNodes[parent].children : roots).push(elkNodes[id]);
   // a sensor sits on the feedback path: given to the layering between where its reading goes and what it
   // reads (its lines reversed), it is placed beneath the forward path, not after it
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
@@ -225,6 +233,17 @@ async function bdLayout(g) {
     }
   }
   const size = bdWrapRows(g, { children, containers, ports, edges }, lay.width, lay.height);
+  const up = bdUpkeep(g);
+  let rule = null;
+  if (up) {                                             // the model's own upkeep: read last, bottom right, below a thin rule
+    const [w, hgt] = bdSize(up), all = [...children, ...containers];
+    const x0 = Math.min(...all.map((c) => c.x)), x1 = Math.max(...all.map((c) => c.x + c.width)), y1 = Math.max(...all.map((c) => c.y + c.height));
+    rule = { x0, x1: Math.max(x1, x0 + w), y: y1 + BD_ROW_GAP / 2 };
+    children.push({ id: up.id, x: Math.max(x0, x1 - w), y: y1 + BD_ROW_GAP, width: w, height: hgt, within: [] });
+    up.systems = [];
+    size[0] = Math.max(size[0], rule.x1 + 20);
+    size[1] = Math.max(size[1], y1 + BD_ROW_GAP + hgt + 20);
+  }
   // the side each port is on, after ELK placed them
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const box = Object.fromEntries(children.map((c) => [c.id, c]));
@@ -241,7 +260,7 @@ async function bdLayout(g) {
     }
     if (c) { p.dx = p.x - c.x; p.dy = p.y - c.y; }      // (each goes with its part when it is moved: places.js)
   }
-  const out = { children, containers, edges, ports, width: size[0], height: size[1], routing: false };
+  const out = { children, containers, edges, ports, width: size[0], height: size[1], routing: false, rule };
   for (const e of out.edges) {                         // until libavoid's lines come: ELK's, ending on the ports
     const ge = g.edges.find((x) => x.id === e.id);
     const a = ports[ge?.sourcePort], b = ports[ge?.targetPort];
@@ -685,10 +704,11 @@ function bdNode(n, c) {
     bdSym(g, w / 2, hgt / 2 + 4, fn, { size: 12 });
     if (n.in) g.append(s("text", { x: n.port_of === "in" ? 0 : w, y: -5, class: "bd-note", "text-anchor": n.port_of === "in" ? "start" : "end" }, n.port_of === "in" ? "from " + n.in : "to " + n.in));
   } else {
-    g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt }));
+    g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt, "stroke-dasharray": n.upkeep ? "6 4" : null }));
     const band = n.tier ? BD.TIER : 0;                 // its tier written small in a band at the top, its function beneath
     if (n.tier) g.append(s("text", { x: 5, y: 13, class: "bd-note bd-tier", "data-tier": n.tier }, BD_TIER[n.tier] || n.tier));
-    g.append(bdBody(n, fn, w, hgt - band, band));
+    g.append(bdBody(n, fn, w, hgt - band - (n.upkeep ? BD_UPKEEP : 0), band));
+    if (n.upkeep) g.append(s("text", { x: w / 2, y: hgt - 8, class: "bd-note sys-upkeep", "text-anchor": "middle" }, UPKEEP));
     if (n.remote && !fn.name) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
     if (n.identified) g.append(s("text", { x: w, y: -5, class: "bd-note bd-ident", "text-anchor": "end" }, "identified"));   // its law, from the record
     bdAlarm(g, n);
@@ -804,6 +824,7 @@ function bdDraw(svg, g, lay) {
     });
     vp.append(fg);
   }
+  if (lay.rule) vp.append(s("path", { class: "bd-upkeep-rule", d: `M${lay.rule.x0},${lay.rule.y} H${lay.rule.x1}` }));
   // the lines: each signal from its port, an arrowhead where it arrives, a dot where it is taken off
   const edgesG = s("g", { class: "bd-edges" }), labelsG = s("g", { class: "bd-labels" });
   const byLe = Object.fromEntries(lay.edges.map((le) => [le.id, le]));

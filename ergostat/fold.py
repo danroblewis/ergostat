@@ -28,6 +28,11 @@ def value_of(n: dict) -> str:
     return "" if v.startswith("?") else v
 
 
+def upkeep(spec, name: str) -> bool:
+    """The system is ergostat's upkeep of the model (the modelling template's), not part of the system modelled."""
+    return ((getattr(spec, "uses", None) or {}).get(name) or {}).get("template") == "modelling"
+
+
 def default_open(spec, focus: str | None) -> set[str]:
     """A system that is alone at its level is opened: a box with nothing beside it says nothing."""
     out: set[str] = set()
@@ -99,7 +104,8 @@ def fold(g: dict, model, open_: set[str] | None, focus: str | None = None, reads
                         "systems": [s for s in ch[1:] if s in open_ and s != focus and (not focus or focus in ch[1:])],
                         "ports": [], "loops": {}, "status": None, "inner": spec.inner_loops(name),
                         "subsystems": spec.subsystems(name), "parts": 0, "remote": remote_box(spec, name),
-                        "size": size_said(size(spec, name))}             # parts, loops, depth (architecture.py)
+                        "size": size_said(size(spec, name)),             # parts, loops, depth (architecture.py)
+                        "upkeep": upkeep(spec, name)}                    # the model's own upkeep: drawn last, set apart
         if r.startswith("system:"):
             boxes[r]["parts"] += 1
             boxes[r].setdefault("holds", []).append(i)            # (correspond.py: what it holds, as drawn)

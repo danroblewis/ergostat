@@ -446,6 +446,46 @@ def test_model_errors_drain_is_a_short_straight_satellite_of_its_stock(browser, 
     assert not errors, errors
 
 
+UPKEEP_BOX = """(id) => {
+  const me = S.layout.children.find((c) => c.id === id);
+  if (!me) return null;
+  const el = document.querySelector(`g.node[data-id="${CSS.escape(id)}"]`);
+  const others = S.layout.children.filter((c) => c !== me);
+  const ahead = others.filter((c) => !(me.x >= c.x + c.width - 0.5 || me.y >= c.y + c.height - 0.5)).map((c) => c.id);
+  const rule = document.querySelector("path.bd-upkeep-rule")?.getBBox();
+  const dashed = [...(el?.querySelectorAll("rect") || [])].some((r) => r.getAttribute("stroke-dasharray"));
+  const below = rule ? others.filter((c) => c.y + c.height > rule.y).map((c) => c.id) : [];
+  const said = el?.querySelector(".sys-upkeep")?.getBBox();
+  const fits = !!said && said.x >= 0 && said.x + said.width <= me.width && said.y >= 0 && said.y + said.height <= me.height;
+  return { ahead, others: others.length, dashed, fits, text: el?.textContent || "", rule: rule ? { y: rule.y, below } : null, top: me.y };
+}"""
+
+
+@pytest.mark.parametrize("example", ["alert-triage", "big"])
+def test_modelling_is_drawn_last_set_apart_and_labelled(browser, tmp_path, example):
+    """The design review (Q13): at the top level ergostat's model of its own upkeep was the top-left box, read first,
+    unexplained. In both views it comes last: its top-left corner below or right of every other part, its outline
+    dashed, and it says it is 'ergostat's upkeep of this model, not the system'; in Blocks below a thin rule."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, (view, box) in enumerate([("view=dynamics", "system:modelling"), ("view=blocks", "sys:modelling")]):
+            drawn(pg, url, view, i)
+            r = pg.evaluate(UPKEEP_BOX, box)
+            assert r, f"[{view}] no {box} drawn at the top level"
+            assert r["others"] >= 2, f"[{view}] too few other parts to be last among: {r}"
+            assert not r["ahead"], f"[{view}] {box}'s top-left corner is neither below nor right of {r['ahead']}"
+            assert r["dashed"], f"[{view}] {box}'s outline is not dashed"
+            assert "upkeep of this model" in r["text"], f"[{view}] {box} does not say what it is: {r['text']!r}"
+            assert r["fits"], f"[{view}] the line 'upkeep of this model' runs outside {box}"
+            if view == "view=blocks":
+                assert r["rule"], "[blocks] no rule above the modelling block"
+                assert r["rule"]["y"] < r["top"] and not r["rule"]["below"], f"[blocks] the rule is not between: {r}"
+        pg.close()
+    assert not errors, errors
+
+
 def test_a_valve_dragged_over_its_stock_stands_upright_on_its_top(browser, tmp_path):
     """A valve turns to follow its pipe wherever it is put: new-backups (copies-not-offsite's inflow from a cloud, laid
     out standing on the stock's top) dragged beside the stock turns level, its pipe straight into the stock's side;
