@@ -197,6 +197,10 @@ def test_drift_turns_simplify_when_on(tmp_path):
     assert str(spec.blocks["factory-off"].inputs["code"]) == "block.code-health-off"
     assert [c.name for c in spec.commanders_of("improve-factory")] == ["factory-off"]   # one commander, no competing
     assert [p for p in problems if p.code == "competing-commands"] == []
+    from ergostat.spec.architecture import interfaces
+    said: list = []
+    interfaces(spec, lambda code, msg, part: said.append((part, msg)))
+    assert [s for s in said if s[0] == "system.measures"] == []           # nothing outside commands factory-off
 
     def run(b, **given) -> float:
         return eval_expr(compile_expr(b.params["expr"]), {k: given[k] for k in b.inputs})

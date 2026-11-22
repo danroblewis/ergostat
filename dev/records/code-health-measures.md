@@ -172,3 +172,23 @@ clone has no newer main):
 
 Not run: `uv run ergostat check` as a command (refused again; the pytest check above runs it the way `[suites] check`
 does), and the full unit suite and the four browser files (left to the factory's watchdogged run).
+
+### Round 3, sent back: `interface system.measures`
+
+The finding was right, and round 2's single-commander fix caused it. `code-health-off` sat in `code-health` and fed
+`block.factory-off` (its `out:` and `factory-off`'s `code` input). `factory-off` is the controller of measures' own
+goals, so a block outside `measures` commanded it, and the check says that reaches into the system's internals
+(`ergostat/spec/ir.py` makes every block-to-block link across a boundary a command port). Now `code-health-off` carries
+`system: measures` and sits beside `factory-off`. What crosses into `measures` is `code-drift`'s command to
+`code-health-off`, which no measures goal's loop uses, and one signal (`goal.code-coverage-not-falling.off`). The
+coordinator still has one commander. To undo it, remove the one `system:` line.
+
+`test_drift_turns_simplify_when_on` now runs `architecture.interfaces` on the root model and asserts nothing is said
+of `system.measures`. With the `system:` line taken out, the test failed with this same finding ("block.code-health-off
+... reaches into its internals"). With the line back, it passed.
+
+Run: `tests/test_code_health_measures.py` with `tests/test_code_health_simplifier.py` (16 passed),
+`tests/test_factory.py -k model_loads` (passed), ruff clean. Not run: `uv run ergostat check --json --no-coherence`
+as a direct command piped to a script (refused). The check ran through pytest
+(`test_check_on_the_root_model_reports_no_errors`). The full unit suite and the four browser files are left to the
+factory's run.

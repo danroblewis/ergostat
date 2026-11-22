@@ -162,6 +162,8 @@ blocks:
     out: block.simplify-when
   code-health-off:
     type: expr
+    system: measures                   # beside factory-off: a link from outside into the controller of measures'
+                                       # own goals reaches into its internals (check: interface)
     description: any of the code measures' goals off - the coordinator asked, as for the factory's other measures
     in:
       drift: block.code-drift
