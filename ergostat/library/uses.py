@@ -7,7 +7,7 @@ from ..spec.ir import NAME
 from ..spec.load import SECTIONS, Map, Problem, Where
 from . import templates as tp
 from . import trust
-from .expand import MAX_DEPTH, USE_KEYS, ExpandError, Via, author, expand
+from .expand import LIBRARY, MAX_DEPTH, USE_KEYS, ExpandError, Via, author, expand
 from .untrusted import FILE, LABEL, mark
 
 
@@ -58,19 +58,22 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
     """One owner's entry: its whole chain planned; held and making anything trust.py refuses, none of it is put."""
     chain = Chain()
     plan(doc, chain, inst, entry, w, defaults, depth, within, None)
-    held = {(s, n) for _, _, s, n, _ in chain.checks}
-    for u, tw, section, name, made in [*([chain.forged] if chain.forged else []), *chain.checks]:
-        path = trust.refused(section, name, made, held, tw) if section else name
+    held = {(s, n) for _, _, _, s, n, _ in chain.checks}
+    for u, tw, tt, section, name, made in [*([chain.forged] if chain.forged else []), *chain.checks]:
+        path = trust.refused(section, name, made, held, tw, tt) if section else name
         if path is None:
             continue
         for key in chain.names[1:]:
             doc.defined.pop(key, None)
         at = entry.at("use") if hasattr(entry, "at") else w
+        text = isinstance(path, trust.Text)
+        why = ("its ask, prompt, query and sources may hold only text the owner or a trusted template wrote, and this "
+               "holds text the library wrote (R3)" if text else "a use of such a folder may make only structure, and "
+               "run only the owner's own commands and ergostat's programs with checked arguments")
         doc.problems.append(Problem(
             "error", f"use {inst}: refused, and nothing of it is in the model: it makes {path}, under template {u.name} "
-            f"from {u.path.parent}, a library folder not marked trusted, and a use of such a folder may make only "
-            f"structure, and run only the owner's own commands and ergostat's programs with checked arguments "
-            f"(SPEC §2a). Only the owner can mark a folder trusted, after reading it.", at, "library-untrusted",
+            f"from {u.path.parent}, a library folder not marked trusted, and {why} (SPEC §2a). Only the owner can "
+            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-untrusted",
             f"system.{inst}"))
         return
     for step in chain.steps:
@@ -129,7 +132,7 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         made = expand(t, inst, dict(given), writers)
     except ExpandError as e:
         if getattr(e, "forged", False) and (under or not tp.trusted(t)):
-            chain.forged = (under or t, None, None, "a text holding a control character only ergostat's marks use", None)
+            chain.forged = (under or t, None, None, None, "a text holding a control character only ergostat's marks use", None)
             return
         for msg, key in getattr(e, "all", [(str(e), e.key)]):
             err(said(msg), given.at(key) if key and hasattr(given, "at") else at, "bad-param")
@@ -141,9 +144,10 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
               **({"within": str(parent)} if parent else {})}
     if under is not None:
         tw = author(t)
-        chain.checks += [(under, tw, "systems", inst, system),
-                         *((under, tw, s, n, x) for s, entries in made.marked.items() for n, x in entries.items()),
-                         *((under, tw, "uses", n, x) for n, x in made.sections.get("uses", {}).items())]
+        tt = LIBRARY if trust.blind(t) else tw                # its own text may hold a value unmarked: a library's
+        chain.checks += [(under, tw, tt, "systems", inst, system),
+                         *((under, tw, tt, s, n, x) for s, entries in made.marked.items() for n, x in entries.items()),
+                         *((under, tw, tt, "uses", n, x) for n, x in made.sections.get("uses", {}).items())]
     if not (t.once and ("systems", inst) in doc.defined):     # a once template's system, when the model declares it, is the model's
         chain.steps.append(("put", "systems", inst, as_map(system, via), via))
         if t.once:
