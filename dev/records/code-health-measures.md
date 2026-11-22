@@ -130,3 +130,15 @@ docstring), `code-health.yaml` +101 −3, README +12.
   the root model, extremes included, and asserts no errors.
 - The measures against this repository. A scratch config under `/tmp` was refused too.
 - The full unit suite and the four browser files. They are left to the factory's watchdogged run.
+
+### Round 2, sent back: "`ergostat check` said nothing readable on the branch"
+
+I could not reproduce this, and no model change follows from it. At the branch's HEAD (main b4639301 already merged
+in, and no newer main in this clone), `ergostat check --json --no-coherence`, run as `[suites] check` runs it, prints
+its JSON in about 6 s. That run had stderr in the same log, and `fac.findings` parsed the output with no error in it.
+The new `test_check_on_the_root_model_reports_no_errors` (in `tests/test_code_health_measures.py`) does exactly this.
+I broke `code-health-off`'s `out` to an unknown block, and the test failed (bad-ref); then I put it back. Direct shell
+commands (`uv run ergostat check`) were refused in this session, so the check ran only through pytest. The factory's
+own log of that run (`*-branch-check.txt`) is what would say why it printed nothing readable: a container or slot
+failure, perhaps. This clone does not have it. I changed nothing in the model, because no change follows from what
+I could see.

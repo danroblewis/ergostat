@@ -203,3 +203,16 @@ def test_drift_turns_simplify_when_on(tmp_path):
     assert run(when, days=0, inflight=1, over=0, drift=on) == 0                  # pool 1: not while one is in flight
     assert run(when, days=0, inflight=0, over=0, drift=0) == 0
     assert run(when, days=0, inflight=0, over=1, drift=on) == 0                  # nor on a spent day
+
+
+def test_check_on_the_root_model_reports_no_errors():
+    """`ergostat check --json --no-coherence` as the factory runs it ([suites] check, stderr in the same log): its JSON
+    is read as implement.py reads it (fac.findings), with no error in it."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}
+    r = subprocess.run([sys.executable, "-m", "ergostat", "check", "--json", "--no-coherence"], cwd=ROOT, env=env,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
+    sys.path.insert(0, str(ROOT / "dev" / "bin"))
+    import fac
+    assert fac.findings(r.stdout, fac.RECORD_FINDINGS) is not None, (r.returncode, r.stdout[:3000], r.stdout[-3000:])
+    got = json.JSONDecoder().raw_decode(r.stdout[r.stdout.index("{"):])[0]
+    assert [x for x in got["found"] if x["level"] == "error"] == []
