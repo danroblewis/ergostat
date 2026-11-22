@@ -488,3 +488,11 @@ Round 12 (the fix round for review operating-states-9). Each finding:
 Tests run: `tests/test_operating.py`, `tests/test_cli_fallback.py` (52 passed), `tests/test_operating.py` with
 `tests/test_leases.py` (71 passed); ruff clean. Not run by the implementor: the full unit suite and the four browser
 files. No demo is touched, so `demo_check` is not needed.
+
+Round 13 (the merge of main 4a1bcd10, which conflicted in `ergostat/spec/compile.py`). Both sides were kept: the
+branch's `operating.section` call, then main's new `bounds.check` (an untrusted library's limits), in that order.
+Merge commit 6db665b0. No other code changed, so the size is unchanged (455 net lines, for the reasons given in
+rounds 6, 11 and 12). Tests run after the merge: `tests/test_operating.py`, `tests/test_cli_fallback.py` and
+`tests/test_library_trust.py` (100 passed), `tests/test_leases.py` (37 passed), `tests/test_library_untrusted.py` and
+`tests/test_library_untrusted_runs.py` (30 passed); ruff clean. Not run by the implementor: the full unit suite and
+the four browser files. No demo is touched, so `demo_check` is not needed.
