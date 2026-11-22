@@ -28,7 +28,7 @@ Found on 2026-11-21: from 19:10 to 19:37 the implementor took nothing, though ga
 
 Round 1. Items 1-3 are built and tested. Item 4 (the timing) is **not measured**: see below.
 
-**Built** (`ergostat/precedence.py`, +13/-2):
+**Built** (`ergostat/precedence.py`, +13/-4, 9 net lines against a budget of 40):
 - Once the capped graph and its links have been read (still under the index lock), every precedence target that
   the graph's items name but the cap cut is read by id in **one** `ix.items(None, ids=cut, moves=False)` call.
   `finished(d)` reads the target's status from the graph or from that lookup. A target found in neither (never
