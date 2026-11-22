@@ -38,3 +38,18 @@ Choices made with nobody to ask (each the more reversible one):
 - Fails closed: a re-run on main that cannot tell (None) counts as main's, and so does an unreadable quarantine list (no test quarantined). One case is left open: a first run on main that cannot tell (a test main lacks, a run that never started) bisects as before.
 - The check runs once a run, before its first finding. It does not run after a gap has been blamed, and it does not see a test the red run did not name (a sibling suite stopped by the first failure). dev/README.md says both.
 - If any of the failing tests fails on main twice, the whole batch is held, including when some other test passes on main.
+
+### Round 2
+
+Each finding of review/bisect-tests-main-itself-1, and what changed:
+- (blocking, a) main_red() now reads its intervention first. If the coordinator has recorded it remedied (manage.py remedy), main_red is cleared and the run takes its batch with no check, the way settle() lifts `blocked`. The queue does not record the remedy a second time. A remedy that cannot be read ("unknown") keeps the hold (fails closed). Test: test_main_red_clears_when_its_intervention_is_remedied.
+- (blocking, b) A held test that main's head lacks no longer holds main. lacks() treats a test as lacking when its file is gone at the head, or the file has no `def` of its function name (less any `[param]`). Such a test is dropped from the check like a quarantined one. If none are left, the hold clears and the intervention is recorded remedied ("they are quarantined or gone from main"). This is a static read of the file, not a pytest collection. Either way it is the reversible choice: the coordinator's remedy above still clears any case it gets wrong. Test: test_a_held_test_main_no_longer_has_clears_the_hold[removed|renamed].
+- (non-blocking) agents.NotStarted from main_red's run on main no longer escapes take(). It becomes the reason no batch is taken, the lease is given back uncounted after 10 minutes, and the hold stands. No test was written for it.
+- (non-blocking) dev/README.md, *Batches*, now says that one test failing on main twice holds the whole batch, so a test a gap really broke beside it is found only once main is fixed. It also says what the two new clearings above mean, and that a check that cannot tell or start keeps the hold.
+- (size) Answered by the overrun reason below.
+
+The existing main-red tests now commit a real tests/test_b.py on main, so that lacks() finds it there.
+
+Breaking each guard made its test fail: the remedy read made unreachable failed the remedy test, and lacks() forced to False failed both cases of the missing-test test. Both guards were restored, and the tests passed again.
+
+Overrun reason: queue.py is +87 -3 against main (84 net, budget 50). About 23 of those lines are docstrings, the module docstring among them, which is the queue's own documentation that item 4 asks for. Round 2 adds 17 lines (3 docstring). These close the two ways the round-1 hold could never end, which the review found blocking: the remedy read, lacks(), and the NotStarted reason. The code is about 60 lines.
