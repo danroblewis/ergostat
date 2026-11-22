@@ -699,12 +699,14 @@ async function pageItems(main, q) {
     const card = (k) => {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
         k.title || k.name, h("span", { class: "mono" }, k.title ? k.name : k.id));
+      const pm = h("a", { class: "pm-link", href: `/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`,   // where its work queues
+                          title: "Its process map: how many are in each state now, and how they moved" }, "process map");
       const fl = flows[k.name];
-      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, pm, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
           h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])));
       const chosen = kind === k.name ? state : null;
-      return h("div", { class: "kind-flow", key: k.name }, name,
+      return h("div", { class: "kind-flow", key: k.name }, name, pm,
         keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen]), () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st) }),
              (el) => el.update?.(fl, chosen)));
     };

@@ -370,6 +370,13 @@ def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
     got["offered"] = [{"name": k, "system": where.get(k, {}).get("system"), "states": bool(spec.items[k].states)}
                       for k in spec.items]
     got["default"] = offered
+    if got.get("by") == "states":                  # each state's node: how many are in it now, as Items counts them
+        from ..spec.items import listing
+        now = {k["name"]: k["counts"] for k in listing(p.events, spec, state="\0", until=snap["at"], n=1)["kinds"]}
+        states = {k["name"]: k["states"] for k in got["kinds"] if k.get("by") == "states" and not k.get("remote")}
+        for x in got["nodes"]:
+            if x["kind"] == "activity" and x["activity"] in states.get(x["itemKind"], ()):
+                x["now"] = now.get(x["itemKind"], {}).get(x["activity"], 0)
     return got
 
 

@@ -18,7 +18,7 @@ function pmLabel(e) {                                  // a line's words: how ma
   if (pmShow() === "times") return e.median != null ? dur(e.median) : "";
   return String(e.count);
 }
-function pmNodeSub(n) { return `${n.count}×` + (n.items !== n.count ? ` · ${n.items} item${n.items === 1 ? "" : "s"}` : ""); }
+function pmNodeSub(n) { return (n.now != null ? `now ${n.now} · ` : "") + `${n.count}×` + (n.items !== n.count ? ` · ${n.items} item${n.items === 1 ? "" : "s"}` : ""); }
 function pmNodeSize(n) {
   if (n.kind !== "activity") return [Math.max(76, textWidth(`${n.label} ${n.count}`) + 40), PM.PILL];
   return [Math.round(Math.max(96, textWidth(n.label) * 1.08 + 28, textWidth(pmNodeSub(n)) * 0.95 + 24)), PM.H];

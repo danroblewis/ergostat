@@ -861,7 +861,10 @@ function applyView(svg) {
   const hint = document.getElementById("panhint"), lay = S.layout, r = svg.getBoundingClientRect();
   if (hint && lay && r.width) {
     const k = S.view.k, x0 = S.view.x + (lay.ox || 0) * k, y0 = S.view.y + (lay.oy || 0) * k;
-    hint.hidden = x0 >= -2 && y0 >= -2 && x0 + lay.width * k <= r.width + 2 && y0 + lay.height * k <= r.height + 2;
+    const more = [x0 < -2 && "to the left", x0 + lay.width * k > r.width + 2 && "to the right", y0 < -2 && "above",
+                  y0 + lay.height * k > r.height + 2 && "below"].filter(Boolean);
+    hint.hidden = !more.length;
+    hint.textContent = `More ${more.join(" and ")}`;  // which way more lies
   }
 }
 
@@ -871,7 +874,8 @@ function fit(svg, lay, legible = false) {
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
   const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
   // the first view keeps 11px text at 9px or more on screen; a wider system is panned from its left
-  const k = legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole);   // nearly whole at 0.7: show it whole
+  // nearly whole at 0.7: show it whole. The process map: its nodes' 11px text never under 11px (the hint says where more is)
+  const k = Math.max(S.graph?.kind === "process" ? 1 : 0, legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole));
   const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 120;   // the toolbars: 56 above, 50 below
   const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
   S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
@@ -1022,7 +1026,8 @@ async function pageDiagram(main, q) {
   }
   const view = !q.get("view") || q.get("view") === "control" ? "dynamics" : q.get("view");
   // the Process view's own: which kinds, states or events, the paths slider; counts or times (the page's)
-  const pq = { kinds: q.get("kinds") || "", by: q.get("by") || "", paths: q.get("paths") || "", show: q.get("show") || "" };
+  const pq = { kinds: q.get("kinds") || q.get("kind") || "", by: q.get("by") || q.get("mode") || "",   // (kind, mode: Items' link)
+               paths: q.get("paths") || "", show: q.get("show") || "" };
   S.pmShow = pq.show;
   const system = q.get("system") || "";
   const around = q.get("around") || "";

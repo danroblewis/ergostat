@@ -1286,6 +1286,62 @@ def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_o
     assert not errors, errors
 
 
+# each state's count as the Items page's legend shows it, in one kind's card (a chart's labels or the plain boxes)
+ITEMS_LEGEND = """(kind) => {
+  const card = document.querySelector('a.pm-link[href*="kind=' + kind + '&"]').closest('.kind-flow');
+  return Object.fromEntries([...card.querySelectorAll('a.stbox')].map((a) => {
+    const n = a.querySelector('.n').textContent;
+    return [a.textContent.slice(n.length).trim(), Number(n)]; })); }"""
+# each node's words, and the smallest of its text as drawn on the screen (its font size times the map's scale)
+NODE_TEXT = """() => [...document.querySelectorAll('svg.canvas .pm-node')].map((g) => ({ id: g.dataset.id,
+  sub: g.querySelector('.t-sub')?.textContent,
+  px: Math.min(...[...g.querySelectorAll('text')].map((t) => parseFloat(getComputedStyle(t).fontSize) * t.getScreenCTM().a)) }))"""
+
+
+def test_items_links_each_kind_to_its_process_map_whose_states_say_how_many_are_there_now(browser, tmp_path):
+    """From Items, a kind's 'process map' link opens its map in States; each state's node says 'now N', N the
+    Items legend's count for that state; at Fit no node's text is drawn under 11px, and a map wider than the
+    screen says which way more lies."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served("the-job", tmp_path) as url:
+        p = Project(mdl.load(tmp_path / "the-job"))
+        now = time.time()
+        for i, last in enumerate(["new"] * 3 + ["explained"] * 2 + ["answered"]):   # 3 new, 2 explained, 1 answered
+            it = f"ticket/now{i}"
+            p.events.add("ticket.filed", item=it, at=now - 2000 + i)
+            for j, st in enumerate(["explained", "answered"][:["new", "explained", "answered"].index(last)]):
+                p.events.add(f"ticket.{st}", item=it, at=now - 1500 + i * 10 + j)
+        time.sleep(1.6)
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/items")
+        pg.wait_for_selector('a.pm-link[href*="kind=ticket&"]')
+        pg.wait_for_function("() => document.querySelector('a.pm-link[href*=\"kind=ticket&\"]')"   # its chart's legend
+                             ".closest('.kind-flow').querySelector('.cfd')")
+        legend = pg.evaluate(ITEMS_LEGEND, "ticket")
+        assert {k: v for k, v in legend.items() if v} == {"new": 3, "explained": 2, "answered": 1}, legend
+        link = pg.locator('a.pm-link[href*="kind=ticket&"]')
+        assert "view=process" in link.get_attribute("href") and "mode=states" in link.get_attribute("href")
+        link.click()
+        pg.wait_for_function(READY, timeout=60000)
+        assert pg.evaluate("() => [S.graph.by, S.graph.kinds.map((k) => k.name)]") == ["states", ["ticket"]]   # that kind alone
+        nodes = {n["id"]: n for n in pg.evaluate(NODE_TEXT)}
+        states = pg.evaluate("() => S.graph.nodes.filter((n) => n.kind === 'activity').map((n) => [n.id, n.activity])")
+        assert sorted(a for _, a in states) == ["answered", "explained", "new"], states
+        for nid, st in states:                            # every state's node: how many are there now, as Items counts them
+            assert nodes[nid]["sub"].startswith(f"now {legend[st]} · "), (st, nodes[nid]["sub"], legend)
+        assert all(n["px"] >= 10.99 for n in nodes.values()), nodes
+        pg.set_viewport_size({"width": 760, "height": 700})   # narrow: Fit keeps the text, and says where the rest is
+        pg.get_by_role("button", name="Fit").click()
+        assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
+        assert pg.evaluate("() => S.layout.width * S.view.k > document.querySelector('svg.canvas').getBoundingClientRect().width")
+        assert pg.is_visible("#panhint") and "to the right" in pg.inner_text("#panhint"), pg.inner_text("#panhint")
+        pg.close()
+    assert not errors, errors
+
+
 def test_a_snapshot_lists_a_process_lines_items(browser, tmp_path):
     """From the file (snapshot_sets.py): a process map node's panel and a line's list their items, and the line's
     Items page link shows them; nothing says "not in this snapshot", and nothing is asked of a server."""
