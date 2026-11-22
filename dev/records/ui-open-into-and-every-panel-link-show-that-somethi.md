@@ -85,3 +85,14 @@ Refused here: a command that wrote this test with a shell heredoc, ran it, broke
 `git checkout`, then ran affected_tests.py and ruff (each step was then done on its own, with the edit tool). Also
 refused: `git diff --stat; uv run python scripts/affected_tests.py -- uv run python -m pytest -q`. So the selection
 was run by hand with the two files it picks, not through affected_tests.py.
+
+Round 2: the one finding (conflicts with main: tests/test_style_tokens.py) is answered. Main (bea24a23) is merged in;
+the conflict was two new tests at the end of the file (this branch's dimmed-diagram test and main's
+`test_the_dark_tokens_stand_aside_while_a_picture_is_exported`), and both are kept, unchanged. No code changed.
+After the merge: tests/test_style_tokens.py 8 passed; the acceptance tests in tests/test_diagram_rendering.py
+(`test_into_open_and_a_panel_link_show_at_once_that_something_is_happening` and both
+`test_loops_and_items_say_loading_under_their_heading_until_their_answer` params) 3 passed with Playwright under the
+watchdog, rc 0; ruff clean. Not run by me: the rest of tests/test_diagram_rendering.py, the unit suite and the other
+browser files (left to the factory and the merge queue).
+Refused here: a command that resolved the conflict with a python heredoc, then ran git add, git commit and git status
+together (done instead with the edit tool, then git add and git commit on their own).
