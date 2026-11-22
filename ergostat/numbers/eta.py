@@ -90,7 +90,7 @@ class _Run:
         self.holds = {i: set(x.holds) for i, x in inp.items.items() if x.holds} if flags.queue else {}
         self.wsfree = {w: n - sum(1 for h in self.holds.values() if w in h) for w, n in inp.workspaces.items()}
         self.no_ws = [[] for _ in self.blocks]          # queued, waiting for a workspace: back in the queue when one frees
-        self.open = len(inp.items)
+        self.open = sum(1 for x in inp.items.values() if not x.unscheduled)   # (those that cannot move: not run)
         self.n_new = 0
 
     def push(self, t, *ev):
@@ -257,6 +257,8 @@ class _Run:
         names = {b.name: j for j, b in enumerate(self.blocks)}
         for x in sorted(inp.items.values(), key=lambda x: (x.queued, x.id)):
             self.items[x.id] = [x.kind, x.state, x.entered, x.attempts, 0]
+            if x.unscheduled:
+                continue
             if x.lease and x.lease[0] in names and self.f.queue:
                 b = names[x.lease[0]]
                 self.start[x.id] = t0
@@ -305,7 +307,8 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     """Each open item's p50 and p90 finish and its expected start, per kind when its last open item finishes, and a
     levelled schedule (the run whose last finish is the median's) for the Timeline."""
     t_end = time.monotonic() + budget                   # (the runs within ``budget``, the levelled one within as much again)
-    fins, starts, deads, lasts = {i: [] for i in inp.items}, {i: [] for i in inp.items}, {i: 0 for i in inp.items}, []
+    live = {i: x for i, x in inp.items.items() if not x.unscheduled}   # (the rest: not scheduled, said why)
+    fins, starts, deads, lasts = {i: [] for i in live}, {i: [] for i in live}, {i: 0 for i in live}, []
     n = 0
     for r in range(runs):
         if n and time.monotonic() > t_end:
@@ -315,7 +318,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
             break
         n += 1
         last = {}
-        for i, x in inp.items.items():
+        for i, x in live.items():
             f = run.finish.get(i, float("inf"))
             fins[i].append(f)
             starts[i].append(run.start.get(i, f))
@@ -326,12 +329,17 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     mean = lambda xs: sum(xs) / len(xs) if xs and max(xs) < float("inf") else None   # noqa: E731
     items = {i: {"p50": _q(fins[i], 0.5), "p90": None if few else _q(fins[i], 0.9), "mean": mean(fins[i]),
                  "start": _q(starts[i], 0.5),
-                 "dead": round(deads[i] / n, 3), "runs": n} for i in inp.items} if n else {}
+                 "dead": round(deads[i] / n, 3), "runs": n} for i in live} if n else {}
+    for i, x in inp.items.items() if n else ():
+        if x.unscheduled:
+            items[i] = {"unscheduled": True, "why": x.unscheduled, "p50": None, "p90": None, "mean": None,
+                        "start": None, "dead": 0.0, "runs": n}
     kinds = {}
     for k in {x.kind for x in inp.items.values()} if n else ():
-        xs = [la.get(k, 0.0) for la in lasts]
+        xs = [la[k] for la in lasts if k in la]         # (the items that can move only)
         kinds[k] = {"p50": _q(xs, 0.5), "p90": None if few else _q(xs, 0.9), "visits": inp.kinds[k].visits,
-                    "open": sum(1 for x in inp.items.values() if x.kind == k)}
+                    "open": sum(1 for x in live.values() if x.kind == k),
+                    "unscheduled": sum(1 for x in inp.items.values() if x.kind == k and x.unscheduled)}
     # the levelled schedule: the run whose last finish is nearest the median's, drawn again with its segments kept
     rep = None
     if n and time.monotonic() < t_end + budget:
@@ -340,7 +348,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         r = min(range(n), key=lambda j: (abs(ends[j] - med) if med != float("inf") else 0, j))
         run = _Run(inp, flags, random.Random(seed * 1_000_003 + r), pools or {}, failures or {}, True)
         run.go(horizon, t_end + budget)
-        rep = {i: s for i, s in run.segs.items() if i in inp.items}
+        rep = {i: s for i, s in run.segs.items() if i in live}
     held = {}                                           # (leases held over a lowered pool: their lanes drawn too)
     for x in inp.items.values():
         if x.lease and x.lease[0]:

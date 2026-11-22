@@ -17,3 +17,33 @@ Acceptance tests: test_eta.py::test_an_open_run_on_an_item_moved_on_by_its_own_e
 Budget: 110 net lines including tests.
 
 Milestone: timeline-real-schedule. Owner items: 17 (also 2: a failed simulation is cached and tried again every 30 s, eta_api.py:14, 78, each try costing seconds). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built (a) to (d) as written. The why texts: "paused in S", "waits for B, switched off" (blocks joined by "and"),
+"has no finished state (K)", and "waits on X, which ..." naming the cause however far ("waits on t/1, which waits on
+t/0, which is parked"). An item at off blocks that holds a lease is still scheduled, because its run ends. `reasons()`
+is unchanged (the Items list and item page keep its words), but `_work` does not let its why replace an unscheduled
+item's own. kinds[k].open now counts the movable items only, and kinds[k].unscheduled the rest. A failure is now
+cached like an answer, so it is tried again when the record changes (at most every 30 s) or after 120 s. The Timeline
+says "the simulation is being worked out" only when the answer is of now (within 5 s) and some item is open, so a
+moment travelled to says nothing.
+
+Each acceptance test was seen to fail with its fix undone: the KeyError came back; 12 runs instead of 200; one block
+of two off was marked; no propagation; None for the error.
+
+Not done:
+- DoD 5, the table rerun: not run. Running a script outside `scripts/named_tests.py` was refused in this session
+  (`uv run python /tmp/bt/table.py ...`, and before that `git archive HEAD | tar -x -C /tmp/base` to keep a base copy).
+  So the claim is narrower: on those records no item is unscheduled, which the owner's case now asserts
+  (`test_the_owners_case_100_tickets_6_leases`). In that case the run takes the same path and draws the same random
+  numbers as before, and `test_backtest_p90_coverage_on_a_synthetic_record` passes. The steady records use the same
+  model. The ticket-factory record has a finished state and no paused message, but no test checked it. The table still
+  needs rerunning on a host.
+- The JS note is checked only by its text in `test_a_failed_simulation_is_said`, not drawn in a browser.
+  `tests/test_items_page.py` passes (21, none skipped).
+- After deploy (GET :8798 and run.log): not run here, since this clone has no live factory.
+
+Overrun reason: 139 net lines against 110 (34 in code, 105 in tests). Each of the five acceptance tests needs its own
+record or inputs, and two also check the record-read path through `read` (the paused and gated models), which the
+budget did not count.

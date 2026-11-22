@@ -83,6 +83,7 @@ class ItemAt:
     level: int = 0                 # how many items wait on it, however far (critical first, for unblocked)
     holds: set = field(default_factory=set)   # the workspace pools it holds one of at ``at``
     fields: dict = field(default_factory=dict)  # the fields some block's takes: orders by
+    unscheduled: str = ""          # why the run leaves it out (it cannot move: paused, at blocks off, ...), else ""
 
 
 @dataclass
@@ -221,7 +222,32 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
                 kin.km[s], kin.said[s] = (km_kind, "kind") if km_kind else (km_all, "all")
     _leases(p, spec, out, since, ix)
     _relations(spec, ix, out)
+    _unscheduled(out)
     return out
+
+
+def _unscheduled(out: Inputs) -> None:
+    """The items that cannot move, marked to be left out of the run (else it goes on to the horizon): paused, of a
+    kind with no finished state, waiting at blocks every one of which is switched off (not leased), or waiting on one
+    of these, however far."""
+    said: dict[str, str] = {}                           # id → what it is, after "which"
+    for x in out.items.values():
+        k = out.kinds[x.kind]
+        bs = [b.name for b in out.blocks if b.kind == x.kind and x.state in b.at]
+        if x.state in k.paused:
+            x.unscheduled, said[x.id] = f"paused in {x.state}", f"is {x.state}"
+        elif not k.finished:
+            x.unscheduled = said[x.id] = f"has no finished state ({x.kind})"
+        elif bs and not x.lease and all(b.off for b in out.blocks if b.name in bs):
+            x.unscheduled = said[x.id] = f"waits for {' and '.join(bs)}, switched off"
+    more = True
+    while more:
+        more = False
+        for x in out.items.values():
+            p = next((p for p in x.preds if p in said), None)
+            if not x.unscheduled and p:
+                x.unscheduled = said[x.id] = f"waits on {p}, which {said[p]}"
+                more = True
 
 
 def gated_off(p, spec, at: float) -> dict[str, str]:
@@ -289,7 +315,7 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
         elif r["end"] is not None and r["how"] != "ack":
             it.attempts += 1 if r["counted"] else 0
             it.not_before = max(it.not_before, r["end"] + r["after"])
-        elif r["how"] == "ack":
+        elif r["end"] is not None and r["how"] == "ack":   # (an open run on an item moved on since: still going)
             it.attempts = 0
     for b in spec.blocks.values():
         if not (b.takes and b.machine and b.takes.kind in out.kinds):
