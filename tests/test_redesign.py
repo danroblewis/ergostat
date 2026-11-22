@@ -196,7 +196,8 @@ def test_the_scorecard_counts_what_a_modeller_cares_about(tmp_path):
     assert card["pieces"]["before"] == 1 and card["pieces"]["after"] == 0
     assert "outflow-not-chained@flow.triaged" in card["findings"]["resolved"]
     assert not card["findings"]["introduced"]
-    assert {"no-unit@stock.new-alerts", "no-description@stock.new-alerts"} <= set(card["craft"]["closed"])
+    assert "no-unit@stock.new-alerts" in card["findings"]["resolved"]         # a finding, not a note (no request)
+    assert "no-description@stock.new-alerts" in card["craft"]["closed"]
     assert card["craft"]["opened"] == ["no-equation@flow.triaged"]      # a flow between stocks now: it wants an equation
     assert card["parts"]["renamed"] == ["stock.triage → stock.new-alerts"]
     assert card["verdict"] == "better", card["why"]

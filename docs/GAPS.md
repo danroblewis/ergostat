@@ -240,7 +240,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   the cap while it runs, so the reviewer and the redesigner running at once do not both start calls on one remainder.
   Open: the estimate is not a bound (`claude -p` is given no output limit), so a call that writes more than 16,000
   tokens can take the day a little past the cap.
-- **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
+- **Craft notes in `check`** (done, `modelling-core`; a stock with no unit is a finding since
+  `missing-unit-is-a-check-finding`, raising no request): a part with no description, a flow
   between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
   counted as findings).

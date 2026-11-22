@@ -381,6 +381,7 @@ function availableView(d, box) {
     const modelled = (d.stocks || [])[0];
     const eqParts = [...new Set(Object.values(d.readiness || {}).flatMap((r) => r.parts || []))].slice(0, 3);
     const findings = (S.status?.check || []).length;
+    const unitless = (S.status?.check || []).map((c) => /stock ([\w./-]+): no unit\./.exec(c.message)?.[1]).filter(Boolean);
     const queues = goals.filter((g) => AVAIL.get(g)?.d?.why), one = goals.filter((g) => !queues.includes(g));
     const tools = [
       ["replay, projection, fan", modelled ? h("span", {}, "a modelled part's chart: ", toolLink(modelled.name, { view: "dynamics", part: modelled.ref })) : "no stock is moved by an equation yet"],
@@ -388,6 +389,8 @@ function availableView(d, box) {
         : "no equation uses a parameter marked estimate: true"],
       ["loop dominance", modelled || goals.length ? h("span", {}, "a feedback loop's panel: ", toolLink(modelled?.name || goals[0], { view: "dynamics", causal: modelled?.name || goals[0] })) : "no feedback loop"],
       ["extreme conditions, signs", h("span", {}, h("a", { href: "/check" }, "Check"), findings ? `: ${findings} found` : ": nothing found")],
+      ["units", unitless.length ? h("span", { class: "no-unit" }, "no unit (unit ? on the diagram): ", ...linkList(unitless.map((n) => toolLink(n, { view: "dynamics", part: `stock.${n}` }))))
+        : "every stock has one"],
       ["review queue, calibrate", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); document.getElementById("review-queue")?.scrollIntoView(); } }, "below")],
       ["fit, residuals, history", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); document.getElementById("model-fit")?.scrollIntoView(); } }, "below")],
     ];

@@ -14,3 +14,46 @@ Acceptance tests: a check unit test; a browser check on the fixture (and on :879
 Budget: 60 net lines.
 
 Milestone: r2-system-first-upkeep-apart. Owner items: R2 piece 7 (second half). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. Net 28 lines outside tests/docs/dev (budget 60).
+
+What was built: `no-unit` moved from a craft note (`spec/craft.py`) to a check finding (`spec/findings.py`, level
+`finding`, file and line, template-made stocks left out). `numbers/requests.py` skips it (`CHECK_ONLY`), so the modelling
+loop raises no request for it and `unanswered-requests`/`requests-handled` never count it. A unit request stored before
+this change is answered with the reason "a check finding now, not a request". The fixer (`modelling rules`) reads the
+finding from check itself (`rules.unitless`): it proposes a unit it can infer as a change, as before, never twice for a
+stock while a change cites it, and never holds one for the owner. Dynamics draws `unit ?` (muted, italic) after the
+value, with a legend row. The Guide's "fills" frame text says what `unit ?` means. The Model page's Tools table has a
+"units" row naming each unitless stock. The template reading, SPEC §12, MODELLING-WELL and GAPS are updated.
+
+Decided alone (the most reversible option each time; nobody to ask):
+- There is no `/api/check` endpoint on main. The Check page reads `/api/status`'s `check` list, so done 1 is tested on
+  that list (tests/test_missing_unit.py, and the browser test reads it over HTTP). No endpoint was added.
+- Q78's table is not on main. The Model page lists the stocks as a "units" row in the existing Tools table
+  (review.js), not in a new panel. Move it into Q78's table when that lands.
+- "Exits with a warning": `ergostat check` exits 0 and prints the `no-unit` finding as a warning line
+  (`no-unit  ergostat.yaml:N: stock X: no unit. ...`); findings never fail check, as before.
+- Each stock's line is where its own mapping begins (the first line under its name), which is where every other
+  finding about a stock points.
+- The fixer runs only while requests-handled is off (another request open). On a model whose only issue is missing
+  units, no unit is proposed until something else wakes the fixer or a person writes the unit. "A fixer run that can
+  infer the unit" was read that way.
+- As a finding, `no-unit` now counts in `ergostat.model.open-findings` and among a change's new or answered findings
+  (judge, redesign scorecard), no longer among the craft notes.
+- The Guide's frames are drawn bare (no readings), so `unit ?` appears only in the frame's text, not on its drawing.
+
+Tests: tests/test_missing_unit.py (4: check finding once each with file and line, warn level on /api/status's list;
+no unit request or attention entry, an old one answered, the fixer run holds nothing; the fixer proposes the unit its
+sensor counts, once; `ergostat check` rc 0 with a warning naming file and line). Browser:
+tests/test_diagram_rendering.py::test_a_stock_with_no_unit_reads_unit_query_after_its_value_and_the_legend_explains_it
+('12 unit ?', muted fill, legend row, '3 tickets' for a stock with a unit, /api/status names each once, the Model page's
+units row). Tests that expected a unit request were updated in test_self_improve.py and test_redesign.py.
+Seen to fail when the code is broken: tspan removed (value read '12'), the request filter removed (a no-unit request is
+raised), the Model page's regex broken (row read 'every stock has one').
+
+Not run here: the :8797 check by eye (no server or screen in this session); `demo_check` and the full unit and browser
+suites (left to the factory and the merge queue); a scan of the examples for unitless stocks (the shell refused the
+scratch script and the loop over `ergostat check`). An example with a unitless stock now shows a `no-unit` warning on
+Check and `unit ?` on its diagram, and one fewer request.

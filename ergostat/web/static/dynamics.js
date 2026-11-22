@@ -21,8 +21,9 @@ function sdValue(n) {                                   // a stock's or an auxil
   const v = n.valueText && n.valueText !== "?" ? n.valueText : "–";
   return n.unit ? `${v} ${n.unit}` : v;
 }
+const sdNoUnit = (n) => n.kind === "stock" && !n.bare && !(n.unit || "").trim();   // check's no-unit: 'unit ?', muted
 function sdSize(n) {
-  if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n)) + 28), SD_STOCK_H];
+  if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n) + (sdNoUnit(n) ? " unit ?" : "")) + 28), SD_STOCK_H];
   if (n.kind === "auxiliary") {                         // its name is the part: as wide as that, with its value under it
     const lines = sdAuxLines(n);
     return [Math.max(...lines.map((t) => textWidth(t) * (t === lines[0] ? 1.02 : 0.92))) + 10, 6 + lines.length * 14];
@@ -53,7 +54,8 @@ function sdStock(n, w, hgt) {
   g.append(s("rect", { class: "hit sd-stock", width: w, height: hgt, "stroke-dasharray": n.outside ? "5 4" : null }));
   const v = sdValue(n);
   g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
-  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v));
+  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v,
+    sdNoUnit(n) ? s("tspan", { class: "sd-nounit" }, " unit ?") : null));
   return g;
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
@@ -464,6 +466,7 @@ const SD_LEGEND = {
   sector: '<rect x="1" y="1" width="24" height="16" rx="3" fill="var(--sd-hull)"/><text x="3" y="7" font-size="5" fill="var(--sd-muted)">NAME</text>',
   stub: '<path d="M1 9 H17" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink)"/><text x="21" y="12" font-size="8" fill="var(--sd-muted)">x</text>',
   shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-muted)">&lt;x&gt;</text>',
+  nounit: '<text x="13" y="13" font-size="8" text-anchor="middle" fill="var(--sd-muted)">unit ?</text>',
 };
 function sdLegend() {
   const g = S.graph || { nodes: [], edges: [] };
@@ -472,6 +475,7 @@ function sdLegend() {
   const pols = new Set((g.causalLoops || []).map((c) => c.polarity || "?"));
   return h("div", { class: "legend sd-legend" },
     row("stock", "stock (level): what accumulates; it changes only by its flows"),
+    has(sdNoUnit) && row("nounit", "unit ?: the stock's value has no unit; the model says none (ergostat check: no-unit)"),
     row("flow", "flow (rate): a pipe with its valve, into or out of a stock; the head shows which way"),
     g.edges.some((e) => e.twoWay) && row("biflow", "biflow: a flow that may run either way"),
     has((n) => n.kind === "cloud") && row("cloud", "source or sink: outside the model's boundary"),

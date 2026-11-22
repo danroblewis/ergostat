@@ -2,13 +2,15 @@
 item of ergostat's built-in kind ``ergostat.modelling-request`` (``ergostat.modelling-request/<id>``), until it is answered.
 
 What raises one: a finding ``check`` reports (the structure tests, a kind's chain, control, signs, the extreme
-conditions), a craft note (``spec/craft.py``: a part with no description, a stock with no unit, a flow between stocks
+conditions), a craft note (``spec/craft.py``: a part with no description, a flow between stocks
 with no equation, an undescribed collector, event types in mixed forms, a queue's goal whose tolerance lets items wait,
 a process nobody identified), and, once there is record enough to compare, a coherence mismatch (``coherence.py``) that
-no finding already says. Each says what it is about (``about``: the part), why (``says``: check's own words), where it
-is written, and which tier can answer it first (``tier``): the **rule** tier, for what a mechanical change answers
-safely and certainly (``rules.py``), or the **ai** tier (``modeller.py``), for what needs judgement (a description,
-a missing loop, a block that moves nothing).
+no finding already says. A stock with no unit (``no-unit``, ``CHECK_ONLY``) raises none: it is a property of the model,
+which check reports and the Dynamics view marks ``unit ?``; the rule tier reads it from check (``rules.unitless``).
+Each says what it is about (``about``: the part), why (``says``: check's own words), where it is written, and which
+tier can answer it first (``tier``): the **rule** tier, for what a mechanical change answers safely and certainly
+(``rules.py``), or the **ai** tier (``modeller.py``), for what needs judgement (a description, a missing loop, a block
+that moves nothing).
 
 | State | Reached by | When |
 |---|---|---|
@@ -43,6 +45,7 @@ NOT_MODELLING = {              # said by check, but no change to the model answe
     "used-twice", "not-exercised",
     "schedule-removed",        # a goal: with every: is also a meant pace (SPEC §9.1): only its author can say which
 }
+CHECK_ONLY = {"no-unit"}       # a property of the model check reports, no request: the rule tier reads check (rules.py)
 OPEN = ("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
 ENDED = ("refused", "failed", "dismissed", "inconclusive")
@@ -89,7 +92,7 @@ def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list
     _, problems = read(p.model.path, extremes=extremes)
     out: dict[str, dict] = {}
     for x in problems:
-        if x.level == "error" or x.code in NOT_MODELLING or template_made(x.where) or not x.code:
+        if x.level == "error" or x.code in NOT_MODELLING | CHECK_ONLY or template_made(x.where) or not x.code:
             continue
         source = "craft" if x.level == "note" else "check"
         k = rid(source, x.code, x.about)
@@ -256,7 +259,8 @@ def _moved(p, spec: Spec, now: float, found: dict[str, dict]) -> dict:
         if x.get("source") == "architecture":             # an architecture review's: answered only by the next review
             continue
         if x["state"] in OPEN and k not in found:
-            event(p, k, "answered", {"answered": now, "why": "check no longer finds it"})
+            event(p, k, "answered", {"answered": now, "why": "check no longer finds it" if x.get("code") not in CHECK_ONLY
+                                     else "a check finding now, not a request"})
             moved["answered"] += 1
     return {**moved, "open": sum(1 for k in found if (have.get(k) or {}).get("state") not in ("answered", "dismissed"))}
 
