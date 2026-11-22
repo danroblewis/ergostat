@@ -1322,11 +1322,25 @@ function inboxAnswer(a) {
   const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async () => {
     for (const b of row.querySelectorAll("button")) b.disabled = true;
     const q = { ...(n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
-    try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
+    try {
+      const r = await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q);
+      ANSWERED.set(a.what, { ...r, what: a.what, note: q.note, time: Date.now() / 1000 });
+      row.parentElement?.replaceWith(answeredRow(ANSWERED.get(a.what)));
+      refreshHeader();
+    }
     catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
   } }, { approve: "Approve", deny: "Deny", done: "Done" }[verb]);
   const row = h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), why, said);
   return row;
+}
+/* what the owner answered here, in place of its row until the page is next opened: what was done, by whom, when */
+const ANSWERED = new Map();
+function answeredRow(x) {
+  const at = new Date(x.time * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
+  const to = x.item ? `/item/${encodeURIComponent(x.item)}` : x.link;
+  return h("div", { "data-answered": x.what }, h("b", {}, x.what), " ",
+    `${{ approve: "Approved", deny: "Denied", done: "Done" }[x.verb]} by you at ${at} (${x.said})`, x.note ? `, reason: ${x.note}` : "",
+    to ? [" · see ", h("a", { href: to }, x.item || x.what)] : null);
 }
 
 function renderSide(side, g, view) {
@@ -1346,7 +1360,8 @@ function renderSide(side, g, view) {
   if (charts && S.sel?.size) side.append(live(charts));
   side.append(h("h3", {}, "Needs attention", problems.length ? h("span", { class: "muted" }, ` ${problems.length}`) : null));
   const att = h("div", { class: "att" });
-  if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
+  const answered = [...ANSWERED.values()].map(answeredRow);
+  if (!problems.length && !answered.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
   const MAX = 6;
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {
@@ -1354,11 +1369,13 @@ function renderSide(side, g, view) {
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
   for (const a of problems.slice(0, MAX)) {
+    if (a.level !== "bad") att.append(...answered.splice(0));      // where what waits on a person is listed
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
     const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
     att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
       linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
   }
+  att.append(...answered);
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
   side.append(att);
   if (hints.length) {

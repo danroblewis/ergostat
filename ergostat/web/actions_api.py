@@ -7,7 +7,7 @@ from __future__ import annotations
 from ..webaccess import who
 
 KEEP = ("id", "state", "action", "class", "gate", "args", "command", "in", "item", "branch", "block", "session", "time",
-        "approved_by", "denied_by", "note", "exit", "output", "deliveries")
+        "approved_by", "denied_by", "note", "exit", "output", "deliveries", "moves")
 
 
 def listing(p, item: str | None = None) -> dict:
