@@ -1,0 +1,18 @@
+# forward-pass-levelled-by-block-capacity: Before the estimates, and at a moment travelled to, the Timeline's forward pass is levelled by each block's capacity, read from one shared function
+
+depends-on: [eta-works-out-on-the-factory-record]
+
+Problem: ergostat/precedence.py's projection (cpm in build) is the critical path method with no resources. It is drawn on every first paint before the estimates exist, at every moment travelled to (SPEC §5a: estimates are of now only) and whenever they fail. In it every unblocked or queued item starts now: on the factory record 103 of 112 gaps, 'done in about 7.6h' for about 110 gaps of median 3.2 h each. This is the owner's 'as if 100 gap runs start at once'. Capacity is read today only inside etamodel.read, which fails on the factory record until eta-works-out-on-the-factory-record lands (hence the dependency).
+Change: (1) one function etamodel.capacities(project, snapshot) -> {block: {lanes, source}} is the only place a block's simulated capacity is decided (pool, or pool now from its stock, the agent's at-once, the daemon's concurrency, whichever binds), worked out once per snapshot and kept with it (never per request); eta.py and precedence.py both call it. eta-refused-takes-are-a-closed-gate later makes this one function return the measured concurrency, so the levelled pass and the simulation change together. (2) a deterministic levelled schedule in precedence.py, the serial schedule-generation scheme of resource-constrained scheduling: in precedence order, least slack first then longest path ahead (the dispatcher's tie-break), each item is placed at the earliest time its predecessors are done and the block that takes it from its state has a free lane; durations are the kinds' medians as now. (3) the projected bars, out['end'] and the legend's 'done in about' come from the levelled schedule. The unlevelled chain is still marked but is labelled for what it is: 'longest chain of waits, ignoring capacity'; the finish drawn and said is the levelled end, so the two never read as one claim (this amends filed Q60's 'agrees with the critical path': its clock time is the levelled, later the simulated, finish). (4) every time printed by the Timeline uses filed Q34's formatter (date and zone when not today). The legend says 'levelled by each block's capacity, median times; the simulation replaces it when worked out'.
+Definition of done:
+1. 100 unblocked items on a block of capacity 6 with a median of 20 min end at about 100/6 x 20 min, not 20 min.
+2. No block has more lanes busy than its capacity in the levelled bars; dependencies are respected.
+3. A moment travelled to shows levelled bars.
+4. The levelling costs under 50 ms on 600 items, with capacities read from the snapshot's kept table (no record read in precedence.build).
+5. The marked chain's label contains 'ignoring capacity' and the legend's finish equals the last levelled bar's end.
+6. SPEC §5a The critical path describes the levelled projection and the label.
+Files: ergostat/numbers/etamodel.py (capacities), ergostat/numbers/eta.py (calls it), ergostat/precedence.py, ergostat/web/static/relations.js, tests/test_precedence.py, tests/test_items_page.py, docs/SPEC.md.
+Acceptance tests: test_precedence.py::test_forward_pass_levelled_by_capacity, ::test_levelled_respects_dependencies, ::test_capacity_comes_from_one_function; test_items_page.py::test_timeline_first_paint_is_levelled (on the roadmap fixture before estimates arrive no more than the developer block's 2 bars overlap).
+Budget: 110 net lines.
+
+Milestone: timeline-real-schedule. Owner items: 17. From the owner's list and the design review of 2026-11-22.
