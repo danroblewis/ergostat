@@ -407,3 +407,12 @@ Continued, round 4, answering review/pool-control-3, every finding (lesson-12):
 Size: about 346 net lines outside `tests/` and `docs/` (within 350). Here: `tests/test_factory.py` 132 passed,
 2 skipped; `tests/test_factory_knowledge.py` and `tests/test_factory_resources.py` 85 passed; `ruff check ergostat
 tests scripts` clean. Not run here: the whole unit suite and the four browser files (the factory runs them).
+
+Continued, round 4, after the factory's fast suites: the `unit` tail given ends about 1% in (23 dots after `bringing
+up nodes...`), with no `F` or `E`, no pytest summary and no `suite_watch` JSON line. The run was cut off from outside
+before it finished, and no test is named, so no code was changed. This session refused the whole-suite run (`uv run
+python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal -p no:cacheprovider -rf`). Here, on
+ee8f1fb6: `tests/test_factory.py` 132 passed, 2 skipped (284 s alone); `tests/test_factory_knowledge.py` and
+`tests/test_factory_resources.py` 85 passed (177 s); `ruff check ergostat tests scripts` clean. Left: a full `unit`
+run that reaches pytest's summary, and the four browser files. If it is cut off early again, the cause is the suite's
+container or slot (lesson-13), not this branch.
