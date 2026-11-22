@@ -111,3 +111,5 @@ Overrun reason: the review's finding needs the ask order, the forsake prune and 
 Main had not moved since round 2's merge (`git log HEAD..main` empty). Run: `tests/test_goal_work.py` (8 passed),
 `tests/test_web_access.py` (26 passed; it ran beside the browser file, not one at a time as the rule asks), ruff
 clean. `tests/test_page_polling.py` under the watchdog: see the next line.
+`tests/test_page_polling.py` under the watchdog after this round's commit: 20 passed, rc 0, none skipped, 893 s, peak
+163 threads (a first try was stopped at the session's 10-minute background limit before it ended, and was run again).
