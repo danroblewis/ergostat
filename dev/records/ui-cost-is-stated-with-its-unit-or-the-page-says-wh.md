@@ -102,3 +102,26 @@ timed out waiting for "not known"), and `unknown` counting only `agent.failed` (
 Run: tests/test_items_page.py (22 passed) and tests/test_agents_page.py (5 passed), with Playwright under the
 watchdog, rc 0, and tests/test_page_polling.py (17 passed, rc 0). tests/test_run_costs.py (16 passed). Ruff is
 clean. Not run here: test_diagram_rendering.py, test_page_refresh.py and the whole unit suite (the factory and the merge queue run them).
+
+Round 3: built. 41 net lines outside `tests/`, `docs/` and `dev/` (budget 60).
+
+The review's blocking finding (lesson 3 / 9): the panel's per-run cost cell (details.js `costOf`) left out the run's
+exit, note and failed, so `costText`'s fallback read `undefined !== 0` as a failure and every good stand-in run read
+"not known: 1 failed or stopped". `costOf` now takes the event and passes `exit`, `note` and
+`failed: e.type === "agent.failed"`. A run event with no `exit` at all still counts as not known. That is the worst
+case (lesson 3), and the engine writes `exit` on every end.
+
+New browser test: `tests/test_agents_page.py::test_a_stand_in_agents_panel_reads_free_for_a_good_run_and_not_known_for_a_killed_one`.
+It opens drafter's panel and checks that its 10 recent good runs all read "free stand-in, $0". It then adds a run ended
+as `agent.failed` (exit -9, "killed (a timeout?)", no `ai`) and checks that the newest row reads "not known: 1 failed or
+stopped" while the others still read "free stand-in, $0". It is last in the file because it adds that run to the
+shared fixture's record. Broken and seen to fail: with `costOf` again leaving out exit, note and failed, the test failed
+on its first assertion with all 10 rows "not known: 1 failed or stopped". That is the bug the review found.
+
+The non-blocking finding (round 2): the `_item_cost` unit test used the string rung 'stand-in'. It now uses int rungs as
+the model has them (worker 1, tidy 4). It also checks that leases by agents of two different rungs give no one rung.
+
+Run: tests/test_agents_page.py (6 passed, rc 0) and tests/test_items_page.py (22 passed, rc 0), with Playwright under
+the watchdog. tests/test_run_costs.py (16 passed). Ruff is clean. Main has not moved since the clone (the merge-base is
+main, 277a9c6c), so there was nothing to merge. Not run here: test_diagram_rendering.py, test_page_refresh.py,
+test_page_polling.py and the whole unit suite (the factory and the merge queue run them).

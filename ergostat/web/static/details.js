@@ -235,11 +235,12 @@ async function openAgent(name) {
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
   if (a.use?.runs?.length) kids.push(...useSection(a.use, a));
   kids.push(h("h3", {}, "Recent runs"));
-  const costOf = (d) => ({ cost_usd: d.ai ? d.ai.cost_usd : d.cost_usd, cost: d.ai ? d.ai.cost : d.cost_usd != null ? "reported" : null,
-                            model: d.ai?.model, tokens: d.ai?.tokens?.total, cpu: d.resources?.cpu, memory: d.resources?.memory_peak });
+  const costOf = (e, d = e.data) => ({ cost_usd: d.ai ? d.ai.cost_usd : d.cost_usd, cost: d.ai ? d.ai.cost : d.cost_usd != null ? "reported" : null,
+    model: d.ai?.model, tokens: d.ai?.tokens?.total, cpu: d.resources?.cpu, memory: d.resources?.memory_peak,
+    exit: d.exit, note: d.note, failed: e.type === "agent.failed" });   // the run's own end, which costText reads   // the run's own end, which costText reads
   kids.push(h("div", { class: "table-wrap" }, h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", { class: "num" }, "readings"), h("th", { class: "num" }, "openings"), h("th", { class: "num" }, "decisions"),
     h("th", { class: "num" }, "cost"), h("th", { class: "num" }, "tokens"), h("th", { class: "num" }, "CPU"), h("th", { class: "num" }, "memory"), h("th", {}, "")),
-    (a.recent || []).slice(-10).reverse().map((e) => { const r = costOf(e.data); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
+    (a.recent || []).slice(-10).reverse().map((e) => { const r = costOf(e); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
       h("td", { class: "num" }, String(e.data.readings || 0)), h("td", { class: "num" }, String(e.data.openings || 0)), h("td", { class: "num" }, String(e.data.decisions || 0)),
       h("td", { class: "num nowrap", title: r.cost ? `${r.cost}${r.model ? ", " + r.model : ""}` : "" }, costText({ ...r, runs: 1 }, a), r.cost && r.cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
       h("td", { class: "num" }, tokensText(r.tokens)), h("td", { class: "num" }, cpuText(r.cpu)), h("td", { class: "num" }, bytesText(r.memory)),

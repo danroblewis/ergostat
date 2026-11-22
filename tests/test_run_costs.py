@@ -369,10 +369,12 @@ def test_an_items_cost_is_the_sum_of_the_runs_that_took_it_and_none_when_none_di
 
     def lease(run, t):
         return {"type": "ergostat.lease.taken", "time": t, "data": {"run": run, "block": "worker"}}
-    p, m = NS(events=Events()), NS(agents={"worker": NS(rung="stand-in")})
+    p, m = NS(events=Events()), NS(agents={"worker": NS(rung=1), "tidy": NS(rung=4)})   # rungs as the model has them
     got = _item_cost(p, m, [lease("r1", 1.0), lease("r2", 2.0), lease("r3", 3.0)], 10.0)
     assert got["cost_usd"] == 0.75 and got["runs"] == 2 and got["failed"] == 1
-    assert got["taken"] == 3 and got["rung"] == "stand-in"          # r3 has not ended: counted as taken, not as $0
+    assert got["taken"] == 3 and got["rung"] == 1                  # r3 has not ended: counted as taken, not as $0
+    two = [lease("r1", 1.0), {"type": "ergostat.lease.taken", "time": 2.0, "data": {"run": "r9", "block": "tidy"}}]
+    assert _item_cost(p, m, two, 10.0)["rung"] is None             # two agents of different rungs: no one rung
     assert _item_cost(p, m, [{"type": "item.opened", "time": 1.0, "data": {}}], 10.0) is None
 
 

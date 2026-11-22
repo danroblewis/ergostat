@@ -251,3 +251,43 @@ def test_the_agents_page_lists_the_daemons(site, browser):
     assert "wall time only" in pg.inner_text(".page")
     assert not errors, errors
     pg.close()
+
+
+def panel_costs(pg) -> list[str]:
+    """The cost cell of each run in the open agent panel's 'Recent runs', newest first."""
+    return pg.eval_on_selector_all("#detail table:has(th:text-is('tokens')) tr",
+                                   "trs => trs.slice(1).map((tr) => tr.children[4].textContent)")
+
+
+def test_a_stand_in_agents_panel_reads_free_for_a_good_run_and_not_known_for_a_killed_one(site, browser):
+    """Each run in the panel says its own cost from its own end: a stand-in's good run is 'free stand-in, $0', and a
+    run killed with no session recorded is 'not known' (lesson 3). Last in the file: it adds a killed run to drafter."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site['url']}/agents")
+    pg.click("tr.click:has(b:text-is('drafter'))")
+    pg.wait_for_selector("#detail table:has(th:text-is('tokens')) tr:nth-child(2)")
+    costs = panel_costs(pg)
+    assert len(costs) == 10 and all(c == "free stand-in, $0" for c in costs), costs   # good exit-0 runs, no session
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(site['dir'])!r})))
+begun = p.events.add("agent.started", item="drafter", source="ergostat", at=time.time() - 5, data={{}})
+p.events.add("agent.failed", item="drafter", source="ergostat", causedby=begun["id"], at=time.time(),
+             data={{"exit": -9, "seconds": 5, "note": "killed (a timeout?)"}})
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(site["dir"].parent / "home")},
+                   check=True, capture_output=True)
+    pg.goto(f"{site['url']}/agents")
+    pg.click("tr.click:has(b:text-is('drafter'))")
+    pg.wait_for_function("""() => [...document.querySelectorAll("#detail tr")].some((tr) => /killed/.test(tr.textContent))""",
+                         timeout=20000)
+    costs = panel_costs(pg)
+    assert costs[0] == "not known: 1 failed or stopped", costs                    # the killed run: never $0
+    assert all(c == "free stand-in, $0" for c in costs[1:]), costs                # the good ones still free
+    assert not errors, errors
+    pg.close()
