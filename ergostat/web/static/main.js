@@ -38,7 +38,7 @@ $("#when").append(whenMenu);
 function setWindow(k) {
   S.since = k; S.graphSig = ""; showAt();
   if (parseRoute().q.get("window") !== "1") setQuery({ window: k === "1h" ? null : k });
-  route(true).then(() => S.again?.());
+  return route(true).then(() => S.again?.());
 }
 function showAt() {
   whenMenu.button.textContent = whenLabel();

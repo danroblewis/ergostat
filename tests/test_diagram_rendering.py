@@ -3870,6 +3870,21 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
         pg.wait_for_function("() => document.querySelector('g.node[data-id=\"stock:inbox\"]').classList.contains('selected')",
                              timeout=5000)
+        # a stock's panel, then a flow's (shown by no opener the window asks again): the window changed keeps the
+        # flow's, not the stock's asked again in its place
+        pg.goto(url + "/diagram?view=dynamics")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        kind = "() => document.querySelector('#detail .kind')?.textContent"
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        assert pg.evaluate(kind) == "Stock" and pg.evaluate(panel, "inbox")
+        pg.evaluate("() => openEdgeSD(S.graph.edges.find((e) => e.kind === 'pipe'))")
+        assert pg.evaluate(kind) == "Flow", pg.evaluate(kind)
+        pg.evaluate("() => setWindow('1d')")                         # (resolves once the panel's opener, if any, answered)
+        assert pg.evaluate(kind) == "Flow", "the window changed: the flow's panel was replaced by " + str(pg.evaluate(kind))
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        pg.evaluate("() => { document.querySelector('#detail').append(Object.assign(document.createElement('i'), { id: 'stale' })); }")
+        pg.evaluate("() => setWindow('6h')")                         # a stock's own panel is asked again in the new window
+        assert pg.evaluate(kind) == "Stock" and not pg.evaluate("() => !!document.querySelector('#stale')")
         # the Record's filter
         pg.goto(url + "/record")
         pg.locator(".filters input[type=search]").fill("valve.*")

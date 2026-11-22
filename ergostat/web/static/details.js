@@ -5,7 +5,14 @@
 /* closed by hand (its ×, Escape): the loop chosen on the Loops page leaves the address too */
 function shutDetail() { closeDetail(); if (parseRoute().path === "/loops" && parseRoute().q.has("select")) setQuery({ select: null }); }
 function closeDetail() { S.again = null; if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+/* the panel the window asks again: an opener's own, kept only while its panel is the last shown (any other clears it) */
+async function askedAgain(again, open) {
+  const t = S.opens = (S.opens || 0) + 1, s = S.shown;
+  await open();
+  if (S.opens === t && S.shown !== s) S.again = again;
+}
 function showDetail(...kids) {
+  S.again = null; S.shown = (S.shown || 0) + 1;
   if (S.selKey) { S.selKey = null; trace(S.hoverKey); }  // another detail: the line chosen before lets go
   const d = $("#detail");
   kids = kids.filter((k) => k != null && k !== false);
@@ -82,8 +89,8 @@ function openSystem(n) {                            // a system as one part: wha
     h("p", { class: "note" }, h("code", {}, `ergostat explain system.${n.label}`), " says the same in sentences."));
 }
 
-async function openNode(n) {
-  S.again = () => openNode(S.graph?.nodes?.find((x) => x.id === n.id) || n);   // the window changed: asked again
+function openNode(n) { return askedAgain(() => openNode(S.graph?.nodes?.find((x) => x.id === n.id) || n), () => openNodeNow(n)); }
+async function openNodeNow(n) {
   for (const x of document.querySelectorAll(".node.sel")) x.classList.remove("sel");
   document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
   if (S.graph?.kind === "process") return openProcessNode(n);   // process.js
@@ -134,8 +141,8 @@ async function openNode(n) {
   showDetail(...kids);
 }
 
-async function openLoop(name, asController = false) {
-  S.again = () => openLoop(name, asController);
+function openLoop(name, asController = false) { return askedAgain(() => openLoop(name, asController), () => openLoopNow(name, asController)); }
+async function openLoopNow(name, asController) {
   let lp;
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { return; }
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
@@ -219,8 +226,8 @@ function goalAhead(name, lp) {
   return box;
 }
 
-async function openAgent(name) {
-  S.again = () => openAgent(name);
+function openAgent(name) { return askedAgain(() => openAgent(name), () => openAgentNow(name)); }
+async function openAgentNow(name) {
   const a = await api(`agents/${encodeURIComponent(name)}`);
   const kids = [h("div", { class: "kind" }, `Agent, ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
