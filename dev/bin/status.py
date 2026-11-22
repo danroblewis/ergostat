@@ -1,8 +1,9 @@
 """One screen of the factory for the coordinator, from its record; run in the instance's folder.
 
     status.py      in flight, blocked (on what), failed (why), the queue, the top of the backlog by rank, research,
-                   proposed lessons, spend today and first-pass yield, the switch (waiting, draining or switching:
-                   drain.py), and the time in each state, the loop and the gates (median and p90, with goals)
+                   proposed lessons, spend today and first-pass yield, the pools (their risk, its bound, the tolerance
+                   and the target), the switch (waiting, draining or switching: drain.py), and the time in each state,
+                   the loop and the gates (median and p90, with goals)
     status.py session GAP [ROLE] [N]
                    a session's conversation (run/sessions/, sessions.py): each message, each tool call with its input
                    summarised, each result cut short. Without N, the role's latest; without ROLE, the gap's sessions
@@ -17,6 +18,7 @@ sys.dont_write_bytecode = True
 import drain  # noqa: E402
 import fac  # noqa: E402
 import measure  # noqa: E402
+import pools  # noqa: E402
 import resources  # noqa: E402
 import sessions  # noqa: E402
 import times  # noqa: E402
@@ -41,6 +43,18 @@ def blocked_on(g: dict, by: dict) -> str:
     research = [r for r in f.get("research") or [] if g["state"] in ("open", "replan")]
     return "; ".join(x for x in (f.get("blocked_reason"), ", ".join(f"{d} ({by.get(d, {}).get('state', 'unknown')})"
                                                                      for d in waits), ", ".join(research)) if x)
+
+
+def pool_line(cfg: dict, gaps: list[dict]) -> str:
+    """The pools, their risk and its bound against the owner's tolerance, and the target (dev/bin/risk.py)."""
+    try:
+        st = pools.state(cfg)
+        m = pools.measured(cfg, st, gaps)
+    except Exception as e:  # noqa: BLE001 - said; the rest of the screen still shows
+        return f"- (cannot be told: {type(e).__name__}: {e})"
+    return (f"implementor {st['implementor']}, reviewer {st['reviewer']}: risk {m['now']['risk']:g} interventions a "
+            f"day (90% bound {m['now']['bound']:g}), tolerance {m['tolerance']:g}, target {m['target']} "
+            f"(demand {m['demand']})")
 
 
 def session(cfg: dict, args: list[str]) -> int:
@@ -96,6 +110,7 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001 - said, as the sessions would refuse
         spend = f"cannot be told ({type(e).__name__}: {e}): sessions refuse"
     out.append(f"Spend today {spend}; first-pass yield (14 days) {fpy}")
+    out.append(f"Pools {pool_line(cfg, gaps)}")
     try:
         out.append(drain.describe(cfg))
     except Exception as e:  # noqa: BLE001 - said, as the switcher would not switch

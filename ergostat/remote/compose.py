@@ -158,7 +158,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
                                  **({"within": str(parent)} if parent else {})}, via), via, {})
     info = {"url": url, "token_file": str(token_file) if token_file else None, "every": every, "dir": str(d),
             "where": via, "within": parent, "systems": list(only) if only else None, "version": None, "fetched": None,
-            "name": None, "parts": {}, "kinds": {}, "missing": [], "status": st, "show": None}
+            "name": None, "parts": {}, "names": {}, "kinds": {}, "missing": [], "status": st, "show": None}
     doc.remotes[name] = info
     if not st.get("ok", True) or st.get("ok") is None and served is None:
         why = st.get("why") or "not asked yet"
@@ -183,6 +183,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
     info.update(version=served.get("version"), fetched=served.get("fetched"), name=served.get("name"))
     secs = served.get("sections") or {}
     info["kinds"] = {k: v for k, v in (secs.get("items") or {}).items() if isinstance(v, dict)}
+    info["served_parameters"] = sorted(secs.get("parameters") or {})   # every one, systems: or not (taken names)
     made = parts(name, secs, only, every, cut)
     for section, entries in made.items():
         for pname, got in entries.items():
@@ -521,7 +522,9 @@ def finish(doc, put) -> None:
                 break
         for (section, pname), (got, pv) in kept.items():
             put(section, pname, as_map(got, pv), pv, {})
-            info["parts"][f"{SINGULAR.get(section, section)}.{pname}"] = True
+            one = SINGULAR.get(section, section)
+            info["parts"][f"{one}.{pname}"] = True
+            info["names"][f"{one}.{pname}"] = f"{one}.{pname[len(remote) + 1:]}"       # served names only
     for section, entries in doc.sections.items():
         for ename, entry in list(entries.items()):
             if isinstance(getattr(entry, "where", None), RemoteVia):

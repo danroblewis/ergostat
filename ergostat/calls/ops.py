@@ -21,6 +21,19 @@ class Refused(Exception):
         self.code = code
 
 
+def call_of(req: dict) -> str | None:
+    """The call's own key (``client.call``), the same on every try: what it records is named by it (hashed if long)."""
+    from hashlib import sha256
+    k = req.get("call")
+    return f"call-{k if len(k) <= 64 else sha256(k.encode()).hexdigest()}" if isinstance(k, str) and k else None
+
+
+def act_key(cfg: dict, req: dict) -> str | None:
+    """An act's key: the caller's, else this call's for a run with no item (one with finds its act by its arguments)."""
+    key = req.get("key")
+    return call_of(req) if key is None and not cfg.get("item") else key
+
+
 def event(eng, req: dict) -> dict:
     from ..intake import envelope
     from ..spec import items as its
@@ -30,8 +43,10 @@ def event(eng, req: dict) -> dict:
     if why:                                              # a run started by events says only what it declares (SPEC §9.3)
         raise Refused(f"not recorded: {why}")
     try:
-        got = envelope.record(eng.p, envelope.parse(req.get("events")), source=str(req.get("source") or "user"),
-                              causedby=req.get("causedby") or None)
+        evs = envelope.parse(req.get("events"))
+        if call_of(req):                                 # asked again after a restart: recorded once (by its id)
+            evs = [{**e, "id": e.get("id") or f"{call_of(req)}.{i}"} for i, e in enumerate(evs)]
+        got = envelope.record(eng.p, evs, source=str(req.get("source") or "user"), causedby=req.get("causedby") or None)
     except envelope.Refused as e:
         raise Refused(f"not recorded: {e}") from None
     spec = eng.spec
@@ -68,10 +83,10 @@ def lease(eng, req: dict) -> dict:
     env = req.get("env") or {}
     try:
         if req.get("how") == "renew":
-            return {"event": acts.renew(eng.p, eng.spec, env=env)}
+            return {"event": acts.renew(eng.p, eng.spec, env=env, id=call_of(req))}
         if req.get("how") == "nack":
             return {"event": acts.nack(eng.p, eng.spec, str(req.get("why") or "given back"), after=req.get("after"),
-                                       count=req.get("count", True) is not False, env=env)}
+                                       count=req.get("count", True) is not False, env=env, id=call_of(req))}
     except acts.LeaseError as e:
         raise Refused(f"refused: {e}", 1) from None
     raise Refused(f"lease: how is renew or nack, not {req.get('how')!r}")
@@ -85,7 +100,7 @@ def act_start(eng, req: dict) -> tuple[dict, dict]:
         args = req.get("args") or {}
         if not isinstance(args, dict):
             raise program.AskError("args: a map of NAME to VALUE")
-        return program.start(eng.p, eng.spec, cfg, str(req.get("name") or ""), args, key=req.get("key")), cfg
+        return program.start(eng.p, eng.spec, cfg, str(req.get("name") or ""), args, key=act_key(cfg, req)), cfg
     except program.AskError as e:
         raise Refused(f"refused: {e}") from None
 
