@@ -117,6 +117,9 @@ button:disabled { color: var(--muted); cursor: default; }
 button.on { background: var(--fill); border-color: var(--line-strong); color: var(--ink); font-weight: 600; }
 button.ghost, .menu-btn { border-color: transparent; background: transparent; }
 button.ghost:hover, .menu-btn:hover { background: var(--fill); }
+/* a name that opens its evidence: read as the name it is (its colour and weight kept), pressed as a button */
+button.name { border: 0; background: none; padding: 0; min-height: 0; color: inherit; font-weight: inherit; text-align: inherit; }
+button.name:hover:not(:disabled) { background: none; text-decoration: underline; }
 label.check { display: inline-flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
 
 /* a menu: a button and what it holds, floating; the one thing with a shadow */
@@ -181,6 +184,8 @@ tr.click:hover td { background: var(--fill); }
 tbody.group th { color: var(--ink); font-size: var(--text); font-weight: 600; padding-top: var(--sp-4); border-bottom-color: var(--line); }
 tbody.group th .muted { font-weight: 400; }
 td.cell { max-width: 18em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.runs-table td.cell { max-width: none; white-space: normal; overflow-wrap: anywhere; }   /* an agent's recent runs: wrapped, to fit the panel */
+details.runs-resources summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); }
 td.data { overflow-wrap: anywhere; min-width: 16em; }
 td.data details summary { cursor: pointer; list-style: none; }
 td.data pre, table.fields pre { margin: var(--sp-2) 0 0; white-space: pre-wrap; font-size: var(--text-sm); background: var(--chrome); padding: var(--sp-2); border-radius: var(--radius); }
@@ -585,8 +590,8 @@ tbody.group th small { font-weight: normal; font-size: var(--text-sm); }
 a.stbox:hover { text-decoration: none; background: var(--fill); }
 .stbox.on { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
 .track .stbox.on { color: var(--ink); font-weight: 600; box-shadow: none; }
-.track .stbox:not(.been) { color: var(--line-strong); }
-.meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-5); margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); color: var(--ink); }
+.track .stbox.final { border: 3px double currentColor; }
+.track .alt { display: inline-flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); align-items: baseline; margin-left: var(--sp-5); color: var(--muted); }.meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-5); margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); color: var(--ink); }
 .meta span > span:first-child { color: var(--muted); margin-right: var(--sp-1); }
 img.thumb { max-height: 44px; max-width: 72px; border-radius: var(--radius); border: var(--hair) solid var(--line); background: var(--bg); vertical-align: middle; }
 img.pic { max-height: 220px; max-width: 100%; border-radius: var(--radius); border: var(--hair) solid var(--line); background: var(--bg); }
@@ -715,7 +720,8 @@ svg.canvas rect.hull-mark.xhover { stroke-width: 4px; vector-effect: non-scaling
    several), drawn always and shown only when asked (the menu's toggle, or C held). Pointed at in the other
    pane, the ring is thick, haloed and pulses once, in the accent (or its groups' colours, when shown), and
    the rest of that pane steps back. The rings keep their width on the screen at any zoom */
-svg.canvas g .corr-ring.corr-ring, svg.canvas g .corr-halo.corr-halo {   /* (over what styles an outline's rect) */
+svg.canvas g .corr-ring.corr-ring, svg.canvas g .corr-halo.corr-halo,   /* (over what styles an outline's rect) */
+svg.g-canvas g .corr-ring.corr-ring, svg.g-canvas g .corr-halo.corr-halo {   /* (the Guide's drawings: never shown) */
   display: none; fill: none; stroke: var(--ring); stroke-dasharray: var(--dash, none); stroke-dashoffset: var(--dash-at, 0);
   pointer-events: none; vector-effect: non-scaling-stroke; stroke-linecap: butt; }
 body.corr-on svg.canvas g .corr-ring.corr-ring { display: inline; stroke-width: 3px; }

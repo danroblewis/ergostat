@@ -389,6 +389,34 @@ def test_late_readings_are_rolled_again(me):
     assert me.bucketed("s", now - 7200, now - 3600, 1)[0][1] == pytest.approx((60 + 100) / 61)
 
 
+def test_backfill_ledger_and_late_merge(me, monkeypatch):
+    """A backfill writes what its ledger has not seen, says what it skipped by the ledger alone (whatever rolled or was
+    pruned since), and readings into a span already rolled up are merged into their buckets at the next roll."""
+    now = T + 10 * 86400
+    with monkeypatch.context() as m:                     # a write that fails: nothing kept in the ledger either
+        m.setattr(me, "add_many" if me.kind == "victoriametrics" else "_write", lambda *a: (_ for _ in ()).throw(OSError("away")))
+        with pytest.raises(OSError):
+            me.backfill("s", [(now - 7000, 1.0)], "lost")
+    assert me.backfills("s") == []
+    for bad in ([(now - 1, float("nan"))], [(float("inf"), 1.0)], [(T + 1e9, 1.0)]):
+        with pytest.raises(ValueError):
+            me.backfill("s", bad)
+    me.add_many([("s", now - 7200 + i * 60, 1.0) for i in range(60)])
+    me.roll(now)                                         # (tiers: the span rolled up, so what follows is late)
+    got = me.backfill("s", [(now - 7170, 100.0), (now - 7110, 100.0), (now - 7170, 61.0)], "test")
+    assert (got["count"], got["skipped"], got["repeated"], got["first"], got["last"]) == (2, 0, 1, now - 7170, now - 7110)
+    me.roll(now)
+    assert me.bucketed("s", now - 7200, now - 3600, 1)[0][1] == pytest.approx((60 + 61 + 100) / 62)
+    again = me.backfill("s", [(now - 7170, 5.0), (now - 7050, 7.0)], "test")
+    assert (again["count"], again["skipped"]) == (1, 1)
+    me.roll(now)
+    assert me.bucketed("s", now - 7200, now - 3600, 1)[0][1] == pytest.approx((60 + 61 + 100 + 7) / 63)
+    me.prune(now)
+    assert [(b["from"], b["count"], b["first"], b["last"]) for b in me.backfills("s")] == [
+        ("test", 2, now - 7170, now - 7110), ("test", 1, now - 7050, now - 7050)]
+    assert me.backfill("s", [(now - 7110, 3.0)])["count"] == 0 and me.backfills("other") == []
+
+
 def test_times_are_the_events_time_type_and_seq(ev):
     for i in range(20):
         ev.add("loop.off" if i % 3 else "loop.holding", item=f"l{i % 2}", at=T + i)
