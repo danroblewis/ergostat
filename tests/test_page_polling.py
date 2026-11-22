@@ -22,7 +22,11 @@ from pathlib import Path
 
 import pytest
 
-playwright = pytest.importorskip("playwright.sync_api")
+try:                           # collected without it too, each test skipped, so a run of this file alone is rc 0, not 5
+    from playwright import sync_api as playwright
+except ImportError:
+    playwright = None
+pytestmark = pytest.mark.skipif(playwright is None, reason="needs Playwright: uv run --with playwright==1.63.0")
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = "image-squeeze"
@@ -32,6 +36,11 @@ HEAP_GROWTH_MB = 3.0           # retained heap (after a collection), from settle
 NODE_GROWTH = 0.10             # DOM nodes, as a share of where they settled (and 200 more)
 LONG_TASK_P95_MS = 500         # each refresh's longest work on the main thread, on a laptop; generous
 SETTLE_S = 120                 # the most a page may take to settle (drawn, routed, charts mounted), however loaded
+SCALE_N = int(os.environ.get("POLL_SCALE_N", 20))    # the large model's workflows (scripts/scale_model.py)
+REFRESHES = 30                 # the Dynamics page with every system open, watched over this many refreshes
+# the CPU slowed this many times (CDP), so refreshes run slow and the router's lines late. (At 4x a whole relayout of
+# scale_model 20 stalls the refreshes for many minutes: 31 refreshes in 1440 s; at 2x, 120 s and 566 s a relayout.)
+THROTTLE = 2
 # A fixed piece of work, timed in the page: how much slower this machine is now than the laptop the bounds were set
 # on (REF_MS there, unloaded). The long-task bound scales by it, never below 1, so a loaded machine is held to the
 # same work, not to the same milliseconds.
@@ -75,6 +84,18 @@ def site(tmp_path_factory):
     shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
     home = d.parent / "home"
     seed(d, home)
+    yield from serve(d, home)
+
+
+@pytest.fixture(scope="module")
+def large_site(tmp_path_factory):
+    """scripts/scale_model.py's model of SCALE_N workflows, in systems sharing pools and loops across them."""
+    d = tmp_path_factory.mktemp("scale") / "scale"
+    subprocess.run([sys.executable, str(ROOT / "scripts/scale_model.py"), str(SCALE_N), str(d)], check=True, capture_output=True)
+    yield from serve(d, d.parent / "home")
+
+
+def serve(d: Path, home: Path):
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                             env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -110,14 +131,34 @@ def metrics(cdp) -> dict:
     return {x["name"]: x["value"] for x in cdp.send("Performance.getMetrics")["metrics"]}
 
 
+def quiet_metrics(pg, cdp, within: float = SETTLE_S) -> dict:
+    """The page's metrics with the drawings it has let go swept: reads after a collection, 300 ms apart, until two in a
+    row have the same DOM nodes and listeners. A drawing is built and swapped in one task (diagram.js drawGraph), so
+    a read never lands mid-draw; but Chrome sweeps after it collects, so a read right after the collection can still
+    count part of the drawing a refresh let go (measured on the Dynamics page, all open, scale_model 20, CPU x4:
+    +315 nodes and +901 listeners, gone 300 ms later; never more than that, and never growth, over 30 refreshes).
+    Past ``within``, the least read: garbage only adds to a count, so the least is still all that is alive, and
+    growth that never stops still meets the bound."""
+    deadline, reads = time.monotonic() + within, []
+    while True:
+        m = metrics(cdp)
+        now = (m["Nodes"], m["JSEventListeners"])
+        if reads and now == (reads[-1]["Nodes"], reads[-1]["JSEventListeners"]):
+            return m
+        reads.append(m)
+        if time.monotonic() > deadline:
+            return min(reads, key=lambda r: (r["Nodes"], r["JSEventListeners"]))
+        pg.wait_for_timeout(300)
+
+
 def settle(pg, cdp, least: float = 8.0) -> dict:
     """The page's metrics once it has settled: at least ``least`` seconds after it opened, and then its DOM nodes and
-    retained heap the same over three looks a second apart (heap within a tenth of a MB), however long that takes
-    on a loaded machine, up to SETTLE_S."""
+    retained heap the same over three looks a second apart (heap within a tenth of a MB), each a quiet read (the
+    drawings let go swept), however long that takes on a loaded machine, up to SETTLE_S."""
     pg.wait_for_timeout(least * 1000)
     deadline, last, same = time.monotonic() + SETTLE_S, None, 0
     while True:
-        m = metrics(cdp)
+        m = quiet_metrics(pg, cdp, 10)
         now = (m["Nodes"], m["JSHeapUsedSize"])
         same = same + 1 if last and now[0] == last[0] and abs(now[1] - last[1]) < 1e5 else 0
         if same >= 2 or time.monotonic() > deadline:
@@ -148,7 +189,7 @@ def test_a_page_left_open_does_not_grow(browser, site, route):
     lt0 = pg.evaluate("window.__lt.length")
     n0 = len(asked)
     pg.wait_for_timeout(OPEN_S * 1000)
-    end = metrics(cdp)
+    end = quiet_metrics(pg, cdp)                      # (not mid-render: the refresh drawing then has finished)
     slow = max(slow, slowness(pg))
     lts = pg.evaluate(f"window.__lt.slice({lt0})")
     ctx.close()
@@ -165,6 +206,71 @@ def test_a_page_left_open_does_not_grow(browser, site, route):
     assert end["JSEventListeners"] < settled["JSEventListeners"] * (1 + NODE_GROWTH) + 50, "listeners pile up"
     assert p95 < LONG_TASK_P95_MS * slow, f"refreshes hold the page {p95:.0f} ms (p95; the bound {LONG_TASK_P95_MS * slow:.0f} ms " \
         f"on a machine {slow:.1f}x slower than the reference)"
+
+
+# a refresh run beside the one the poll is running: the whole layout again (as a pin does), started while the poll's
+# own refresh is on its way, so two refreshes draw over each other
+OVERLAP = """() => new Promise((ok) => { const go = () => { if (S.timer && S.timer.running) { S.relayout(); ok(true); }
+                                                    else setTimeout(go, 10); }; go(); })"""
+
+
+def watch_dynamics_open(browser, site, throttle: int = 0, overlaps: int = 0) -> None:
+    """The Dynamics page with every system open on the large model: its DOM nodes and listeners read (quiet: what it
+    let go swept) after each five refreshes, REFRESHES in all, each within the bound of where it settled; with the
+    CPU throttled after it settled, and ``overlaps`` refreshes started beside the poll's own, one a round."""
+    ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+    pg = ctx.new_page()
+    pg.add_init_script(INIT)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    graphs: list[int] = []
+    pg.on("response", lambda r: graphs.append(r.status) if "/api/graph" in r.url else None)
+    cdp = ctx.new_cdp_session(pg)
+    cdp.send("Performance.enable")
+    pg.goto(f"{site}/diagram?view=dynamics&open=*")
+    pg.wait_for_function("() => S.layout && document.querySelectorAll('svg.canvas g.node').length > 0", timeout=SETTLE_S * 1000)
+    settled = settle(pg, cdp)
+    if throttle:
+        cdp.send("Emulation.setCPUThrottlingRate", {"rate": throttle})
+    n0, reads, fired, rounds, took = len(graphs), [], 0, REFRESHES // 5, []
+    within = 3 * SETTLE_S * max(1, throttle)          # (a ceiling: throttled, a refresh of this model takes seconds)
+    t0 = time.monotonic()
+    def said() -> str:
+        row = lambda xs: " ".join(f"{x:.0f}" for x in xs)   # noqa: E731
+        return (f"dynamics open, {SCALE_N} workflows, cpu x{throttle or 1}, {fired} overlapping, {len(graphs) - n0} "
+                f"refreshes, rounds of {row(took)} s: nodes {settled['Nodes']:.0f}→{row(m['Nodes'] for m in reads)}, "
+                f"listeners {settled['JSEventListeners']:.0f}→{row(m['JSEventListeners'] for m in reads)}")
+    for i in range(rounds):                           # each round five refreshes or more, then a read
+        start, ts = len(graphs), time.monotonic()
+        if fired < overlaps and i % max(1, rounds // overlaps) == rounds // overlaps // 2:
+            fired += pg.evaluate(OVERLAP)
+        while len(graphs) - start < 5:
+            if time.monotonic() > t0 + within:
+                pytest.fail(f"the page stopped refreshing ({within} s): {said()}")
+            pg.wait_for_timeout(250)
+        reads.append(quiet_metrics(pg, cdp))
+        took.append(time.monotonic() - ts)
+    ctx.close()
+    print("\n" + said())
+    assert not errors, errors
+    assert fired == overlaps
+    assert len(graphs) - n0 >= REFRESHES and len(reads) == rounds
+    for i, m in enumerate(reads):
+        nodes = m["Nodes"] - settled["Nodes"]
+        assert nodes < NODE_GROWTH * settled["Nodes"] + 200, f"DOM nodes grew by {nodes:.0f} (read {i + 1} of {len(reads)})"
+        assert m["JSEventListeners"] < settled["JSEventListeners"] * (1 + NODE_GROWTH) + 50, f"listeners pile up (read {i + 1})"
+
+
+@pytest.mark.slow
+def test_dynamics_open_stays_bounded_over_30_refreshes(browser, large_site):
+    watch_dynamics_open(browser, large_site)
+
+
+@pytest.mark.slow
+def test_dynamics_open_stays_bounded_when_refreshes_overlap(browser, large_site):
+    """Under the CPU throttled THROTTLE times (refreshes slow, the router's lines late, however busy the machine is
+    besides), with a whole relayout started while the poll's refresh is on its way."""
+    watch_dynamics_open(browser, large_site, throttle=THROTTLE, overlaps=1)
 
 
 def test_leaving_a_page_stops_its_polling(browser, site):

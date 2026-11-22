@@ -33,7 +33,7 @@ async function pageLoops(main) {
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
-        h("td", { class: "nowrap" }, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
+        h("td", { class: "nowrap" }, h("button", { class: "name", type: "button", onclick: (ev) => { ev.stopPropagation(); openLoop(n); } }, h("b", {}, n)), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
         h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num nowrap" }, op(lp.setpoint) + (lp.band || "")),
         h("td", { class: "num", title: "e = r − y" }, lp.error != null ? fmt(lp.error) : ""),
@@ -82,13 +82,14 @@ async function pageAgents(main) {
           h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
         xs.map(([name, a]) => h("tr", { class: "click", key: name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
-          h("td", {}, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || h("span", { class: "muted" }, "no roles"),
+          h("td", {}, rolesText(a.roles) || h("span", { class: "muted" }, "no roles"),
             (a.hints || []).length ? h("ul", { class: "hints" }, a.hints.map((hint) => h("li", { class: hint.about === "loop" ? "warn" : "", title: hint.says },
               hint.about === "loop" ? op(hint.says)
                 : `${hint.controller}: “${hint.decision}” ${Math.round(hint.share * 100)}% of ${hint.count}; a cheaper rung could fill it`))) : null),
           h("td", { class: "num" }, a.runs_itself ? String(a.runs) : ""),
           h("td", { class: "nowrap muted" }, last(a)),
-          h("td", { class: "muted" }, a.schedule || a.every || ""),
+          h("td", { class: "muted" }, a.schedule || a.every || (a.leased ? "on demand, per item (leased)"
+            : a.runs_itself ? "on demand" : a.kind === "person" ? "by a person" : "not run here")),
           h("td", { class: "num nowrap", "data-use": "cost", title: use(a).cost ? `${use(a).cost}, over ${use(a).ai_runs} runs` : "" },
             usd(use(a).cost_usd), use(a).cost && use(a).cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
           h("td", { class: "num", "data-use": "tokens" }, tokensText(use(a).ai_runs ? use(a).tokens : null)),
@@ -462,7 +463,7 @@ function actionsAbout(as, done) {
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
     h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, a.action)), " ",
       h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
-      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}`)),
+      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` + (a.state === "requested" ? "" : a.state === "denied" ? `, ${a["approved by"]}` : `, approved by ${a["approved by"]}`))),
     h("pre", { class: "mono small" }, a.command || ""),
     actionAnswer(a, done))));
 }
@@ -542,11 +543,11 @@ async function pageItems(main, q) {
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
   let sort = q.get("sort") || "";
-  // both show the frontier (the unfinished, and what they wait on); the graph collapses the finished, the timeline
-  // keeps them as what happened; unless asked otherwise
+  // both show the frontier (the unfinished, and what they wait on) with the finished collapsed, so the timeline opens
+  // at now; unless asked otherwise
   const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
   const ask = { frontier: said("frontier"), collapse: said("collapse") };
-  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? view === "graph"; },
+  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? true; },
                group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
   const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
@@ -921,8 +922,13 @@ async function pageItem(main, id, q) {
         + (d.eta.start != null && d.eta.start > nowS() + 60 ? `; started about ${etaWhen(d.eta.start)}` : "")
         + (d.eta.dead ? `; a dead letter in ${Math.round(d.eta.dead * 100)}% of runs` : "") + ")"))) : null,
       pair("Events", String(d.events)), pair("First", ago(d.first)), pair("Latest", h("span", {}, d.latest, h("span", { class: "muted" }, `, ${ago(d.last)}`))));
-    const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
-      h("span", { class: `stbox${st === d.state ? " on" : ""}${d.moves.some((m) => m.to === st) || (i === 0) ? " been" : ""}` }, st)])) : null;
+    // the path it took, arrow by arrow, to where it is now; the other states apart, with no arrow (its endings double-bordered)
+    const fin = new Set(k?.final || []), box = (st) => h("span", { class: `stbox${st === d.state ? " on" : ""}${fin.has(st) ? " final" : ""}` }, st);
+    const path = d.moves.map((m) => m.to).filter((s, i, a) => s && s !== a[i - 1]);
+    if (d.state && path[path.length - 1] !== d.state) path.push(d.state);
+    const ended = fin.has(d.state), rest = (k?.states || []).filter((s) => !path.includes(s) && (!ended || fin.has(s)));
+    const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null, box(st)]),
+      rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
