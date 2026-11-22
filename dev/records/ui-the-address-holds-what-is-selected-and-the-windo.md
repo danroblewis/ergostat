@@ -91,5 +91,6 @@ It reads WINDOWS from main.js and checks that the server reads each name as its 
 is still served as the page. Seen to fail when a window name in main.js was broken ("1d" to "1day": 3600 s, not
 86400). No code outside tests/ changed in this round. Run here: tests/test_graph_cli_web.py, 33 passed;
 the browser acceptance test again with Playwright under the watchdog, 1 passed, rc 0; ruff clean. The four browser
-files were not run again after the merge. The merge brought no change to ergostat/web, and their round 1 results
-are above.
+files were not run again after the merge. That merge (18c67055) brought main's Agents-page change into
+ergostat/web (pages.js 7 lines, style.css 2), so the round 1 results above are from before it; the merge queue
+runs them in full.
