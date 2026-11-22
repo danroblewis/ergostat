@@ -111,3 +111,11 @@ relies on the factory merging branches (not squashing), so that 34ece0da stays i
 `git rev-parse` fails and the test fails; it is not skipped. `tests/test_factory_cx_compress.py`: 13 passed. Ruff is
 clean. Not done: lowering the bound to watch the pinned test fail (the command that edits the bound in place was refused
 in this session). The assertion itself has not changed.
+
+Round 3 (the queue's one finding: a conflict with main in `tests/test_factory_cx_frame.py`): main (afeee013) had made
+the same three changes to that file as this branch: size's line found among the others, the `list` rows filtered to
+size, and every `complexity*` model file left out of "before". I kept main's wording of all three. With main's
+`cx_branching` family now present as well: `tests/test_factory_cx_frame.py` 14 passed (its `ergostat check` test with
+both families' model files: no new finding), `tests/test_factory_cx_compress.py` 13 passed,
+`tests/test_factory_cx_branching.py` 26 passed. Ruff is clean. `git checkout --theirs` was refused in this session, so I
+resolved the conflict by hand. Not run here: the unit suite and the browser files (the factory runs them).
