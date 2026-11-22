@@ -2453,6 +2453,91 @@ def test_batch_keeps_rank_order_among_mergeable_gaps(tmp_path):
     assert r["state"] == "approved" and "failed_gates" not in r["fields"]
 
 
+def stacked_gaps(f: Factory, ranks: dict[str, int], bad: str = "", batch: int | None = None) -> dict[str, str]:
+    """A stack in the drop: each gap branched from the tip of the one before it (the first from main), adding
+    NAME.txt (``bad``: bad.txt too), approved with `stacked_on` naming the one below at its commit. {name: commit}."""
+    drop = f.tmp / "live" / "drop.git"
+    if not drop.exists():
+        subprocess.run(["git", "init", "-q", "--bare", str(drop)], check=True)
+    out, below = {}, None
+    git(f.checkout, "checkout", "-q", "-b", "stack", "main")
+    for name, rank in ranks.items():
+        (f.checkout / f"{name}.txt").write_text(name)
+        if name == bad:
+            (f.checkout / "bad.txt").write_text("breaks the suite")
+        git(f.checkout, "add", "-A")
+        git(f.checkout, "commit", "-q", "-m", name)
+        out[name] = git(f.checkout, "rev-parse", "HEAD")
+        git(f.checkout, "push", "-q", str(drop), f"stack:refs/heads/factory/{name}")
+        on = {"stacked_on": [{"gap": f"gap/{below}", "sha": out[below]}]} if below else {}
+        f.fold([{"event": "gap.approved", "item": f"gap/{name}", "data": {
+            "branch": name, "reviewed_head": out[name], "approved_at": time.time() - 3600, "rank": rank, **on}}], None)
+        below = name
+    git(f.checkout, "checkout", "-q", "main")
+    git(f.checkout, "branch", "-q", "-D", "stack")
+    if batch:
+        (f.model / "run").mkdir(exist_ok=True)
+        (f.model / "run" / "pools.json").write_text(json.dumps({"batch": batch}))
+    return out
+
+
+def test_a_stacked_gap_brings_its_base_into_its_batch_below_it(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 5, "b": 0}, batch=2)                    # b ranks first, but holds a's commit
+    said, _ = f.run("queue.py", "gap/b")
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and suite_runs(f) == 1
+    assert merges(f) == ["a", "b"]                                # a, then b, in one batch
+    assert f.item("gap/a")["state"] == f.item("gap/b")["state"] == "merged"
+    assert [f.item(f"gap/{g}")["fields"]["merged_lines"] for g in "ab"] == [1, 1]   # each its own commits only
+    assert json.loads((f.model / "run" / "queue.json").read_text())["pending"]["gaps"] == ["gap/a", "gap/b"]
+
+
+def test_a_stacked_gap_whose_base_is_in_fix_is_given_back_uncounted(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 1, "b": 0}, batch=2)
+    f.fold([{"event": "gap.sent-back", "item": "gap/a", "data": {"findings": ["x"]}}], None)
+    assert f.item("gap/a")["state"] == "fix"
+    said, lines = f.run("queue.py", "gap/b")
+    assert said == ["gap.queued"] and suite_runs(f) == 0 and merges(f) == []
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert nack["count"] is False and nack["after"] == "10m" and "gap/a" in nack["why"] and "stack" in nack["why"]
+    assert "empty_batches" not in f.item("gap/b")["fields"]      # never counted towards EMPTY_MOST
+    f.fold([{"event": "gap.approved", "item": "gap/b", "data": {}}], None)   # (its lease given back, as the engine)
+    approved_gaps(f, {"p": 9})                                    # b as a batch-mate: skipped, stays approved
+    assert f.item("gap/b")["state"] == "approved"
+    said, _ = f.run("queue.py", "gap/p")
+    assert merges(f) == ["p"] and f.item("gap/b")["state"] == "approved" and "gap.sent-back" not in said
+
+
+def test_a_failing_base_gives_its_descendants_back(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"p": 0})
+    stacked_gaps(f, {"a": 1, "b": 2}, bad="a", batch=3)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 1
+    assert f.item("gap/a")["state"] == "queue-failed" and f.item("gap/b")["state"] == "approved"
+    assert "failed_gates" not in f.item("gap/b")["fields"] and f.item("gap/p")["state"] == "merged"
+    assert suite_runs(f) == 3                                     # red, p green, p+a red: b never run again
+    pending = json.loads((f.model / "run" / "queue.json").read_text())["pending"]
+    assert pending["gaps"] == ["gap/p"] and merges(f) == ["p"]
+    tree = git(f.checkout, "ls-tree", "--name-only", pending["sha"]).split()
+    assert "p.txt" in tree and not {"a.txt", "b.txt", "bad.txt"} & set(tree)   # the pushed tree
+
+
+def test_a_stack_deeper_than_the_cap_gives_the_own_gap_back(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 0, "b": 1, "c": 2}, batch=2)
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == ["gap.queued"] and suite_runs(f) == 0 and merges(f) == []
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert nack["count"] is False and nack["after"] == "10m" and "does not fit a batch of 2" in nack["why"]
+    assert "empty_batches" not in f.item("gap/c")["fields"]
+    f.fold([{"event": "gap.approved", "item": "gap/c", "data": {}}], None)   # (its lease given back, as the engine)
+    said, _ = f.run("queue.py", "gap/a")                       # the bottom base, in its own run
+    assert said[:2] == ["gap.queued", "gap.merged"] and merges(f)[0] == "a" and f.item("gap/a")["state"] == "merged"
+    assert merges(f) == ["a", "b"] and f.item("gap/c")["state"] == "approved"   # b fits on it; c waits
+
+
 def test_gaps_passed_over_for_the_own_gap_fill_its_slot_once_it_is_sent_back(tmp_path):
     f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
     approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"c": "app.py"})
