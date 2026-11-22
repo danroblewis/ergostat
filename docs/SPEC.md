@@ -180,24 +180,32 @@ for an untrusted template only; a trusted template's output is unchanged:
   `library file`;
 - the problems a use of an untrusted template gives: **bad-param** and **bad-template** messages after
   `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**;
-- the **library-untrusted** and **untrusted-text** refusals: `under ⟦untrusted: library file⟧template NAME from
-  FOLDER⟦end of untrusted⟧`, the folder's path with any character that does not print (a newline) written as its
-  escape (`\n`), so a folder's name can neither close a mark nor start a line of its own;
+- the **library-untrusted** and **untrusted-text** refusals: `it makes ⟦untrusted: library file⟧PATH, under template
+  NAME from FOLDER⟦end of untrusted⟧`. PATH ends in the library's own key, so it sits inside the mark with the
+  folder, and any character in them that does not print (a newline) is written as its escape (`\n`): neither a
+  folder's name nor a key can close a mark or start a line of its own;
 - the text an untrusted instance makes in the model (`untrusted.Shown`, the one place that decides; a part is
-  untrusted as under *Bounded* below, and a part with no `where` counts as untrusted too): each part's and its
-  sensors' name, `description`, `run`, `prompt`, `ask` and equation, and the system's name and description, labelled
-  `template NAME` (`library file` when its instance is gone from `uses`). Every whole occurrence of them is marked in `ergostat check`'s lines and its `--json` messages, and
-  in the MCP `check`, `explain`, `status` (keys and values) and `context` (a recipe rendered) answers. A problem at an
-  untrusted instance's `use:` line has its whole message marked. Where a string gets a mark, `⟦` and `⟧` outside the
-  marks in it are written `[` and `]`. An answer that carries a mark ends with what the markers mean once (`check`'s
-  last line; `"untrusted"` in a JSON answer). The owner's parts and those of trusted and built-in templates are not
-  marked, and an answer with no untrusted part in it is unchanged.
+  untrusted as under *Bounded* below, and a part with no `where` counts as untrusted too), labelled `template NAME`
+  (`library file` when its instance is gone from `uses`). Each field is marked where a view writes it, never by
+  matching its words elsewhere: the MCP `explain` and `context` answers are written from a copy of the model whose
+  untrusted parts' `description`, `run`, `prompt`, `ask`, equation and sensors' `run` and `description`, and the
+  system's description, are marked. Where a view cuts such text short (`explain` keeps 120 characters of a prompt, a
+  `context` part its budget), the cut keeps the mark and closes it. A finding at an untrusted instance's `use:` line,
+  or about an untrusted part, is marked whole in `ergostat check`'s lines and its `--json` messages, in the MCP
+  `check` answer and in a `context` recipe's findings. The names of untrusted parts and systems (identifiers, by NAME)
+  are marked as whole words outside a mark in those answers, in the notes' lines of `check`, and in the values (never
+  the keys) of the MCP `status` answer. An answer that carries a mark
+  ends with what the markers mean once (`check`'s last line; `"untrusted"` in a JSON answer). The owner's parts and
+  those of trusted and built-in templates are not marked, even where their text is the same as a library's, and an
+  answer with no untrusted part in it is unchanged.
 
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
-known types); a finding's `about` and `id` in JSON (references, kept as they are so the finding can be named back);
-the text above when a view shows it other than whole (cut short, or worked into a sentence of its own); the
-diagrams; and the MCP `spec` answer, which is the format's document and holds none of the model's text. A held
-chain's `ask`, `prompt`, `query` and `sources` are gated by who wrote them instead (R3, below).
+known types); a finding's `about` and `id` in JSON, and the keys of the MCP `status` answer (a goal by its name):
+references, kept as they are so the thing can be named back; a library's description or command quoted in a finding
+about an owner's part (only the untrusted names in it are marked); the diagrams; and the MCP `spec` answer, which is
+the format's document and holds none of the model's text. A word in the owner's own text that is the name of an
+untrusted part or system is marked as that name. A held chain's `ask`, `prompt`, `query` and `sources` are gated by
+who wrote them instead (R3, below).
 
 *Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
 (an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After

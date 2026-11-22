@@ -380,7 +380,7 @@ def test_ask_prompt_query_gated(tmp_path, slot):
         (tmp_path / how).mkdir()
         text, given = slot_template(slot, how)
         msg = refused_once(write(tmp_path / how, given, {"l": text}, main=PROM), "untrusted-text")
-        assert f"makes {SLOTS[slot][3]}," in msg and "(R3)" in msg, msg
+        assert f"makes ⟦untrusted: library file⟧{SLOTS[slot][3]}," in msg and "(R3)" in msg, msg
     text, given = slot_template(slot, "owner")
     spec = compiles(write(tmp_path, given, {"l": text}, main=PROM))
     if slot == "query":
@@ -418,7 +418,8 @@ def test_untrusted_text_mixed_value_refused(tmp_path):
     for i, (given, lib, own, where) in enumerate(cases):
         (tmp_path / str(i)).mkdir()
         msg = refused_once(write(tmp_path / str(i), given, {"l": lib}, own, main=PROM), "untrusted-text")
-        assert f"makes {where}," in msg and "and more" not in msg and "Is it done" not in msg and "with:" not in msg, msg
+        assert f"makes ⟦untrusted: library file⟧{where}," in msg, msg
+        assert "and more" not in msg and "Is it done" not in msg and "with:" not in msg, msg
     # the owner's value in every field, but the map's keys the library's words: refused too (keys are pieces of it)
     (tmp_path / "keys").mkdir()
     refused_once(write(tmp_path / "keys", {"s": "prom", "e": "up"}, {"l": L("{s: {type: name}, e: {type: string}}", (
@@ -451,7 +452,7 @@ def test_untrusted_text_instance_name_refused(tmp_path, case):
     own = {"of": "template: of\n" + NAMED[case], "of2": OF2}
     (tmp_path / "x").mkdir()
     msg = refused_once(write(tmp_path / "x", {}, {"l": lib}, own), "untrusted-text")
-    assert f"makes blocks.u-{KEY}{'-n' if case == 'with' else ''}-b.ask," in msg, msg
+    assert f"makes ⟦untrusted: library file⟧blocks.u-{KEY}{'-n' if case == 'with' else ''}-b.ask," in msg, msg
     # the same template, used by the owner, compiles
     sub = "-n" if case == "with" else ""
     spec = compiles(write(tmp_path / "x", {}, {"l": L()}, own, use="of"))
@@ -474,7 +475,7 @@ def test_ai_person_other_keys_still_refused(tmp_path, key, value, ty, text):
     given = {"q": "Sum up the queue", "cmd": CMD, "p": "10m"}
     (tmp_path / "x").mkdir()
     msg = refused_once(write(tmp_path / "x", given, {"l": L(params, block % f", {key}: {value}")}))
-    assert f"makes blocks.u-b.{key}," in msg, msg
+    assert f"makes ⟦untrusted: library file⟧blocks.u-b.{key}," in msg, msg
     assert compiles(write(tmp_path, given, {"l": L(params, block % "")})).blocks["u-b"].type == ty
 
 

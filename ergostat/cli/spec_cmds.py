@@ -88,16 +88,16 @@ def check_yaml(args, path: Path) -> int:
         return f"{p.where}: {sh.problem(p)}" if p.where else sh.problem(p)
     if args.json:
         coh = sh.values(coherence_of(args, spec, findings) if not errors else None)
-        found = [sh.problem(p) for p in problems]
         return out_json({"ok": not errors, "errors": len(errors), "findings": sum(1 for p in findings if p.level != "note"),
-                         "notes": sum(1 for p in findings if p.level == "note"), **({"untrusted": SAYS} if sh.marked else {}),
-                         "found": [{"level": p.level, "code": p.code, "message": m, "about": p.about,
+                         "notes": sum(1 for p in findings if p.level == "note"),
+                         "found": [{"level": p.level, "code": p.code, "message": sh.problem(p), "about": p.about,
                                     **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                     **({"items": p.items} if p.items else {}),
                                     "file": str(p.where.file) if p.where else None,
-                                    "line": p.where.line if p.where else None} for p, m in zip(problems, found, strict=True)],
+                                    "line": p.where.line if p.where else None} for p in problems],
                          "local": {k: str(w) for k, w in (getattr(spec, "local", None) or {}).items()},
-                         **({"coherence": coh} if coh is not None else {})}) or (1 if errors else 0)
+                         **({"coherence": coh} if coh is not None else {}),
+                         **({"untrusted": SAYS} if sh.marked else {})}) or (1 if errors else 0)   # after what marks
 
     def n(k, word):
         return f"{k} {word}" + ("" if k == 1 else "s")

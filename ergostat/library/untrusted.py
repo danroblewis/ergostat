@@ -40,17 +40,13 @@ def close(s: str) -> str:
     return s + END if s.rfind(OPEN) > s.rfind(END) else s
 
 
-TABLES = {"stocks": "stock", "flows": "flow", "auxiliaries": "auxiliary", "parameters": "parameter", "goals": "goal",
-          "blocks": "block"}
+TABLES = dict(stocks="stock", flows="flow", auxiliaries="auxiliary", parameters="parameter", goals="goal", blocks="block")
 
 
 class Shown:
-    """The one place a view asks "untrusted, so mark" (SPEC §2a, *Marked*). A part is untrusted when
-    ``bounds.untrusted_part`` says so, or when it has no ``where``. ``model()`` is a copy of the model in which each
-    untrusted part's own description, prompt, ask, runs and equation are marked, field by field, for the views that
-    write them (explain, the context recipes). ``names`` marks the names of untrusted parts and systems (NAME-checked
-    identifiers) where they stand as whole words outside a mark. ``problem`` marks the whole of a finding that sits at
-    an untrusted use or is about an untrusted part. Each mark is labelled ``template NAME``."""
+    """The one place a view asks "untrusted, so mark" (SPEC §2a): a part ``bounds.untrusted_part`` holds, or one with
+    no ``where``. ``model()``: a copy of the model with those parts' own fields marked, for the views that write them;
+    ``names``: their names (NAME-checked) as whole words outside a mark; ``problem``: a finding at or about one."""
 
     def __init__(self, spec):
         from .bounds import untrusted_part
@@ -58,15 +54,13 @@ class Shown:
         self.parts = {f"{k}.{n}": (t, x) for t, k in TABLES.items()
                       for n, x in (getattr(spec, t, None) or {}).items() if self.held(x.where, part=True)}
         got = {r.split(".", 1)[1]: x.where for r, (_, x) in self.parts.items()}
-        got |= {n: n for n in (getattr(spec, "systems", None) or {}) if self.held(n)}
+        got |= {n: n for n in (getattr(spec, "systems", None) or {})      # an instance's system, unless marked trusted
+                if n in self.uses and not (isinstance(u := self.uses[n], dict) and u.get("untrusted") is False)}
         self.wheres, self.opens = got, {f"{OPEN}{self.label(w)}⟧" for w in got.values()}
-        self.find = re.compile("|".join(rf"(?<![\w-]){re.escape(t)}(?![\w-])" for t in sorted(got, key=len, reverse=True))
-                               ) if got else None
+        self.find = re.compile("|".join(rf"(?<![\w-]){re.escape(t)}(?![\w-])" for t in sorted(got, key=len, reverse=True))) if got else None
 
     def held(self, where, part: bool = False) -> bool:
-        """A part (``part``) with no ``where``, or what an untrusted instance made (a ``Via``, or an instance's name)."""
-        if isinstance(where, str):
-            return where in self.uses and self.uses[where].get("untrusted") is not False
+        """A part (``part``) with no ``where``, or what an untrusted instance made (a ``Via``)."""
         return (part and where is None) or self.untrusted(where, self.uses)
 
     def label(self, where) -> str:
@@ -107,15 +101,14 @@ class Shown:
         if not self.wheres:
             return self.spec
         out = copy.copy(self.spec)
-        out._ix, out.systems = None, {n: self.mark(d, n) if self.held(n) else d for n, d in self.spec.systems.items()}
+        out._ix, out.systems = None, {n: self.mark(d, n) if self.wheres.get(n) == n else d for n, d in self.spec.systems.items()}
         for t in TABLES:
             setattr(out, t, {**getattr(self.spec, t)})
         for t, x in self.parts.values():
             y = getattr(out, t)[x.name] = copy.copy(x)
             y.description = self.mark(x.description, x.where)
             if getattr(x, "params", None):
-                y.params = {**x.params, **{k: self.mark(x.params[k], x.where) for k in ("run", "prompt", "ask")
-                                           if k in x.params}}
+                y.params = {**x.params, **{k: self.mark(x.params[k], x.where) for k in ("run", "prompt", "ask") if k in x.params}}
             if getattr(x, "equation", None) is not None:
                 y.equation = copy.copy(x.equation)
                 y.equation.text = self.mark(x.equation.text, x.where)

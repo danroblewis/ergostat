@@ -224,17 +224,16 @@ class Server:
                 from .spec.about import findings as about
                 about(spec, problems)                       # as the CLI's check: last, so every finding carries ids
             sh = Shown(spec)
-            found = [sh.problem(p) for p in problems]
-            return _text({"ok": not any(p.level == "error" for p in problems), **({"untrusted": SAYS} if sh.marked else {}),
-                          "problems": [{"level": p.level, "code": p.code, "message": m, "about": p.about,
+            return _text({"ok": not any(p.level == "error" for p in problems),
+                          "problems": [{"level": p.level, "code": p.code, "message": sh.problem(p), "about": p.about,
                                         **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
                                         **({"items": p.items} if p.items else {}),
                                         "file": str(p.where.file) if p.where else None,
-                                        "line": p.where.line if p.where else None}
-                                       for p, m in zip(problems, found, strict=True)],
+                                        "line": p.where.line if p.where else None} for p in problems],
                           "counts": {"stocks": len(spec.stocks), "flows": len(spec.flows), "auxiliaries": len(spec.auxiliaries),
                                      "goals": len(spec.goals),
-                                     "blocks": len(spec.blocks), "files": len(spec.files)}})
+                                     "blocks": len(spec.blocks), "files": len(spec.files)},
+                          **({"untrusted": SAYS} if sh.marked else {})})          # after the problems that mark
         if name == "spec":
             from . import helpdocs
             return _text(helpdocs.read("spec") or "the specification is docs/SPEC.md in the ergostat repository")

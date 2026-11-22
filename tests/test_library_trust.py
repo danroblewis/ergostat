@@ -236,7 +236,7 @@ def test_untrusted_refused_at_use_line(tmp_path, case):
     body, where = CASES[case]
     path = write(tmp_path, MAIN, {"lib": {"bad": BASE + body}})
     msg = refused_once(path)
-    assert f"makes {where}," in msg and "template bad" in msg and str((tmp_path / "lib").resolve()) in msg
+    assert f"makes ⟦untrusted: library file⟧{where}," in msg and "template bad" in msg and str((tmp_path / "lib").resolve()) in msg
 
 
 OWNER_PARTS = """
@@ -259,7 +259,7 @@ def test_untrusted_out_to_a_part_it_did_not_make_refused(tmp_path, out, where):
             f"  x: {{type: timer, after: 1h, in: stock.s, out: {out}}}\n")
     path = write(tmp_path, MAIN + OWNER_PARTS, {"lib": {"bad": BASE + body}})
     msg = refused_once(path)
-    assert f"makes {where}," in msg, msg
+    assert f"makes ⟦untrusted: library file⟧{where}," in msg, msg
     spec, _ = read(path)
     assert "deploy" in spec.blocks and not [c for c in spec.commanders_of("deploy")]
 
@@ -283,7 +283,7 @@ def test_untrusted_wrapping_builtin_with_run_refused(tmp_path):
     path = write(tmp_path, MAIN, {"lib": {"bad": "template: bad\nuses:\n  c:\n    use: collect\n"
                                                  "    with: {command: ./fetch.sh}\n"}})    # a library's command
     msg = refused_once(path)
-    assert re.search(r"makes \w+\.u-c-[\w-]+\.sensor\.(every|run),", msg) and "template bad" in msg, msg
+    assert re.search(r"makes ⟦untrusted: library file⟧\w+\.u-c-[\w-]+\.sensor\.(every|run),", msg) and "template bad" in msg, msg
 
 
 def test_nested_chain_refused_whole(tmp_path):

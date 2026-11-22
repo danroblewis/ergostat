@@ -73,10 +73,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `query` and `sources` entries stand only when no piece of them is the library's (a piece whose writer can't be told
   counts as the library's, the instance's name and a part's renamed name included), else the use is refused as `untrusted-text`; `ai` and `person` blocks may say only that
   text, `goal`, `until`, `every` and `cron`, every other key refused by name (SPEC §2a, R3). **Built**
-  (`library-model-text-marked`): the names, descriptions, prompts, asks, runs and equations an untrusted instance
-  makes in the model are marked in `ergostat check` (its lines and `--json` messages) and in the MCP `check`,
-  `explain`, `status` and `context` answers, with the markers' meaning once, through one helper
-  (`untrusted.Shown`); the `library-untrusted` and `untrusted-text` refusals mark the template and its folder path.
+  (`library-model-text-marked`): the descriptions, prompts, asks, runs and equations an untrusted instance makes
+  are marked field by field where the MCP `explain` and `context` answers write them (a cut keeps its mark); their
+  names, and the findings at or about its parts, in `ergostat check` (its lines and `--json` messages) and the MCP
+  `check` and `status` answers; with the markers' meaning once, through one helper (`untrusted.Shown`). The
+  `library-untrusted` and `untrusted-text` refusals mark the refused key's path, the template and its folder.
   *Still needed:* the same text marked in the diagrams; `fetch` by git URL or package, refusing a lock entry
   without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
   the rebase onto main.
