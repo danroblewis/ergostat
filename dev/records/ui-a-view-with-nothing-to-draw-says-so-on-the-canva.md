@@ -87,3 +87,19 @@ Built, 8 net lines outside tests (diagram.js +3, style.css +3 net of the two cha
   added only to give the step something to run would be a test that can't fail (lesson 9), so none was added. Left
   as it is (the reversible choice). The factory fix belongs in its own gap, and the browser file runs in full in the
   merge queue.
+
+## Where it stopped (round 2)
+
+- No review findings to answer (none recorded). main (277a9c6c) is merged in (d2998067). The merge changed other
+  lines of style.css and left this gap's lines as they were (`git diff main -- ergostat/` is the same 8 lines).
+- After the merge: the two acceptance tests pass with Playwright under the watchdog (2 passed, 8.7 s, rc 0), and
+  `uv run ruff check ergostat tests scripts` is clean.
+- The factory's build step will still give pytest rc 5 on this branch, for the reason given in round 1: the only
+  changed test file is a browser file that skips whole without Playwright. dev/factory.toml and
+  scripts/affected_tests.py are unchanged on main, and fixing them is outside this gap (lesson 13). The code is left
+  as it is (the reversible choice). The factory fix belongs in its own gap, and the browser files run in full in the
+  merge queue.
+- Not run here: the unit suite, the rest of tests/test_diagram_rendering.py and the other three browser files (left
+  to the merge queue, as the rules say).
+- Refused here: a `cat >> <record> <<'EOF' ... EOF && git add && git commit` command, used to append this section
+  in one step. It was written with the editor instead.
