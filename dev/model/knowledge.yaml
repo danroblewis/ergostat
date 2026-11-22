@@ -143,11 +143,15 @@ flows:
     from: gaps-open
     to: gaps-ready
     description: an open gap sized S - its definition written from its own title and text with the house rules, no planner session, no review
+    driven-by: [+stock.gaps-open]
+    equation: small-share * stock.gaps-open / plan-time
     sensor: {items: gap, entering: ready, where: {defined_by: size-s}, over: 1d}
   plans-unreviewed:
     from: gaps-open
     to: gaps-ready
     description: an open gap sized M (one session under its own cap), or L not picked for the plan review - its plan lint-clean, the gap ready with no plan review
+    driven-by: [+stock.gaps-open]
+    equation: unreviewed-share * stock.gaps-open / plan-time
     sensor: {items: gap, entering: ready, where: {defined_by: plan-unreviewed}, over: 1d}
   sub-gaps-planned:
     to: gaps-ready
@@ -304,6 +308,18 @@ parameters:
     range: [0, 1]
     estimate: true
     description: the share of open gaps the planner splits
+  small-share:
+    value: 0.2
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of open gaps sized S with enough confidence, defined with no planner session
+  unreviewed-share:
+    value: 0.3
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of open gaps planned with no plan review (sized M, or L not picked for the sample)
   split-time:
     value: 3d
     estimate: true

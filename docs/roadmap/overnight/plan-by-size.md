@@ -129,6 +129,13 @@ or this definition. So no code was changed: a fix without the failing test's nam
 lesson-13). Left: the factory's rerun of the failed test on clean main. If it fails there too, it is unrelated. If it
 is in one of the files above and fails only under load, its name is needed for a fix round.
 
+**`ergostat check`'s no-equation findings.** `flow.small-gaps-defined` and `flow.plans-unreviewed` now have
+equations like the other plan flows: `small-share * stock.gaps-open / plan-time` and
+`unreviewed-share * stock.gaps-open / plan-time`, driven by `stock.gaps-open`. The two new parameters are marked
+`estimate: true` (0.2 and 0.3, range [0, 1]), since there is no record yet of how many gaps take each path.
+`ergostat check` itself was refused by the shell in this session (`uv run ergostat check`), so the finding's removal
+was not seen here. `tests/test_factory_knowledge.py` passes (91).
+
 **The fast suites' failure after round 1, named.** The second `unit` run named its two failures:
 `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (the lease history was
 `['expired', 'ack']`, not `['ack']`) and `tests/test_daemons.py::test_a_short_lived_daemon_is_sampled_before_it_ends`
