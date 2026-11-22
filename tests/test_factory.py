@@ -802,6 +802,61 @@ def test_a_new_top_level_file_not_in_the_definition_is_refused(tmp_path):
     assert r.returncode and "scratch_patterns must be a list" in r.stderr     # a bad setting stops, never passes
 
 
+# The strays committed on 2026-11-21's branches (review findings and their removal commits). Seven are on the record;
+# the eighth is tests/_probe_test.py, the earlier finding the stray-files gate was built from (the audit's list itself
+# is not in the repository). operating-states.md.tail is taken to sit beside its definition, under docs/.
+REAL_STRAYS = ["tests/test_zz_scratch.py", "tests/test_zz_profile_tmp.py",
+               "docs/roadmap/overnight/operating-states.md.tail", "scratch_probe.py", ".bench/test_bench_detach.py",
+               ".mut/mut.py", "tests/test_probe_tmp.py", "tests/_probe_test.py"]
+
+
+def strays_of(f: Factory, cfg: dict, definition: str, fn: str = "strays") -> list[str]:
+    """implement.strays (or unlisted) on the drop's factory/alpha-thing against main, in a process of its own."""
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import implement; from pathlib import Path; "
+            "a = (json.loads(sys.argv[3]),) if sys.argv[5] == 'strays' else (); "
+            "print(json.dumps(getattr(implement, sys.argv[5])(*a, Path(sys.argv[2]), 'main', 'factory/alpha-thing', "
+            "sys.argv[4])))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(f.tmp / "live" / "drop.git"), json.dumps(cfg),
+                        definition, fn], capture_output=True, text=True, env=f.env)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_the_gate_catches_the_eight_real_strays(tmp_path):
+    import tomllib
+    f = Factory(tmp_path)
+    gid = ready(f)
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=",".join(REAL_STRAYS))
+    assert said == ["gap.started", "gap.measured"]                              # refused before the suites
+    assert f.item(gid)["fields"]["suites_fast"]["stray"] == sorted(REAL_STRAYS)
+    real = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())           # the factory's own setting, and the default
+    listed = "# x\n\n## Definition of done\n\nIt works.\n\n## Files to touch\n\n`standin/work.txt`, `tests/test_x.py`.\n"
+    for cfg in (real, {}):
+        for definition in ("# x\n\n## Definition of done\n\nIt works.\n", listed):
+            assert sorted(strays_of(f, cfg, definition)) == sorted(REAL_STRAYS)
+
+
+def test_a_file_the_definition_names_is_not_refused(tmp_path):
+    f = Factory(tmp_path)
+    d = tmp_path / "instance" / "run" / "defs"
+    d.mkdir(parents=True)
+    (d / "alpha-thing.md").write_text("# alpha thing\n\n## Definition of done\n\nIt works.\n\n## Files to touch\n\n"
+                                      "- `standin/work.txt` (new)\n- `scripts/load_probe.py` (new)\n- `tests/test_zz_last.py`"
+                                      "\n- `scripts/bench/` (new)\n\n## Size budget\n\n600 net lines.\n")
+    f.run("intake.py")
+    gid = "gap/alpha-thing"
+    named = "scripts/load_probe.py,tests/test_zz_last.py,scripts/bench/run_tmp.py"   # each matches a scratch pattern
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=named + ",docs/loose.md")
+    assert said == ["gap.started", "gap.built"] and not f.item(gid)["fields"]["suites_fast"].get("stray")
+    definition = (d / "alpha-thing.md").read_text()
+    loose = ["dev/records/alpha-thing.md", "docs/loose.md"]                  # (its own definition is shown too)
+    assert strays_of(f, {}, definition) == [] and sorted(strays_of(f, {}, definition, "unlisted")) == loose
+    said, _ = f.run("review.py", gid)                     # a new file matching no pattern, named by no Files to touch:
+    text = (tmp_path / "instance" / "run" / "briefs" / "alpha-thing-reviewer-1.md").read_text()   # shown to the reviewer
+    shown = text.split('## New files the definition\'s "Files to touch" does not name\n\n', 1)[1].split("\n\n", 1)[0]
+    assert sorted(shown.splitlines()) == [f"- `{p}`" for p in loose]
+
+
 def on_main(f: Factory, *paths: str) -> None:
     """Files committed on main and pushed (the main the drop's branches are made from)."""
     for p in paths:
