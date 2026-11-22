@@ -179,6 +179,40 @@ def call(text: str, model: str, timeout: float = 600.0) -> dict:
             "tokens_out": int(u.get("output_tokens") or 0), "seconds": round(time.perf_counter() - t0, 1)}
 
 
+def ask(p, text: str, model: str) -> dict | None:
+    """The day's budget asked for one call (SPEC §9.9): it reserves the call's ``unsaid`` estimate. Returns its permit
+    (None: no ``budget:``), or raises ``Capped`` (``budget: …``). Inside a run (``$ERGOSTAT_RUN``) the call is the
+    run's own: every caller prints its cost as one of the run's result lines, so the run's end includes it."""
+    from ..costs import budget as bg
+    from .modeller_spend import Capped
+    run = os.environ.get("ERGOSTAT_RUN")
+    token = bg.WITHIN.set(bg.WITHIN.get() or ((run, True) if run else None))
+    try:
+        permit, no = bg.ask(p, p.model.spec, os.environ.get("ERGOSTAT_BLOCK") or "modeller", unsaid(text, model)["usd"])
+    finally:
+        bg.WITHIN.reset(token)
+    if no:
+        raise Capped(f"budget: {no}")
+    return permit
+
+
+def asked(p, text: str, model: str, timeout: float = 600.0, fn=None, permit=None) -> dict:
+    """``fn`` (``call``) once ``ask`` allows it (or under ``permit``, asked already), its permit closed with the cost
+    it said. A failed call is closed with null cost: charged its reserve (or what it said, if more)."""
+    from ..costs import budget as bg
+    from .modeller_spend import Capped
+    permit, r, cost = permit or ask(p, text, model), unsaid(text, model)["usd"], None
+    try:
+        got = (fn or call)(text, model, timeout)
+        cost = None if got.get("error") and got.get("usd") == r else got.get("usd")
+    except Capped:                                  # (its own cap refused it: no process started, nothing spent)
+        cost = 0.0
+        raise
+    finally:
+        bg.done(permit, cost)
+    return got
+
+
 MOST_OUT = 16000            # output tokens a call that said nothing of its cost is charged for, besides its prompt
 SYSTEM_IN = 20000           # input tokens of claude's own system prompt, read on every call besides ours
 
@@ -205,7 +239,8 @@ def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True, timeou
     """The AI tier on these requests: ``{"proposals": [propose], "cannot": [{id, why}], "cost": {...}, "tried": [...]}``,
     each proposal one ``try_change`` would propose (the rest given back once, with why). ``within(prompt)``: the
     context each call is made in (``modeller_spend.held``), given a list for its cost; one that raises ``Capped``
-    stops the run there (``cost["capped"]``). A call that reports more than its reservation is in ``cost["over"]``."""
+    stops the run there (``cost["capped"]``), as a refusal by the day's budget (``asked``) does. A call that reports
+    more than its reservation is in ``cost["over"]``."""
     from .modeller_spend import Capped
     spec: Spec = p.model.spec
     cost = {"usd": 0.0, "tokens_in": 0, "tokens_out": 0, "calls": 0, "seconds": 0.0, "model": model}
@@ -213,10 +248,13 @@ def answer(p, reqs: list[dict], model: str = "haiku", retry: bool = True, timeou
     feedback: list[str] | None = None
     for attempt in range(2 if retry else 1):
         text = prompt(p, spec, reqs, feedback)
-        try:
+
+        def capped(text, model, timeout):          # the tier's own cap, asked once the day's budget has said yes
             with (within(text) if within else contextlib.nullcontext([])) as box:
-                got = call(text, model, timeout)
-                box.append(got)
+                box.append(got := call(text, model, timeout))
+            return got
+        try:
+            got = asked(p, text, model, timeout, capped)   # (refused by the day's budget: Capped, ``budget: …``)
         except Capped as e:
             cost["capped"] = str(e)
             break

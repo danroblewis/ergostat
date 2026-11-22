@@ -18,6 +18,7 @@ from .durations import human
 from .spec.goal_per import cascade_setpoint as per_setpoint
 from .spec.goal_per import says as per_says
 from .spec.goal_per import worst as per_worst
+from .spec.ir import OWN_TEMPLATES, upkeep_of
 from .spec.observer import opted, shown_stale
 
 WINDOW = 3600.0
@@ -301,7 +302,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         answers.sort()
         cycled = bool(last_read and last_read >= since and ((decisions and decisions[-1]["time"] >= since)
                                                            or (last_open and last_open >= since)))
-        loops[lp.name] = {"stock": c.holds, "setpoint": c.setpoint, "tolerance": c.tolerance, "band": c.band_text(), "value": value,
+        own = upkeep_of(spec, g) if g is not None else None
+        loops[lp.name] = {"system": g.system if g is not None else None, **({"upkeep": own} if own else {}), "stock": c.holds,
+                          "setpoint": c.setpoint, "tolerance": c.tolerance, "band": c.band_text(), "value": value,
                           "error": error, "status": status, "gaps": lp.gaps, "sensors": lp.sensors, "valves": lp.valves,
                           "flows": lp.flows, "controller": c.name, "last_read": last_read,
                           "last_decision": decisions[-1] if decisions else None, "last_opening": last_open,
@@ -319,6 +322,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
         contradicted.setdefault(e["data"].get("block") or "", []).append(e)
     agents = {}
+    blocks = getattr(getattr(m, "spec", None), "blocks", None) or {}
     for a in m.agents.values():
         counted = project.events.runs(a.name, since, now)
         last_any = max(project.events.query(n=1, item=a.name, type="agent.ran", until=now) +
@@ -333,7 +337,11 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                     got = project.measurements.latest(f"sensor/{r.name}", now)
                     if got is None or _missed(a, got[0], now):
                         stale.append(r.name)
-        agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
+        b = blocks.get(a.name)                            # its block: the goal its valves serve, and whether it takes items
+        goal = b.goal if b is not None else None
+        agents[a.name] = {"kind": a.kind, "rung": a.rung, "leased": bool(b is not None and b.takes),
+                          "roles": [{"kind": r.kind, "name": r.name, **({"goal": goal} if goal and r.kind == "valve" else {})}
+                                    for r in roles],
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
@@ -609,6 +617,21 @@ LEVELS = {"bad": 0, "warn": 1, "hint": 2}
 UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
 
 
+def goals_off(snap: dict, names: bool = False) -> dict:
+    """The only count of goals not holding: ``system`` (off) and ``open`` count the goals no upkeep template made,
+    ``own`` each upkeep template's goals off or open, ``unknown`` every goal without a reading (an upkeep goal's
+    too); ``names`` gives the sorted names instead of counts. SPEC §8, upkeep goals."""
+    out: dict = {"system": [], "unknown": [], "open": [], "own": {t: [] for t in sorted(OWN_TEMPLATES)}}
+    for name, lp in sorted(snap["loops"].items()):
+        t, s = lp.get("upkeep"), lp["status"]
+        if t and s in ("off", "open"):
+            out["own"].setdefault(t, []).append(name)
+        elif s == "unknown" or (not t and s in ("open", "off")):
+            out[{"off": "system"}.get(s, s)].append(name)
+    return out if names else {**{k: len(out[k]) for k in ("system", "unknown", "open")},
+                              "own": {t: len(v) for t, v in out["own"].items()}}
+
+
 def setpoint_text(lp: dict) -> str:
     return lp["setpoint"] + lp.get("band", "")
 
@@ -622,7 +645,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                  f"({_t.strftime('%Y-%m-%d %H:%M', _t.localtime(snap['starts']))}): nothing is known then"}]
     out = []
     from .remote import remote_parts
-    theirs = remote_parts(getattr(model, "spec", None))
+    spec = getattr(model, "spec", None)
+    theirs = remote_parts(spec)
+    mod = {i for i, u in (getattr(spec, "uses", None) or {}).items() if (u or {}).get("template") == "modelling"}
     for name, lp in snap["loops"].items():
         if f"goal.{name}" in theirs:                   # a remote's own loop: its business, said on its own page (SPEC §4c)
             continue
@@ -655,6 +680,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                        else f" (sensor {', '.join(lp['sensors'])})")
             out.append({"level": "warn", "what": f"loop {name}", "says": f"no reading of {lp['stock']} yet: "
                         f"the loop cannot tell whether it holds{who}"})
+        if out and out[-1]["what"] == f"loop {name}":   # its state word, and whether the goal is modelling's (the page groups)
+            out[-1].update(state=lp["status"], **({"modelling": True} if mod and getattr(spec.goals.get(name), "system",
+                                                                                     None) in mod else {}))
     if model is not None and getattr(model, "spec", None) is not None:   # remotes that do not answer (SPEC §4c)
         from .remote import attention as remote_attention
         out += remote_attention(model.spec)
@@ -714,7 +742,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                     f"workspaces {w['pool']} --free {w['slot']}"})
     if snap.get("reports"):                         # reports upstream waiting for the owner to read (SPEC §12m): one line
         rs = snap["reports"]
-        out.append({"level": "warn", "what": "reports upstream", **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
+        out.append({"level": "warn", "what": "reports upstream", "waiting": True, **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
                     "says": (f"{len(rs)} drafted" if len(rs) > 1 else f"\u201c{rs[0]['title'][:70]}\u201d drafted")
                     + " about ergostat itself, scrubbed, for you to read and submit by hand if you choose: ergostat report"})
     for h in snap.get("hints", []):
@@ -724,7 +752,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
     from .inbox import entries as en
-    asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"],     # waiting on a person
+    asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
              + (f". {en.command(e)}" if e["verbs"] else "")}

@@ -139,3 +139,14 @@ def test_the_page_and_a_snapshot_carry_the_frames(tmp_path, monkeypatch):
     assert api(Live(project), "guide", {})["frames"][0]["id"] == "want"
     html = build(project)
     assert '"guide": {"parts"' in html and "pageGuide" in html
+
+
+def test_the_guides_drawings_hide_the_rings_and_its_last_frame_says_it_is_drawing():
+    """Without a browser: the rule that hides the correspondence rings (clones of each box's outline, black by SVG's
+    default fill) covers the Guide's canvas too, and the last frame puts its waiting line on the stage until drawn.
+    The browser test in tests/test_diagram_rendering.py checks the drawn fills, the contrast and the page's text."""
+    css = (ROOT / "ergostat/web/static/style.css").read_text()
+    rule = next(r for r in css.split("}") if "svg.g-canvas g .corr-ring.corr-ring" in r)
+    assert "svg.g-canvas g .corr-halo.corr-halo" in rule and "display: none" in rule and "fill: none" in rule
+    js = (ROOT / "ergostat/web/static/guide.js").read_text()
+    assert "Drawing your system…" in js and "wait.remove()" in js
