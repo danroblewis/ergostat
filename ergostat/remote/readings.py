@@ -150,7 +150,8 @@ def answer(spec, src, period: float) -> tuple[dict | None, str]:
         body = None
         if token is not None:
             code, body, _, why = client.get(src.url, "readings", token, {"series": ",".join(series) or None,
-                                                                         "ref": ",".join(refs) or None}, timeout=10.0)
+                                                                         "ref": ",".join(refs) or None}, timeout=10.0,
+                                         tls=getattr(src, "tls", None))
             if code != 200 or not isinstance(body, dict):
                 body = None
         why = "" if body is not None else f"{src.name} at {src.url}: {why or 'no answer'}"
@@ -170,7 +171,7 @@ def answer(spec, src, period: float) -> tuple[dict | None, str]:
         if body is not None and body.get("version") and have and body["version"] != have:   # its model moved: read it now
             r = spec.remotes[src.name]
             threading.Thread(target=cache.refresh, args=(d, r["url"], r.get("token_file"), spec.root, r["every"], True),
-                             daemon=True).start()
+                             kwargs={"tls": r.get("tls")}, daemon=True).start()
     return body, why
 
 

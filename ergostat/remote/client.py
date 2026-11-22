@@ -3,6 +3,7 @@ and in size (``BODY_MOST``). Never raises for the remote's failings: (status, bo
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -28,14 +29,26 @@ def token_of(token_file: str | None, root: Path) -> tuple[str | None, str]:
 
 
 def get(url: str, path: str, token: str | None, params: dict | None = None, etag: str | None = None,
-        timeout: float = 5.0) -> tuple[int, object, str | None, str]:
+        timeout: float = 5.0, tls: dict | None = None) -> tuple[int, object, str | None, str]:
+    """``tls`` (a remote's ``tls:``): read with that certificate and CA; a context that can't be made fails the read
+    before anything is sent, never retried without it."""
     q = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None}, doseq=True)
     full = f"{url.rstrip('/')}/remote/v1/{path.lstrip('/')}" + (f"?{q}" if q else "")
+    ctx = None
+    if tls:
+        from . import mtls
+        if not full.startswith("https://"):
+            return 0, None, None, f"tls: {url} is not https"
+        try:
+            ctx = mtls.client_context(tls)
+        except mtls.MtlsError as e:
+            return 0, None, None, f"tls: {e}"
     req = urllib.request.Request(full, headers={"User-Agent": AGENT, "Accept": "application/json",
                                                 **({"Authorization": f"Bearer {token}"} if token else {}),
                                                 **({"If-None-Match": f'"{etag}"'} if etag else {})})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 (a URL the owner wrote)
+        # without tls the call is exactly as before (no context= at all)
+        with urllib.request.urlopen(req, timeout=timeout, **({"context": ctx} if ctx else {})) as r:  # noqa: S310
             body = r.read(BODY_MOST + 1)
             if len(body) > BODY_MOST:
                 return 0, None, None, f"answer too large (more than {BODY_MOST // 2**20} MB)"
@@ -48,6 +61,6 @@ def get(url: str, path: str, token: str | None, params: dict | None = None, etag
         except Exception:
             why = e.reason
         return e.code, None, None, f"{e.code} {why}"
-    except (urllib.error.URLError, OSError, ValueError) as e:
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:   # (a TLS alert read late too)
         why = getattr(e, "reason", None) or e
         return 0, None, None, f"unreachable ({why})"

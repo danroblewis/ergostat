@@ -237,9 +237,11 @@ model reads the cache and fetches only when the cache is older than `every`.
    stops and the local marks its data stale.
 
 **Left for later**: the event cache feeding the Items and Record pages; cross-log lines in the process map;
-serving the IR (`?format=ir`); mutual TLS. (Two are built: proposals written as text for the remote's
-owner, SPEC §4c "Proposals for its owner", and a remote that is itself composed of remotes, whose imported
-parts are served with the chain of instances they came through, SPEC §4c.)
+serving the IR (`?format=ir`). (Three are built: proposals written as text for the remote's owner, SPEC §4c
+"Proposals for its owner"; a remote that is itself composed of remotes, whose imported parts are served with
+the chain of instances they came through, SPEC §4c; and mutual TLS (`remote-mtls`, SPEC §4c): `web: mtls:`
+serves the remote API alone on a listener of its own, to client certificates one CA signed, and a `remotes:`
+entry's `tls:` reads it.)
 
 ## 9. Decisions, in one place
 
