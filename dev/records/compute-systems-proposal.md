@@ -69,3 +69,21 @@ Round 3 (about 500 lines, still no code), answering the one finding of review 2 
 The most reversible choice taken here: a detached keeper per run rather than a resident per-node service (which
 the owner would have to install and supervise), listed in §6. A keeper can become such a service later without
 changing the protocol.
+
+Round 4 (about 533 lines, still no code), answering the one finding of review 3 (activity the fold does not count):
+- §2.7 now says what renews a node run's lease. The fold moves the expiry only on events the holder caused about
+  the item and transcript lines (`fold.py:179-186`) and on `renewed` events (`fold.py:89-91`). The watchdog's
+  `activity()` also counts events about other items and about items the run started (`dispatch.py:506-525`), but only
+  at the look after `expires` (`dispatch.py:458`, `470-476`). For a node run the engine makes the same look before the
+  expiry: on each 2 s tick while the lease has less than half its TTL left, it records the renewal the watchdog would
+  (`renewed` at the activity's time, `seen: activity`) and sends `renew`, so the expiry is `seen + ttl` as it is for a
+  local run. `renew` is now sent after any move of the expiry in the fold, not only after a recorded renewal.
+- What is not claimed, said in §2.7 and listed in §6: activity of the kind the fold does not count that comes in the
+  last `grace(ttl)/4 + 2` s before the expiry, or in the grace after it, renews a local run at the look but does not
+  save a node run, which is killed and its lease expires, counted. Gap 4's "as a local block does" now names this
+  one difference.
+- Gap 5 adds the test: a node run whose only activity is events about another item (one every third of its TTL)
+  outlives its TTL several times over, is never killed by its keeper, and ends `agent.ran` with `seen: activity`
+  renewals; the same run, once silent, is killed and its lease expires.
+The most reversible choice taken here: the early look from half the TTL left, on the existing 2 s tick, rather
+than moving the keeper's kill past the watchdog's look, which would let a run outlive its give-away.

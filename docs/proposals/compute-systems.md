@@ -266,9 +266,21 @@ it misses an encoded copy); the claim is "never written by ergostat", not "never
   second look, `grace(ttl)` after the pass that first found it overdue (`dispatch.py:468-480`), and no pass finds it
   overdue before its expiry (`dispatch.py:458`). The node's interlock is built to have **finished** its kill inside
   that window, and never compares a time of the engine's with a time of its own (lesson-2):
-  - *What the engine says.* With `start`, and with `renew {"run", "fence", "left", "sent"}` at once after each
-    renewal it records and every 2 seconds besides, the engine says how many seconds its lease has `left`
-    (its expiry less its own clock, read together) and `sent`, its monotonic clock at that moment.
+  - *What the engine says.* With `start`, and with `renew {"run", "fence", "left", "sent"}` at once after any
+    move of the lease's expiry in the fold and every 2 seconds besides, the engine says how many seconds its lease
+    has `left` (its expiry less its own clock, read together) and `sent`, its monotonic clock at that moment.
+  - *What renews a node run's lease, and when.* The fold moves a lease's expiry on two things only: an event the
+    holder caused about the item and a line of the item's transcript (`fold.py:179-186`), and a `renewed` event
+    (`fold.py:89-91`). The watchdog renews on more: its `activity()` also counts events the run caused about other
+    items and events about items it started (`dispatch.py:506-525`), and a local run gets that renewal only at the
+    look, once `expires` has passed (`dispatch.py:458`, `dispatch.py:470-476`). A node's keeper kills at `expires`,
+    so for a node run that look would come too late: the engine would renew a lease on a run already killed. So for
+    each run on a node the engine makes the same look **before** the expiry: on each 2-second tick while the lease
+    has less than half its TTL left, it reads `activity()` for the lease as the watchdog does, and if it finds
+    activity later than the lease's `renewed`, it records the renewal the watchdog would record (`renewed` at the
+    activity's time, `seen: activity`, `dispatch.py:474-475`) and sends `renew` with the new `left`. The expiry is
+    then the one a local run gets for the same activity, `seen + ttl`, and the watchdog later finds nothing overdue.
+    A renewal recorded is at most one a tick per run, and only when there is activity the fold has not counted.
   - *How the worker times it.* Only on its own clock, one that counts a suspend (`CLOCK_BOOTTIME` on Linux). It
     keeps `base`, the least `heard − sent` of the session's messages over the last ten minutes (heard on its clock,
     sent on the engine's: the difference is never read as a time, only compared with other such differences; the
@@ -289,7 +301,12 @@ it misses an encoded copy); the claim is "never written by ergostat", not "never
     the processes and for the keeper's tick (a quarter second), before the watchdog's second look can give the
     item away. With a 60 s TTL: grace 6 s, the kill asked by expiry + 3 s. This holds the same whether the session
     is alive, cut, or never comes back: the keeper does not need the worker to kill.
-  - *What is not claimed.* A node that is suspended stops its runs with it; on waking, a run may go on for one tick
+  - *What is not claimed.* The early look sees activity up to its last tick that the `renew` can still reach the
+    node in time: a tick at least `grace(ttl) / 4` (the round-trip bound) before the expiry. A local run whose only
+    activity of the kind the fold does not count falls after that (in the last `grace(ttl) / 4 + 2` seconds before
+    its expiry, or in the grace after it) is renewed at the watchdog's look; the same run on a node is killed and its
+    lease expires as a silent run's does, counted. Activity the fold counts (lines, events about the item) renews a
+    node run as a local one, since it moves the expiry the `renew` carries. A node that is suspended stops its runs with it; on waking, a run may go on for one tick
     of the keeper before the kill, and what it says then is refused by the fence. A keeper that is itself killed
     holds no deadline (section 2.4 says what stops then). A run's descendants that
     left its group are reached by `reap` only as the local kill reaches them (`kill.py:53-57`). Docker's own stop
@@ -441,6 +458,7 @@ These are open; each is the most reversible choice, and each can change without 
 | Secrets | named files, read at each start, sent in `start`, never written by ergostat |
 | The run's environment on a node | an allowlist, not the engine's environment |
 | When a node's interlock kills | at the engine's expiry, timed on the node's own clock from the renewals heard; SIGKILL `grace(ttl) / 4` later |
+| How activity the fold does not count renews a node run | the engine looks before the expiry, each tick under half the TTL, and records the renewal the watchdog would; activity in the last `grace(ttl) / 4 + 2` seconds or the grace after does not save a node run, as it does a local one |
 | What holds a run's deadlines | a detached keeper per run, moved forward by the worker through a file; not a resident per-node service, which would need the owner to install and supervise one |
 | What a node keeps | run folders until `done`, bare repositories by age and size |
 | Sensors, daemons, AI blocks | engine-local in this milestone; AI blocks in a later gap |
@@ -471,13 +489,18 @@ These are open; each is the most reversible choice, and each can change without 
    connection per node (`ssh`, or `connect:`), a `remote` backend of the runner interface over it; the
    `ergostat.compute.*` measures and the dispatcher's room capped by a pool's free slots; a pool's status in the
    engine's heartbeat and `/api/status`. Acceptance: a block with `runs-on` over a same-machine worker runs and
-   records as a local block does; a block without it is unchanged.
-5. **`compute-lease-on-node`**: the lease's expiry in `start`, `renew` on each renewal, the worker writing the
+   records as a local block does (its lease renewed by the same activity, gap 5, with the one difference
+   section 2.7 names); a block without it is unchanged.
+5. **`compute-lease-on-node`**: the lease's expiry in `start`, `renew` on each move of the expiry, the engine's
+   look at a node run's `activity()` before its expiry (section 2.7) and the renewal it records, the worker writing the
    lease deadline for the keeper and the keeper killing a run whose lease was not renewed, the engine's lease kill
    reaching node runs, a node lost after three beats missed, its slots out of the stock at once, `ping` round trips
    and the `grace(ttl) / 4` bound, the engine-wide ceilings of section 3. Tests: a session cut and its worker ended
    (no worker left on the node): the run's keeper has SIGKILLed it by the expiry plus `grace(ttl) / 2`, before the
-   watchdog expires the lease; an unreadable deadline file does not move the deadline later; a worker whose clock of day is set an hour off kills at
+   watchdog expires the lease; a run on a node whose only activity is events about another item (caused by it,
+   one every third of its TTL, none about its own item and no transcript line) outlives its TTL several times over,
+   is never killed by its keeper, and ends `agent.ran` with its lease renewed by `seen: activity` events, as the same
+   block run locally does; the same run falling silent is killed by its keeper and its lease expires; an unreadable deadline file does not move the deadline later; a worker whose clock of day is set an hour off kills at
    the same moment; a renewal delayed in the pipe does not move the deadline later; a node whose round trip is past
    the bound is sent no `start`; the item goes back once; a line the cut-off run sends after reconnecting is refused
    by the fence.
