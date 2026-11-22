@@ -82,3 +82,22 @@ not in this branch (lesson 13). Either `scripts/affected_tests.py` could treat a
 as collection only, or the build could set `build_browser = true` for such a branch. I did not add a non-browser test
 just to give the build something to run. It would be work outside the definition, and it would guard nothing the
 browser test does not already guard. No code changed in this step.
+
+## Where it stopped (round 2)
+
+Main was merged in (277a9c6c). Main now handles this rc 5 a set way: ab17bb6e added a unit test the build can run
+when a branch's only test file was a browser file. Round 1 said no such test would be added. I changed that, and the
+change is easy to undo (one test, no code). The new test is
+`tests/test_dynamics_view.py::test_each_closed_system_box_is_given_the_description_it_prints[the-job-job,
+software-factory-product]`. It checks that the Dynamics graph answer (open=-) gives the closed 'job' and 'product'
+boxes the description that `sdSystem` prints. That is the server half of the acceptance check. The browser test still
+checks what the box shows. I broke it once: fold.py's system box given `"description": ""` failed both cases
+(`assert '' == 'textkit and its customers'`). The code was then put back. No code outside tests changed this round.
+
+Run after the merge: tests/test_dynamics_view.py, 12 passed. With Playwright under the watchdog:
+`test_each_closed_system_box_says_what_the_system_is` (both cases) and
+`test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_and_draws_no_port_squares`, 3 passed, rc 0. Ruff is
+clean. Not run: the whole of tests/test_diagram_rendering.py again (its four failures that are also on main are
+named in round 1), the unit suite, the other browser files, and demo_check. Refused, as given: a probe script
+`uv run python /tmp/probe.py`, and a compound `cp … && sed -i … && … named_tests.py …` used to break fold.py. I made
+the break with an edit instead.
