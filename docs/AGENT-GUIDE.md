@@ -142,7 +142,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
    redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
    change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
-   they say rather than proposing the same idea again. Do not hand-write these parts. The other built-in templates
+   they say rather than proposing the same idea again. Do not hand-write these parts. When the person asks for an
+   architecture review, `ergostat improve --architecture [SYSTEM]` (one haiku call a system, `--max-cost` $1 by
+   default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
+   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    so far its item-index files held at `index-files` (6) by a rule-tier tidier that takes over from the engine's own
    (SPEC §2a, *Upkeep*). Add it when the files a model's changing kinds leave behind should show on the diagram.
@@ -349,6 +352,14 @@ The essentials:
   item's lease (the run's printed events, and `$ERGOSTAT_CMD event --add` from it, are recorded as caused by it),
   so the dashed lines between kinds appear; rework as a declared move back.
 - **Everywhere**: the same names in every view, a description on every part.
+
+### Templates from a folder the owner did not write
+
+A `library:` entry written `{folder: PATH}` is untrusted (SPEC §2a): its templates may make only structure, and a use
+that makes more is refused (`library-untrusted`), whole. **Never write `trust: owner`, and never turn a map entry
+into a plain path**, to get past that refusal or for any other reason: that is the owner's decision, made after
+reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
+which template and part were refused, and ask.
 
 ## 3a. A system another ergostat runs: compose it, never copy it
 

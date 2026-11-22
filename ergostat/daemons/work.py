@@ -116,13 +116,17 @@ class Hands:
                 p.log.write(f"cancel {run[:8]}: {why}\n")
         return True
 
-    def stop_block(self, block: str) -> bool:
-        """The owner's ``block NAME --stop``: each run of that block a daemon holds, cancelled."""
+    def holds(self, block: str) -> list[str]:
+        """The runs of that block its daemons hold now."""
         runs = []
         for p in self._procs():
             with p.lock:
                 runs += [r for r, h in p.runs.items() if h.block == block]
-        return any([self.cancel(r, "the owner's stop", asked=True) for r in runs])
+        return runs
+
+    def stop_block(self, block: str) -> bool:
+        """The owner's ``block NAME --stop``: each run of that block a daemon holds, cancelled."""
+        return any([self.cancel(r, "the owner's stop", asked=True) for r in self.holds(block)])
 
     def read(self, s, answer) -> bool:
         """A reading asked of a sensor's daemon, never waited on: ``answer(value, why)`` is called once, later. False
