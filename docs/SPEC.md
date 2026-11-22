@@ -3951,7 +3951,31 @@ blocks, record the setting's value, check the step fits its limits (else it is n
 put the setting back to the value it recorded (commanded `"to"`, not back by the step), wait, and
 give the loop back, recording each move and what the block said it moved (`steptest.approved`,
 `.started`, `.stepped`, `.finished`). A block that moves anything but what it was commanded (to
-within the setting's resolution) stops the test, the setting put back at once.
+within the setting's resolution) stops the test, the setting put back at once. `.started` and `.finished` each carry
+`plant`: for every system enclosing the goal, innermost first, its `plant_signature` (its stocks, flows and auxiliaries
+as written, the parameters their equations use, and which u each of its loops moves; goals and blocks otherwise left
+out, so accepting a `process:` or a `gain:` keeps it), or null when one cannot be worked out (the test runs anyway).
+
+**Relative gain array** (`rga.py`; Bristol 1966, Skogestad & Postlethwaite §3.4, §10.6): for a system, never the model
+without one, `explain system.NAME` with a project says one line of it. Its loops are the goals in it, at any depth, whose
+u the record can read; fewer than two, no line; more than 8, or one whose `process:` is integrating or whose u fills or
+drains its stock directly, not computed and why. Its tests are the latest 12 of them, in record order across the whole
+system (so an older one may be the only test of a loop, and that loop is then named as having none), that finished
+`done`, recorded their steps and finish, and whose stamps at start and at finish both hold this system's signature as it
+is now, string for string (a missing or null one never matches). Each test gives, for every loop's u and y, Δ = the mean
+of its readings over the last quarter of the hold, `[back − hold/4, back)`, less the mean over the quarter before the
+step: the gains as held at the end of the hold, not a steady state proved. A test is left out, with its reason, when a
+window has no reading of one of them, or when the two halves of that last quarter differ by more than 0.03·|Δ| plus
+twice the spread before the step. A ramp always differs by a seventh of Δ, so an integrator the model does not declare
+is left out this way, unless its Δ is within about 18 times the noise before the step. A first-order lag of time
+constant τ differs by 0.016 of Δ at τ = hold/4 and by 0.030 at hold/3 (93% of its gain held), so a lag longer than about
+a third of the hold is left out too. So is a response still rising late, behind a dead time near the hold. The other
+controllers keep working: their u moves too, and every loop's ΔU and ΔY are fitted together by least
+squares (ΔY = ΔU Gᵀ), so G is the open-loop gain matrix, not the closed loop's. Not computed: fewer tests than loops; a
+loop with no test of its own; ΔU's columns (each scaled by its RMS) collinear, or the square root of the 1-norm
+condition number of ΔUᵀΔU (the inverse taken exactly, not estimated) past 100; G singular. Else Λ = G ⊙ (G⁻¹)ᵀ, said
+as each loop's λ on the pairing as built (its own u), with "never pair on a negative relative gain" (λ < 0), "the loops
+fight" (λ > 10) and, with two loops, a better pairing swapped.
 
 **Proposals.** Each is worked out afresh when the loop is looked at, and is one item while the loop is as it was
 (`loop.key`): offered again with other numbers, the item is `revised`, never made anew; Accept applies what the page was
