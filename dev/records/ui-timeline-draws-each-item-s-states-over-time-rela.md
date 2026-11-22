@@ -57,3 +57,13 @@ Tests run: `tests/test_items_page.py` whole, with Playwright, under the watchdog
 `uv run ruff check ergostat tests scripts`: clean. Not run by me (left to the factory, per the rules): the unit
 suite and the other three browser files. Nothing on `main` is newer than the branch's base, so there was nothing to
 merge.
+
+## Where it stopped (after the factory's build step)
+
+The factory's `build` step failed with rc 5: `scripts/affected_tests.py` picked `tests/test_items_page.py` (the
+branch changes it) and ran it without Playwright, so the module-level `importorskip` skipped the whole file and
+pytest ran no tests. The code didn't cause this, so the code is unchanged. Running the same file with Playwright
+(`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+tests/test_items_page.py`) gives 22 passed, none skipped, rc 0. Ruff is clean. Making the build step install
+Playwright, or treat a browser-only file as not affected, belongs in the factory's own tooling and is outside this
+gap (lesson-13), so it is not changed here.
