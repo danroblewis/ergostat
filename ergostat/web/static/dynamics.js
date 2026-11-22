@@ -638,7 +638,11 @@ async function openNodeSD(n) {
               ["measured", now.at ? ago(now.at) : null]);
     if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? rateText(now.inflow, "", sdStockFlow(n.label, "in")) : null],
                                       ["outflow", now.outflow != null ? rateText(now.outflow, "", sdStockFlow(n.label, "out")) : null]);
-    for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
+    for (const gl of n.goals || []) {                     // the goal, and what serves it wherever it is in the model
+      const by = (gl.by || []).map((b) => b.system ? `${b.block} in ${b.system}` : b.block).join(", ");
+      rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint} (${gl.name})` +
+        (by ? `, served by ${by}` : gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)")]);
+    }
     if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });
     found = findingsNote(d);
     counts = countsLines(d);                              // what it counts, first (itemsets.js)
