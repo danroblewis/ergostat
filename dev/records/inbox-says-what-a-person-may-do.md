@@ -31,3 +31,14 @@ reads it once" is checked through those DOM facts, not with a real screen reader
 it: no aria-describedby, always the empty form, an attribute changed on each render, `white-space: nowrap` (fails
 only the long form, since the short one fits at 390 px), and the Items-page sentence never shown.
 Net lines outside tests and docs: 8, within the 20 budget.
+Suites: the new test, tests/test_inbox_page.py and tests/test_items_page.py pass, and ruff is clean. The whole of
+tests/test_diagram_rendering.py, run serially: 195 passed, 7 failed. On a rerun, 3 passed
+(valve-upright, pages-are-ordinary-links, block-dragged), and 4 failed again, none in code this gap touches:
+- `test_every_view_draws_cleanly_and_in_time[coordinator]` and `[image-squeeze]`: libavoid routing took 34 s and 32 s
+  against a 20 s bound.
+- `test_a_big_tangled_model_lays_out_in_time_and_cleanly`: the first draw took 3.2 s against 2.5 s.
+- `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`: 'Nothing waiting.' is missing from
+  the Model page's review queue. A past review saw the same failure on other branches.
+These four were not run on main: the command that put main's page code in place for the comparison was refused. The
+unit suite and the other browser files were not run here (the factory runs them). main has not moved since the clone,
+so there was nothing to merge.
