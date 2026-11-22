@@ -67,3 +67,13 @@ out):
 Not run here: tests/test_items_page.py, tests/test_page_polling.py, tests/test_page_refresh.py, the unit suite and
 demo_check (no example was changed). main had nothing new to merge (local main 2468c59b is already in the branch).
 Refused commands: `git checkout main -- ergostat/web`; named_tests.py given three test ids at once.
+
+## Where it stopped (round 1, after the fast suites, 2026-11-22)
+
+The factory's `build` step failed with rc 5. Its tail shows why: `affected_tests` picked only
+tests/test_diagram_rendering.py, the build step ran it without Playwright (`could not import 'playwright.sync_api'`),
+the module was skipped, and pytest returned 5 (no tests ran). No test failed. No assertion was reached. So there is no
+code to fix, and no code changed in this round. Run with Playwright under the watchdog, the acceptance test
+`tests/test_diagram_rendering.py::test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_verdict`
+passes (rc 0, 1 passed). The build step needs Playwright (or `build_browser = true`) to judge a page-only change. That
+is the factory's setting, outside this gap.
