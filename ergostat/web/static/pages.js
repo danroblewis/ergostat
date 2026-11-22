@@ -83,8 +83,8 @@ async function pageAgents(main) {
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const cols = [...RUNG_NAMES, "retired"];
     const of = (i) => Object.entries(agents).filter(([, a]) => a.rung === i);
-    patch(ladder, ...cols.flatMap((k, i) => [i ? h("span", { class: "arrow" }, "→") : null,
-      h("span", { class: "step", title: RUNG_HINT[i] }, of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)]).filter(Boolean));
+    patch(ladder, ...cols.map((k, i) => h("span", { class: "step", "data-kind": k, title: RUNG_HINT[i] },
+      of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)), h("span", { class: "muted" }, "most general → most specific"));
     const last = (a) => a.runs_itself ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
@@ -96,7 +96,8 @@ async function pageAgents(main) {
         h("th", { class: "num", title: "CPU time of its runs' processes in the window, user and system" }, "CPU"),
         h("th", { class: "num", title: "The most memory one of its runs held (its processes together)" }, "peak memory")),
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
-        h("tr", {}, h("th", { colspan: 9 }, `${i} ${k}`, h("span", { class: "muted" }, `  ${RUNG_HINT[i]}`))),
+        h("tr", {}, h("th", { colspan: 9, "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
+          h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
         xs.map(([name, a]) => h("tr", { class: "click", key: name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
           h("td", {}, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || h("span", { class: "muted" }, "no roles"),
@@ -562,11 +563,11 @@ async function pageItems(main, q) {
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
   let sort = q.get("sort") || "";
-  // both show the frontier (the unfinished, and what they wait on); the graph collapses the finished, the timeline
-  // keeps them as what happened; unless asked otherwise
+  // both show the frontier (the unfinished, and what they wait on) with the finished collapsed, so the timeline opens
+  // at now; unless asked otherwise
   const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
   const ask = { frontier: said("frontier"), collapse: said("collapse") };
-  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? view === "graph"; },
+  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? true; },
                group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
   const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip

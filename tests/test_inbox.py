@@ -672,3 +672,57 @@ def test_every_inbox_entry_kind_has_a_verb(tmp_path):
         with pytest.raises(answer.AnswerError) as no:
             answer.answer(q if e["kind"] == "request" else p, None, e["id"], wrong)
         assert "--" in str(no.value).split(" is answered with ", 1)[1], e["id"]
+
+
+GROUPED = """\
+name: grouped
+stocks:
+  backlog:
+    unit: tickets
+    sensor:
+      manual: true
+flows:
+  finishing:
+    from: backlog
+goals:
+  short-backlog:
+    stock: backlog
+    hold: "<= 5"
+blocks:
+  reviewer:
+    type: person
+    ask: review the backlog
+    goal: short-backlog
+    out: flow.finishing
+uses:
+  modelling:
+    use: modelling
+"""
+
+
+def test_each_loop_line_carries_its_state_and_whether_the_goal_is_modellings(tmp_path, monkeypatch):
+    """What the side list groups by (design review Q42): each loop entry says its status, a goal of a `use: modelling`
+    instance is marked modelling's, the system's own is not, and the reports-upstream line is marked waiting."""
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    d = tmp_path / "grouped"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(GROUPED)
+    p = Project(mdl.load(d))
+    now = time.time()
+    p.measurements.add("sensor/backlog.main", 9, at=now - 30)                    # the system's goal: off
+    p.measurements.add("sensor/unanswered-requests.main", 3, at=now - 30)        # modelling's goal: off
+    snap = st.snapshot(p, now=now)
+    loops = {a["what"]: a for a in st.attention(snap, False, p.model) if a["what"].startswith("loop ")}
+    assert loops["loop short-backlog"]["state"] == "off" and "modelling" not in loops["loop short-backlog"], loops
+    assert loops["loop requests-handled"]["state"] == "off" and loops["loop requests-handled"]["modelling"] is True
+    assert all(a["state"] == snap["loops"][w.split(" ", 1)[1]]["status"] for w, a in loops.items()), loops
+    snap["reports"] = [{"id": "report/1", "title": "a crash"}]
+    said = [a for a in st.attention(snap, False, p.model) if a["what"] == "reports upstream"]
+    assert said and said[0]["waiting"] is True, said
+    from ergostat.numbers import requests as rq
+    rq.event(p, "r1", "held", {"code": "flow-unmeasured", "about": "flow.x", "source": "check", "tier": "ai"})
+    p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 2, "ask": "look"})
+    asks = {a["what"]: a for a in st.attention(st.snapshot(p, now=time.time()), False, p.model) if "answer" in a}
+    assert asks["request/r1"]["kind"] == "request", asks                     # the page puts these under housekeeping
+    assert [a["kind"] for w, a in asks.items() if w != "request/r1"] and all(
+        a["kind"] != "request" for w, a in asks.items() if w != "request/r1"), asks
