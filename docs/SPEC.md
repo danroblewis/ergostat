@@ -6093,6 +6093,47 @@ remote), and the same push through `git-push` after the owner's approval.
 - A `run:` wrapper that is not `ergostat session` is given `ERGOSTAT_SANDBOX` and must pass the flags itself; `check`
   refuses `tools:` or `actions:` on a block whose `run:` does not start `ergostat session`.
 
+### Compute pools
+
+`compute:` declares pools of **nodes**: machines a model's runs may later execute on (the plan is
+`docs/proposals/compute-systems.md`). **So far a pool is declared and checked only**: nothing connects to a node,
+reads a secret's file or runs anywhere but on the engine's own machine, and a model without `compute:` compiles to
+the same model as before. A block names no pool yet (`runs-on:` is a later change).
+
+```yaml
+compute:
+  farm:
+    nodes: [{ssh: node-1}, {ssh: node-2}]   # Host names of your ~/.ssh/config
+    backend: docker
+    image: ergostat-run:1
+    slots: 4
+    limits: {cpus: 2, memory: 4g, pids: 512, disk: 10g, wall: 30m, network: none, log: 64m}
+    repos: {main-repo: .}
+    secrets: {API_TOKEN: ~/.config/ergostat/api.token}
+    labels: {arch: x86_64}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `nodes` | required | 1 to 64 entries, each `{ssh: HOST}` (a `Host` of the owner's `~/.ssh/config`: letters, digits, `.`, `_`, `-`, never a user, an address or a port) or `{connect: [COMMAND, ARG, ...]}` (a command whose standard input and output reach a worker) |
+| `backend` | `process` | `process` or `docker` |
+| `image` | none | What each run's container is made from; required with `docker` |
+| `slots` | 1 | Runs at once on each node, 1 to 64 |
+| `limits` | `log: 64m` | Each run's: `cpus` (a number above 0), `memory`, `disk` and `log` (sizes: `512m`, `4g`, `1GiB`, or bytes; multiples of 1024), `pids` (a whole number), `wall` (a duration), `network` (`none` or `host`) |
+| `repos` | none | A name → the repository's path here |
+| `secrets` | none | An environment variable's name (`API_TOKEN`) → the file its value is read from; the model holds the file's name only |
+| `labels` | none | A label → the text a node must say for it |
+
+`check` refuses, each with its code and where it was written: an unknown key (`unknown-key`), in the pool or its
+`limits:`; a bad size (`bad-size`) or duration (`bad-duration`); a pool of more than 64 nodes, or more than 64 over
+all pools (`too-many-nodes`); more than 64 slots (`too-many-slots`); nodes × slots past 256 summed over all pools
+(`too-many-runs`); `wall` over a day (`wall-over-a-day`); `log` over 1 GiB (`log-over-cap`); `network: none` on the
+`process` backend, which cannot hold a run off the network and does not pretend to (`network-on-process`); `docker`
+without `image` (`docker-needs-image`); a node's `ssh:` naming a user (`node-names-user`: `@`) or an address
+(`node-names-address`: all digits and dots, or a `:`, `[` or `]`); and any other malformed entry (`bad-node`,
+`bad-backend`, `bad-number`, `bad-network`, `bad-image`, `bad-repos`, `bad-secrets`, `bad-labels`, `missing-key` for
+no `nodes`). A library template may not declare `compute:` (§2a).
+
 ## 12l. Coherence: the three views held against each other
 
 One system is drawn three ways: the **Process** view (§5b), how the items really moved, read from the record; the
