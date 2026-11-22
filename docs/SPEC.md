@@ -1350,6 +1350,22 @@ answered, so a step's own code may speak it with no ergostat installed: `{"op": 
 `{"elsewhere": ...}`). An answer is the command's `--json` answer, or `{"error": WHY, "code": EXIT}`. An `act` that
 waits for an approval holds no thread: it is answered when the owner answers.
 
+A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no engine answers (no socket, a refused
+connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
+120, at most 3600), then does what it does with no engine. A command from a shell does not wait. It does not wait
+where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
+the socket is removed it waits 10 s at most for it to be made again. Only a final stop removes it: `ergostat run`
+starting itself again in place under the same name (a change of storage or format, or the watchdog's restart) leaves
+it, as a killed engine does, so its calls wait the whole bound for the new engine; a new name is a new state folder,
+so that restart removes it. Over-long keys are hashed, never cut short. Each call carries a
+key, `"call"`, made once by the command, the same on every try and in what the command records itself when it falls
+back: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
+renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again (its answer is
+the event recorded the first time); an `act` with
+no `--key` from a run with no item is keyed by it, so one held for the owner is asked once (a run with an item already
+finds its held action again, by its action and arguments). An `act` asked again after a restart waits for its `wait`
+again, from when it is asked.
+
 ## 6. Sensors
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It
@@ -2988,6 +3004,37 @@ block's taken as its goal's; a system's subsystems each one node), never a run:
   act for no goal inside it (one with stocks and no blocks, a sector, is normal); goals in no described system, when
   the model has no `purpose:`.
 
+**The AI rung: the Viable System Model and purpose coverage** (`ergostat/spec/vsm.py`,
+`ergostat/numbers/vsm_review.py`), run only when the owner asks: `ergostat improve --architecture [SYSTEM]`. For a
+system, the **checklist** is computed from the structure (no run, and no note): for each of Beer's functions the
+parts that may fill it, with why: S1 the goals directly in it on a stock of its own, and its subsystems; S2 its blocks
+that take an item kind (sharing its leases, §9.5) or use a workspace pool that a block outside also does; S3 its
+subsystems' inner-loop goals it sets, and its goals whose setpoint another goal's block commands; S3\* its judge
+blocks and blocks with a `claims` param; S4 its measured flows in from a cloud, and the model's `use: modelling` loop
+(marked model-wide); S5 its description, the model's `purpose:` and its subsystems' descriptions. One AI call
+(`$ERGOSTAT_AI`, haiku by default, no tools, `--max-budget-usd 0.25`, killed with its process group after 300 s)
+is given a brief of the system (its words, parts, subsystems, interface, its architecture notes and the checklist,
+at most 30,000 characters) and answers with one JSON line. The answer is checked, not trusted: a function said
+present must name at least one of the system's own parts (for S5, its description or the purpose), or it is dropped
+as unsupported and counted; a goal must be the system's own (a subsystem's goal is judged by the subsystem's
+review); a goal said to serve the purpose, and each part of the
+purpose said uncovered (two words or more), must quote the owner's words, found in the description (or the purpose)
+after whitespace and curly quotes are made plain, or it is dropped. A system with no description gets no purpose
+coverage. The review is recorded (`ergostat.architecture.reviewed`: the system's `signature` and a hash of its words,
+the model, its cost, `cost: reported`, or `charged` at the whole cap when none was reported, and what was kept). What
+it keeps becomes modelling requests held for the owner (§12e, `source: architecture`): `vsm-s1` … `vsm-s5` and
+`vsm-s3-audit` for a function said missing (naming the checklist's candidates, when it had some),
+`purpose-uncovered`, `goal-off-purpose`. A later review answers one only on evidence it kept: that function present
+with a real part, purpose coverage reviewed with nothing left uncovered, that goal said to serve; one said again is
+reopened afresh and held. A call that fails, times out, errs or gives no answer line is recorded as
+`ergostat.architecture.unreviewed`, at its cost, and raises and answers nothing. Writes are made under
+`architecture.lock`, after reading the latest review's seq again: a review of the same system recorded since wins,
+and this one is recorded `applied: false`. One call per system; at most 12 systems a run (never a once template's
+own); a run's `--max-cost` is $1.00 by default and at most $5.00, and a call is made only while what was spent plus
+$0.25 stays within it. `explain system.NAME` (with a project) says the latest applied review, and when the system's
+parts or words have changed since. The reviewer is not shown to find every missing function: what the checks
+guarantee is only that a function said present names one of the system's parts and that a quote is the owner's.
+
 ## 12a. Feedback loops (system dynamics)
 
 Worked out, never written: every cycle of cause and effect through stocks, flows, auxiliaries,
@@ -3987,6 +4034,14 @@ template made, or one no change to the model answers, such as `template-stand-in
 and, once the record is long enough to compare, each coherence mismatch (§12l) no finding already says (those about
 ergostat's own kinds are left out). Each records what it is about (`about`), why (`says`, check's words), where, its
 `source` (check, craft, coherence) and the tier that answers it first (`tier`: rule or ai).
+
+Two sources are not check's, and the collector (`sync`) never answers them: `redesign` (a redesign's trigger, below)
+and **`architecture`**, what an architecture review the owner ran kept (§12, *The AI rung*: `vsm-s1` … `vsm-s5`,
+`vsm-s3-audit`, `purpose-uncovered`, `goal-off-purpose`, its id `rid("architecture", code, about)`). An
+architecture request is held for the owner at once (`owner: true`, `tier: owner`): no tier writes a model change for
+a judgement, and approval is not offered (only a dismissal, or the owner's own change). Only a later applied review
+answers it, on the evidence it kept; one said again after it was answered is reopened with fresh `says`, `version`
+and `review` (the review's seq), its `why` and `change` cleared, and held again.
 
 | State | When |
 |---|---|
