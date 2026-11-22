@@ -254,8 +254,9 @@ flows:
 
 A collector **measures and never acts**; ergostat's check says so ("moves flow.arriving on its own schedule; nothing
 commands it": an open loop on purpose, since arrivals are the world's doing). If a loop's sensor polls slowly
-against the loop (a tenth of its period or more), the Blocks view draws the delay e^(−sT): poll faster, or accept
-and say why.
+against the loop (a tenth of its period or more), the Blocks view draws its sampler and the delay e^(−sT) in full
+ink: poll faster, or accept and say why. (Every polling sensor has the sampler; under a tenth it is muted, and the
+sensor's panel gives T over the loop's period.)
 
 ### Steps are actuators, each with `out:`
 

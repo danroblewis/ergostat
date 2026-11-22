@@ -52,9 +52,11 @@ How each draws what measures and what comes in from outside:
 
 - In the control view every loop's feedback path goes through a **sensor block**, beneath the loop,
   as Franklin, Powell & Emami-Naeini draw the standard loop. Inside it, its function: `H = 1` when
-  the model gives it no dynamics; `H(s)` and its window (`avg 10 min`) for a rate over a window; a
-  sampler's switch and `e^(−sT)` when it polls at a period T that is a tenth or more of the loop's
-  own (its controller's `every`, else its identified process's τ + θ, else ten minutes). Beneath
+  the model gives it no dynamics and it does not poll; `H(s)` and its window (`avg 10 min`) for a
+  rate over a window; a sampler's switch and `e^(−sT)`, `T =` its period, whenever it polls, so
+  sensors polled alike are drawn alike. The switch is drawn in the muted stroke when T is under a
+  tenth of the loop's own period (its controller's `every`, else its identified process's τ + θ,
+  else ten minutes), and the sensor's panel gives the ratio (`T / loop  8 s / 10 min = 0.013`). Beneath
   that, what it reads and how often (`items: alert, fired, every 5 s`; `prometheus: <query>, every
   30 s`; a `run` sensor's description when it has one, `Jira: FF tickets approved, every 5 min`,
   else its command). A sensor that counts items is preceded, on the same path, by its kind's
