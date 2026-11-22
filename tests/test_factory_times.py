@@ -233,9 +233,9 @@ def test_a_measure_per_state_counts_gaps_that_left_it_not_only_merged_ones(tmp_p
     assert run(tmp_path, "measure.py", "in-ready-hours", items=live).stdout.strip() == "4.0"
     assert run(tmp_path, "measure.py", "in-ready-hours-p90", items=live).stdout.strip() == "7.0"
     assert run(tmp_path, "measure.py", "loop-rounds", items=live).stdout.strip() == "2.0"
-    # each measure has a goal on it in the model, its median and its p90
+    # every goal in the model is on a measure's median (state-times-in-the-loop: the p90s are plain measures)
     held = times.goals()
-    assert {n + s for n in times.measures() for s in ("", "-p90")} <= set(held)
+    assert "in-ready-hours" in held and set(held) <= set(times.measures())
     # setpoints: each goal set to today's reading, where the window has one; the rest keep their own
     copy = tmp_path / "times.yaml"
     copy.write_text(times.GOALS.read_text())
@@ -246,7 +246,7 @@ def test_a_measure_per_state_counts_gaps_that_left_it_not_only_merged_ones(tmp_p
         now_held = times.goals()
     finally:
         times.GOALS, times.fac.items = was
-    assert now_held["in-ready-hours"] == 4 and now_held["in-ready-hours-p90"] == 7
+    assert now_held["in-ready-hours"] == 4 and "in-ready-hours-p90" not in now_held
     assert now_held["in-fix-hours"] == held["in-fix-hours"]
 
 
@@ -258,7 +258,7 @@ def test_status_prints_the_per_state_table(tmp_path):
     table = out[out.index("Time in each state"):].splitlines()
     assert table[1].split()[:4] == ["now", "(oldest)", "median", "p90"]
     ready = next(x for x in table if x.split()[:1] == ["ready"]).split()
-    assert ready[:7] == ["ready", "1", "(2.0h)", "2", "3", "2", "2/8"], ready      # median 2, p90 3, of 2 that left
+    assert ready[:7] == ["ready", "1", "(2.0h)", "2", "3", "2", "2/-"], ready      # median 2, p90 3, of 2 that left
     rows = [x.strip().split()[0] for x in table[2:]]
     assert rows.index("waiting") < rows.index("open") < rows.index("working") < rows.index("building")
     assert {"loop", "span", "rounds", "gates", "unit", "push-wait"} <= set(rows)

@@ -3761,6 +3761,76 @@ def test_the_pipeline_watch_is_on_the_engines_schedule(tmp_path):
     on_the_clock(tmp_path, "pipeline-watch", "no-stuck-gaps")
 
 
+def in_times_yaml(part) -> bool:
+    return part.where is not None and Path(part.where.file).name == "times.yaml"
+
+
+def test_the_time_goals_have_no_check_findings():
+    """state-times-in-the-loop: check's missing-feedback, auxiliary-without-causes and collector-undescribed say
+    nothing of dev/model/times.yaml (the reader check runs, before the extremes, which say none of the three); each
+    goal left in it is read by the pipeline watch, its loop closes, and the watch's own reading of the file finds
+    exactly these goals (a goal it could not parse would never be acted on)."""
+    spec, problems = read(ROOT / "ergostat.yaml", extremes=False)
+    assert [p for p in problems if p.level == "error"] == []
+    codes = ("missing-feedback", "auxiliary-without-causes", "collector-undescribed")
+    assert [f"{p.code}@{p.about}" for p in problems if p.code in codes and in_times_yaml(p)] == []
+    goals = {n for n, g in spec.goals.items() if in_times_yaml(g)}
+    assert 0 < len(goals) <= 16                                                # fewer goals: no p90 beside each median
+    assert not [n for n in goals if n.endswith("-p90")]
+    assert goals <= {r.name for r in spec.blocks["pipeline-watch"].reads() if r.kind == "goal"}
+    assert [n for n in goals if not spec.loop(n).closes] == []
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import watch, times; "
+            "print(json.dumps(sorted(m[0] for m in watch.TIME_GOAL.findall(times.GOALS.read_text()))))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == sorted(goals)
+    measures = {a for a, x in spec.auxiliaries.items() if in_times_yaml(x)} - {spec.goals[n].of.name for n in goals}
+    header = (ROOT / "dev" / "model" / "times.yaml").read_text().split("\ndefaults:")[0]
+    assert "-p90" in header and all(m.endswith("-p90") or m in header for m in measures)   # each plain measure said
+
+
+def test_a_time_goal_off_reaches_the_managers_session(tmp_path):
+    """state-times-in-the-loop: a time goal off past its tolerance is a trigger of the watch's next session and is in
+    the pipeline manager's brief; one on target is read and not raised; one with no gap in its window is unknown (None
+    on the situation), never on target and never 0; answered, the same reading is not raised again, a worse one is."""
+    f = pipe(tmp_path)
+    left = f.now - 3600
+
+    def slow(i: int, hours: float) -> None:
+        f.put(f"gap/slow-{i}", "merged", branch=f"slow-{i}", merged_at=left,
+              time_in={"ready": {"hours": hours, "visits": 1, "left": left}, "fix": {"hours": 0.5, "visits": 1,
+                                                                                    "left": left}})
+    for i, h in enumerate((4.0, 5.0, 6.0)):                                    # ready-short: <= 2, tolerance 0.5
+        slow(i, h)
+    s = f.watch()
+    (t,) = [t for t in s["triggers"] if t["trigger"] == "time"]
+    assert t["subject"] == "goal.ready-short" and "reads 5 " in t["why"]
+    assert s["times"]["ready-short"] == 5.0 and s["times"]["fix-short"] == 0.5   # (fix: read, and on target)
+    assert "built-short" in s["times"] and s["times"]["built-short"] is None     # nothing left built: unknown
+    answer = {"calls": [], "answers": {t["print"]: "asked the researcher why ready waits"}, "summary": "ready waits"}
+    said, _ = f.run("manager.py", s["id"], FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(answer) + "\n```")
+    f.drain()
+    assert said == ["situation.handled"]
+    done = f.item(s["id"])
+    text = (f.model / done["fields"]["context"]["brief"].removeprefix("file:")).read_text()
+    assert t["print"] in text and "goal ready-short is off" in text
+
+    def again() -> list[dict]:
+        db = f.db()
+        for x in db["items"].values():
+            if x["kind"] == "situation":                                       # each answered, the schedule due again
+                x["state"], x["fields"]["raised_at"] = "handled", f.now - 3 * 3600
+        f.record.write_text(json.dumps(db))
+        got = f.watch()
+        return [x for x in (got or {}).get("triggers", []) if x["trigger"] == "time"]
+    f.put("gap/other", "ready", ago=60, branch="other")                       # (the pipeline changed)
+    assert again() == []                                                       # answered, the same reading
+    slow(3, 20.0)
+    slow(4, 20.0)                                                              # median 6h: further off
+    (t2,) = again()
+    assert t2["subject"] == "goal.ready-short" and t2["print"] != t["print"]
+
+
 def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
     from ergostat.cli import main
     model = textwrap.dedent("""\
@@ -3792,8 +3862,8 @@ def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
     (old / "dev" / "model").mkdir()
     for x in (ROOT / "dev" / "model").iterdir():
         (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.drains-within-bound", "goal: drains-"
-                                                    "within-bound").replace("in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]",
-                                                                            "goal: no-stuck-gaps"))
+                                                    "within-bound").replace("in: [goal.no-stuck-gaps,",
+                                                                            "goal: no-stuck-gaps\n    in: ["))
     (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
 
     def noted(path: Path) -> set[str]:      # (a craft note, not an extremes finding: a second model's extremes, ~60 s

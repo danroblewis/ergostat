@@ -147,11 +147,15 @@ blocks:
     out: [auxiliary.resumes-waits-on, auxiliary.resumes-needs]
   pipeline-watch:
     type: program
-    description: every 5m - raises one session carrying every standing trigger, on the schedule ([manager] every) or at once on a broken merge pipeline, when something changed since the last
+    description: every 5m - raises one session carrying every standing trigger (a time-in-state goal off past its tolerance among them, times.yaml), on the schedule ([manager] every) or at once on a broken merge pipeline, when something changed since the last
     run: python3 dev/bin/watch.py
     every: 5m
     timeout: 4m
-    in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]   # read, not commanded: a goal: here would take it off its schedule (schedule-removed)
+    # read, not commanded: a goal: here would take it off its schedule (schedule-removed)
+    in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing,
+         goal.ready-short, goal.fix-short, goal.built-short, goal.approved-short, goal.queued-short, goal.replan-short,
+         goal.planned-short, goal.leased-short, goal.building-short, goal.in-review-short, goal.queue-failed-short,
+         goal.loop-short]
     out: flow.situations-found
 
   manage-when:

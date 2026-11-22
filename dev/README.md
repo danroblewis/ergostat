@@ -603,8 +603,12 @@ last `gap.timed` and the roll-up (only if the timer was stopped that long) are n
 The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, `loop-hours`, `loop-rounds` and
 `gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the
 gaps that left the state, ended the loop or passed the gate in the window, not only the merged ones; 0 with none.
-Each has a goal (`hold:`) to set; the shipped ones are first guesses, and `python3 dev/bin/times.py setpoints` in the
-instance's folder sets each to today's reading (one with nothing in the window keeps its own). `status.py` prints them
+A median the pipeline manager can act on has a goal (`hold:`), read by the pipeline watch: off past its tolerance, it is
+a trigger of the manager's next session, and each goal's reading is on the situation (`times`; None when no gap is in
+its window or its measure cannot be read, never on target, though the measure's own sensor still reads 0 then). The
+p90s and the rest are plain measures, the file's header says which and why. The shipped holds are first guesses, and
+`python3 dev/bin/times.py setpoints` in the instance's folder sets each to today's reading (one with nothing in the
+window keeps its own). `status.py` prints them
 as a table, the waiting states first (time spent waiting on someone else, the cheapest to remove: open and replan for
 the planner, planned for the plan review, split for its sub-gaps, ready and fix for the implementor, built for the
 reviewer, approved for the queue, queue-failed for triage, dead for a park), then the working ones, where a run holds
