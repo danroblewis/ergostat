@@ -67,3 +67,29 @@ Built, 36 net lines outside tests (53 added, 17 removed).
     refused. Left to the factory's rerun on clean main (lesson 13).
 - Also run: tests/test_blockdiagram.py (67 passed); ruff clean. Not run: the unit suite, the other three browser files,
   demo_check (no example touched). main has not moved since the clone, so there was nothing to merge.
+
+## Where it stopped (round 2)
+
+The one finding (conflict with main in `ergostat/web/static/dynamics.js`) is resolved in the merge of main 720426bd.
+Main replaced the closed box's "N feedback loops inside" line with its description, wrapped to at most two lines
+(`sys-desc`). Both are kept: main's description lines, then the upkeep line under them at `y = 44 + 14 × lines`
+(58 for one line, 72 for two, both inside the box's 96 px minimum height). Still 36 net lines outside tests
+(53 added, 17 removed).
+
+- The acceptance test (`[alert-triage]`, `[big]`) and main's `test_each_closed_system_box_says_what_the_system_is`:
+  4 passed after the merge. ruff clean. tests/test_blockdiagram.py: 67 passed.
+- tests/test_diagram_rendering.py, the whole file, under the watchdog: 200 passed, 6 failed (48 min). Each was rerun
+  alone afterwards:
+  - test_a_block_dragged_in_the_blocks_view_stays_pinned_... passes alone.
+  - test_the_dynamics_view_speaks_system_dynamics_... fails: it finds the word "Goals" in the side panel's
+    "Goals off" heading. That heading comes from main's cd71c13e (needs-attention-is-three-headed-groups), not from
+    this branch. Unrelated (lesson 13).
+  - test_an_equation_its_numbers_..._accepted_from_the_page fails as in round 1 (the Model page's "Nothing waiting.").
+    Unrelated.
+  - test_every_view_draws_cleanly_and_in_time[coordinator] and [image-squeeze] (routing open=* 31.6 s / 32.4 s against
+    20 s), and test_a_big_tangled_model_lays_out_in_time_and_cleanly (open=* drawn in 2908 ms against 2500 ms) fail
+    alone too, all on open=* timing. This branch's code does not run there: the upkeep box is moved only when
+    nothing is open (`open.size ? []` in diagram.js, `!(g.open || []).length` in blocks.js). Not confirmed on main:
+    `git checkout main -- ergostat/web/static ...` to run them on main's page code was refused. Left to the
+    factory's rerun on clean main.
+- Not run: the unit suite, the other three browser files, demo_check (no example touched).
