@@ -286,8 +286,8 @@ Review 6 had one blocking finding and one note. Both are answered below (lesson-
   stopped the run and the load. It ignores any further SIGTERM, records an intervention `ended: stopped` with
   `asked_as` ("stopped by SIGTERM before its runs ended: no counts, the gap untouched"), and raises again. `manage.run`
   now raises a SystemExit(143) again instead of calling it "refused: the call does not parse", so the process exits
-  143. dev/README.md, and the round-6 claim above, now say it plainly: a SIGTERM or Ctrl-C records the end, and only a
-  SIGKILL leaves it unrecorded (the load still ends by its heartbeat). The counts of the runs made before the SIGTERM
+  143. dev/README.md now says it plainly: a SIGTERM or Ctrl-C records the end, and only a SIGKILL leaves it
+  unrecorded. This replaces round 6's claim, which was false for a SIGTERM (the load still ends by its heartbeat). The counts of the runs made before the SIGTERM
   are not kept: `runs.measure` returns only when it ends. The gap is not moved.
   New test: `test_a_sigterm_to_the_detached_measurement_records_its_end`. It approves the model's `manager-measure`
   through the real `gate.approve`, with a hanging stand-in suite and a load, and SIGTERMs the pid the action's output
