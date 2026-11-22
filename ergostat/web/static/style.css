@@ -213,6 +213,9 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .more, .att .none { color: var(--muted); }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
 .att .inbox-act input { width: 6em; }
+.att .att-word { color: var(--ink-2); }
+.att hr.att-rule { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
+details.housekeeping > summary h3 { display: inline; }
 details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }
 details > summary { cursor: pointer; color: var(--ink-2); }
 details > summary:hover { color: var(--ink); }
@@ -245,6 +248,7 @@ body:has(#detail:not([hidden])) .diagram > .side { display: none; }
 .toolbar select:hover { background: var(--fill); }
 .toolbar .sep { width: var(--hair); align-self: stretch; background: var(--line); margin: var(--sp-0) var(--sp-1); }
 .seg { display: inline-flex; gap: var(--sp-0); }
+.seg .what { display: block; font-size: var(--text-sm); color: var(--muted); }   /* under the name: the toolbar no wider, clear of the top grip */
 .strip p.risk { margin: var(--sp-1) 0 0; }
 .block-models ul { margin: var(--sp-1) 0; padding-left: var(--sp-4); }
 .block-models summary { cursor: pointer; }
