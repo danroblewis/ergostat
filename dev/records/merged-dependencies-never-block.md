@@ -69,3 +69,18 @@ test_take_order, test_relations, test_relations_asof (35 passed), and test_eta, 
 Parked by the factory (review/merged-dependencies-never-block-1, 2026-11-21 19:56).
 
 Done: definition items 1-3. A precedence target cut by MOST_PULLED is read by id in one ix.items(ids=cut, moves=False) call under the index lock, and its real status decides waiting. One that cannot be read counts as unfinished and is named. The cut is made in sorted id order, so graph and eligibility do not depend on PYTHONHASHSEED. Four tests in tests/test_precedence_cap.py cover the three acceptance tests, and the implementor reports seeing them fail when the code is broken. 9 net lines against 40. Left: item 4, time precedence.build (or order_ready) on a copy of the factory's record before and after the branch, and write both numbers in Where it stopped. It stops because the implementor's sandbox refused to run any benchmark or reach the record, so another fix round cannot take the measurement.
+
+## The measurement of item 4, by the coordinator (2026-11-21)
+
+No session can reach the factory's record, so the coordinator's read-only agent took this on a scratch copy of it: 262,384 events, 11 real implementor candidates, a graph of 528 items (over the cap). Main at b9528e0e against this branch at 045303fa; `ergostat/precedence.py` is the only file under `ergostat/` that differs. 64 runs per tree and operation, across 8 `PYTHONHASHSEED` values, alternating, the cache cleared before each, under `nice -n 15`, at machine load 7 to 12.
+
+| Operation | Tree | Median ms | p90 ms | Max ms |
+|---|---|---|---|---|
+| `order_ready` | main | 72.5 | 82.0 | 89.2 |
+| `order_ready` | branch | 75.0 | 82.3 | 88.3 |
+| `build` | main | 72.4 | 80.9 | 86.1 |
+| `build` | branch | 73.7 | 83.4 | 90.2 |
+
+Paired by seed, the branch's median CPU cost is +2.8 ms for `order_ready` and +1.0 ms for `build`, near the noise. The lookup read 3 cut dependencies. Replaying the last hour (6,393 events, about 4,700 looks), the dispatcher spends an estimated 9.5% of its time here on main and 9.8% on the branch.
+
+Eligibility across the 8 seeds: `gap/item-search-join-1` falsely blocked in 4 of 8 on main and 0 of 8 on the branch; open gaps (of 128) with a false wait, 4 to 15 per seed on main and 0 on the branch; real dependencies missed, 0 on both.
