@@ -255,3 +255,31 @@ All 19 tests in `tests/test_library_fetch.py` pass. `tests/test_cli_fallback.py`
 
 Overrun reason: about 743 net lines against 560. Round 1's reasons stand. Round 2 adds about 24 lines: the stepwise
 link walk (13) and the fallback for platforms without `os.waitid` (9).
+
+### Round 3: the review's finding
+
+1. **A link through another link on a case-insensitive disk (blocking).** On APFS, `x/S -> ..` plus `x/y -> s/../..`
+   passed: the step `x/s` was compared as text against `{x/S, x/y}`, yet on disk `x/s` opens `x/S`. There are two
+   fixes, both in `tree.extract`:
+   - Names are compared through `tree._key` (NFC, then `casefold`) in the walk that refuses a link through another
+     link, and in the "members under a link" check. So `x/s` is `x/S`, and an NFC `é` is the NFD `é`. APFS ignores
+     both differences.
+   - Once the links are made, each link's `os.path.realpath` must stay under the copy's own `realpath`. A link that
+     does not is refused as `a link out of the copy on disk`, and `TMP` is removed as on any refusal. This check does
+     not depend on how a file system folds names: it asks the disk where the link leads.
+
+   New cases in `test_symlink_hashed_not_followed`: `x/S -> ..` with `x/y -> s/../..`; an NFD `x/é -> ..` with an NFC
+   `x/y -> é/../..`; and `L -> sub` with `l/x.yaml`. Each fails without the fix even on this case-sensitive Linux disk,
+   because the text check is what refuses them. One more case patches `_inside` to do nothing and shows that the
+   `realpath` check alone refuses round 2's `x/s -> ..` with `x/y -> s/../..`. SPEC §2a and SECURITY.md state both
+   rules.
+
+   Mutants, each applied, run and reverted: `_key` returning the name unchanged fails the test (`DID NOT RAISE
+   Refused`), and so does `_key` without NFC (`casefold` only). With the `realpath` check removed, the test also fails.
+
+   Not run: the test on macOS itself (this session runs on Linux).
+
+All 19 tests in `tests/test_library_fetch.py` pass. `tests/test_cli_fallback.py`, `tests/test_templates.py` and
+`tests/test_modelling_template.py` pass unchanged (59). Ruff is clean. `git merge main`: already up to date.
+
+Overrun reason: about 754 net lines against 560. The reasons from rounds 1 and 2 stand. Round 3 adds about 11 lines in `tree.py`: the case-insensitive name key, and the realpath check after the links are made.

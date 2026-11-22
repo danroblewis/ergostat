@@ -1,5 +1,6 @@
 """A fetched library's copy (SPEC §2a): ``extract`` writes ``git archive``'s tar stream into a new folder, allowing only
-folders, regular files (their exec bit kept) and links that stay inside it; ``read`` lists a copy and hashes it. Fetch
+folders, regular files (their exec bit kept) and links that stay inside it (by their text, names compared as a
+case-insensitive file system sees them, and then by where they resolve on disk); ``read`` lists a copy and hashes it. Fetch
 and load share one walker (``files.tree``, which ``read`` wraps) and one hash (``digest``), under the same caps."""
 
 from __future__ import annotations
@@ -8,6 +9,7 @@ import hashlib
 import os
 import stat
 import tarfile
+import unicodedata
 
 from ..spec import files
 
@@ -69,14 +71,19 @@ def _folders(dest: str, rel: str) -> None:
             os.mkdir(at, 0o755)
 
 
+def _key(rel: str) -> str:
+    """A name as a case- and normalization-insensitive file system (APFS) sees it: ``x/S`` and ``x/s`` are one."""
+    return unicodedata.normalize("NFC", rel).casefold()
+
+
 def _inside(rel: str, to: str, linked: set) -> None:
     """``rel``'s target walked a step at a time from ``rel``'s folder: refused if a step goes above the copy or passes
-    through another link member (whose own target would move the walk), so the text is where it leads on disk."""
+    through another link member (``linked`` holds their ``_key``s; that link's own target would move the walk)."""
     at, steps = rel.split("/")[:-1], [p for p in to.split("/") if p not in ("", ".")]
     for i, p in enumerate(steps):
         if p != "..":
             at.append(p)
-            if i < len(steps) - 1 and "/".join(at) in linked:
+            if i < len(steps) - 1 and _key("/".join(at)) in linked:
                 raise Refused(f"{rel}: a link through another link ({to})")
         elif not at:
             raise Refused(f"{rel}: a link out of the copy ({to})")
@@ -122,11 +129,15 @@ def extract(stream, dest: str, strip: str = "") -> None:
                 links.append((rel, m.linkname))
             else:
                 raise Refused(f"{m.name}: not a folder, a regular file or a link")
-    linked = {rel for rel, _ in links}
+    linked, keys = {_key(rel) for rel, _ in links}, [_key(n) for n in names]
     for rel, to in links:
-        if any(n.startswith(rel + "/") for n in names):
+        if any(n.startswith(_key(rel) + "/") for n in keys):
             raise Refused(f"{rel}: a link with members under it")
         _inside(rel, to, linked)
     for rel, to in links:                                  # last: nothing is written through one
         _folders(dest, rel)
         os.symlink(to, os.path.join(dest, rel))
+    top = os.path.realpath(dest)                           # then where each leads on this disk, every link resolved
+    for rel, to in links:
+        if os.path.commonpath([top, os.path.realpath(os.path.join(dest, rel))]) != top:
+            raise Refused(f"{rel}: a link out of the copy on disk ({to})")

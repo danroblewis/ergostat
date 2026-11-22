@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 GREET = "template: greet\ndescription: Greetings waiting.\nstocks:\n  waiting: {unit: things}\nflows:\n  added: {to: waiting}\n"
 OTHER = "template: other\ndescription: Another.\nstocks:\n  more: {unit: things}\n"
 USES = {"hi": {"use": "greet"}}
+NFD_E, NFC_E = "e" + chr(0x301), chr(0xE9)               # one name to a normalization-insensitive disk (APFS)
 
 
 def git(cwd, *a) -> str:
@@ -318,7 +319,7 @@ def _tar(*members) -> io.BytesIO:
     return b
 
 
-def test_symlink_hashed_not_followed(tmp_path, capsys):
+def test_symlink_hashed_not_followed(tmp_path, capsys, monkeypatch):
     up = upstream(tmp_path)
     (up / "same.yaml").symlink_to("greet.yaml")
     commit(up)
@@ -347,9 +348,19 @@ def test_symlink_hashed_not_followed(tmp_path, capsys):
                           ([("x", tarfile.DIRTYPE, None), ("x/s", tarfile.SYMTYPE, ".."),
                             ("x/y", tarfile.SYMTYPE, "s/../..")], "through another link"),
                           ([("x/y", tarfile.SYMTYPE, "s/../.."), ("x/s", tarfile.SYMTYPE, "..")], "through another link"),
-                          ([("x/y", tarfile.SYMTYPE, "./../.."), ("x/s", tarfile.SYMTYPE, "..")], "out of the copy")]:
+                          ([("x/y", tarfile.SYMTYPE, "./../.."), ("x/s", tarfile.SYMTYPE, "..")], "out of the copy"),
+                          # the same on a case- or normalization-insensitive disk (APFS): x/s opens x/S, NFC opens NFD
+                          ([("x/S", tarfile.SYMTYPE, ".."), ("x/y", tarfile.SYMTYPE, "s/../..")], "through another link"),
+                          ([("x/" + NFD_E, tarfile.SYMTYPE, ".."), ("x/y", tarfile.SYMTYPE, NFC_E + "/../..")],
+                           "through another link"),
+                          ([("L", tarfile.SYMTYPE, "sub"), ("l/x.yaml", tarfile.REGTYPE, b"x")], "members under it")]:
         with pytest.raises(tree.Refused, match=said):
             tree.extract(_tar(*members), str(tmp_path / f"x{len(os.listdir(tmp_path))}"))
+    with monkeypatch.context() as m:                       # the text check gone, where it resolves still refuses
+        m.setattr(tree, "_inside", lambda *a: None)
+        with pytest.raises(tree.Refused, match="out of the copy on disk"):
+            tree.extract(_tar(("x", tarfile.DIRTYPE, None), ("x/s", tarfile.SYMTYPE, ".."),
+                              ("x/y", tarfile.SYMTYPE, "s/../..")), str(tmp_path / "bypass"))
     ok = tmp_path / "ok"                                   # a link to a link inside, and one up to the top: kept
     tree.extract(_tar(("x/s", tarfile.SYMTYPE, ".."), ("x/y", tarfile.SYMTYPE, "s"), ("g", tarfile.REGTYPE, b"g")),
                  str(ok))
