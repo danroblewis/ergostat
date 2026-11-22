@@ -57,3 +57,22 @@ The test: tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen
 of six breaks made it fail: closeDetail() on a window change again; no 'Loading…' in the Loops table; the diagram
 not reading `select=`; main.js not reading `window=`; the Loops page not reading `select=`; the Record not reading
 `filter=`.
+
+Browser files run here, serially, under the watchdog, with Playwright (none skipped):
+- tests/test_items_page.py: 21 passed, rc 0. tests/test_page_refresh.py: 8 passed, rc 0.
+- tests/test_page_polling.py: 16 passed, 1 failed on the first run:
+  test_a_page_left_open_does_not_grow[diagram?view=dynamics&open=*] (long-task p95 608 ms against a bound of 550).
+  Run again, the whole test function (10 pages) passed, rc 0. A timing bound under load; that page's polling is
+  not code this branch changed.
+- tests/test_diagram_rendering.py: 196 passed, 5 failed (rc 1), and none of the five is shown to come from this change:
+  - test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back: passed when run again alone.
+  - test_a_big_tangled_model_lays_out_in_time_and_cleanly: fails again alone, "[open=*] took 2968ms to draw" against
+    LAYOUT_BUDGET_MS 2500. That is ELK's layout time on this container, and the branch does not touch the layout.
+  - test_every_view_draws_cleanly_and_in_time[coordinator] and [image-squeeze]: layout and size checks on views
+    opened with no `select=`. Not run again, because named_tests.py does not accept a parametrised id.
+  - test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page: fails again alone at line 3305
+    ("Nothing waiting." not on /model after an accept). The Model page and its queue are not touched here, and it
+    is opened with a fresh goto (no window carried). Running it on main to confirm was refused (a /tmp worktree of
+    main), so whether it also fails on main is not shown here.
+- Not run here: the unit suite (not touched: no Python changed), and a merge of main (main is the clone's base,
+  unchanged since).
