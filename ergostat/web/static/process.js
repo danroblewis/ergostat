@@ -297,7 +297,7 @@ function pmDraw(svg, g, lay) {
     const e = edgeById[le.id];
     const pts = edgePoints(le);
     if (!e || pts.length < 2) continue;
-    const eg = s("g", { class: ["edge", "pm-" + e.kind, e.rework ? "rework" : "", le.stale ? "stale" : ""].join(" "), "data-id": e.id,
+    const eg = s("g", { class: ["edge", "pm-" + e.kind, e.remote ? "pm-remote" : "", e.rework ? "rework" : "", le.stale ? "stale" : ""].join(" "), "data-id": e.id,
                         "data-nodes": `${e.source} ${e.target}`, "data-link": `${e.kind}:${e.source}>${e.target}`,
                         onpointerenter: () => { if (!S.dragging && !S.nodeDrag?.moved && !S.hullDrag?.moved) hoverEdge(e); }, onpointerleave: () => hoverEdge(null) });
     eg.append(...pmEdgeContent(e, le, pts, mostLine));
@@ -401,7 +401,8 @@ function openProcessEdge(e) {
   let kids;
   if (e.kind === "related") {
     kids = [h("div", { class: "kind" }, "Related"), h("h2", {}, `${a.itemKind} ${pmAct(a.activity)}`, ` ${e.relation} `, `${b.itemKind} ${pmAct(b.activity)}`), whatIs("related"),
-      h("p", { class: "muted" }, `${e.items} ${a.itemKind} item${e.items === 1 ? "" : "s"} last at ${pmAct(a.activity)} in the window name ${e.targets} ${b.itemKind} item${e.targets === 1 ? "" : "s"} last at ${pmAct(b.activity)} as ${e.relation}: ${e.count} link${e.count === 1 ? "" : "s"}, as they stand now.`),
+      h("p", { class: "muted" }, `${e.items} ${a.itemKind} item${e.items === 1 ? "" : "s"} last at ${pmAct(a.activity)} in the window name ${e.targets} ${b.itemKind} item${e.targets === 1 ? "" : "s"} last at ${pmAct(b.activity)} as ${e.relation}: ${e.count} link${e.count === 1 ? "" : "s"}, as they stand now.`
+        + (e.remote ? ` The items named are remote ${e.remote}'s, at the step it says each was last at; never waited on here.` : "")),
       dl([["from", link(a)], ["to", link(b)], ["relation", e.relation]]),
       pmSet({ kind: [a.itemKind], through: [a.activity] }, `${a.itemKind}, through ${pmAct(a.activity)}`, "the items of the line's first end, in the window")];
   } else if (e.kind === "caused") {
@@ -444,10 +445,23 @@ function pmSide(side, g) {
   side.append(...notes.map((t) => h("p", { class: "muted small" }, t)));
   side.append(h("h3", {}, "Kinds", h("span", { class: "muted" }, ` ${g.kinds.length}`)));
   if (!g.kinds.length) side.append(h("div", { class: "muted" }, "No kinds of item here."));
+  const said = new Set();                              // a remote's links not drawn, said once, on its first kind
+  const unlinked = (k) => {
+    const u = k.remote && !said.has(k.remote) && g.remotes?.[k.remote]?.unlinked;
+    const n = u ? Object.values(u).reduce((a, b) => a + b, 0) : 0;
+    if (!n) return null;
+    said.add(k.remote);
+    return h("div", { class: "sub pm-unlinked" }, `${n} link${n === 1 ? "" : "s"} to it not drawn (${Object.entries(u).map(([r, c]) => `${r} ${c}`).join(", ")})`);
+  };
   for (const k of g.kinds) side.append(h("div", { class: "looprow" }, h("b", {}, k.schedule ? "schedules" : k.remote ? `${k.name} (remote ${k.remote})`
                                                                                : h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name)), h("span"),
     h("div", { class: "sub" }, k.schedule ? `${k.items} scheduled run${k.items === 1 ? "" : "s"} that caused events on items`
-      : k.drawn ? `${k.items} item${k.items === 1 ? "" : "s"} in the window, by ${k.by}` : "nothing on the record in the window")));
+      : k.drawn ? `${k.items} item${k.items === 1 ? "" : "s"} in the window, by ${k.by}` : "nothing on the record in the window"), unlinked(k)));
+  for (const [r, x] of Object.entries(g.remotes || {})) {           // a remote with no kind drawn (unreachable): its own row
+    if (said.has(r) || !Object.keys(x.unlinked || {}).length) continue;
+    const u = unlinked({ remote: r });
+    if (u) side.append(h("div", { class: "looprow" }, h("b", {}, `remote ${r}`), h("span"), u));
+  }
 }
 
 function processLegend() {
