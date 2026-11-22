@@ -207,3 +207,17 @@ batch at a time, rc 0: `tests/test_interface_stability.py` (15); `tests/test_rel
 `tests/test_runner_and_state.py`, `tests/test_architecture.py`, `tests/test_graph_cli_web.py` and
 `tests/test_spec_systems.py` (101). Ruff is clean. The full unit suite and the four browser files are left to the
 factory's watched run.
+
+**Round 4.** The queue's finding was `tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped`,
+which failed in the queue and again alone. On this branch's head (46e77de7, main b9528e0e merged in) it passes alone,
+and the whole of `tests/test_warm.py` passes (21, 24 s). This branch does not touch the warm daemons
+(`ergostat/daemons/`), the engine's stop path (`Engine.stop_run`) or the test. Its only contact with that test is the
+one `history.note(self.p)` call in `Engine.start_all`. That call runs synchronously, before any daemon starts. It adds
+one pass over the parts (`Spec.interface` is cached) and writes the same single first `model.changed` as before. The
+test's failing window comes later: the stop, the replaced process (`len(starts) == 3` within 5 s) and the `agent.ran`
+notes, and none of those reads `model.changed`. So it is reported and left alone (lesson-13). Running it on clean
+`main` was refused in this session (`git worktree add --detach /tmp/main-wt main` followed by the test three times),
+and so was a five-times rerun loop on this branch. So this session cannot show whether it fails on main too. The
+queue's failing output was not given, so the assertion that failed is not known. If it is the 5 s wait for the
+replacement process, that is a fixed timeout under load (lesson-10) in the warm code's own gap. No code changed. Ran,
+rc 0: `tests/test_interface_stability.py` (15) and `tests/test_warm.py` (21). Ruff is clean.
