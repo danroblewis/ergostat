@@ -73,3 +73,12 @@ Seen while running, and not changed by this branch:
   delay on an inflow, as DELAY3") that the residual test found in the test's seeded record (numbers/structural, not
   touched here). It failed the same with the old clear-at-16 cache put back. I could not run it on main: `git
   checkout main -- ergostat` and `git worktree add --detach /tmp/ergostat-main-check main` were refused.
+
+Round 2 (the queue's finding): `tests/test_web_access.py::test_every_answer_the_page_records_says_who_made_it`
+failed with `AttributeError: 'types.SimpleNamespace' object has no attribute 'work'`. The test calls
+`control_api.post` with a stand-in for `Live`, and that stand-in was written before this branch gave `Live` its
+`work` (the GoalWork table), which `control_api.forget` now clears. The fix is in the test: its stand-in now carries
+`work=GoalWork(background=False)` as `Live` does. Code outside the test is unchanged: every real `Live` has `work`,
+so a `getattr` fallback in `forget` would only hide the next stand-in that is missing it. This was the only stand-in
+`Live` in tests (grep for `_kept=`). The test failed before the fix and passes after it (26 of 26 in the file). Main
+had not moved since the branch's last merge of it (`git log HEAD..main` is empty).
