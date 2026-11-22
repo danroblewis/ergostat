@@ -153,7 +153,7 @@ async function openLoop(name, asController = false) {
     ["moves", lp.flows.map((f) => `${f} ${rateText(lp.rates?.[f], "", f)}`).join(", ") || "nothing"],
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
-  kids.push(h("table", { class: "parts" }, headRow(["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
+  kids.push(h("table", { class: "parts" }, tableCaption(`The parts along loop ${name}`), headRow(["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
     (lp.parts || []).map((pt) => h("tr", {}, h("td", {}, pt.kind), h("td", {}, h("b", {}, pt.name),
         pt.kind === "valve" ? h("span", { class: "muted" }, ` ${pt.mode}${pt.max ? `, \u2264 ${fmt(pt.max)} a run` : ""}`) : null),
       h("td", {}, agentLink(pt.agent)),
@@ -237,7 +237,7 @@ async function openAgent(name) {
   kids.push(h("h3", {}, "Recent runs"));
   const costOf = (d) => ({ cost_usd: d.ai ? d.ai.cost_usd : d.cost_usd, cost: d.ai ? d.ai.cost : d.cost_usd != null ? "reported" : null,
                             model: d.ai?.model, tokens: d.ai?.tokens?.total, cpu: d.resources?.cpu, memory: d.resources?.memory_peak });
-  kids.push(h("div", { class: "table-wrap" }, h("table", {}, headRow(h("th", {}, "when"), h("th", { class: "num" }, "readings"), h("th", { class: "num" }, "openings"), h("th", { class: "num" }, "decisions"),
+  kids.push(h("div", { class: "table-wrap" }, h("table", {}, tableCaption(`Recent runs of ${name}, newest first`), headRow(h("th", {}, "when"), h("th", { class: "num" }, "readings"), h("th", { class: "num" }, "openings"), h("th", { class: "num" }, "decisions"),
     h("th", { class: "num" }, "cost"), h("th", { class: "num" }, "tokens"), h("th", { class: "num" }, "CPU"), h("th", { class: "num" }, "memory"), h("th", {}, "")),
     (a.recent || []).slice(-10).reverse().map((e) => { const r = costOf(e.data); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
       h("td", { class: "num" }, String(e.data.readings || 0)), h("td", { class: "num" }, String(e.data.openings || 0)), h("td", { class: "num" }, String(e.data.decisions || 0)),

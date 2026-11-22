@@ -33,6 +33,8 @@ function h(tag, attrs = {}, ...kids) {
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
 }
+/* a data table's name, for those who hear it (each data table has one) */
+const tableCaption = (text) => h("caption", { class: "sr-only" }, text);
 /* a data table's header row, in its thead: each th a column's header, a sorted column's order on it */
 function headRow(...ths) {
   const row = h("tr", {}, ...ths);

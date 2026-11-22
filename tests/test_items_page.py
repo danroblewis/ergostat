@@ -1066,6 +1066,55 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         events._kept.clear()
 
 
+def test_the_side_panels_and_item_tables_are_captioned(browser, site):
+    """Acceptance, the tables a page opens later (ui-the-current-page-view-and-mode-are-announced-tab): a loop's parts,
+    an agent's recent runs, a flow's parameters and items, a stock's items, an item's list of objects; each has a
+    caption and its header row in a scoped thead, with the same rules as the pages' own tables."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    seen: set[str] = set()
+
+    def check(where: str) -> None:
+        got = pg.evaluate(NAMES)
+        assert got["out"] == [], (where, got["out"])
+        seen.update(pg.evaluate("() => [...document.querySelectorAll('#detail table thead, #main table.sub thead')]"
+                                ".map((t) => t.parentElement.className || t.parentElement.caption.textContent.split(' ')[0])"))
+
+    pg.goto(f"{site}/diagram?view=dynamics")
+    pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    pg.evaluate("() => openLoop(Object.keys(S.status.loops)[0])")
+    pg.wait_for_selector("#detail table.parts thead", timeout=20000)
+    check("a loop")
+    pg.locator("#detail table.parts a").first.click()                      # the agent filling its first part
+    pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent.startsWith('Agent')"
+                         " && document.querySelector('#detail .table-wrap table thead')", timeout=20000)
+    check("an agent")
+    pg.goto(f"{site}/diagram?view=dynamics&around=flow/quality-turnover")
+    pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    found = pg.evaluate("""async () => {                       // the first flow drawn whose panel shows its parameters
+      for (const n of S.graph.nodes.filter((n) => n.flow || n.kind === "valve")) {
+        await openNode(n);
+        for (let i = 0; i < 40 && !document.querySelector("#detail table.params thead"); i++) await new Promise((r) => setTimeout(r, 50));
+        if (document.querySelector("#detail table.params thead")) return n.id;
+      }
+      return null; }""")
+    assert found, pg.evaluate("() => S.graph.nodes.map((n) => `${n.id} ${n.kind} ${n.flow}`)")
+    check("a flow with an equation")
+    pg.goto(f"{site}/diagram?view=dynamics&around=stock/ideas")
+    pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.label === 'ideas' && n.kind === 'stock'))")
+    pg.wait_for_selector("#detail .item-set table.item-list thead", timeout=20000)
+    check("a stock's items")
+    pg.goto(f"{site}/item/hypothesis%2F1")
+    pg.wait_for_selector("#main h1", timeout=20000)
+    pg.evaluate("() => document.querySelector('#main').append(fieldView([{ step: 'a', took: 1 }, { step: 'b', took: 2 }]))")
+    check("an item's list of objects")
+    assert {"parts", "Recent", "params", "item-list", "sub"} <= seen, seen
+    assert not errors, errors
+    pg.close()
+
+
 @pytest.mark.parametrize("route, nav, view", [
     ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
     ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),

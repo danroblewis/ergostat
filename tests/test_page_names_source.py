@@ -61,6 +61,23 @@ def test_data_table_headers_sit_in_a_scoped_thead():
         assert not re.search(r'h\("table", \{[^}]*\}, h\("tr"', js), f"{name} puts a header row straight in a table"
 
 
+def test_each_table_with_a_header_row_has_a_caption():
+    """Each data table (its header row made by headRow) is named by a caption, side-panel tables included."""
+    assert 'const tableCaption = (text) => h("caption", { class: "sr-only" }, text);' in src("util.js")
+    seen = 0
+    for name in ("details.js", "diagram.js", "equations.js", "itemsets.js", "pages.js", "review.js"):
+        js = src(name)
+        for m in re.finditer(r"headRow\(", js):
+            if js[max(0, m.start() - 9):m.start()] == "function ":
+                continue
+            table = js.rfind('h("table"', 0, m.start())
+            assert table >= 0, f"{name}: a headRow with no table before it"
+            between = js[table:m.start()]
+            assert "tableCaption(" in between or 'h("caption"' in between, f"{name}: a data table with no caption: {between[:90]}"
+            seen += 1
+    assert seen >= 11, seen                                  # the check reads the tables it is meant to
+
+
 def test_the_small_targets_are_24_px():
     css = src("style.css")
     assert re.search(r"\.hit24, button\.rg-key \{[^}]*min-height: 24px;[^}]*min-width: 24px;", css)

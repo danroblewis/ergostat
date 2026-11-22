@@ -46,7 +46,7 @@ function itemsSection(info) {
         h("td", { class: "muted nowrap" }, lease ? `leased by ${lease.block}` : isFlow ? "" : i.state || ""));
     });
     status.replaceWith(h("p", {}, h("b", {}, head), d.total ? h("span", { class: "muted" }, ": ", info.says) : null),
-      ...(rows.length ? [h("div", { class: "table-wrap" }, h("table", { class: "item-list" },
+      ...(rows.length ? [h("div", { class: "table-wrap" }, h("table", { class: "item-list" }, tableCaption(head),
         headRow(h("th", {}, "item"), h("th", {}, ""), h("th", { class: "num" }, isFlow ? "when" : "in state"), h("th", {}, "")), rows))] : []),
       h("p", { class: "small" }, d.total > rows.length ? all : rows.length ? h("a", { href: itemsHref(info.set) }, "on the Items page") : null),
       h("p", { class: "muted small" }, info.how));
@@ -58,7 +58,7 @@ function itemsSection(info) {
 function eventItems(ev) {
   const out = [h("p", {}, h("b", {}, `${ev.total} ${ev.valve ? "opening" : "observation"}${ev.total === 1 ? "" : "s"} ${inWindowWords()}`)),
                h("p", { class: "muted small" }, ev.how)];
-  if (ev.rows?.length) out.push(h("div", { class: "table-wrap" }, h("table", { class: "item-list" },
+  if (ev.rows?.length) out.push(h("div", { class: "table-wrap" }, h("table", { class: "item-list" }, tableCaption(ev.valve ? "Openings" : "Observations"),
     headRow(h("th", {}, "when"), h("th", {}, ev.valve ? "moved" : "event"), h("th", {}, "items")),
     ev.rows.slice(0, ITEMS_SHOWN).map((r) => h("tr", {}, h("td", { class: "nowrap" }, timeOf(r.time)),
       h("td", { class: ev.valve ? "num" : "muted" }, ev.valve ? fmt(r.amount) : r.type),

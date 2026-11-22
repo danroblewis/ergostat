@@ -97,7 +97,7 @@ function calibrationTable(params) {
   const rows = (params || []).flatMap((p) => (p.calibrated || []).map((c) => ({ p, c })));
   if (!rows.length) return null;
   const words = { parts: "each part alone", whole: "the whole model" };
-  return h("table", { class: "params calibrations" },
+  return h("table", { class: "params calibrations" }, tableCaption("Calibrations"),
     headRow(h("th", {}, "calibrated"), h("th", { class: "num" }, "estimate"), h("th", { class: "num" }, "n"), h("th", {}, "")),
     rows.map(({ p, c }) => h("tr", {},
       h("td", {}, h("b", {}, p.name), h("span", { class: "muted" }, ` ${c.scope?.startsWith("system:") ? `system ${c.scope.slice(7)} alone` : c.scope === "parts" ? words.parts : c.scope_words || words[c.scope] || ""}`)),
@@ -124,7 +124,7 @@ function parameterTable(params) {
     });
     return h("span", { class: "nowrap" }, input, p.duration || !p.unit ? null : h("span", { class: "muted" }, ` ${p.unit}`));
   };
-  return h("table", { class: "params" }, headRow(h("th", {}, "parameter"), h("th", { class: "num" }, "value"), h("th", {}, "from")),
+  return h("table", { class: "params" }, tableCaption("Parameters"), headRow(h("th", {}, "parameter"), h("th", { class: "num" }, "value"), h("th", {}, "from")),
     params.map((p) => h("tr", {}, h("td", { title: p.description || null }, p.name),
       h("td", { class: "num nowrap" }, cell(p)),
       h("td", { class: "muted small" }, provenance(p)))));
