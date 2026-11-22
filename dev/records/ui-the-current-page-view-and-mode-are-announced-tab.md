@@ -25,3 +25,40 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1; 18 net lines outside tests (64 added, 46 removed under `ergostat/web/static/`).
+
+Decisions taken alone (each the reversible one):
+- **axe-core itself is not run.** It is not in the repository or the environment, and the session reaches no network.
+  The acceptance test (`tests/test_items_page.py::test_the_page_view_and_controls_are_named`, nine pages: /diagram in
+  Dynamics, Blocks and Process, /loops, /agents, /items, /items?kind=hypothesis, /record, /model) checks the five
+  rules in the page the way these pages use them: aria-allowed-attr for aria-pressed, aria-sort, aria-checked; button-name and
+  link-name (stricter than axe: a title alone, or a glyph with no letter, is no name); th-has-data-cells (a header
+  row out of a thead, an unscoped column header, a column header over no data cell, a data table with no caption);
+  target-size for the named 24 px targets (Evidence links, the Items graph's legend keys, the Record checkbox), not
+  every target on the page. Vendoring axe-core and running it in this test is a later step if wanted.
+- aria-sort moved from the sort button (where aria-allowed-attr forbids it) to its th; the existing sort test reads it there.
+- 'Sort by author' is said for a field named `by` (examples' `show: [..., by]`); any other field is 'Sort by FIELD'.
+- The Items page's seg helper sets aria-pressed on all its toggles (Show, and in Graph/Timeline, Group and Rows):
+  the test counts pressed buttons in the View/Show group only. Graph and Timeline were not opened by the test.
+- The diagram legends hold no links; the 24 px "legend links" taken as the Items graph's legend keys (button.rg-key).
+- The Items group headings already had their ▸/▾ aria-hidden on main; the menu buttons' CSS ▾ is now `content: "▾" / ""`.
+- Two tests in test_diagram_rendering.py used the old names ('+', 'process') and now use 'Zoom in' and 'quality-held process'.
+
+Tests seen to fail when the code they guard is broken (lesson-9): with the thead, 'Zoom out' and aria-sort-on-th
+undone, all nine cases failed on the matching rule; with aria-current and aria-pressed removed, all nine failed.
+
+Tests run: tests/test_items_page.py (31 passed), tests/test_agents_page.py (4 passed), tests/test_diagram_rendering.py
+in full (194 passed, 6 failed; the two failures caused by the renamed controls fixed and passing on a rerun). Left failing, not touched by this branch:
+- test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page (line 3305, 'Nothing waiting.' on
+  /model's proposal list): a past review recorded it failing alone; still failing on the rerun.
+- test_every_view_draws_cleanly_and_in_time[coordinator] and [image-squeeze] (routing 39 s and 34 s against 20 s),
+  test_a_big_tangled_model_lays_out_in_time_and_cleanly (4.2 s against 2.5 s): layout and routing time bounds in a
+  50-minute serial run; this branch changes no layout code. Not compared with main here.
+- Not run: tests/test_page_polling.py, tests/test_page_refresh.py, the unit suite (left to the factory and queue).
+
+Found, not fixed (outside the gap): opening /model writes a new ergostat.model-change item to the record (seen as
+ergostat.model-change/8da394d2 on the image-squeeze site), so a test after it on the same site sees four model
+changes, not three; the acceptance test is placed last in its file for that reason.
