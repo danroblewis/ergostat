@@ -55,6 +55,23 @@ def test_no_sensor_controller_or_agent_is_drawn_and_every_connector_says_its_sig
     assert conn[("stock:bugs-live", "flow:filed-bugs")] == "+"
 
 
+def test_each_loop_gives_every_link_around_it_a_sign_and_a_plain_name(factory):
+    g = factory(view="dynamics", system="product")                  # (R2 runs through delivery, closed here)
+    loops = {c["label"]: c for c in g["causalLoops"]}
+    r2 = loops["R2"]["around"]
+    assert len(r2) == len(set(loops["R2"]["nodes"])) >= 4
+    assert all(x["sign"] in ("+", "-") for x in r2), r2
+    assert not [x for x in r2 if ":" in x["fromName"] + x["toName"]], r2
+    for c in loops.values():                                         # every loop's links signed alike with its polarity
+        signs = [x["sign"] for x in c["around"]]
+        if c["polarity"] and None not in signs:
+            assert (signs.count("-") % 2 == 1) == (c["polarity"] == "B"), (c["label"], c["around"])
+    # by definition: an outflow drains its stock, an inflow fills it; a ceiling's excess rises with its stock
+    every = {(x["from"], x["to"]): x["sign"] for c in loops.values() for x in c["around"]}
+    assert every.get(("flow:deployed", "stock:awaiting-deploy")) == "-" and every.get(("flow:merged", "stock:awaiting-deploy")) == "+"
+    assert every.get(("stock:awaiting-deploy", "gap:all-live")) == "+"
+
+
 def test_a_goal_is_drawn_as_a_desired_level_and_a_gap_feeding_the_flow_that_closes_it(factory):
     g = factory(view="dynamics", open="*")
     ids = {n["id"]: n for n in g["nodes"]}

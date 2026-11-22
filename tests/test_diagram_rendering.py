@@ -2033,7 +2033,7 @@ SD_CHECK = """() => {
   for (const m of svg.querySelectorAll(".loop-marker")) {
     const c = S.graph.causalLoops.find((x) => x.name === m.dataset.loop);
     const t = m.querySelector(".marker-letter")?.textContent || "";
-    if (!c || t[0] !== (c.polarity || "?")) bad.push(`marker ${m.dataset.loop} says ${t}`);
+    if (!c || t[0] !== (sdPol(c) || "?")) bad.push(`marker ${m.dataset.loop} says ${t}`);
   }
   const box = S.layout.children;
   for (const e of S.graph.edges.filter((x) => x.kind === "connector")) {
@@ -2282,6 +2282,53 @@ def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser,
         pg.wait_for_timeout(500)
         after = pg.evaluate(where, "missing-ops")                           # and placed again where its loop now is
         assert after[0] - before[0] > 60 and after[1] - before[1] > 40, (before, after)
+        pg.close()
+
+
+LOOP_SIGNS = """(label) => {
+  // a loop's panel: each row of 'Around the loop' (its text, its sign), its marker's letters, and each row whose
+  // connector is drawn here with the sign that connector shows (one sign per link across panels)
+  const c = S.graph.causalLoops.find((x) => x.label === label);
+  if (!c) return null;
+  openCausal(c.name);
+  const rows = [...document.querySelectorAll("#detail table.parts tr")].map((tr) => [tr.innerText.replace(/\\s+/g, " ").trim(),
+    tr.querySelector("td.num").textContent]);
+  const m = [...document.querySelectorAll("svg.canvas .loop-marker")].find((x) => (x.dataset.loops || "").split("|").includes(c.name));
+  const drawnSigns = (c.around || []).map((r) => {
+    const e = S.graph.edges.find((x) => x.kind === "connector" && (x.from ?? x.source) === r.from && (x.to ?? x.target) === r.to);
+    const t = e && document.querySelector(`svg.canvas .edge[data-id="${CSS.escape(e.id)}"] text.polarity`);
+    return e ? [r.from + " → " + r.to, t ? t.textContent : "?", r.sign ? sdSign(r.sign) : "?"] : null;
+  }).filter(Boolean);
+  return { rows, letter: m ? m.querySelector(".marker-letter").textContent : null, panel: document.querySelector("#detail").innerText,
+           markers: [...document.querySelectorAll("svg.canvas .loop-marker text")].map((t) => t.firstChild?.textContent || ""), drawnSigns,
+           alike: [...document.querySelectorAll("svg.canvas .marker-more")]
+             .map((t) => [t.firstChild.textContent, t.querySelector("title")?.textContent || ""]) };
+}"""
+
+
+def test_a_loop_is_called_r_or_b_only_when_every_link_has_a_sign(browser, tmp_path):
+    """software-factory's product system: R2's 'Around the loop' gives every link (all of them, through delivery
+    too) a sign, or its marker reads '?'; each part by its plain name; a connector drawn here shows the row's sign;
+    no marker reads '+1' (loops drawn alike: 'N alike')."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, v in enumerate(["system=product", "", "open=*"]):       # (open: every connector drawn, to compare)
+            drawn(pg, url, v, i)
+            r = pg.evaluate(LOOP_SIGNS, "R2")
+            assert v != "open=*" or len(r["drawnSigns"]) >= 4, r["drawnSigns"]
+            assert r and len(r["rows"]) >= 2, (v, r)
+            unsigned = [t for t, sign in r["rows"] if sign not in ("+", "−")]
+            assert not unsigned or r["letter"] == "?", (v, unsigned, r["letter"])
+            if unsigned:
+                assert "No sign on" in r["panel"], (v, r["panel"])
+            named = [t for t, _ in r["rows"] if re.search(r"\b(stock|gap|flow|desired|term|system|shadow|stub):", t)]
+            assert not named, (v, named)
+            assert not [t for t in r["markers"] if re.search(r"\+\d$", t)], (v, r["markers"])
+            assert all(shown == row for _, shown, row in r["drawnSigns"]), (v, r["drawnSigns"])
+            assert all(re.fullmatch(r"\d+ alike", t) and re.search(r"[RB?]\d+ ", title) for t, title in r["alike"]), (v, r["alike"])
+        assert not errors, errors
         pg.close()
 
 

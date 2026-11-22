@@ -3903,7 +3903,11 @@ never a list of everything in it.
 **Drawn** (the dynamics view, `ergostat/dynamics.py`): each loop is labelled as Sterman numbers them,
 R1, B1 (the shortest first, the ones the model names before others of their length), with its name
 beneath. Only loops of known polarity are marked on the diagram, each inside the loop as drawn; the
-others are one entry beside it, "+N of unknown polarity", that opens to list them. A goal is drawn
+others are one entry beside it, "+N of unknown polarity", that opens to list them. A loop's panel lists
+every link around it (through closed systems too) by plain names, each with the one sign its connector is
+drawn with; a flow's into its stock, and a stock's and a desired level's into its gap, are signed by
+definition. A link still without a sign (or signs that disagree with the model's) makes its marker read `?`
+and the panel name the link; loops drawn alike share one marker, "N alike", its title naming the others. A goal is drawn
 as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
 for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
 actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel
