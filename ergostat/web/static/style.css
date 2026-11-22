@@ -117,6 +117,9 @@ button:disabled { color: var(--muted); cursor: default; }
 button.on { background: var(--fill); border-color: var(--line-strong); color: var(--ink); font-weight: 600; }
 button.ghost, .menu-btn { border-color: transparent; background: transparent; }
 button.ghost:hover, .menu-btn:hover { background: var(--fill); }
+/* a name that opens its evidence: read as the name it is (its colour and weight kept), pressed as a button */
+button.name { border: 0; background: none; padding: 0; min-height: 0; color: inherit; font-weight: inherit; text-align: inherit; }
+button.name:hover:not(:disabled) { background: none; text-decoration: underline; }
 label.check { display: inline-flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
 
 /* a menu: a button and what it holds, floating; the one thing with a shadow */

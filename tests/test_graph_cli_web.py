@@ -308,6 +308,25 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
         srv.server_close()
 
 
+def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(project):
+    """What the side list's goal button reads (diagram.js goalButton/showGoal): an off goal's attention entry is
+    `loop NAME` and that loop names its stock. This is a stand-in without a browser, so the build collects a test.
+    The button's behaviour is checked in tests/test_diagram_rendering.py
+    (test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction)."""
+    import json as _json
+    import re as _re
+
+    from ergostat.web.snapshot import build
+    project.measurements.add("sensor/disk-usage", 95.0)
+    html = build(project)
+    data = _json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1).replace("<\\/", "</"))["data"]
+    st = data["status"]
+    assert st["loops"]["disk-under-80"]["status"] == "off" and st["loops"]["disk-under-80"]["stock"]
+    off = [a for a in st["attention"] if a["what"] == "loop disk-under-80" and a["level"] == "bad"]
+    assert off, st["attention"]
+    assert "function showGoal(" in html and "goalButton(goal, what)" in html
+
+
 def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_path, monkeypatch):
     """After an update the browser runs the new scripts without a manual reload: every file the page loads is
     referenced with its content's version, a file asked for with its version is kept for good, and the page
