@@ -78,3 +78,68 @@ The measures `ergostat.leases.*` and `ergostat.workspaces.*` exist. None of thes
 - lesson-3 for `heartbeat-age`: a last pass stamped in the future gives a negative age, which reads as fresh. Give no reading (or clamp it, and say which) and test it.
 - 'Said once in run.log': a missing `stale` is the normal case for a model without the template, so don't log it as a fault. Log only a malformed or out-of-range value, once per value or per watcher process, and say which.
 - SPEC must say plainly that `stale` lets the watched engine relax the outer watcher's limit to at most 3600 s and never disable it. Do not claim the goal 'cannot weaken' protection.
+
+## Where it stopped
+
+Built, round 1. Everything in the definition of done is in the branch, with the acceptance tests passing. What
+was decided without anyone to ask, each the more reversible option:
+
+- **`type: external` blocks take no `goal:` key** (the loader refuses it), so `watchdog`, `outer-watcher` and
+  `lease-expiry` read their goal as `in: goal.NAME`, the form SPEC's own external example uses. `pool-keeper` (a
+  person) takes `goal:` as written.
+- **Flows the definition did not list.** `test_every_built_in_template_checks_with_its_example` wants no finding
+  from the template's own parts. A goal whose block moves no flow of its stock is *missing feedback*, and a stock
+  with no flow is *stock-without-flows*, so each loop gets its flows, all read from their stock (`changes:`):
+  `heartbeat-renewed` and `restarts-made` (the outer watcher's), `restarts-aged-out`, `stalls-mended` (the
+  watchdog's), `overdue-leases-expired` and `leases-expired` (lease expiry's), `expired-leases-aged-out`,
+  `free-workspaces-moved` (two-way, `net`) and `quarantined-workspaces-freed` (the pool keeper's). A flow between
+  two stocks cannot be read by `changes:`, so none chains two stocks. `restarts` has no goal; the definition gave it none.
+- **`stale` in the watcher** is read by `limit()`, checked by `ir.stale_ok`: a real, non-bool number with
+  `60 <= x <= 3600`, so NaN, ±Infinity and `true` fail it. A missing `stale` is the normal case and is said
+  nowhere; a malformed or out-of-range one is said in `run.log` once for each distinct value, per watcher process.
+- **The engine writes `stale`** from the model as it is at each beat (`ir.heartbeat_stale(eng.spec)`), only when
+  the use is ergostat's own `upkeep` and its `heartbeat-fresh` is `<= N` within the bounds. The heartbeat the run
+  writes as it starts (`cli/running.py`) carries no `stale`, so the watcher uses 180 until the first beat (5 s).
+- **heartbeat-age with a pass in the future** gives no reading (not clamped); so does a non-finite or non-number pass.
+- **stalls / restarts**: an event log that raises, or none, gives no reading.
+
+The plan review's notes, each answered:
+
+- *Reads only its three files*: `test_the_watcher_reads_only_its_three_files` records every `open`, `io.open` and
+  `os.stat` during `watcher.look`. A look that does nothing touches only `run.pid`, `heartbeat.json` and `stopped`.
+  A look that restarts also touches its own back-off (`restarts.json`, with its temp file) and `run.log`, as on main;
+  SPEC says so.
+- *lesson-9's risk*: a fallback test passing because the default and the given value agree, or a test of a guard
+  that never reaches it. The 100 s / 200 s pair sits between 59 and 180 and between 180 and 3601, so neither bound
+  passes by luck. The breaks used, each seen failing its test and then reverted:
+  1. `limit()` returning `STALE` always (the watcher ignoring `stale`): `test_the_watcher_restarts_at_the_goals_limit`.
+  2. `limit()` taking any number, no range check: `test_a_bad_stale_falls_back_to_the_default` for 0, -5, 1e9,
+     true, NaN, Infinity, 59 and 3601 (`"x"`, `null` and `[600]` are caught by the type check that break kept).
+  3. `heartbeat()` merging the old file into the new: `test_stale_is_dropped_when_the_template_is`.
+  4. `heartbeat_age` and the event measures giving 0 when their file or log cannot be read:
+     `test_heartbeat_age_reads_none_without_a_heartbeat` and `test_stalls_and_restarts_count_their_windows_and_read_none_without_a_log`.
+  5. the future-pass guard removed: `test_heartbeat_age_reads_none_without_a_heartbeat`.
+  6. the template's `min:`/`max:` on `stale` removed: `test_stale_out_of_range_is_a_load_error[59]` and `[3601]`.
+  7. `look` also checking the model file: `test_the_watcher_reads_only_its_three_files`.
+  8. the watchdog skipping its look under `use: upkeep`: `test_the_watchdog_runs_whatever_the_goals_say`.
+- *Bad stale cases*: `0, -5, 1e9, "x", true, NaN, Infinity, 59, 3601, null, [600]` and missing, at 100 s (no restart)
+  and 200 s (restart). Each checks the `run.log` line is said once (none when missing).
+- *Load-error cases*: 59, 3601 and `"x"` are errors naming `stale`; 60 and 3600 load
+  (`test_stale_at_its_bounds_loads`).
+- *lesson-3 for stalls/restarts*: tested, as above. *For a future pass*: no reading, tested.
+- *Logging*: only malformed or out-of-range values, once per value per watcher process.
+- *SPEC*: says `stale` lets the watched engine relax the outer watcher's limit to at most 3600 s (or tighten it to
+  60 s) and never turns it off; it makes no "cannot weaken" claim.
+
+**Size.** 295 net lines outside `tests/`, `docs/` and `dev/`: 45 over the 250 budget. About 99 are Python. The rest
+is the template's YAML: the parts the definition names, a dozen lines of `reading:`, and the 9 flows above (about
+70 lines, block style like the rest of the template) that the existing template check needs. They are what pushed
+it over. A reviewer who prefers it under budget can fold the sensors into flow-style maps
+(`sensor: {changes: falls, over: "${over}", every: "${watch-every}"}`), about 40 lines.
+
+**Existing test changed.** `tests/test_upkeep_template.py::test_upkeep_expands_to_the_index_files_loop` asserted the
+template's exact set of parts; it now adds the default watched parts to each set.
+
+**Not run here**: the full unit suite under the watchdog, the four browser files and `demo_check` (no example is
+touched). Those are the factory's to run. origin/main is not merged in: this clone has no `origin/main` ref, and
+local `main` has no commit past this branch's base (`git log HEAD..main` is empty).
