@@ -306,7 +306,7 @@ async function availLoops(goals, redraw) {
     }
   } finally { availBusy = false; }
 }
-const toolLink = (text, how, title = null) => h("a", { href: "#", title, onclick: (ev) => { ev.preventDefault(); typeof how === "function" ? how() : openTool(how); } }, text);
+const toolLink = (text, how, title = null, label = null) => h("a", { href: "#", title, "aria-label": label, onclick: (ev) => { ev.preventDefault(); typeof how === "function" ? how() : openTool(how); } }, text);
 const linkList = (xs) => xs.filter(Boolean).flatMap((x, i) => (i ? [", ", x] : [x]));
 const isProcess = (goal) => (n) => n.role === "process" && (n.y_of || []).includes(goal);
 const isController = (goal) => (n) => n.role === "controller" && n.id?.startsWith("blk:") && (n.loops || []).includes(goal);
@@ -348,10 +348,10 @@ function loopRows(goals) {
     if (!got) return h("tr", {}, name, h("td", { class: "muted", colspan: 3 }, "analysing…"));
     if (!d) return h("tr", {}, name, h("td", { class: "muted", colspan: 3 }, got.err || "not a loop of the model's goals"));
     const u = (d.u || "").split(".").slice(1).join("."), y = (d.y || "").split(".").slice(1).join(".");
-    const links = d.why ? [toolLink("scope", { view: "blocks", find: isComparator(g) }, "its scope and how it is doing")]
-      : [toolLink("process", { view: "blocks", find: isProcess(g), goal: g }, "identification, step response, Bode, step tests"),
-         toolLink("controller", { view: "blocks", find: isController(g), goal: g }, "margins, closed-loop step and Bode, tuning"),
-         toolLink("scope", { view: "blocks", find: isComparator(g) }, "how it is doing: Harris index, oscillation, settling")];
+    const links = d.why ? [toolLink("scope", { view: "blocks", find: isComparator(g) }, "its scope and how it is doing", `${g} scope`)]
+      : [toolLink("process", { view: "blocks", find: isProcess(g), goal: g }, "identification, step response, Bode, step tests", `${g} process`),
+         toolLink("controller", { view: "blocks", find: isController(g), goal: g }, "margins, closed-loop step and Bode, tuning", `${g} controller`),
+         toolLink("scope", { view: "blocks", find: isComparator(g) }, "how it is doing: Harris index, oscillation, settling", `${g} scope`)];
     return h("tr", {}, name, h("td", { class: "small" }, u && y ? `${u} → ${y}` : "", h("div", {}, processWord(d))),
       h("td", { class: "small" }, nextWord(d)), h("td", { class: "small nowrap" }, ...linkList(links)));
   });

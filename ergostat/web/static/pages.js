@@ -12,8 +12,9 @@ const windowNote = () => {
   const st = S.status, recorded = st?.first ? st.at - st.first : null;
   return st?.window ? (recorded != null && recorded < st.window * 0.95 ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
 };
-const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("table", { class: cls },
-  h("tr", {}, head.map((x) => (Array.isArray(x) ? h("th", { class: x[1] }, x[0]) : h("th", {}, x)))), rows));
+const table = (head, rows, cls = "", caption = head.filter((x) => typeof x === "string").join(", ")) => h("div", { class: "table-wrap" },
+  h("table", { class: cls }, h("caption", { class: "sr-only" }, caption),
+    headRow(head.map((x) => (Array.isArray(x) ? h("th", { class: x[1] }, x[0]) : h("th", {}, x)))), h("tbody", {}, rows)));
 /* a part of a page known by what it is, wherever a refresh puts it (patch() matches by it) */
 const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el; };
 
@@ -61,7 +62,7 @@ async function pageLoops(main) {
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
           (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
         h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, perf[n] || ""),
-        h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
+        h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no")))), "", "Loops"));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -89,14 +90,14 @@ async function pageAgents(main) {
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
     const use = (a) => a.use || {};
-    patch(box, h("div", { class: "table-wrap" }, h("table", {},
-      h("tr", {}, h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
+    patch(box, h("div", { class: "table-wrap" }, h("table", {}, h("caption", { class: "sr-only" }, "Agents, by rung"),
+      headRow(h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
         h("th", { class: "num", title: "What its AI sessions cost in the window, in USD" }, "cost"),
         h("th", { class: "num", title: "Tokens its AI sessions used in the window: input, output, cache reads and writes" }, "tokens"),
         h("th", { class: "num", title: "CPU time of its runs' processes in the window, user and system" }, "CPU"),
         h("th", { class: "num", title: "The most memory one of its runs held (its processes together)" }, "peak memory")),
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
-        h("tr", {}, h("th", { colspan: 9, "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
+        h("tr", {}, h("th", { colspan: 9, scope: "colgroup", "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
           h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
         xs.map(([name, a]) => h("tr", { class: "click", key: name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
@@ -115,16 +116,16 @@ async function pageAgents(main) {
     const ds = Object.entries(daemons || {});
     patch(dbox, ...(ds.length ? [h("h3", {}, "Daemons"), h("p", { class: "note" }, "Long-lived processes the blocks' runs and the " +
       "sensors' readings are handed to (SPEC §9.7). Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
-      h("div", { class: "table-wrap" }, h("table", { "data-daemons": "" },
-        h("tr", {}, ["daemon", "state", "serves", "restarts", "last line", "in flight", "CPU", "memory"].map((c, i) => h("th", i > 2 ? { class: "num" } : {}, c))),
-        ds.map(([n, d]) => h("tr", { key: n, "data-daemon": n },
+      h("div", { class: "table-wrap" }, h("table", { "data-daemons": "" }, h("caption", { class: "sr-only" }, "Daemons"),
+        headRow(["daemon", "state", "serves", "restarts", "last line", "in flight", "CPU", "memory"].map((c, i) => h("th", i > 2 ? { class: "num" } : {}, c))),
+        h("tbody", {}, ds.map(([n, d]) => h("tr", { key: n, "data-daemon": n },
           h("td", { class: "nowrap", title: d.run || "" }, h("b", {}, n)),
           h("td", { title: d.why || "" }, h("span", { class: d.state === "running" ? "s-holding" : "s-off" }, d.state), d.alarm ? h("span", { class: "s-off", title: d.alarm.why }, " alarm") : null),
           h("td", { class: "muted" }, (d.users || []).length > 3 ? `${d.users.length} parts` : (d.users || []).join(", ")),
           h("td", { class: "num", title: `${d.restarts_total} in all` }, String(d.restarts)),
           h("td", { class: "num nowrap" }, d.last_line ? ago(d.last_line) : "–"),
           h("td", { class: "num" }, `${d.in_flight} of ${d.concurrency}`),
-          h("td", { class: "num" }, cpuText(d.cpu)), h("td", { class: "num" }, bytesText(d.memory))))))] : []));
+          h("td", { class: "num" }, cpuText(d.cpu)), h("td", { class: "num" }, bytesText(d.memory)))))))] : []));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -680,7 +681,7 @@ async function pageItems(main, q) {
     if (!p.isConnected) return;
     if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
-      h("button", { class: on ? "on" : "", title, onclick: fn }, text)));
+      h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
     const check = (on, text, title, fn) => h("label", { class: "rg-check", title }, h("input", { type: "checkbox", ...(on ? { checked: "" } : {}), onchange: fn }), text);
     patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
                                 [view === "graph", "Graph", "The items and their relations: what each waits on, the critical path", () => { view = "graph"; go(); }],
@@ -701,7 +702,7 @@ async function pageItems(main, q) {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
         k.title || k.name, h("span", { class: "mono" }, k.title ? k.name : k.id));
       const fl = flows[k.name];
-      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
           h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])));
       const chosen = kind === k.name ? state : null;
@@ -727,8 +728,10 @@ async function pageItems(main, q) {
         its = [...its].sort((a, b) => (v(a) == null) - (v(b) == null) || (v(a) == null ? 0
           : down * (nums.has(by) ? v(a) - v(b) : String(val(v(a))).localeCompare(String(val(v(b)))))));
       }
-      const head = (f) => h("button", { class: "ghost sort", title: `Sort by ${f}`, "aria-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none",
-        onclick: () => { sort = by !== f ? f : down > 0 ? `-${f}` : ""; go(); } }, f, by === f ? (down > 0 ? " \u25b4" : " \u25be") : "");
+      const sortName = (f) => `Sort by ${f === "by" ? "author" : f}`;    // (a field named by: not 'Sort by by')
+      const head = (f) => h("button", { class: "ghost sort", title: sortName(f), "aria-label": sortName(f),
+        "data-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none", onclick: () => { sort = by !== f ? f : down > 0 ? `-${f}` : ""; go(); } },
+        f, by === f ? h("span", { "aria-hidden": "true" }, down > 0 ? " \u25b4" : " \u25be") : "");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [head(f), "num"] : head(f))),
         ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
@@ -739,7 +742,7 @@ async function pageItems(main, q) {
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
           ...(etaCol ? [etaCell(i.eta)] : []),
           h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
-          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items");
+          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items", `${its[0]?.kind || "No kind"} items`);
     };
     const tables = async (names) => {                    // one table per kind, each with its own columns
       const parts = [];
@@ -939,7 +942,7 @@ async function pageItem(main, id, q) {
         + (d.eta.start != null && d.eta.start > nowS() + 60 ? `; started about ${etaWhen(d.eta.start)}` : "")
         + (d.eta.dead ? `; a dead letter in ${Math.round(d.eta.dead * 100)}% of runs` : "") + ")"))) : null,
       pair("Events", String(d.events)), pair("First", ago(d.first)), pair("Latest", h("span", {}, d.latest, h("span", { class: "muted" }, `, ${ago(d.last)}`))));
-    const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+    const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
       h("span", { class: `stbox${st === d.state ? " on" : ""}${d.moves.some((m) => m.to === st) || (i === 0) ? " been" : ""}` }, st)])) : null;
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),

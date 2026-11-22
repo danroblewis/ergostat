@@ -1074,6 +1074,7 @@ async function pageDiagram(main, q) {
       { sep: true },
       unpinAll]),
   ], { cls: "dots", title: view === "process" ? "More: which kinds of item, unpin" : "More: wrap, open or close every system, unpin" });
+  more.button.setAttribute("aria-label", "More diagram options");
   function pmKindItems() {                         // the kinds drawn: the system's by default, any of them by choice
     const g = S.graph?.kind === "process" ? S.graph : null;
     if (!g) return [];
@@ -1108,10 +1109,10 @@ async function pageDiagram(main, q) {
   })();
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "seg", role: "group", "aria-label": "View" },
-      h("button", { class: view === "dynamics" ? "on" : "", title: "The stock-and-flow diagram, as system dynamics draws it",
+      h("button", { class: view === "dynamics" ? "on" : "", "aria-pressed": String(view === "dynamics"), title: "The stock-and-flow diagram, as system dynamics draws it",
                     onclick: () => go({ view: "dynamics" }) }, "Dynamics"),
-      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => go({ view: "blocks" }) }, "Blocks"),
-      h("button", { class: view === "process" ? "on" : "", title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
+      h("button", { class: view === "blocks" ? "on" : "", "aria-pressed": String(view === "blocks"), title: "The control system as a block diagram", onclick: () => go({ view: "blocks" }) }, "Blocks"),
+      h("button", { class: view === "process" ? "on" : "", "aria-pressed": String(view === "process"), title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
                     onclick: () => go({ view: "process" }) }, "Process")),
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
@@ -1119,9 +1120,9 @@ async function pageDiagram(main, q) {
     more);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
-    h("button", { class: "z", title: "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
+    h("button", { class: "z", title: "Zoom out", "aria-label": "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
     h("button", { title: "Show it whole", onclick: () => fit(svg, S.layout) }, "Fit"),
-    h("button", { class: "z", title: "Zoom in", onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
+    h("button", { class: "z", title: "Zoom in", "aria-label": "Zoom in", onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
     h("span", { class: "sep" }),
     menu("Export", [
       { label: "SVG", hint: "as drawn", onclick: () => exportSvg(svg, file()) },
@@ -1131,7 +1132,7 @@ async function pageDiagram(main, q) {
   wrap.append(svg, toolbar, zoom);
   if (typeof splitGrips === "function") splitGrips(wrap);         // a second pane, dragged in from an edge (split.js)
   S.legendEl = legend(view);   // blocks, process and dynamics each read differently
-  const side = h("div", { class: "side" });
+  const side = h("aside", { class: "side", "aria-label": "About the diagram" });
   const shell = h("div", { class: "diagram" + (sideHidden() ? " side-hidden" : "") }, wrap, side);
   main.append(shell);
   panZoom(svg);
@@ -1371,7 +1372,7 @@ function renderSide(side, g, view) {
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.says)?.[1];
       d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", op(a.says), " ",
-        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "Evidence") : null));
+        loop ? h("a", { href: "#", class: "hit24", "aria-label": `Evidence for loop ${loop}`, onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "Evidence") : null));
     }
     side.append(d);
   }

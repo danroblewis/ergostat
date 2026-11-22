@@ -144,16 +144,106 @@ def test_items_list_sorts_by_a_column(browser, site):
     pg.wait_for_selector('section[data-system="lab"] table button.sort')
     assert rows()[:3] == ["hypothesis/8", "hypothesis/7", "hypothesis/6"]
     head = pg.locator('section[data-system="lab"] table button.sort', has_text="title")
-    assert head.get_attribute("aria-sort") == "descending"
+    assert head.locator("xpath=..").get_attribute("aria-sort") == "descending"     # on its column's header, not the button
+    assert head.get_attribute("aria-label") == "Sort by title"
     head.click()                                                                   # down, then off
     pg.wait_for_function("() => !location.search.includes('sort=')")
     pg.wait_for_function("""() => [...document.querySelectorAll('section[data-system="lab"] table button.sort')]
-                            .every((b) => b.getAttribute('aria-sort') === 'none')""")      # drawn again, unsorted
+                            .every((b) => b.closest('th').getAttribute('aria-sort') === 'none')""")      # drawn again, unsorted
     pg.locator('section[data-system="lab"] table button.sort', has_text="title").click()
     pg.wait_for_function("() => location.search.includes('sort=title')")
     pg.wait_for_function("""() => document.querySelector('section[data-system="lab"] table tr td:first-child b')
                             ?.textContent === 'hypothesis/1'""")
     assert rows()[:3] == ["hypothesis/1", "hypothesis/2", "hypothesis/3"]
+    pg.close()
+
+
+# The page's names, checked in the page by axe-core's rules as these pages use them (axe-core itself is not in
+# the repository and the tests reach no network): aria-allowed-attr for the role-bound attributes the pages set,
+# button-name and link-name (a name of words, aria-hidden glyphs left out, a title alone not counted), th-has-data-cells
+# (each header row in a thead, scoped, over data cells; each data table captioned) and target-size (the 24 px targets).
+NAMES = r"""() => {
+  const shown = (e) => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== "hidden";
+  const said = (e) => e.nodeType === 3 ? e.nodeValue : e.nodeType !== 1 || e.getAttribute("aria-hidden") === "true" ? ""
+    : e.getAttribute("aria-label") || [...e.childNodes].map(said).join("");
+  const words = (e) => /\p{L}/u.test(said(e)), at = (e) => e.outerHTML.slice(0, 120), out = [];
+  const role = (e) => e.getAttribute("role") || "";
+  const ALLOWED = { "aria-pressed": (e) => e.tagName === "BUTTON" || role(e) === "button",
+                    "aria-sort": (e) => e.tagName === "TH" || ["columnheader", "rowheader"].includes(role(e)),
+                    "aria-checked": (e) => /^(checkbox|radio|switch|menuitemcheckbox|menuitemradio|option)$/.test(role(e)),
+                    "aria-current": () => true };
+  for (const [a, ok] of Object.entries(ALLOWED))
+    for (const e of document.querySelectorAll(`[${a}]`)) if (!ok(e)) out.push(`aria-allowed-attr ${a}: ${at(e)}`);
+  for (const b of document.querySelectorAll("button")) if (shown(b) && !words(b)) out.push(`button-name: ${at(b)}`);
+  for (const a of document.querySelectorAll("a[href]")) if (shown(a) && !words(a)) out.push(`link-name: ${at(a)}`);
+  for (const t of document.querySelectorAll("table")) {
+    if (!t.querySelector("th") || !shown(t)) continue;
+    const head = t.tHead;
+    if (!head && t.rows[0] && [...t.rows[0].cells].every((c) => c.tagName === "TH"))
+      out.push(`th-has-data-cells (a header row out of a thead): ${at(t)}`);
+    if (head && !t.caption?.textContent.trim()) out.push(`no caption: ${at(t)}`);
+    if (!head) continue;
+    const grid = (r) => [...r.cells].flatMap((c) => Array(c.colSpan).fill(c));    // each column's cell, spans counted
+    for (const th of head.querySelectorAll("th")) {
+      if (th.getAttribute("scope") !== "col") out.push(`th unscoped: ${at(th)}`);
+      const i = grid(th.parentElement).indexOf(th), body = [...t.rows].filter((r) => r.parentElement !== head);
+      if (body.length && !body.some((r) => grid(r)[i]?.tagName === "TD")) out.push(`th-has-data-cells: ${at(th)}`);
+    }
+  }
+  for (const e of document.querySelectorAll(".hit24, button.rg-key, .filters label.check input[type=checkbox]")) {
+    const r = e.getBoundingClientRect();
+    if (shown(e) && (r.width < 23.5 || r.height < 23.5)) out.push(`target-size ${Math.round(r.width)}x${Math.round(r.height)}: ${at(e)}`);
+  }
+  return { out, current: [...document.querySelectorAll("#nav a[aria-current=page]")].map((a) => a.getAttribute("href")),
+           pressed: [...document.querySelectorAll(".seg[aria-label=View] button, .seg[aria-label=Show] button")]
+             .filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent),
+           side: document.querySelector(".diagram > .side")?.matches("aside[aria-label]") ?? null };
+}"""
+DIAGRAM_READY = "() => typeof S !== 'undefined' && S.graphSig && !document.querySelector('#main .loading')"
+
+
+@pytest.mark.parametrize("route, nav, view", [
+    ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
+    ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
+    ("/items", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"), ("/record", "/record", None),
+    ("/model", "/model", None)])
+def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
+    """Acceptance (ui-the-current-page-view-and-mode-are-announced-tab): on each page, no button or link without a
+    name, no ARIA attribute where its role does not allow it, each data table's header row in a thead, scoped and
+    captioned, the 24 px targets at least that; one nav link is the current page, one view button pressed."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(site + route)
+    if nav == "/diagram":
+        pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    else:
+        pg.wait_for_selector("#main table", timeout=20000)
+    pg.wait_for_timeout(500)                                  # the parts asked for after the first (counts, charts)
+    got = pg.evaluate(NAMES)
+    assert got["out"] == [], got["out"]
+    assert got["current"] == [nav], got["current"]
+    assert got["pressed"] == ([view] if view else []), got["pressed"]
+    if nav == "/diagram":
+        assert got["side"] is True                           # the side panel a landmark, named
+        assert pg.locator(".zoom button.z").evaluate_all("bs => bs.map((b) => b.getAttribute('aria-label'))") == ["Zoom out", "Zoom in"]
+        assert pg.locator(".toolbar .menu-btn.dots").get_attribute("aria-label") == "More diagram options"
+    if route == "/record":
+        pg.locator(".filters label.check").click()            # the 24 px checkbox, checked by its label
+        assert pg.locator(".filters label.check input").is_checked()
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_field_named_by_sorts_by_author(browser, site):
+    """A sort button over a field named by is 'Sort by author', not 'Sort by by'; its arrow is hidden from its name."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    pg.goto(f"{site}/items?kind=hypothesis&sort=by")
+    pg.wait_for_selector('section[data-system="lab"] table button.sort')
+    b = pg.locator('section[data-system="lab"] table button.sort', has_text="by")
+    assert b.get_attribute("aria-label") == "Sort by author"
+    assert b.locator("[aria-hidden=true]").inner_text().strip() == "▴"
+    assert b.locator("xpath=..").get_attribute("aria-sort") == "ascending"
     pg.close()
 
 
