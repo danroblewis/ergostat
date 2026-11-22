@@ -36,7 +36,7 @@ from ..costs import budget
 from ..library import bounds
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
-from . import ENDED, EXPIRED, PREFIX, RENEWED, TAKEN, poolnow
+from . import ENDED, EXPIRED, RENEWED, TAKEN, poolnow
 from .fold import held
 from .kill import kill
 from .ready import Ready, ordered, unblocked
@@ -397,10 +397,11 @@ class Dispatcher:
     def finish(self, b, item: str, fence: int, run: str, out: dict, until: float | None = None) -> None:
         """The run ended: its lease ends, ack or nack. Nothing, when its lease ended already (it expired). The item is
         read once, outside any lock; the fence is checked and the end written under a lock of its own (the item read
-        again there only when a lease event about it came since), so close()'s give-back and the run's own end never
-        both end it, and an end holds that lock for milliseconds. Its turn is waited for without the dispatcher's lock,
-        retried with backoff until a ``lock_wait`` before its lease expires (or ``until``), ergostat stopping or not;
-        then given up, said with the item and the run, kept in ``dropped`` (``failing``): the watchdog ends it."""
+        again there when any event about it came since: a lease's end, a line that moved it on), so close()'s
+        give-back and the run's own end never both end it, and an end holds that lock for milliseconds. Its turn is
+        waited for without the dispatcher's lock, retried with backoff until a ``lock_wait`` before its lease expires
+        (or ``until``), ergostat stopping or not; then given up, said with the item and the run, kept in ``dropped``
+        (``failing``): the watchdog ends it."""
         self.ending.setdefault(run, (b, item, fence, out, time.time()))
         seq = self.p.events.last_seq()
         it = its.one(self.p.events, self.spec, item)
@@ -414,7 +415,7 @@ class Dispatcher:
             time.sleep(pause)                            # (not the stop's wait: stopping is no reason to drop it)
             pause = min(pause * 2, 5.0)
         try:
-            if self.p.events.query(n=1, item=item, type=PREFIX + "*", after_seq=seq):   # (ended, or renewed, since)
+            if self.p.events.query(n=1, item=item, after_seq=seq):   # (anything since: ended, renewed, moved on)
                 it = its.one(self.p.events, self.spec, item)
             ev = self._finish(b, it, item, fence, run, out)
             self.mine.pop(run, None)

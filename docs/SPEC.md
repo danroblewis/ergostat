@@ -2901,7 +2901,8 @@ memory, the runs it took whose leases have not ended). A lease that expired is n
 
 **Ends wait their turn.** Every end of a lease this engine writes (a run's own, or close's give-back) is checked and
 written under one lock, so two ends of one lease never both write. Its item is read before, outside the lock, and read
-again under it only when a lease event about the item was recorded since that read, so one end holds the lock for
+again under it when any event about the item was recorded since that read (a lease's end, or the run's last line moving
+it on, so a moved-on item is acked where it stands, never nacked back), so one end holds the lock for
 milliseconds even while the record is slow to fold. An end that finds the lock held waits its turn, holding none of
 the dispatcher's other locks (takes and the watchdog go on), and tries again with a growing pause (up to 5 s), until
 one `lock_wait` before its lease expires; ergostat stopping meanwhile does not cut that short. Only then is it given

@@ -151,6 +151,30 @@ def test_a_slow_end_does_not_block_a_take_or_a_look_on_another_block(tmp_path):
         closed(e)
 
 
+def test_a_line_that_moves_the_item_on_while_the_end_waits_its_turn_is_seen_and_the_end_acks(tmp_path):
+    """The item is read before the end waits its turn; the run's last line (not a lease event) moves it to done while it
+    waits. Under the lock the item is read again, so the end acks it where it stands, not nacks it back from done."""
+    p, e = engine(tmp_path, 1)
+    b, f0, r0 = taken(e, 0)
+    errors: list = []
+    e.dispatch.ends.acquire()                          # another end under way
+    try:
+        waiting = ending(e, b, 0, f0, r0, errors)
+        time.sleep(0.5)                                # (past a lock_wait: it has read the item and is retrying)
+        assert waiting.is_alive()
+        p.events.add("ticket.done", item="ticket/0", source="t")   # in the gap
+    finally:
+        e.dispatch.ends.release()
+    try:
+        waiting.join(10)
+        assert not errors, errors
+        (end,) = p.events.query(n=None, type=ENDED)
+        assert end["data"]["how"] == "ack", end["data"]
+        assert its.one(p.events, p.model.spec, "ticket/0").state == "done"
+    finally:
+        closed(e)
+
+
 def test_an_end_that_cannot_complete_before_the_ttl_raises_a_situation(tmp_path):
     """Another end holds the lock for good: the end retries until a lock_wait before its lease expires, then gives up,
     naming the item and the run; the dispatcher's standing error (the heartbeat's ``dispatch_error``) says so from
