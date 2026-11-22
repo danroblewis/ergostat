@@ -77,3 +77,15 @@ code to fix, and no code changed in this round. Run with Playwright under the wa
 `tests/test_diagram_rendering.py::test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_verdict`
 passes (rc 0, 1 passed). The build step needs Playwright (or `build_browser = true`) to judge a page-only change. That
 is the factory's setting, outside this gap.
+
+## Where it stopped (round 1, second build failure, 2026-11-22)
+
+The build failed again the same way (rc 5: its one selected file, tests/test_diagram_rendering.py, skipped without
+Playwright). The server half of the change, the status's `purpose`, `top` and `controlled`, had no test outside the
+browser file. So this round adds one:
+`tests/test_graph_cli_web.py::test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals`. It serves
+the-job with a purpose in-process and checks the purpose, the 2 top-level systems, and that `controlled` is sorted, not
+empty and a proper subset of the loops. The changed file is now picked by `affected_tests`, so the build runs a real test
+without Playwright. It was seen to fail with two breaks of ergostat/web/server.py, each put back afterwards: every goal
+counted as controlled, and the purpose sent as "". The whole of tests/test_graph_cli_web.py passes (32), and ruff is
+clean. No code outside tests/ changed in this round.
