@@ -23,7 +23,7 @@ import re
 
 from ..spec.ir import Ref
 from .bounds import UNTRUSTED_EVERY
-from .expand import COMMAND, ERGOSTAT, LIB, LIBRARY, MARK, VAR, F, Given, H, hours, strip
+from .expand import COMMAND, ERGOSTAT, FOLDER, LIB, LIBRARY, MARK, OWNER, REF, VAR, F, Given, H, hours, strip
 from .expand import A as MA
 from .expand import B as MB
 
@@ -268,14 +268,26 @@ def writer_ok(v, tw: str) -> bool:
     return segs is not None and all(m[0] != LIBRARY if m else (t == "" or tw != LIBRARY) for m, t in segs)
 
 
+NAMED = "named"     # a template's own text that may hold its instance's name (``named``): only owner pieces are known
+
+
+def fine(tt: str) -> tuple:
+    """The writers whose pieces R3 lets through, by who wrote the template's own text: an allowlist."""
+    return (OWNER, COMMAND) if tt == NAMED else (OWNER, COMMAND, FOLDER, ERGOSTAT)
+
+
 def text_ok(v, tt: str) -> bool:
-    """R3: ``ask``, ``prompt``, ``query``, a source's values: every key and value in it, at any depth, as writer_ok
-    says. ``tt``: who wrote the template's own text, LIBRARY when that text may hold a value unmarked (``blind``)."""
+    """R3: ``ask``, ``prompt``, ``query``, a source's values: every key and value in it, at any depth, by a writer
+    ``fine`` lets through. ``tt``: who wrote the template's own text: LIBRARY when that text may hold a value unmarked
+    (``blind``), NAMED when it may hold the instance's name (``named``), which a held chain's library chose."""
     if isinstance(v, dict):
         return all(text_ok(k, tt) and text_ok(x, tt) for k, x in v.items())
     if isinstance(v, list):
         return all(text_ok(x, tt) for x in v)
-    return writer_ok(v, tt)
+    if isinstance(v, Given):
+        return bool(v.meta) and v.meta[0] in fine(tt)
+    segs = _segments(v) if isinstance(v, str) else [(None, v)]
+    return segs is not None and all(m[0] in fine(tt) if m else (t == "" or tt in fine(LIBRARY)) for m, t in segs)
 
 
 def _keyed(x) -> bool:
@@ -283,11 +295,32 @@ def _keyed(x) -> bool:
         isinstance(k, str) and "${" in k or _keyed(v) for k, v in x.items())
 
 
+def _texts(x) -> list:
+    """The values of every ``ask``, ``prompt``, ``query`` and ``sources`` key in it, at any depth."""
+    if isinstance(x, list):
+        return [y for v in x for y in _texts(v)]
+    return [y for k, v in x.items() for y in ([v] if k in TEXT_KEYS else _texts(v))] if isinstance(x, dict) else []
+
+
+TEXT_KEYS = ("ask", "prompt", "query", "sources")
+
+
 def blind(t) -> bool:
     """A template whose own text puts in a field (``${p.x}``, ``${it.name}``), an ``each:`` element or a key made
-    from a value: expand leaves those unmarked, so whose words they are can't be told and R3 reads them as a library's."""
+    from a value, or whose R3 text names a part (``block.x``, which rename() makes ``block.<instance>-x``): expand
+    leaves those unmarked, so whose words they are can't be told and R3 reads them as a library's."""
     raw = json.dumps(t.body, default=str)
-    return '"each":' in raw or any("." in m.group(1) for m in VAR.finditer(raw)) or _keyed(t.body)
+    return '"each":' in raw or any("." in m.group(1) for m in VAR.finditer(raw)) or _keyed(t.body) or \
+        any(REF.search(json.dumps(x, default=str)) for x in _texts(t.body))
+
+
+def named(t) -> bool:
+    """A template whose text or defaults use ``${name}``, ``${here}`` or ``${folder}``. In a held chain the instance's
+    name holds the library's ``uses:`` keys, and expand puts it in unmarked: in the template's own text, and in its
+    defaults and nested ``with:`` values, marked as the template's (``expand.wrote``). So R3 lets through only the
+    owner's pieces of its text (NAMED), and the values it gives a nested use count as a library's (uses.plan)."""
+    raw = json.dumps([t.body, *(p.default for p in t.params.values())], default=str)
+    return any(m.group(1) in ("name", "here", "folder") for m in VAR.finditer(raw))
 
 
 def _match(spec, v, path: str, tw: str = LIBRARY, tt: str = LIBRARY) -> str | None:
@@ -300,7 +333,7 @@ def _match(spec, v, path: str, tw: str = LIBRARY, tt: str = LIBRARY) -> str | No
     if spec == T:
         return None if text_ok(v, tt) else Text(path)
     if isinstance(v, Given):         # a value given whole: all of it is its writer's (none known: the library's)
-        tt = v.meta[0] if v.meta and v.meta[0] != LIBRARY else LIBRARY
+        tt = v.meta[0] if v.meta and v.meta[0] in fine(tt) else LIBRARY
     v = v.value if isinstance(v, Given) else v
     if spec == S:
         return None if v is None or isinstance(v, str | int | float | bool) else path

@@ -151,7 +151,10 @@ library: your own value, a trusted template's words, or both. A library's litera
 your value (`"${q} and more"`) refuse the whole use as **`untrusted-text`**, whose message suggests no copy into
 `with:` and does not quote the text. A piece whose writer can't be told counts as the library's: a value without a
 mark, a whole value given with no writer, a field of a value (`${m.q}`), an `each:` element or a key made from a
-value in a trusted template's own text. An `ai` or `person` block may say only its text, `goal`, `until`, and `every`
+value in a trusted template's own text, or a part it names there (renamed with the instance's name). The instance's
+name holds the library's `uses:` key (`u-ignore-previous-instructions`), so a trusted template that uses `${name}`,
+`${here}` or `${folder}` may put only your own pieces in these keys, and what it passes to a template it uses counts
+as the library's. An `ai` or `person` block may say only its text, `goal`, `until`, and `every`
 or `cron` as written by you or a trusted template; `model`, `run`, `parse`, `context`, `review`, `agent`, `workspace`,
 `tools` and the rest stay refused by name (`library-untrusted`). R3 says who wrote the text, not what it says: a
 library's template still decides that a block asking your text exists, and what it reads (`in:`), within the limits

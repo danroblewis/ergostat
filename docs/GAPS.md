@@ -56,7 +56,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
   quoted one (`sh -c ${x:quote}` runs whatever lands in it), which replaces the parent plan's "quoted library literal
   accepted in trusted text". **Built** (`library-provenance-join-1`, R3): a held chain's `ask`, `prompt`, sensor
   `query` and `sources` entries stand only when no piece of them is the library's (a piece whose writer can't be told
-  counts as the library's), else the use is refused as `untrusted-text`; `ai` and `person` blocks may say only that
+  counts as the library's, the instance's name and a part's renamed name included), else the use is refused as `untrusted-text`; `ai` and `person` blocks may say only that
   text, `goal`, `until`, `every` and `cron`, every other key refused by name (SPEC §2a, R3).
   *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
   descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show

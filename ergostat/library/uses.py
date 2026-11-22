@@ -144,7 +144,8 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
               **({"within": str(parent)} if parent else {})}
     if under is not None:
         tw = author(t)
-        tt = LIBRARY if trust.blind(t) else tw                # its own text may hold a value unmarked: a library's
+        named = trust.named(t)                                # its text may hold the instance's name: the library's
+        tt = LIBRARY if trust.blind(t) else trust.NAMED if named else tw    # its own text may hold a value unmarked
         chain.checks += [(under, tw, tt, "systems", inst, system),
                          *((under, tw, tt, s, n, x) for s, entries in made.marked.items() for n, x in entries.items()),
                          *((under, tw, tt, "uses", n, x) for n, x in made.sections.get("uses", {}).items())]
@@ -168,4 +169,7 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "
                                                f"real", via, "template-stand-in", f"system.{inst}")))
     for sub, e in (made.sections.get("uses") or {}).items():
-        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, made.writers.get(sub, {}))
+        given_on = made.writers.get(sub, {})
+        if under is not None and named:                     # what it gives may hold the name: only the owner's known
+            given_on = {k: w if w in trust.fine(trust.NAMED) else LIBRARY for k, w in given_on.items()}
+        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on)

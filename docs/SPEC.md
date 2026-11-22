@@ -366,7 +366,10 @@ and keys included, was written by the library: each piece is the owner's, an own
 own words. A piece whose writer can't be told is the library's: text without a mark in an untrusted template, a whole
 value with no writer, the field marker or a mark's character outside a mark, and all of a trusted template's own text
 in these keys when that template puts in a field (`${m.q}`, `${it.name}`), an `each:` element or a key made from a
-value anywhere (expand leaves those unmarked). A whole value given (`query: ${q}`) is its writer's throughout. A
+value anywhere, or names a part (`block.x`, renamed `block.<instance>-x`) in these keys (expand leaves those
+unmarked). The instance's name holds the library's `uses:` keys, so a trusted template that uses `${name}`, `${here}`
+or `${folder}` anywhere (its text or its defaults) may put only the owner's pieces in these keys, and every value it
+gives a nested use, other than the owner's passed whole, counts as the library's. A whole value given (`query: ${q}`) is its writer's throughout. A
 refusal under R3 is **untrusted-text** instead of **library-untrusted**: the same refusal of the whole use at the
 owner's `use:` line, suggesting no copy into `with:` and quoting no value. An `ai` or `person` block may say only its
 text, `goal`, `until`, `every` and `cron` (these two as R1's rule above), and the common block keys; `model`, `run`,
