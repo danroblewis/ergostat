@@ -48,3 +48,13 @@ Built, round 1. About 33 net lines of code (interact.js, diagram.js, dynamics.js
   diagram is drawn, not from the click: a loaded machine can take longer than that to lay the diagram out.
 - `test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves` now waits for the filled panel (its `dl`),
   because the panel now opens before its numbers arrive.
+
+Round 2.
+
+- Main (720426bd) merged in; its conflict in diagram.js (the view buttons) kept both main's " · what is …" words and
+  the branch's `carryPanel()`.
+- The review's one finding (lesson-9, the late `part/flow` answer): the acceptance test now has the race. It holds
+  `**/api/part/flow/**`, clicks the label 'quality-steps' in Dynamics, switches to Blocks, releases the held answer,
+  waits for its response, and asserts the panel is still 'actuating signal u_tuner' and its kind is not 'Valve'.
+  With the `if (!wait.isConnected) return;` guard after the flow's `api` call in dynamics.js removed, the test fails
+  (`'quality-steps' == 'actuating signal u_tuner'`); with it back, it passes. No code outside tests changed.

@@ -2942,6 +2942,24 @@ def test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_it
         assert pg.evaluate(PANEL) == "quality-steps"
         switch("Blocks", "blk:tuner")
         pg.wait_for_function(f"() => ({PANEL})() === 'actuating signal u_tuner'", timeout=5000)
+        # the race: the flow's numbers come only after the switch to Blocks; the Dynamics answer, arriving late,
+        # does not paint its valve panel over the Blocks one
+        switch("Dynamics", "flow:quality-steps")
+        held.clear()
+        pg.route("**/api/part/flow/**", lambda r: held.append(r))
+        fit(pg)
+        pg.locator('g.node[data-id="flow:quality-steps"] text.sd-name').click()
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality-steps'", timeout=5000)
+        assert held
+        switch("Blocks", "blk:tuner")
+        pg.wait_for_function(f"() => ({PANEL})() === 'actuating signal u_tuner'", timeout=5000)
+        with pg.expect_response(lambda r: "/api/part/flow/" in r.url):
+            for r in held:
+                r.continue_()
+        pg.unroute("**/api/part/flow/**")
+        pg.wait_for_timeout(500)                       # the late answer handled (it has come; its handler is a tick)
+        assert pg.evaluate(PANEL) == "actuating signal u_tuner"
+        assert pg.evaluate("() => document.querySelector('#detail .kind')?.textContent") != "Valve"
         # a reference chosen in Blocks, carried to Dynamics (its desired level) and back
         pg.locator('g.node[data-id="ref:quality-held"]').dispatch_event("click")
         pg.wait_for_function("() => [...S.sel].join() === 'goal.quality-held.r' && !document.querySelector('#detail').hidden", timeout=5000)
