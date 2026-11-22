@@ -516,7 +516,11 @@ budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charge
   a verdict is left due for the next pass, a system is listed as not reviewed. So do the modeller's calls (the
   redesigner, the modelling reviewer, the `modelling ai` tier, the architecture review). Each reserves its
   estimated cost. A refusal is said `budget: …`: the redesign's result is `no budget`, not `nothing proposed`, and
-  its request stays open. Not yet covered: models in `ergostat.toml` (SPEC §9.9).
+  its request stays open.
+- A model in `ergostat.toml` takes the same budget as a table, `[budget]` with `daily = 5` and `max-cost = 0.5`
+  (SPEC §9.9). Each agent run then asks first: an agent of kind `ai` or `narrow-ai` reserves `max-cost`, the other
+  kinds run free, and `ergostat agent NAME --now` says `refused: budget: …` when it does not fit. A `claude` command
+  gets `--max-budget-usd` at its reserve; there is no `ERGOSTAT_MAX_COST` and no T1 kill for these runs.
 - A new place that starts `claude` or `$ERGOSTAT_AI` fails
   `tests/test_modeller_budget.py::test_only_listed_ai_starts`. Route the call through `decisions/ai.call` or `numbers/modeller.asked`; don't add the place to the allowlist.
 

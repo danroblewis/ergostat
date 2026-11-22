@@ -43,3 +43,57 @@ Every call through `decisions/ai.call` and `numbers/modeller` already asks the b
 ## Size budget
 90 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+
+Built, round 1. Net code lines outside `tests/`, `docs/`, `dev/`: 72 (`runner.py` +43, `model.py` +26,
+`cli/agents.py` +3), within the 90 budget. `main` merged (already up to date: the clone's base).
+
+How it is built: `Model.budget` (a `spec.ir.RunBudget`, or None) is read from `[budget]` in `model.parse`.
+`run_agent` passes `costs/budget.permit` a spec of `{budget, agents: {its agent}}` and a block standing in for the
+agent (`type` = the agent's kind), so the permit, its flock, `budget.FREE` and `reserve_of` are the engine's own,
+unchanged. The old body is now `runner._ran`, at the same indent. `Runner._recover` runs on each schedule tick and
+calls `budget.recover` at its default once a minute.
+
+Choices made alone (the most reversible):
+- A refused run returns `{"budget_refused": why, "note": "refused: budget: …"}`. It is a separate key because
+  `refused` already counts refused output lines. `ergostat agent NAME --now` prints the note on stdout, as
+  `block --now` does, and exits 1 (with `--json`, the run and its events).
+- The free check uses the agent object `run_agent` was given, not a lookup in `project.model`, so a run carried
+  across a reload is typed as the agent it began as.
+- `tests/test_run_budget.py::test_only_known_start_paths` names `runner.py:run_agent.write` instead of
+  `runner.py:run_agent`. The `agent.started` write now sits in the nested `write` that `permit` calls. A lambda
+  would keep the old name but ruff refuses it (E731). It is still one named site.
+- `ERGOSTAT_MAX_COST` and the T1 kill on a reported cost are not given to toml runs. The definition asks only for
+  `--max-budget-usd`, and SPEC, the guide and GAPS say so.
+
+Each acceptance test, and the break that made it fail (each break applied by hand to the committed code, the file
+then restored, and the suite seen green again):
+- the permit call removed (the start written with its reserve and no decision): `test_toml_run_refused_when_day_spent`,
+  `test_toml_permit_holds_the_lock`, `test_toml_free_kinds_only[ai]`, `test_toml_free_kinds_only[narrow-ai]`,
+  `test_toml_run_raised_is_closed_at_reserve` (the id was never in `OPEN`, so it was not closed) and
+  `test_toml_orphan_recovered` failed. 6 failed, 5 passed.
+- the free-kinds allowlist widened (`"narrow-ai"` added to `budget.FREE`): `test_toml_free_kinds_only[narrow-ai]`
+  failed.
+- the close-on-raise removed (`budget.close` replaced by `pass`): `test_toml_run_raised_is_closed_at_reserve` failed.
+- the `--max-budget-usd` rewrite removed (`if False and …`): `test_toml_claude_command_capped` failed.
+- the competing write put in the gap (the permit replaced by the fold read, `budget._between()`, then the write, with
+  no flock): `test_toml_permit_holds_the_lock` failed on its own assertion, because the second run was admitted.
+- in addition, `Runner._recover`'s `budget.recover` call removed: `test_toml_orphan_recovered` failed.
+- `test_toml_budget_parsed_and_bounded` is not guarded by a break of the run path. It checks each refused value
+  directly (missing key, bool, NaN, inf, a 400-digit integer, a string, an unknown key, `daily` above the ceiling,
+  `max-cost` of 0 or above `daily`, a `[budget]` that is not a table). The error must name the key each time.
+
+How "the Runner's next pass is admitted again" is tested: recovery turns the orphan's reserve into a charge for a
+day from the close, so it frees nothing at once. The test runs at once (refused), recovers, then moves the clock 1.5
+days on, and the next run is admitted. Without the recover it is still refused, because the orphan stays reserved
+for 7 days.
+
+Tests run (`scripts/named_tests.py`, serially): `tests/test_toml_models_budget.py` (11 passed),
+`tests/test_runner_and_state.py` (43 passed, unchanged), `tests/test_run_budget.py`, `tests/test_ai_calls_budget.py`,
+`tests/test_run_budget_trip.py` (65 passed after the start-path name above), `tests/test_model.py`,
+`tests/test_agents.py`, `tests/test_reload_in_place.py` (51 passed). ruff clean. Not run here: the whole unit suite
+and the four browser files (left to the factory). No page changed.
+
+Seen, not changed (outside the gap): the AGENT-GUIDE §3b lead-in still says "The modeller's calls … are outside
+it", which its own later bullet contradicts (those calls ask since `modeller-calls-ask-the-budget`).

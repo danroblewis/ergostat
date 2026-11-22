@@ -342,7 +342,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `Engine.run_block` or `Dispatcher.take` asks a permit under a file lock, and a charged run is refused unless what
   is left of the day covers `max-cost`; spend is folded by run id, an unknown cost charged as the reserve;
   `ergostat.budget.left`. It covers those start paths only.
-- **ergostat's own AI calls under the budget** (in part; `factory/ai-calls-ask-the-budget`, SPEC §9.9,
+- **ergostat's own AI calls under the budget** (done; `factory/ai-calls-ask-the-budget`, SPEC §9.9,
   `dev/records/ai-calls-ask-the-budget.md`). Done: every call through `decisions/ai.call` (decisions extract, the
   intent verdicts from `Engine.judge` and `ergostat intent judge`, `improve --architecture`) reserves its per-call cap
   under P3's lock (`costs/budget.ask`), is refused when the day's budget is gone, is closed with its reported cost
@@ -351,9 +351,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `modeller-calls-ask-the-budget`, `dev/records/modeller-calls-ask-the-budget.md`), at its `unsaid` estimate. A
   structural scan (`test_only_listed_ai_starts`) finds AI commands started only in `decisions/ai.py`,
   `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`, `supervisor.chat`, `spec/engine.py`,
-  `repair/fix.py`). Left: models in `ergostat.toml` (`runner.run_agent`), which have no `budget:`
-  (`toml-models-budget`). Their ends count in spent when priced, but nothing refuses them when the day's budget is
-  gone.
+  `repair/fix.py`). And models in `ergostat.toml` that declare `[budget]` (`ergostat-s-own-ai-calls-under`,
+  `dev/records/ergostat-s-own-ai-calls-under.md`): every `runner.run_agent` asks `costs/budget.permit` under its
+  flock (free only for `budget.FREE`'s kinds), a refused run never starts, a run that raises is closed at its
+  reserve, a `claude` command is given `--max-budget-usd` at its reserve, and the Runner recovers orphans once a
+  minute. A toml model without `[budget]` is not governed, and toml runs get no `ERGOSTAT_MAX_COST` or T1 kill.
 - **T1: a run stopped at its spend cap** (done; `run-budget-trip`, SPEC §9.9, `dev/records/run-budget-trip.md`):
   each run gets its reserve as its cap (`ERGOSTAT_MAX_COST`; `--max-budget-usd` on an `ai` block's own `claude`),
   `ergostat session` takes all that is left from a per-run ledger under `flock`, and the engine kills the run's

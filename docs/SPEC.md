@@ -3425,9 +3425,21 @@ spends more than its reserve is charged what it spent.
   true`: the `modelling` programs print each call's cost as one of the run's Claude Code result lines, so the run's
   end includes it. The run is charged the larger of its end's charge and the sum of the calls it
   includes, plus the calls it does not include. A call with no enclosing reserving run is charged on its own.
-- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take` and the
-  calls above, and only those. It does not cover models in `ergostat.toml` (`runner.run_agent`), which have no
-  `budget:`; their ends count in spent as ends with no reserving run. "Every AI call asks" is only as wide as a
+- **Models in `ergostat.toml`.** A `[budget]` table (`daily`, `max-cost`) is read by the same rules and bounds as
+  `budget:`: both keys, finite numbers only, within `RunBudget.problem()`'s bounds, no other key; anything else fails
+  to load, naming the key. With it, every `runner.run_agent` asks `costs/budget.permit` under its flock before its
+  `agent.started` and before its command starts. The run is typed by its agent's kind: free (reserve 0) only for
+  `budget.FREE`'s kinds (person, decision, program, rule); `ai` and `narrow-ai` reserve `max-cost`. A refused run
+  writes `budget.refused` and nothing else, its command never starts, and `run_agent` returns `budget_refused` (why)
+  and the note `refused: budget: …` (`ergostat agent NAME --now` prints it and exits 1); it is not retried before the
+  agent's next trigger. A run that raises between its reserving start and its end is closed (`budget.closed`, cost
+  unknown: charged its reserve), and its id leaves `budget.OPEN` in a `finally`. A command whose first word is
+  `claude` gets `--max-budget-usd` at its reserve, replacing any it had. The Runner calls `budget.recover` at most
+  once a minute. Not given to toml runs: `ERGOSTAT_MAX_COST` and the T1 kill on a reported cost. Without
+  `[budget]`, `run_agent` is as before.
+- **Limits, stated.** The budget governs the runs started through `Engine.run_block`, `Dispatcher.take` and (under
+  `[budget]`) `runner.run_agent`, and the calls above, and only those. A toml model without `[budget]` is not
+  governed: its ends count in spent as ends with no reserving run. "Every AI call asks" is only as wide as a
   structural scan of `ergostat/` (`tests/test_modeller_budget.py::test_only_listed_ai_starts`). It finds each
   function that starts a process (`subprocess`, `os` or `asyncio` spawns) in a module that names an AI command
   (`ERGOSTAT_AI`, `ERGOSTAT_CLAUDE`, `claude` as a command, `AI_COMMAND`, `claude_command`, `decisions.ai.command`).
