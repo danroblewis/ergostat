@@ -465,7 +465,7 @@ Seen to fail with the code broken, then restored:
   bypass was real.
 - The store rule off for `print`: all 4 print cases fail.
 
-Size: allow.py is +26 net (519 lines), so the total is about 629 against 450. The reason is the same as earlier rounds:
+Size: allow.py is +24 net (517 lines), so the total is about 627 against 450. The reason is the same as earlier rounds:
 fail-closed branches added at review.
 
 Run: `tests/test_repair_allow.py` with `tests/test_repair_approver.py`: 93 passed, 1 skipped (sandbox). Ruff is clean.
