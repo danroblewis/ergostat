@@ -720,8 +720,14 @@ What you set:
   (`[tracker.example.com]`): only those, for GET and HEAD.
 - **`test:`** in `with:` for programs that write: the project's tests, run in the sandbox. Without it such a fix is
   untested, and only a person may approve it.
-- **`approver:`** `person`, the only one for now: the owner reads each fix in the inbox. `ai` is refused by `check`
-  until a sound guard exists (GAPS).
+- **`approver:`** `person` (the default): the owner reads each fix in the inbox. `ai`: an AI (the same `model`, no
+  tools) may approve a fix the guard of SPEC §12r lets it see (a change that computes with plain values and prints,
+  touching nothing that runs, writes or imports; a list or dict the program fills in place or hands to a call is not
+  plain, nor is a generator or iterator held by a variable, and a `break` or `return` that leaves a `for` early must
+  leave one over a plain value, read by nothing after it); the rest, and whatever the AI does not approve, waits for
+  the owner.
+  Propose `ai` only once the owner has approved this loop's fixes for a while, and say what the guard does not see
+  (docs/SECURITY.md: among it, the program's own unchanged code can rebind a builtin or `json` the guard relies on, or fill a list it names only as a string).
 - **`verify:`** how many good runs after a fix verify it (default 3; 1 to 50, `check` refuses others). A block that
   runs rarely takes that long to verify.
 - **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs

@@ -10,8 +10,33 @@ has no tools at all and reads only the files ergostat gives it. Libraries do not
 as the program it replaced did, with your rights and outside any sandbox. The sandbox only makes testing it safe before
 you decide, and only within limits: a fix can tell it is in a sandbox (its home folder is unreadable, it has no DNS),
 so a fix that behaves only when sandboxed passes. Read the diff before you approve: every notification of a repair
-says so. No AI approves a repair yet: a guard that blocks a list of dangerous calls was tried and bypassed, and a sound
-one (an allowlist) is not built.
+says so.
+
+**What the AI approver does not stop** (`approver: ai`, SPEC §12r). An AI may approve a fix only when a guard in code
+lets it be asked: the guard reads the program before and after and accepts only changes that compute with plain values
+(strings, numbers, lists, dicts read from JSON) and print, and nothing those changes reach may open, run, import, write
+or call anything else. A list or dict counts as plain only if nothing in your program fills it in place, hands it to a
+call or keeps it where the guard cannot follow it, since that code could put anything in it. A generator or iterator
+counts only where it is used up at once, never kept in a variable, since a fix that reads it would empty it for the
+code after. A `break` or `return` the fix makes, removes or steers may end a loop early only over such a plain value,
+and nothing after the loop may use its variable unchecked. Everything else goes to you, and so does every fix the AI does not approve. The guard says only
+what the AI may be asked about; the AI can still approve a wrong fix within that. What the guard does not see:
+
+- **Implicit errors.** Any lookup or division may raise, so a fix can make the program stop earlier, or get further
+  than the failing program did (that is what a fix does). Only the old program's own statements then run, and a change
+  near a `try` or `with` goes to you; hooks the program installs (`sys.excepthook`, `atexit`) are not followed.
+- **Where output goes.** A fix's `print` writes to the program's standard output, or to a file the program opened by
+  a constant name. A program that stores any attribute (its own `sys.stdout`, a replaced `write`) goes to you, but a
+  module it imports can still point standard output at its own code, which then runs on what `print` is given.
+- **Other files.** The guard reads one file. What the modules the program imports do, when imported or when the
+  program calls them (say, `unittest.mock.patch` replacing `json.loads` or a builtin by name, or code loaded by
+  `pickle`), is not seen.
+- **Time and memory.** A fix may use a lot of either; the block's timeout bounds it.
+- **The program's own code.** The guard trusts that `len`, `print`, `json.loads` and the like mean what Python gives
+  them. It refuses a program that rebinds them in ways it can read, but your program's unchanged code could still
+  rebind one through a call the guard does not follow (`operator.setitem` on a module's namespace, code run from a
+  string), and the same kind of call could fill a list or dict it names only as a string. A fix cannot add such a
+  call; the trust is in your committed code, not in the fix.
 
 ## What it stops
 
