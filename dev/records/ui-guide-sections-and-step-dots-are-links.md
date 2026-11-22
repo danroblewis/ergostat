@@ -25,3 +25,40 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built (fdf7b844). The change is 11 net lines of code, in `ergostat/web/static/guide.js` and `style.css`.
+
+- **Section names** are now `<a class="g-part" href="/guide?frame=k">` links (through `routeUrl`, so a snapshot gets
+  `#/guide?frame=k`). A plain click calls `show(k)` in place, which sets `?frame=k` the same way the dots and arrows do.
+  A link was the more reversible choice than a button: middle-click and new-tab work, and it needs no new handler.
+- **Dots** are now 24x24 buttons with the 12 px dot drawn inside them by `::before`, so the look is unchanged. Each has
+  `aria-label="Step n of 13"`, and `show()` puts `aria-current="step"` on the current dot only. The gap between dots
+  in `.g-steps` went from 4 px to 0, because the hit areas already space them.
+- **The acceptance test** is `check_guide_steps` in `tests/test_diagram_rendering.py`. It runs inside
+  `test_the_guide_draws_every_frame_live_and_in_a_snapshot`, both on the live server and on the offline snapshot. It
+  clicks 'Control: what we control' and expects `?frame=` to be that section's first frame (read from
+  `ergostat.guide.frames()`). It also checks that all 13 dots are at least 24x24, that their labels are 'Step 1 of 13'
+  to 'Step 13 of 13', and that exactly one dot, the current one, has `aria-current='step'`. It passes.
+- **Breaks (lesson 9)**, each seen to fail the test, then put back:
+  - the link's click not calling `show` (times out waiting for the frame);
+  - dots at 12 px (the 12x12 boxes are reported);
+  - `aria-current` set on every dot (`[0..12] != [7]`).
+- **Runs:**
+  - `ruff check ergostat tests scripts` is clean.
+  - `tests/test_guide.py`: 6 passed.
+- **Full `tests/test_diagram_rendering.py` (serial, under the watchdog): 196 passed, 4 failed, rc 1.** The four
+  failing tests:
+  - `test_every_view_draws_cleanly_and_in_time[coordinator]`: routing open=* 44 s, bound 20 s.
+  - `test_every_view_draws_cleanly_and_in_time[image-squeeze]`: routing open=* 46 s.
+  - `test_a_big_tangled_model_lays_out_in_time_and_cleanly`: open=* drawn in 3.7 s, bound 2.5 s.
+  - `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`: 'Nothing waiting.' is missing
+    from /model after accepting, at line 3325.
+
+  Three of them, run again alone, still fail: coordinator (routing 25 s), the big tangled model, and the equation test.
+  So load does not explain them. image-squeeze was not run again. I believe they are unrelated to this gap: none of
+  them opens /guide, `guide.js` runs only on /guide, and the CSS changed only `.g-*` rules. But I could not show it on
+  main: `git checkout -q main && ...` was refused in this session. Running these four tests on clean main is left to
+  the factory (lesson 13). Nothing was changed for them here.
+- `origin/main` is absent from the clone and local `main` is this branch's base, so there was nothing to merge.
