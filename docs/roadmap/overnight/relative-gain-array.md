@@ -243,3 +243,12 @@ Run in round 3, one file group at a time: `test_rga` (38 passed), `test_control`
 `test_parity` (81), `test_factory` (126, 2 skipped). Ruff is clean. The whole unit suite and the browser files were not
 run by me. No origin remote is in this clone, so origin/main could not be merged here (lesson-7). The branch already
 has main d697b89e merged in.
+
+Round 4: the factory merged main (93d433d9) into the branch. It conflicted in `ergostat/spec/explain.py`, where
+`Explainer.system` gained main's `lines += self.vsm(name)` at the spot where this branch adds the RGA line. Both were
+kept, the RGA line first and then the VSM lines, all under `if self.p is not None` (992b1020). The one finding, "not
+merged: the fetched branch is not the reviewed commit", is about the queue and asks for no code change. The branch is
+now the merged commit, ready for review again. Nothing else changed. Run in round 4, one group at a time: `test_rga`
+(38 passed), `test_control` + `test_redesign` + `test_spec_mcp_explain` + `test_architecture` (84),
+`test_vsm_review` + `test_unmoved` + `test_spec_schema` + `test_parity` (78). Ruff is clean. I did not run the whole
+unit suite or the browser files.
