@@ -209,7 +209,7 @@ class Factory:
             kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
             assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
                                                                                 ".dependencies", ".push-settled", ".groomed",
-                                                                                ".resumed", ".need-met")), line
+                                                                                ".resumed", ".need-met", ".reverted")), line
             it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
             for k, v in (line.get("data") or {}).items():
                 rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
@@ -1403,6 +1403,121 @@ def test_upgrades_follow_the_pushed_main(tmp_path):
     git(f.checkout, "push", "-q", "origin", "main")
     said, lines = f.run("upgrade.py", argv=["watch"])
     assert said == ["upgrade.opened"] and lines[0]["data"]["sha"] == git(f.origin, "rev-parse", "main")
+
+
+def land(f: Factory, *names: str) -> dict[str, tuple[str, str]]:
+    """Each branch (a commit of its own off main) merged onto main --no-ff, as the queue merges, then pushed together
+    as one batch: {name: (its merge, its head)}; each gap's record carries its reviewed head and the batch's head."""
+    got = {}
+    for n in names:
+        git(f.checkout, "checkout", "-q", "-b", n, "main")
+        (f.checkout / f"{n}.txt").write_text(f"{n}\n")
+        git(f.checkout, "add", "-A")
+        git(f.checkout, "commit", "-q", "-m", n)
+        head = git(f.checkout, "rev-parse", "HEAD")
+        git(f.checkout, "checkout", "-q", "main")
+        git(f.checkout, "merge", "-q", "--no-ff", n, "-m", f"merge {n}")
+        got[n] = (git(f.checkout, "rev-parse", "HEAD"), head)
+    git(f.checkout, "push", "-q", "origin", "main")
+    db, top = f.db(), got[names[-1]][0]
+    for n, (_, head) in got.items():
+        db["items"][f"gap/{n}"] = {"id": f"gap/{n}", "kind": "gap", "state": "merged",
+                                   "fields": {"merged_at": 100.0, "reviewed_head": head, "main_sha": top}}
+    f.record.write_text(json.dumps(db))
+    return got
+
+
+def revert(f: Factory, sha: str, merge: bool = True) -> str:
+    git(f.checkout, "revert", "--no-edit", *(["-m", "1"] if merge else []), sha)
+    git(f.checkout, "push", "-q", "origin", "main")
+    return git(f.checkout, "rev-parse", "HEAD")
+
+
+def test_a_revert_on_main_is_recorded_once_however_often_main_watch_runs(tmp_path):
+    f = Factory(tmp_path)
+    merge, _ = land(f, "alpha")["alpha"]
+    rv = revert(f, merge)
+    said, lines = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened", "gap.reverted"]
+    g = f.item("gap/alpha")["fields"]
+    assert g["reverted"] is True and g["revert_sha"] == rv and g["reverted_at"] > 0
+    assert f.run("upgrade.py", argv=["watch"])[0] == []                       # nothing new on main: nothing said
+    (f.model / "run" / "escapes.json").unlink()                                # main read again from its start
+    assert f.run("upgrade.py", argv=["watch"])[0] == []                       # the gap is reverted already
+    assert json.loads((f.model / "run" / "escapes.json").read_text())["last"] == rv
+    risk = module("risk")
+    assert risk.evidence(list(f.db()["items"].values()), [], [], [])[1][2] == 1
+    readme = (ROOT / "dev" / "README.md").read_text()
+    assert "reverts are found by `main-watch`" in readme
+
+
+def test_a_revert_of_one_merge_of_a_batch_of_three_blames_only_that_gap(tmp_path):
+    f = Factory(tmp_path)
+    got = land(f, "one", "two", "three")                 # one batch: the three gaps share its head as main_sha
+    revert(f, got["two"][0])                             # the middle merge: its main_sha is no gap's own
+    said, _ = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened", "gap.reverted"]
+    assert [g for g in ("one", "two", "three") if f.item(f"gap/{g}")["fields"].get("reverted")] == ["two"]
+    revert(f, got["three"][0])                           # the batch's head: its reviewed head names three, not all
+    assert f.run("upgrade.py", argv=["watch"])[0] == ["upgrade.opened", "gap.reverted"]
+    assert [g for g in ("one", "two", "three") if f.item(f"gap/{g}")["fields"].get("reverted")] == ["two", "three"]
+
+
+def test_an_unmatched_revert_still_counts_as_an_escape(tmp_path):
+    f = Factory(tmp_path)
+    land(f, "alpha")
+    (f.checkout / "loose.txt").write_text("a commit straight on main, no gap's merge\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "loose")
+    loose = git(f.checkout, "rev-parse", "HEAD")
+    revert(f, loose, merge=False)
+    said, _ = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened", "intervention.recorded"]
+    iv = f.item(f"intervention/reverted-{loose[:12]}")
+    assert iv["fields"]["class"] == "reverted-unmatched" and not f.item("gap/alpha")["fields"].get("reverted")
+    (f.model / "run" / "escapes.json").unlink()
+    assert f.run("upgrade.py", argv=["watch"])[0] == []                       # its id: a second read says nothing
+    risk = module("risk")
+    items = list(f.db()["items"].values())
+    gaps, ivs = [i for i in items if i["kind"] == "gap"], [i for i in items if i["kind"] == "intervention"]
+    assert risk.evidence(gaps, ivs, [], []) == {1: [0, 0, 1, 1]}               # an escape, no gap blamed
+    assert risk.found_since(gaps, ivs, time.time() - 86400) == 1
+    assert risk.found_since(gaps, ivs, time.time() + 60) == 0
+
+
+def test_a_git_error_stops_only_the_escapes_step(tmp_path):
+    f = Factory(tmp_path)
+    (f.model / "run").mkdir()
+    (f.model / "run" / "escapes.json").write_text("{not json")                 # the step cannot read where it was
+    said, lines = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened"] and "escapes:" in f.stderr               # the upgrade still opened
+    (f.model / "run" / "escapes.json").unlink()
+    git(f.checkout, "commit", "-q", "--allow-empty", "-m", "more")
+    git(f.checkout, "push", "-q", "origin", "main")
+    root = git(f.checkout, "rev-list", "--max-parents=0", "main")
+    (f.checkout / ".git" / "objects" / root[:2] / root[2:]).unlink()          # git cannot read main's history
+    said, _ = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened"] and "escapes:" in f.stderr and "git" in f.stderr
+    assert not (f.model / "run" / "escapes.json").exists()                     # nothing taken as read
+
+
+def test_check_reports_no_flow_without_a_sensor_in_pools_yaml(tmp_path, capsys, monkeypatch):
+    """escapes-found is measured (pools.py read escapes-day): `ergostat check` says nothing of it on the model, and
+    the flow's sensor reads."""
+    from ergostat.cli import main, spec_cmds
+    from ergostat.numbers import extremes_cache
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(spec_cmds, "CHECK_WAIT", None)
+    monkeypatch.setattr(extremes_cache, "BOUND", 900.0)
+    spec, _ = read(ROOT / "ergostat.yaml")
+    assert spec.flows["escapes-found"].sensors, "escapes-found has no sensor"
+    main(["-C", str(factory_copy(tmp_path / "now")), "check", "--json"])
+    got = json.loads(capsys.readouterr().out)
+    assert [x for x in got["found"] if "escapes-found" in json.dumps(x)] == []
+    f = Factory(tmp_path)
+    r = subprocess.run([sys.executable, str(BIN / "pools.py"), "read", "escapes-day"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and float(r.stdout.strip()) == 0, r.stderr
 
 
 def fake_version(live: Path, sha: str, starts: bool) -> None:
