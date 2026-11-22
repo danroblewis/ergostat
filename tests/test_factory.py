@@ -3553,6 +3553,11 @@ def test_a_branch_changing_a_module_and_its_test_runs_only_those(tmp_path):
     assert given == "given --deselect tests/test_q.py::t tests/test_bar.py tests/test_baz.py tests/test_foo.py"
 
 
+def test_a_non_ascii_test_file_is_selected(tmp_path):
+    r = affected(tmp_path, {"tests/test_é.py": "# new\n"})    # (git's quoted "tests/test_\303\251.py" is no file)
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t tests/test_é.py"
+
+
 def test_a_docs_only_branch_runs_collection_only(tmp_path):
     r = affected(tmp_path, {"docs/a.md": "b\n"})
     assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t --collect-only"

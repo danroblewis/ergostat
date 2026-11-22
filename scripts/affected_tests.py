@@ -19,8 +19,8 @@ from pathlib import PurePosixPath
 def changed(base: str) -> list[str] | None:
     """The paths the branch changed since it left ``base``; None when git cannot say."""
     try:
-        got = subprocess.run(["git", "diff", "--name-only", f"{base}...HEAD"], capture_output=True, text=True,
-                             timeout=60)
+        got = subprocess.run(["git", "-c", "core.quotePath=false", "diff", "--name-only", f"{base}...HEAD"],
+                             capture_output=True, text=True, timeout=60)   # (unquoted: a non-ASCII name as it is)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return got.stdout.splitlines() if got.returncode == 0 else None

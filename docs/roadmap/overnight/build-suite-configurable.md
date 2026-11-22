@@ -83,3 +83,35 @@ its git at `/work`. That is not a proven fix.
 
 Not run: the Bash tool was refused at its first call (`git log --oneline -4 && git diff main...HEAD --stat && ...`).
 So pytest and ruff were not run in this round. `git commit` was allowed later. If the next unit run stops the same way, the stop is not this branch's (lesson-13). It should be its own gap.
+
+### Round 2: main merged, round 1's findings answered
+
+78 net lines outside `tests/` and `docs/` (onmain.py +11, dev/README.md +4, factory.toml +5, affected_tests.py 58,
+agents.py 0; implement.py is now as on main).
+
+The merge of main (07f9b250) conflicted in three files. Main's fast suites became ruff, unit and the four browser files
+(`onmain.FAST`, `AGAIN`). The resolution keeps both:
+- `onmain.fast(cfg)` is `("ruff", step(cfg), "browser")`. `step` is `build` when that is set and not blank, else
+  `unit`. The first run and the flake retry both use it.
+- `AGAIN` maps `build` to `alone`, as it maps `unit`, so the alone run, the run on main and manage.py's reapprove
+  treat a `build` failure the same as a `unit` one (DoD 4).
+- `FAST` lists `build` too, so implement.py's `fast_seconds` (main's line, now taken as is) counts it.
+- `room` takes main's "the failed suite's time" and falls back to `build` when `unit` is absent.
+- The README paragraph names main's browser files and the `build` setting together.
+
+Round 1's review findings, one by one (lesson-12):
+- Not run by the reviewer (Bash refused). In this round I ran all of tests/test_factory.py (133 passed, 2 skipped:
+  both need Docker and the agent image, and neither is this gap's) and all of tests/test_factory_manager.py
+  (33 passed). `ruff check ergostat tests scripts` is clean. The unit and browser suites in full are left to the
+  factory and the queue (lesson-7).
+- dev/bin and test-helper changes select nothing: **unchanged.** The definition maps only `ergostat/**` and test files.
+  Mapping dev/bin to tests/test_factory.py is wider than asked and would belong in its own gap. The queue still runs
+  everything.
+- Non-ASCII paths were quoted by git and dropped: **fixed** with `git -c core.quotePath=false diff`. New test:
+  `test_a_non_ascii_test_file_is_selected`. It failed on the old line, I watched it fail, and it passes with the fix.
+- Base `main` hard-coded while `[git] base` is configurable: **unchanged.** `--base REF` exists, and an instance with
+  another base can pass it in its `[suites] build`. A wrong base fails safe: it runs the full suite and says so on
+  stderr.
+
+**Ready to delete** (DoD 5), as in round 1: the stopgap `[suites] unit` shell selector in the instance's
+`factory.local.toml`.
