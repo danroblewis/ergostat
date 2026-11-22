@@ -295,3 +295,16 @@ fix's 10 lines were paid for by folds in `client.py` that change no logic: the m
 shortened, `bound`'s early return folded into its `try`, and `except Elsewhere: raise` folded into the retry check.
 Refused this session: a `python3` heredoc doing the edits (done with the editor instead), and a `--numstat` sum in
 a shell `while` loop (`--shortstat` used instead).
+
+Round 8 (the queue's finding: in a batch of 4, `test_a_call_past_the_bound_fails` failed, and failed again with this
+branch merged alone). Found and fixed. The test was at fault, not the code. The merge queue runs its suites on the host
+(`dev/bin/queue.py` calls `fac.suite` with no container), and the host is a Mac. The test bound a Unix socket at
+`tmp_path / "nobody.sock"`. On macOS `tmp_path` sits under `/private/var/folders/.../T/pytest-of-USER/...`, which
+goes past macOS's 104-byte limit for a socket's path, so `stale.bind(nobody)` raised `OSError: AF_UNIX path too
+long`. Reproduced here with a `--basetemp` of macOS's length (the same `OSError` at the same line). The socket now
+goes in a short folder of its own under `/tmp` (`tempfile.mkdtemp`, removed by a finalizer), as
+`test_ticket_factory_daemons` already does. It is the only test that binds a socket directly under `tmp_path`. The
+client copes with a long path already (connecting to one is just no engine). No code outside `tests/` changed, so the
+budget is unchanged (100 net lines). Run here, all passing: that test under the long `--basetemp`, then `test_calls`
+(17) both normally and under the long `--basetemp`. ruff is clean. Not run here: the whole unit suite, the browser
+files, and anything on macOS itself.

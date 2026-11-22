@@ -458,9 +458,14 @@ def test_a_call_the_stopped_engine_recorded_is_recorded_once_by_the_commands_fal
                                                if x["data"].get("seen") == "asked"], env=True) == 0
 
 
-def test_a_call_past_the_bound_fails(tmp_path, monkeypatch):
+def test_a_call_past_the_bound_fails(tmp_path, monkeypatch, request):
+    import shutil
+    import tempfile
+
     from ergostat.cli import main
-    nobody = str(tmp_path / "nobody.sock")
+    short = tempfile.mkdtemp(prefix="rs-calls-", dir="/tmp")     # (a socket bound below: macOS's tmp_path is past its
+    request.addfinalizer(lambda: shutil.rmtree(short, ignore_errors=True))         # 104-byte limit for a socket's path)
+    nobody = os.path.join(short, "nobody.sock")
     began = time.monotonic()
     with pytest.raises(client.Unavailable):
         client.call("ping", path=nobody, retry=0.5)
