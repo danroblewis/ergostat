@@ -45,27 +45,22 @@ review into *Done recently*). Newest decisions from the owner first within each 
   structure on an allowlist (`ergostat/library/trust.py`: no command, query, daemon, timer, machine block, agent,
   workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
   blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
-  refused at the owner's `use:` line, with a refusal that suggests
-  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). **Built** (`library-untrusted-text`): an
-  untrusted template's text is marked in the `templates` tool and in three kinds of `check` problem, its names
-  checked, and its parts' schedules, pools, attempts and runs at once bounded at compile and when runs start, a second
-  line behind the allowlist (SPEC §2a, *Untrusted libraries*). *Still needed:* a gate on **provenance**, so an
-  untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
-  substitution of a `type: command` parameter, the marks kept through nested uses); the text an untrusted template
-  makes in the model marked too (its system's and parts' descriptions, prompts, commands, equations and names,
-  wherever `check`, the diagrams and the MCP model views show them, and the `library-untrusted` refusal's folder
-  path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
+  refused at the owner's `use:` line, with a refusal that suggests no copy into `with:` (SPEC §2a, SECURITY
+  *Libraries you did not write*). **Built** (`library-untrusted-text`): an untrusted template's text is marked in the
+  `templates` tool and in three kinds of `check` problem, its names checked, and its parts' schedules, pools,
+  attempts and runs at once bounded at compile and when runs start, a second line behind the allowlist (SPEC §2a,
+  *Untrusted libraries*). **Built** (`library-provenance-marks`): values carry their writer through expansion and
+  nested uses, so a held chain may run the owner's own `type: command` values (whole, or quoted into a built-in's
+  run) and pass only narrow, fully matched, bounded library values after data flags of ergostat's own programs
+  (`LIB_DATA_FLAGS`, `--every` at the same 5-minute floor); an owner folder's run takes no library value.
+  *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
+  descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
+  them, and the `library-untrusted` refusal's folder path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
   without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
   the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
-  only to hosts the owner lists. *Still needed:* the trust gate rebuilt on **provenance** (a value counts as the
-  owner's only if it arrived by substitution of a `type: command` parameter, the marks kept through nested uses;
-  equality to an owner's literal is not enough); the refusal not telling agents to copy commands into `with:`; a
-  library's `example:` and `reading:` marked untrusted wherever an agent reads them; `ask:`, `query`/`source` gated and
-  a minimum `every` for untrusted libraries; `fetch` refusing a lock entry without a tree, symlinks hashed explicitly;
-  then running untrusted library scripts through `ergostat.sandbox` and the rebase onto main.
 - **External event logs** (mirroring done on `external-event-logs`; reading in place open): systems that keep their
   own event log (Kafka, a ticket history, an incident log): copy in (works through collectors), read in place, or
   mirror with a cursor that cites the original.
@@ -304,6 +299,18 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
+- **The day's AI budget, P3: runs reserve before they start** (in progress, `factory/run-budget-reserve`; SPEC §9.9,
+  `docs/roadmap/overnight/run-budget-reserve.md`): `budget: {daily, max-cost}`; every run started through
+  `Engine.run_block` or `Dispatcher.take` asks a permit under a file lock, and a charged run is refused unless what
+  is left of the day covers `max-cost`; spend is folded by run id, an unknown cost charged as the reserve;
+  `ergostat.budget.left`. It covers those start paths only.
+- **ergostat's own AI calls under the budget** (open; from `run-budget-reserve`): the judge's passes
+  (`Engine.judge`), the decisions extract, the intent verdicts and the redesigner keep their own per-call caps and
+  ask no permit, and models in `ergostat.toml` (`runner.run_agent`) have no `budget:`. Their ends count in spent
+  when priced, but nothing refuses them when the day's budget is gone.
+- **T1: a run stopped at its spend cap** (open; `run-budget-trip`, depends on `run-budget-reserve`): `max-cost` is
+  only what a run reserves; a run that spends more is charged more and is not stopped. T1 gives each run its reserve
+  as its cap (`ERGOSTAT_MAX_COST`, `--max-budget-usd`) and its sessions take from it under a lock.
 - **Linux: two bugs the dev container found** (done; `linuxfix`, 2026-11-19). (1) The segmented event log
   (`ergostat/segments.py`, `_sync`) noticed new sealed segments by the directory's mtime alone, and Linux timestamps
   are coarse (one jiffy: 50 file creates on tmpfs gave one mtime), so a seal within the same tick was missed and its
@@ -400,8 +407,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Interface
 
-- **Searching items and querying their graph** (`gap/item-search`): **done**, both halves merged: full-text search
-  and graph queries over items, from the CLI and API.
+- **Searching items and querying their graph** (done, both halves merged; `gap/item-search`): full-text search and
+  graph queries over items, from the CLI and API.
   - *Search*: **done** on `factory/item-text-search` (merged in `512f08ef`; SPEC §5a, *Search*): `ergostat item
     --search WORDS` and `/api/items?search=WORDS` list the items whose fields' text contains every word (a casefolded
     substring, no ranking, no fuzzy match; the first 65,536 characters of each item's text), kept in the item index.

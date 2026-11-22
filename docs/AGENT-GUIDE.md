@@ -366,6 +366,11 @@ into a plain path**, to get past that refusal or for any other reason: that is t
 reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
 which template and part were refused, and ask.
 
+A held chain may run the owner's own commands: a value in the owner's `with:` for a `type: command` parameter
+(SPEC §2a, R1). That is why a value in `with:` counts as the owner's, whoever wrote it. **Never copy a command from a
+library (its `example:`, a default, a description) into `with:`**: ask the owner for the command, and let them write
+it.
+
 ## 3a. A system another ergostat runs: compose it, never copy it
 
 When part of the person's work is run by **another ergostat** (another team's, another machine's), do
@@ -466,6 +471,24 @@ blocks:
 - Spend is an auxiliary, not a stock: it is a sum over a moving window, with no memory of its own.
 - `ergostat check` should say both goals are closed by a loop. Without the gate, the budget goal is "missing
   feedback": a number watched, not held.
+
+The goal above is a loop the model holds. When the person also wants the model's runs held to a day's budget before
+they start, whatever the wiring, add `budget:` to `ergostat.yaml` (SPEC §9.9). It is a check at each start, not a
+cap on spending: a run can spend more than it reserved, and the judge and ergostat's own AI calls are outside it:
+
+```yaml
+budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charged run reserves $0.50 to start
+```
+
+- Before each charged run starts, ergostat checks that what is left of `daily` (less what ended runs cost and what
+  runs in flight reserved) covers `max-cost`, and refuses the run otherwise (`budget.refused`; `ergostat block NAME
+  --now` says `refused: budget: …`). `max-cost` is what a run reserves to start, not a cap on what it spends: set
+  it near what one run usually costs. A run that ends with an unknown cost is charged its reserve.
+- Free runs reserve nothing: a block that is not `ai` and whose agent is declared `kind: person`, `decision`,
+  `program` or `rule`. Give program blocks an agent of kind `program`, or each of their runs is charged.
+- `ergostat.budget.left` reads what is left (a sensor's `builtin:`, or `ergostat measure`); it is an error, not a number, when no
+  `budget:` is declared or the record cannot be read.
+- It covers the model's own runs only, not ergostat's judge passes or its own internal AI calls (SPEC §9.9).
 
 ## 3c. Stale readings and estimates
 

@@ -696,6 +696,51 @@ Both check what is open and write under one lock (`run/one-open.lock`), so a ses
 never both get past the rule.
 The measures `manager-triggers-per-session` and `manager-actions-per-session` say how much each session takes on.
 
+**A definition's named measurement** (`measure-runs GAP --runs N --tests "T" [--load K]`, `dev/bin/runs.py`). Use it
+when a definition's acceptance is a repeated or loaded run that its sessions cannot make, and the gap is parked or
+built with "Where it stopped" saying the measurement was not run here. The first user is gap/lease-shutdown-race:
+`--runs 30 --load 4 --tests "-n 8 tests/test_leases.py"`. It makes N runs (1-50) of the selection T on the branch
+head, in a clone of the drop at it. T is test files or ids under `tests/` and at most one `-n` of 1-8. Each run is
+`[suites] measure`, under `scripts/suite_watch.py`, in the shared suite slot and a suite container. With `--load`, K
+busy processes (1-8) of `[suites] load` run beside the runs under a watchdog of their own. Their process group, and
+their container, are stopped when the runs end normally, on an error or on a SIGTERM. The load also ends on its own:
+manage.py touches a heartbeat file in the clone every few seconds, and each busy process stops once that file is gone
+or has not changed for `[suites] load_stale_s` (30 s, at most 300). So if manage.py is SIGKILLed, the load is gone
+within about that time. A run during which the load had ended counts as a failure. The load's container has the role
+`measure-load`, which other processes' container sweeps (`agents.sweep`) leave for 12 h (`runs.WALL`) plus 10 min, not
+a suite's 70 min. A measurement starts no run that would end past those 12 h, judged by its longest run so far; each
+run not started counts as a failure. A run still going at those 12 h (one that hangs) is stopped there, its process
+group and container with it, and counts as a failure. Each run's own container is a suite's, so a single run past
+70 min may be swept by another process and then counts as a failure. Each cap is checked when the call
+is parsed and again when it runs. A run passes only on exit 0 with the watchdog's last line saying pytest's rc 0 and
+nothing killed. A killed run counts as a failure, and so does one whose log or watchdog line cannot be read. A parked
+gap is measured only if it was parked for `defect`, or for `needs` with a `parked_until` action that names a
+measurement (a word starting "measure"), was not resumed, and no other live gap holds its branch: a deferred,
+cancelled or kill-rule park is refused, and so is a need for anything else (an approval, say). The counts (passed and
+failed of N, the head, each run's rc, and the log tail of each failed run) are appended to the gap's `measured_runs`.
+They are also said in its `findings`, which both briefs carry. If every run passed, the gap goes to `built` at the same
+head, for review. If any failed, it goes to `fix`, with the first failing run's tail as its input (one failed gate).
+Before the gap is moved, its state, its branch and the park checks are read again, under the continue lock that
+`continue` and the park resumer take. If the gap left parked or built while the runs ran, its branch moved, or it is no
+longer one a measurement may move (resumed meanwhile, say), it keeps its state, the counts are recorded alone
+(`gap.measured`) and the call is refused. The engine's takes share no lock, so a reviewer that takes a built gap
+between the second read and the write is not seen: that window is one record read wide.
+Who runs it: the coordinator by hand runs it at once, in their own process. The pipeline manager's call is never run
+inside its block (which ends within 1 h, before a 30-run loaded measurement could): it is checked (the caps, the park
+checks) and asked in the inbox as the action `manager-measure`. Once approved, ergostat runs that action's command,
+`manage.py measure-runs --detach`, in whichever process carries out the approval (an `actions --approve` terminal,
+a web request, the engine). That command checks the call again and starts the measurement in a session of its own
+(no terminal, not in the approver's process group, its output in `run/measure/*-detached.txt`), then returns at once.
+The action is recorded `ran` with the measurement's pid and log. Its timeout is 2 min. So the approver does not wait,
+and a Ctrl-C to the approver, or the web server exiting, does not reach the measurement. The measurement then runs
+as a plain `measure-runs` with `--asked-as` set to the action's id. It is recorded as by `pipeline-manager`, its asker,
+with `asked_as` naming the action. It records its own end: the counts and the move as above, or, when it is refused or
+fails, an intervention saying why (`ended`). A SIGTERM to its pid (or a Ctrl-C) stops its run and load, records an
+intervention `ended: stopped` with `asked_as`, and exits 143. Only a SIGKILL to it leaves its end unrecorded (its
+load still ends by its heartbeat). It is bounded by
+`runs.WALL`. `runs.measure` refuses to run off the main thread, because only there can SIGALRM bound a run. A
+refusal at the start (the gap no longer measurable) fails the action, and no run is made.
+
 **Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
 records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in
 `parked_until`), `needs` (an action named for someone), `kill-rule` (rounds, hours or attempts ran out: the implementor,

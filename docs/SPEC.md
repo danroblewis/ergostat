@@ -310,13 +310,56 @@ in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `
 `goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
 `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
 `alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
-names); sensors only counting items (`items:`) or reading a stock's changes (`changes:`), with no `every` or `cron`.
-Anything else is refused: any other section, block type or key (a sensor's `run`, `query` or `daemon`, a block's
+names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs below.
+Anything else is refused: any other section, block type or key (a sensor's `query` or `daemon`, a block's
 `on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
 anywhere). One refused part refuses the whole
 use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
 nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
 *Libraries you did not write*).
+
+**Writers.** Every parameter value has a writer: the **owner** (a value in the owner's own file, in a depth-0
+`with:`), a **trusted** template (ergostat's own, or one from the owner's folders: its literal text, its defaults and
+its `|default`s), or the **library** (anything an untrusted template writes: its literal text, defaults, `|default`s,
+and text it builds around values). A nested use's `with:` value that is wholly one `${p}` (no `:how`, `|default` or
+`.field`) keeps p's writer; any other is the library's if any part of it is (a parameter written by a library, a
+field such as `${it.x}`, `${p.first}` or `${p.count}`, whose writer can't be told, or a key that can't be found in the
+template), else the writer of the template writing it. A value is an **owner command** only if the owner wrote it for
+a `type: command` parameter and every later hop passed it wholly to a `type: command` parameter again; a hop through
+any other type, or text equal to a command the owner wrote elsewhere, is not one. `expand.py` marks every substituted
+value with its writer, its type and whether its own text is its type's narrow form, keeps the marks until the gate
+has judged the chain, then strips them. Only expand makes marks: a template or a value holding a mark's control
+characters is refused, whole.
+
+**R1, what a held chain may run.** A sensor's or a `program` block's `run` stands when every character of it is: (a)
+an owner command, as the whole value; or, inside a built-in template's run, (b) the template's own text, ergostat's
+names (`${lib}`, `${python}`, `${name}`), a value ergostat's template wrote, or an owner command through `:quote` or
+`:arg`; or (c) a value allowed by R2. A library's text (an untrusted template's words around `${cmd}`, its
+`${here}`, a library default for a command), an owner value of another type (a `string`), and a run holding a field
+(`${it.run}`) refuse the chain. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
+template wrote them. A `program` block may say only `goal`, `run`, `every`, `cron`, `timeout` and the common block
+keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, as do
+`ai` and `person` blocks (`prompt`, `ask`).
+
+**R2, a library's values as arguments to ergostat's programs.** A value not written by ergostat's template (the
+library's, the owner's of a narrow type, or an owner folder's) may stand in a run only in a built-in template whose
+run starts `${lib} `, directly after a flag in trust.py's `LIB_DATA_FLAGS` (flags of `ergostat.library.run` whose
+value is data, such as `--kind`, `--state`, `--every`, `--limit`; never `--run`, `--render`, `--command` or another
+of `LIB_EXEC_FLAGS`), for a parameter typed `name`, `duration`, `number`, `integer` or `bool`, when both the value's
+own text and the text that lands (after `:seconds`, `:hours`) fully match its type's pattern, with no space or
+newline: name `[a-z][a-z0-9-]{0,63}`; duration `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`; number or integer
+`-?[0-9]{1,15}(\.[0-9]{1,9})?`; bool the bare flag (`:arg`), or `true`/`false`. A rate or count flag is also bounded
+(`LIB_BOUNDS`): `--every` `UNTRUSTED_EVERY` (300 s) or more, `--limit` 100 or less, `--stand-in` 3600 an hour or
+less, `--window` 60 s to a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any) reaches a run, and no value
+not ergostat's own reaches the run of a template from the owner's folders (such as `sh -c ${x:quote}`), even though
+that template is trusted: no test can vouch for one. Every option of every program is in exactly one of the two
+lists, and every built-in run slot is scanned against these rules (`tests/test_library_provenance.py`).
+
+What R1 and R2 let through is still an untrusted part, under the limits of *Untrusted libraries* above: one floor on
+how often, `UNTRUSTED_EVERY`, whoever wrote the `every`. So a held chain's program block needs the owner's `every:`
+of 5m or more, and built-in templates whose own timers are faster (collect's 30 s count of what it has collected,
+re-ping's 10 s sensors and 30 s pinger) pass the gate but not those limits; collect compiles in a held chain with
+`into:` a stock the chain made and the owner's `poll:` of 5m or more.
 
 ### Upkeep
 
@@ -2494,7 +2537,7 @@ blocks:
 - **Gated** like any machine block: while what commands it (`goal:`, `in: block.x`) is off, its events wait.
 - **Alone, and on what blocks say.** A block started by events has no `every:`, `cron:` or `takes:`, and neither its
   `on:` nor its `emits:` names a type of ergostat's own record (`agent.*`, `block.*`, `person.*`, `trigger.*`,
-  `loop.*`, `ergostat.*`, ...: which no block may say) (`check`: `bad-trigger`); a block that works items one by one,
+  `budget.*`, `loop.*`, `ergostat.*`, ...: which no block may say) (`check`: `bad-trigger`); a block that works items one by one,
   each needing doing until done, takes them (section 9.5) instead.
 
 **How a commanded block runs.** While its command is nonzero it runs, once per fresh reading:
@@ -3032,6 +3075,65 @@ runs as a process of its own.
   the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket. Not yet by shard: the
   wires are not carried; a run a block's moving a flow asks for reads that flow's stocks' sensors wherever they are;
   and the calls socket is one per state directory, not one per shard process.
+
+### 9.9 The day's AI budget: runs reserve before they start
+
+```yaml
+budget: {daily: 20, max-cost: 2}     # dollars over the trailing 24 hours; dollars a charged run reserves
+```
+
+`budget:` (main file only; `ergostat.local.yaml` may not set it) takes both keys, each required: `daily`, US dollars
+over the trailing 24 hours (the window of `ergostat.cost.usd`), with 0 < daily ≤ 10000; `max-cost`, with
+0 < max-cost ≤ daily. An unknown key, a missing key, a value that is not a number, and one out of bounds are each an
+error with its own message. Without `budget:` nothing here applies and no run or lease event carries a `reserve`.
+
+`max-cost` is only what a run **reserves** before it starts. It is not a cap on what the run spends: a run that
+spends more is charged what it spent, and nothing stops it as it runs (that is T1, `docs/GAPS.md`).
+
+- **Charged and free runs.** A run is free (it reserves 0) only when its block is not `ai` and its agent is declared
+  with kind `person`, `decision`, `program` or `rule`. Every other run is charged and reserves `max-cost`, including
+  a block with no agent, or an agent with no kind.
+- **The permit.** Before a charged run starts, ergostat opens `<state dir>/budget.lock` (a new open each time) and
+  holds `flock(LOCK_EX)` while it reads the record, decides and writes the run's reserving event. Threads of one
+  process and separate processes (the engine and `ergostat block NAME --now`) exclude each other. It refuses when
+  `spent + reserved + max-cost > daily`, when the record cannot be read, or when the budget's values are out of
+  bounds when the run asks (checked again, as at compile time). A leased run's reserving event is its
+  `ergostat.lease.taken` (written by the dispatcher's take: the dispatch loop, and `block --now` on a block that
+  takes items); an unleased run's is its `agent.started` (the engine's loop, event triggers, `block --now`, the
+  message classifier, step tests, library trials). Each carries `reserve` and `pid`. The `agent.started` of a leased
+  run has the lease's run id and carries no `reserve`: it is not counted again.
+- **A refusal** writes no `ergostat.lease.taken` or `agent.started`; no lease is held and the block is not left
+  running. It records `budget.refused` (item: the block; data: `reserve`, `spent`, `reserved`, `daily`, `why`) at
+  most once a minute per block per process. `ergostat block NAME --now` prints `refused: budget: …` and exits 1.
+- **What is spent and reserved** is a fold by run id (`data.run` of a lease's take, the id of an `agent.started`),
+  never by lease state. It reads reserving events and ends (`agent.ran`, `agent.failed`, and `budget.closed`, data
+  `run`, `cost_usd` or null, `why`) over the last 7 days, and matches each end to its run by `causedby` or `run`,
+  never by time. A run with no end is *reserved* at its reserve, however old within the 7 days: a lease that expires,
+  is released or nacked changes nothing. An end counts in *spent* only while it is within the last 24 hours: its
+  known `cost_usd`; else its reserve, or `max-cost` when it used AI at no known price; a run with several ends, the
+  largest. An end whose run has no reserving event in the 7 days (a free run, a run started more than 7 days ago,
+  and the starts outside the permit below) counts its known cost, `max-cost` when it used AI at no known price, and
+  otherwise 0. A cost is known only when it is a finite number of at least 0. A cost that is reported but is NaN,
+  infinite or negative (it comes from the run's own output) is unknown: it is charged the run's reserve, or
+  `max-cost` when the run has none.
+- **Closing what has no end.** `budget.closed` with cost null (charged its reserve for 24 hours from the close) is
+  written by recovery, under the same lock, for each reserving run with no end whose recorded `pid` is not alive, or
+  is this process's but no longer among the runs it has open. Recovery runs when the engine starts and on the
+  dispatcher's clock, at most once a minute, and reads the open runs without taking the engine's or dispatcher's
+  locks. It copies the open runs before it reads the record, so a run that ends between the two is seen as ended.
+  A run is listed as open under the lock, before its event is written. A run that `run_block` raises out of
+  after its `agent.started` is closed there, cost null. A take the item fold refused (another holder won), or one
+  that won its lease as ergostat stopped and so never ran, is closed with `cost_usd: 0`: nothing ran.
+- **Only ergostat writes them.** `budget.*` is among ergostat's own types: no run's output, `ergostat event --add`
+  (whatever its `--as`), push, MCP call or trigger may record one, so no run can close itself, or another, at 0.
+- **`ergostat.budget.left`** is daily − spent − reserved. With no `budget:`, or a record that cannot be read, it is
+  an error (`MeasureError`), never `daily` or 0: the measures list shows none and the error.
+- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take`, and only
+  those. It does not cover ergostat's own judge passes (`Engine.judge`), the AI calls inside ergostat that keep their
+  own per-call caps (decisions extract, intent verdicts, the redesigner), or models in `ergostat.toml`
+  (`runner.run_agent`), which have no `budget:`; their ends count in spent as ends with no reserving run. A pid
+  reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
+  drops out of reserved. Each permit reads 7 days of starts and ends.
 
 ## 10. Agents
 
