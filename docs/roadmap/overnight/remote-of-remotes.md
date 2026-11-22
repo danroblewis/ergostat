@@ -310,3 +310,24 @@ it, these pass when run one file at a time: `test_remote_chain.py` (29), `test_r
 `test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` together (23), and
 `test_remote_proposals.py` (31). Ruff is clean. No code changed in substance outside the merge, so the size is as in
 round 5. Not run here: the whole unit suite, the four browser files and `demo_check`.
+
+### Round 7
+
+The review's one finding: M's box for remote A was served with the description "remote: run by the ergostat at
+URL". So A's url, with any user and password in it, reached every consumer of M. This is fixed in `serve.py`
+(`box`). If a remote's box (a `RemoteVia` with an empty chain) still has the generated description that names the
+url, it is served as `remote: NAME, composed from another ergostat` instead. A `description:` the owner wrote in
+`remotes:` is served as written, since the owner wrote it (the reversible choice; nothing looks for a url inside
+it). M itself still shows the url-naming text locally, as before. The text is one constant, `compose.WHERE_TEXT`,
+so the two cannot drift apart. SPEC §4c (*`via`*) says so.
+
+The new `test_a_middle_never_serves_its_remotes_url` gives M a remote at
+`https://user:secret@a.example.invalid:8443` and another with an owner's description. It asserts three things: no
+url or password appears anywhere in M's served model, the owner's text is kept, and M's own loaded model still shows
+the url. With the replacement turned off by hand, the test fails ("'secret' is contained here"). The change was
+then put back.
+
+Size: about 12 net lines added outside `tests/` and `docs/`, within 380. These pass: `test_remote_chain.py` (30),
+and `test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` (23). Ruff is clean. Not run here:
+the whole unit suite, the four browser files and `demo_check`. This clone has no `origin`, so there is nothing new
+to merge.

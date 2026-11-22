@@ -181,6 +181,23 @@ def test_a_middle_serves_its_imported_parts_with_their_chain(tmp_path):
     assert again["sections"] == got["sections"] and again["version"] != got["version"]
 
 
+def test_a_middle_never_serves_its_remotes_url(tmp_path):
+    a, mroot = middle(tmp_path)
+    url = "https://user:secret@a.example.invalid:8443"
+    write(mroot, M.replace("http://127.0.0.1:1", url).replace(
+        "a.token\n", "a.token\n  b:\n    url: https://b.example.invalid\n    token-file: b.token\n"
+                     "    description: the owner's words\n"))
+    plant(mroot, "m", "a", a)
+    with compose.offline():
+        got = serve.model(mroot / "ergostat.yaml")
+        spec, _ = load(mroot / "ergostat.yaml")
+    text = json.dumps(got)
+    assert "secret" not in text and "a.example.invalid" not in text and "b.example.invalid" not in text
+    assert got["sections"]["systems"]["a"]["description"] == "remote: a, composed from another ergostat"
+    assert got["sections"]["systems"]["b"]["description"] == "the owner's words"      # what the owner wrote is kept
+    assert url in spec.systems["a"]                                        # shown locally as before
+
+
 def test_parts_two_hops_away_are_composed_and_read_through_the_middle(tmp_path):
     a, mroot = middle(tmp_path)
     with compose.offline():

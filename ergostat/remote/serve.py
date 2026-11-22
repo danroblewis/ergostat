@@ -78,6 +78,16 @@ def via_of(entry) -> list[str] | None:
     return None if w.stand_in else list(w.chain)
 
 
+def box(name, entry) -> dict:
+    """A remote's system box is served with the description its owner wrote, else a generic one: never the text
+    naming the remote's url, which is a source (and may carry a user and password)."""
+    from .compose import WHERE_TEXT, RemoteVia
+    w = getattr(entry, "where", None)
+    if not isinstance(w, RemoteVia) or w.chain or str(entry.get("description")) != WHERE_TEXT.format(w.url):
+        return {}
+    return {"description": f"remote: {name}, composed from another ergostat"}
+
+
 def document(doc, instance: str) -> dict:
     """The served model, from a loaded document (spec.load.Document), as the ergostat ``instance`` serves it."""
     sections = {}
@@ -89,7 +99,8 @@ def document(doc, instance: str) -> dict:
         for name, entry in named:
             via = via_of(entry)
             if via is not None:
-                got[str(name)] = {**part(section, entry), "via": via}
+                got[str(name)] = {**part(section, entry), "via": via, **(box(name, entry) if section == "systems"
+                                                                           else {})}
         sections[section] = got
     return {"format": FORMAT, "name": doc.name, "instance": instance, "sections": sections}
 

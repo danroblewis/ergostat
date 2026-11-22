@@ -72,6 +72,9 @@ def offline():
         _OFFLINE.reset(tok)
 
 
+WHERE_TEXT = "remote: run by the ergostat at {}"     # a box's local text: serve.py never serves it (the url)
+
+
 class RemoteVia(Where):
     """Where a remote's part was brought in: its ``remotes:`` entry, which remote it is, the chain of instance ids
     the part came through (origin first, the remote last; what serving it on names as its ``via``), and whether it
@@ -166,7 +169,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
     parent = entry.get("within") or defaults.get("system")
     put("sources", name, as_map({"type": "ergostat", "url": url, **({"token-file": str(token_file)} if token_file else {}),
                                  **({"tls": tls} if tls else {})}, via), via, {})
-    where_text = f"remote: run by the ergostat at {url}"
+    where_text = WHERE_TEXT.format(url)
     put("systems", name, as_map({"description": str(entry.get("description") or where_text),
                                  **({"within": str(parent)} if parent else {})}, via), via, {})
     info = {"url": url, "token_file": str(token_file) if token_file else None, "every": every, "dir": str(d),

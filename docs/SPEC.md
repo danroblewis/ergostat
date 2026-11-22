@@ -746,7 +746,9 @@ consumer L, which composes them like any of M's (`stock.m-a-open`, in the system
 - *`via`.* Every served part carries `via`: the ids of the ergostats it passed through before reaching the
   server, origin first, never the server itself: `[]` for its own parts, A's `via` for the part plus A's
   `instance` for one imported from A. Stand-ins for missing references are not served. At L, a part's
-  **chain** is its `via` plus M's `instance`; its depth is the chain's length (1 for M's own, 2 for A's).
+  **chain** is its `via` plus M's `instance`; its depth is the chain's length (1 for M's own, 2 for A's). The box
+  system M makes for remote A is served with `via: []` and the `description:` the owner gave A in `remotes:`,
+  else a generic text; the text naming A's url, which M shows locally, is never served.
 - *Checked before anything is composed*, in this order: a remote whose `instance` is missing or not 16 hex,
   any part with no `via`, a `via` that is not a list, holds an id that is not 16 hex or more than `VIA_MOST` =
   8 ids, or a chain that repeats an id, is refused whole (**remote-malformed**); one serving more than
