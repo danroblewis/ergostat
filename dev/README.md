@@ -753,6 +753,9 @@ else its moves), unless it waits on main, its dependencies, a full pool or a hel
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
+While approved gaps wait and nothing merged for 20 minutes, it also carries what holds the merge queue: each lease the
+merge-queue block holds (item, run, taken, renewed, expires, the item's state, whether the run's process is alive, from
+the engine's run record) and queue-when's inputs read now (`queue_holder()`).
 It answers per trigger what it did or why it left it; a trigger it did not answer comes back in the next session.
 Situations of the earlier one-trigger watch (a `print`, no `prints`) count as looked at once handled or failed; one
 still `raised` is closed `superseded`, never run, and its trigger, if it still stands, goes to the next session. Each
