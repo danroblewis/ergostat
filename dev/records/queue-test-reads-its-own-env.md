@@ -19,3 +19,27 @@ Every merge-queue run from 00:34 to 02:30 on 2026-11-22 failed `tests/test_agent
 
 ## Size budget
 10 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. No code changed outside `tests/`; the only other change is 7 lines of prose in `dev/README.md`.
+
+- Points 1 and 2: `tests/test_factory.py` now has `QUEUE_ENV` (`PYTEST_ADDOPTS`, `UV_PROJECT_ENVIRONMENT`,
+  `PYTHONPYCACHEPREFIX`, `RUFF_CACHE_DIR`, `SPLIT_SHOTS`, the variables `fac.suite` and `agents.queued` set in a queue
+  container). The `Factory` fixture's `env` drops them, which covers every factory test that starts the queue or
+  `fac.suite` through the fixture, including `test_queue.py`'s faulthandler tests. In
+  `test_each_queue_suite_runs_in_a_container...`, every `-e` name in the container's arguments must be in `QUEUE_ENV`,
+  so a new setting has to be added there. That guard failed on its first run because `SPLIT_SHOTS` was missing, so it
+  can fail. The acceptance test is
+  `tests/test_agents.py::test_the_queue_container_test_passes_inside_the_queues_own_container`: it sets all five
+  variables to the queue's values (monkeypatch) and runs the queue-container test. With the fixture's filter undone,
+  it failed at `PYTEST_ADDOPTS=-o faulthandler_timeout=300`, which is the queue's failure reproduced. With the filter
+  in place, it passes.
+- Point 3: on this branch's base (fb39c0c0), `tests/quarantine.txt` does not list the test. The quarantine must have
+  been added on the queue's main after this branch was cut, and this clone has no origin to check. Most reversible
+  choice: I added only a `# Released:` line with this gap's name, and that line is a comment the parser ignores. When
+  main is merged in, the coordinator's quarantine line for the test has to be deleted. If it lands as an added line
+  beside this branch's Released line, the test stays quarantined.
+- Point 4: `dev/README.md`, in the queue's suite-limits section, says a factory test must not depend on the queue's
+  environment and points to `QUEUE_ENV`.
+- Not done: origin/main was not merged in because this clone has no remote.

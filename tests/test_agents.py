@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_factory import BIN, ROOT, Factory, approved_gaps, merges, module, ready, suite_runs
+from tests.test_factory import BIN, QUEUE_ENV, ROOT, Factory, approved_gaps, merges, module, ready, suite_runs
 
 PIN = "playwright==1.63.0"
 
@@ -325,10 +325,21 @@ def test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_networ
         assert "PYTEST_ADDOPTS=-o faulthandler_timeout=300" in flag(a, "-e")   # half the 10 min stall limit
         assert f"{checkout}:/work" in flag(a, "-v") and f"{checkout / '.git'}:/work/.git:ro" in flag(a, "-v")
         assert "UV_PROJECT_ENVIRONMENT=/opt/venv" in flag(a, "-e")               # never the checkout's .venv
+        assert {e.split("=")[0] for e in flag(a, "-e")} <= set(QUEUE_ENV)       # each one Factory.env never inherits
         assert a[-4:-1] == ["the-agent-image", "sh", "-c"] and flag(a, "--name")[0].startswith(
             "ergostat-factory-suite-queue-")                                   # (counted by the load interlock)
     assert flag(got[cfg["unit"]], "--cpus") == ["8"] and flag(got[cfg["browser"]], "--cpus") == ["4"]
     assert not list((state / "running").iterdir())                    # each removed by name once it ended
+
+
+@pytest.mark.slow
+def test_the_queue_container_test_passes_inside_the_queues_own_container(tmp_path, monkeypatch):
+    # as the queue's unit suite runs it: in a container with the queue's settings already set (agents.queued, fac.suite)
+    for name, value in (("PYTEST_ADDOPTS", "-o faulthandler_timeout=300"), ("UV_PROJECT_ENVIRONMENT", "/opt/venv"),
+                        ("PYTHONPYCACHEPREFIX", "/tmp/pycache"), ("RUFF_CACHE_DIR", "/tmp/ruff"),
+                        ("SPLIT_SHOTS", "/tmp/split-shots")):
+        monkeypatch.setenv(name, value)
+    test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network(tmp_path)
 
 
 @pytest.mark.slow
