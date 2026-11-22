@@ -8,7 +8,8 @@ an aging defect. It raises one:
 
   broken     before the schedule, when the merge pipeline has been broken past [manager] broken_minutes (the queue
              blocked, a push pending, no merge while approved gaps wait, the same test failing on two main commits,
-             the load interlock holding the queue or its limits unreadable): when each began is kept in
+             the load interlock holding the queue or its limits unreadable; at once, the dispatcher meeting an error
+             in every look past 2 minutes, from the engine's heartbeat, live.py): when each began is kept in
              run/manager.json; never sooner than broken_minutes after the last session of any kind
   scheduled  every [manager] every (2h), the routine review
 and none when nothing changed since the last session (no new trigger, no new broken condition, the pipeline the same).
@@ -30,6 +31,7 @@ import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import live  # noqa: E402
 import load  # noqa: E402
 import parks  # noqa: E402
 import pools  # noqa: E402
@@ -41,6 +43,7 @@ STUCK = {"ready": 6, "fix": 6, "leased": 3, "building": 5, "built": 2, "in-revie
          "push-pending": 4, "queue-failed": 1}      # hours, the defaults of [manager.stuck_hours]
 MOST_ACTIONS = 12                                   # the ceiling of [manager] most_actions, whatever the settings say
 EVERY_FLOOR, BROKEN_FLOOR = 15.0, 5.0              # minutes: the floors of [manager] every and broken_minutes
+AT_ONCE = ("main-twice", "dispatch")               # broken conditions counted at once (the dispatcher's: 2 min already)
 
 
 def minutes(v, default: float) -> float:
@@ -222,6 +225,13 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
     unknown = [INTERLOCK[w] for w, lim in limits.items() if lim is None]
     probe = approved and cfg.get("load", {}).get("wait", True)      # (the tests' machine is not the factory's)
     over = [w for w, lim in limits.items() if lim is not None and load.reading(w) > lim] if probe else []
+    try:                                       # (no instance, no heartbeat or a stale one: a dead engine, not this; health's
+        beat = live.heartbeat(cfg)             # own engine check says so)
+        stopped = live.dispatch_failing(beat, now) if now - float(beat["written"]) <= live.PASS_FRESH else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        stopped = None
+    if stopped:
+        out["dispatch"] = stopped
     if unknown:                                # (a goal renamed or reworded: never read as within its limit)
         out["interlock"] = f"the load interlock's goals {', '.join(unknown)} have no hold in dev/model/interlock.yaml"
     elif over:
@@ -246,7 +256,7 @@ def broken(cfg: dict, gaps: dict, opened: list[dict], now: float) -> dict[str, d
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
     return {k: {"why": why, "since": since[k]} for k, why in now_on.items()
-            if k == "main-twice" or now - since[k] >= settings(cfg)["broken"] * 60}
+            if k in AT_ONCE or now - since[k] >= settings(cfg)["broken"] * 60}
 
 
 def state_now(cfg: dict, now: float) -> dict:
@@ -294,7 +304,7 @@ def main(argv: list[str]) -> int:
     elif argv[:1] == ["broken"]:
         grace = settings(cfg)["broken"]                  # (minutes past broken_minutes: the goal holds at 0)
         st = state_now(cfg, now)["broken"]
-        print(round(max([(now - v["since"]) / 60 - (0 if k == "main-twice" else grace) for k, v in st.items()] + [0]), 1))
+        print(round(max([(now - v["since"]) / 60 - (0 if k in AT_ONCE else grace) for k, v in st.items()] + [0]), 1))
     elif argv[:1] == ["since"]:
         print(round((now - max([float(x["fields"].get("raised_at") or 0) for x in fac.items("situation")] or [now])) / 60, 1))
     else:
