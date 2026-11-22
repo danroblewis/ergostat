@@ -8,6 +8,7 @@ from ..spec.load import SECTIONS, Map, Problem, Where
 from . import templates as tp
 from . import trust
 from .expand import MAX_DEPTH, USE_KEYS, ExpandError, Via, expand
+from .untrusted import FILE, LABEL, mark
 
 
 def as_map(x, where: Where):
@@ -82,6 +83,7 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
 
 def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, depth: int, within: str | None,
          under: tp.Template | None) -> None:
+    """One instance of the chain; ``under``: the first untrusted template above it (or it), from which all is untrusted."""
     def err(msg, where=None, code="bad-use"):
         chain.steps.append(("problem", Problem("error", f"use {inst}: {msg}", where or w, code, f"system.{inst}")))
 
@@ -110,6 +112,10 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         if prior is not None:
             return err(f"{t.name} is used at most once a model (already as {prior}, at {uses[prior]['where']})", at,
                        "used-twice")
+    under = under or (None if tp.trusted(t) else t)          # from the first untrusted template down, all is checked
+    untrusted = under is not None                            # its own template, or any instance it sits inside
+    label = LABEL.format(t.name) if tp.SAFE.match(t.name) else FILE     # (a label is never library text)
+    said = (lambda x: mark(x, label)) if untrusted else str
     given = entry.get("with") or {}
     if not isinstance(given, dict):
         return err("with: a map of the template's parameters", entry.at("with"), "not-a-map")
@@ -119,14 +125,13 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         made = expand(t, inst, dict(given))
     except ExpandError as e:
         for msg, key in getattr(e, "all", [(str(e), e.key)]):
-            err(msg, given.at(key) if key and hasattr(given, "at") else at, "bad-param")
+            err(said(msg), given.at(key) if key and hasattr(given, "at") else at, "bad-param")
         return
     via = Via(at.file if at else doc.root, at.line if at else 1, t.name, inst)
     parent = entry.get("within") or within or (None if t.once else defaults.get("system"))   # once a model: the model's
     parent = None if parent == inst else parent
     system = {**made.system, **({"description": str(entry["description"])} if entry.get("description") else {}),
               **({"within": str(parent)} if parent else {})}
-    under = under or (None if tp.trusted(t) else t)          # from the first untrusted template down, all is checked
     if under is not None:
         chain.checks += [(under, "systems", inst, system),
                          *((under, s, n, x) for s, entries in made.sections.items() for n, x in entries.items())]
@@ -138,16 +143,16 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         if section == "uses":
             continue
         if section not in SECTIONS:
-            err(f"template {t.name} writes {section}:, which is not a section", at, "bad-template")
+            err(said(f"template {t.name} writes {section}:, which is not a section"), at, "bad-template")
             continue
         for name, got in entries.items():
             chain.steps.append(("put", section, name, as_map(got, via), via))
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
-                                      "depth": depth, "trust": t.trust}))
+                                      "depth": depth, "trust": t.trust, "untrusted": untrusted}))
     if made.standins:
-        chain.steps.append(("problem", Problem("finding", f"use {inst}: runs on free stand-ins ({'; '.join(made.standins)}); "
-                                               f"give them under with: to run it for real", via, "template-stand-in",
-                                               f"system.{inst}")))
+        chain.steps.append(("problem", Problem("finding", f"use {inst}: runs on free stand-ins "
+                                               f"({said('; '.join(made.standins))}); give them under with: to run it for "
+                                               f"real", via, "template-stand-in", f"system.{inst}")))
     for sub, e in (made.sections.get("uses") or {}).items():
         plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under)

@@ -2,7 +2,9 @@
 ``python -m ergostat.watcher -C REPO [--port N] [--no-web]``. It reads only ``run.pid`` (locked while the engine
 lives), ``heartbeat.json`` (its last pass) and ``stopped``. An engine dead, unless stopped on purpose (``ergostat run
 --stop`` leaves ``<state>/stopped``; a logout or a shutdown does not), is started again; one whose last pass is older
-than ``STALE`` (frozen whole, past what its own watchdog mends) is stopped and started again; each in its turn in
+than ``STALE`` (frozen whole, past what its own watchdog mends), or than the heartbeat's own ``stale`` when it is 60
+to 3600 s (``use: upkeep``'s goal ``heartbeat-fresh``: it moves the limit, never turns it off), is stopped and started
+again; each in its turn in
 ``restarts.py``'s back-off, said on ``run.log`` and recorded as ``ergostat.engine.restarted`` when it started.
 Prototyped as ``upkeep watch`` (branch ``upkeep``, with 60687a9's fixes)."""
 
@@ -59,6 +61,25 @@ def beats(d: Path) -> list[dict]:
     return [hb for hb in map(lambda n: beat(d, n), names) if hb]
 
 
+_SAID: set[str] = set()      # the bad ``stale`` values said in run.log, each once a watcher process
+
+
+def limit(d: Path, hb: dict | None) -> float:
+    """How old a last pass may be: the heartbeat's ``stale`` (``use: upkeep``'s ``heartbeat-fresh``) when it is a
+    number of seconds within 60 to 3600, else ``STALE``. A missing one is a model without the template, said nowhere;
+    a malformed or out-of-range one is said in ``run.log``, once for each value."""
+    from .spec.ir import STALE_RANGE, stale_ok
+    if not hb or "stale" not in hb:
+        return STALE
+    got = hb["stale"]
+    if stale_ok(got):
+        return float(got)
+    if repr(got) not in _SAID:
+        _SAID.add(repr(got))
+        _say(d, f"heartbeat.json's stale {got!r} is not {STALE_RANGE[0]} to {STALE_RANGE[1]} seconds: {STALE:g} used")
+    return STALE
+
+
 def look(repo: Path, d: Path, extra: list[str], now: float | None = None) -> dict | None:
     """One look: what was done (``{"what": "dead"|"stale", ...}``), or None."""
     from .runner import running_pid
@@ -70,7 +91,7 @@ def look(repo: Path, d: Path, extra: list[str], now: float | None = None) -> dic
             did = {"what": "dead"}
     else:                                              # (a beat left by another pid: not this engine's)
         for hb in beats(d):
-            if hb.get("pid") == pid and now - float(hb.get("pass") or now) > STALE:
+            if hb.get("pid") == pid and now - float(hb.get("pass") or now) > limit(d, hb):
                 did = {"what": "stale", "pid": pid, "seconds": round(now - float(hb["pass"]), 1)}
                 break
     if did is None:
