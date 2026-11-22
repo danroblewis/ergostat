@@ -813,7 +813,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
         if not batch:
             emptied(cfg, gap, empty)
             return 0
-        waited = fac.wait_quiet(cfg)
+        waited = fac.wait_quiet(cfg, most=fac.slot_count(cfg))   # (the kept slot is the queue's: slots.py)
         began = time.time()
         if fac.git(repo, "rev-parse", "HEAD") != pre:      # (under the lock nothing should move it: never merged onto)
             fac.nack(f"queue: {cfg['git']['base']} moved while the run waited", after="10m", count=False)
