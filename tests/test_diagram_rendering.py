@@ -2026,6 +2026,26 @@ def test_a_graph_with_no_tree_frames_its_systems_by_their_corners_and_fills_noth
         assert f["tag"] != "rect" or f["stroke"] == r["frame"], (f, r["frame"])
 
 
+def test_the_exported_blocks_legend_draws_the_frame_glyphs_hairline_and_corners(browser, tmp_path):
+    """The Blocks legend in a saved picture: its frame row's hairline and corners are stroked in the file itself,
+    where none of the page's custom properties exist (rendered here in a blank page with no stylesheet)."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "view=blocks", 0)
+        markup = pg.evaluate("() => bdExportLegend(600).g.outerHTML")
+        pg.close()
+    blank = browser.new_page()
+    blank.set_content(f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900">{markup}</svg>')
+    r = blank.evaluate("""() => {
+      const corners = [...document.querySelectorAll('path')].find((p) => p.getAttribute('d').startsWith('M2,7V2H7'));
+      const ic = corners && corners.parentNode, rect = ic && ic.querySelector('rect');
+      return corners ? { corners: getComputedStyle(corners).stroke, rect: getComputedStyle(rect).stroke,
+                         halo: getComputedStyle(ic.querySelector('text')).stroke, html: ic.innerHTML } : null; }""")
+    blank.close()
+    assert r, markup[:400]
+    assert all(r[k] not in ("none", "") for k in ("corners", "rect", "halo")) and "var(" not in r["html"], r
+
+
 def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, tmp_path):
     """A closed system (a module in Dynamics, a subsystem block in Blocks) is outlined in --frame-mark at 1.2 px; with
     a goal in it off, in full ink at 2 px: darker on the paper and thicker."""

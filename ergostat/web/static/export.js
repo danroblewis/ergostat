@@ -97,7 +97,8 @@ function bdExportLegend(width) {
     for (const word of kids[i + 1].textContent.split(" "))
       if (lines.length && (lines.at(-1) + " " + word).length <= per) lines[lines.length - 1] += " " + word; else lines.push(word);
     const ic = s("g", { transform: `translate(0,${y - 13})` });
-    if (icon) ic.innerHTML = icon.innerHTML; else lines[0] = kids[i].textContent + "  " + lines[0];
+    // colours resolved, as in sdExportLegend: the file defines none of the page's custom properties
+    if (icon) ic.innerHTML = icon.innerHTML.replace(/var\((--[\w-]+)(?:,\s*([^)]*))?\)/g, (_, v, fb) => getComputedStyle(document.body).getPropertyValue(v).trim() || fb || ink); else lines[0] = kids[i].textContent + "  " + lines[0];
     g.append(ic, ...lines.map((t, j) => s("text", { x: 36, y: y + j * 14 }, t)));
     y += lines.length * 14 + 8;
   }

@@ -64,3 +64,17 @@ Round 2. main (afeee013) merged; the export.js conflict resolved to main's lists
   scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/dr.log 2>&1`, in the background) was refused, so the
   file was not run whole this round. `test_the_dynamics_view_speaks_system_dynamics_...` still fails only on the side
   list's "Goals off" (from main, as in round 1).
+
+Round 3. main has no commits the branch lacks (HEAD..main is empty), so there was nothing to merge.
+
+- Finding (blocking, the exported Blocks legend): bdExportLegend (export.js) now resolves every `var(--x)` and
+  `var(--x, fallback)` in a row's icon to the page's computed value, or the fallback, or the ink, as sdExportLegend
+  does. The frame row's hairline, corners and name halo are now stroked in the saved file. New test
+  `test_the_exported_blocks_legend_draws_the_frame_glyphs_hairline_and_corners` renders the exported legend in a
+  blank page with no stylesheet and checks that the frame row's rect, corner path and halo have a stroke other than
+  none and no var( is left. With the fix taken out, it failed on all three strokes.
+- Ran: that test, `test_an_open_system_is_framed_...` and `test_a_closed_systems_outline_...` (4 passed: the second
+  is parametrised over two examples); ruff clean. The whole tests/test_diagram_rendering.py file was not run this
+  round. The earlier failures noted above, from main, were not rerun.
+- A command was refused: a `cp` + `sed` that would have taken the fix out to check that the test fails. It was done
+  with the edit tool instead and then put back.
