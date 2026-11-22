@@ -2547,9 +2547,10 @@ attempt.
 #### Operating states
 
 An operating state is a situation of the whole model that schedules its limits
-(`docs/proposals/coordinator/08-modes-and-protection.md` §2): entered by the owner's typed act or by a goal's trip, left by the owner, and, while it
-is entered, capping the pool of every block that takes items. Gates and acts scheduled by state, bypass leases, act
-risk, the budget permissive and the owner's presence are not built yet (docs/GAPS.md).
+(`docs/proposals/coordinator/08-modes-and-protection.md` §2): entered by the owner's typed act or by a goal's
+trip, left by the owner, and, while it is entered, capping the pool of every block that takes items. Gates and acts
+scheduled by state, bypass leases, act risk, the budget permissive and the owner's presence are not built yet
+(docs/GAPS.md).
 
 **Declared.** A model may have a top-level `operating:` section, each entry a state named like a part
 (`^[a-z0-9][a-z0-9-]{0,63}$`):
@@ -2601,9 +2602,10 @@ states before removing the section.
 entered it); `ergostat operating enter NAME --why TEXT` and `ergostat operating leave NAME --why TEXT` are the owner's
 acts, and `leave` works for any state entered, declared or not. From a run (`ERGOSTAT_RUN` in its environment) `leave`
 is refused (exit 1) and `enter` is allowed, toward the safe state, recorded as caused by the run with `by: run`. Only
-the owner leaves a state, and trips never do; that is enforced for a run that carries its environment or records
-through ergostat (the CLI's check, the fold's refusal of a `left` caused by a run). A process that writes the record
-by other means is not stopped by it: that is the sandbox's job.
+the owner leaves a state (or removes the section, above: a change the model's judge accepted can do that too), and
+trips never do; that is enforced for a run that carries its environment or records through ergostat (the CLI's
+check, the fold's refusal of a `left` caused by a run). A process that writes the record by other means is not
+stopped by it: that is the sandbox's job.
 
 **Trips.** The dispatcher's thread looks at every trip once a second, holding its lock across the read, the
 decision and the write. Each trip `(state, goal)` has a current **spell**, read from the record only:

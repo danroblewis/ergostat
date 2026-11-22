@@ -466,3 +466,25 @@ no doc changed. +1 line, so the size is 454 net lines, 4 over the budget (round 
 failed without the line and passes with it. Tests run: `tests/test_library_trust.py` (48 passed),
 `tests/test_operating.py` and `tests/test_cli_fallback.py` (51 passed), and ruff is clean. Not run by the implementor:
 the full unit suite and the four browser files. No demo is touched, so `demo_check` is not needed.
+
+Round 12 (the fix round for review operating-states-9). Each finding:
+
+1. **`docs/GAPS.md`, the spliced "Operating modes…" entry** (blocking). Rewritten as one entry: the designed-in
+   line once, one *Done* (act-risk gating on `act-risk-gating`, SPEC §12k; operating states and trips capping the
+   pool on `operating-states`, SPEC §9.5) and one *Left* (gates by state, bypass leases, P3/T1, presence, thresholds
+   scheduled by regime, reshaping an act, the staleness of the state an act was planned on). This replaces the
+   wording definition §6 gave, since main has since built act-risk gating; the review asked for this form.
+2. **`take()`'s re-check outside the `try`** (non-blocking). Fixed: the post-`TAKEN` decision, `entered_meanwhile`
+   included, is now inside the `try`, so a raise in its `flying()` read or its `ENDED` write clears the key from
+   `e.running` and re-raises. `self.ours` is kept on that path, as main's own `except` already does for a `TAKEN`
+   write that raises: the lease is then reaped at its ttl and counted (fail closed); changing that is main's path,
+   not this gap's. New test `test_a_recheck_that_raises_after_taken_leaves_nothing_running`. With the call moved
+   back outside the `try`, it failed; restored, it passes. +1 net line, so 455 net lines, 5 over the budget (round
+   6's and round 11's reasons, plus this line).
+3. **SPEC §9.5, "Only the owner leaves a state"** (non-blocking). Now reads "Only the owner leaves a state (or
+   removes the section, above: a change the model's judge accepted can do that too)".
+4. **SPEC §9.5 wrapping** (non-blocking). The opening paragraph is reflowed.
+
+Tests run: `tests/test_operating.py`, `tests/test_cli_fallback.py` (52 passed), `tests/test_operating.py` with
+`tests/test_leases.py` (71 passed); ruff clean. Not run by the implementor: the full unit suite and the four browser
+files. No demo is touched, so `demo_check` is not needed.

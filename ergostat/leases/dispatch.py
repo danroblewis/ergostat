@@ -293,12 +293,13 @@ class Dispatcher:
                                          "attempt": int(lease.get("attempts") or 0) + 1})
             now = its.one(self.p.events, self.spec, it.id)
             got = held(now.fields) if now else None
+            back = (not got or got.get("holder") != run           # someone else took it first: the fold refused this one,
+                    or self.spec.operating and self.entered_meanwhile(b, now, got, run, fence, inline))  # or given back
         except BaseException:
             with self.e.lock:
                 self.e.running.discard(key)
             raise
-        if (not got or got.get("holder") != run                   # someone else took it first: the fold refused this one,
-                or self.spec.operating and self.entered_meanwhile(b, now, got, run, fence, inline)):   # or given back
+        if back:
             self.ours.discard(run)
             with self.e.lock:
                 self.e.running.discard(key)

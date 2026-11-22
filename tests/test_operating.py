@@ -305,6 +305,22 @@ def test_state_entered_between_check_and_take_gives_back(tmp_path, monkeypatch):
     assert not list(tmp_path.glob("ran-*"))
 
 
+def test_a_recheck_that_raises_after_taken_leaves_nothing_running(tmp_path, monkeypatch):
+    p, e, _ = setup(tmp_path, n=1)
+    acts.enter(p, e.spec, "maintenance", "one at a time", env=OWNER)
+
+    def unreadable(*a, **k):                      # the re-read after TAKEN (its flying() read or its ENDED write)
+        raise OSError("record unreadable")
+    monkeypatch.setattr(e.dispatch, "entered_meanwhile", unreadable)
+    it = its.one(p.events, e.spec, "ticket/0")
+    with pytest.raises(OSError):
+        e.dispatch.take(e.spec.blocks["worker"], it)
+    assert len(p.events.query(n=None, type=TAKEN)) == 1
+    assert not e.running and not e.dispatch.going.get("worker"), "the key is not left running"
+    assert not list(tmp_path.glob("ran-*")), "no run started"
+    e.close()
+
+
 def test_now_refused_under_pool_zero(tmp_path):
     p, e, said = setup(tmp_path)
     b = e.spec.blocks["worker"]
