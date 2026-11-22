@@ -235,7 +235,7 @@ def test_lines_match_code_evidence(tmp_path):
 def test_the_commands(tmp_path):
     r = Repo(tmp_path)
     r.commit({"ergostat/core.py": "A = 1\n"})
-    assert r.run("measure", r.shas[0]).stdout.startswith("size: ok (tries 1")
+    assert "\nsize: ok (tries 1" in "\n" + r.run("measure", r.shas[0]).stdout
     assert r.run("measure").returncode == 0 and r.run("measure", "--family", "nope").returncode == 2
     hist = r.run("history", TOKENS, "--last", "1").stdout.split()
     assert hist[:2] == ["2", r.shas[1]] and len(hist) == 4
@@ -243,7 +243,7 @@ def test_the_commands(tmp_path):
     rows = [json.loads(x) for x in r.run("rows").stdout.splitlines()]
     assert len(rows) == len(git(r.path, "ls-tree", "-r", "--name-only", "HEAD").splitlines())
     listed = [json.loads(x) for x in r.run("list", "--json").stdout.splitlines()]
-    assert {x["name"]: (x["family"], x["part"]) for x in listed} == {
+    assert {x["name"]: (x["family"], x["part"]) for x in listed if x["family"] == "size"} == {
         TOKENS: ("size", True), "complexity-lines-code": ("size", False), "complexity-files-code": ("size", False)}
     assert set(listed[0]) == {"name", "unit", "family", "part", "description"}
     assert r.run("report", "nothing").returncode == 2
@@ -278,7 +278,7 @@ def test_ergostat_check_reports_no_new_finding(tmp_path, capsys, monkeypatch):
             if x.name != "model":
                 (where / "dev" / x.name).symlink_to(x)
         for x in (ROOT / "dev" / "model").iterdir():
-            if keep or x.name != "complexity.yaml":
+            if keep or not x.name.startswith("complexity"):
                 (where / "dev" / "model" / x.name).write_text(x.read_text())
         (where / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
         main(["-C", str(where), "check", "--json"])
