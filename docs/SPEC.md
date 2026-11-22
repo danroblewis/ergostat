@@ -122,13 +122,13 @@ uses:                                   # any file; the instances of every file 
       every: 1d
       limit: 3
       ping: ./bin/remind.sh
-library:                                # main file only: folders of the owner's own templates
+library:                                # main file only: folders of templates (a path: the owner's own)
   - ~/private/ergostat-templates
 ```
 
 | Key | Type | Meaning |
 |---|---|---|
-| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so |
+| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so; an untrusted folder's never does (below) |
 | `with` | map | The template's parameters. A parameter it does not take, a value of the wrong type (a duration that does not parse, a setpoint, a cron expression, a name) and a required one left out are errors at that line |
 | `within` | system name | The system the instance is part of |
 | `description` | string | |
@@ -198,6 +198,38 @@ one item a run, `pool` at once, and an item that fails every try is a dead lette
 for the instance like any part (`steps` makes `NAME-workspace`, and `NAME-push` for an action `push`), and a
 block's `workspace:` and `actions:` follow the names. A block's lease terms are its own (`lease:`, with `takes:`
 and `pool:`); `leases:`, each tier's terms, belongs to the model as a whole, as do `messages:` and `storage:`.
+
+**Folders the owner did not write.** A `library:` entry is a path (the owner's folder, trusted) or a map
+`{folder: PATH}`, which is **untrusted** unless it says `trust: owner` (`trust: untrusted` says so plainly):
+
+```yaml
+library:
+  - ~/private/ergostat-templates          # the owner's: trusted
+  - {folder: ~/shared/team-templates}     # not marked trusted: untrusted
+```
+
+A map with another key, no `folder:`, or a `trust:` other than `owner` or `untrusted` is an error at its line
+(**bad-library**), and its folder is not read at all. `$ERGOSTAT_LIBRARY` is the owner's. Trust is each file's: a
+template file inside any folder listed untrusted is untrusted, even when a trusted folder (its parent, whose
+`*/template.yaml` reaches it) is listed too. Each template's trust
+(`ergostat`, `owner` or `untrusted`) is shown by the authoring tools' `library`. An untrusted template never takes the
+place of ergostat's own or a trusted one of the same name, whatever order the folders are listed in: the trusted one is
+used and `check` names the file skipped (**template-library**); between untrusted folders the first wins.
+
+A use is **held** when its template, or any template it uses at any depth, is untrusted. Its whole chain is expanded
+before anything of it is put in the model, and every part made from the first untrusted template down (trusted and
+built-in templates it uses included), as expanded with every parameter's value in it, is checked against the allowlist
+in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`,
+`goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
+`onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
+`alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
+names); sensors only counting items (`items:`) or reading a stock's changes (`changes:`), with no `every` or `cron`.
+Anything else is refused: any other section, block type or key (a sensor's `run`, `query` or `daemon`, a block's
+`on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
+anywhere). One refused part refuses the whole
+use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
+nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
+*Libraries you did not write*).
 
 ### Upkeep
 
@@ -318,7 +350,7 @@ remotes:                        # optional: systems other ergostats run, read he
   ...
 web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
-library:                        # optional, main file only: folders of the owner's templates (section 2a)
+library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
   - ...
 ```
 
@@ -613,6 +645,35 @@ The local residuals, coherence and attention leave its parts out: they are held 
 **Never edited here.** A model change (§12e) that would write a remote part is refused, as one that would
 write a template's part: it is the remote owner's to make.
 
+**Proposals for its owner** (`ergostat/numbers/remote_text.py`). When the calibration's parameter estimate or the
+equation finder (§12b) finds a change whose every edited part is one remote's (a parameter proposal's parameters, an
+equation's flow), it is written as **text for that remote's owner**, never as an edit. Under the same id the local
+one would have, it is an `ergostat.model-change` item holding only `kind`, `title`, `text`, `evidence`,
+`for_remote` (`{remote, version, parts: {local ref: remote ref}}`), `subject`, `made_by`, `created` and `made`
+(an allowlist, `FIELDS`): no fit, gate, estimate, edit or local version. Its text names the remote's parts in the
+remote's own names (looked up in what it served, `parameter.incidents-rate` → `parameter.rate`; a stand-in is never
+there), says what to change (a value from → to, ± one standard error; or a flow's equation and each new parameter's
+value, the new names made from the remote's names and free against its parameters), and gives the evidence: points,
+window and the series read. It makes no claim of fit. When a name is not served, nothing is written, and what is
+under its id is left as it was. It is recorded under the proposals' lock and, inside it, the remote's cache lock
+(`<state>/remotes/NAME/model.lock`, which a refresh holds while it reads and writes `model.json`), only when the
+version in the cache file is the version the evidence was computed on: a file missing, unreadable or without a
+version, or another version, records nothing. It is **current** only while both versions are read and equal (never
+by time); a superseding pass supersedes it when the cache's version has moved (saying from what to what), and one
+that cannot be read supersedes nothing but is listed as not current, with why. Found again at the same version with
+the same text it is left alone, and a dismissed one is not written again there; at a new version, or with another
+text, it is made again, open, and nothing of a decision under that id is kept (a change of this model's own under
+the id, whatever became of it, is superseded first; one made again from a text loses `for_remote`, `text` and
+`evidence`). Its state is `checked` and it is never in the review queue (`proposals.pending`), the judge, the
+inbox, MCP or the Model page; Accept refuses it first, by every path ("is text for remote NAME's owner: it is never
+applied here"); dismiss lets it go. It is **never sent by ergostat: sending it is the owner's act.** `ergostat
+remote proposals [NAME] [--json]` lists the open and the dismissed ones, each with the version it was written
+against, whether it is current and its text; it takes no lock and writes nothing, and runs on the last good model
+while the YAML is broken (`goodmodel.READ_WHAT`; the rest of `ergostat remote` acts). `ergostat proposals` says how
+many are waiting there. Not made for a remote: a change touching both this model's parts and a remote's, or two
+remotes' (kept with its edit's error, and refused by Accept as before); structural changes, redesigns, a block's
+proposal and the owner's what-if (refused, as any edit of a remote part).
+
 **What a remote serves.** Any ergostat whose page runs serves this read-only API once a token is made
 (`ergostat remote token NAME`, printed once, kept only as its hash; `--revoke`; `ergostat remote tokens`).
 Every request carries `Authorization: Bearer TOKEN`; only `GET`; 10 requests a second per token (bursts
@@ -631,7 +692,8 @@ what admits.
 
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
-most); `ergostat remote refresh` asks each again now.
+most); `ergostat remote refresh` asks each again now; `ergostat remote proposals` lists the texts written for
+remotes' owners (above).
 
 ## 4d. The page behind a public name
 
@@ -1141,7 +1203,13 @@ gives the same.
 **States.** An item arrives in its kind's first state (a move from nowhere, so a flow can count
 arrivals with `entering:`), and stays there until an event its kind maps moves it; every move is
 kept (from, to, when, by which event), so how long it spent in each state is known. An item no
-kind matches is still shown, with its fields (folded with no rules) and no state.
+kind matches is still shown, with its fields (folded with no rules) and no state. A built-in kind
+may also say which states an event moves an item **from** (`ItemKind.moves_from`: event type to a
+tuple of states): such an event moves the item only when its state at that point of the fold (in
+the record's order, `seq`) is one of them; otherwise it moves nothing, and the item lists it in
+`refused` with `form: "from"`. So a decision to move an item is made against its state where the
+event lands, not where its writer last read it (the repair loop's failures, section 12r). It is
+not written in a model's YAML.
 
 A field whose value is `file:PATH` names a file in the project (a picture a program made, a report,
 an agent's transcript): the page shows it where the item is shown, as what it is (`formats`, or its
@@ -1350,6 +1418,22 @@ answered, so a step's own code may speak it with no ergostat installed: `{"op": 
 "count", "env": {...}}`, each with `"root"`, the project's folder (another project's call is not answered:
 `{"elsewhere": ...}`). An answer is the command's `--json` answer, or `{"error": WHY, "code": EXIT}`. An `act` that
 waits for an approval holds no thread: it is answered when the owner answers.
+
+A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no engine answers (no socket, a refused
+connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
+120, at most 3600), then does what it does with no engine. A command from a shell does not wait. It does not wait
+where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
+the socket is removed it waits 10 s at most for it to be made again. Only a final stop removes it: `ergostat run`
+starting itself again in place under the same name (a change of storage or format, or the watchdog's restart) leaves
+it, as a killed engine does, so its calls wait the whole bound for the new engine; a new name is a new state folder,
+so that restart removes it. Over-long keys are hashed, never cut short. Each call carries a
+key, `"call"`, made once by the command, the same on every try and in what the command records itself when it falls
+back: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
+renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again (its answer is
+the event recorded the first time); an `act` with
+no `--key` from a run with no item is keyed by it, so one held for the owner is asked once (a run with an item already
+finds its held action again, by its action and arguments). An `act` asked again after a restart waits for its `wait`
+again, from when it is asked.
 
 ## 6. Sensors
 
@@ -2816,10 +2900,20 @@ runs as a process of its own.
   whatever reads a model reads that model's plan. `swap` works out the new model's plan under the engine's lock; a
   plan without the engine's shard is refused, and the last model keeps running. A part that moved to another shard
   leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
-  readings, estimate and observer track, and its daemon (drained). Not yet by shard: the owner's asks (approvals,
-  stops, restarts, step tests, actions) are followed by every engine as before; a run a block's moving a flow asks
-  for reads that flow's stocks' sensors wherever they are; the lead's one-time duties (the start event, the
-  messages' sweep) are done by each; and an agent's `at-once` is counted in each engine.
+  readings, estimate and observer track, and its daemon (drained). Each owner's ask in the record is followed by
+  the one engine whose shard `Plan.of` gives for what it names: an approval, a denial, a breaker reset or a stop by
+  the block's (`block.NAME`), a restart by the daemon's, a step test by its goal's (and at start each engine resumes
+  only its own goals' tests), an approved program action by the shard of the block whose run asked for it. An ask
+  about something the model does not have (a removed block, an unknown daemon, an action with no block) is the
+  lead's alone; besides, an engine still holding the run of the block a stop names, itself or in a daemon, stops it,
+  whoever owns the block now. Each engine judges an ask under the one model it read for it, so after a `swap` the
+  next ask about a moved part goes to its new owner. `start` refuses a block outside the shard as the model is when
+  the run would start: an approval judged just before a swap moved its block is refused there, said, and must be
+  given again (the new owner judged it not its own). Only the lead does what is done once: the `ergostat.started`
+  event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases, actions and notices,
+  the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket. Not yet by shard: the
+  wires are not carried; a run a block's moving a flow asks for reads that flow's stocks' sensors wherever they are;
+  and the calls socket is one per state directory, not one per shard process.
 
 ## 10. Agents
 
@@ -2920,7 +3014,12 @@ where the error is 0.
 - a `run`, `prompt` or `ask` on an external block, or a built-in block with an `agent`;
 - a block whose agent cannot run its type (an `ai` block on an agent of kind `person`);
 - units that disagree between a flow and its stocks, or a sensor and what it measures;
-- a cycle of built-in blocks with no delay (an algebraic loop).
+- a cycle of built-in blocks with no delay (an algebraic loop);
+- **bad-library**: a `library:` entry that is neither a path nor `{folder: PATH}` with an optional `trust: owner` or
+  `trust: untrusted` (its folder is not read; section 2a);
+- **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
+  `ergostat/library/trust.py` does not allow: at the owner's `use:` line, and nothing of the chain is in the model
+  (section 2a).
 
 **Findings** (reported, not errors):
 
@@ -2938,8 +3037,8 @@ where the error is 0.
   (section 2a);
 - **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
   (section 12e);
-- **template-library**: a template in a `library:` folder that does not read, or one used in place of
-  ergostat's own;
+- **template-library**: a template in a `library:` folder that does not read, one used in place of
+  ergostat's own, or an untrusted folder's template not used because a trusted one has its name;
 - **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
   is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
   (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
@@ -3084,6 +3183,37 @@ block's taken as its goal's; a system's subsystems each one node), never a run:
 - **purpose**, in a model with systems: a system with no `description` (its purpose); a described system whose blocks
   act for no goal inside it (one with stocks and no blocks, a sector, is normal); goals in no described system, when
   the model has no `purpose:`.
+
+**The AI rung: the Viable System Model and purpose coverage** (`ergostat/spec/vsm.py`,
+`ergostat/numbers/vsm_review.py`), run only when the owner asks: `ergostat improve --architecture [SYSTEM]`. For a
+system, the **checklist** is computed from the structure (no run, and no note): for each of Beer's functions the
+parts that may fill it, with why: S1 the goals directly in it on a stock of its own, and its subsystems; S2 its blocks
+that take an item kind (sharing its leases, §9.5) or use a workspace pool that a block outside also does; S3 its
+subsystems' inner-loop goals it sets, and its goals whose setpoint another goal's block commands; S3\* its judge
+blocks and blocks with a `claims` param; S4 its measured flows in from a cloud, and the model's `use: modelling` loop
+(marked model-wide); S5 its description, the model's `purpose:` and its subsystems' descriptions. One AI call
+(`$ERGOSTAT_AI`, haiku by default, no tools, `--max-budget-usd 0.25`, killed with its process group after 300 s)
+is given a brief of the system (its words, parts, subsystems, interface, its architecture notes and the checklist,
+at most 30,000 characters) and answers with one JSON line. The answer is checked, not trusted: a function said
+present must name at least one of the system's own parts (for S5, its description or the purpose), or it is dropped
+as unsupported and counted; a goal must be the system's own (a subsystem's goal is judged by the subsystem's
+review); a goal said to serve the purpose, and each part of the
+purpose said uncovered (two words or more), must quote the owner's words, found in the description (or the purpose)
+after whitespace and curly quotes are made plain, or it is dropped. A system with no description gets no purpose
+coverage. The review is recorded (`ergostat.architecture.reviewed`: the system's `signature` and a hash of its words,
+the model, its cost, `cost: reported`, or `charged` at the whole cap when none was reported, and what was kept). What
+it keeps becomes modelling requests held for the owner (§12e, `source: architecture`): `vsm-s1` … `vsm-s5` and
+`vsm-s3-audit` for a function said missing (naming the checklist's candidates, when it had some),
+`purpose-uncovered`, `goal-off-purpose`. A later review answers one only on evidence it kept: that function present
+with a real part, purpose coverage reviewed with nothing left uncovered, that goal said to serve; one said again is
+reopened afresh and held. A call that fails, times out, errs or gives no answer line is recorded as
+`ergostat.architecture.unreviewed`, at its cost, and raises and answers nothing. Writes are made under
+`architecture.lock`, after reading the latest review's seq again: a review of the same system recorded since wins,
+and this one is recorded `applied: false`. One call per system; at most 12 systems a run (never a once template's
+own); a run's `--max-cost` is $1.00 by default and at most $5.00, and a call is made only while what was spent plus
+$0.25 stays within it. `explain system.NAME` (with a project) says the latest applied review, and when the system's
+parts or words have changed since. The reviewer is not shown to find every missing function: what the checks
+guarantee is only that a function said present names one of the system's parts and that a quote is the owner's.
 
 ## 12a. Feedback loops (system dynamics)
 
@@ -4084,6 +4214,14 @@ template made, or one no change to the model answers, such as `template-stand-in
 and, once the record is long enough to compare, each coherence mismatch (§12l) no finding already says (those about
 ergostat's own kinds are left out). Each records what it is about (`about`), why (`says`, check's words), where, its
 `source` (check, craft, coherence) and the tier that answers it first (`tier`: rule or ai).
+
+Two sources are not check's, and the collector (`sync`) never answers them: `redesign` (a redesign's trigger, below)
+and **`architecture`**, what an architecture review the owner ran kept (§12, *The AI rung*: `vsm-s1` … `vsm-s5`,
+`vsm-s3-audit`, `purpose-uncovered`, `goal-off-purpose`, its id `rid("architecture", code, about)`). An
+architecture request is held for the owner at once (`owner: true`, `tier: owner`): no tier writes a model change for
+a judgement, and approval is not offered (only a dismissal, or the owner's own change). Only a later applied review
+answers it, on the evidence it kept; one said again after it was answered is reopened with fresh `says`, `version`
+and `review` (the review's seq), its `why` and `change` cleared, and held again.
 
 | State | When |
 |---|---|
@@ -5632,8 +5770,7 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
 is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (verifying
-a fix by the runs after it, offering its revert, the ladder's other rungs, a check for programs that swallow their
-errors) is in `docs/GAPS.md`.
+a fix by the runs after it, offering its revert, the ladder's other rungs) is in `docs/GAPS.md`.
 
 ```yaml
 uses:
@@ -5651,8 +5788,26 @@ uses:
 **Triage.** In a model that uses repair, every failed run of a `program` or `ai` block is recorded as
 `ergostat.run.failed` about an item of the built-in kind **`ergostat.failure`** (it exists only in such a model), one
 item a **signature**: the block, its program (the first word of its `run:` that is a file under the model's folder), the
-exception's type and its innermost frame in the project (from Python's traceback); without a traceback, the block, its
-program and how it ended. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
+exception's type and its innermost frame in the project, from the last trace in the run's output; without one, the
+block, its program and how it ended. Traces are read from the **tail** only: the last 8,000 characters of the run's own
+file, its first partial line dropped when it does not begin at the run's start. Four languages are read
+(`repair/traces.py`): **Python**'s `Traceback (most recent call last)` (its frame the innermost one outside
+`site-packages`, `/lib/python`, `<frozen` and `<string>`, as triage always signed it, so a Python failure keeps its id);
+**Node**'s `Name[ [CODE]]: message` directly followed by `    at` lines; **Java**'s outer exception line (with or
+without `Exception in thread "T"`) directly followed by `\tat` lines, then its `Caused by:` blocks (indented
+`Suppressed:` blocks ignored); **Go**'s `panic: message`, `goroutine N [running]:` and its function and file lines (its
+type `panic`). The trace whose header line comes last is taken, and **a trace needs its header**: one whose header the
+tail cut off is no trace, whatever frames or `Caused by:` lines are left, and the run is signed by how it ended (so a
+Python traceback more than 8,000 characters before the end of a failed run's output is too). A **project frame** is one
+whose file, a relative path taken against the model's folder, lies under that folder, in none of its `site-packages`,
+`node_modules`, `.venv`, `venv` or `vendor` folders, and is not the runtime's (`node:`, `<frozen`, `<string>`); for
+Node and Go the signature frame is the innermost project frame, else the innermost frame. **Java** signs by its **root
+cause** (the last `Caused by:`, else the outer exception): its type and message, and the innermost project frame of
+its own frames, else of the nearest enclosing exception's, else its innermost frame. A Java frame's file is its class's
+package path (`com/acme/Store.java`), the project's when a file under the model's folder ends with it; the folder is
+walked for that once a trace, at most 5,000 entries (dot-folders and the library folders not entered), and a walk that
+reaches the cap finds no Java frame the project's (the trace says `walk: capped`). Ruby and other languages are not
+read. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
 of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. The standard
 error is read only from the run's own file (`log`, `logs/runs/<block>/<seq>-<id>.log`, section 4b), never from the
@@ -5664,10 +5819,34 @@ note `could not start: its run log: ...`), so its failure stays `noted`. A failu
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
 timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
 (SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that
-exits with such a code on purpose is noted too. One that fails again after its fix was applied is opened again. The loop's
-own blocks (`repair-fix`, `repair-settle`) and any run a failure's events caused (six steps up the cause chain) record no
-failure. States: `noted`, `open`, `leased` (being fixed), `awaiting-approval`, `applied`, `dismissed`, `dead` (its fixes
-failed `tries` times).
+exits with such a code on purpose is noted too. One that fails again after its fix was applied is opened again. Triage
+writes `ergostat.failure.opened` whenever the run's own facts allow it, and the **fold decides** whether it moves the
+item, by the item's state at that event's place in the record (`moves_from`, section 5a): `opened` moves a failure only
+from `noted`, `applied` or `superseded`, so a failure leased, awaiting approval, dismissed or dead stays where it is,
+the refusal listed, whatever triage read before it wrote. What triage still decides from a read (whether the item is
+new, when its run of failures `began`, which old item it supersedes) is read, decided and written while it holds
+`repair/capture.lock` in the state directory. The loop's own blocks (`repair-fix`, `repair-settle`) and any run a
+failure's events caused (six steps up the cause chain) record no failure. States: `noted`, `open`, `leased` (being
+fixed), `awaiting-approval`, `applied`, `superseded`, `dismissed`, `dead` (its fixes failed `tries` times).
+
+**Swallowed errors.** A run of a `program` or `ai` block that ended well (exit 0, no note), whose block runs a program
+of the project's, has its tail read the same way. When its last trace has a project frame, one
+`ergostat.run.swallowed` is written about the failure that trace signs (the same signature a failure would get). A new
+item arrives `noted`, with a failure's fields, `swallowed: 1` and `count: 0`, and is never opened by it; for an
+item that exists, in any state, the event says only `{"swallowed": 1, "last_swallowed": RUN}` (`swallowed` folds as a
+sum). The event moves no state, writes no `repair/NAME.input` for an existing item, and carries none of the fields the
+fixer reads, so a failure being fixed keeps its lease and its traceback. A trace with only library or runtime frames,
+or none, records nothing. A later failed run with the same signature opens the noted item as usual. A daemon's run
+hands back no standard error (above), so what a daemon swallows is not seen.
+
+**Superseding.** Node, Java and Go failures were signed by how they ended before triage read their traces, so their old
+items have other ids. When a failure is signed by such a trace, triage looks for the item at its old signature (block,
+program, how it ended); only if that item's kept `stderr` parses to the same new signature does it write
+`ergostat.failure.superseded` (`{"by": NEW}`) about it, which moves it to `superseded` from `noted` or `open` only. One
+being worked (leased, awaiting approval, applied) is not moved, the refusal listed, and a later failure tries again;
+one whose stderr is another bug that ended the same way is left alone. A failure at that old signature with no readable
+trace (one that ended the same way) opens the superseded item again, so it hides nothing. Python failures are never
+superseded: their signatures did not change.
 
 **Sealed.** A failure's fields are ergostat's alone: its kind is *sealed* (`ItemKind.sealed`), so the fold
 (`spec/items.py`) refuses every event about it whose type is not ergostat's own (`ergostat.*`, which no block line,

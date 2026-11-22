@@ -149,6 +149,7 @@ def home(tmp_path, monkeypatch):
     test's CLI would then talk to that engine instead of its own."""
     for k in [k for k in os.environ if k.startswith("ERGOSTAT_")]:
         monkeypatch.delenv(k)
+    monkeypatch.setenv("ERGOSTAT_CALL_RETRY", "5")    # a run outliving its test's engine gives up soon (rs-calls)
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     return tmp_path / "home"
 

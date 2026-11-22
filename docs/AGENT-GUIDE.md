@@ -142,7 +142,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
    redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
    change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
-   they say rather than proposing the same idea again. Do not hand-write these parts. The other built-in templates
+   they say rather than proposing the same idea again. Do not hand-write these parts. When the person asks for an
+   architecture review, `ergostat improve --architecture [SYSTEM]` (one haiku call a system, `--max-cost` $1 by
+   default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
+   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    so far its item-index files held at `index-files` (6) by a rule-tier tidier that takes over from the engine's own
    (SPEC §2a, *Upkeep*). Add it when the files a model's changing kinds leave behind should show on the diagram.
@@ -350,6 +353,14 @@ The essentials:
   so the dashed lines between kinds appear; rework as a declared move back.
 - **Everywhere**: the same names in every view, a description on every part.
 
+### Templates from a folder the owner did not write
+
+A `library:` entry written `{folder: PATH}` is untrusted (SPEC §2a): its templates may make only structure, and a use
+that makes more is refused (`library-untrusted`), whole. **Never write `trust: owner`, and never turn a map entry
+into a plain path**, to get past that refusal or for any other reason: that is the owner's decision, made after
+reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
+which template and part were refused, and ask.
+
 ## 3a. A system another ergostat runs: compose it, never copy it
 
 When part of the person's work is run by **another ergostat** (another team's, another machine's), do
@@ -384,6 +395,9 @@ keeps running it; this model reads it.
 5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
    the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
    incidents, ref: stock.open}`.
+6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
+   equations for the remote's parts, written as text in its names for its owner, each marked current or not.
+   They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
 
@@ -644,6 +658,9 @@ Add `use: repair` (once a model, like `modelling`; SPEC §12r) when the owner wa
 failed run becomes an `ergostat.failure` item, one per signature, counted; one whose block runs a program of the
 project's is fixed by an AI (haiku by default, with no tools: ergostat gives it the program and the files beside it) in
 a clone of the repository, tested in the sandbox, and proposed as the gated action `apply-fix` with its impact report.
+Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
+is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is

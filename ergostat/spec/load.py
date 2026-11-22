@@ -141,7 +141,8 @@ class Document:
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
     problems: list[Problem] = field(default_factory=list)
-    library: list[Path] = field(default_factory=list)   # the owner's folders of templates (library:, main file only)
+    library: list[Path] = field(default_factory=list)   # the folders of templates (library:, main file only)
+    untrusted: set[Path] = field(default_factory=set)   # of them, those not the owner's: {folder: PATH} (SPEC §2a)
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
@@ -237,12 +238,19 @@ def load(main: Path) -> Document:
         if "library" in data:
             if top:
                 lib = data["library"]
-                lib = [lib] if isinstance(lib, str) else lib
-                if not isinstance(lib, list) or not all(isinstance(x, str) for x in lib):
-                    doc.problems.append(Problem("error", "library: a folder of templates, or a list of them", data.at("library"),
-                                                "bad-library"))
-                else:
-                    doc.library = [(path.parent / Path(x).expanduser()).resolve() for x in lib]
+                for x in lib if isinstance(lib, list) else [lib]:
+                    folder = x if isinstance(x, str) else x.get("folder") if isinstance(x, dict) else None
+                    trust = "owner" if isinstance(x, str) else x.get("trust", "untrusted") if isinstance(x, dict) else None
+                    if not isinstance(folder, str) or trust not in ("owner", "untrusted") or \
+                            (isinstance(x, dict) and set(x) - {"folder", "trust"}):   # not loaded at all: never trusted
+                        doc.problems.append(Problem(
+                            "error", "library: a folder of templates (the owner's), {folder: PATH} (one not marked trusted), "
+                            "{folder: PATH, trust: owner}, or a list of them", getattr(x, "where", None) or data.at("library"),
+                            "bad-library"))
+                        continue
+                    doc.library.append((path.parent / Path(folder).expanduser()).resolve())
+                    if trust != "owner":
+                        doc.untrusted.add(doc.library[-1])
             else:
                 doc.problems.append(Problem("error", "library: belongs in the main file only", data.at("library"),
                                             "library-in-include"))

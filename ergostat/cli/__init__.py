@@ -15,7 +15,7 @@ from .common import PART_TOPICS
 from .impact_cmd import cmd_impact
 from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
-from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
+from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
 from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
@@ -291,6 +291,12 @@ def build() -> argparse.ArgumentParser:
     im.add_argument("--redesign", nargs="?", const="model", metavar="SYSTEM",
                     help="ask for a redesign of a system (or the whole model): one change set, judged by its scorecard; "
                          "the template's redesigner takes it up on its next run and puts what it makes in the review queue")
+    im.add_argument("--architecture", nargs="?", const="", metavar="SYSTEM",
+                    help="review a system (or every system of the model's own) against the Viable System Model and its "
+                         "purpose, one AI call each; what it finds is held for you as modelling requests")
+    im.add_argument("--model", help="with --architecture: the AI model (default haiku)")
+    im.add_argument("--max-cost", type=_max_cost, default=1.0, metavar="USD",
+                    help="with --architecture: the run's dollars at most (default 1.00, at most 5.00)")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")
         sp.set_defaults(fn=cmd_part, topic=t)
