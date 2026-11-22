@@ -25,3 +25,27 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1 (8 net lines outside tests: 14 added, 6 removed).
+
+- Dynamics' cards: `ergostat/dynamics.py` `attention()` (the Dynamics view's words, which the page shows as given) now
+  writes `goal NAME` for a controlled goal's card where it wrote `loop NAME`, also inside the text ("goal a keeps
+  feeding x while goal b is off"), and `what serves it` where it wrote `its decision`. Only names of the model's
+  goals are rewritten, whole, so "feedback loop q-x" is left alone. This file is outside "Files to touch"
+  (`ergostat/web/`): it is where the Dynamics words are made, and the page has no other place to change them.
+- Suggestions' "Evidence" link (`diagram.js`) reads `goal NAME` as well as `loop NAME`.
+- Dynamics' Feedback loops list (`dynamics.js`): a loop whose parts include a goal's gap says
+  `serves goal NAME` (`serves goals a, b` for several). The heading "Feedback loops" is unchanged.
+- Blocks (and the control view): the list heading is "Control loops", its empty text "No control loops in view.".
+  Choice, the most reversible one: in Blocks the cards keep `loop NAME` (no R or B loop is drawn there, and the same
+  `what` is the CLI's, the Loops page's and other tests'); only the heading says "control loop".
+- Tests: `tests/test_diagram_rendering.py::test_in_dynamics_a_goal_is_called_a_goal_and_loop_means_an_r_or_b_loop`
+  (software-factory, one reading of backlog above its goal so `backlog-clear` is off: no card in Dynamics starts with
+  `loop `, one starts with `goal `, "Feedback loops" stays, every loop through a goal says `serves goal`; in Blocks
+  the heading is "Control loops"). Seen to fail with each change undone in turn (card `loop backlog-clear`; no
+  `serves goal`; heading "Loops"). Not seeded in the browser: a suggestion (the ladder hints need 10 minutes of an
+  off record); its words are pinned by the unit tests `test_the_attention_cards_speak_system_dynamics` (changed: it
+  forbade the word goal, which this gap asks for) and `test_a_goal_s_suggestion_says_what_serves_it` in
+  `tests/test_dynamics_view.py`.
