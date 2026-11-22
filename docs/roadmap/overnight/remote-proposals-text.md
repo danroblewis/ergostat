@@ -232,3 +232,20 @@ set from that list. When the list is missing, nothing is written. Test
 (seen) and passes now. Run again after the merge, one file at a time: test_remote_proposals (31), test_cli_fallback,
 test_remote and test_remote_pair (62 in all), test_numbers, test_review and test_inbox (107 in all). ruff is clean. The
 whole unit suite and the four browser files were not run here.
+
+**Round 3.** The queue's finding: this branch was the first failing merge of a batch of 2, and alone it failed
+`tests/test_warm.py::test_the_owners_stop_is_said_only_on_the_run_it_stopped`. Nothing was changed for it, under
+lesson-13, because the branch does not reach that test's path. The test runs a warm block (`python3 w.py`,
+`concurrency: 2`), with no remotes, no proposals, no judge block and no CLI fallback. The branch changes
+`proposals.py`, `remote_text.py`, `remote/cache.py`, `remote/compose.py`, `cli/remote.py`, `cli/numbers.py` and
+`goodmodel.py`. The engine reaches these only through `Engine.judge` (`spec/engine.py:1211`, a judge block's pass,
+where `judge.run` calls `pr.supersede` and so `remote_text.moved`), and that test's model has no judge block.
+`goodmodel.reads` changes only for topic `remote`. Here (main 1171fb2f already merged, at f5110251) the test passed
+each of the 4 times it was run: twice on its own, once with the rest of test_warm (21), and once with test_warm,
+test_daemons and test_leases (92). A loop of repeated runs was refused in this session, so it was not run more. The test waits on
+wall-clock bounds (`wait_for(..., 10)` and `wait_for(..., 5)` on warm subprocesses starting), so under the queue's
+load it is a lesson-10 candidate. It should be run again on clean main under the same load. It is not fixed here: a
+fix belongs in its own gap. Run again here: test_remote_proposals, test_cli_fallback, test_remote and
+test_remote_pair (62 passed), and test_warm, test_daemons and test_leases (92 passed). ruff is clean. The whole unit
+suite and the four browser files were not run here. This clone has no `origin`, so the main merged is the local
+`main` (1171fb2f).
