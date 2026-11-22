@@ -68,3 +68,10 @@ Built, round 1. 59 net lines in `ergostat/web/static`: `keys.js` (48, new, loade
   acceptance test passed (1 passed, rc 0). ruff is clean. The build command, or `affected_tests.py`, does not add
   Playwright for a browser file. That is the factory's own tooling and lies outside this gap (lesson 13), so it is left
   for its own gap. Until then, any branch whose only affected tests are browser files fails the build step this way.
+- Build step, round 2: the same rc 5 (only `tests/test_diagram_rendering.py` selected, skipped without Playwright).
+  No ergostat code was at fault, so none changed. The stylesheet part of the change (`button.looprow`) now has a check
+  in its own unit test file, `tests/test_style_tokens.py::test_a_loop_row_made_a_button_keeps_the_rows_look`. Because
+  that file changed, the build step selects it, so a real test of this change runs without a browser. It passes (6
+  passed in the file); ruff is clean. Not shown to fail with the rule removed: running the test with the stylesheet
+  deliberately broken was refused here. The tooling gap (`affected_tests.py` maps only `.py` sources and gives no
+  browser to browser files) still belongs to its own gap.
