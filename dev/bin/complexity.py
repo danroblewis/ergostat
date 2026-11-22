@@ -5,7 +5,8 @@
     complexity.py history NAME [--last N]      seq sha at value, per measured first parent of the base
     complexity.py rows [SHA] | list [--json] | report NAME [SHA] [--json]
 
-Read from the ref (`git ls-tree -r`, one `git cat-file --batch`), never the working files; one git child at a time.
+Read from the ref (`git ls-tree -r`, then a `git cat-file --batch` per family for the blobs its cache lacks), never
+the working files; one git child at a time.
 Under `<run>/complexity/`: `commits/<sha>.json` (atomic rename), `blobs/<family>-v<VERSION>-<env>.jsonl` (keyed by
 blob alone: a blob is measured once in all history) and `locks/<family>`, held across a family's read, compute and
 write. A family is a sibling `cx_<family>.py` (the contract: the record, point 6); a change to its `EVERY` needs a new

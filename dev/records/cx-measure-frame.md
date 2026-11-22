@@ -49,3 +49,35 @@ A new stdlib-only `dev/bin/complexity.py` that measures a git ref (never the wor
 300 net lines outside `tests/` and `docs/` (all of it in `dev/`).
 
 From the owner's request of 2026-11-22: measure ergostat's code complexity in many forms and slices, as stocks on main, backfilled from git history.
+
+## Where it stopped
+
+Built: all ten points and every acceptance test named above, plus three more tests (a family's entry written while another
+family computes is kept, so the merge re-reads under its lock (lesson-1); the CLI commands; series names match their parts).
+Nothing is left within the definition. `complexity.py record`, which the stock's description names, belongs to
+cx-backfill-run and does not exist yet.
+
+Choices made without anyone to ask (each easy to reverse):
+- `value` passes over a family that was `skipped` (off its stride) or that has no entry, but stops on one that `failed`:
+  no value (exit 1), never an older reading in its place (lesson-3). It also stops with no value when the family is `ok`
+  but did not give that series.
+- `history` lists only commits on the base branch's first-parent line, ordered by `seq`.
+- `package` is `""` for files outside `ergostat/`. `lang` is the suffix without its dot when it is not in the short map
+  (so `.wasm` gives `wasm`). Symlinks are left out of the rows.
+- The blob cache is keyed by blob alone, as point 5 says, so the same blob under two paths is measured once.
+  `cx_size` reads the path only to decide whether to count tokens (`.py`).
+- A merge drops this family's old series, and any series no loaded family declares, so a series renamed in a new
+  version leaves no stale value behind (lesson-5). A change to `EVERY` needs a new `VERSION`, because a `skipped` entry
+  stands otherwise.
+- `per_commit` values must be declared series and finite numbers. Anything else fails the family.
+- In `measure`, a family's per-commit `rows` carry only that family's own per-file measures. `rows` and `report` take
+  every family's lock, in name order.
+- `complexity-lines-code` and `complexity-files-code` count the code scope's Python only, matching code_evidence.py.
+
+Tests: `tests/test_factory_cx_frame.py`, 14 passed (it includes `ergostat check` on the root model with and without
+`dev/model/complexity.yaml`, and finds nothing new). Ruff is clean. I broke the code and watched the tests fail
+(lesson-9) for: the f-string count, the vendored list, the try limit (`TRIES = 30`), a merge that does not re-read the
+file, a `value` that passes over a failed family, and a blob cache that is never read. The unit suite and the browser
+files were not run here; the factory and the queue run them.
+
+Overrun reason: 425 net lines in dev/ against 300 (complexity.py 328, cx_size.py 51, complexity.yaml 34 with the 11-line pattern header point 9 asks for, README 12); the six commands, per-family locks, retries, strides, version/env invalidation and the snap API are each required by points 1-6, and shrinking further would pack lines, not remove logic; the factory's own size gate (fac.net_lines, core) leaves dev/ out and reads 0.

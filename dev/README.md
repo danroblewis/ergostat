@@ -431,10 +431,11 @@ evidence run, no coverage report, an unreadable history line, or fewer than two 
 Each family of measures is a module `dev/bin/cx_<family>.py`. The first is size: per file lines, net lines, bytes and
 Python tokens. Its series are the code scope's tokens (`complexity-tokens`, a stock in `dev/model/complexity.yaml`),
 net lines and files (cache only). Vendored libraries are marked and left out of every sum. Everything is cached under
-`run/complexity/`: `commits/<sha>.json` (one per commit), `blobs/` (each blob measured once per family version) and
-`locks/`. `complexity.py measure [SHA]` computes what is missing. `value NAME [SHA]` reads the newest measured first
-parent and never computes (no value: exit 1). `history`, `rows` and `report` read the cache. `complexity.py list`
-names every series. No sensor runs it; the readings are recorded per commit of main, at the commit's time.
+`run/complexity/`: `commits/<sha>.json` (one per commit), `blobs/` (each blob measured once per family version and
+env) and `locks/`. `complexity.py measure [SHA]` computes what is missing. `value NAME [SHA]` reads the newest
+measured first parent and never computes (no value: exit 1). `history` reads the commit files; `rows` and `report`
+measure the files, from the blob cache where it has them. `complexity.py list` names every series. No sensor runs it;
+the readings are recorded per commit of main, at the commit's time.
 
 ## The machine's resources: a cap on the pools
 
