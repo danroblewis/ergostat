@@ -346,7 +346,7 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
         cmd, name = cfg["suites"][n], None
         if tests is not None:
             cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
-        cmd = fac.deselected(n, cmd, held + own)
+        cmd = fac.deselected("unit" if n == "build" else n, cmd, held + own)   # (build: the unit suite's few)
         if cfg["ai"]["mode"] != "standin":
             name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"
@@ -364,7 +364,7 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             out[n] |= {"skipped": skipped} if skipped else {}
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
-    if "unit" in out:                                  # the quarantined tests beside it, never blocking
+    if "unit" in out or "build" in out:                # the quarantined tests beside it, never blocking
         fac.beside(held, logs / f"{tag}-quarantined-alone.txt",
                    lambda ts: suites(cfg, home, ("alone",), logs, f"{tag}-quarantined", tests=ts))
     return out
