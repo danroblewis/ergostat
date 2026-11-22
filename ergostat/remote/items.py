@@ -105,7 +105,7 @@ def _ask(spec, name: str, r: dict, table: str, key, path: str, params: dict | No
         return served(st["failed"] is None, f"{name} asked {ASKS} times this period; again in {again}s", 503)
     st["asks"] += 1                                             # counted before it goes, answered or not
     code, body, _, why = client.get(r["url"], path, token, params, timeout=cache.TIMEOUT, tls=r.get("tls"))
-    if code == 404 and table == "details" and why.endswith("no such item"):
+    if code == 404 and table == "details":                      # that item is missing there, not the remote down
         raise RemoteRefused(404, f"no such item at {name}")
     if code == 200 and not shaped(body):
         code, why = -1, "unexpected answer"

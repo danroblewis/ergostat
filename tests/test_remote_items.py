@@ -364,6 +364,29 @@ def test_an_item_from_a_remote_that_does_not_answer(site):
     site.fake.down = (404, None, None, "404 no such item")
     code, body = get(site, "/api/items/t-1?remote=r")
     assert code == 404 and body["error"] == "no such item at r" and "item" not in body
+    site.clock[0] += 61                                  # a 404 in other words (an older remote, a proxy): that item only
+    site.fake.down = (404, None, None, "404 Not Found")
+    code, body = get(site, "/api/items/t-2?remote=r")
+    assert code == 404 and body["error"] == "no such item at r" and "item" not in body
+    site.fake.down = None
+    asked = len(site.fake.calls)
+    code, body = get(site, "/api/items?remote=r")        # the remote is not marked failed: its listing is still asked
+    assert code == 200 and body["ok"] is True and len(site.fake.calls) == asked + 2
+
+
+def test_one_remote_event_is_refused_not_answered_with_the_listing(site):
+    for path in ("/api/events/e1?remote=r", "/api/events/anything?remote=r", "/api/events/e1?remote=nope"):
+        code, body = get(site, path)
+        assert code == 400 and body["ok"] is False and "events" not in body, path
+    assert site.fake.calls == []
+
+
+def test_an_event_without_a_numeric_time_is_left_out_and_said(site):
+    site.fake.log[1]["time"] = "yesterday"
+    site.fake.log[2]["time"] = None
+    code, body = get(site, "/api/events?remote=r")
+    assert code == 200 and [e["seq"] for e in body["events"]] == [1]
+    assert "2 events without a numeric time left out" in body["why"]
 
 
 @pytest.mark.parametrize("what,body", [("items", {"items": "x"}), ("counts", []), ("events", {"events": None})])

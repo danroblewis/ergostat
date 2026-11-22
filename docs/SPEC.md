@@ -749,7 +749,7 @@ of them reaches the local record or fold.
 | Asked of the page | Answers |
 |---|---|
 | `/api/items?remote=NAME` (`kind`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/remote/v1/counts`), `total`, `items` (each marked `remote`) |
-| `/api/items/ID?remote=NAME` | `remote`, `ok`, `why`, `read`, `age`, `item` (the remote's own detail); 404 *no such item at NAME* when it says so, never a local item of the same id |
+| `/api/items/ID?remote=NAME` | `remote`, `ok`, `why`, `read`, `age`, `item` (the remote's own detail); 404 *no such item at NAME* on any 404 there, never a local item of the same id |
 | `/api/events?remote=NAME` (`n` ≤ 1,000, `type` a glob) | `remote`, `ok`, `why`, `read`, `age`, `events` from the cursor cache, in `seq` order, each marked `remote` |
 
 Without `remote=` these answer as before; `/api/items` also says `remotes` (each name and url) when the model has
@@ -769,8 +769,9 @@ space, `\`, an empty segment or `..` is refused, and such an item is listed but 
   then at most five pages of 1,000). `ergostat remote events NAME` reads in its own process, every time it is run,
   whatever the period; it shares no cache with the page server, so the pages' period is unaffected by it.
 - **One lock a remote.** Each decision (fresh? failed this period? within the budget?), the request, the write and
-  the trim are made under one lock per remote, so many pages polling ask once. Each request is bounded by 3 s; a
-  caller waits at most 7 s for an items lock (19 s for the events lock, whose holder may make six requests), then
+  the trim are made under one lock per remote, so many pages polling ask once. Each request has a 3 s timeout on
+  each socket operation (connecting, and each read), not a total deadline, so a remote that answers slowly can hold
+  its lock longer; a caller waits at most 7 s for an items lock (19 s for the events lock, whose holder may make six requests), then
   is answered with an error saying the remote is busy (503 for items, 502 for events). Events already read are
   instead shown as they were last read, with their age, `ok: false` and *busy*. A remote that hangs holds only its
   own callers.
@@ -783,7 +784,11 @@ space, `\`, an empty segment or `..` is refused, and such an item is listed but 
   or 5xx, and an answer that is not the expected shape (*unexpected answer*) are failures: what was read before is
   served with `ok: false`, `why` and its `age`, and with nothing read before the answer is 502 with the reason. A
   remote that failed is not asked again until its period has passed. The pages then say *NAME does not answer
-  (why); these were read T ago*, never "Nothing recorded yet.".
+  (why); these were read T ago*, never "Nothing recorded yet.". Any 404 on one item, whatever its text (an older
+  remote, a proxy), is 404 *no such item at NAME*: it is that item missing, not the remote failing, so the
+  remote's counts and listings are still asked. An event whose `time` is not a number cannot be windowed: it is
+  left out, and `why` says how many were. `/api/events/ID?remote=NAME` is refused with 400: a remote's events are
+  listed, never opened one by one here.
 
 **Over mutual TLS.** `web: mtls:` (§4d; per machine, so in `ergostat.local.yaml` when the model is shared)
 starts a second listener beside the loopback page that serves only this API, over TLS, to clients whose

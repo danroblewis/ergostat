@@ -579,6 +579,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})
     if head == "events" and "remote" in q:        # a remote's, from its cache (remote/events.py): never the local record
+        if name is not None:
+            from ..remote.items import RemoteRefused
+            raise RemoteRefused(400, "a remote's events are listed, never opened one by one here")
         return _remote_events(getattr(m, "spec", None), one("remote"), one("n"), one("type"))
     if head == "items" and "remote" in q:         # a remote's, asked there within its budget (remote/items.py)
         from ..remote import items as remote_items

@@ -429,3 +429,41 @@ Failed its gates 8 times (the kill rule). Blocking findings:
 - ergostat/web/server.py:581 (lesson-12, raised in reviews 6, 7 and 8, unanswered in round 9's 'Where it stopped'): the `head == "events" and "remote" in q` branch ignores `name`, so /api/events/ANYTHING?remote=r answers with the remote's whole event listing where an event is asked for. That is a wrong answer. Refuse it with 400 as the items branch does for extra path parts.
 - docs/SPEC.md:772 (lesson-8, lesson-12, raised in reviews 7 and 8, unanswered): 'Each request is bounded by 3 s' is wider than the code. client.get passes the timeout to urlopen (client.py:50), which applies it to each socket operation, and r.read() (client.py:51) has no total deadline, so a slow-drip remote holds the lock for longer. The caller waits of 7 s and 19 s do hold, because lock.acquire has a timeout. Narrow the sentence to 'a 3 s timeout on each socket operation' (or add a total deadline and a test).
 - ergostat/remote/items.py:108 (lesson-12, raised in reviews 7 and 8, unanswered): a detail 404 whose error does not end in 'no such item' (an older remote, a proxy) takes the failure path: st['failed'] is set and the remote's listings and counts stop being asked for the rest of the period, so one missing item darkens the remote's whole Items section. Treat any 404 on a detail as 404 'no such item at NAME' without marking the remote failed, and add a case to test_an_item_from_a_remote_that_does_not_answer.
+
+## Where it stopped (continued, round 1)
+
+Each finding of the park (review/remote-items-record-9) is answered below, and so is the one open non-blocking
+finding on these files (lesson-12):
+
+- **`/api/events/ID?remote=NAME` answered with the whole listing (blocking).** Fixed. `server.py` refuses it with
+  400 *a remote's events are listed, never opened one by one here*, before any request, as the items branch does
+  for extra path parts. Test: `test_one_remote_event_is_refused_not_answered_with_the_listing`. It checks that no
+  `events` is in the answer and that no `client.get` call is made. With the check skipped (`if False and …`), it
+  fails with 200, not 400.
+- **SPEC's "Each request is bounded by 3 s" (blocking, lesson-8).** Narrowed, as the review offered. SPEC §4c now
+  says each request has a 3 s timeout on each socket operation, not a total deadline, so a remote that answers
+  slowly can hold its lock longer. The caller waits of 7 s and 19 s are kept, since they come from
+  `lock.acquire(timeout=…)`. No code changed for this, and no total deadline was added.
+- **A detail's 404 in other words darkened the whole remote (blocking).** Fixed. In `items._ask`, any 404 on a
+  detail is 404 *no such item at NAME*, and the remote is not marked failed. A case is added to
+  `test_an_item_from_a_remote_that_does_not_answer`: a `404 Not Found` gives 404 *no such item at r*, and the next
+  listing still asks the remote (counts and items, `ok: true`). With the old `why.endswith("no such item")` put
+  back, it fails with 502, not 404. SPEC's table and §4c say so.
+- **`events.py`: `(e.get('time') or 0) >= since` raised TypeError on a non-numeric time (non-blocking, from the
+  past findings on these files).** Fixed. An event whose `time` is not an int or float, or is NaN, is left out of
+  the cache, and `why` says how many were. The cursor still moves past them, so they are not read again. Test:
+  `test_an_event_without_a_numeric_time_is_left_out_and_said`. With the filter removed, it fails with 500.
+
+Each guard was restored after it was broken, and the suites below were run on the restored tree.
+
+**Run here, one file at a time:** `tests/test_remote_items.py` (24 passed); `tests/test_remote.py`,
+`tests/test_remote_pair.py` and `tests/test_remote_mtls.py` (36); `tests/test_graph_cli_web.py` and
+`tests/test_web_access.py` (57). `ruff check ergostat tests scripts` is clean.
+
+**Not run here:** the browser files. No page code changed this round, and they last passed in round 8
+(`tests/test_items_page.py`, 21). The whole unit suite and `demo_check` were not run either (`examples/remote-pair` is
+not touched). `git branch -a` lists only `factory/remote-items-record` and local `main` (48b1481a), with no
+`origin/main` ref, and local `main` is an ancestor of HEAD. Merging a newer origin/main, and running the suites again
+after it, is left to the factory.
+
+**Size:** +8 net lines under `ergostat/` this round, about 340 in all (budget 420).

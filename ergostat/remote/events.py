@@ -67,7 +67,10 @@ def _read(spec, r: dict, kept: dict) -> None:
         if not body.get("more"):
             break
     since = time.time() - WINDOW                               # the day-long window, then the count
-    kept["events"] = [e for e in kept["events"] if (e.get("time") or 0) >= since][-MOST:]
+    timed = [e for e in kept["events"] if type(e.get("time")) in (int, float) and e["time"] == e["time"]]
+    if len(timed) < len(kept["events"]):                       # a time that is not a number cannot be windowed
+        kept["why"] = f"{len(kept['events']) - len(timed)} events without a numeric time left out"
+    kept["events"] = [e for e in timed if e["time"] >= since][-MOST:]
 
 
 def follow(spec, name: str, force: bool = False) -> tuple[dict | None, str]:
