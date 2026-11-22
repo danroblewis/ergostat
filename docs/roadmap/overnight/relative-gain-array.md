@@ -264,3 +264,15 @@ they were. I read through the branch's other doc changes against main (SPEC §12
 this section was added with the editor instead. Run in round 5, one group at a time: `test_rga` (38 passed),
 `test_backlog` + `test_factory_knowledge` + `test_daemon_yaml_review` + `test_unmoved` (145), `test_factory` (141, 2
 skipped). Ruff is clean. I did not run the whole unit suite or the browser files.
+
+Round 6: the factory merged main (7c46bc6d) into the branch, and it conflicted in `ergostat/control/steptest.py`.
+Main changed `run(eng, plan)` to `run(eng, plan, spec=None)`, so a test runs under the model its approval was judged
+under. The branch had added `_stamp` just above `run`. Both were kept (06cbb27f): main's signature and its use of
+`spec` for the blocks, and the branch's `_stamp`. The two stamps still take `eng.spec`, the engine's model at the
+moment each event is written, not the approval's `spec`. The RGA compares each stamp with the model now, and the stamp
+at the finish is there to catch a change made during the hold. That only works if the stamp reads the live model. If
+the approval's model is older than the live one, the stamps can only differ from the model now, so the test is left
+out, which fails closed. Nothing else changed. A `python3` heredoc to edit the file was refused, so the conflict was
+resolved with the editor. Run in round 6, one group at a time: `test_rga` + `test_control` (90 passed),
+`test_redesign` + `test_spec_mcp_explain` + `test_architecture` (32). Ruff is clean. I did not run the whole unit
+suite or the browser files.
