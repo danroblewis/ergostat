@@ -1319,16 +1319,18 @@ function inboxAnswer(a) {
   const said = h("span", { class: "note", "aria-live": "polite", tabindex: "-1" });
   const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
   const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": "Why" }) : null;
-  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async () => {
+  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async (ev) => {
+    // the row on the page, found from the button pressed: a refresh keeps the old nodes, and this scope's are let go
+    const row = ev.currentTarget.closest(".inbox-act"), said = row.querySelector(".note");
+    const n = row.querySelector('input[type="number"]'), why = row.querySelector('input[aria-label="Why"]');
     // answered from the keyboard: focus goes to the reply, not with the disabled button to the body, so the list holds
-    if (row.contains(document.activeElement) && document.activeElement.matches(":focus-visible")) said.focus();
+    if (ev.currentTarget.matches(":focus-visible")) said.focus();
     for (const b of row.querySelectorAll("button")) b.disabled = true;
     const q = { ...(n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
     try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
     catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
   } }, { approve: "Approve", deny: "Deny", done: "Done" }[verb]);
-  const row = h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), why, said);
-  return row;
+  return h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), why, said);
 }
 
 function renderSide(side, g, view) {

@@ -234,3 +234,26 @@ Tests run this round (Playwright 1.63.0, under `scripts/suite_watch.py`, through
 - Not run, as the house rules say: the unit suite, the four browser files, and `tests/test_agents_page.py` (the Agents
   code did not change). `main` has not moved in the clone, so there was nothing to merge.
 - Refused this round: a `python3 - <<'EOF'` edit script on `diagram.js`. The edit was made with the editor instead.
+
+## Where it stopped (round 6: the answer handler reads the row on the page)
+
+The one finding of the review (blocking, diagram.js:1322-1330 with util.js:146-151, lesson 5 and lesson 9), answered:
+- The cause is as the review says. A refresh patched in keeps the old row's nodes but hands them the new build's
+  onclick, whose `row`, `said`, `why` and `n` were then detached. So after the first refresh a keyboard answer did not
+  keep the focus, the typed reason was not sent, and the reply went to a detached span.
+- Fixed in `diagram.js` (net +2 lines): the Approve/Deny/Done handler finds its row from the button pressed
+  (`ev.currentTarget.closest(".inbox-act")`), and the row's `.note`, `Why` and number inputs inside it. The keyboard
+  check is `ev.currentTarget.matches(":focus-visible")`.
+- `tests/test_inbox_page.py::test_a_request_answered_from_the_keyboard_holds_the_list_with_the_pointer_off_it` now
+  waits until three alarms have been patched in (several refreshes, the reader not in the list) before it focuses the
+  reason box. It asserts the stored deny note equals the typed text ("not this week") and that the reply shows in the
+  visible row. The side-list test now asserts that the one denied request's stored note is the typed reason.
+- Break seen to fail (lesson 9): with the handler bound to the build-time row again, the keyboard test fails (the reply
+  never appears in the row on the page: wait_for_function timed out after 20 s). Reverted, and the file was run again.
+
+Tests run this round (Playwright 1.63.0, under `scripts/suite_watch.py`, through `scripts/named_tests.py`):
+- `tests/test_inbox_page.py`: rc 0, 3 passed (117.9 s), after the break was reverted.
+- `uv run ruff check ergostat tests scripts`: clean.
+- Not run, as the house rules say: the unit suite, the four browser files, and `tests/test_agents_page.py` (the Agents
+  code did not change). `main` has not moved in the clone, so there was nothing to merge.
+- Refused this round: a no-op `python3 - <<'EOF'` command. It changed nothing.

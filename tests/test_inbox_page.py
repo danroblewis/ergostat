@@ -193,7 +193,8 @@ def test_the_side_list_holds_still_while_the_reader_is_in_it_and_a_request_stays
         pg.wait_for_function(said, arg=name, timeout=20000)
         leave(pg)
         pg.wait_for_function("(ws) => ws.every((w) => !document.querySelector(`[data-inbox=\"${w}\"]`))", arg=[what, name], timeout=20000)
-        assert any(record.get(p, a["id"])["state"] == "denied" for a in reqs)
+        assert [record.get(p, a["id"]).get("note") for a in reqs
+                if record.get(p, a["id"])["state"] == "denied"] == ["not this week"]   # the reason typed, sent
         assert not errors, errors
         b.close()
 
@@ -214,13 +215,17 @@ def test_a_request_answered_from_the_keyboard_holds_the_list_with_the_pointer_of
         row = pg.locator(f'[data-inbox="{what}"]')
         row.wait_for(timeout=20000)
         off(pg)
+        # several refreshes patched in first (the reader not in the list): the row's nodes kept, the handlers handed over
+        pg.wait_for_function("() => document.querySelector('[data-row=\"alarm new-3\"]')", timeout=30000)
         row.locator('input[aria-label="Why"]').focus()
         pg.keyboard.type("not this week")
         pg.keyboard.press("Shift+Tab")                                       # to Deny, from the keyboard
         assert pg.evaluate("() => document.activeElement.dataset.verb") == "deny"
         pg.keyboard.press("Enter")
         pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=row.element_handle(), timeout=20000)
-        assert record.get(p, a["id"])["state"] == "denied"
+        got = record.get(p, a["id"])
+        assert (got["state"], got.get("note")) == ("denied", "not this week")          # the reason typed, sent
+        assert "denied" in row.locator(".inbox-act .note").inner_text()                 # the reply in the row seen
         top, seen = row.bounding_box()["y"], n[0]
         for _ in range(4):
             pg.wait_for_timeout(2000)
