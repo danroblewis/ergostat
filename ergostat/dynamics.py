@@ -148,13 +148,14 @@ def _connectors(spec) -> tuple[dict[tuple[str, str], dict], set[str]]:
         out_of.setdefault(x.source, []).append(x)
     out: dict[tuple[str, str], dict] = {}
 
-    def add(src: str | None, dst: str | None, sign, rules: list[str]) -> None:
+    def add(src: str | None, dst: str | None, sign, rules: list[str], drv: bool = False) -> None:
         if not src or not dst or src == dst:
             return
         old = out.get((src, dst))
         if old is None:
-            out[(src, dst)] = {"sign": sign, "rules": list(rules)}
+            out[(src, dst)] = {"sign": sign, "rules": list(rules), "drivenBy": drv}   # (declared with driven-by: dashed)
             return
+        old["drivenBy"] = old["drivenBy"] or drv
         if old["sign"] != sign:
             old["sign"] = None                           # two ways round disagree: not known
         old["rules"] += [r for r in rules if r not in old["rules"]]
@@ -181,7 +182,7 @@ def _connectors(spec) -> tuple[dict[tuple[str, str], dict], set[str]]:
         if x.target.startswith("block."):
             into(x.target, x.sign, _drawn_id(x.source), [], set())
         else:
-            add(_drawn_id(x.source), _drawn_id(x.target, True, x.kind), x.sign, [])
+            add(_drawn_id(x.source), _drawn_id(x.target, True, x.kind), x.sign, [], x.kind == "influence")
     for d in decide:
         through(d, 1, f"decision:{d.split('.', 1)[1]}", [d.split(".", 1)[1]], {d})
     for g in spec.goals:
@@ -268,14 +269,14 @@ def dynamics(g: dict, model) -> dict:
             if src in ids and dst in ids:
                 sign = None if c["sign"] is None else "+" if c["sign"] > 0 else "-"
                 e = {"id": f"connector:{src}->{dst}", "source": src, "target": dst, "kind": "connector", "polarity": sign,
-                     "rules": c["rules"]}
+                     "rules": c["rules"], "drivenBy": c["drivenBy"]}
                 if src.startswith(("gap:", "desired:")):
                     e["goalSeeking"] = True                  # (laid out with its flow, as a controller was: layouts.js)
                 edges.append(e)
     else:                                                    # an older model: its influences, and each controller's action
         for e in g["edges"]:
             if e["kind"] == "influence" and e["source"] in ids and e["target"] in ids:
-                edges.append({**e, "id": "connector:" + e["id"].split(":", 1)[1], "kind": "connector", "rules": []})
+                edges.append({**e, "id": "connector:" + e["id"].split(":", 1)[1], "kind": "connector", "rules": [], "drivenBy": True})
         for e in g["edges"]:
             if e["kind"] == "action" and e["source"].startswith("controller:"):
                 name = e["source"].split(":", 1)[1]
@@ -298,16 +299,14 @@ def dynamics(g: dict, model) -> dict:
     acting = {e["source"] for e in edges if e["source"].startswith("gap:")}
     idle = {n["id"] for n in nodes if n.get("role") in ("gap", "desired") and f"gap:{n['goal']}" not in acting}
     for n in nodes:
-        if n["id"] in idle and n["role"] == "gap":
+        if n.get("role") == "gap":
             of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
+            # what serves the goal anywhere in the model (its controllers, each with its top system), drawn here or not
+            by = [{"block": b, "system": (spec.chain(spec.blocks[b].system) or [None])[-1]}
+                  for b in spec.loop(n["goal"]).controllers] if spec is not None and n["goal"] in spec.goals else []
             if of is not None:
                 of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
-                                                   "acted": False})
-        elif n.get("role") == "gap":
-            of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
-            if of is not None:
-                of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
-                                                   "acted": True})
+                                                   "by": by, "acted": n["id"] not in idle or bool(by)})
     nodes = [n for n in nodes if n["id"] not in idle]
     edges = [e for e in edges if e["source"] not in idle and e["target"] not in idle]
     causal = [{**c, "nodes": _loop_nodes(c, decide)} for c in g.get("causalLoops") or []]
