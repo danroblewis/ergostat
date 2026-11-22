@@ -122,13 +122,13 @@ uses:                                   # any file; the instances of every file 
       every: 1d
       limit: 3
       ping: ./bin/remind.sh
-library:                                # main file only: folders of the owner's own templates
+library:                                # main file only: folders of templates (a path: the owner's own)
   - ~/private/ergostat-templates
 ```
 
 | Key | Type | Meaning |
 |---|---|---|
-| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so |
+| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so; an untrusted folder's never does (below) |
 | `with` | map | The template's parameters. A parameter it does not take, a value of the wrong type (a duration that does not parse, a setpoint, a cron expression, a name) and a required one left out are errors at that line |
 | `within` | system name | The system the instance is part of |
 | `description` | string | |
@@ -198,6 +198,38 @@ one item a run, `pool` at once, and an item that fails every try is a dead lette
 for the instance like any part (`steps` makes `NAME-workspace`, and `NAME-push` for an action `push`), and a
 block's `workspace:` and `actions:` follow the names. A block's lease terms are its own (`lease:`, with `takes:`
 and `pool:`); `leases:`, each tier's terms, belongs to the model as a whole, as do `messages:` and `storage:`.
+
+**Folders the owner did not write.** A `library:` entry is a path (the owner's folder, trusted) or a map
+`{folder: PATH}`, which is **untrusted** unless it says `trust: owner` (`trust: untrusted` says so plainly):
+
+```yaml
+library:
+  - ~/private/ergostat-templates          # the owner's: trusted
+  - {folder: ~/shared/team-templates}     # not marked trusted: untrusted
+```
+
+A map with another key, no `folder:`, or a `trust:` other than `owner` or `untrusted` is an error at its line
+(**bad-library**), and its folder is not read at all. `$ERGOSTAT_LIBRARY` is the owner's. Trust is each file's: a
+template file inside any folder listed untrusted is untrusted, even when a trusted folder (its parent, whose
+`*/template.yaml` reaches it) is listed too. Each template's trust
+(`ergostat`, `owner` or `untrusted`) is shown by the authoring tools' `library`. An untrusted template never takes the
+place of ergostat's own or a trusted one of the same name, whatever order the folders are listed in: the trusted one is
+used and `check` names the file skipped (**template-library**); between untrusted folders the first wins.
+
+A use is **held** when its template, or any template it uses at any depth, is untrusted. Its whole chain is expanded
+before anything of it is put in the model, and every part made from the first untrusted template down (trusted and
+built-in templates it uses included), as expanded with every parameter's value in it, is checked against the allowlist
+in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`,
+`goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
+`onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
+`alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
+names); sensors only counting items (`items:`) or reading a stock's changes (`changes:`), with no `every` or `cron`.
+Anything else is refused: any other section, block type or key (a sensor's `run`, `query` or `daemon`, a block's
+`on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
+anywhere). One refused part refuses the whole
+use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
+nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
+*Libraries you did not write*).
 
 ### Upkeep
 
@@ -318,7 +350,7 @@ remotes:                        # optional: systems other ergostats run, read he
   ...
 web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
-library:                        # optional, main file only: folders of the owner's templates (section 2a)
+library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
   - ...
 ```
 
@@ -2839,7 +2871,12 @@ where the error is 0.
 - a `run`, `prompt` or `ask` on an external block, or a built-in block with an `agent`;
 - a block whose agent cannot run its type (an `ai` block on an agent of kind `person`);
 - units that disagree between a flow and its stocks, or a sensor and what it measures;
-- a cycle of built-in blocks with no delay (an algebraic loop).
+- a cycle of built-in blocks with no delay (an algebraic loop);
+- **bad-library**: a `library:` entry that is neither a path nor `{folder: PATH}` with an optional `trust: owner` or
+  `trust: untrusted` (its folder is not read; section 2a);
+- **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
+  `ergostat/library/trust.py` does not allow: at the owner's `use:` line, and nothing of the chain is in the model
+  (section 2a).
 
 **Findings** (reported, not errors):
 
@@ -2857,8 +2894,8 @@ where the error is 0.
   (section 2a);
 - **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
   (section 12e);
-- **template-library**: a template in a `library:` folder that does not read, or one used in place of
-  ergostat's own;
+- **template-library**: a template in a `library:` folder that does not read, one used in place of
+  ergostat's own, or an untrusted folder's template not used because a trusted one has its name;
 - **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
   is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
   (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
@@ -3003,6 +3040,37 @@ block's taken as its goal's; a system's subsystems each one node), never a run:
 - **purpose**, in a model with systems: a system with no `description` (its purpose); a described system whose blocks
   act for no goal inside it (one with stocks and no blocks, a sector, is normal); goals in no described system, when
   the model has no `purpose:`.
+
+**The AI rung: the Viable System Model and purpose coverage** (`ergostat/spec/vsm.py`,
+`ergostat/numbers/vsm_review.py`), run only when the owner asks: `ergostat improve --architecture [SYSTEM]`. For a
+system, the **checklist** is computed from the structure (no run, and no note): for each of Beer's functions the
+parts that may fill it, with why: S1 the goals directly in it on a stock of its own, and its subsystems; S2 its blocks
+that take an item kind (sharing its leases, §9.5) or use a workspace pool that a block outside also does; S3 its
+subsystems' inner-loop goals it sets, and its goals whose setpoint another goal's block commands; S3\* its judge
+blocks and blocks with a `claims` param; S4 its measured flows in from a cloud, and the model's `use: modelling` loop
+(marked model-wide); S5 its description, the model's `purpose:` and its subsystems' descriptions. One AI call
+(`$ERGOSTAT_AI`, haiku by default, no tools, `--max-budget-usd 0.25`, killed with its process group after 300 s)
+is given a brief of the system (its words, parts, subsystems, interface, its architecture notes and the checklist,
+at most 30,000 characters) and answers with one JSON line. The answer is checked, not trusted: a function said
+present must name at least one of the system's own parts (for S5, its description or the purpose), or it is dropped
+as unsupported and counted; a goal must be the system's own (a subsystem's goal is judged by the subsystem's
+review); a goal said to serve the purpose, and each part of the
+purpose said uncovered (two words or more), must quote the owner's words, found in the description (or the purpose)
+after whitespace and curly quotes are made plain, or it is dropped. A system with no description gets no purpose
+coverage. The review is recorded (`ergostat.architecture.reviewed`: the system's `signature` and a hash of its words,
+the model, its cost, `cost: reported`, or `charged` at the whole cap when none was reported, and what was kept). What
+it keeps becomes modelling requests held for the owner (§12e, `source: architecture`): `vsm-s1` … `vsm-s5` and
+`vsm-s3-audit` for a function said missing (naming the checklist's candidates, when it had some),
+`purpose-uncovered`, `goal-off-purpose`. A later review answers one only on evidence it kept: that function present
+with a real part, purpose coverage reviewed with nothing left uncovered, that goal said to serve; one said again is
+reopened afresh and held. A call that fails, times out, errs or gives no answer line is recorded as
+`ergostat.architecture.unreviewed`, at its cost, and raises and answers nothing. Writes are made under
+`architecture.lock`, after reading the latest review's seq again: a review of the same system recorded since wins,
+and this one is recorded `applied: false`. One call per system; at most 12 systems a run (never a once template's
+own); a run's `--max-cost` is $1.00 by default and at most $5.00, and a call is made only while what was spent plus
+$0.25 stays within it. `explain system.NAME` (with a project) says the latest applied review, and when the system's
+parts or words have changed since. The reviewer is not shown to find every missing function: what the checks
+guarantee is only that a function said present names one of the system's parts and that a quote is the owner's.
 
 ## 12a. Feedback loops (system dynamics)
 
@@ -4003,6 +4071,14 @@ template made, or one no change to the model answers, such as `template-stand-in
 and, once the record is long enough to compare, each coherence mismatch (§12l) no finding already says (those about
 ergostat's own kinds are left out). Each records what it is about (`about`), why (`says`, check's words), where, its
 `source` (check, craft, coherence) and the tier that answers it first (`tier`: rule or ai).
+
+Two sources are not check's, and the collector (`sync`) never answers them: `redesign` (a redesign's trigger, below)
+and **`architecture`**, what an architecture review the owner ran kept (§12, *The AI rung*: `vsm-s1` … `vsm-s5`,
+`vsm-s3-audit`, `purpose-uncovered`, `goal-off-purpose`, its id `rid("architecture", code, about)`). An
+architecture request is held for the owner at once (`owner: true`, `tier: owner`): no tier writes a model change for
+a judgement, and approval is not offered (only a dismissal, or the owner's own change). Only a later applied review
+answers it, on the evidence it kept; one said again after it was answered is reopened with fresh `says`, `version`
+and `review` (the review's seq), its `why` and `change` cleared, and held again.
 
 | State | When |
 |---|---|

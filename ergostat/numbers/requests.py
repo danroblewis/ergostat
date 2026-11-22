@@ -253,6 +253,8 @@ def _moved(p, spec: Spec, now: float, found: dict[str, dict]) -> dict:
                 event(p, k, "answered", {"answered": now, "why": f"its redesign was {c}"})
                 moved["answered"] += 1
             continue
+        if x.get("source") == "architecture":             # an architecture review's: answered only by the next review
+            continue
         if x["state"] in OPEN and k not in found:
             event(p, k, "answered", {"answered": now, "why": "check no longer finds it"})
             moved["answered"] += 1

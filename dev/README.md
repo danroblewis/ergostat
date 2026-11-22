@@ -125,8 +125,12 @@ itself: a clean merge is committed by the factory; a conflicted one is handed to
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
 `tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after: ruff, the unit suite and the four browser files, each under the watchdog in a suite container of the agent image
-and the suite slot; a browser test skipped fails them, as in the queue. **No browser stops the round:** before the
+after: ruff, `[suites] build` and the four browser files, each under the watchdog in a suite container of the agent
+image and the suite slot; a browser test skipped fails them, as in the queue. `build` is the small set
+(`scripts/affected_tests.py`: the test files the branch changed since main and `tests/test_<module>.py` of each
+`ergostat/**/<module>.py` it changed; only collection when there are none; the full suite when the diff cannot be
+read). With `build` commented out or empty, the full `unit` suite runs there instead. The merge queue never reads
+`build`: it runs `unit`, `browser` and `demo` in full. **No browser stops the round:** before the
 session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
 missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
 starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with
@@ -309,13 +313,38 @@ count is left out of the share (never a hit) and named on stderr; with nothing m
 **Not covered:** gaps whose definitions you wrote (no planner, no size; a plan that finds your definition already
 there records no size either), and split parents (they merge nothing; a split clears an earlier size).
 
-## The pools: one at a time, raised on good results
+## The pools: sized by risk, against your tolerance
 
-One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 4 and 2, in
-`[pools]`). After three gaps in a row are approved within one fix round and none was reverted after merging, the pool
-tuner asks for `raise-pool` (the implementor first), held in the inbox; a park, a second fix round or a reverted merge
-lowers the pools by one at once. Say a merge was reverted on main with
-`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
+One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 9 and 6, in
+`[pools]`, never above 9). The pool tuner measures **risk** in expected interventions a day at each implementor pool size: factory-
+caused interventions per gap given a verdict, plus escapes per merged gap, times the gaps a day at that size (from the
+measured cycle time). Each rate is a Gamma posterior per pool size with a weak prior; a size never run starts with a
+higher, wide prior, so its 90% bound is high until it has been run (`dev/bin/risk.py`). The **target** is the largest
+pool whose 90% bound is within your **risk tolerance** and not above the gaps ready, at fix or building. The tuner
+asks for `raise-pool` one step at a time (held in the inbox), only after `[pools] probation` gaps had a verdict since
+the last raise; your approval is checked again when it runs (the pool unchanged, the bound still within the tolerance,
+the probation over), so a late approval does nothing once those have changed. It lowers the pool by one at once when
+the bound at the pool now crosses the tolerance, and never for want of demand alone (an idle slot costs nothing). The
+reviewer pool follows the implementor's, up to its most: up with an approved raise, down with each drop. Each decision is a `pool.*` event carrying its evidence; `status.py` prints
+the risk, its bound, the tolerance and the target.
+
+**On hold for now**: `[pools] hold = true` in `dev/factory.toml` keeps your pause of 2026-11-20. The tuner
+measures and says what it would do (`held` on `pool.measured`) but never moves the implementor or reviewer pool; the
+queue's batch is still tuned. Set it to `false` to have the pools sized by risk. A pool you set by hand that was never
+run has a wide bound, so the tuner then steps it down until the record narrows that bound.
+
+**The tolerance is yours**: the parameter `risk-tolerance` in `dev/model/pools.yaml` (interventions a day, 2 to
+start). Raising it trades risk for velocity: edit the value, and the next tune's target uses it.
+
+**For an intervention to count**, record it (below) with a `class` the factory caused: `environment-defect`,
+`self-reference`, `factory-missing-capability` or `queue-interleaving`, or `"factory": true`. The factory's own
+records count by themselves: the merge queue stopped (`queue`) and the upgrader unable to bring the instance back
+(`switch`). Review findings and a reviewer's park are not harm and do not count. Escapes count against the pools
+too: a merge reverted on main (`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`),
+main broken by it (`ergostat event --add gap.measured --item gap/NAME --data '{"broke_main": true}'`; the
+implementor's triage counts by itself: a `main-broken` intervention blames the gaps whose merge made that main
+commit, their `main_sha`, or, with none found, counts one escape at the pool size then), or a later gap or
+intervention naming it as its cause (`"caused_by": "gap/NAME"` in its data). By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
 
 ## The simplifier: a gap that removes code
@@ -535,7 +564,8 @@ many gaps are in each state now and the oldest of them.
 
 ## Record an intervention
 
-Each time you step in by hand, say so: it is evidence of a loop the factory lacks.
+Each time you step in by hand, say so: it is evidence of a loop the factory lacks. One the factory itself caused (its
+`class` one of those under the pools, above, or `"factory": true`) counts against the pools' risk.
 
 ```sh
 ergostat event --add intervention.recorded --item intervention/2026-11-20-unstick-alpha \
