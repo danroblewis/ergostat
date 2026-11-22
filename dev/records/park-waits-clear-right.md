@@ -69,3 +69,14 @@ wording change only the continue/park/wait subset of test_factory.py was run aga
 whole unit suite and the four browser files under suite_watch.py (the factory runs those). This clone has no
 origin/main; local `main` is an ancestor of HEAD. Not tested: the race between classify and a new park of the same
 id. A parked gap cannot be parked again without leaving `parked`, and classify holds the continue lock.
+
+### After the fast suites (round 1)
+
+The factory's `unit` run stopped silently at 54%, partway through a progress line. It named no failed test and wrote
+no suite_watch exit line. That matches the silent deaths recorded for the-module-map-is-read-and (28%, 74%, 90%), and
+is not a failure this branch can point to. The change starts no thread or process beyond short git calls. Its one new
+lock (`continue.lock` in `classify()`) is taken only by `parks.py resume` and is never held across a call that takes
+it again. Every file that reaches the changed code was run again here, one at a time, and passed:
+tests/test_factory.py (130 passed, 2 skipped), test_intake.py, test_backlog.py and test_factory_manager.py (72
+passed), and test_factory_knowledge.py and test_factory_join.py (81 passed). No code was changed. The whole unit suite
+was not run here. It needs another run under suite_watch.py, and a test it names would be the thing to fix.
