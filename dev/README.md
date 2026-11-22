@@ -477,28 +477,28 @@ files on the Mac, outside any container, after unit and browser and before demo,
 step like the others (its log `run/queue/<run>-host.txt`, its result `host` in the gap's `suites_queue`; red fails the
 batch and bisects, and flake triage reruns its tests on the Mac too). It is held to the same `stall_minutes` and
 `wall_minutes` as the boxed suites, in the queue and in triage's rerun: a host run that stops writing is a stall (the
-run undone, no gap blamed until `STALLS_MOST`). `host = ""` turns the step off. Exit 126 or 127
-from the outer shell (the step's first command not found or not runnable) is a step that did not start, in the queue
-and in triage's rerun: the run fails and is undone, no gap blamed, never read as a pass. A pytest missing behind
-`suite_watch.py` or `uv` exits 1 with no test named, so it counts as a real host failure: red, the batch bisected. A test the host step skips that the same run's unit suite skipped too (by `path:line` in their `-rs`
-summaries) ran nowhere, and fails the step, unless its reason is one of the stated needs outside the machine in use
-(an `ERGOSTAT_…_URL`, "spends money", "no Chromium to drive", playwright not importable, "needs Docker and the agent
-image", "no N free ports in"), matched as those exact phrases: a new external skip reason must be added to
-`queue.EXTERNAL`, or it counts. When the unit log is missing, or counts skips without naming them, every
-host skip counts as one that ran nowhere.
+run undone, no gap blamed until `STALLS_MOST`). `host = ""` turns the step off. Exit 126 or 127 from the outer shell
+(the step's first command not found or not runnable) is a step that did not start, in the queue and in triage's
+rerun: the run fails and is undone, no gap blamed, never read as a pass. A pytest missing behind `suite_watch.py` or
+`uv` exits 1 with no test named, so it counts as a real host failure: red, the batch bisected. A test the host step
+skips that the same run's unit suite skipped too (by `path:line` in their `-rs` summaries) ran nowhere, and fails the
+step, unless its reason is one of the stated needs outside the machine in use (an `ERGOSTAT_…_URL`, "spends money",
+"no Chromium to drive", playwright not importable, "needs Docker and the agent image", "no N free ports in"), matched
+as those exact phrases: a new external skip reason must be added to `queue.EXTERNAL`, or it counts. When the unit log
+is missing, or counts skips without naming them, every host skip counts as one that ran nowhere.
 
 **The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
 triage's and the implementor's suites deselect (`--deselect`, unit and browser only: a quarantined test in the host
-step's files still runs there and blocks, since run beside in the container it would only skip). The list is read from main (the
-queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a branch that adds
-its own failing test to the list is still red in the queue, and its line takes effect only once it is on main. (The
-implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch that adds the list,
-or a line to it, is not held up on its own machine by a test it quarantines; the queue still runs it.) After each unit run
-(and each triage rerun) the quarantined tests run once more, with `-rA` (the queue and implementor: `[suites] alone`;
-triage: `rerun`), never blocking. Each result is said on `flake/<test>` (`flake.measured`: `quarantined`, `last_run`,
-`last_run_log`), read from that run's whole log: `pass` only on the test's own PASSED line with no FAILED or ERROR
-line, `fail` on either, `unknown` otherwise (skipped, not collected, a run that never started or left no log). A
-skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
+step's files still runs there and blocks, since run beside in the container it would only skip). The list is read
+from main (the queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a
+branch that adds its own failing test to the list is still red in the queue, and its line takes effect only once it
+is on main. (The implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch
+that adds the list, or a line to it, is not held up on its own machine by a test it quarantines; the queue still runs
+it.) After each unit run (and each triage rerun) the quarantined tests run once more, with `-rA` (the queue and
+implementor: `[suites] alone`; triage: `rerun`), never blocking. Each result is said on `flake/<test>`
+(`flake.measured`: `quarantined`, `last_run`, `last_run_log`), read from that run's whole log: `pass` only on the
+test's own PASSED line with no FAILED or ERROR line, `fail` on either, `unknown` otherwise (skipped, not collected, a
+run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
 released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
 sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
 a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.

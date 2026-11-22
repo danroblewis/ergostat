@@ -471,7 +471,8 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     process group is killed if this one is stopped. ``box`` ("queue", "triage", "host"): under limits() (stall, wall,
     faulthandler); "host" (the queue's and triage's `[suites] host`) on the Mac, never boxed; the others, with
     [suites] queue_container (true unless false), in a container of its own (agents.queued), killed by name on any
-    way out; one that did not start raises agents.NotStarted (an infrastructure failure, never read as the suite's result)."""
+    way out; one that did not start raises agents.NotStarted (an infrastructure failure, never read as the suite's
+    result)."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
     cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
     stall, wall = limits(cfg) if box else (600.0, 600.0)  # (again at run time: the queue's and triage's only)

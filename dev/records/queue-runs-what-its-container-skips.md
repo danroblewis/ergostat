@@ -102,3 +102,16 @@ Round 4:
   scripts, and on the three dev/bin files changed. Ruff on all of dev/bin reports 3 errors: two in plan.py and
   review.py, which this branch does not touch, and one that was mine in queue.py, now fixed. The clone still has only
   a local `main`, already an ancestor of HEAD, so there was nothing to merge.
+
+Round 5:
+- Queue finding (batch of 6, then alone)
+  `tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network`: not fixed
+  here (lesson-13), as the round-4 review agreed. The line it trips on, fac.suite's
+  `env["PYTEST_ADDOPTS"] = f"{env.get('PYTEST_ADDOPTS', '')} -o faulthandler_timeout=..."`, is unchanged from main
+  (`git diff main -- dev/bin/fac.py` touches only the docstring and the `box != "host"` guard, and "host" is never
+  passed in that test). Inside a queue container PYTEST_ADDOPTS is already set, so the exact `-e` match fails for any
+  branch. It passes here outside the queue (1 passed). It needs its own gap on main.
+- Round-4 review (wording): the "Which tests run where" and quarantine paragraphs of dev/README.md and the fac.suite
+  docstring's last line are reflowed to the wrap width (118 in that section, 120 in fac.py). No code changed.
+- Round-4 "not run by this reviewer": this round ran tests/test_queue_host.py (11 passed) and the test_agents test
+  above (1 passed); ruff is clean on ergostat, tests, scripts and the three dev/bin files changed.
