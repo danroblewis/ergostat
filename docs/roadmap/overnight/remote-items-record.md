@@ -420,3 +420,12 @@ event logs* bullet. This branch does not touch them, so they belong to their own
 
 **Run here:** only docs changed this round. `ruff check ergostat tests scripts` is clean. No suite was run
 again, because no code has changed since round 8.
+
+## Where it stopped
+
+Parked by the factory (review/remote-items-record-9, 2026-11-21 22:33).
+
+Failed its gates 8 times (the kill rule). Blocking findings:
+- ergostat/web/server.py:581 (lesson-12, raised in reviews 6, 7 and 8, unanswered in round 9's 'Where it stopped'): the `head == "events" and "remote" in q` branch ignores `name`, so /api/events/ANYTHING?remote=r answers with the remote's whole event listing where an event is asked for. That is a wrong answer. Refuse it with 400 as the items branch does for extra path parts.
+- docs/SPEC.md:772 (lesson-8, lesson-12, raised in reviews 7 and 8, unanswered): 'Each request is bounded by 3 s' is wider than the code. client.get passes the timeout to urlopen (client.py:50), which applies it to each socket operation, and r.read() (client.py:51) has no total deadline, so a slow-drip remote holds the lock for longer. The caller waits of 7 s and 19 s do hold, because lock.acquire has a timeout. Narrow the sentence to 'a 3 s timeout on each socket operation' (or add a total deadline and a test).
+- ergostat/remote/items.py:108 (lesson-12, raised in reviews 7 and 8, unanswered): a detail 404 whose error does not end in 'no such item' (an older remote, a proxy) takes the failure path: st['failed'] is set and the remote's listings and counts stop being asked for the rest of the period, so one missing item darkens the remote's whole Items section. Treat any 404 on a detail as 404 'no such item at NAME' without marking the remote failed, and add a case to test_an_item_from_a_remote_that_does_not_answer.
