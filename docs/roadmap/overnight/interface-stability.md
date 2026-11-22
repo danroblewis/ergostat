@@ -221,3 +221,12 @@ and so was a five-times rerun loop on this branch. So this session cannot show w
 queue's failing output was not given, so the assertion that failed is not known. If it is the 5 s wait for the
 replacement process, that is a fixed timeout under load (lesson-10) in the warm code's own gap. No code changed. Ran,
 rc 0: `tests/test_interface_stability.py` (15) and `tests/test_warm.py` (21). Ruff is clean.
+
+**Round 5.** The one finding (blocking): round 4's merge of main (46e77de7) had spliced the System architecture
+review entry in `docs/GAPS.md` again. It had two *Left* clauses, the second still naming interface stability, and a
+broken line. It is now one entry: main's current text with one clause added under what is done ("how often each
+system's interface changed over the model's recorded versions, in `explain system.NAME`"). Interface stability is
+gone from *Left*, and the lines are reflowed to the file's width. `git diff main -- docs/GAPS.md` shows only that
+change. `git log HEAD..main` is empty, so main (b9528e0e) is already merged in. No code changed. Ran, rc 0:
+`tests/test_interface_stability.py` (15). Ruff is clean. The full unit suite and the four browser files are left to
+the factory's watched run.

@@ -104,17 +104,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
   `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a
   model-level `purpose:`; candidates to aggregate from loop dominance over the window, an `aggregate` row on a
-  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); how often each system's
-  interface changed over the model's recorded versions, in `explain system.NAME` (on `interface-stability`; SPEC
-  §4a). *Left*: the relative gain array (needs a square, non-singular gain matrix from approved step tests),
-  eigenvalue elasticity, the AI rung's proposal to aggregate, the Viable System Model checklist and purpose coverage
-  (the AI rung), and the per-system redesign and daily larger-model review (after `redesign`).
   system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); the AI rung's Viable System
   Model checklist and purpose coverage, on the owner's word (`ergostat improve --architecture`, `spec/vsm.py`,
-  `numbers/vsm_review.py`, on `architecture-vsm-and-purpose`), its findings held for the owner. *Left*: the relative gain
-  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
-  proposal to aggregate, interface
-  stability over the model's history, and the per-system redesign and daily larger-model review (after `redesign`).
+  `numbers/vsm_review.py`, on `architecture-vsm-and-purpose`), its findings held for the owner; how often each
+  system's interface changed over the model's recorded versions, in `explain system.NAME` (on
+  `interface-stability`; SPEC §4a). *Left*: the relative gain array (needs a square, non-singular gain matrix from
+  approved step tests), eigenvalue elasticity, the AI rung's proposal to aggregate, and the per-system redesign and
+  daily larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
   STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
   move recorded as `ergostat.item.joined` caused by the child's, folded only forward and counted like any other;
