@@ -51,3 +51,20 @@ depends-on: [engine-runs-its-shard-1, engine-runs-its-shard-2]
 ## Size budget
 110 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built, round 1: every acceptance test above exists and passes. About 67 net lines of code, inside the 110 budget.
+These are the choices made with no one to ask. Each is the most reversible one:
+- `client.owner` takes a socket in the run's state directory, or in the short folder (`server.short()`), as that state
+  directory's. The short name is a hash of the state directory and the shard, so it cannot be mapped back exactly.
+  When the socket is in the short folder but is another project's, the call waits its bound, as it did before.
+- A shard's pointer file is `engine.SHARD.sock.path`. `client.find` (a shell's command) still finds only the whole
+  engine's socket. Finding shard sockets is left to `shard-supervisor`.
+- `cli/running.py` and `runner.py` are not edited. `running.py` runs only the `shard=None` engine, so it already
+  writes `heartbeat.json`. `kill_all` and `STOPPING` stay as they are, and a shard engine no longer calls either.
+- A shard engine's `close` kills every run in its `self.live` (machine-block runs, item runs included), plus its daemons
+  and pools. The engine starts no agent runs (the older `Runner` does). A sensor command runs under its timeout and is
+  not killed at close by either engine, the same as with `shard=None`.
+- Race closed: a run now checks `self.stop` under `self.lock` after it registers in `self.live`, so a run started while
+  a shard engine closes either is in close's list or kills itself.
+- Still shared and named in SPEC §9.8: `daemons.json` is one file per state directory.
