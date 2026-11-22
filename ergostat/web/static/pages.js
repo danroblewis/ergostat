@@ -1123,19 +1123,39 @@ async function pageModel(main) {
   S.timer = poll(() => tick(false), 5000, p);
 }
 
+/* the findings that come many of a kind (/api/exercised): what each kind says, its columns, and which is worst */
+const FINDING_KINDS = {
+  "not-exercised": { title: "Not exercised by the record", advice: "Its rate cannot be identified from this record, which is not evidence it is " +
+      "absent: it is kept, and nothing is estimated or judged from it until the record moves it (a step test or a planned disturbance would).",
+    head: ["part", "why", ["record", "num"], ["points", "num"]],
+    worst: (a, b) => (a.why === "never-moved" ? 0 : 1) - (b.why === "never-moved" ? 0 : 1) || b.span - a.span,
+    cells: (c) => [h("td", { class: "small" }, c.says), h("td", { class: "num" }, dur(c.span)), h("td", { class: "num" }, c.readings)] },
+  "calibration-worse-than-mean": { title: "Equations that fit worse than their mean",
+    advice: "Its equation fits its record worse than holding it at its mean: calibrate it, or write it again.",
+    head: ["part", ["R²", "num"], ["scaled error", "num"], ["points", "num"]],
+    worst: (a, b) => b.nmse - a.nmse,
+    cells: (c) => [h("td", { class: "num" }, two(c.r2 ?? 0)), h("td", { class: "num" }, fmt(c.nmse)), h("td", { class: "num" }, c.n)] },
+};
 async function pageCheck(main) {
   const st = await api("status");
   let quiet = [];                                          // the parts the record has not exercised (a finding each)
   try { quiet = await api("exercised"); } catch (e) { quiet = []; }
-  st.check = [...st.check, ...quiet.map((x) => ({ level: "warn", message: x.message }))];
+  st.check = [...st.check, ...quiet.map((x) => ({ ...x, level: "warn" }))];
   const info = st.check.filter((c) => c.level === "info");  // the extreme-conditions tests, while they run in the background
   st.check = st.check.filter((c) => c.level !== "info");
   const errors = st.check.filter((c) => c.level === "error").length, warnings = st.check.length - errors;
   const words = [errors ? `${errors} error${errors > 1 ? "s" : ""}` : "", warnings ? `${warnings} warning${warnings > 1 ? "s" : ""}` : ""].filter(Boolean);
   const p = page(main, words.length ? `Check: ${words.join(", ")}` : "The model is whole");
-  if (st.check.length) p.append(h("div", { class: "att" }, st.check.map((c) => h("div", {},
+  const one = st.check.filter((c) => !FINDING_KINDS[c.code]);
+  if (one.length) p.append(h("div", { class: "att" }, one.map((c) => h("div", {},
     h("b", { class: c.level === "error" ? "lvl-error" : "lvl-warning" }, c.level === "error" ? "Error" : "Warning"), " ", op(c.message)))));
-  if (info.length) p.append(h("p", { class: "muted small extremes-status" }, info.map((c) => c.message).join("; ")));
+  for (const [code, k] of Object.entries(FINDING_KINDS)) {     // a kind said once, above a row per part, worst first
+    const rows = st.check.filter((c) => c.code === code).sort(k.worst);
+    if (rows.length) p.append(h("h3", {}, k.title, h("span", { class: "lvl-warning" }, ` · ${rows.length} warning${rows.length > 1 ? "s" : ""}`)), h("p", {}, k.advice),
+      table(k.head, rows.map((c) => h("tr", {}, h("td", {}, toolLink(c.about.replace(".", " "), { view: "dynamics", part: c.about }, "on the diagram")),
+        ...k.cells(c))), `fit findings ${code}`));
+  }
+  if (info.length) p.append(h("ul", { class: "extremes-status" }, info.map((c) => h("li", {}, c.message))));
   if (info.some((c) => c.message.startsWith("extremes: running")))   // drawn again once they are done
     S.timer = poll(async () => { const s2 = await api("status"); if (!s2.check.some((c) => c.level === "info" && c.message.startsWith("extremes: running"))) { S.timer.stop(); pageCheck(main); } }, 2000, p);
   const slot = h("div");                                   // the three views held against each other (SPEC §12l), when read
