@@ -366,6 +366,9 @@ def test_the_page_projects_with_the_loops_running_and_tries_what_ifs(tmp_path):
     assert " in 10" in words["sentence"] and "p≈" not in words["sentence"] and "runs" not in words["sentence"]
     assert {k for k, _ in words["how"]} >= {"chance off at the horizon", "runs", "horizon"}
     assert held["no_estimate"] == "No estimate: the loops are held (open loop)" and "no_estimate" not in got
+    none = api(live, "series", {"since": ["2h"], "refs": ["flow.arrivals"], "replay": ["1"], "fan": ["1"]})   # no part modelled
+    assert none["series"] and "loops" not in none, [(s["ref"], s.get("modelled")) for s in none["series"]]
+    assert none["no_estimate"] == "No estimate: nothing here is worked out by the model"
     assert api(live, "whatif-fit", {"since": ["2h"], "whatif": ["goal.queue-short:5"]}) == {}
 
 

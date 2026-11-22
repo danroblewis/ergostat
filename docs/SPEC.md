@@ -4118,7 +4118,8 @@ that were not valid change what the sentence says, it says how many ("4 of 10 ru
 none was valid there is no estimate. It says a clock time today as 14:10, another day as "Tue 14:10"; it has a
 short form for the goal row ("within, 9 in 10"); the raw p, the runs, the horizon and the method in the sentence's
 title and in a closed "How this was worked out" disclosure. A goal with no forecast says why ("No estimate: the loops
-are held (open loop)"). For each part, the half and nine in ten of the valid runs, drawn as
+are held (open loop)", "No estimate: nothing here is worked out by the model" when none of the parts asked for
+is modelled). For each part, the half and nine in ten of the valid runs, drawn as
 the strip's fan. Bounded: 100 runs by default, at most 400; at most 4,000 integration steps a run; a horizon of at
 most 30 days; a watchdog stops it at 8 seconds of wall time on the page (60 at the command line) and says how many runs
 it made. The draws come from a fixed seed (`--seed`): the same model and record give the same answer when every run is

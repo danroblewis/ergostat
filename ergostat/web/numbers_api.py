@@ -317,6 +317,8 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
                 out["replay_fan"] = {"samples": rf["samples"], "invalid": rf["invalid"], "tails": rf["samples"] >= sens.TAILS}
             out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "tails": fn["samples"] >= sens.TAILS,
                           "parameters": [{k: v for k, v in u.items() if k != "corr"} for u in sampled], "joint": sens.joint_said(sampled)}
+    elif "no_estimate" not in out:              # none of these parts is worked out by the model: say why
+        out["no_estimate"] = fw.said(None, "", 0.0, "nothing here is worked out by the model")["sentence"]
     return out
 
 

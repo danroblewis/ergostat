@@ -59,6 +59,17 @@ Round 2, answering review 1 (all three findings):
   When the sentence with only the valid runs would differ (form, time or odds), it says '(…; N of M runs not valid,
   counted as off)'; when it would read the same, it does not. Tested both ways (planted: the naming switched off, 1
   failed). Invalid runs are off at every moment, so the valid-only shares are worked out from the totals.
+  (Round 2 missed review 1's fourth finding, the bare 'No estimate'; answered in round 3 below.)
 - 'about' is dropped at the ends: 'over 9 in 10', 'under 1 in 10' (`about()`; tested).
 - docs/SPEC.md says what the chance is of, when invalid runs are named, and the no-'about' ends.
 Overrun reason: about 103 net lines against 70, because answering the review's honest-numbers finding needs the per-run shares computed in closedloop.risk (5 lines) and the invalid-run check works the sentence out a second time from the valid runs alone (a helper of 12 lines).
+
+Round 3, answering the queue's finding (review 1's fourth, left unanswered in round 2):
+
+- Loops closed but none of the parts asked for is modelled (no series has a replay or a projection): `add_to_series`
+  now sets `no_estimate` to 'No estimate: nothing here is worked out by the model', so the panel's `d.loops !==
+  "closed"` branch prints a reason, not a bare 'No estimate'. Every path through `add_to_series` that gives no `loops`
+  now gives `no_estimate`. Tested in `test_the_page_projects_with_the_loops_running_and_tries_what_ifs` (a closed-loop
+  model asked only for `flow.arrivals`, a measured input with no equation); seen to fail with the line removed
+  (KeyError 'no_estimate'). SPEC names the reason. No other findings were open.
+Overrun reason: about 105 net lines against 70: the round-2 reasons, and 2 lines to give the unmodelled case its reason.
