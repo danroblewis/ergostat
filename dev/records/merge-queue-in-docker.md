@@ -115,3 +115,9 @@ Each was seen to fail on a break (lesson-9):
 - `uv run ruff check ergostat tests scripts`: clean.
 
 Not run here: the full unit suite, the four browser files, and `demo_check`. They are the queue's to run.
+
+## Where it stopped
+
+Parked by the factory (review/merge-queue-in-docker-1, 2026-11-21 16:42).
+
+Done, by reading: points 1-5 and 7. [agents] cpusets and session_cpus in dev/factory.toml; agents.limits/queued/sweep_box; fac.suite(box=...) wrapping every queue and triage suite in a no-network agent-image container on queue_cpuset (unit 8 CPUs, browser 4), killed by name on every way out and swept at the next run after a SIGKILL; NotStarted (exit 125/126/127) failing the run as infrastructure with main undone and no gap blamed; the Mac's .venv shadowed by a tmpfs, bytecode and ruff's cache in /tmp, the git dir read-only, run/coverage mounted at its own path; five acceptance tests, each reported seen to fail on a break. Left: point 6, one real queue run of a real merge of main on the owner's Mac with the agent image built, once with queue_container = true and once with false, the suite times and the pass/skip counts of both written in Where it stopped, with the four demos and four browser files green in the container. It stops because only someone with Docker on the Mac can take that run.
