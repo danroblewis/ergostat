@@ -21,6 +21,13 @@ only the work: judge what is in the branch, not what anyone says about it.
 
 {findings}
 
+## New files the definition's "Files to touch" does not name
+
+{unlisted}
+
+The factory refuses only the ones that match its scratch patterns. Judge each one listed here: a stray or scratch
+file (a probe, a profile, a tail of a log, a benchmark) committed to the branch is blocking.
+
 ## The change
 
 {diff}

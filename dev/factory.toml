@@ -16,9 +16,11 @@ build_failures = 6                   # the implementor's failed fast suites that
                                      # are not counted: dev/bin/onmain.py)
 build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
 plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
-scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej"]
-                                     # globs on each path part of a file the branch adds: the implementor's program
-                                     # refuses the build before the suites (dev/bin/implement.py strays)
+scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej", "test_zz*",
+                    "*_tmp.py", "*.tail", ".bench*", ".mut*"]
+                                     # globs on each path part of a file the branch adds that the definition does not
+                                     # name: the implementor's program refuses the build before the suites
+                                     # (dev/bin/implement.py strays; the last five from 2026-11-21's real strays)
 
 [plan]                               # the advisory plan review (dev/bin/planreview.py): never a gate
 review = "sample"                    # sample (1 in sample_every plans), all, or off
