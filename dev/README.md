@@ -690,7 +690,9 @@ The action is recorded `ran` with the measurement's pid and log. Its timeout is 
 and a Ctrl-C to the approver, or the web server exiting, does not reach the measurement. The measurement then runs
 as a plain `measure-runs` with `--asked-as` set to the action's id. It is recorded as by `pipeline-manager`, its asker,
 with `asked_as` naming the action. It records its own end: the counts and the move as above, or, when it is refused or
-fails, an intervention saying why (`ended`), so an approved measurement never ends unrecorded. It is bounded by
+fails, an intervention saying why (`ended`). A SIGTERM to its pid (or a Ctrl-C) stops its run and load, records an
+intervention `ended: stopped` with `asked_as`, and exits 143. Only a SIGKILL to it leaves its end unrecorded (its
+load still ends by its heartbeat). It is bounded by
 `runs.WALL`. `runs.measure` refuses to run off the main thread, because only there can SIGALRM bound a run. A
 refusal at the start (the gap no longer measurable) fails the action, and no run is made.
 

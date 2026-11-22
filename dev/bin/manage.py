@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -337,12 +338,19 @@ def detach(cfg: dict, a, argv: list[str]) -> str:
 
 def asked(cfg: dict, a, argv: list[str]) -> dict:
     """The detached measurement: run, and its end recorded whatever it was. A refusal or failure is an intervention
-    too (the gap untouched), so a measurement asked and approved never ends unsaid."""
+    too (the gap untouched), and so is a SIGTERM or Ctrl-C (`ended: stopped`, then raised on): only a SIGKILL to it
+    ends it unsaid."""
     try:
         said, ok = do_measure_runs(cfg, a, asked_as=a.asked_as), True
     except Exception as e:  # noqa: BLE001 - its end recorded, then said
         said, ok = f"{'refused' if isinstance(e, Refused | ValueError) else 'failed'}: {e}"[:1000], False
         intervene("measure-runs", a.gap, said, a.cls, asked_as=a.asked_as, ended="refused or failed")
+    except BaseException as e:  # (stop_on_term's SystemExit 143, a Ctrl-C: the finallies ran, its end recorded)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)            # (a second SIGTERM does not cut the record short)
+        why = "SIGTERM" if isinstance(e, SystemExit) and e.code == 143 else type(e).__name__
+        intervene("measure-runs", a.gap, f"stopped by {why} before its runs ended: no counts, the gap untouched",
+                  a.cls, asked_as=a.asked_as, ended="stopped")
+        raise
     return {"call": argv, "ok": ok, "said": said}
 
 
@@ -407,6 +415,8 @@ def run(cfg: dict, argv: list[str]) -> dict:
     except (Refused, argparse.ArgumentError, KeyError, ValueError) as e:
         return {"call": argv, "ok": False, "said": f"refused: {e}"}
     except SystemExit as e:                                      # (argparse on a missing argument)
+        if e.code == 143:                                        # (a SIGTERM, stop_on_term's: no parse, raised on)
+            raise
         return {"call": argv, "ok": False, "said": f"refused: the call does not parse ({e})"}
     except Exception as e:  # noqa: BLE001 - one call that fails is said; the session's others still run
         return {"call": argv, "ok": False, "said": f"failed: {type(e).__name__}: {str(e)[-500:]}"}

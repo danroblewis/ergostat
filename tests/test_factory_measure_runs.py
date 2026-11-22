@@ -315,6 +315,38 @@ def test_the_manager_s_measurement_is_asked_not_run_inside_its_block(tmp_path, m
     assert len([a for a in f.db()["acts"] if a[1] == "manager-measure"]) == 1
 
 
+def test_a_sigterm_to_the_detached_measurement_records_its_end(tmp_path, monkeypatch):
+    from ergostat.spec import read
+    act = read(ROOT / "ergostat.yaml")[0].actions["manager-measure"]
+    f = Measured(tmp_path)
+    f.plan.write_text("hang")
+    args = {"gap": f.gid, "runs": "1", "tests": "tests/test_x.py", "load": "1", "why": "stopped by hand"}
+    a, _, pid = approved_through_the_gate(f, act, args, monkeypatch)
+    try:
+        assert a["state"] == "ran" and pid, a
+        for _ in range(600):
+            if f.ran() and f.pid.exists() and f.pid.read_text():
+                break
+            time.sleep(0.1)
+        suite, load = f.ran()[0]["pid"], int(f.pid.read_text().split()[0])
+        os.kill(pid, signal.SIGTERM)                # the pid the action's output gives, the obvious way to stop it
+        assert gone(pid, 40) and gone(suite, 5) and gone(load, 5)
+        f.drain()
+        (i,) = [x for x in f.interventions("pipeline-manager") if x["fields"].get("ended")]
+        assert i["fields"]["ended"] == "stopped" and i["fields"]["asked_as"] == a["id"]
+        assert "SIGTERM" in i["fields"]["reason"]
+        log = f.model / re.search(r"its log (\S+?);", a["output"]).group(1)
+        assert "does not parse" not in log.read_text()            # (a SIGTERM is not said as a call refused)
+        assert f.item(f.gid)["state"] == "built" and not f.item(f.gid)["fields"].get("measured_runs")
+    finally:
+        for p in [pid, *(r["pid"] for r in f.ran())]:
+            try:
+                if p > 0:                           # (never 0: that is this test's own group)
+                    os.kill(p, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
 def test_the_load_ends_on_its_own_when_its_caller_is_killed(tmp_path):
     f = Measured(tmp_path)
     f.plan.write_text("hang")

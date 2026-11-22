@@ -276,3 +276,34 @@ Review 5 had one blocking finding and three non-blocking ones. Each is answered 
 - Overrun reason: the code in dev/ is about 356 net lines, 176 over 180. Round 6 adds about 37 (manage.py's detached
   start and its recorded end, 36; runs.py's thread check, 1), answering review 5. That comes on top of the review
   fixes of rounds 2, 4 and 5. The factory's own count, which leaves out dev/, is 6.
+
+### Round 7
+
+Review 6 had one blocking finding and one note. Both are answered below (lesson-12).
+
+- **Blocking: a SIGTERM to the detached measurement ended it unrecorded.** `manage.asked` now also catches a
+  BaseException: stop_on_term's SystemExit(143), or a Ctrl-C. By the time it is caught, the finallies have already
+  stopped the run and the load. It ignores any further SIGTERM, records an intervention `ended: stopped` with
+  `asked_as` ("stopped by SIGTERM before its runs ended: no counts, the gap untouched"), and raises again. `manage.run`
+  now raises a SystemExit(143) again instead of calling it "refused: the call does not parse", so the process exits
+  143. dev/README.md, and the round-6 claim above, now say it plainly: a SIGTERM or Ctrl-C records the end, and only a
+  SIGKILL leaves it unrecorded (the load still ends by its heartbeat). The counts of the runs made before the SIGTERM
+  are not kept: `runs.measure` returns only when it ends. The gap is not moved.
+  New test: `test_a_sigterm_to_the_detached_measurement_records_its_end`. It approves the model's `manager-measure`
+  through the real `gate.approve`, with a hanging stand-in suite and a load, and SIGTERMs the pid the action's output
+  gives. It then checks four things:
+  - the measurement, its run and its load are all gone;
+  - one intervention says `ended: stopped`, SIGTERM, and `asked_as` the action's id;
+  - the detached log does not say "does not parse";
+  - the gap is still built, with no counts.
+- **Note: not run by the reviewer.** Noted. The runs made here are listed below.
+- **Breaks (lesson-9).** I broke each new guard and watched the test fail:
+  - the new handler narrowed to KeyboardInterrupt: no `ended` intervention was found;
+  - the 143 re-raise in `run` disabled: the log said "refused: the call does not parse (143)".
+- **Run here.** `tests/test_factory_measure_runs.py`: 14 passed. `tests/test_factory_manager.py`: 33 passed.
+  `uv run ruff check ergostat tests scripts dev/bin/manage.py dev/bin/runs.py` is clean. Local `main` has nothing the
+  branch lacks. **Not run here:** the unit suite, the four browser files and any real 30-run load. The merge queue
+  runs those.
+- Overrun reason: the code in dev/ is about 366 net lines, 186 over 180. Round 7 adds 10 in manage.py (the recorded
+  end on a SIGTERM and the 143 re-raise), answering review 6. That comes on top of the review fixes of rounds 2, 4,
+  5 and 6. The factory's own count, which leaves out dev/, is 6.
