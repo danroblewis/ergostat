@@ -1135,7 +1135,9 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
 the window, 400 more reached by relations (six links away at most), 300 cards and 200 rows drawn; a note says when
-any was reached. In a snapshot they are not drawn.
+any was reached. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
+is read by id and its own status counts (one that cannot be read counts as unfinished, and is named). In a snapshot
+they are not drawn.
 
 **Built-in kinds.** Seven kinds are ergostat's own, present in every project and never declared (a project's
 kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
