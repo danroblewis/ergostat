@@ -25,3 +25,33 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built (round 1), about 26 net lines outside tests: `ergostat/web/static/dynamics.js`, `ergostat/web/static/equations.js`,
+and one field (`recorded`) added to `/api/status` in `ergostat/web/server.py`. Acceptance test:
+`tests/test_diagram_rendering.py::test_a_flow_with_no_value_says_why_and_an_estimate_with_no_basis_says_so`.
+
+Choices made with nobody to ask (each the more reversible one):
+- The wording is changed where the page draws it, not in `ergostat/numbers/` (the Files list names only `ergostat/web/`):
+  the calibration table replaces "Nothing says the value written is wrong" with "the record so far rejects <declared>
+  but cannot yet settle a value" when the declared value lies outside the estimate ± 3σ. The server's own text (CLI,
+  the Model page's "Estimates not proposed" list) still says the old words; changing it there is a gap of its own.
+- "An interval wider than ten times its estimate" is read as the whole interval (2σ) against |estimate|, the stricter
+  reading, so the acceptance line holds under the other reading (σ > 10 × estimate) too.
+- A flow whose rate is null (no sensor reading, no valve, no declared rate) is "not measured" on its label and in its
+  panel; a rate of 0 that was not declared says "0 …: no movement in <span>", the span the shorter of the window and
+  the time actually recorded (so a 33-minute record says 33m, not 24h), and "nothing recorded yet" when nothing is.
+- "Rates keep a value with nothing in flight" is answered only as far as the change says (0 and how long nothing moved);
+  how the snapshot averages a rate over the window is unchanged.
+- The Blocks panel's identified-model intervals (`control.js` pmText) are not changed: the gap's pages are Dynamics and
+  its flow panel, and the two diagrams stay separate.
+
+Each of four breaks was seen to fail the acceptance test: the label back to '–'; the panel's zero rate without "no
+movement"; the rejection wording off (3σ → 30σ); the wide-interval rule off (10 → 1000).
+
+Not caused by this branch: `tests/test_diagram_rendering.py::test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`
+fails at its last line (`"Nothing waiting." in` the /model page, drawn by `pages.js`, which this branch does not touch).
+It failed alone, and still failed with every change of this branch except `dynamics.js` undone. `dynamics.js` changes
+only the Dynamics label and panels, not the /model page. It was not run on main: `git checkout main -- ergostat/web`
+was refused. Also refused: running the whole of `tests/test_diagram_rendering.py` in the background.
