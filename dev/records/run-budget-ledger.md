@@ -107,8 +107,8 @@ Choices the definition left open, each the more reversible one and each said in 
 Round 4 (the queue's conflict, and the round-3 review's notes):
 - The factory's merge of main (48b1481a) conflicted in `ergostat/spec/compile.py`, where main added the mTLS file
   check at the same place as the branch's budget block. Both are kept, the budget block first. The merge is
-  59c5ab69, whose second parent is 48b1481a. In this clone `git for-each-ref` lists two refs, the branch and `main`
-  (at 48b1481a), and no remote-tracking ref, so the main merged is the `main` the factory gave.
+  59c5ab69, whose second parent is 48b1481a. origin/main is at 48b1481a (as the round-4 review gives it), the same
+  commit as `main`, so 59c5ab69 merges it: 48b1481a is an ancestor of HEAD, and `git log HEAD..main` is empty.
 - The GAPS entry was checked after the merge: one entry, one *Left* clause, nothing spliced in.
 - The round-3 wording notes are fixed: the over-wide lines in the agent guide §3b and SPEC §9.9 are reflowed, and so
   is a ragged line in the GAPS entry.
@@ -118,3 +118,9 @@ Round 4 (the queue's conflict, and the round-3 review's notes):
   test_spec_schema, test_spec_structure and test_local_settings (41 passed), and main's `tests/test_remote_mtls.py`
   (23 passed). Ruff is clean. The unit suite and the four browser files were not run here (left to the factory and
   the merge queue).
+
+Round 5 (the round-4 review's findings):
+- The round-4 merge bullet is rewritten to say only what was checked: origin/main is at 48b1481a, the same commit as
+  `main`, and 59c5ab69 merges it (48b1481a is an ancestor of HEAD; `git log HEAD..main` is empty). No code changed.
+- The review could not run the tests or ruff. Run here in round 5: `tests/test_run_budget.py` (9 passed). Ruff is
+  clean. The unit suite and the four browser files were not run here (left to the factory and the merge queue).
