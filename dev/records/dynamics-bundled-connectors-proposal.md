@@ -31,3 +31,8 @@ Choices taken alone, the most reversible each:
   through parts 0 to 0). It does not hold on every view: ticket-factory with factory and modelling open goes 26 to 29,
   software-factory's top level 0 to 1, and word collisions rise 1220 to 1278. All of this is stated in the Evidence
   section, with the amendments it leads to.
+
+Round 2: the review's one finding is answered by removing the 17 unreferenced PNGs in docs/proposals/img (the 15
+variant shots bundled-{tf-factory,sf-top,sf-product}-after-{j16,j20,j50,mid,last}-light.png, and
+bundled-sf-product-after-light.png and -dark.png, which duplicated the before shots). The variants' numbers stay in the
+proposal's Evidence section; every image left in docs/proposals/img/bundled-* is referenced by the proposal.
