@@ -184,6 +184,26 @@ def test_the_files_route_reads_only_inside_the_project(tmp_path, monkeypatch):
     assert api(Live(p), "agents/build/elsewhere", {}) is None and api(Live(p), "agents/nobody/files", {}) is None
 
 
+def test_a_prompt_outside_the_project_is_said_never_taken_as_inline(tmp_path, monkeypatch):
+    (tmp_path / ".state").mkdir()
+    p = Project(project(tmp_path).model, directory=tmp_path / ".state")
+    (Path(p.dir) / "token").write_text("secret")
+    state = os.path.relpath(Path(p.dir) / "token", tmp_path)
+    read: list[Path] = []
+    real = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: (read.append(self.resolve()), real(self, *a, **k))[1])
+    for prompt, name in (("../../etc/passwd", "../../etc/passwd"), ("/etc/hostname", "hostname"), (state, state)):
+        p.model.spec.blocks["inline"].params["prompt"] = prompt
+        got = spec_of(p, "inline")
+        assert got["prompt_text"] is None, prompt
+        assert {"name": name, "role": "prompt", "format": None, "why": "not shown: outside the project"} in got["files"]
+        row = api(Live(p), "agents/inline/files", {})["files"][0]
+        assert row["why"] == "not shown: outside the project" and "text" not in row
+    assert not any(r.name in ("passwd", "hostname", "token") for r in read)
+    p.model.spec.blocks["inline"].params["prompt"] = "Sort the pile."
+    assert spec_of(p, "inline")["prompt_text"] == "Sort the pile." and spec_of(p, "inline")["files"] == []
+
+
 def test_at_most_eight_files_are_listed(tmp_path):
     p = project(tmp_path)
     for i in range(12):

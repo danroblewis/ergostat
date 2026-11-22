@@ -69,11 +69,11 @@ def _listed(project, spec, b) -> tuple[list[dict], dict | None]:
     out: list[dict] = []
     seen: set[Path] = set()
 
-    def add(tok: str, role: str, must_exist: bool) -> None:
+    def add(tok: str, role: str, said: bool) -> None:
         f = (root / tok).resolve()
         name = _name(f, roots)
         if name is None or _under_state(project, f):
-            if not must_exist:             # a path written to run: said, never stat'ed or read
+            if said:                       # a path written outside: said, never stat'ed or read
                 out.append({"name": Path(tok).name if os.path.isabs(tok) else tok, "role": role, "format": None,
                             "why": OUTSIDE, "_path": None})
             return
@@ -84,7 +84,7 @@ def _listed(project, spec, b) -> tuple[list[dict], dict | None]:
 
     prompt = b.params.get("prompt") if b.type == "ai" else None
     if isinstance(prompt, str) and "\n" not in prompt and prompt.strip():
-        add(prompt, "prompt", True)                     # as the engine resolves it (spec/engine.py, program)
+        add(prompt, "prompt", True)     # as the engine resolves it (spec/engine.py, program); outside: not inline
     dn = b.params.get("daemon")
     run = b.params.get("run") or (spec.daemons[dn].run if dn in spec.daemons else "")
     try:
@@ -100,7 +100,7 @@ def _listed(project, spec, b) -> tuple[list[dict], dict | None]:
         if t.startswith("-") or _interpreter(t) or (i == 0 and "=" in t) or t in ("|", "&&", "||", ";", ">", "<"):
             continue
         if "/" in t or Path(t).suffix.lower() in FORMATS:
-            add(t, "wrapper" if b.type == "ai" else "program", "/" not in t)
+            add(t, "wrapper" if b.type == "ai" else "program", "/" in t)
     return out[:MOST_FILES], own
 
 

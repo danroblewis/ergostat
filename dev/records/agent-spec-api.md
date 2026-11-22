@@ -38,5 +38,11 @@ Decisions taken without the owner, each easy to undo:
   `log_path`) are left as they were.
 - `decisions` sums the controllers the agent fills and adds `controllers` and the ladder `hint`. It is null when the
   agent fills no controller.
+- Round 2: an ai block's one-line prompt that resolves outside the roots or under the state directory is listed as
+  'not shown: outside the project' (never stat'ed or read) and its `prompt_text` is null, since the engine would send
+  that file if it exists. A one-line inline prompt that itself starts with `/` or climbs with `..` is therefore shown
+  as an outside file rather than as text. That is the safer way to be wrong, because telling the two apart would
+  mean stat'ing a path outside the project
+  (test_a_prompt_outside_the_project_is_said_never_taken_as_inline).
 
 Overrun reason: 273 net lines against 260 (under the 300 split line), because the source extraction (its YAML as written, parsed with the spec's YAML 1.2 loader so `on:` stays a key) and the second check made at read time take about 20 lines more than planned.
