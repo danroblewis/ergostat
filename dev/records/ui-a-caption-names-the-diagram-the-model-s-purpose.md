@@ -89,3 +89,12 @@ empty and a proper subset of the loops. The changed file is now picked by `affec
 without Playwright. It was seen to fail with two breaks of ergostat/web/server.py, each put back afterwards: every goal
 counted as controlled, and the purpose sent as "". The whole of tests/test_graph_cli_web.py passes (32), and ruff is
 clean. No code outside tests/ changed in this round.
+
+## Where it stopped (round 2, merge of main 720426bd, 2026-11-22)
+
+The one finding was the conflict with main in tests/test_diagram_rendering.py. Both sides had added a test at the end
+of the file: this branch's caption test and main's `test_needs_attention_is_three_headed_groups_in_a_fixed_order`
+(with `GROUPED` and `GROUPS`). The merge keeps both, unchanged (d81035b2). No code changed. On the merged tree, with
+Playwright under the watchdog, the caption test and main's new test both pass (rc 0, 2 passed). The status unit test in
+tests/test_graph_cli_web.py passes, and ruff is clean. Not run here: the rest of the browser files and the unit suite.
+Those run in the merge queue.
