@@ -100,5 +100,5 @@ stopped" and has no "$0". Broken and seen to fail: the "not known" branch in cos
 timed out waiting for "not known"), and `unknown` counting only `agent.failed` (the unit test failed).
 
 Run: tests/test_items_page.py (22 passed) and tests/test_agents_page.py (5 passed), with Playwright under the
-watchdog, rc 0. tests/test_run_costs.py (16 passed). Ruff is clean. Not run here: test_diagram_rendering.py,
-test_page_polling.py, test_page_refresh.py and the whole unit suite (the factory and the merge queue run them).
+watchdog, rc 0, and tests/test_page_polling.py (17 passed, rc 0). tests/test_run_costs.py (16 passed). Ruff is
+clean. Not run here: test_diagram_rendering.py, test_page_refresh.py and the whole unit suite (the factory and the merge queue run them).
