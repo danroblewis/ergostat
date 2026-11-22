@@ -18,3 +18,9 @@ gap (lesson 13), and writing `keeper.py` against a guessed interface would likel
 lands. The more reversible choice taken: build nothing, and resume this gap once `compute-worker-protocol` is merged
 to `main`. Left: all of it (keeper.py, the `start` and `kill` handlers' registration, tests/test_compute_keeper.py
 with its five tests, the docs/SPEC.md text). Nothing reached the network.
+
+## Where it stopped
+
+Parked by the factory (review/compute-worker-keeper-1, 2026-11-22 12:31).
+
+Done: the definition of done and a Where-it-stopped note in dev/records/compute-worker-keeper.md. Left: all of the work (keeper.py, the start/kill handlers in serve.py, tests/test_compute_keeper.py with its five tests, the docs/SPEC.md text). It stops because the start handler's framing, the node capacity and limits, and the worker itself belong to compute-worker-protocol, which is not in this branch's base; building them here would be outside the gap (lesson-13).
