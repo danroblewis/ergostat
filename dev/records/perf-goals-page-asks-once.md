@@ -113,3 +113,21 @@ Main had not moved since round 2's merge (`git log HEAD..main` empty). Run: `tes
 clean. `tests/test_page_polling.py` under the watchdog: see the next line.
 `tests/test_page_polling.py` under the watchdog after this round's commit: 20 passed, rc 0, none skipped, 893 s, peak
 163 threads (a first try was stopped at the session's 10-minute background limit before it ended, and was run again).
+
+## Where it stopped
+
+Parked by the factory (reviewer, 2026-11-22 14:18).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/review.py", line 143, in main
+    return judge(cfg, given["item"], began)
+  File "/Users/user/ergostat-live/instance/dev/bin/review.py", line 195, in judge
+    got = fac.session(cfg, "reviewer", text, wt)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
