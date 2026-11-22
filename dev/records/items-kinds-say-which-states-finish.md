@@ -39,3 +39,21 @@ Built, round 1. Where the build differs from the text above, and why (each the m
   chart's legend carries that word as its title.
 - Q61 is not closed here: no file of filed questions was touched.
 - Not run here: the unit suite as a whole, test_diagram_rendering.py and test_page_polling.py, demo_check (no example changed).
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 14:20).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
