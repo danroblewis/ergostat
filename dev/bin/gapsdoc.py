@@ -8,7 +8,7 @@ dev/records/GAPS-head.md is the rest of GAPS.md, each entry a line `@entry NAME`
 its section's last, by name. render() reports by name every malformed Entry, two titles slugging to one branch
 (gap ids cut to 32, as intake does), a listed entry or an umbrella with none: rendered, never silently dropped.
 split() is the inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line. Each landing
-of the merge queue carries the batch's own GAPS.md edits into the records (carry()) and writes GAPS.md from them
+of the merge queue carries the batch's own GAPS.md edits into the records and GAPS-head.md (carry()) and writes GAPS.md from them
 (regenerate()); every reader still reads GAPS.md.
 
     gapsdoc.py render [--check]       GAPS.md from dev/records to stdout (--check: only the problems); exits 1 on any
@@ -96,9 +96,9 @@ def done_lines(done: list[tuple[str, str, str]]) -> list[str]:
     return out
 
 
-def render(records: dict[str, str], head: str) -> tuple[str, list[str]]:
+def render(records: dict[str, str], head: str, drawn: dict | None = None) -> tuple[str, list[str]]:
     """GAPS.md's text from {record name: record text} and the head, and the problems found, each naming its record.
-    Every entry that parses is rendered, a problem or not."""
+    Every entry that parses is rendered, a problem or not; ``drawn`` (when given) gets {its text: record name}."""
     problems: list[str] = []
     tops: dict[str, dict] = {}
     subs: dict[str, list[tuple[str, dict]]] = {}
@@ -127,7 +127,8 @@ def render(records: dict[str, str], head: str) -> tuple[str, list[str]]:
         e = tops[name]
         done = [(d, name, s) for d, s in e["done"]]
         done += [(d, kid, s) for kid, k in subs.get(name, []) for d, s in k["done"]]
-        return e["bullet"] + done_lines(done)
+        (drawn if drawn is not None else {})["\n".join(got := e["bullet"] + done_lines(done))] = name
+        return got
 
     lines = head.split("\n")
     section, last = "", {}                         # last: the index after which a section's unlisted entries go
@@ -224,14 +225,18 @@ def with_entry(record: str, e: dict) -> str:
     return ("\n".join(lines).rstrip("\n") + "\n\n" if "".join(lines).strip() else "") + "\n".join(body) + "\n"
 
 
-def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple[dict[str, str], list[str], list[str]]:
+def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple[dict, list[str], list[str], str]:
     """The entry text and done lines a batch added to GAPS.md (``head``) that neither the records before it rendered
-    (``pre``) nor the records (at head) render, put in them: ({record: its new text}, what was carried, by record, the entries it could not
-    place, whole). An entry goes to the record whose Entry has its title, else to the record its branch names (the gap
-    id cut to 32), its section and bullet replacing that Entry's; each done line (as done_lines() draws it) is added to
-    the record it names in backticks. An entry with any part that cannot be placed is placed in no part."""
-    have = set(split(pre)["records"].values()) | set(split(render(records, gaps_head)[0])["records"].values())
-    tops, out, said, lost = {}, {}, [], []
+    (``pre``) nor the records (at head) render, put in them: ({record: its new text}, what was carried, by record, the
+    entries it could not place, whole, and GAPS-head.md). An entry goes to the record whose Entry has its title, else to
+    the record its branch names (the gap id cut to 32; made when there is none), its section and bullet replacing that
+    Entry's; each done line (as done_lines() draws it) is added to the record it names in backticks. An entry with any
+    part that cannot be placed (another title's Entry, a sub-gap's under another umbrella) is placed in no part. When
+    the batch changed GAPS.md outside the entries (its head, as split() cuts it), GAPS-head.md becomes that head, each
+    `@entry` naming the record that draws (or now holds) the entry there; an entry no record holds loses its slot."""
+    drawn: dict[str, str] = {}
+    have = set(split(pre)["records"].values()) | set(split(render(records, gaps_head, drawn)[0])["records"].values())
+    tops, out, said, lost, at = {}, {}, [], [], {}     # at: {split()'s name for a block of head: the record holding it}
     for name, text in records.items():
         try:
             e = parse(text)
@@ -239,11 +244,14 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
             continue
         if e and not e["entry_of"]:
             tops[gap_id(ENTRY.match(e["bullet"][0]).group(1))] = name
-    for rec in split(head)["records"].values():
-        if rec in have:
-            continue
+    cut = split(head)
+    for slot, rec in cut["records"].items():
         lines = rec.split("\n")
         section, block, bullet, done = lines[2].removeprefix("section: "), lines[4:-1], [], []
+        gid = gap_id(ENTRY.match(block[0]).group(1))
+        if rec in have:
+            at[slot] = drawn.get("\n".join(block)) or tops.get(gid)
+            continue
         for ln in block:
             if m := DONE_AT.match(ln):
                 done.append(list(m.groups()))
@@ -251,26 +259,40 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
                 done[-1][2] += " " + ln.strip()
             else:
                 bullet.append(ln)
-        gid = gap_id(ENTRY.match(block[0]).group(1))
         name, trial = tops.get(gid) or fac.slug(gid, 32), dict(out)
         try:
             for who, d, s in [(name, None, None)] + [(w, d, s) for d, w, s in done]:
-                e = parse(trial.get(who, records[who]))
+                if not fac.SAFE.match(who):
+                    raise ValueError(f"{who!r} is not a record name")
+                e = parse(trial.get(who, records.get(who, "")))       # (no record yet: one is made, its Entry alone)
                 if (e or {}).get("entry_of") not in (None, name) or e and d and who != name and not e["entry_of"]:
                     raise ValueError(f"{who}'s Entry is not {name}'s nor under it")
+                if e and d is None and not e["entry_of"] and gap_id(ENTRY.match(e["bullet"][0]).group(1)) != gid:
+                    raise ValueError(f"{who}'s Entry has another title")
                 if d is None:
                     e = {"section": section, "entry_of": None, "done": (e or {}).get("done", []), "bullet": bullet}
                 elif not e:                                   # (a sub-gap's record with no Entry yet: one, under it)
                     e = {"section": None, "entry_of": name, "done": [(d, s)], "bullet": []}
                 elif (d, s) not in e["done"]:
                     e["done"].append((d, s))
-                trial[who] = with_entry(trial.get(who, records[who]), e)
-        except (KeyError, ValueError):
+                trial[who] = with_entry(trial.get(who, records.get(who, "")), e)
+        except ValueError:
             lost.append("\n".join(block))
             continue
-        out = trial
+        out, at[slot] = trial, name
         said += [f"{name}: {block[0][:80]}"]
-    return {n: t for n, t in out.items() if t != records[n]}, said, lost
+    new_head = gaps_head
+    if cut["head"] != split(pre)["head"]:            # the batch's edits outside the entries: kept, in GAPS-head.md
+        lines, listed = [], set()
+        for ln in cut["head"].split("\n"):
+            if not (m := SLOT.match(ln)):
+                lines.append(ln)
+            elif (n := at.get(m.group(1))) and n not in listed:
+                lines.append(f"@entry {n}")
+                listed.add(n)
+        new_head = "\n".join(lines)
+        said += ["GAPS-head.md: the batch's GAPS.md text outside the entries"] * (new_head != gaps_head)
+    return {n: t for n, t in out.items() if t != records.get(n)}, said, lost, new_head
 
 
 def rendered_at(repo: Path, ref: str) -> str:
@@ -291,11 +313,13 @@ def regenerate(root: Path, pre: str) -> dict:
     where, gaps = root / fac.DEFS, root / "docs" / "GAPS.md"
     head = (where / HEAD.name).read_text()
     records = {p.stem: p.read_text() for p in sorted(where.glob("*.md")) if p.name not in (HEAD.name, UNPLACED.name)}
-    changed, carried, unplaced = carry(pre, gaps.read_text(), records, head)
-    text, problems = render({**records, **changed}, head)
+    changed, carried, unplaced, new_head = carry(pre, gaps.read_text(), records, head)
+    text, problems = render({**records, **changed}, new_head)
     if bad := [p for p in problems if not BENIGN.search(p)]:
         raise ValueError("; ".join(bad))
     files = {where / f"{n}.md": t for n, t in changed.items()} | {gaps: text}
+    if new_head != head:
+        files[where / HEAD.name] = new_head
     if unplaced:
         p = where / UNPLACED.name
         files[p] = (p.read_text() if p.is_file() else "# GAPS.md text no record took (gapsdoc.carry)\n") + "".join(

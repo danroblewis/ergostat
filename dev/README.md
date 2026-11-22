@@ -96,7 +96,9 @@ mkdir -p run/defs && $EDITOR run/defs/<branch>.md        # the gap's `branch` fi
 `dev/records/<branch>.md` holding only its `## Entry` is not a definition, and the old file is read). A gap's GAPS.md
 entry is written in its record, as its `## Entry` section (dev/prompts/definition.md shows the shape), never in
 `docs/GAPS.md`: each landing of the merge queue carries the batch's own GAPS.md edits into the records
-(`gapsdoc.carry`; one it cannot place goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
+(`gapsdoc.carry`: a new entry gets a record of its own, `dev/records/<branch>.md` holding only its Entry, and text
+outside the entries goes to `dev/records/GAPS-head.md`; one it cannot place, such as an entry whose branch names
+another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
 `gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
 commits change GAPS.md. Every reader still reads GAPS.md. A gap that is not in GAPS.md is asked for as an

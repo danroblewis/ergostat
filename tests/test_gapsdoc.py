@@ -346,12 +346,13 @@ def tree(root: Path, records: dict[str, str]) -> str:
     return text
 
 
-NOBODY = "- **Nobody's gap** (open): no record has it.\n"
+NOBODY = "- **Nobody's gap** (open): no record has it yet.\n"
+STRAY = "- **Stray** (open): a done line under the wrong entry.\n  - *Done 2026-11-23* (`remote-systems`): not its own.\n"
 
 
 def edited(pre: str) -> str:
     """GAPS.md as a branch approved before the records took the entries edits it: a bullet line changed, a done line
-    of a sub-gap under its umbrella, and an entry no record has."""
+    of a sub-gap under its umbrella, and a new entry no record has yet."""
     return pre.replace("  - *Left*: the IR.\n", "  - *Left*: the IR, and the API.\n").replace(
         "The read-only remote API.\n", "The read-only remote API.\n  - *Done 2026-11-23* (`remote-mtls`): Mutual "
         "TLS, every link.\n" + NOBODY)
@@ -360,29 +361,58 @@ def edited(pre: str) -> str:
 def test_carry_puts_a_batchs_own_gaps_md_edits_in_the_named_records():
     records = {"remote-systems": UMBRELLA, "remote-mtls": MTLS}
     pre = gapsdoc.render(records, HEAD)[0]
-    changed, carried, lost = gapsdoc.carry(pre, edited(pre), records, HEAD)
-    assert sorted(changed) == ["remote-mtls", "remote-systems"] and carried == [
-        "remote-systems: - **Remote systems** (open; `remote-systems`): a system run by another instance."]
-    assert lost == [NOBODY.strip()]                                    # placed nowhere: said, never dropped
+    changed, carried, lost, head = gapsdoc.carry(pre, edited(pre) + STRAY, records, HEAD)
+    assert sorted(changed) == ["nobody-s-gap", "remote-mtls", "remote-systems"] and carried == [
+        "remote-systems: - **Remote systems** (open; `remote-systems`): a system run by another instance.",
+        "nobody-s-gap: - **Nobody's gap** (open): no record has it yet.",
+        "GAPS-head.md: the batch's GAPS.md text outside the entries"]
+    assert lost == [STRAY.strip()]                                     # placed nowhere: said, never dropped
+    assert changed["nobody-s-gap"] == f"## Entry\n\nsection: Remote\n\n{NOBODY}"   # a new entry: its record made
+    assert head == HEAD.replace("@entry remote-systems\n", "@entry remote-systems\n@entry nobody-s-gap\n")
     assert changed["remote-mtls"].startswith(MTLS)                     # its definition kept, its Entry after it
     assert gapsdoc.parse(changed["remote-mtls"])["entry_of"] == "remote-systems"
     assert gapsdoc.parse(changed["remote-systems"])["bullet"][1] == "  - *Left*: the IR, and the API."
-    text, problems = gapsdoc.render({**records, **changed}, HEAD)
-    assert problems == [] and text == edited(pre).replace(NOBODY, "")
-    assert gapsdoc.carry(text, text, {**records, **changed}, HEAD) == ({}, [], [])   # nothing new: nothing carried
+    text, problems = gapsdoc.render({**records, **changed}, head)
+    assert problems == [] and text == edited(pre)                      # where the branch put it
+    assert gapsdoc.carry(text, text, {**records, **changed}, head) == ({}, [], [], head)   # nothing new: nothing
+
+
+def test_an_entry_whose_branch_names_another_titles_record_is_kept_unplaced():
+    long = "A title long enough that its branch"                    # its gap ids differ, its branches do not
+    records = {"remote-systems": UMBRELLA, gapsdoc.fac.slug(gapsdoc.gap_id(long), 32): UMBRELLA.replace(
+        "Remote systems", f"{long} characters").replace("done: 2026-11-18 The read-only remote API.\n", "")}
+    pre = gapsdoc.render(records, HEAD)[0]
+    other = f"- **{long} letters** (open): another gap, the same branch.\n"
+    changed, carried, lost, _ = gapsdoc.carry(pre, pre + other, records, HEAD)
+    assert changed == {} and lost == [other.strip()]                   # never written over the other title's Entry
 
 
 def test_regenerate_writes_the_records_and_gaps_md_and_keeps_what_it_cannot_place(tmp_path):
     pre = tree(tmp_path, {"remote-systems": UMBRELLA, "remote-mtls": MTLS})
-    (tmp_path / "docs" / "GAPS.md").write_text(edited(pre))           # the batch's merge, as main holds it
+    (tmp_path / "docs" / "GAPS.md").write_text(edited(pre) + STRAY)   # the batch's merge, as main holds it
     got = gapsdoc.regenerate(tmp_path, pre)
-    assert got["unplaced"] == [NOBODY.strip()] and len(got["carried"]) == 1 and got["problems"] == []
-    assert sorted(got["files"]) == ["dev/records/GAPS-unplaced.md", "dev/records/remote-mtls.md",
+    assert got["unplaced"] == [STRAY.strip()] and len(got["carried"]) == 3 and got["problems"] == []
+    assert sorted(got["files"]) == ["dev/records/GAPS-head.md", "dev/records/GAPS-unplaced.md",
+                                    "dev/records/nobody-s-gap.md", "dev/records/remote-mtls.md",
                                     "dev/records/remote-systems.md", "docs/GAPS.md"]
-    assert (tmp_path / "docs" / "GAPS.md").read_text() == edited(pre).replace(NOBODY, "")
-    assert NOBODY.strip() in (tmp_path / "dev" / "records" / "GAPS-unplaced.md").read_text()
+    assert (tmp_path / "docs" / "GAPS.md").read_text() == edited(pre)
+    assert STRAY.strip() in (tmp_path / "dev" / "records" / "GAPS-unplaced.md").read_text()
     again = gapsdoc.regenerate(tmp_path, (tmp_path / "docs" / "GAPS.md").read_text())    # the next landing: no change
     assert again["carried"] == [] and again["files"] == ["docs/GAPS.md"]
+
+
+def test_a_batchs_edit_outside_the_entries_is_carried_into_the_head(tmp_path):
+    def prose(text: str) -> str:                       # the preamble, a section's prose and a new section heading
+        return text.replace("Intro.\n", "Intro, said again.\n").replace(
+            "## Remote\n", "## Remote\n\nThe section's prose.\n").replace("## Done recently\n", "## Proposed\n\n## Done "
+                                                                          "recently\n")
+    pre = tree(tmp_path, {"remote-systems": UMBRELLA, "remote-mtls": MTLS})
+    (tmp_path / "docs" / "GAPS.md").write_text(prose(pre))
+    got = gapsdoc.regenerate(tmp_path, pre)
+    assert got["carried"] == ["GAPS-head.md: the batch's GAPS.md text outside the entries"] and not got["unplaced"]
+    assert sorted(got["files"]) == ["dev/records/GAPS-head.md", "docs/GAPS.md"]
+    assert (tmp_path / "docs" / "GAPS.md").read_text() == prose(pre)       # never reverted by the render
+    assert (tmp_path / "dev" / "records" / "GAPS-head.md").read_text() == prose(HEAD)
 
 
 def test_regenerate_on_a_malformed_record_writes_nothing(tmp_path):

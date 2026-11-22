@@ -5138,10 +5138,11 @@ def test_an_approved_branch_that_edited_gaps_md_lands_with_its_text_in_a_record(
     assert git(f.checkout, "log", "-2", "--format=%s", "main").splitlines() == [
         "docs/GAPS.md from the records", "Merge branch 'factory/carried'"]
     assert "  *Left*: the carried line." in git(f.checkout, "show", f"{head}:{NEW}/delta.md")
-    shown = git(f.checkout, "show", f"{head}:docs/GAPS.md")
-    assert shown == CARRIED.replace(f"{EPSILON}\n", "").strip()     # the render of the records, on the pushed head
-    assert EPSILON in git(f.checkout, "show", f"{head}:{NEW}/GAPS-unplaced.md")     # kept, never dropped
-    assert run["gaps_md_unplaced"] == [EPSILON] and run["gaps_md_carried"][0].startswith("delta: - **Delta**")
+    assert git(f.checkout, "show", f"{head}:{NEW}/epsilon.md") == f"## Entry\n\nsection: Modelling\n\n{EPSILON}"
+    assert git(f.checkout, "show", f"{head}:docs/GAPS.md") == CARRIED.strip()   # the records' render, pushed
+    assert "@entry delta\n@entry epsilon\n" in git(f.checkout, "show", f"{head}:{NEW}/GAPS-head.md")
+    assert "gaps_md_unplaced" not in run and [c.split(":")[0] for c in run["gaps_md_carried"]] == [
+        "delta", "epsilon", "GAPS-head.md"]
 
 
 def test_no_record_change_makes_no_commit_and_a_malformed_record_lands_without_one(tmp_path):
