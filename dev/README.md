@@ -527,11 +527,18 @@ stopped (its process group and its container) when its log has not grown for `[s
 or when it has run past `[suites] wall_minutes` (45, three times the 15-minute `suites-in-time` goal; at most 120).
 A value past its ceiling, or not above 0, is refused when the settings are read, and again when a suite starts. Past
 either limit the run's lease is no longer renewed. A stopped suite is a stall, not the batch's failure: main is
-undone, the run's own gap gets `stalled` (the suite), `stalled_why`, `stalled_test` (the last test its log names),
-`stalled_tail` and `stalled_batch`, and its lease is given back uncounted, so it and its batch-mates (which never left
-`approved`) are taken again, with no failed gate and nothing sent to fix or triage. In triage, the gap gets the same
-fields and its lease is given back the same way, so triage takes it again. Nothing yet stops a test that hangs every
-time from being taken again each time.
+undone, the run's own gap gets `stalled` (the suite), `stalled_why`, `stalled_test`, `stalled_tail` and
+`stalled_batch`, and its lease is given back uncounted, so it and its batch-mates (which never left `approved`) are
+taken again, with no failed gate and nothing sent to fix or triage. `-q` prints no test ids while tests run, so each
+of these suites runs with `PYTEST_ADDOPTS=-o faulthandler_timeout=<half the stall limit>`. A test still running then
+has its stack dumped into the log, and `stalled_test` is the `tests/test_*.py::test_*` function in the last such
+stack. A method or a parametrized case is named by its file and function only. With no stack, it is the last test id
+the log names, or null. Each hung test's dump grows the log once, so it stops the suite up to half a stall limit
+later. A stall also halves the next run's batch (at least 1), so a gap that hangs comes to run alone. A stall
+with the gap alone in its batch is counted on it (`stalls`). Its third (`STALLS_MOST` in fac.py) is no longer given
+back: it goes to triage as `queue-failed`, the stalled test as its failed test. In triage, a stalled rerun gets the
+same fields and `stalls`, and its lease is given back the same way until the gap's third stall. Then the failure is
+the branch's: back to fix, or parked by the kill rule.
 
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in

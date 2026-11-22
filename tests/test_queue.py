@@ -248,6 +248,8 @@ def test_a_suite_whose_log_stops_growing_is_stopped_as_a_stall(tmp_path):
     assert a["stalled"] == "unit" and a["stalled_test"] == "tests/test_x.py::test_hangs"
     assert "test_hangs" in a["stalled_tail"] and a["stalled_batch"] == ["gap/a", "gap/b"]
     assert "failed_gates" not in a and "findings" not in a
+    assert a["stalls"] == 0                                                    # not alone: no gap's stall counted,
+    assert json.loads((f.model / "run" / "queue.json").read_text())["cap"] == 1   # but the next batch is halved
     assert f.item("gap/b")["state"] == "approved"
     e.run(lines, "gap/a")                                                      # its lease ends after its lines
     assert e.item("gap/a").state == "approved" and e.item("gap/b").state == "approved"
@@ -296,6 +298,71 @@ def test_stall_limits_have_a_ceiling(tmp_path):
     goal = re.search(r"suites-in-time:\n\s+auxiliary: suite-minutes\n\s+hold: \"<= (\d+)\"",
                      (ROOT / "dev" / "model" / "measures.yaml").read_text())
     assert goal and int(goal[1]) == module("fac").SUITE_GOAL_MINUTES
+
+
+def test_a_hung_pytest_names_the_test_it_was_on(tmp_path):
+    # a real pytest -q under xdist, as the queue's unit suite runs: -q prints no test ids while tests run, so the test
+    # is read from the stack pytest's faulthandler dumps at half the stall limit (fac.suite sets its timeout)
+    hung = tmp_path / "hung" / "tests"
+    hung.mkdir(parents=True)
+    (hung / "test_hangs.py").write_text("import time\n\n\ndef test_quick():\n    pass\n\n\n"
+                                        "def test_hangs():\n    time.sleep(600)\n")
+    f = Factory(tmp_path, unit=f"echo $$ > {tmp_path / 'group'}; exec {sys.executable} -m pytest -q -n 2 "
+                               f"-p no:randomly -p no:cacheprovider {hung}")
+    limited(f, stall_minutes=0.2)                                              # 12 s; its stack dumped at 6 s
+    try:
+        got = one_suite(f)
+        assert got["stalled"] == "unit" and "did not grow" in got["why"]
+        assert got["test"] == "tests/test_hangs.py::test_hangs", got["tail"]
+        assert gone(int((tmp_path / "group").read_text()))
+    finally:
+        reaped(tmp_path / "group")
+
+
+def test_a_gap_that_stalls_alone_again_and_again_goes_to_triage(tmp_path):
+    stalls_most = module("fac").STALLS_MOST
+    f, e = Factory(tmp_path, unit=hangs(tmp_path)), Engine(tmp_path)
+    limited(f, stall_minutes=0.05)
+    approved_gaps(f, {"a": 1})
+    e.approved("gap/a")
+    for n in (1, stalls_most):
+        try:
+            said, lines = f.run("queue.py", "gap/a")
+        finally:
+            reaped(tmp_path / "group")
+        e.run(lines, "gap/a")
+        a = f.item("gap/a")["fields"]
+        assert a["stalls"] == n and json.loads((f.model / "run" / "queue.json").read_text())["cap"] == 1
+        if n == 1:                                                             # counted, given back uncounted
+            assert said == ["gap.queued", "gap.measured"] and [x["nack"]["count"] for x in lines if "nack" in x] == [False]
+            assert e.item("gap/a").state == "approved"
+            given_back(f, "gap/a")
+            db = f.db()
+            db["items"]["gap/a"]["fields"]["stalls"] = stalls_most - 1         # (the stalls between)
+            f.record.write_text(json.dumps(db))
+    assert said == ["gap.queued", "gap.measured", "gap.queue-failed"] and not [x for x in lines if "nack" in x]
+    assert a["failed_tests"] == ["tests/test_x.py::test_hangs"] and f"stalled {stalls_most} times" in a["findings"][0]
+    assert e.item("gap/a").state == "queue-failed" and merges(f) == []
+
+
+def test_a_triage_rerun_that_keeps_stalling_is_the_branchs(tmp_path):
+    from tests.test_factory import queue_failed
+    f, gid = queue_failed(tmp_path)
+    f.config.write_text(re.sub(r"^rerun = .*$", f'rerun = "{hangs(tmp_path)}"', f.config.read_text(), flags=re.M))
+    limited(f, stall_minutes=0.05)
+    for n in (1, module("fac").STALLS_MOST):
+        try:
+            said, lines = f.run("triage.py", gid)
+        finally:
+            reaped(tmp_path / "group")
+        assert f.item(gid)["fields"]["stalls"] == n
+        if n == 1:                                                             # tried again later, uncounted
+            assert said == ["gap.measured"] and [x["nack"]["count"] for x in lines if "nack" in x] == [False]
+            db = f.db()
+            db["items"][gid]["fields"]["stalls"] = module("fac").STALLS_MOST - 1
+            f.record.write_text(json.dumps(db))
+    assert said == ["gap.measured", "gap.sent-back"] and not [x for x in lines if "nack" in x]
+    assert f"stalled {n} times" in f.item(gid)["fields"]["findings"][-1]
 
 
 def test_a_slow_but_progressing_suite_is_left_running(tmp_path):

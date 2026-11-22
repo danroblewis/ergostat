@@ -432,6 +432,7 @@ BOXES: set[str] = set()                                 # the queue's suite cont
 
 SUITE_GOAL_MINUTES = 15                                 # the suites-in-time goal (dev/model/measures.yaml)
 STALL_MOST, WALL_MOST = 60, 120                         # the ceilings of [suites] stall_minutes and wall_minutes
+STALLS_MOST = 3                                         # a gap's stalls (alone): then its failure (queue, triage)
 
 
 def limits(cfg: dict) -> tuple[float, float]:
@@ -447,10 +448,12 @@ def limits(cfg: dict) -> tuple[float, float]:
 
 
 class Stalled(Exception):
-    """A queue suite stopped for a limit (limits()): never its result, nor the batch's failure."""
+    """A queue suite stopped for a limit (limits()): never its result, nor the batch's failure. Its test: the test
+    function in the last stack pytest's faulthandler dumped (suite() sets its timeout), else the last test id named."""
 
     def __init__(self, name: str, why: str, text: str):
-        tests = re.findall(r"(\S+\.py::[^\s\]]+\]?)", text)
+        tests = [f"{p}::{t}" for p, t in re.findall(r'File "(?:[^"]*/)?(tests/test_\w+\.py)", line \d+ in (test_\w+)',
+                                                     text)] or re.findall(r"(\S+\.py::[^\s\]]+\]?)", text)
         self.suite, self.why, self.test, self.tail = name, why, tests[-1] if tests else None, text[-2000:]
         super().__init__(f"the {name} suite was stopped ({why}), on {self.test or 'no test the log names'}")
 
@@ -470,16 +473,18 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     raises agents.NotStarted (an infrastructure failure, never read as the suite's result)."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
     cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
+    stall, wall = limits(cfg) if box else (600.0, 600.0)  # (again at run time: the queue's and triage's only)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
+    if box:                                             # a test running past half the stall limit: its stack, logged
+        env["PYTEST_ADDOPTS"] = f"{env.get('PYTEST_ADDOPTS', '')} -o faulthandler_timeout={stall / 2:g}".strip()
     boxed = None
     if box and cfg["suites"].get("queue_container", True) is not False:
-        boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box)
+        boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box, (f"PYTEST_ADDOPTS={env['PYTEST_ADDOPTS']}",))
         BOXES.add(boxed)
     if slot and cfg["suites"].get("slot") and name != "ruff":
         cmd = f"{cfg['suites']['slot']} {cmd}"
-    stall, wall = limits(cfg) if box else (600.0, 600.0)  # (again at run time: the queue's and triage's only)
     began, stopped = time.time(), None
     with log.open("w") as out:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
         SUITES.add(p.pid)
