@@ -74,3 +74,21 @@ Round 2 (answering review/missing-unit-is-a-check-finding-1):
 Run: tests/test_missing_unit.py (5 passed), tests/test_redesign.py (22 passed), tests/test_self_improve.py (passed
 with test_redesign.py before its fix; its one failure was test_redesign's), ruff clean.
 Not run: the browser file (this round touches no page), demo_check, the full suites.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 14:21).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
