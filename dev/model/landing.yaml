@@ -16,6 +16,11 @@ stocks:
     unit: gaps
     description: gaps whose queue run failed, the merge undone, waiting for flake triage
     sensor: {items: gap, state: queue-failed, every: 1m}
+  gaps-landed:
+    unit: gaps
+    description: the gaps merged on main - a running total, never work waiting (the queue's merges and the joins found covered)
+    cumulative: true
+    sensor: {items: gap, state: merged, every: 1m}
   upgrades-available:
     unit: upgrades
     description: new commits on origin/main the instance does not run yet
@@ -76,10 +81,11 @@ flows:
     sensor: {items: gap, entering: queued, over: 1d}
   gaps-merged:
     from: gaps-queued
-    description: green - merged on main, the push asked for, an upgrade opened
+    to: gaps-landed
+    description: green - merged on main, the push asked for, an upgrade opened (a joined gap found covered is joins-covered's)
     driven-by: [+stock.gaps-queued]
     equation: (1 - queue-fail-share - conflict-share) * stock.gaps-queued / queue-time
-    sensor: {items: gap, entering: merged, over: 1d}
+    sensor: {items: gap, entering: merged, where: {merged_by: null}, over: 1d}
   sent-back-by-queue:
     from: gaps-queued
     to: gaps-fix

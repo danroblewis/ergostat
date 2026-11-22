@@ -18,12 +18,44 @@ def register(sub, common) -> None:
     rp = sub.add_parser("remote", parents=[common], help="Remote systems: those this model reads (status), "
                         "token NAME (let another ergostat read this one), events NAME (a remote's newest events)",
                         description="Remote systems (SPEC §4c). ergostat remote [status | token NAME [--revoke] | "
-                                    "tokens | events NAME [-n N] | refresh]")
-    rp.add_argument("what", nargs="?", default="status", choices=["status", "token", "tokens", "events", "refresh"])
-    rp.add_argument("name", nargs="?", metavar="NAME", help="token: the consumer it is for; events: the remote")
+                                    "tokens | events NAME [-n N] | refresh | proposals [NAME]]")
+    rp.add_argument("what", nargs="?", default="status",
+                    choices=["status", "token", "tokens", "events", "refresh", "proposals"])
+    rp.add_argument("name", nargs="?", metavar="NAME",
+                    help="token: the consumer it is for; events: the remote; proposals: only this remote's")
     rp.add_argument("--revoke", action="store_true", help="token NAME: remove it")
     rp.add_argument("-n", type=int, default=20, help="events: how many (default 20, at most 1000)")
     rp.set_defaults(fn=cmd_remote)
+
+
+def _proposals(p, spec, remotes: dict, args) -> int:
+    """``ergostat remote proposals [NAME]``: the changes found for remotes' parts, written as text for their owners
+    (open and dismissed), each with the version it was written against and whether it is current. Read only: no lock
+    taken, nothing superseded, nothing sent."""
+    from ..numbers import remote_text as rt
+    if args.revoke:
+        print("--revoke is for ergostat remote token NAME", file=sys.stderr)
+        return 2
+    if args.name and args.name not in remotes:
+        print(f"no remote {args.name!r} (this model's: {', '.join(remotes) or 'none'})", file=sys.stderr)
+        return 2
+    rows, unread = rt.listing(p, spec, args.name)
+    if args.json:
+        return out_json(rows)
+    for name in unread:
+        print(c(f"remote {name}: its model's version can't be read, so nothing is written for it", "yellow"))
+    if not rows:
+        print("nothing written for a remote's owner" + (f" of {args.name}" if args.name else ""))
+        return 0
+    for i, x in enumerate(rows):
+        fr = x["for_remote"]
+        now = "current" if x["current"] else c(f"not current: {x['not_current_because']}", "yellow")
+        print(("\n" if i else "") + f"{x['id']}  remote {fr['remote']}  written against version {fr['version']}  {now}"
+              + (f"  (dismissed{': ' + x['dismissed_because'] if x.get('dismissed_because') else ''})"
+                 if x["status"] == "dismissed" else ""))
+        print(f"  {x['text']}")
+    print(c("\nnever applied here, never sent by ergostat: sending it is the owner's act", "dim"))
+    return 0
 
 
 def _ago(t) -> str:
@@ -59,6 +91,8 @@ def cmd_remote(args) -> int:
         return 0
     spec = getattr(p.model, "spec", None)
     remotes = getattr(spec, "remotes", None) or {}
+    if args.what == "proposals":
+        return _proposals(p, spec, remotes, args)
     if args.what == "refresh":
         from ..remote import cache
         for name, r in remotes.items():

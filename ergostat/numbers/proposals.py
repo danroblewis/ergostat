@@ -193,13 +193,15 @@ def _supersede(p, spec: Spec, why: str = "the model changed since it was made", 
     under test or not) when its subject is unchanged and its edit applies as it stands, moved by ``rebase``, or made
     again (``_carry``). ``found``: the structural finder's findings on this version, whose edits a structural change of
     ergostat's own takes when its lines moved. Decided on the files as they are: when they do not compile, or are not
-    ``spec``'s version (the caller's model is stale), nothing is done and the next pass decides."""
+    ``spec``'s version (the caller's model is stale), nothing is done and the next pass decides. A text for a remote's
+    owner is superseded when that remote's model has moved (``remote_text.moved``), whatever the files here."""
+    from . import remote_text as rt
+    out = rt.moved(p, spec)
     now = files_now(p)
     if now is None or ver.version(now) != ver.version(spec):
-        return []
+        return out
     spec, v = now, ver.version(now)
     finds = None if found is None else {f["id"]: f for f in found}
-    out = []
     for pid, x in stored(p).items():
         if not (x["state"] in OPEN and x.get("version") and x["version"] != v and x.get("kind") not in ("process", "tuning")):
             continue
@@ -302,7 +304,8 @@ def pending(p, spec: Spec | None = None) -> list[dict]:
     spec = spec or p.model.spec
     v = ver.version(spec)
     return sorted((x for x in stored(p).values() if x["status"] == "pending" and x.get("kind") not in ("process", "tuning")
-                   and x.get("version") == v and current(x, spec)), key=lambda x: x.get("created") or 0)
+                   and not x.get("for_remote") and x.get("version") == v and current(x, spec)),
+                  key=lambda x: x.get("created") or 0)
 
 
 def _id(*parts) -> str:
@@ -428,16 +431,24 @@ def make(p, snap: dict | None = None, n: int | None = None, which: str = "parts"
             "edit": _joined(edits) if not errors else {"error": "; ".join(errors)}})
     if which == "parts":
         found += _equations(spec, data, before)
+    from . import remote_text as rt
+    found, texts = rt.split(spec, found, data.grid.until - data.grid.since)   # a remote's part: text for its owner
     with locked(p):                                   # read, decided and recorded as one; only on the files estimated
         if not current_now(p, spec):
             return []
         props = stored(p)
-        mine = {x["id"] for x in found}
+        mine = {x["id"] for x in found} | set(texts)
         for k in [k for k, x in props.items() if x["status"] == "pending" and not candidate(x) and k not in mine
-                  and x.get("kind") in ("parameter", "equation") and x.get("scope") != "what-if" and _calibration(x) == which]:
+                  and x.get("kind") in ("parameter", "equation") and x.get("scope") != "what-if" and _calibration(x) == which
+                  and not x.get("for_remote")]:
             del props[k]                              # its own, no longer found; a loop's or a structural change is not its
+        for x in found:                               # a text for a remote's owner, found again as this model's own
+            if (props.get(x["id"]) or {}).get("for_remote"):
+                event(p, x["id"], "superseded", {"why": "its part is now this model's own: proposed here, as an edit"})
+                del props[x["id"]]                    # (made again: save clears every old field)
         admit(p, spec, props, found, now, data.grid.until - data.grid.since)
         save(p, props)
+        rt._record(p, spec, [r for r in texts.values() if r])   # the proposals' lock held already
     return pending(p, spec)
 
 
@@ -561,7 +572,7 @@ def _equations(spec: Spec, data: ob.Data, before: dict) -> list[dict]:
         if any(s is not None and c * s < 0 for c, s in zip(per, signs, strict=True)):
             continue                                  # a declared sign the record contradicts: a structural question, not a size
         taken = set(spec.parameters)
-        terms, params = [], {}
+        terms, params, roles = [], {}, {}             # roles: what each new parameter is of (remote_text names it there)
         want = eq.unit(f"{_unit(spec, f)}/h") if _unit(spec, f) else None
         for r, c in zip(others, per, strict=True):
             nm = _free(f"{f.name}-per-{r.name}", taken)
@@ -572,16 +583,19 @@ def _equations(spec: Spec, data: ob.Data, before: dict) -> list[dict]:
             else:
                 unit = unit_words(eq._mul(want, cu, -1)) if want is not None and cu is not None else ""
             params[nm] = (c, unit)
+            roles[nm] = ["per", f"{r.kind}.{r.name}"]
             terms.append(f"{nm} * {r.kind}.{r.name}")
         if own:
             tn = _free(f"time-in-{f.source}", taken)
             params[tn] = (1.0 / share, "h")
+            roles[tn] = ["time-in", own]
             inner = " + ".join([f"1 / {tn}", *terms])
             text = f"{own} / {tn}" if not terms else f"MAX(0, {own} * ({inner}))"
         else:
             if got["intercept"] and base:
                 nm = _free(f"{f.name}-base", taken)
                 params[nm] = (base, unit_words(want) if want is not None else "")
+                roles[nm] = ["base", target]
                 terms.insert(0, nm)
             text = " + ".join(terms) if terms else "0"
             negative = any(c < 0 for c in per) or any(x is not None and x < 0 for c in causes for x in data.values.get(c) or [])
@@ -609,7 +623,7 @@ def _equations(spec: Spec, data: ob.Data, before: dict) -> list[dict]:
                        (f"; {target} and {', '.join(inside)} lie in a loop a controller closes, where a regression is "
                         f"biased (the controller makes the cause follow the flow): read the coefficients as a start, not "
                         f"a measurement" if inside else "")),
-            "fit_before": before, "fit_after": after, "edit": edit})
+            "fit_before": before, "fit_after": after, "edit": edit, "for_text": {"roles": roles, "points": got["n"]}})
     return out
 
 
@@ -861,6 +875,10 @@ def _accept(p, pid: str, snap: dict, by: str = "owner", expect: str | None = Non
     from ..spec import read
     props = stored(p)
     x = find(p, pid)
+    if x.get("for_remote"):                          # first, before any other check: whoever asks, by whatever path
+        name = (x["for_remote"] or {}).get("remote")
+        raise ProposalError(f"proposal {x['id']} is text for remote {name}'s owner: it is never applied here; "
+                            f"ergostat remote proposals {name} prints it")
     if x["status"] != "pending":
         raise ProposalError(f"proposal {x['id']} is {x['status']} already")
     if "error" in (x.get("edit") or {"error": "none"}):

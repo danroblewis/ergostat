@@ -16,10 +16,12 @@ def cmd_lease(args) -> int:
     from ..spec import items as its
     if args.renew or args.nack is not None:              # a run's own lease: the running engine, when one listens (calls/)
         from ..calls.client import Refused
+        from ..calls.ops import call_of
         from . import fast
+        once = fast.key()                                # the same in the fallback below: recorded once
         try:
             if args.renew:
-                got = fast.call(args, "lease", how="renew", env=fast.env())
+                got = fast.call(args, "lease", how="renew", env=fast.env(), call=once)
                 if got is not None:
                     print(json_or(args, got["event"], f"renewed the lease on {got['event']['item']}"))
                     return 0
@@ -27,13 +29,14 @@ def cmd_lease(args) -> int:
                 from ..durations import parse_duration
                 after = parse_duration(args.after, "--after") if args.after else None
                 got = fast.call(args, "lease", how="nack", why=args.nack or "given back", after=after,
-                                count=not args.no_count, env=fast.env())
+                                count=not args.no_count, env=fast.env(), call=once)
                 if got is not None:
                     print(json_or(args, got["event"], f"gave {got['event']['item']} back"))
                     return 0
         except Refused as e:
             print(str(e), file=sys.stderr)
             return e.code
+        once = call_of({"call": once})
     p = open_project(args)
     spec = getattr(p.model, "spec", None)
     if spec is None:
@@ -41,13 +44,13 @@ def cmd_lease(args) -> int:
         return 2
     try:
         if args.renew:
-            ev = acts.renew(p, spec)
+            ev = acts.renew(p, spec, id=once)
             print(json_or(args, ev, f"renewed the lease on {ev['item']}"))
             return 0
         if args.nack is not None:
             from ..durations import parse_duration
             after = parse_duration(args.after, "--after") if args.after else None
-            ev = acts.nack(p, spec, args.nack or "given back", after=after, count=not args.no_count)
+            ev = acts.nack(p, spec, args.nack or "given back", after=after, count=not args.no_count, id=once)
             print(json_or(args, ev, f"gave {ev['item']} back"))
             return 0
         if args.redrive:
