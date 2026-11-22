@@ -644,6 +644,35 @@ The local residuals, coherence and attention leave its parts out: they are held 
 **Never edited here.** A model change (§12e) that would write a remote part is refused, as one that would
 write a template's part: it is the remote owner's to make.
 
+**Proposals for its owner** (`ergostat/numbers/remote_text.py`). When the calibration's parameter estimate or the
+equation finder (§12b) finds a change whose every edited part is one remote's (a parameter proposal's parameters, an
+equation's flow), it is written as **text for that remote's owner**, never as an edit. Under the same id the local
+one would have, it is an `ergostat.model-change` item holding only `kind`, `title`, `text`, `evidence`,
+`for_remote` (`{remote, version, parts: {local ref: remote ref}}`), `subject`, `made_by`, `created` and `made`
+(an allowlist, `FIELDS`): no fit, gate, estimate, edit or local version. Its text names the remote's parts in the
+remote's own names (looked up in what it served, `parameter.incidents-rate` → `parameter.rate`; a stand-in is never
+there), says what to change (a value from → to, ± one standard error; or a flow's equation and each new parameter's
+value, the new names made from the remote's names and free against its parameters), and gives the evidence: points,
+window and the series read. It makes no claim of fit. When a name is not served, nothing is written, and what is
+under its id is left as it was. It is recorded under the proposals' lock and, inside it, the remote's cache lock
+(`<state>/remotes/NAME/model.lock`, which a refresh holds while it reads and writes `model.json`), only when the
+version in the cache file is the version the evidence was computed on: a file missing, unreadable or without a
+version, or another version, records nothing. It is **current** only while both versions are read and equal (never
+by time); a superseding pass supersedes it when the cache's version has moved (saying from what to what), and one
+that cannot be read supersedes nothing but is listed as not current, with why. Found again at the same version with
+the same text it is left alone, and a dismissed one is not written again there; at a new version, or with another
+text, it is made again, open, and nothing of a decision under that id is kept (a change of this model's own under
+the id, whatever became of it, is superseded first; one made again from a text loses `for_remote`, `text` and
+`evidence`). Its state is `checked` and it is never in the review queue (`proposals.pending`), the judge, the
+inbox, MCP or the Model page; Accept refuses it first, by every path ("is text for remote NAME's owner: it is never
+applied here"); dismiss lets it go. It is **never sent by ergostat: sending it is the owner's act.** `ergostat
+remote proposals [NAME] [--json]` lists the open and the dismissed ones, each with the version it was written
+against, whether it is current and its text; it takes no lock and writes nothing, and runs on the last good model
+while the YAML is broken (`goodmodel.READ_WHAT`; the rest of `ergostat remote` acts). `ergostat proposals` says how
+many are waiting there. Not made for a remote: a change touching both this model's parts and a remote's, or two
+remotes' (kept with its edit's error, and refused by Accept as before); structural changes, redesigns, a block's
+proposal and the owner's what-if (refused, as any edit of a remote part).
+
 **What a remote serves.** Any ergostat whose page runs serves this read-only API once a token is made
 (`ergostat remote token NAME`, printed once, kept only as its hash; `--revoke`; `ergostat remote tokens`).
 Every request carries `Authorization: Bearer TOKEN`; only `GET`; 10 requests a second per token (bursts
@@ -662,7 +691,8 @@ what admits.
 
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
-most); `ergostat remote refresh` asks each again now.
+most); `ergostat remote refresh` asks each again now; `ergostat remote proposals` lists the texts written for
+remotes' owners (above).
 
 ## 4d. The page behind a public name
 

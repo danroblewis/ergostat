@@ -395,6 +395,9 @@ keeps running it; this model reads it.
 5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
    the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
    incidents, ref: stock.open}`.
+6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
+   equations for the remote's parts, written as text in its names for its owner, each marked current or not.
+   They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
 
