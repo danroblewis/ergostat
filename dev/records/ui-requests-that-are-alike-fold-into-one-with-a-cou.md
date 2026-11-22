@@ -126,3 +126,30 @@ answered by finishing the factory's merge of main (73d266e7).
   - Not shown on main itself: running main's code was refused in round 1, so these are shown by the experiments above,
     not by a run on main.
 - **Not run:** the other browser files, the unit suite.
+
+Round 4: the factory's merge of main (bea24a23) finished, and the review's one finding (blocking) answered. 40 net
+lines outside tests and docs (budget 60).
+
+- **Merge:** `diagram.js` conflicted where main added `goalButton`/`showGoal` and gave a side-list entry named
+  `loop NAME` a goal button. Both kept: the branch's `folded`/`foldRow` stand next to main's functions, and main's goal
+  button is now in the branch's shared `row`, which both plain entries and fold members use. Committed as 6a643b6a.
+- **Finding: the fold entry had no key, so a refresh patched a fold into another's nodes by place, typed reason
+  included (lesson-5).** The fold's entry is now keyed `fold:CODE|ASKER` (`h()`'s `key`). `patchKids` matches keyed
+  nodes only by key, never by place, so a fold keeps its own nodes and typed reason, and a gone fold's nodes go with it.
+  Deny all also clears the reason once every member is denied (not when some were refused, so the reason can be used
+  again).
+- **New browser case:** `tests/test_diagram_rendering.py::test_two_folds_each_keep_their_own_reason_across_a_refresh`.
+  Two folds: 3 no-unit stocks and 3 no-description stocks, held. It types B's reason, then A's, and clicks Deny all on A.
+  A's field must be empty when its row says "3 denied" (a MutationObserver reads it then, because a refresh can take A
+  away right after). After two `/api/graph` answers, with B where A was, B's field must still hold B's own reason.
+  Deny all on B then has to dismiss all six, each with its own fold's note ("reason A" or "reason B"). Seen to fail
+  on each break by hand, then put back: with the key removed, B's field read '' (it got A's cleared nodes); with
+  the clear removed, A's field read 'reason A' after "3 denied".
+- **Runs:** ruff clean. The new case and the acceptance test: passed. `tests/test_inbox.py` and
+  `tests/test_inbox_page.py`: 33 passed.
+- **Fails on main, not on this branch (lesson-13):** `test_needs_attention_is_three_headed_groups_in_a_fixed_order`
+  times out waiting for `/loops? off/` in `#running`. Main's 35c0bb01 ("The header counts the system's goals, and the
+  model's upkeep apart") changed the header to say "N off" (`util.js:394`). `util.js` and this test are identical to
+  main's (`git diff main` shows only the branch's added tests in that file). It failed in the same way with `folded`
+  made a pass-through by hand. Not fixed here.
+- **Not run:** the rest of `tests/test_diagram_rendering.py`, the other browser files, the unit suite.
