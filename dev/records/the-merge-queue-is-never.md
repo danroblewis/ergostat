@@ -16,3 +16,27 @@ When many gaps are building, their suites fill the machine's suite slots (goal.m
 
 ## Size budget
 120 net lines outside tests and docs.
+
+## Where it stopped
+
+Built, round 1. 120 net lines outside tests and docs (dev/ counted: slots.py 84, fac.py 18, watch.py 15, factory.toml
+2, interlock.yaml 1); 0 of core code as fac.net_lines counts it (dev/ is left out there).
+
+- `dev/bin/slots.py`, `gate()`: fac.suite runs each suite in `[suites] slot` inside it (the implementor's, triage's,
+  and so also the manager's reapprove rerun and measure runs). It waits while approved gaps wait, no queue run holds
+  its slot, and the suites ps sees plus the factory's own that passed in the last 60 s reach `[suites] slots - 1`. The
+  look and the take are under `run/slots.lock`; the acceptance test runs two at once and only one passes.
+- Choices made with no one to ask, each the reversible one: `[suites] slots` is a new setting (default 6, 1 to 32,
+  checked in fac.config and again at run time) rather than read from the slot command, which ergostat cannot see. "A
+  queue run holds its slot" is read as run/queue.json's `running` with the queue's lock held (a `running` left by a
+  dead run, the lock free, does not count). An unreadable record counts as approved gaps waiting (the slot kept).
+- The queue's own in-run wait (`fac.wait_quiet` in queue.py) waited for fewer than `[load] most_suites` (4) suites, so
+  five implementor suites would still have held a queue run that queue-when had started. It now waits for fewer than
+  `[suites] slots`: the kept slot free is free for it. This is the one change beyond the four done items' wording, made
+  because without it the title is not true.
+- machine-quiet's hold (`<= 6`) is unchanged: with the kept slot, implementor suites alone are at most 5, inside it.
+  tests/test_suite_slots.py checks the model's hold against the default.
+- The broken `interlock` condition's text names each reading over its limit with value and limit (`suites-running 8
+  over 6`, `threads`, `memory`) and `push-waiting 1` from the sensor's own command (`queue.py waiting`), "unreadable"
+  when it cannot be read.
+- Not covered: suites that someone else starts outside the factory still take the kept slot; dev/README says so.
