@@ -489,3 +489,19 @@ origin/main merge.
   `suite_watch.py`. The cross-file failure named in round 8
   (`test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`, main's file, outside this gap)
   is still left alone. After that the branch can go to review for merge.
+
+### Continued, round 1 (2026-11-22)
+
+- The gap's work is on main already (merge a1d1b941; `scratch_probe.py` removed in 8e210c62). This branch was made
+  from main (de914e32) and had no difference from it before this note. Neither the queue nor any earlier review left
+  an open finding.
+- Run here on that main, one file set at a time: `tests/test_unmoved.py` 18 passed; `test_slowjudge.py`,
+  `test_redesign.py`, `test_bench.py` 48 passed; `test_improve.py`, `test_gate.py` 48 passed; `ruff check ergostat
+  tests scripts` clean. No code changed in this round.
+- Not run here (left to the merge queue, as the house rules say): the whole unit suite and the four browser files
+  under `suite_watch.py`. This clone has no `origin`, so the local `main` is the one merged in.
+- Still left, outside this gap (GAPS *Left*): the information limit of a slow record. The cross-file failure named in
+  round 8 (`test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`) is in main's code and is
+  left alone (lesson-13).
+- The commit of this note (`git add docs/roadmap/overnight/the-judge-almost-never-decides.md && git commit`) was
+  refused in this session ("don't ask" mode) together with the append, and is tried once more on its own below.
