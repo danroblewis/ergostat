@@ -138,3 +138,28 @@ Continued (gap/ai-calls-ask-the-budget-continued, round 1). Built: points 1–5 
   test_architecture_review, all passing, and ruff clean. Not run here, as the house rules say: the full unit suite, the
   four browser files (no page is changed) and `demo_check` (no example is touched). No remote ref of main is in this
   clone to merge again beyond the local `main`, which is already in HEAD.
+
+## Where it stopped
+
+Continued (gap/ai-calls-ask-the-budget-continued, round 2). The finding to answer is the queue's: this branch was
+the first failing merge of a batch of 5 (found by bisecting), and it failed again alone on
+`tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network`. No code was
+changed this round. This branch did not cause that failure, and fixing it here would go outside the gap (lesson-13).
+
+- **Nothing on that test's path is changed by this branch.** `git diff --stat main HEAD -- dev/bin tests/test_agents.py
+  tests/test_factory.py ergostat.yaml schema` is empty. The test drives `dev/bin/queue.py` and `fac.suite` against a
+  stand-in ergostat (`ERGOSTAT_CMD`) and a stand-in Docker. Of `ergostat/`, it only imports `ergostat.spec.read` on
+  the unchanged `ergostat.yaml`. In this clone it passes alone (1 passed, 62 s).
+- **Likely cause (read from the code, not reproduced).** `fac.suite` (`dev/bin/fac.py`, the `if box:` line) builds the
+  container's `PYTEST_ADDOPTS` by *appending* `-o faulthandler_timeout=300` to the value it inherits. The queue runs
+  the unit suite in its own container with exactly that variable set. So inside the queue, the test's child
+  `queue.py` inherits it and passes `PYTEST_ADDOPTS=-o faulthandler_timeout=300 -o faulthandler_timeout=300`. The
+  test's exact-element check (`"PYTEST_ADDOPTS=-o faulthandler_timeout=300" in flag(a, "-e")`) then fails. That would
+  fail for any branch in the queue's container, `main` included. A bisect blames the first merge it tries, which
+  fits. I tried to reproduce it by running the test with `PYTEST_ADDOPTS="-o faulthandler_timeout=300"` set, but the
+  command was refused in this session, so the cause is not confirmed. The fix belongs in its own gap: either the test
+  clears `PYTEST_ADDOPTS` from `f.env`, or `fac.suite` drops an inherited `faulthandler_timeout` before adding its own.
+- **Run this round:** tests/test_ai_calls_budget.py (14 passed), tests/test_run_budget.py (36 passed), the named
+  test_agents test alone (passed), and ruff (clean). Not run: the full unit suite and the browser files (house rules),
+  and `demo_check` (no example is touched). The local `main` (5617e225) is already in HEAD, and there is no newer
+  remote ref in the clone to merge.
