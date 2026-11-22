@@ -134,3 +134,27 @@ Round 2's review findings (lesson-12):
   in round 2. The review did not count either as blocking.
 
 **Ready to delete** (DoD 5): the stopgap `[suites] unit` shell selector in the instance's `factory.local.toml`.
+
+### Round 4: the fast `unit` run stopped early again
+
+The merge of main (b4639301) was already done in 37b3f4fa, and tests/test_factory.py has no conflict markers left.
+The factory's `unit` run then stopped the way round 1's did: `bringing up nodes...` twice, about 40 tests passed and
+one skipped, then nothing. No test failed, there was no summary line and no watchdog message.
+
+**No code was changed in this round.** I found no cause in this branch, judging by reading only:
+- The step that ran was `unit`, not `build`. So the factory did not run this branch's `onmain.step` or the shipped
+  `build` command. It ran its own `unit` command: main's onmain, or the instance's `[suites] unit` (the stopgap shell
+  selector, which may explain the second `bringing up nodes...`). None of this branch's code runs in that command
+  except its tests.
+- This branch's tests run `affected_tests.py` only as a subprocess, in fixture repositories under `tmp_path`, with
+  `GIT_*` stripped from the environment and the command `echo`. They never run pytest. The `Factory` fixtures set
+  `FACTORY_CONFIG` to their own toml, which has no `build`, and run from their own instance folder. So
+  `fac.config()` never reads a real `factory.local.toml`. No test runs the shipped `build` setting. It is only
+  parsed (`test_the_shipped_build_setting_runs_the_small_set`).
+- The same stop with no failure named has been reported on other branches (round 1 lists them). Per lesson-13, it is
+  reported here and not fixed in this branch: it should be its own gap. A run of the suite on clean main, under the
+  same instance settings, would show whether main stops the same way.
+
+Not run: Bash was refused at its second call (`git merge-base --is-ancestor b4639301… HEAD && …; sed -n … | tail -40`),
+so no pytest, ruff or git command ran in this round. If the commit of this section is also refused, it is not
+committed.
