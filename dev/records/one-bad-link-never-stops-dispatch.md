@@ -26,3 +26,22 @@ On 2026-11-21 at 20:28 the factory stopped taking any work for 30 minutes: no im
 
 ## Size budget
 70 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+Built, round 1: all five points, with the four acceptance tests in `tests/test_one_bad_link.py` (three) and
+`tests/test_deps.py::test_the_intake_refuses_a_dependency_on_an_ancestor_and_records_the_problem`.
+Overrun reason: 78 net lines outside tests/ and docs/ (28 in ergostat/, 50 in dev/: deps.py 19, live.py 21, watch.py 9, planner.md 1); point 3 needs a carrier the dev/ tools can read (the heartbeat's dispatch_error), a health check, and a watch condition, each small, and the docstrings that say what they guarantee.
+Choices made alone (the most reversible):
+- The heartbeat (`ergostat/spec/watchdog.py`) carries the dispatcher's standing error, because `live.py health` and
+  the watch read only the heartbeat; that file is outside the definition's list.
+- "Repeating" means every look meets an error, whatever each one says, timed from the first. A clean look clears it, so
+  an error that varies with each look still counts.
+- The watch counts the `dispatch` condition at once (like `main-twice`), since the engine has already waited 2 minutes.
+  The situation is raised at the watch's next run, while no other situation is raised or leased and no session ran
+  within `[manager] broken_minutes` (as for every broken condition), so it can come later than 2 minutes.
+- In the watch, an unreadable heartbeat (no instance) is not this condition. An engine with no fresh heartbeat is
+  `live.py health`'s `engine` check, and an unreadable heartbeat there fails `dispatch` too.
+- Cycles in `precedence.build` now include an unfinished child before its unfinished parent (the edges the critical
+  path already used). `relation_cycles` (the whole-record finding) is left at precedence relations only.
+Not run: the whole unit suite, the four browser files and demo_check (no example touched). origin/main is not in this
+clone and was not fetched (no network); local main is this branch's base.

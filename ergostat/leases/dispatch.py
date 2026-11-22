@@ -79,6 +79,7 @@ class Dispatcher:
         self.overdue: dict[tuple, float] = {}         # (item, fence, expires) → when (monotonic) a pass first found it overdue
         self.mine: dict[str, tuple] = {}              # run → (block, item, fence): the leases taken here, not yet ended
         self.unread: set[str] = set()                 # blocks whose pool's stock has no reading, said once
+        self.failing: tuple[str, float] | None = None  # (the latest error, since when: wall) while every look meets one
 
     @property
     def spec(self):
@@ -114,9 +115,10 @@ class Dispatcher:
                         last = mono
                         if self.blocks or self.holding:      # (a model with no block that takes: nothing to watch)
                             self.watch()
-                    self.tick()
+                    self.note(self.tick())
             except Exception as e:                             # the next look tries again
                 self.e.say(f"leases: {type(e).__name__}: {e}")
+                self.note(f"{type(e).__name__}: {e}")
             wait = max(0.0, min(LOOK, self.due - time.time()))      # (an item put off is due before the next look)
             if board is None:
                 self.e.stop.wait(wait)
@@ -153,29 +155,46 @@ class Dispatcher:
     def going_items(self) -> set[str]:
         return {i for g in self.going.values() for i in g}
 
-    def tick(self) -> None:
+    def note(self, error: str | None) -> None:
+        """A look's error (None: a look with none): while every look meets one, ``failing`` is the latest and since when
+        the looks began failing, whatever each says (the engine's heartbeat carries it; health and the pipeline watch
+        report one standing past two minutes)."""
+        self.failing = None if error is None else (error[:300], self.failing[1] if self.failing else time.time())
+
+    def tick(self) -> str | None:
         """Lease what each block may take now, and start a run for each. The record is read once a look, and again after
         each lease it takes (each block sees what the blocks before it took): not once for every block, which kept the
-        look waiting on the item index behind every reading's count (docs/proposals/scale.md)."""
+        look waiting on the item index behind every reading's count (docs/proposals/scale.md). One block's error stops
+        no other's look: it is said, and the first is returned."""
         now = time.time()
         self.stale = True
+        first = None
         for b in self.blocks:
             if self.e.stop.is_set() or b.name in self.e.held:
+                return first
+            try:
+                self.tick_block(b, now)
+            except Exception as e:                             # (one block's trouble: the others are still dispatched)
+                self.e.say(f"leases: {b.name}: {type(e).__name__}: {e}")
+                first = first or f"{b.name}: {type(e).__name__}: {e}"
+                self.stale = True
+        return first
+
+    def tick_block(self, b, now: float) -> None:
+        cmd, _ = self.e.command_of(b)
+        if cmd is not None and not cmd:                        # commanded, and nothing commands it now: it takes nothing
+            return
+        with self.lock:
+            every, ix = self.items_of(b.takes.kind)
+            mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
+            room = self.pool_now(b) - len(mine | set(self.going.get(b.name, {})))
+            if b.params.get("daemon"):               # the daemon's room, shared by every block it serves (SPEC §9.7)
+                room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
+            if room <= 0:
                 return
-            cmd, _ = self.e.command_of(b)
-            if cmd is not None and not cmd:                    # commanded, and nothing commands it now: it takes nothing
-                continue
-            with self.lock:
-                every, ix = self.items_of(b.takes.kind)
-                mine = {i.id for i in every if (held(i.fields) or {}).get("block") == b.name}
-                room = self.pool_now(b) - len(mine | set(self.going.get(b.name, {})))
-                if b.params.get("daemon"):           # the daemon's room, shared by every block it serves (SPEC §9.7)
-                    room = min(room, self.e.daemons.free(b.params["daemon"]) - self.handing(b.params["daemon"]))
-                if room <= 0:
-                    continue
-                for it in ordered(b, unblocked(self, b, self.ready(b, every, now)))[:room]:
-                    self.stale = True
-                    self.take(b, self.whole(ix, it))
+            for it in ordered(b, unblocked(self, b, self.ready(b, every, now)))[:room]:
+                self.stale = True
+                self.take(b, self.whole(ix, it))
 
     def pool_now(self, b) -> int:
         """The block's pool now: its ``pool:``, or its stock's level as the engine last read it (a stored value: no

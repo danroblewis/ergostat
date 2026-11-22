@@ -18,7 +18,9 @@ index (its links, both ways, and its moves); nothing is declared for it but the 
   backward pass from the last end, and each item's slack, how long it may slip without moving the end. The
   critical items have none. Not levelled: a pool's limit is in the completion estimates (``numbers/eta.py``), whose
   levelled run the Timeline draws in place of this projection once it is worked out.
-- **Cycles.** Items whose precedence relations go round are a finding: they are left out of the projection.
+- **Cycles.** Items whose precedence relations go round, or round through a parent (a summary ends after its
+  children: a child depending on its own parent, at any depth), are a finding: they are left out of the projection,
+  and a block that takes unblocked items takes none of them.
 - **The schedule** (the Timeline): each item's actual segments, its states over time from its moves, and for the
   unfinished, projected segments from the forward pass, state by state.
 
@@ -312,9 +314,6 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             out["edges"].append({"from": d, "to": a, "rel": r, "kind": "group"})
         else:
             out["edges"].append({"from": a, "to": d, "rel": r, "kind": "other"})
-    found = cycles(list(got), before)
-    out["cycles"] = found
-    in_cycle = {x for c in found for x in c}
     # statuses: blocked by a predecessor not finished (one past the cap by its own status; one not found at all is not
     # known to be finished)
     def finished(d: str) -> bool:
@@ -332,6 +331,13 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
         waiting[a] = [d for d in preds if not finished(d)]
     for a, it in got.items():
         st[a] = status(it, info[it.kind], waiting[a])
+    # cycles, over the edges the critical path reads: precedence, and an unfinished child before its unfinished parent
+    # (a summary ends after its children), so a child depending on its own parent, at any depth, is a cycle too
+    live = {a for a, s in st.items() if s not in ("done", "paused")}
+    found = cycles(list(got), before + [(e["to"], e["from"]) for e in out["edges"]
+                                        if e["kind"] == "group" and e["from"] in live and e["to"] in live])
+    out["cycles"] = found
+    in_cycle = {x for c in found for x in c}
     # the critical path, over the unfinished items outside any cycle. A parent with unfinished children is a summary:
     # its work is theirs (a start and an end of no time, its children between), and what comes before or after it
     # comes before its children start, or after they all end
