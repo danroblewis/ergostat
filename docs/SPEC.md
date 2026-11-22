@@ -992,7 +992,7 @@ stocks:
 |---|---|---|---|
 | `unit` | string | none | Its unit. Flows and sensors on it must use the same unit |
 | `limit` | number | none | The physical limit: a full disk, a queue's capacity. Used to estimate time to failure |
-| `initial` | number | none | A starting value, for simulation only |
+| `initial` | number | none | A starting value, for simulation only. A stock with no sensor and an `initial:` is replayed from it, at the window's start (a stock with a sensor starts at its first reading, one with neither is not replayed) |
 | `observe` | bool | false | Estimated between readings (`stock.X.estimate`), its innovations recorded, and the goals on it watched for staleness (section 9.6) |
 | `cumulative` | bool | false | A running total that by its nature never drains (spent so far, kept so far): no outflow is missing, and `check` does not ask for one (**stock-without-outflow**) |
 | `rate-unit` | `minute`, `hour`, `day` or `week` | chosen by size | How the rates of its flows are shown, for each flow that says none (section 1a); display only, kept per hour |
@@ -1766,7 +1766,8 @@ A sensor read by a daemon may print the same lines tagged with `"sensor": "STOCK
 ## 7. Flows
 
 What changes stocks: into one, out of one, or from one to another. Leaving out `from` or `to`
-means outside the system (at least one is required). A flow is passive: it says which stocks it
+means outside the system (at least one is required, except for a flow another flow's material delay takes in,
+`DELAY3(flow.f, τ)`: what it moves goes into the delay's own stages). A flow is passive: it says which stocks it
 connects, never what moves it.
 
 ```yaml
@@ -3747,8 +3748,38 @@ see *not exercised*, §12e; what the rules find about declared parts is listed a
 proposed, with why. A stock a goal
 holds, and what a goal or block names, is left alone. Each edit is applied in memory and the model
 compiled from it: one that would leave an error, or not answer its finding, is not proposed, and is
-listed with why. *Not yet*: a missing stock, flow or delay, or a part replaced, found from the pattern
-in the residuals (the residual-pattern structure finder, `structural.from_residuals`).
+listed with why.
+
+From the residuals (`structural.from_residuals`, `numbers/residuals.py`, `numbers/hidden.py`), one kind of
+missing structure: **a delay between an inflow and the measured stock it fills**. A measured stock X's one-step
+residual, in each bucket with a reading in it and in the one before, is e(i) = y(i) − y(i−1) − Σ± m_f(i) over its
+flows, m_f what the flow moved in the bucket (its equation's, what was counted, or its held rate times the
+bucket's width); a bucket where any flow's move is not known has none (never 0). They come from the **residual run**:
+the replay with every measured stock taken as read and every stock never read (with flows and no sensor)
+integrated from its `initial:` (§5). A stock is not examined, saying why, when it is fed from a stock never read with
+no `initial:`, read in under 80% of buckets, or left with fewer than 40 residuals. **Whiteness**: q = n·r′Σ⁻¹r over
+the sample autocorrelations r_2 … r_10 (each over the pairs both present), Σ Bartlett's covariance under an MA(1)
+whose lag-1 correlation is the sample r_1 taken in [−0.45, 0] (reading noise makes the residual of a right model
+MA(1) with ρ1 between −0.5 and 0: lag 1 is excused, a positive r_1 is not); coloured past 21.666, χ²(9) at 0.99. An
+equation fed by a noisy reading adds a little lag-1 structure of its own. **The lag**: among X's inflows (not one
+already inside a DELAY1, DELAY3, SMOOTH or SMOOTH3, not one drawn from a stock with no sensor, not one measured by X's
+own changes), the inflow and the k (1 to 12, at most a quarter of the residuals) whose regressor u(i−k) − u(i) the
+residual correlates with most, positively and past 2.576/√n. A coloured stock whose inflows are all left out says so,
+and nothing is proposed again on a delay already added. **Two forms**, τ tried at ½, 1 and 2 times k buckets:
+`residual-delay`, the inflow's equation wrapped in `DELAY3(…, τ)` (or, for one with a `from:` or no equation, its
+`to:` taken off and `<X>-arrives` added, `DELAY3(flow.f, τ)`: a flow with neither `from:` nor `to:` is allowed when
+a material delay takes it in), and `residual-hidden-stock`, a stock `<f>-in-transit` never read, with X's unit and
+`initial:` its equilibrium (f's first rate times τ), that f fills and `<X>-arrives` (`stock.<f>-in-transit / τ`)
+drains into X; each adds `<f>-delay` (`unit: h`, `estimate: true`), all marked `inferred:`. Each edit is compiled in
+memory and X's residual worked out again by the residual run of the model it leaves; before and after are compared on
+the buckets both have past a warm-up of three times the longest τ. The one with the lowest sum of squares is offered
+when that is at most 0.8 of before and q falls; the others are listed with their numbers, and one whose edit does not
+compile, whose run raises or is not valid, or whose residual cannot be worked out is not offered. One look runs at most
+30 residual runs; a stock's six are charged before it is started, and a stock left over says the budget was used.
+Found again with other numbers it is revised under its id; dismissed, neither form is proposed for that stock again.
+*Not yet*: a missing outflow or cause, a delay on an outflow, a part replaced by another form (a lookup for a line),
+and the observer's run-time innovations (`observer/X/innovation`) as the trigger. Shown on planted records only: how
+often it finds a real missing delay (bench recall) is not measured.
 
 **The review queue** (`ergostat/numbers/review.py`; the Model page; `ergostat proposals`, `--show ID`):
 every proposal waiting, the loops' process and gain proposals (§12d) with them, each read like a pull

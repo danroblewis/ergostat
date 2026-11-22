@@ -290,8 +290,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   covariance between stocks, item-level states (06's x̂1 to x̂10), sampling that rises after a surprise (06 §3.3).
 - **Per-item and per-group goals** (done, 8fb7440 and e46dc45 on `smallgaps`; SPEC §8 `per:`): a goal on a stock counted from
   items, held by each item or each group of them by a field (a relation such as `parent`), naming those that break it.
-- **Finding structure from residuals** (open; porting SD Lab's Kalman-LNA work; `parity/00-modeling-review.md`). It
-  can now build on the observer's innovations (`observer/X/innovation`, `model-disagrees`).
+- **Finding structure from residuals** (done for one kind, `finding-structure-from-residuals`; SPEC §12b): a missing
+  delay on a measured stock's inflow, as `DELAY3` or as a stock in transit never read, proposed when the stock's
+  one-step residuals (worked out from the record) are coloured and the change whitens them and shrinks them by a
+  fifth; a stock never read replays from its `initial:`. *Left*: a missing outflow or cause, a delay on an outflow, a
+  part replaced by another form, the observer's run-time innovations (`observer/X/innovation`) as the trigger, and
+  bench recall, not measured.
 - **Proposals drawn dashed in both diagrams; proposals that state the behaviour they predict** (the dashed drawing in
   progress, `redesign`; the stated behaviour done on `extremes`: each change's effect states the closed-loop projection
   of the stocks it touches in one sentence above the strip, accepting records it as `predicted`, and the judge's pass
