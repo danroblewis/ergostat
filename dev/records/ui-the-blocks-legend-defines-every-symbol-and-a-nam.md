@@ -95,7 +95,8 @@ claim had no non-browser test (lesson 8), and the build step's selection now inc
 Playwright. No code outside `tests/` changed. To show it can fail: with disturbance wires into subsystem boxes skipped
 for a moment in `blockdiagram.fold`, it failed (coordinator's observer: m 2, not 3). The edit was then undone.
 - p is not pinned this way. In image-squeeze, rollout reads 5×3, but 4 distinct signals leave it: p counts each
-  wire's width, so a signal sent to two subsystems in two vectors is counted twice. "outputs" in the legend holds as
+  port's width, and from reading `fold` (one vector port per destination box), most likely a signal sent to two
+  subsystems in two vectors is counted twice; that cause was not checked by a run. "outputs" in the legend holds as
   the wires drawn, not as the distinct signals. Changing how p is counted is outside this gap, so it is left as it
   is and noted here.
 - Tests run: `tests/test_blockdiagram.py` (68 passed) and ruff (clean). Refused: `uv run python scripts/affected_tests.py
