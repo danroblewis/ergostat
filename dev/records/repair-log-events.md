@@ -40,3 +40,14 @@ depends-on: []
 ## Size budget
 80 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built, round 1: all five acceptance tests pass, plus `tests/test_repair_traces.py`. Code is 42 net lines. No one was
+available to ask, so these choices took the most reversible option:
+- Log lines are read only where the swallowed path already reads traces: a `program` or `ai` block that runs a
+  program of the project's. No new kind of block is watched.
+- A JSON line needs both a logger (`logger`/`name`) and a message (`message`/`msg`) as strings, read literally from
+  the definition. A line with no logger is ignored.
+- The level is upper-cased in the signature, so `error` and `ERROR` from one logger are one failure.
+- A new log failure has `traceback: null` and `error` set to the message. No new field was added.
+- docs/AGENT-GUIDE.md got one sentence (not in Files to touch), because of the rule to keep the agent guide current.
