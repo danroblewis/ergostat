@@ -25,3 +25,28 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1, built. 34 net lines in `ergostat/web/static/diagram.js` (+46, -12). Main has no commits past the branch's base, so there was nothing to merge.
+
+- **Fit and the first view** now frame what is drawn (`drawnBox`: the `#viewport` group's `getBBox()`, so every part, line and label), not only the layout's box. They leave 60px clear above and below for the two floating toolbars.
+- **The edge hint** is now a button. It names each way the rest lies ("More to the right and below") and, when clicked, pans most of a screen that way, no further than the edge.
+- **After Open** (`showSystem`), the system stays where its box was if all of it is in view. Otherwise it is moved the least needed to bring it in, zooming out if needed but to no less than 0.8, the zoom the first view already treats as legible. If it is still too big, its top left goes to the top left of the view and the hint names the way to the rest.
+- **After Into**, the view is fitted to the system drawn alone, as before. It now uses the drawn bounds.
+
+Choices made without asking (each is easy to undo):
+- The old rule was that an opened system stays exactly where its box was. Now it holds only when the system fits on screen. `test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins` was changed to match: a move is allowed only if the outline then lies wholly inside the canvas, and the pinned box's check takes off the pan.
+- The demos on :8797 (api) and :8791 (modelling) are not in this clone. The tests use `examples/software-factory` instead: its top-level systems opened from their boxes, and `system=modelling` in Blocks and Dynamics.
+
+Tests:
+- New: `test_fit_shows_every_line_and_label_and_no_edge_hint[blocks|dynamics]` and `test_open_frames_the_system_opened_or_says_which_way_the_rest_lies`.
+- I broke the code four times and the tests failed each time:
+  - The drawn bounds replaced by the layout's box: Fit[blocks] failed (a text beyond the right edge, with no hint shown).
+  - `showSystem` disabled: the Open test failed (factory's outline reached past the right edge).
+  - No room left for the bottom toolbar: both Fit tests failed.
+  - The hint text put back to "More beyond the edge": the Open test failed.
+- `tests/test_diagram_rendering.py` run whole, serially, under the watchdog: 201 passed, 2 failed (rc 1).
+  - `test_every_view_draws_cleanly_and_in_time[image-squeeze]` failed in the whole-file run and passed when run alone just after. I did not see its failure message: the summary line is all the run printed. It is not yet shown to be unrelated.
+  - `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` fails again when run alone, at tests/test_diagram_rendering.py:3403. The /model page does not say "Nothing waiting." after a calibration is accepted. That is the Model page's list of proposals, which this change does not touch. I could not confirm it fails on main: putting main's diagram.js back to rerun the test was refused.
+- Not run here: the other three browser files and the unit suite.
