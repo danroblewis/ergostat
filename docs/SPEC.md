@@ -2939,9 +2939,9 @@ are `agent.ran` and `agent.failed` (their `causedby`) and `budget.closed` (its `
 when its source is `ergostat`. A source can be given, so that alone is no guard: `budget.*`, like `agent.*`, is one
 of ergostat's own types (`runner.OWN_TYPES`). A block's output, `ergostat event --add` (directly or through the
 running engine's calls socket), the MCP tool and a push are refused it, whatever source they name. This guards
-ergostat's ways in. A process that writes the record's files itself is not stopped by it. An end is matched to its start
-by run id, never by lease state or time order. So a retaken item's new run is a new run, and the old run keeps its
-own charge. An end's charge counts only while the end is within the last 24 h. A run's charge:
+ergostat's ways in. A process that writes the record's files itself is not stopped by it. An end is matched to its
+start by run id, never by lease state or time order. So a retaken item's new run is a new run, and the old run keeps
+its own charge. An end's charge counts only while the end is within the last 24 h. A run's charge:
 
 - with no end: its reserve, even after its lease expired or was released;
 - with a known cost (`cost_usd`, or `ai.cost_usd`, finite and at least 0): that cost;

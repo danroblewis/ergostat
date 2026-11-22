@@ -467,8 +467,8 @@ blocks:
   record cannot be read. Runs of `ai` blocks and runs whose agent is not declared as a person, decision, program or
   rule are charged; other runs count nothing. `budget.*` is ergostat's own type: a block's output, `ergostat event
   --add` (whatever `--as`), the MCP tool and a push are refused it, so a run cannot release a reserve through them
-  (writing the record's files directly is not guarded). Nothing is refused yet: runs are not stopped when the budget is spent (`run-budget-permit`), so
-  keep the goal and gate above for that.
+  (writing the record's files directly is not guarded). Nothing is refused yet: runs are not stopped when the budget
+  is spent (`run-budget-permit`), so keep the goal and gate above for that.
 
 ## 3c. Stale readings and estimates
 

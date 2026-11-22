@@ -103,3 +103,18 @@ Choices the definition left open, each the more reversible one and each said in 
 - An end with no run id (no `causedby`, or a `budget.closed` with no `run`) is not matched and is not charged. A
   person's answer (`agent.ran` from `inbox/answer.py`) has none. The engine's ends always carry theirs.
 - `budget:` written empty is two errors (both keys missing), not "no budget".
+
+Round 4 (the queue's conflict, and the round-3 review's notes):
+- The factory's merge of main (48b1481a) conflicted in `ergostat/spec/compile.py`, where main added the mTLS file
+  check at the same place as the branch's budget block. Both are kept, the budget block first. The merge is
+  59c5ab69, whose second parent is 48b1481a. In this clone `git for-each-ref` lists two refs, the branch and `main`
+  (at 48b1481a), and no remote-tracking ref, so the main merged is the `main` the factory gave.
+- The GAPS entry was checked after the merge: one entry, one *Left* clause, nothing spliced in.
+- The round-3 wording notes are fixed: the over-wide lines in the agent guide §3b and SPEC §9.9 are reflowed, and so
+  is a ragged line in the GAPS entry.
+- Not addressed, as before: `all_of` runs two unbounded 7-day queries for `budget.left` on each measures listing.
+  The review gives it to `run-budget-permit`, where the permit runs the same fold on every take.
+- The review could not run the tests. Run here in round 4, after the merge: `tests/test_run_budget.py` (9 passed),
+  test_spec_schema, test_spec_structure and test_local_settings (41 passed), and main's `tests/test_remote_mtls.py`
+  (23 passed). Ruff is clean. The unit suite and the four browser files were not run here (left to the factory and
+  the merge queue).
