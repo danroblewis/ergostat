@@ -230,6 +230,33 @@ def test_each_class_says_asked_approved_denied_waiting_and_its_gate(tmp_path):
     assert record.asked(p, spec, now=time.time() + 8 * 86400) == {}          # a week on: none asked this week
 
 
+MIXED = """\
+  ask:
+    run: "echo asked"
+    gate: approve
+    class: mixed
+  tell:
+    run: "echo told"
+    gate: auto
+    class: mixed
+blocks:"""
+
+
+def test_a_class_mixing_gates_is_said_by_its_strictest(tmp_path):
+    """record.asked: a class whose actions have different gates takes the strictest, from the model and, with no
+    model, from the actions asked, whichever was declared or asked last."""
+    text = textwrap.dedent(MODEL).replace("blocks:", MIXED, 1).replace("[note, push, nuke]", "[note, push, nuke, ask, tell]")
+    (tmp_path / "ergostat.yaml").write_text(text)
+    m = mdl.load(tmp_path)
+    assert not [x for x in m.problems if x.level == "error"]
+    p, spec = Project(m), m.spec
+    gate.request(p, spec, "ask", {}, ctx(tmp_path))
+    gate.request(p, spec, "tell", {}, ctx(tmp_path))            # the auto one declared and asked last
+    got = record.asked(p, spec)["mixed"]
+    assert (got["gate"], got["waiting"], got["approved"]) == ("approve", 1, 1)
+    assert record.asked(p, None)["mixed"]["gate"] == "approve"   # no model: the strictest asked
+
+
 def test_the_cli_and_the_page_answer_a_held_action(tmp_path, capsys):
     p = project(tmp_path)
     spec = p.model.spec

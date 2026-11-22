@@ -60,3 +60,19 @@ files run: tests/test_items_page.py 22 passed with none skipped (under suite_wat
 tests/test_gated_actions.py 11 passed. Ruff is clean. main has no commits beyond this branch's base, so there was
 nothing to merge. Not run here: test_diagram_rendering.py and the other browser files (this change does not touch
 the diagrams), and the whole unit suite (the factory's to run).
+
+Round 2: the blocking finding is fixed. `record.asked()` now gives each class its strictest gate (deny > approve >
+auto, read from `interventions.STRICT`, the same way SPEC §12p reads a class). With a model, it takes the strictest
+of every action the model declares in the class. With no model, it takes the strictest of every action asked. An
+unknown gate counts as the strictest, so it fails closed. When the model declares the class, its gate still comes
+first, because the gate now is what holds the next request. I did not combine it with the gates of past requests:
+a gate loosened on purpose would then still read as held. SPEC §12k says this in one sentence. There are now 41 net
+lines of code outside tests, docs and dev (record.py +6), within the 60 budget.
+
+Test: `tests/test_gated_actions.py::test_a_class_mixing_gates_is_said_by_its_strictest`. Its class `mixed` has an
+approve action, then an auto one that is declared and asked last. I broke the code twice and the test failed both
+times. With the model's gate set by the last-declared action, it failed (`'auto' != 'approve'`). With the fallback
+taking the newest request's gate, it failed on the no-model assertion. Runs: tests/test_gated_actions.py 12 passed;
+tests/test_items_page.py 22 passed with none skipped (under suite_watch, rc 0); ruff is clean. main (277a9c6c) is
+already in the branch, so there was nothing to merge. Not run: the unit suite and the other browser files (the
+factory and the queue run those).
