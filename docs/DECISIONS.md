@@ -155,3 +155,7 @@ flows:
 What to hold near zero is corrections repeated, and decisions the owner had to restate ("we already decided
 this"). The parity benchmark (`docs/parity-bench.md`) measures what the decisions context is worth to a fresh
 session against the other starting contexts.
+
+## Overrides recorded here
+
+- 2026-11-22, the Dashboard page: the owner asked for a Dashboard page of configurable panels ("the dashboard is an analysis"), overriding "no new pages or panels" for that one page only; the design is `docs/proposals/dashboard.md`.
