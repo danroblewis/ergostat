@@ -1623,6 +1623,36 @@ def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browse
     assert not problems, f"{name}: " + "\n".join(problems)
 
 
+# each block as drawn: its main label (what is written inside it, but its caption) and its caption, the band at its top
+BLOCK_LABELS = """() => [...document.querySelectorAll('svg.canvas g.node.bd-block')].map((g) => {
+  const box = g.querySelector('.hit').getBoundingClientRect(), cap = g.querySelector(':scope > text.bd-tier');
+  const inside = [...g.querySelectorAll('text')].filter((t) => t !== cap && t.getBoundingClientRect().top >= box.top);
+  return { id: g.dataset.id, main: inside.map((t) => t.textContent).join(' | '), cap: cap ? cap.textContent : null,
+           capAtTop: cap ? cap.getBoundingClientRect().bottom <= box.top + 16 : null };
+})"""
+
+
+def test_every_block_carries_a_function_with_the_agents_name_as_its_caption(browser, tmp_path):
+    # Blocks, the ticket factory's making: open-pr (a program) and work (an AI agent) state no law, so each says
+    # f(·), its name and kind the caption in its top band; a counting sensor says H = 1 and how often
+    with served("ticket-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=blocks&system=making", 0)
+        got = pg.evaluate(BLOCK_LABELS)
+        pg.close()
+    assert len(got) >= 4, got
+    bad = [b for b in got if not re.search(r"=|\(s\)|\(z\)|f\(·\)", b["main"])]
+    assert not bad, f"a block whose main label is no function: {bad}"
+    named = [b for b in got if re.search(r"(?<![\w-])(open-pr|work)(?![\w-])", b["main"])]
+    assert not named, f"a block's name written as its main label: {named}"
+    caps = {b["id"]: b for b in got}
+    for bid, cap in (("blk:open-pr", "open-pr · program"), ("blk:work", "work · AI agent")):
+        assert caps[bid]["cap"] == cap and caps[bid]["capAtTop"], caps.get(bid)
+        assert "f(·), law not stated" in caps[bid]["main"], caps[bid]
+    assert any(re.search(r"H = 1, every 3 s", b["main"]) for b in got if b["id"].startswith("sen:")), \
+        [b for b in got if b["id"].startswith("sen:")]
+
+
 def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
     from tests.test_spec_systems import MODEL
     d = tmp_path / "cascade"

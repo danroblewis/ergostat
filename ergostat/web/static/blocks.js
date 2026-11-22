@@ -34,9 +34,9 @@ function bdLines(text, max = 30) {
   }
   return lines.map((l) => (l.length > max ? l.slice(0, max - 1) + "\u2026" : l));
 }
-function bdSensorHead(fn) {                             // H = 1, H(s) = e^(−sT), H(s): avg 1 h; a collector's name
+function bdSensorHead(fn) {                             // H = 1, every 3 s; H(s) = e^(−sT), H(s): avg 1 h; a collector's name
   if (fn.name) return fn.name;
-  return fn.expr === "1" ? "H = 1" : fn.expr ? `H(s) ${fn.expr.startsWith("avg") ? ":" : "="} ${fn.expr}` : "H(s)";
+  return fn.expr === "1" ? "H = 1" + (fn.every ? `, every ${fn.every}` : "") : fn.expr ? `H(s) ${fn.expr.startsWith("avg") ? ":" : "="} ${fn.expr}` : "H(s)";
 }
 function bdSize(n) {
   if (n.kind === "sum") return [BD.SUM, BD.SUM];
@@ -53,17 +53,26 @@ function bdSize(n) {
   const sideN = Math.max(n.ins.length, n.outs.length);
   let w = Math.max(84, bdSymW(fn) + 28), hgt = 46;
   const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
-  if (fn.name) {                                       // a nonlinear block: its name, its kind, a sketch of it
-    w = Math.max(w, bdTextW(fn.name) + 28 + (fn.sketch ? 40 : 0), fn.law ? bdTextW(fn.law, true) + 24 : 0);
-    hgt = fn.law ? 58 : 46;
-  } else if (frac) { w = Math.max(w, bdTextW(frac[0]) + 28, bdTextW(frac[1]) + 28); hgt = 64; }
+  if (fn.name) w = Math.max(w, bdTextW(bdLaw(fn)) + 28 + (fn.sketch ? 40 : 0));   // a nonlinear block: its law, a sketch of it
+  else if (frac) { w = Math.max(w, bdTextW(frac[0]) + 28, bdTextW(frac[1]) + 28); hgt = 64; }
   else if (fn.expr) { w = Math.max(w, bdTextW(fn.expr, true) + 24); hgt = 54; }
   if (n.role === "subsystem") { w += 18; hgt = Math.max(hgt, 54); }
-  if (n.tier) w = Math.max(w, bdTextW(BD_TIER[n.tier] || n.tier, true) + 12);
-  return [Math.round(w), Math.max(hgt, (sideN + 1) * BD.PORT) + (n.tier ? BD.TIER : 0)];
+  const cap = bdCaption(n);
+  if (cap) w = Math.max(w, bdTextW(cap, true) + 12);
+  return [Math.round(w), Math.max(hgt, (sideN + 1) * BD.PORT) + (cap ? BD.TIER : 0)];
 }
 /* who fills a block, on the ladder (SPEC §9.5): written small in its top-left corner, above its function */
 const BD_TIER = { person: "person", ai: "AI agent", "narrow-ai": "narrow AI", decision: "decision", program: "program", rule: "rule" };
+/* a named block's caption, in that band: its name and who fills it (or its kind); else its tier alone */
+function bdCaption(n) {
+  const fn = n.fn || {}, tier = n.tier ? BD_TIER[n.tier] || n.tier : "";
+  return fn.name ? `${fn.name} · ${tier || fn.kind || "block"}` : tier;
+}
+/* a named block's main label, its function: the law identified, the standard nonlinearity it is, or that none is stated */
+const BD_LAW = { relay: "u = relay(e)", compare: "u = relay(e)", alarm: "u = relay(e)", timer: "u = relay(e)",
+                 limit: "u = sat(x)", "dead zone": "u = dz(e)", "zero-order hold": "u = ZOH(x)", expr: "u = f(x)",
+                 lookup: "u = table(x)", select: "u = select(x)", schedule: "u = table(t)", counter: "u = count(x)" };
+function bdLaw(fn) { return fn.law ? (fn.law.includes("=") ? fn.law : `u = ${fn.law}`) : BD_LAW[fn.kind] || "f(·), law not stated"; }
 function bdFrameTitle(f) { return 30; }
 
 /* ---- the layout: ELK places the parts and the frames (open systems, the inner loops of cascades) */
@@ -686,8 +695,8 @@ function bdNode(n, c) {
     if (n.in) g.append(s("text", { x: n.port_of === "in" ? 0 : w, y: -5, class: "bd-note", "text-anchor": n.port_of === "in" ? "start" : "end" }, n.port_of === "in" ? "from " + n.in : "to " + n.in));
   } else {
     g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt }));
-    const band = n.tier ? BD.TIER : 0;                 // its tier written small in a band at the top, its function beneath
-    if (n.tier) g.append(s("text", { x: 5, y: 13, class: "bd-note bd-tier", "data-tier": n.tier }, BD_TIER[n.tier] || n.tier));
+    const cap = bdCaption(n), band = cap ? BD.TIER : 0;   // its caption written small in a band at the top, its function beneath
+    if (cap) g.append(s("text", { x: 5, y: 13, class: "bd-note bd-tier", "data-tier": n.tier || "" }, cap));
     g.append(bdBody(n, fn, w, hgt - band, band));
     if (n.remote && !fn.name) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
     if (n.identified) g.append(s("text", { x: w, y: -5, class: "bd-note bd-ident", "text-anchor": "end" }, "identified"));   // its law, from the record
@@ -700,9 +709,8 @@ function bdBody(n, fn, w, hgt, dy) {                    // what is inside a bloc
   if (fn.name) {
     const sk = fn.sketch ? 38 : 0;
     if (fn.sketch) g.append(bdSketch(fn.sketch, 9, hgt / 2 - 12));
-    // its name only: how often it runs is the side panel's
-    g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + (fn.law ? -2 : 4), class: "bd-name", "text-anchor": "middle" }, fn.name));
-    if (fn.law) g.append(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }, fn.law));   // its identified law
+    // its function (its name is the caption above it): how often it runs is the side panel's
+    g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + 4, class: "bd-name bd-main", "text-anchor": "middle" }, bdLaw(fn)));
     return g;
   }
   const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
