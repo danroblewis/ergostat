@@ -82,3 +82,13 @@ Traceback (most recent call last):
 RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
 
 ```
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 14:22).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 12: nack exited 1
+- attempt 13: nack given back
+- attempt 14: nack the implementor pool is full (run/pools.json): waits its turn
+- attempt 15: nack the run ended with gap/ui-a-suggestion-appears-when-it-has-a-verdict still parked
