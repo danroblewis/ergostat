@@ -67,3 +67,19 @@ Built (round 1) in a Linux container with no Docker, so nothing here was measure
 Parked by the factory (review/suites-copy-their-checkout-into-the-container-1, 2026-11-22 10:54).
 
 Done: definition item 1 (agents.queued pipes a tar of the checkout, minus .venv, with its git directory when inside it, into docker run -i, unpacked at /work; run/coverage still mounted; a failed unpack exits 125, NotStarted; tested with a fake docker that really unpacks) and item 4 (resources.py vm-open-files on macOS via pgrep and lsof, no reading elsewhere; auxiliary vm-open-files and goal vm-open-files-within <= 150000, feeding no gate; tested). Left: item 2, read `python3 dev/bin/resources.py vm-open-files` on the coordinator's Mac with this branch's queued() in use, let 10 queue runs go, read it again, and record both (must be within 1,000); item 3, measure the same count across session containers' runs and record how much it grows, naming the follow-up gap with that number. Both need Docker Desktop on the Mac, which the implementor's Linux build has no access to, so another fix round cannot close them.
+
+## Where it stopped
+
+Continued (round 1, 2026-11-22), again in a Linux container with no Docker Desktop.
+
+- Main (bea24a23) merged in. Its conflict in `agents.queued()` was resolved by keeping both sides: main's per-prefix
+  CPUs (`prefix_cpus` for a worktree under `run/queue-prefix/`) and this branch's copy of the checkout in place of the
+  bind mount. Main had changed the git-directory mount (mounted read-only even when it sits inside the checkout). That
+  change was dropped, because the copy already carries a git directory that lives inside the checkout. A prefix's
+  worktree keeps its outside git directory mounted read-only at its own path, the same way triage's worktree does.
+- After the merge, `tests/test_agents.py` passes in full, as do `test_prefix_runs_hold_to_prefix_most` and
+  `test_a_stopped_prefix_run_leaves_no_worktree_or_container` (which build a prefix's `queued()` command). Ruff is
+  clean on ergostat, tests and scripts.
+- Still left, and only someone at the Mac can do it: item 2, the VM's open-file count before and after 10 queue runs
+  (`python3 dev/bin/resources.py vm-open-files`), and item 3, the same count across session containers' runs. No
+  code change in this branch can close them.
