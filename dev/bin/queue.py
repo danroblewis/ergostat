@@ -32,9 +32,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    same container and settings (on_main()): failing there and on a re-run, the failure is main's: no gap is sent back
    (all stay `approved`, the own gap's lease given back uncounted), run/queue.json holds `main_red`, an intervention
    of class queue names main and the tests (a pipeline situation), and no batch is taken until they pass alone on
-   main's head or are quarantined there (main_red()); failing, then passing, each is a flake seen. Else (they pass on
-   main, a test main lacks, a run that cannot tell, a failure naming no test) it is bisected to the first failing
-   merge (land(), on the failing tests alone when
+   main's head, are quarantined or gone there, or the coordinator remedies it (main_red()); failing, then passing,
+   each is a flake seen. Else (they pass on main, a test main lacks, a run that cannot tell, a failure naming no
+   test) it is bisected to the first failing merge (land(), on the failing tests alone when
    the run named any), which goes on to flake triage with what failed (`queue-failed`) and the rest lands, each merge
    only on a full green run. Past its time allowance (allowance()) a run starts no suite run: the proven prefix lands,
    the rest back uncounted; a run that settled none of its batch halves the next run's batch (run/queue.json `cap`,
@@ -761,21 +761,38 @@ def on_main(repo, pre: str, red: dict, run, tag: str, gaps: list[str]) -> None:
 
 def main_red(cfg: dict, repo) -> str | None:
     """While main is held red (run/queue.json `main_red`): its tests, less those quarantined at main's head now, run
-    there alone. Passing, or none left: cleared and its intervention remedied (None); else why no batch is taken."""
+    there alone, but those main's head lacks (lacks(): removed or renamed, they cannot hold it). Passing, or none left:
+    cleared and its intervention remedied (None); its intervention remedied by the coordinator: cleared; else (failing,
+    a run that could not tell or start, a remedy that cannot be read) why no batch is taken."""
     st = state(cfg)
     if not (r := st.get("main_red")):
         return None
+    if action_state(r["intervention"]) == "remedied":     # (as settle() lifts `blocked`: said already, not again)
+        st.pop("main_red")
+        save(cfg, st)
+        return None
     head = fac.git(repo, "rev-parse", "HEAD")
-    if tests := [t for t in r["tests"] if t not in fac.quarantine(repo, head)]:
+    if tests := [t for t in r["tests"] if t not in fac.quarantine(repo, head) and not lacks(repo, head, t)]:
         fac.wait_quiet(cfg)
-        if not passed(named(cfg, repo, f"main-{head[:12]}-{int(time.time())}", fac.run_dir(cfg, "queue"),
-                            {"failed": r["suite"], "tests": tests})):
+        try:
+            got = named(cfg, repo, f"main-{head[:12]}-{int(time.time())}", fac.run_dir(cfg, "queue"),
+                        {"failed": r["suite"], "tests": tests})
+        except agents.NotStarted as e:
+            return f"main is held red and its check did not start: {e}"
+        if not passed(got):
             return f"main {head[:12]} fails {', '.join(tests[:5])} (held since {r['pre'][:12]})"
     st.pop("main_red")
     save(cfg, st)
     fac.say("intervention.remedied", r["intervention"], remedied_by="queue", remedied_at=time.time(),
-            remedy=f"main {head[:12]} passes them" if tests else "they are quarantined")
+            remedy=f"main {head[:12]} passes them" if tests else "they are quarantined or gone from main")
     return None
+
+
+def lacks(repo, ref: str, test: str) -> bool:
+    """``ref`` has no such test: its file is gone, or no `def` of its function (less any `[param]`) is in it."""
+    path, _, name = test.partition("::")
+    fn = re.escape(name.split("::")[-1].split("[")[0])
+    return not re.search(rf"^\s*(async\s+)?def\s+{fn}\s*\(", fac.git(repo, "show", f"{ref}:{path}", check=False), re.M)
 
 
 def held_by_main(cfg: dict, r: dict) -> None:

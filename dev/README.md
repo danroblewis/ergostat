@@ -554,8 +554,12 @@ found it (`pre`), in the same container and settings. Failing there and again on
 tell), the failure is main's: the batch is undone, no gap is sent back (they all stay `approved`; the run's own gap's
 lease is given back uncounted), each test is `flake.main-broken`, run/queue.json holds `main_red` (main, the suite, the
 tests), and an intervention of class `queue` naming main and the tests is recorded, which pipeline-watch raises as a
-situation. Each later run first runs those tests alone on main's head (less any quarantined there) and takes no batch
-until they pass or are all quarantined; it then records the intervention remedied. A test that fails on main and
+situation. Each later run first runs those tests alone on main's head, less any quarantined there and any main's head
+lacks (its file gone, or no `def` of its name in it: a test removed or renamed on main holds nothing), and takes no
+batch until they pass or none is left; it then records the intervention remedied. The coordinator may also remedy the
+intervention themself (`manage.py remedy`): the next run clears `main_red` without checking. A check that cannot tell,
+or whose container does not start, keeps the hold. If any one named test fails on main twice the whole batch is
+held, so a test a gap really broke beside it is found only once main is fixed. A test that fails on main and
 passes on its re-run is a flake seen (`failed_on_main`), not main's, and the batch bisects. The check is made once per
 run, before its first finding; a failure the red run did not name (a sibling suite stopped by the first failure) is
 not checked on main. Only if one fails alone does each bisecting step run only those:

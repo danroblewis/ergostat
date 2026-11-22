@@ -2675,6 +2675,7 @@ def queue_json(f: Factory) -> dict:
 
 def test_a_batch_failing_on_a_test_that_also_fails_on_main_sends_no_gap_back(tmp_path):
     f = bisect_stand_ins(tmp_path)
+    main_has_test_b(f)
     main_moves(f, "bad.txt")                                                   # main itself fails test_b
     start = git(f.checkout, "rev-parse", "main")
     approved_gaps(f, {"p": 1, "q": 2, "r": 3}, batch=3)
@@ -2696,7 +2697,7 @@ def test_a_batch_failing_on_a_test_that_also_fails_on_main_sends_no_gap_back(tmp
     f.record.write_text(json.dumps(given))
     said, _ = f.run("queue.py", "gap/q")                                       # main still fails: no batch taken
     assert said == [] and suite_runs(f) == 1 and reruns(f)[-1] == f"{t} -rA" and len(reruns(f)) == 4
-    (f.checkout / "tests").mkdir()                                             # quarantined on main: taken again
+    (f.checkout / "tests").mkdir(exist_ok=True)                                # quarantined on main: taken again
     (f.checkout / "tests" / "quarantine.txt").write_text(f"{t} | main's, for now\n")
     git(f.checkout, "add", "-A")
     git(f.checkout, "commit", "-q", "-m", "quarantine test_b")
@@ -2709,8 +2710,53 @@ def test_a_batch_failing_on_a_test_that_also_fails_on_main_sends_no_gap_back(tmp
     assert len(reruns(f)) == 4                                                 # (nothing left to run on main)
 
 
+def main_has_test_b(f: Factory, body: str = "def test_b():\n    pass\n") -> None:
+    """main's tree holds tests/test_b.py (committed with the next main_moves()), so main_red() runs it there."""
+    (f.checkout / "tests").mkdir(exist_ok=True)
+    (f.checkout / "tests" / "test_b.py").write_text(body)
+
+
+def held_red(f: Factory) -> dict:
+    """main fails test_b: a batch of p held by main (main_red), and p approved again (its nack played)."""
+    main_has_test_b(f)
+    main_moves(f, "bad.txt")
+    approved_gaps(f, {"p": 1}, batch=1)
+    f.run("queue.py", "gap/p")
+    held = queue_json(f)["main_red"]
+    given = f.db()
+    given["items"]["gap/p"]["state"] = "approved"
+    f.record.write_text(json.dumps(given))
+    return held
+
+
+def test_main_red_clears_when_its_intervention_is_remedied(tmp_path):
+    f = bisect_stand_ins(tmp_path)
+    held = held_red(f)
+    assert len(reruns(f)) == 3                                                 # the red tree, main twice
+    f.fold([{"event": "intervention.remedied", "item": held["intervention"], "data": {"remedied_by": "coordinator"}}], None)
+    said, _ = f.run("queue.py", "gap/p")                                       # main still fails test_b
+    assert said[0] == "gap.queued"                                             # taken at once: no check first
+    assert len(reruns(f)) == 6 and "intervention.remedied" not in said        # (the batch fails on main again)
+
+
+@pytest.mark.parametrize("fix", ["removed", "renamed"])
+def test_a_held_test_main_no_longer_has_clears_the_hold(tmp_path, fix):
+    f = bisect_stand_ins(tmp_path)
+    held = held_red(f)
+    if fix == "removed":
+        git(f.checkout, "rm", "-q", "tests/test_b.py")
+    else:
+        main_has_test_b(f, "def test_b_renamed():\n    pass\n\n\ndef helper_test_b():\n    pass\n")
+    git(f.checkout, "commit", "-qam", f"{fix} test_b")
+    git(f.checkout, "push", "-q", "origin", "main")
+    said, _ = f.run("queue.py", "gap/p")                                       # bad.txt stays: test_b would fail
+    assert said[:2] == ["intervention.remedied", "gap.queued"] and len(reruns(f)) == 6   # never run before the batch
+    assert f.item(held["intervention"])["fields"]["remedy"] == "they are quarantined or gone from main"
+
+
 def test_main_red_clears_once_its_tests_pass_on_main(tmp_path):
     f = bisect_stand_ins(tmp_path)
+    main_has_test_b(f)
     main_moves(f, "bad.txt")
     approved_gaps(f, {"p": 1}, batch=1)
     f.run("queue.py", "gap/p")
