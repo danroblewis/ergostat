@@ -170,6 +170,7 @@ class Factory:
             demo = "true"
             rerun = "echo again {{tests}}"
             alone = "{alone} {{tests}}"
+            queue_container = false            # (tests/test_agents.py runs the queue's in a fake Docker)
             check = "{sys.executable} {tmp / 'fake_check.py'}"
             """))
         (tmp / "fake_check.py").write_text(CHECK)
@@ -267,6 +268,113 @@ def test_the_factory_model_loads():
     assert [str(p) for p in problems if "pools.yaml" in str(p.where)] == []
     assert spec.blocks["merge-queue"].pool == 1
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
+
+
+def without_landed(text: str) -> str:
+    """A model file as main had it before gaps-landed-stock: no stock gaps-landed (its block, whatever it holds),
+    gaps-merged and joins-covered to clouds, gaps-merged counting every gap entering merged."""
+    import re
+    return re.sub(r"(?m)^  gaps-landed:\n(?:    .*\n)*", "", text).replace("    to: gaps-landed\n", "").replace(
+        "entering: merged, where: {merged_by: null}, over: 1d", "entering: merged, over: 1d")
+
+
+def factory_copy(where: Path, edit=lambda text: text) -> Path:
+    """The factory's model in a folder of its own, each model file passed through ``edit``."""
+    (where / "dev" / "model").mkdir(parents=True)
+    for x in (ROOT / "dev").iterdir():
+        if x.name != "model":
+            (where / "dev" / x.name).symlink_to(x)
+    for x in (ROOT / "dev" / "model").iterdir():
+        (where / "dev" / "model" / x.name).write_text(edit(x.read_text()))
+    (where / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+    return where
+
+
+def test_the_factory_model_loads_with_gaps_landed_and_the_flows_into_it():
+    """gaps-landed-stock: a stock of the gaps merged on main, filled by every flow that ends a gap in merged (the
+    queue's, and the join judge's), drained by none, and read by no goal, pool or gate."""
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    st = spec.stocks["gaps-landed"]
+    assert st.unit == "gaps" and st.system == "landing" and "merged on main" in st.description
+    (sensor,) = st.sensors.values()
+    assert sensor.items["kind"] == "gap" and sensor.items["state"] == ["merged"] and sensor.every == 60
+    into = {f.name for f in spec.flows.values() if f.target == "gaps-landed"}
+    assert into == {"gaps-merged", "joins-covered"}
+    assert not [f.name for f in spec.flows.values() if f.source == "gaps-landed"]           # it only rises
+    ends_merged = {f.name for f in spec.flows.values() for s in f.sensors.values()
+                   if s.items and s.items.get("kind") == "gap" and s.items.get("entering") == "merged"}
+    assert ends_merged == into                                   # every flow ending a gap in merged goes to it
+    gm = spec.flows["gaps-merged"]
+    assert gm.source == "gaps-queued" and gm.equation.text == \
+        "(1 - queue-fail-share - conflict-share) * stock.gaps-queued / queue-time"
+    assert not [g.name for g in spec.goals.values() if g.of.name == "gaps-landed"]          # no goal on it
+    texts = "".join(x.read_text() for x in (ROOT / "dev" / "model").iterdir()) + (ROOT / "ergostat.yaml").read_text()
+    assert texts.count("stock.gaps-landed") == 0                 # nothing reads it: no pool, gate or equation
+    assert spec.flows["upgrades-opened"].equation.text == "upgrades-per-merge * flow.gaps-merged"
+
+
+def test_a_joined_gap_that_lands_enters_the_landed_stock_once(tmp_path):
+    """gaps-landed-stock: a gap the queue merged is counted by gaps-merged alone, a joined gap the join judge found
+    covered (merged_by join-judge, plan.py) by joins-covered alone, so the inflows' count is the stock's rise."""
+    from ergostat import model as mdl
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    m = mdl.load(factory_copy(tmp_path / "m"))
+    (tmp_path / "state").mkdir()
+    p = Project(m, directory=tmp_path / "state")
+    ev, spec = p.events, m.spec
+    t = time.time() - 3600
+    for g in ("sub-a", "sub-b"):                                 # the queue's merges: the joined gap's sub-gaps
+        for k, e in enumerate(("gap.found", "gap.defined", "gap.started", "gap.built", "gap.review-started",
+                               "gap.approved", "gap.queued", "gap.merged")):
+            ev.add(e, item=f"gap/{g}", data={"parent": ["gap/whole"]} if k == 0 else {}, at=t + k)
+    ev.add("gap.found", item="gap/whole", at=t)
+    ev.add("gap.split", item="gap/whole", data={"children": ["gap/sub-a", "gap/sub-b"]}, at=t + 1)
+    ev.add("gap.merged", item="gap/whole", data={"merged_by": "join-judge", "join_verdict": "covered"}, at=t + 20)
+    now = t + 30
+
+    def reading(part) -> float:
+        (s,) = part.sensors.values()
+        v, _ = its.measure(ev, spec, s, now=now)
+        return v
+    day = 86400 / 3600                                           # (a flow's reading is per hour, over a day)
+    merged, covered = reading(spec.flows["gaps-merged"]) * day, reading(spec.flows["joins-covered"]) * day
+    assert (round(merged), round(covered)) == (2, 1)            # the joined gap in joins-covered alone
+    assert reading(spec.stocks["gaps-landed"]) == 3 == round(merged + covered)
+
+
+@pytest.mark.slow
+def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, capsys, monkeypatch):
+    """gaps-landed-stock: `ergostat check` on the model with gaps-landed says nothing it did not say without it, and
+    the Dynamics diagram draws the stock with the pipes into it."""
+    from ergostat import model as mdl
+    from ergostat.cli import main, spec_cmds
+    from ergostat.numbers import extremes_cache
+    from ergostat.store import Project
+    from ergostat.web.server import Live, api
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # (no extremes kept from another test's run)
+    monkeypatch.setattr(spec_cmds, "CHECK_WAIT", None)                # both sides' extreme-conditions tests run whole
+    monkeypatch.setattr(extremes_cache, "BOUND", 900.0)
+
+    def found(where: Path) -> set[str]:
+        main(["-C", str(where), "check", "--json"])
+        got = json.loads(capsys.readouterr().out)
+        assert got["ok"], [x for x in got["found"] if x["level"] == "error"]
+        return {x["id"] for x in got["found"] if x["level"] != "error"}
+    before = factory_copy(tmp_path / "before", without_landed)
+    old = "".join(x.read_text() for x in (before / "dev" / "model").iterdir())
+    assert "\n  gaps-landed:" not in old and "to: gaps-landed" not in old and "merged_by: null" not in old
+    now = found(factory_copy(tmp_path / "now"))
+    assert not [x for x in now if x.startswith(("extremes-running", "extremes-skipped"))]
+    assert sorted(now - found(before)) == []
+    (tmp_path / "state").mkdir()
+    live = Live(Project(mdl.load(tmp_path / "now"), directory=tmp_path / "state"))
+    g = api(live, "graph", {"view": ["dynamics"], "open": ["*"]})
+    ids = {n["id"] for n in g["nodes"]}
+    assert "stock:gaps-landed" in ids
+    into = {e.get("from", e["source"]) for e in g["edges"] if e["kind"] == "pipe" and e["target"] == "stock:gaps-landed"}
+    assert {"flow:gaps-merged", "flow:joins-covered"} <= into, into
 
 
 def test_the_factory_blocks_take_their_pools_from_the_pool_stocks():
@@ -2370,7 +2478,7 @@ def test_the_tree_tested_is_the_tree_dry_merged(tmp_path):
             "alone = queue.dry(repo, pre, batch[0][1], 'a alone')[0]\n"
             "try:\n queue.land(cfg, repo, batch, pre, time.time(), 0, alone)\n"
             "except RuntimeError as e:\n out['raised'] = str(e)\n"
-            "landed, head = queue.land(cfg, repo, batch, pre, time.time(), 0, dried)\n"
+            "landed, head, _ = queue.land(cfg, repo, batch, pre, time.time(), 0, dried)\n"
             "out.update(landed=[g['id'] for g, _ in landed], same=fac.git(repo, 'rev-parse', head + '^{tree}') == "
             "fac.git(repo, 'rev-parse', dried + '^{tree}')); print(json.dumps(out))")
     r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
@@ -2578,6 +2686,184 @@ def test_a_stopped_batch_puts_its_other_gaps_back(tmp_path):
     assert said == ["gap.queued"] and f.item("gap/b")["state"] == "approved"    # b never left approved
     assert git(f.checkout, "rev-parse", "main") == start                       # main as it was
     assert "running" not in json.loads((f.model / "run" / "queue.json").read_text())
+
+
+# ---- batches of up to 8, and the run's time allowance (dev/records/queue-batches-larger.md)
+
+ANY_BAD = ("echo run >> {runs}; if ls bad*.txt >/dev/null 2>&1; then echo 'FAILED tests/test_b.py::test_b - boom'; "
+           "exit 1; fi; git write-tree >> {greens}")                          # (each green run's tree in greens)
+EIGHT = {n: i for i, n in enumerate("abcdefgh", 1)}
+CLOCKED = """\
+import sys, time
+sys.path[:0] = [sys.argv[1]]
+import queue
+now, cost = [time.time()], float(sys.argv[2]) * 60
+time.time = lambda: now[0]                         # a clock each suite run (and each named run) moves by `cost`
+def costs(fn):
+    def call(*a, **k):
+        got = fn(*a, **k)
+        now[0] += cost
+        return got
+    return call
+queue.suites, queue.named = costs(queue.suites), costs(queue.named)
+sys.exit(queue.main())
+"""
+
+
+def eight(tmp: Path, minutes: float | None = None, **gaps) -> Factory:
+    """Eight approved gaps a..h (ranked so), the batch and its most 8, ``minutes`` the run's allowance."""
+    f = Factory(tmp, unit=ANY_BAD.format(runs=tmp / "runs", greens=tmp / "greens"))
+    text = f.config.read_text().replace("batch_max = 4", "batch_max = 8")
+    f.config.write_text(text.replace("batch_max = 8", f"batch_max = 8\nbatch_minutes = {minutes}") if minutes else text)
+    approved_gaps(f, EIGHT, batch=8, **gaps)
+    return f
+
+
+def clocked(f: Factory, gid: str, minutes_a_run: float) -> tuple[list[str], list[dict]]:
+    """The queue's run of ``gid``, each suite run costing ``minutes_a_run`` on the run's clock."""
+    driver = f.tmp / "clocked.py"
+    driver.write_text(CLOCKED)
+    return f.run(str(driver), gid, argv=(str(BIN), str(minutes_a_run)))
+
+
+def counts(f: Factory, gid: str) -> tuple:
+    run = f.item(gid)["fields"]["queue_runs"][-1]
+    return run["tried"], run["landed"], run["given_back"]
+
+
+def test_the_batch_s_most_is_batch_max_default_8(tmp_path):
+    f = Factory(tmp_path)
+    def put(n: int) -> int:
+        r = subprocess.run([sys.executable, str(BIN / "pools.py"), "set", "batch", str(n), "test"], cwd=f.model,
+                           env=f.env, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        return json.loads((f.model / "run" / "pools.json").read_text())["batch"]
+    assert put(9) == 4                                                          # [pools] batch_max = 4: held to it
+    f.config.write_text(f.config.read_text().replace("batch_max = 4", "batch_max = 12"))
+    assert put(12) == 12                                                        # no constant below it
+    f.config.write_text(f.config.read_text().replace("batch_max = 12\n", ""))
+    assert put(20) == 8 and put(3) == 3                                         # unset: 8
+    f.config.write_text(f.config.read_text().replace("[pools]", "[pools]\nbatch_max = 1000"))
+    assert put(1000) == 32                                                      # the sanity ceiling
+    assert 'batch_max = 8 ' in (ROOT / "dev" / "factory.toml").read_text()
+
+
+def test_a_batch_of_8_all_green_lands_in_one_run(tmp_path):
+    f = eight(tmp_path)
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued"] + ["gap.merged"] * 8 + ["gap.push-asked"] * 8
+    assert suite_runs(f) == 1 and merges(f) == list("abcdefgh")
+    assert all(f.item(f"gap/{g}")["fields"]["batch_size"] == 8 for g in "abcdefgh")
+    assert counts(f, "gap/a") == (8, 8, 0) and len(f.db()["acts"]) == 1
+
+
+def test_one_bad_commit_of_8_is_found_and_the_other_7_land(tmp_path):
+    f = eight(tmp_path, bad="e")
+    said, _ = f.run("queue.py", "gap/a")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 7
+    # all 8 red; a..d green; a..f red; a..e red: e. Then f, g, h merged again onto a..d: green
+    assert suite_runs(f) == 5 and merges(f) == list("abcdfgh") and not (f.checkout / "bad.txt").exists()
+    assert f.item("gap/e")["state"] == "queue-failed" and counts(f, "gap/a") == (8, 7, 0)
+    assert git(f.checkout, "rev-parse", "main^{tree}") in (tmp_path / "greens").read_text().split()
+
+
+def test_a_run_past_its_allowance_lands_only_what_is_proven_and_gives_back_the_rest(tmp_path):
+    # 25 minutes a run, 60 allowed: all 8 red (25), the named check on them (50), a..d green (75); a..f never runs
+    f = eight(tmp_path, minutes=60, bad="g")
+    said, lines = clocked(f, "gap/h", 25)                                      # the run's own gap is among the rest
+    assert merges(f) == list("abcd") and suite_runs(f) == 2                    # (the named check is not the unit suite)
+    assert said.count("gap.merged") == 4 and "gap.queue-failed" not in said and "gap.sent-back" not in said
+    head = git(f.checkout, "rev-parse", "main")
+    assert git(f.checkout, "rev-parse", "main^{tree}") in (tmp_path / "greens").read_text().split()   # proven green
+    assert [a for a in f.db()["acts"] if f"sha={head}" in a] == f.db()["acts"] and len(f.db()["acts"]) == 1
+    for g in "efgh":                                                           # back, uncounted
+        it = f.item(f"gap/{g}")
+        assert it["state"] == ("queued" if g == "h" else "approved")           # (h: the run's own, given back below)
+        assert "failed_gates" not in it["fields"] and "findings" not in it["fields"]
+    nacks = [x["nack"] for x in lines if "nack" in x]
+    assert len(nacks) == 1 and nacks[0]["count"] is False and "allowance" in nacks[0]["why"]   # the own gap's lease
+    assert counts(f, "gap/h") == counts(f, "gap/e") == (8, 4, 4)
+    db = f.db()
+    db["items"]["gap/h"]["state"] = "approved"                                 # (the engine's nack, uncounted)
+    f.record.write_text(json.dumps(db))
+    set_action(f, "ran")
+    assert settle(f)[1] is None
+    said, _ = f.run("queue.py", "gap/e")                                       # the next run takes them
+    assert merges(f) == list("abcdefh") and f.item("gap/g")["state"] == "queue-failed"
+    # a prefix green on the named tests only is not proven: out of time there, nothing lands. All 8 red (25); test_b
+    # alone on them, red (50); test_b alone on a..d, green (75); a..f never runs
+    (tmp_path / "named").mkdir()
+    g = bisect_stand_ins(tmp_path / "named")
+    g.config.write_text(g.config.read_text().replace("batch_max = 4", "batch_max = 8\nbatch_minutes = 60"))
+    approved_gaps(g, EIGHT, bad="g", batch=8)
+    said, _ = clocked(g, "gap/a", 25)
+    assert reruns(g) == ["tests/test_b.py::test_b -rA"] * 2 and suite_runs(g) == 1
+    assert merges(g) == [] and "gap.merged" not in said and not g.db().get("acts")
+    assert counts(g, "gap/a") == (8, 0, 8)
+
+
+def test_a_batch_of_8_every_merge_failing_stays_inside_the_block_s_timeout(tmp_path):
+    f = eight(tmp_path, edits={n: f"bad-{n}.txt" for n in EIGHT})             # each merge breaks the suite
+    said, _ = clocked(f, "gap/a", 25)                                          # the default allowance, 120 minutes
+    assert "gap.merged" not in said and merges(f) == []
+    assert f.item("gap/a")["fields"]["queue_runs"][-1]["minutes"] <= 120 + 25 < 180
+    tried, landed, back = counts(f, "gap/a")
+    assert (tried, landed) == (8, 0) and back + said.count("gap.queue-failed") == 8 and back > 0
+
+
+def test_a_run_out_of_time_before_its_first_finding_halves_the_next_batch(tmp_path):
+    # the top-ranked gap bad, 31 minutes a run, 120 allowed: all 8 red (31), test_b alone on them, red (62), a..d red
+    # (93), a..b red (124): out of time before a alone, nothing found, all 8 back
+    f = eight(tmp_path, bad="a")
+    said, _ = clocked(f, "gap/a", 31)
+    assert "gap.merged" not in said and "gap.queue-failed" not in said and counts(f, "gap/a") == (8, 0, 8)
+    queue_json = f.model / "run" / "queue.json"
+    assert json.loads(queue_json.read_text())["cap"] == 4
+    db = f.db()
+    db["items"]["gap/a"]["state"] = "approved"                                 # (the engine's nack, uncounted)
+    f.record.write_text(json.dumps(db))
+    said, _ = clocked(f, "gap/a", 31)                    # the next run: a..d red (31), alone (62), a..b (93), a (124)
+    assert f.item("gap/a")["state"] == "queue-failed" and counts(f, "gap/a") == (4, 0, 3)
+    assert all(f.item(f"gap/{g}")["state"] == "approved" for g in "bcdefgh") and merges(f) == []
+    assert "cap" not in json.loads(queue_json.read_text())                    # a gap settled: the cap is cleared
+    save = json.loads(queue_json.read_text())
+    queue_json.write_text(json.dumps({**save, "cap": "x"}))                     # a cap that is not a count: 1
+    said, _ = f.run("queue.py", "gap/b")
+    assert said.count("gap.merged") == 1 and merges(f) == ["b"] and counts(f, "gap/b") == (1, 1, 0)
+
+
+UNREADABLE_AFTER_CHECKS = """\
+import sys
+sys.path[:0] = [sys.argv[1]]
+import queue
+first = queue.up_to_date
+def then_unreadable(cfg, repo):                     # the checks pass, then run/queue.json turns unreadable
+    why = first(cfg, repo)
+    (queue.fac.run_dir(cfg) / "queue.json").write_text("[]")
+    return why
+queue.up_to_date = then_unreadable
+sys.exit(queue.main())
+"""
+
+
+def test_a_queue_state_unreadable_at_the_cap_read_takes_no_gap(tmp_path):
+    f = eight(tmp_path)
+    driver = f.tmp / "unreadable.py"
+    driver.write_text(UNREADABLE_AFTER_CHECKS)
+    said, lines = f.run(str(driver), "gap/a", argv=(str(BIN),))
+    assert said == [] and suite_runs(f) == 0                                    # gap.queued never said
+    why = next(x["nack"] for x in lines if "nack" in x)
+    assert "queue.json" in why["why"] and why["count"] is False
+
+
+def test_a_time_allowance_out_of_range_is_refused(tmp_path):
+    for bad in ("0", "151", "nan", "-5"):
+        (tmp_path / bad).mkdir()
+        f = eight(tmp_path / bad, minutes=bad)
+        said, lines = f.run("queue.py", "gap/a")
+        assert said == []                                                       # no gap taken
+        why = next(x["nack"] for x in lines if "nack" in x)
+        assert "batch_minutes" in why["why"] and why["count"] is False and suite_runs(f) == 0
 
 
 def waiting(f: Factory) -> str:
@@ -3340,7 +3626,8 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
 
 
 ALLOWED = ["Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
-           "Bash(uv run python scripts/suite_watch.py:*)"]
+           "Bash(uv run python scripts/named_tests.py:*)",
+           "Bash(uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py:*)"]
 IMPLEMENTOR = {"ai": {"implementor_model": "opus", "implementor_session_usd": 1.0}}
 
 
@@ -3696,13 +3983,13 @@ def test_a_park_waiting_on_a_gap_is_resumed_when_it_merges(tmp_path):
     f.put("gap/carried", "approved", branch="carried")
     assert resumed(f) == []                                                   # not merged yet: still waits
     assert (f.watch() or {}).get("trigger") != "parked"                       # nor is the manager asked about it
-    f.put("gap/carried", "merged", branch="carried")
+    f.put("gap/carried", "merged", branch="carried", main_sha=git(f.checkout, "rev-parse", "origin/main"))
     assert resumed(f) == ["gap.requested", "gap.resumed"]
     c = f.item("gap/alpha-thing-continued")
     assert c["fields"]["continues"] == "alpha-thing" and c["fields"]["requested_by"] == "park-resume"
     r = f.item(gid)["fields"]
     assert r["resumed_as"] == "gap/alpha-thing-continued" and r["resumed_for"] == "waits_on"
-    assert r["cleared"] == "gap/carried merged"
+    assert r["cleared"] == "gap/carried merged, on origin/main"
     assert [i for i in f.db()["items"].values() if i["kind"] == "intervention"] == []   # a loop, not an intervention
     assert resumed(f) == []                                                   # resumed once
     assert f.py("import measure; print(json.dumps([measure.reading(n, kind='waits_on') for n in "
@@ -3782,13 +4069,238 @@ def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):
     f = pipe(tmp_path)
     f.put("gap/whole", "parked", branch="whole", parked_for="split", parked_until={"gaps": ["gap/part"]},
           parked_at=f.now - 3600)
-    f.put("gap/part", "parked", branch="part", parent=["gap/whole"])
+    f.put("gap/part", "parked", branch="part", parent=["gap/whole"], parked_for="defect")   # (a kind: not classified)
     assert resumed(f) == []
-    f.put("gap/part", "parked", branch="part", parent=["gap/whole"], resumed_as="gap/part-continued")
+    f.put("gap/part", "parked", branch="part", parent=["gap/whole"], parked_for="defect",
+          resumed_as="gap/part-continued")
     f.put("gap/part-continued", "open", continues="part")
     assert resumed(f) == ["gap.measured", "gap.measured", "gap.split", "gap.resumed"]
     assert f.item("gap/whole")["state"] == "split" and f.item("gap/part")["fields"]["parent"] == []
     assert f.item("gap/part-continued")["fields"]["parent"] == ["gap/whole"]
+
+
+# ---- park-waits-clear-right (dev/records/park-waits-clear-right.md): a wait clears when its work is on pushed main
+
+def test_a_wait_on_a_continued_gap_clears_when_the_continuation_lands(tmp_path):
+    f, gid = parked_by_review(tmp_path, parked_for="waits_on", waits_on="gap/carried")
+    pushed = git(f.checkout, "rev-parse", "origin/main")
+    f.put("gap/carried", "parked", ago=60, branch="carried", parked_for="defect", resumed_as="gap/carried-continued")
+    f.put("gap/carried-continued", "parked", ago=60, continues="carried", parked_for="defect",
+          resumed_as="gap/carried-continued-2")                              # continued twice: the original stays parked
+    f.put("gap/carried-continued-2", "approved", ago=60, continues="carried")
+    assert resumed(f) == []                                                   # its last continuation not merged yet
+    f.put("gap/carried-continued-2", "merged", ago=60, continues="carried", main_sha=pushed)
+    assert resumed(f) == ["gap.requested", "gap.resumed"]
+    assert f.item(gid)["fields"]["cleared"] == "gap/carried merged as gap/carried-continued-2, on origin/main"
+    assert f.item("gap/alpha-thing-continued")["fields"]["continues"] == "alpha-thing"
+
+
+def test_a_local_unpushed_merge_does_not_clear_a_wait(tmp_path):
+    f, gid = parked_by_review(tmp_path, parked_for="waits_on", waits_on="gap/carried")
+    (f.checkout / "carried.py").write_text("x = 1\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-qm", "the carried gap's merge, not pushed")
+    local = git(f.checkout, "rev-parse", "HEAD")
+    f.put("gap/other", "parked", ago=60, branch="other", parked_for="waits_on", parked_until={"commits": [local]},
+          parked_at=f.now)
+    f.put("gap/carried", "merged", ago=60, branch="carried")                  # no merge commit said: not cleared
+    assert resumed(f) == []
+    f.put("gap/carried", "merged", ago=60, branch="carried", main_sha=local)
+    assert resumed(f) == []                                                   # on the checkout's main, not origin's
+    git(f.checkout, "push", "-q", "origin", "main")
+    assert resumed(f) == ["gap.requested", "gap.resumed"] * 2
+    assert f.item(gid)["fields"]["cleared"] == "gap/carried merged, on origin/main"
+    assert f.item("gap/other")["fields"]["cleared"] == f"{local[:12]} on origin/main"
+
+
+def carry_a_merge(tmp: Path, into: str, of: str) -> None:
+    """The drop's factory/<into> merges factory/<of>, a branch main lacks: a gap carrying another gap's merge."""
+    drop, work = tmp / "live" / "drop.git", tmp / "carry"
+    git(tmp, "clone", "-q", str(drop), str(work))
+    git(work, "checkout", "-q", "-b", f"factory/{of}", "origin/main")
+    (work / f"{of}.py").write_text("x = 1\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", f"{of}'s work")
+    git(work, "checkout", "-q", "-b", f"factory/{into}", f"origin/factory/{into}")
+    git(work, "merge", "-q", "--no-ff", "--no-edit", f"factory/{of}")
+    git(work, "push", "-q", "origin", f"factory/{into}", f"factory/{of}")
+
+
+def test_existing_parks_are_classified_and_deferred_ones_left_alone(tmp_path):
+    f, gid = parked_by_review(tmp_path)
+    carry_a_merge(tmp_path, "alpha-thing", "carried")
+    old = {k: v for k, v in f.item(gid)["fields"].items() if k not in ("parked_for", "parked_until")}
+    f.put(gid, "parked", **old)                                                # a park from before kinds
+    f.put("gap/carried", "approved", ago=60, branch="carried")
+    long_ago = f.now - 100 * 3600                                               # past parked_within_hours
+    for name, by, more in (("killed", "implementor", {}), ("triaged", "queue run 4", {}), ("unclear", "review/x-2", {}),
+                           ("deferred", "coordinator", {"deferred": True}), ("cancelled", "x", {"cancelled": True}),
+                           ("by-manager", "pipeline-manager", {}), ("by-plan", "plan-review", {}),
+                           ("kinded", "implementor", {"parked_for": "defect"}),
+                           ("continued", "review/y-1", {"resumed_as": "gap/continued-continued"}),
+                           ("was-unknown", "review/z-1", {"parked_for": "unknown", "resumed_as": "gap/was-unknown-2"})):
+        f.put(f"gap/{name}", "parked", branch=name, parked_by=by, parked_at=long_ago, **more)
+    for done in ("gap/continued-continued", "gap/was-unknown-2"):              # their continuations, landed
+        f.put(done, "merged", ago=60, branch=done[4:], continues=done[4:])
+    assert resumed(f) == ["gap.measured"] * 4                                  # each once, by a program
+    kinds = {i: (f.item(i)["fields"].get("parked_for"), f.item(i)["fields"].get("parked_until"))
+             for i in (gid, "gap/killed", "gap/triaged", "gap/unclear")}
+    assert kinds == {gid: ("waits_on", {"gap": "gap/carried"}), "gap/killed": ("kill-rule", None),
+                     "gap/triaged": ("kill-rule", None), "gap/unclear": ("unknown", None)}
+    alone = ("gap/deferred", "gap/cancelled", "gap/by-manager", "gap/by-plan", "gap/continued")   # (continued: too)
+    assert all("parked_for" not in f.item(i)["fields"] and "classified_by" not in f.item(i)["fields"] for i in alone)
+    kinded = f.item("gap/kinded")["fields"]
+    assert kinded["parked_for"] == "defect" and "classified_by" not in kinded
+    assert resumed(f) == []                                                    # classified once; nothing cleared yet
+    raised = {(t["trigger"], t["subject"]) for t in f.watch()["triggers"]}
+    assert ("parked", "gap/unclear") in raised                                 # unknown: the manager's, whatever its age
+    assert not {s for _, s in raised} & {*alone, gid, "gap/killed", "gap/triaged", "gap/kinded", "gap/was-unknown"}
+    f.put("gap/carried", "merged", ago=60, branch="carried", main_sha=git(f.checkout, "rev-parse", "origin/main"))
+    assert resumed(f) == ["gap.requested", "gap.resumed"]                      # the park that motivated it, resumed
+    assert f.item(gid)["fields"]["resumed_as"] == "gap/alpha-thing-continued"
+
+
+def test_an_unfetchable_continue_raises_a_situation(tmp_path):
+    f = pipe(tmp_path)
+    gid = continues(f)                                                         # the checkout has no branch warm
+    assert f.item(gid)["state"] == "open" and f.item(gid)["fields"]["unfetched"] == "the checkout does not have"
+    bad = continues(f, "../warm", "gap/escape")                                # a name the branch rule refuses
+    assert f.item(bad)["state"] == "open" and f.item(bad)["fields"]["unfetched"] == "fails the branch rule"
+    assert "gap.measured" not in f.run("intake.py")[0]                         # said once, as it changes
+    s = f.watch()
+    assert ("unfetched", gid) in {(t["trigger"], t["subject"]) for t in s["triggers"]}
+    assert "which the checkout does not have" in next(t["why"] for t in s["triggers"] if t["subject"] == gid)
+    assert "which fails the branch rule" in next(t["why"] for t in s["triggers"] if t["subject"] == bad)
+    f.put("gap/holder", "approved", ago=60, branch="warm")                    # another gap holds the branch first
+    f.run("intake.py")
+    assert f.item(gid)["state"] == "open" and f.item(gid)["fields"]["unfetched"] is None   # the old cause cleared
+    assert ("unfetched", gid) not in {(t["trigger"], t["subject"]) for t in (f.watch() or {}).get("triggers", [])}
+    f.put("gap/holder", "merged", ago=60, branch="warm")
+    behind_main(f)                                                             # there now, but the fetch fails
+    drop = tmp_path / "live" / "drop.git"                                      # (factory/warm/x holds the name)
+    git(drop, "update-ref", "refs/heads/factory/warm/x", git(drop, "rev-parse", "main"))
+    f.run("intake.py")
+    assert f.item(gid)["state"] == "open"
+    assert f.item(gid)["fields"]["unfetched"] == "could not be fetched into the drop"
+    f.fold([{"event": "situation.handled", "item": s["id"], "data": {"prints": s["prints"]}}], None)
+    db = f.db()
+    db["items"][s["id"]]["fields"]["raised_at"] = f.now - 3 * 3600             # (the schedule due again)
+    f.record.write_text(json.dumps(db))
+    s = f.watch()                                                              # a new cause: raised again
+    assert "could not be fetched" in next(t["why"] for t in s["triggers"] if t["subject"] == gid)
+    git(drop, "update-ref", "-d", "refs/heads/factory/warm/x")
+    f.run("intake.py")
+    assert f.item(gid)["state"] == "ready" and f.item(gid)["fields"]["unfetched"] is None
+
+
+# ---- the implementor's small test set ([suites] build, scripts/affected_tests.py)
+
+def affected(tmp: Path, change: dict[str, str | None], base: str = "main") -> subprocess.CompletedProcess:
+    """scripts/affected_tests.py on a branch of a fixture repository that makes ``change`` (a path's new text, or None
+    to delete it), the command it runs being `echo given`: what it would hand pytest, printed."""
+    repo = tmp / "repo"
+    start = {"ergostat/foo.py": "x = 1\n", "ergostat/sub/baz.py": "y = 1\n", "ergostat/lone.py": "z = 1\n",
+             "tests/test_foo.py": "", "tests/test_bar.py": "", "tests/test_baz.py": "", "tests/test_gone.py": "",
+             "docs/a.md": "a\n"}
+    for rel, text in start.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "start")
+    git(repo, "checkout", "-qb", "factory/x")
+    for rel, text in change.items():
+        if text is None:
+            (repo / rel).unlink()
+        else:
+            (repo / rel).write_text(text)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "change")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}   # (git sees only the fixture, never /work)
+    return subprocess.run([sys.executable, str(ROOT / "scripts" / "affected_tests.py"), "--base", base, "--", "echo",
+                           "given", "--deselect", "tests/test_q.py::t"], cwd=repo, capture_output=True, text=True,
+                          timeout=60, env=env)
+
+
+def test_a_branch_changing_a_module_and_its_test_runs_only_those(tmp_path):
+    r = affected(tmp_path, {"ergostat/foo.py": "x = 2\n", "tests/test_bar.py": "# more\n", "ergostat/lone.py": "z = 2\n",
+                            "ergostat/sub/baz.py": "y = 2\n", "tests/test_gone.py": None})
+    assert r.returncode == 0, r.stderr                         # (lone.py has no test; test_gone.py is deleted: neither
+    given = r.stdout.splitlines()[-1]                          # is named, and the rest are still selected)
+    assert given == "given --deselect tests/test_q.py::t tests/test_bar.py tests/test_baz.py tests/test_foo.py"
+
+
+def test_a_non_ascii_test_file_is_selected(tmp_path):
+    r = affected(tmp_path, {"tests/test_é.py": "# new\n"})    # (git's quoted "tests/test_\303\251.py" is no file)
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t tests/test_é.py"
+
+
+def test_a_docs_only_branch_runs_collection_only(tmp_path):
+    r = affected(tmp_path, {"docs/a.md": "b\n"})
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t --collect-only"
+
+
+def test_an_unreadable_diff_runs_the_full_suite(tmp_path):
+    r = affected(tmp_path, {"ergostat/foo.py": "x = 2\n"}, base="no-such-ref")
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t"   # as given: all
+    assert "cannot read the diff" in r.stderr
+
+
+def with_build(f: Factory, build: str) -> None:
+    f.config.write_text(f.config.read_text().replace("[suites]\n", f'[suites]\nbuild = "{build}"\n'))
+
+
+def test_build_unset_runs_the_full_unit_suite_in_the_implementors_step(tmp_path):
+    for case, build in (("unset", None), ("empty", "")):
+        (tmp_path / case).mkdir()
+        f = Factory(tmp_path / case, unit=str(suite_sh(tmp_path / case, "false")))
+        if build is not None:
+            with_build(f, build)
+        gid = ready(f)
+        assert f.run("implement.py", gid)[0] == ["gap.started", "gap.built"]
+        fast = f.item(gid)["fields"]["suites_fast"]
+        assert fast["unit"]["rc"] == 0 and "build" not in fast and len(runs(tmp_path / case)) == 1, case
+
+
+def test_build_set_is_the_implementors_step_with_its_quarantine_and_triage(tmp_path):
+    (tmp_path / "q").mkdir()
+    (tmp_path / "f").mkdir()
+    f = quarantined(tmp_path / "q", "PASSED x\n")             # unit.sh fails T unless T is deselected (main's list)
+    with_build(f, str(tmp_path / "q" / "unit.sh"))
+    f.config.write_text(f.config.read_text().replace(f'unit = "{tmp_path / "q" / "unit.sh"}"', 'unit = "false"'))
+    gid = ready(f)
+    assert f.run("implement.py", gid)[0][-1] == "gap.built"   # the full unit (`false`) never ran
+    assert f.item(gid)["fields"]["suites_fast"]["build"]["rc"] == 0
+    assert f"--deselect {T}" in (tmp_path / "q" / "runs.log").read_text()       # quarantined: deselected here too
+
+    sh = suite_sh(tmp_path, f"[ ! -e {tmp_path}/once ] && touch {tmp_path}/once")    # a flake: fails its first run
+    f = Factory(tmp_path / "f", unit="false", alone=str(sh))
+    with_build(f, str(sh))
+    gid = ready(f)
+    assert f.run("implement.py", gid)[0] == ["gap.started", "flake.seen", "gap.built"]   # run alone, then retried
+    assert f.item(gid)["fields"]["flakes"] == [T] and len(runs(tmp_path)) == 3
+
+
+def test_the_merge_queue_runs_the_full_suites_with_build_set(tmp_path):
+    unit = tmp_path / "unit.sh"
+    unit.write_text(f'#!/bin/sh\necho "unit $PWD" >> {tmp_path}/runs.log\necho "1 passed"\n')
+    unit.chmod(0o755)
+    f = Factory(tmp_path, unit=str(unit))
+    with_build(f, "true")                                     # (the implementor's step: never the unit suite)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    assert f.item(gid)["fields"]["suites_fast"]["build"]["rc"] == 0 and not runs(tmp_path)
+    f.run("review.py", gid)
+    assert f.run("queue.py", gid)[0][:2] == ["gap.queued", "gap.merged"]
+    assert [r for r in runs(tmp_path) if r.startswith("unit ")]                 # the full unit suite, in the queue
+    queue = f.item(gid)["fields"]["suites_queue"]
+    assert {"unit", "browser", "demo"} <= set(queue) and "build" not in queue
+
+
+def test_the_shipped_build_setting_runs_the_small_set():
+    import tomllib
+    s = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
+    assert "scripts/affected_tests.py -- " in s["build"] and s["build"].endswith(s["unit"].split(" -- ", 1)[1])
 
 
 # ---- pool-full-keeps-its-rank (docs/roadmap/overnight/pool-full-keeps-its-rank.md): given back for a full pool, a gap

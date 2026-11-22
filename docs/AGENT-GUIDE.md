@@ -356,6 +356,14 @@ The essentials:
   so the dashed lines between kinds appear; rework as a declared move back.
 - **Everywhere**: the same names in every view, a description on every part.
 
+### Templates from a folder the owner did not write
+
+A `library:` entry written `{folder: PATH}` is untrusted (SPEC §2a): its templates may make only structure, and a use
+that makes more is refused (`library-untrusted`), whole. **Never write `trust: owner`, and never turn a map entry
+into a plain path**, to get past that refusal or for any other reason: that is the owner's decision, made after
+reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
+which template and part were refused, and ask.
+
 ## 3a. A system another ergostat runs: compose it, never copy it
 
 When part of the person's work is run by **another ergostat** (another team's, another machine's), do
@@ -390,8 +398,25 @@ keeps running it; this model reads it.
 5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
    the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
    incidents, ref: stock.open}`.
+6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
+   equations for the remote's parts, written as text in its names for its owner, each marked current or not.
+   They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
+
+**A system with an event log of its own that is not an ergostat** (Kafka, a ticket's history, an incident log):
+choose one of three ways.
+- **Copy in** (`collect`, the default): you want items and their current state, and an entry seen twice or missed
+  across a lost memory does no harm. The collector's cursor lives only in its memory file.
+- **Read in place**: only for another ergostat (`remotes:`, above). For anything else it is not built (GAPS).
+- **Mirror** (`collect` with `mirror: true`, `cursor-field:` the entry's position, and `position: text` when the
+  position is a time): each entry must be recorded exactly once, as the log's own history, for example an audit trail
+  or a process map read from it. Each event's id cites the entry (`cite:<flow>.<sensor>:i:<position>`), the cursor
+  is confirmed against the record and recovered from it, and a poll that can't be sure exits 1 and says why. Text
+  positions must sort as text in log order: zero-padded numbers, fixed-width ISO times. Never push a `cite:` id
+  yourself: `/api/events`, hooks and the engine's socket refuse it, and `event --add` takes no id. If the source reads only after the cursor (a Kafka
+  offset in `{cursor}`), a log that restarts is not seen: rename the use when the log resets. Renaming is also the way out of a "went
+  back" stop; clearing the collector's memory is not, since the cursor comes back from the record.
 
 ## 3b. A budget on what the agents cost
 
@@ -625,6 +650,9 @@ Add `use: repair` (once a model, like `modelling`; SPEC §12r) when the owner wa
 failed run becomes an `ergostat.failure` item, one per signature, counted; one whose block runs a program of the
 project's is fixed by an AI (haiku by default, with no tools: ergostat gives it the program and the files beside it) in
 a clone of the repository, tested in the sandbox, and proposed as the gated action `apply-fix` with its impact report.
+Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
+is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is

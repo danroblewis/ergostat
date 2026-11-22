@@ -243,12 +243,37 @@ def test_the_engine_keeps_the_model_it_takes(tmp_path):
 
 def test_every_flag_of_a_read_topic_is_called_acting_or_read_only():
     from ergostat.cli import build
-    from ergostat.goodmodel import ACTS, READ_FLAGS, READS
+    from ergostat.goodmodel import ACTS, READ_FLAGS, READ_WHAT, READS
     common = {"help", "C", "json", "system", "since", "at", "name", "version", "watch", "exit_code", "topic", "fn"}
     sub = next(a for a in build()._actions if a.dest == "topic")
     told = set(ACTS) | set(READ_FLAGS) | common
     untold = {f"{t} --{a.dest}" for t in READS if t in sub.choices for a in sub.choices[t]._actions if a.dest not in told}
     assert not untold, f"say whether each acts (goodmodel.ACTS) or only reads (goodmodel.READ_FLAGS): {sorted(untold)}"
+    assert set(READ_WHAT) <= set(sub.choices) and not set(READ_WHAT) & READS      # (a topic read whole is in READS)
+    untold = {f"{t} --{a.dest}" for t in READ_WHAT for a in sub.choices[t]._actions if a.dest not in told | {"what"}}
+    assert not untold, f"say whether each acts (goodmodel.ACTS) or only reads (goodmodel.READ_FLAGS): {sorted(untold)}"
+    for t, whats in READ_WHAT.items():                    # each subcommand named is one the topic has
+        what = next(a for a in sub.choices[t]._actions if a.dest == "what")
+        assert set(whats) <= set(what.choices), (t, whats)
+
+
+def test_remote_proposals_reads_on_the_last_good_model_and_remote_token_does_not(tmp_path, capsys):
+    from tests.test_remote_proposals import _made, _texts
+    p, _, _ = _made(tmp_path)
+    [pid] = _texts(p)
+    assert keep(p) is None
+    d = p.model.path.parent
+    _break(d)
+    capsys.readouterr()
+    assert main(["-C", str(d), "remote", "proposals", "--json"]) == 0
+    got = capsys.readouterr()
+    assert [x["id"] for x in json.loads(got.out)] == [pid] and "using the last good model" in got.err
+    for argv, says in ((["remote", "token", "x"], "remote"), (["remote", "refresh"], "remote"),
+                       (["remote", "proposals", "--revoke"], "remote --revoke"), (["remote"], "remote")):
+        with pytest.raises(SystemExit) as e:
+            main(["-C", str(d), *argv])
+        err = capsys.readouterr().err
+        assert e.value.code == 2 and f"ergostat {says} acts, so it never runs on the last good model" in err, argv
 
 
 def test_the_fallbacks_record_refuses_every_write_whatever_the_flags(tmp_path, capsys, monkeypatch):

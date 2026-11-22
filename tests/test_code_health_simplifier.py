@@ -359,8 +359,8 @@ def test_simplify_when_fires_on_age_and_not_in_flight():
     b = spec.blocks["simplify-when"]
     assert {r.name for r in b.outputs["out"]} == {"simplifier"}
 
-    def fires(**given) -> float:
-        return eval_expr(compile_expr(b.params["expr"]), {k: given[k] for k in b.inputs})
+    def fires(drift=0, **given) -> float:              # (drift: code-health-measures' input, tested there)
+        return eval_expr(compile_expr(b.params["expr"]), {k: {"drift": drift, **given}[k] for k in b.inputs})
     assert fires(days=3, inflight=0, over=0) == 1
     assert fires(days=3, inflight=1, over=0) == 0
     assert fires(days=2.9, inflight=0, over=0) == 0
