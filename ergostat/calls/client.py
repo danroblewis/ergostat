@@ -121,10 +121,13 @@ def call(op: str, path: str | None = None, timeout: float = 60.0, retry: float |
 
 
 def owner(path: str) -> Path:
-    """The folder whose engine answers at ``path`` (the run's state dir, else the socket's); gone: none comes back."""
-    from .server import path_for
+    """The folder whose engine answers at ``path`` (the run's state dir, else the socket's); gone: none comes back.
+    The run's state dir when the socket is the whole engine's, or a shard's (SPEC §9.8): in it, or its short one."""
+    from .server import path_for, short
     here = os.environ.get("ERGOSTAT_STATE_DIR")
-    return Path(here) if here and str(path_for(Path(here))) == path else Path(path).parent
+    if here and (str(path_for(Path(here))) == path or Path(path).parent in (Path(here), short())):
+        return Path(here)
+    return Path(path).parent
 
 
 def once(op: str, path: str, timeout: float, args: dict) -> dict:

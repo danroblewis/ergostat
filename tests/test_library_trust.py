@@ -208,14 +208,14 @@ def test_untrusted_structure_only_template_expands(tmp_path):
 BASE = "template: bad\ndescription: d\nparams:\n  how: {type: map, default: {run: echo 1}}\nstocks:\n  s: {unit: u}\n"
 CASES = {
     "program-run": ("blocks:\n  x: {type: program, run: echo hi}\n", "blocks.u-x.run"),
-    "ai": ("blocks:\n  x: {type: ai, prompt: hi}\n", "blocks.u-x.type"),
-    "person-ask": ("blocks:\n  x: {type: person, ask: hi}\n", "blocks.u-x.type"),
+    "ai-model": ("blocks:\n  x: {type: ai, model: opus}\n", "blocks.u-x.model"),    # its prompt: untrusted-text (R3)
+    "person-review": ("blocks:\n  x: {type: person, review: x}\n", "blocks.u-x.review"),
     "external": ("blocks:\n  x: {type: external, agent: a}\n", "blocks.u-x.type"),
     "judge": ("blocks:\n  x: {type: judge}\n", "blocks.u-x.type"),
     "no-type": ("blocks:\n  x: {in: stock.s, goal: g}\n", "blocks.u-x.type"),
     "on-stale": ("blocks:\n  x: {type: onoff, goal: g, on-stale: hold}\n", "blocks.u-x.on-stale"),
     "sensor-run": ("flows:\n  f: {to: s, sensor: {run: echo 1}}\n", "flows.u-f.sensor.run"),
-    "sensor-query": ("flows:\n  f: {to: s, sensor: {query: {expr: up}}}\n", "flows.u-f.sensor.query"),
+    "sensor-push": ("flows:\n  f: {to: s, sensor: {push: true}}\n", "flows.u-f.sensor.push"),
     "sensor-daemon": ("auxiliaries:\n  a: {sensor: {daemon: x}}\n", "auxiliaries.u-a.sensor.daemon"),
     "sensor-every": ("stocks:\n  t: {unit: u, sensors: {n: {items: k, every: 1s}}}\n", "stocks.u-t.sensors.n.every"),
     "sensor-parse": ("stocks:\n  t: {unit: u, sensor: {items: k, parse: x}}\n", "stocks.u-t.sensor.parse"),
@@ -370,8 +370,9 @@ def test_every_compile_key_classified():
     assert sections == set(trust.ALLOWED) | set(trust.REFUSED) and not set(trust.ALLOWED) & set(trust.REFUSED)
     c = spec_compile
     blocks = {**trust.BLOCK, **{k: v for t in trust.BLOCK_TYPES.values() for k, v in t.items()}}
-    assert set(c.TYPE_KEYS) == set(trust.BLOCK_TYPES) | set(trust.REFUSED_TYPES)
-    assert not set(trust.BLOCK_TYPES) & set(trust.REFUSED_TYPES)
+    kinds = (set(trust.BLOCK_TYPES), set(trust.MACHINE_TYPES), set(trust.REFUSED_TYPES))
+    assert set(c.TYPE_KEYS) == set.union(*kinds) and sum(map(len, kinds)) == len(c.TYPE_KEYS)    # each in one
+    assert {"ai", "person", "program"} == set(trust.MACHINE_TYPES)
     groups = [("sensor", trust.SENSOR, c.SENSOR_KEYS | c.ITEM_SENSOR_KEYS), ("items", trust.ITEM, c.ITEM_KEYS),
               ("stocks", trust.STOCK, c.STOCK_KEYS), ("flows", trust.FLOW, c.FLOW_KEYS),
               ("driven-by", trust.LINK, c.LINK_KEYS), ("goals", trust.GOAL, c.GOAL_KEYS),
@@ -381,9 +382,15 @@ def test_every_compile_key_classified():
               ("actions", None, actions_compile.ACTION_KEYS), ("workspaces", None, workspaces_compile.POOL_KEYS),
               ("leases", None, leases_compile.TERMS_KEYS),
               ("blocks.program/ai", None, set(actions_compile.SANDBOX_KEYS) | leases_compile.TAKES_KEYS | c.LAW_KEYS),
-              ("items.lease", None, leases_compile.TERMS_KEYS)]
+              ("items.lease", None, leases_compile.TERMS_KEYS),
+              ("sources", trust.SOURCE, set.union(*map(set, c.SOURCE_TYPES.values())))]
     for t, keys in c.TYPE_KEYS.items():
-        groups.append((f"blocks.{t}", trust.BLOCK_TYPES.get(t), keys))
+        groups.append((f"blocks.{t}", trust.BLOCK_TYPES.get(t) or trust.MACHINE_TYPES.get(t), keys))
+    for t, table in trust.MACHINE_TYPES.items():     # what a machine block may say: only its text, setpoints, timers
+        allowed = {k for k, v in table.items() if v[0] != trust.NO}
+        assert allowed == {"goal", "every", "cron"} | ({"timeout", "run"} if t == "program" else {"until", {
+            "ai": "prompt", "person": "ask"}[t]}), (t, allowed)
+        assert set(table) == set(trust.MACHINE_NO) | set(trust.GOAL_UNTIL) | {"timeout"}, t
         if t in trust.BLOCK_TYPES:
             assert all(blocks[k][0] != trust.NO for k in trust.BLOCK_TYPES[t]), t
     assert trust.ITEM["lease"][0] == trust.NO and trust.REFUSED.get("leases")
@@ -395,7 +402,8 @@ def test_every_compile_key_classified():
     assert {"systems", "sensors", "claims", "loops"} <= {w for w, _ in lits}     # the scan finds them
     groups += [(w, by[w], keys) for w, keys in lits]
     assert unclassified(sections, groups) == []
-    assert all(len(v) == 2 and v[1] for tbl in (*trust.ALLOWED.values(), *trust.BLOCK_TYPES.values(), trust.SENSOR,
+    assert all(len(v) == 2 and v[1] for tbl in (*trust.ALLOWED.values(), *trust.BLOCK_TYPES.values(),
+                                                    *trust.MACHINE_TYPES.values(), trust.SENSOR,
                                                     trust.LINK, trust.PROCESS, trust.REL, trust.JOIN) for v in tbl.values())
     # the checker fails when compile gains a section or a key
     assert unclassified([*sections, "zzz-section"], [("sensor", trust.SENSOR, c.SENSOR_KEYS | {"zzz-key"})]) == [
@@ -409,5 +417,5 @@ def test_security_lists_what_trust_allows():
         item = re.search(rf"^- \*\*{label}:\*\*.*?(?=^\S|\Z)", text, re.S | re.M).group(0)   # with its wrapped lines
         return set(re.findall(r"`([a-z-]+)`", item))
     assert listed("Sections") == set(trust.ALLOWED)
-    assert listed("Block types") == set(trust.BLOCK_TYPES)
+    assert listed("Block types") == set(trust.BLOCK_TYPES) | set(trust.MACHINE_TYPES)
     assert listed("Sensor keys") == {k for k, v in trust.SENSOR.items() if v[0] != trust.NO}

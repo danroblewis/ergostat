@@ -25,9 +25,12 @@ ergostat already finds:
   ``hide:``, so where SD Lab hides a stock this proposes its removal, and the edit says what else goes with it. A
   stock a goal holds, and what a goal or a block names, is left alone.
 
-Not yet: **missing stocks, flows or delays, and replacing a part**, found from the pattern in what the
-model fails to explain (the residuals). That is the residual-pattern structure finder (``from_residuals``
-below), the next piece of work; until it is built it proposes nothing, and the Fit page says so.
+- **the residuals** (``from_residuals``, ``hidden.py``): a missing delay on a measured stock's inflow, as ``DELAY3``
+  or as a stock in transit that is never read, when the stock's one-step residuals are coloured and the change whitens
+  them and shrinks them by a fifth.
+
+Not yet: a missing stock or flow that is not a delay on an inflow, a delay on an outflow, a missing cause, and
+replacing a part by another form (a lookup for a line), from the residuals or otherwise.
 
 Each candidate's edit is applied in memory and the model compiled from it (``trial.py``): one that would
 leave an error is not proposed, and is listed with why."""
@@ -69,9 +72,14 @@ CAN = [
     ("a term and its link removed, when ergostat inferred the link", "an estimate indistinguishable from 0, with a narrow interval"),
     ("an inferred flow removed, two flows merged, a stock removed, only when ergostat inferred what goes (inferred:)",
      "SD Lab's simplify rules, for redundant structure only; the owner decides"),
+    ("a missing delay on a stock's inflow, as DELAY3 or as an unmeasured stock in transit",
+     "coloured one-step residuals (a Box–Pierce test over lags 2 to 10 with Bartlett's correction for lag 1), the lag "
+     "that explains them, kept when the "
+     "residuals fall by a fifth and whiten"),
 ]
 CANNOT = [
-    "a missing stock, flow or delay found from the residuals' pattern",
+    "a missing stock or flow that is not a delay on an inflow (a missing outflow, a missing link)",
+    "a delay on an outflow",
     "a part replaced by another form (a delay for a first-order drain, a lookup for a line)",
     "a cause named for an auxiliary (only marking it exogenous)",
     "a guard for a stock drained below empty (it needs a time to empty it in)",
@@ -823,10 +831,14 @@ def _varied(xs: list[float]) -> bool:
 
 
 def from_residuals(c: Ctx) -> None:
-    """The residual-pattern structure finder: a missing stock, flow or delay, or a part replaced, from the
-    pattern in what the model fails to explain (SD Lab's discovery: hidden stocks as delayed copies of
-    measured ones, judged on whether the model with them fits about as well or better). Not built yet: the
-    next piece of work. Until then it proposes nothing, and the Fit page says what it will propose."""
+    """The residual finder (``hidden.py``): a missing delay on a measured stock's inflow, as DELAY3 or as a stock in
+    transit never read, proposed when the stock's one-step residuals are coloured and the change whitens them and
+    shrinks them by a fifth. It finds no other missing structure: not a missing outflow or cause, not a delay on an
+    outflow, not a part replaced by another form."""
+    if c is None:
+        return None
+    from . import hidden
+    hidden.find(c)
     return None
 
 

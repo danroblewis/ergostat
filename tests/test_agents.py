@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_factory import BIN, ROOT, Factory, approved_gaps, merges, module, ready, suite_runs
+from tests.test_factory import BIN, QUEUE_ENV, ROOT, Factory, approved_gaps, merges, module, ready, suite_runs
 
 PIN = "playwright==1.63.0"
 
@@ -325,10 +325,21 @@ def test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_networ
         assert "PYTEST_ADDOPTS=-o faulthandler_timeout=300" in flag(a, "-e")   # half the 10 min stall limit
         assert f"{checkout}:/work" in flag(a, "-v") and f"{checkout / '.git'}:/work/.git:ro" in flag(a, "-v")
         assert "UV_PROJECT_ENVIRONMENT=/opt/venv" in flag(a, "-e")               # never the checkout's .venv
+        assert {e.split("=")[0] for e in flag(a, "-e")} <= set(QUEUE_ENV)       # each one Factory.env never inherits
         assert a[-4:-1] == ["the-agent-image", "sh", "-c"] and flag(a, "--name")[0].startswith(
             "ergostat-factory-suite-queue-")                                   # (counted by the load interlock)
     assert flag(got[cfg["unit"]], "--cpus") == ["8"] and flag(got[cfg["browser"]], "--cpus") == ["4"]
     assert not list((state / "running").iterdir())                    # each removed by name once it ended
+
+
+@pytest.mark.slow
+def test_the_queue_container_test_passes_inside_the_queues_own_container(tmp_path, monkeypatch):
+    # as the queue's unit suite runs it: in a container with the queue's settings already set (agents.queued, fac.suite)
+    for name, value in (("PYTEST_ADDOPTS", "-o faulthandler_timeout=300"), ("UV_PROJECT_ENVIRONMENT", "/opt/venv"),
+                        ("PYTHONPYCACHEPREFIX", "/tmp/pycache"), ("RUFF_CACHE_DIR", "/tmp/ruff"),
+                        ("SPLIT_SHOTS", "/tmp/split-shots")):
+        monkeypatch.setenv(name, value)
+    test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network(tmp_path)
 
 
 @pytest.mark.slow
@@ -424,3 +435,28 @@ def test_sessions_gap_suites_and_queue_suites_get_their_own_cpusets(tmp_path, mo
         assert "--cpuset-cpus" not in agents.limits({"agents": empty}, "queue")
     with pytest.raises(ValueError, match="queue_cpuset"):             # a cpuset that is not one is refused, not dropped
         agents.limits({"agents": {"queue_cpuset": "12-23; rm"}}, "queue")
+
+
+def test_the_implementor_is_told_its_clone_has_no_remote(tmp_path):
+    """gap/implementor-clone-has-no-remote: publish removes the clone's remote (no host path in the container), and the
+    prompts say so, so a true "origin/main is unknown here" is neither reported as a fault nor failed as false."""
+    from tests.test_factory import git
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    drop, work = tmp_path / "drop.git", tmp_path / "work"
+    git(tmp_path, "init", "-q", "--bare", str(drop))
+    git(tmp_path, "clone", "-q", str(drop), str(work))
+    git(work, "checkout", "-q", "-b", "factory/alpha-thing")
+    git(work, "commit", "-q", "--allow-empty", "-m", "definition")
+    was = agents.publish({}, work, "alpha-thing")
+    assert git(drop, "rev-parse", "factory/alpha-thing") == was           # published first
+    assert git(work, "remote") == "" and not git(work, "for-each-ref", "refs/remotes")   # then no remote at all
+    implementor = " ".join((ROOT / "dev" / "prompts" / "implementor.md").read_text().split())
+    assert "The clone has no remote, by design" in implementor
+    assert "`origin/*` does not exist here, local `{base}` is the base as of the clone" in implementor
+    assert "other gaps' branches are absent. Neither is a fault to report." in implementor
+    assert "landed work, it is on `{base}`, or this gap waits for it" in implementor
+    reviewer = " ".join((ROOT / "dev" / "prompts" / "reviewer.md").read_text().split())
+    assert "Your clone is not the implementor's" in reviewer
+    assert "A ref visible to you does not disprove what the implementor says of its own clone" in reviewer
+    assert "such a statement is not a finding" in reviewer

@@ -84,6 +84,13 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
             "judges them. Add one line, uses: {modelling: {use: modelling}} (SPEC §12e; docs/ADDING.md), and the "
             "model's error is a stock held by a goal, an improver proposes while it is off, and ergostat's judge tests "
             "each change on the record after it", Where(spec.files[0], 1) if spec.files else None, "model")
+    from .itemindex import upkept
+    if upkept(spec) and getattr(getattr(spec, "storage", None), "every_set", False):
+        from .load import Where
+        say("unused-rollup-every", "storage.rollup.every: unused under use: upkeep, whose record-compactor and "
+            "measurement-retainer roll up and retain instead of the engine; set how often with the use's rollup-every "
+            "and retain-every (with: {rollup-every: 1h}), and drop storage.rollup.every",
+            Where(spec.files[0], 1) if spec.files else None, "model")
     unsigned(spec, say)
     structure(spec, say)
     # a kind's state stocks, chained (the record's moves, when there is a record)

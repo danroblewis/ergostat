@@ -23,6 +23,10 @@ from ergostat.spec import read
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "dev" / "bin"
+# What the queue sets in its suite containers (fac.suite, agents.queued): never inherited by the factory's processes the
+# Factory fixture starts (dropped, or set by it), so a test of the queue reads the same settings inside the queue's own
+# container as outside it
+QUEUE_ENV = ("PYTEST_ADDOPTS", "UV_PROJECT_ENVIRONMENT", "PYTHONPYCACHEPREFIX", "RUFF_CACHE_DIR", "SPLIT_SHOTS")
 
 FAKE = r'''
 import json, sys
@@ -181,7 +185,10 @@ class Factory:
         spec, problems = read(ROOT / "ergostat.yaml")
         assert not [p for p in problems if p.level == "error"]
         self.kinds = spec.items
-        self.env = {**os.environ, "FACTORY_CONFIG": str(self.config), "ERGOSTAT_CMD": f"{sys.executable} {self.fake}",
+        mine = {k: v for k, v in os.environ.items() if k not in QUEUE_ENV}       # (never the queue container's)
+        caches = {"UV_PROJECT_ENVIRONMENT": sys.prefix, "PYTHONPYCACHEPREFIX": str(tmp / "pycache"),
+                  "RUFF_CACHE_DIR": str(tmp / "ruff")}               # set here: the running venv, caches out of checkouts
+        self.env = {**mine, **caches, "FACTORY_CONFIG": str(self.config), "ERGOSTAT_CMD": f"{sys.executable} {self.fake}",
                     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
                     "GIT_COMMITTER_EMAIL": "t@example.com"}
 
@@ -3852,6 +3859,142 @@ def test_the_pipeline_watch_is_on_the_engines_schedule(tmp_path):
     on_the_clock(tmp_path, "pipeline-watch", "no-stuck-gaps")
 
 
+def in_times_yaml(part) -> bool:
+    return part.where is not None and Path(part.where.file).name == "times.yaml"
+
+
+def test_the_time_goals_have_no_check_findings(tmp_path):
+    """state-times-in-the-loop: check's missing-feedback, auxiliary-without-causes and collector-undescribed say
+    nothing of dev/model/times.yaml (the reader check runs, before the extremes, which say none of the three); each
+    goal left in it is read by the pipeline watch, its loop closes, and the watch's own reading of the file finds
+    exactly these goals (a goal it could not parse would never be acted on)."""
+    spec, problems = read(ROOT / "ergostat.yaml", extremes=False)
+    assert [p for p in problems if p.level == "error"] == []
+    codes = ("missing-feedback", "auxiliary-without-causes", "collector-undescribed")
+    assert [f"{p.code}@{p.about}" for p in problems if p.code in codes and in_times_yaml(p)] == []
+    goals = {n for n, g in spec.goals.items() if in_times_yaml(g)}
+    assert 0 < len(goals) <= 16                                                # fewer goals: no p90 beside each median
+    assert not [n for n in goals if n.endswith("-p90")]
+    assert goals <= {r.name for r in spec.blocks["pipeline-watch"].reads() if r.kind == "goal"}
+    assert [n for n in goals if not spec.loop(n).closes] == []
+    # each closes through the manager's sessions (what they do moves the time), not by a path that merely exists
+    assert [n for n in goals if "flow.situations-handled" not in spec.loop(n).through] == []
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import watch, times; "
+            "print(json.dumps(sorted(m[0] for m in watch.TIME_GOAL.findall(times.GOALS.read_text()))))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == sorted(goals)
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import watch, times, pathlib; p = pathlib.Path(sys.argv[2]); "
+            "p.write_text(times.GOALS.read_text().replace('ready-short: {auxiliary: in-ready-hours, hold: \"<=', "
+            "'ready-short: {auxiliary: in-ready-hours, hold: \"<')); times.GOALS = p; "
+            "off, read = watch.time_goals({}, 0); print(json.dumps([off, read]))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(tmp_path / "times.yaml")], capture_output=True,
+                       text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    off, got = json.loads(r.stdout)                       # a goal reworded past the watch's pattern: never on target
+    assert "ready-short" not in got and [t["why"] for t in off if "ready-short" in t["why"]]
+    measures = {a for a, x in spec.auxiliaries.items() if in_times_yaml(x)} - {spec.goals[n].of.name for n in goals}
+    header = (ROOT / "dev" / "model" / "times.yaml").read_text().split("\ndefaults:")[0]
+    assert "-p90" in header and all(m.endswith("-p90") or m in header for m in measures)   # each plain measure said
+    # closing the loops draws no new boundary findings: times, the manager and the load interlock stay separable
+    from ergostat.spec import architecture
+    said: list[str] = []
+    architecture.findings(spec, lambda code, msg, _, about: said.append(f"{code}@{about}: {msg}"))
+    near = ("system.times", "system.managing", "system.load")
+    found = [x for x in said if x.split(":")[0].split("@")[1] in near and not x.startswith("time-scales")]
+    assert found == [], "\n".join(found)
+
+def test_a_time_goal_off_reaches_the_managers_session(tmp_path):
+    """state-times-in-the-loop: a time goal off past its tolerance is a trigger of the watch's next session and is in
+    the pipeline manager's brief; one on target is read and not raised; one with no gap in its window is unknown (None
+    on the situation), never on target and never 0; answered, the same reading is not raised again, a worse one is.
+    One that cannot be read (a malformed or NaN time_in, a measure times.py does not know) is None and a trigger."""
+    f = pipe(tmp_path)
+    left = f.now - 3600
+
+    def slow(i: int, hours: float) -> None:
+        f.put(f"gap/slow-{i}", "merged", branch=f"slow-{i}", merged_at=left,
+              time_in={"ready": {"hours": hours, "visits": 1, "left": left}, "queued": {"hours": 0.25, "visits": 1,
+                                                                                       "left": left}})
+    for i, h in enumerate((4.0, 5.0, 6.0)):                                    # ready-short: <= 2, tolerance 0.5
+        slow(i, h)
+    s = f.watch()
+    (t,) = [t for t in s["triggers"] if t["trigger"] == "time"]
+    assert t["subject"] == "goal.ready-short" and "reads 5 " in t["why"]
+    assert s["times"]["ready-short"] == 5.0 and s["times"]["queued-short"] == 0.25   # (queued: read, on target)
+    assert "planned-short" in s["times"] and s["times"]["planned-short"] is None     # nothing left planned: unknown
+    answer = {"calls": [], "answers": {t["print"]: "asked the researcher why ready waits"}, "summary": "ready waits"}
+    said, _ = f.run("manager.py", s["id"], FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(answer) + "\n```")
+    f.drain()
+    assert said == ["situation.handled"]
+    done = f.item(s["id"])
+    text = (f.model / done["fields"]["context"]["brief"].removeprefix("file:")).read_text()
+    assert t["print"] in text and "goal ready-short is off" in text
+
+    def again() -> list[dict]:
+        db = f.db()
+        for x in db["items"].values():
+            if x["kind"] == "situation":                                       # each answered, the schedule due again
+                x["state"], x["fields"]["raised_at"] = "handled", f.now - 3 * 3600
+        f.record.write_text(json.dumps(db))
+        got = f.watch()
+        return [x for x in (got or {}).get("triggers", []) if x["trigger"] == "time"]
+    f.put("gap/other", "ready", ago=60, branch="other")                       # (the pipeline changed)
+    assert again() == []                                                       # answered, the same reading
+    slow(3, 20.0)
+    slow(4, 20.0)                                                              # median 6h: further off
+    (t2,) = again()
+    assert t2["subject"] == "goal.ready-short" and t2["print"] != t["print"]
+    assert again() == []                                                       # (answered: not again)
+
+    def ready(hours: float | str) -> None:                                     # every ready time made the same
+        for i in range(5):
+            f.put(f"gap/slow-{i}", "merged", branch=f"slow-{i}", merged_at=left,
+                  time_in={"ready": {"hours": hours, "visits": 1, "left": left}})
+    ready(1.0)
+    assert again() == []                                                       # back on target: the episode ends
+    ready(6.0)                                                                 # off again by as much as t2 was
+    (t3,) = again()
+    assert t3["subject"] == "goal.ready-short" and t3["print"] not in (t["print"], t2["print"])
+    ready("soon")                                                              # (lesson-5) unreadable, answered,
+    (u,) = again()                                                             # read again, then the same error:
+    assert "cannot be read" in u["why"] and again() == []                      # a new episode, raised again
+    ready(1.0)
+    assert again() == []
+    ready("soon")
+    (u2,) = again()
+    assert u2["why"] == u["why"] and u2["print"] != u["print"]
+    # (lesson-3) a reading that fails is a trigger naming the goal and the error; an empty window stays silent
+    code = ("import sys, json, pathlib; sys.path[:0] = [sys.argv[1]]; import watch, times; p = pathlib.Path(sys.argv[2])"
+            "; arg = json.loads(sys.argv[3]); p.write_text(times.GOALS.read_text().replace(*arg['swap']) "
+            "if arg['swap'] else times.GOALS.read_text()); times.GOALS = p; "
+            "print(json.dumps(watch.time_goals(arg['gaps'], arg['now'])))")
+
+    def goals(gaps: dict, swap: list | None = None) -> tuple[dict, dict]:
+        arg = json.dumps({"gaps": gaps, "now": f.now, "swap": swap})
+        r = subprocess.run([sys.executable, "-c", code, str(BIN), str(tmp_path / "times.yaml"), arg],
+                           capture_output=True, text=True, check=False)
+        assert r.returncode == 0, r.stderr
+        off, got = json.loads(r.stdout)
+        return {x["subject"]: x["why"] for x in off}, got
+
+    def gap(time_in) -> dict:
+        return {"g": {"id": "gap/g", "state": "merged", "fields": {"time_in": time_in}}}
+    assert goals({}) == ({}, goals({})[1]) and set(goals({})[1].values()) == {None}   # nothing in a window: silent
+    off, got = goals(gap({"ready": {"hours": "soon", "visits": 1, "left": left}}))  # a malformed time_in
+    assert got["ready-short"] is None and "goal ready-short cannot be read" in off["goal.ready-short"]
+    off, got = goals(gap({"ready": {"hours": 1.0, "visits": 1}}))                   # its `left` missing
+    assert got["ready-short"] is None and "cannot be read" in off["goal.ready-short"]
+    off, got = goals(gap({"ready": {"hours": float("nan"), "visits": 1, "left": left},
+                          "queued": {"hours": 0.25, "visits": 1, "left": left}}))   # one NaN among them
+    assert got["ready-short"] is None and "not finite" in off["goal.ready-short"]
+    assert got["queued-short"] == 0.25 and "goal.queued-short" not in off          # (the others still read)
+    off, got = goals({}, ["auxiliary: in-ready-hours,", "auxiliary: in-nowhere-hours,"])   # a measure none knows
+    assert got["ready-short"] is None and "in-nowhere-hours" in off["goal.ready-short"]
+    off, got = goals({}, ["auxiliary: in-ready-hours,", "auxiliary: nowhere,"])     # one values() refuses
+    assert got["ready-short"] is None and "nowhere" in off["goal.ready-short"]
+
+
 def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
     from ergostat.cli import main
     model = textwrap.dedent("""\
@@ -3883,8 +4026,8 @@ def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
     (old / "dev" / "model").mkdir()
     for x in (ROOT / "dev" / "model").iterdir():
         (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.drains-within-bound", "goal: drains-"
-                                                    "within-bound").replace("in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing]",
-                                                                            "goal: no-stuck-gaps"))
+                                                    "within-bound").replace("in: [goal.no-stuck-gaps,",
+                                                                            "goal: no-stuck-gaps\n    in: ["))
     (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
 
     def noted(path: Path) -> set[str]:      # (a craft note, not an extremes finding: a second model's extremes, ~60 s
