@@ -4198,13 +4198,18 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
     `ergostat.model.architecture-reviewed` event but a `capped` one is in the last day: a review that started
     (written before its call), failed (its call failed, or its answer had no JSON line) or reviewed is the day's, so
     a failing call is not retried each run.
-  - *Cost*: within the redesigner's `daily` cap. It is not called when the day's spend plus its estimated most
-    (`modeller.unsaid`) would pass the cap (an `architecture-reviewed` event, `capped`, said on the log). The
+  - *Cost*: within the redesigner's `daily` cap, on the redesigner's side of it. It is not called when its
+    estimated most (`modeller.unsaid`) is more than the redesigner's block has left (`redesign.room`: what is left of
+    the cap, and never the quarter kept for the reviewer), said on the log with an `architecture-reviewed` event,
+    `capped`. That check and the estimate's charge are made under the lock `redesign.held` takes, so the reviewer and
+    the review do not both start calls on one remainder. The
     estimate is charged before the call (`redesign-ran`, `result: call`, `by: architecture-review`) and the
     difference after it, so a run killed mid-call keeps the estimate charged. The bound is that estimate: `claude
     -p` takes no output limit, so a call can cost more. Its cost is printed as a Claude Code result line, and its
     event holds the model, the cost and the requests it raised. The redesign that follows gets what is left of
-    the cap, read again after the review; its time limit is the block's timeout shared with the redesign's rounds.
+    the cap, read again after the review. Time: after a review that called, the review's call and each round's call
+    are each given one share of the block's timeout in rounds + 1 (`archreview.timeouts`, through `per_call`), so
+    their limits together are what the rounds' alone would be on a day with no review.
   - *The lock*: the review (due, cap, call, requests, event) and the mark after a redesign hold `redesign.lock` in
     the project's state directory, taken without waiting: a run that finds it held skips the review, or leaves the
     request unmarked, and says so.
@@ -4226,7 +4231,8 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
 The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2, review:
 sonnet|off}` (and `redesign-every`, 10m). `review` is a decision taken here, the most reversible form of the
 owner's allowance: it exists only with `ai: true` and `when: auto`, stays inside `daily`, and `review: haiku` or
-`review: off` changes it. `modelling redesign` itself takes `--review` (a model's name or `off`; `off` when not
+`review: off` changes it (unquoted: the model's YAML takes only `true` and `false` as booleans, and `review: false`
+is `off` too). `modelling redesign` itself takes `--review` (a model's name or `off`; `off` when not
 given, so a run by hand reviews only when asked to).
 
 ### The reviewer: a senior modeller reads what the judge passed

@@ -8,8 +8,9 @@ no model change and edits no file.
 
 Bounds, all hard: one call a review (no retry), one review a day (``DAILY``: every result but ``capped`` counts, a
 call started and never ended too), 8 findings, a prompt of 40,000 characters and 60 systems. Its cost shares the
-redesigner's daily cap: it is not called when the day's spend plus its estimated most (``modeller.unsaid``) would
-pass it; that estimate is charged before the call and the difference after, so a run killed mid-call keeps it
+redesigner's daily cap: it is not called when its estimated most (``modeller.unsaid``) is more than is left of the
+cap for the redesigner's block (``redesign.room``: a quarter kept for the reviewer), checked and charged under the lock
+``redesign.held`` takes; that estimate is charged before the call and the difference after, so a run killed mid-call keeps it
 charged. ``claude -p`` takes no output limit, so a call can cost more than its estimate. Read, decided and written
 under ``redesign.lock`` (``lock``), taken without waiting: a run that finds it held skips the review."""
 
@@ -24,6 +25,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from . import modeller as md
+from . import proposals as pr
 from . import redesign as rd
 from . import redesign_due as due
 
@@ -171,6 +173,13 @@ def _charge(p, usd: float, now: float, model: str) -> None:
                        "cost": {"usd": round(usd, 6)}, "estimated": True})
 
 
+def timeouts(timeout: float | None, rounds: int) -> tuple[float, float | None]:
+    """The review's call limit, and the timeout the redesign after a called review is given: one share of the block's
+    timeout in ``rounds + 1`` each, so the review's call and the rounds' calls together keep ``per_call``'s room."""
+    r = max(1, int(rounds))
+    return md.per_call(timeout, r + 1), (float(timeout) * r / (r + 1) if timeout else None)
+
+
 def run(p, model: str, daily: float, timeout: float | None = None, now: float | None = None, call=None,
         on_call=None) -> dict:
     """The review, if it is due: ``{"result", "said", "findings"}`` (result None: not run). ``timeout``: the call's
@@ -185,15 +194,16 @@ def run(p, model: str, daily: float, timeout: float | None = None, now: float | 
         spec = p.model.spec
         text = prompt(p, spec, now)
         est = md.unsaid(text, model)["usd"]
-        spent = rd.spent(p, now)
-        if spent + est > daily:                         # its estimated most past the cap: not called
-            p.events.add(REVIEWED, item=p.model.name, source="architecture-review", at=now,
-                         data={"result": "capped", "model": model, "estimate": est, "spent": spent, "daily": daily})
-            return {"result": "capped", "said": f"architecture review ({model}): not called: ${spent:.4f} spent today "
-                    f"and its estimated most ${est:.4f} would pass the ${daily:.2f} cap"}
-        stamp = p.events.add(REVIEWED, item=p.model.name, source="architecture-review", at=now,
-                             data={"result": "started", "model": model, "estimate": est})["id"]   # the day's review
-        _charge(p, est, now, model)                     # before the call: a run killed mid-call keeps it charged
+        with pr.locked(p):                              # the lock redesign.held takes: the reviewer's checks wait on it
+            left = rd.room(p, daily, now)               # the cap, less the share kept for the reviewer
+            if est > left:                              # its estimated most past what is left: not called
+                p.events.add(REVIEWED, item=p.model.name, source="architecture-review", at=now,
+                             data={"result": "capped", "model": model, "estimate": est, "left": left, "daily": daily})
+                return {"result": "capped", "said": f"architecture review ({model}): not called: ${left:.4f} left "
+                        f"of the ${daily:.2f} cap (a quarter kept for the reviewer) and its estimated most is ${est:.4f}"}
+            stamp = p.events.add(REVIEWED, item=p.model.name, source="architecture-review", at=now,
+                                 data={"result": "started", "model": model, "estimate": est})["id"]   # the day's review
+            _charge(p, est, now, model)                 # before the call: a run killed mid-call keeps it charged
         got = call(text, model, timeout or 600.0)      # (the caller's per_call: it and the rounds fit the block's)
         usd = got.get("usd")
         usd = float(usd) if isinstance(usd, int | float) and not isinstance(usd, bool) and math.isfinite(usd) \

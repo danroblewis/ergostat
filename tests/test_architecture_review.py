@@ -139,17 +139,54 @@ def test_the_review_is_not_called_when_its_estimated_most_would_pass_the_cap(tmp
     assert arv.run(p, "sonnet", 2.0, now=time.time(), call=call)["result"] == "capped"
     assert not call.calls and reviewed(p)[-1]["result"] == "capped"
     assert arv.due_now(p, time.time())                                     # capped is no day's review
-    monkeypatch.setattr(rv, "RESERVE", 0.0)                                # (the reviewer's share left out of this sum)
+    q = four(tmp_path / "q")                                               # the reviewer's quarter is kept for it:
+    rd.charge(q, "a", {"usd": 1.5 - 0.01})                                 # $0.51 of the cap unspent, $0.01 of it the block's
+    assert rv.RESERVE == 0.25 and rd.spent(q) == pytest.approx(1.49)
     monkeypatch.setattr(md, "call", lambda *a, **k: pytest.fail("called past the cap"))
     seen = []
     monkeypatch.setattr(rdr, "run", nothing(seen))
-    block(monkeypatch, p)
+    block(monkeypatch, q)
     assert ml.redesign(["--when", "auto", "--review", "sonnet", "--daily", "2"]) == 0
-    assert "would pass the $2.00 cap" in capsys.readouterr().err
+    assert "not called: $0.0100 left of the $2.00 cap" in capsys.readouterr().err and reviewed(q)[-1]["result"] == "capped"
     assert seen and 0.0 <= seen[0]["budget"] <= 0.01 + 1e-9
     monkeypatch.undo()
-    out = rdr.run(p, "lab", [], budget=seen[0]["budget"], rounds=1, call=lambda *a: pytest.fail("a call with no budget"))
+    out = rdr.run(q, "lab", [], budget=seen[0]["budget"], rounds=1, call=lambda *a: pytest.fail("a call with no budget"))
     assert out["cost"]["calls"] == 0
+
+
+def test_the_reviews_cap_check_sees_a_reviewer_hold_and_is_made_under_the_holds_lock(tmp_path, monkeypatch):
+    p = four(tmp_path)
+    monkeypatch.setattr(md, "unsaid", lambda text, model: {"usd": 0.05, "tokens_in": 1, "tokens_out": 1, "estimated": True})
+    hold = rd.held(p, 1.97, room=lambda: 5.0, by="reviewer")               # the reviewer's call running meanwhile
+    assert hold.__enter__()
+    call = said(("lab", "redesign", "x"))
+    assert arv.run(p, "sonnet", 2.0, now=time.time(), call=call)["result"] == "capped" and not call.calls
+    hold.__exit__(None, None, None)
+    q = four(tmp_path / "q")
+    real = md.unsaid
+
+    def in_the_gap(text, model):                       # a reviewer's hold made between the estimate and the check
+        got = rd.held(q, 1.97, room=lambda: 5.0, by="reviewer")
+        assert got.__enter__()
+        return real(text, model)
+    monkeypatch.setattr(md, "unsaid", in_the_gap)
+    assert arv.run(q, "sonnet", 2.0, now=time.time(), call=call)["result"] == "capped" and not call.calls
+    r = four(tmp_path / "r")
+    monkeypatch.setattr(md, "unsaid", real)
+    locked, charge = [], arv._charge
+
+    def charged(p_, usd, now, model):                  # the estimate's charge, with proposals.lock held or not
+        with open(r.dir / "proposals.lock", "a") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(f, fcntl.LOCK_UN)
+                locked.append(False)
+            except BlockingIOError:
+                locked.append(True)
+        charge(p_, usd, now, model)
+    monkeypatch.setattr(arv, "_charge", charged)
+    assert arv.run(r, "sonnet", 2.0, now=time.time(), call=call)["result"] == "reviewed"
+    assert locked[0] is True                                               # checked and charged under one lock
 
 
 def test_a_call_killed_mid_way_leaves_its_estimate_charged(tmp_path):
@@ -307,6 +344,13 @@ def test_the_review_is_there_only_with_ai_and_off_turns_it_off(tmp_path, monkeyp
     monkeypatch.setattr(rdr, "run", nothing([]))
     block(monkeypatch, off)
     assert ml.redesign(["--when", "auto", "--review", "off"]) == 0 and not reviewed(off)
+    for word, says in (("off", "off"), ("false", "false")):                # unquoted (YAML 1.1 would read both as false)
+        bare = four(tmp_path / f"bare-{word}", with_ai + f"      redesign: {{review: {word}}}\n")
+        run = bare.model.spec.blocks["redesigner"].params["run"]
+        assert f"--review {says} " in run and rd.settings(bare.model.spec)["review"] == "off"
+        block(monkeypatch, bare)
+        assert ml.redesign(["--when", "auto", "--review", run.split("--review ")[1].split()[0]]) == 0
+        assert not reviewed(bare)
     block(monkeypatch, p)
     rd.ask(p, "lab")
     assert ml.redesign(["--when", "ask", "--review", "sonnet"]) == 0 and not reviewed(p)
@@ -317,6 +361,8 @@ def test_the_review_is_there_only_with_ai_and_off_turns_it_off(tmp_path, monkeyp
     assert "redesigner" not in mdl.load(whenoff.model.path.parent).spec.blocks
     with pytest.raises(SystemExit):
         ml.redesign(["--review", "../x"])                                 # a model's name, or off: nothing else
+    with pytest.raises(SystemExit):
+        ml.redesign(["--review", "true"])
 
 
 def test_the_reviews_cost_is_printed_as_a_result_line_and_recorded_with_its_model(tmp_path, monkeypatch, capsys):
@@ -334,3 +380,22 @@ def test_the_reviews_cost_is_printed_as_a_result_line_and_recorded_with_its_mode
     d = reviewed(p)[-1]
     assert d["result"] == "reviewed" and d["model"] == "sonnet" and d["cost"]["usd"] == pytest.approx(0.042)
     assert d["findings"] == [mine(p)["system.lab review-redesign"]["id"]]
+
+
+def test_the_review_and_the_rounds_share_the_blocks_timeout(tmp_path, monkeypatch, capsys):
+    p = four(tmp_path)
+    call = said(("lab", "redesign", "x"))
+    monkeypatch.setattr(md, "call", call)
+    seen = []
+    monkeypatch.setattr(rdr, "run", nothing(seen))
+    block(monkeypatch, p)
+    for rounds, t in ((1, 900.0), (3, 900.0), (3, 3000.0)):
+        q = four(tmp_path / f"t{rounds}-{int(t)}")
+        block(monkeypatch, q)
+        assert ml.redesign(["--when", "auto", "--review", "sonnet", "--daily", "5", "--timeout", str(t),
+                            "--rounds", str(rounds)]) == 0
+        review, mine_ = call.calls[-1][2], seen[-1]["timeout"]
+        assert review + rounds * md.per_call(mine_, rounds) <= 0.8 * t + 1e-6       # the calls keep per_call's room
+    block(monkeypatch, q)
+    assert ml.redesign(["--when", "auto", "--review", "sonnet", "--daily", "5", "--timeout", "3000", "--rounds", "3"]) == 0
+    assert seen[-1]["timeout"] == 3000.0                                    # no review today: the rounds have it all

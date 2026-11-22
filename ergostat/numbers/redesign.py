@@ -38,6 +38,8 @@ def settings(spec: Spec) -> dict:
         got = (u.get("values") or {}).get("redesign") if u.get("template") == "modelling" else None
         if isinstance(got, dict):
             out.update({k: got[k] for k in out if got.get(k) is not None})
+    if out["review"] is False:                  # YAML 1.1 reads an unquoted ``review: off`` as false
+        out["review"] = "off"
     return out
 
 
@@ -363,6 +365,13 @@ def spent(p, now: float | None = None, reviewer: bool = True) -> float:
                      for e in p.events.query(n=None, type=RAN, since=now - DAY)) + (rv.spent(p, now) if reviewer else 0.0)
                  + sum(float(d.get("usd") or 0.0) for d in (e.get("data") or {} for e in p.events.query(n=None, type=HELD, since=now - DAY))
                        if reviewer or d.get("by") != "reviewer"), 6)
+
+
+def room(p, daily: float, now: float | None = None) -> float:
+    """What is left of the day's cap for the redesigner's block (its review and its rounds): the cap less all spent,
+    and never into the share kept for the reviewer (``reviewer.RESERVE``)."""
+    from . import reviewer as rv
+    return round(min(daily - spent(p, now), daily * (1 - rv.RESERVE) - spent(p, now, reviewer=False)), 6)
 
 
 @contextmanager

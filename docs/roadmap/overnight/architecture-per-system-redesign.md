@@ -410,3 +410,37 @@ outside the gap.
 - Refused here: `timeout 90 uv run python -m pytest ...`; `ps -A -o command=`; a shell write to `/tmp`; the Write
   tool outside `/work`.
 - So the breaks were made with Edit on the source and put back by hand. No scratch file was written.
+
+Round 3: answering the three blocking findings. 24 net lines of code were added (about 370 in total, against 450).
+
+- **`review: off` unquoted.** The finding's premise does not hold here. The model's loader (`spec/load.py:116`) and
+  the template's (`library/templates.py:72`) take only `true` and `false` as booleans (YAML 1.2), so an unquoted
+  `off` stays the string `off`, and `--review off` is rendered. The test now loads the unquoted form and shows that no
+  review runs. A written `review: false` would render `--review false`, so it is mapped to `off` too, in
+  `_model_name` and `redesign.settings`, and `--review true` is refused. Tested in
+  `test_the_review_is_there_only_with_ai_and_off_turns_it_off`. Break: the `false` mapping dropped. Fails.
+- **The cap check, the reviewer's reserve and the lock.** The review now checks its estimated most against
+  `redesign.room` (new: the redesigner's `room()` moved there, which the block's `room` now calls). That is what is
+  left of the cap, never the quarter kept for the reviewer. The check, the `started` event and the estimate's charge
+  are made under `proposals.lock`, the lock `redesign.held` takes. The reviewer's `held` check waits on it, and it
+  reads the review's charge (a `redesign-ran` event, which `spent` counts) once it gets the lock. The charge is
+  the definition's `redesign-ran` `call` event, not a `held` record. A `held` record is released after the call, so
+  using both would charge the estimate twice. The cap test no longer sets `RESERVE` to 0. It shows a review capped
+  with $0.51 of the cap unspent but $0.01 of it the block's. Break: the check against `daily - spent`. Fails.
+  New test: `test_the_reviews_cap_check_sees_a_reviewer_hold_and_is_made_under_the_holds_lock` covers a reviewer
+  hold in place, a reviewer hold made in the gap between the estimate and the check, and the charge made with
+  `proposals.lock` held. Break: the check under another lock file. Fails.
+- **The timeout.** After a review that called, the redesigner is given `timeout × rounds / (rounds + 1)`
+  (`archreview.timeouts`), so each of its rounds' calls gets `per_call(T, rounds + 1)`, as the review's call does.
+  Their limits sum to `0.8 T`, the room `per_call` keeps on a day with no review. On a day with no review call
+  (done today, capped, lock held), the rounds get the whole timeout. SPEC says this, and no longer says the review
+  and rounds "fit the block's timeout". New test: `test_the_review_and_the_rounds_share_the_blocks_timeout` (1 and
+  3 rounds, 900 s and 3000 s, and a day with no review). Break: the redesigner given the whole timeout. Fails.
+
+Run this round, one file at a time: `test_architecture_review.py` (18 passed); `test_redesign.py` with
+`test_modelreview.py` (43); `test_templates.py`, the `test_modelling_*` files, `test_redesign_memory.py`,
+`test_cli_fallback.py`, `test_spec_compile.py` and `test_demo_check.py` (149); `test_spec_schema.py`,
+`test_parity.py`, `test_redesign_bench.py` and `test_architecture.py` (59). ruff is clean. The clone still has no
+`origin`, so origin/main was not fetched. The whole unit suite and the browser files are left to the factory's run.
+A shell loop over the test files and a combined ruff-plus-`git diff --numstat` command were refused. Each was run
+again as a single command.
