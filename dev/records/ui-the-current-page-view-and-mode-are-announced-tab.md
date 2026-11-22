@@ -170,3 +170,13 @@ Traceback (most recent call last):
 RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
 
 ```
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 14:18).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 24: nack a switch drains the runs under way (run/drain.json): taken again after it
+- attempt 25: nack a switch drains the runs under way (run/drain.json): taken again after it
+- attempt 26: nack exited 1
+- attempt 27: nack the run ended with gap/ui-the-current-page-view-and-mode-are-announced-tab still parked
