@@ -280,6 +280,27 @@ def test_no_equation_reading_a_stock_gives_why_not_an_empty_answer(tmp_path):
     assert f"Modes: not worked out: {md.NO_FEEDBACK}" in explain(spec)
 
 
+def test_explain_says_an_arithmetic_failure_and_raises_a_bug(tmp_path, monkeypatch):
+    spec = _spec(tmp_path, """
+        name: open
+        parameters:
+          rate: {value: 2}
+        stocks:
+          x: {unit: litres, initial: 10, sensor: {manual: true}}
+        flows:
+          out: {from: x, equation: rate}
+        """)
+    monkeypatch.setattr(md, "at_start", lambda s: 1 / 0)
+    assert "Modes: not worked out: ZeroDivisionError: division by zero" in explain(spec)
+    spec.lookups().kept.pop("numbers.modes")
+
+    def bug(s):
+        raise TypeError("a bug in modes")
+    monkeypatch.setattr(md, "at_start", bug)
+    with pytest.raises(TypeError, match="a bug in modes"):              # not hidden behind ordinary wording
+        explain(spec)
+
+
 UNFITTED = """
 name: unfitted
 parameters:

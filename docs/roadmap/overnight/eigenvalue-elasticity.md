@@ -277,3 +277,28 @@ test_architecture (9), test_aggregation (10), test_scale_caches (35), test_vsm_r
 all passing; ruff is clean. The resolution was first tried as an inline Python edit through the shell, which was
 refused, so it was done with the editor. The full unit suite, the browser files and `demo_check` are left to the
 factory.
+
+**Round 6: the review's findings.**
+- *Blocking (lesson-7): GAPS' System architecture review entry, spliced by the merge.* The finding was right, and
+  round 5 missed it: the merge gave no conflict there, but the text was broken. It is now one entry: main's done items
+  (the aggregation candidates and the `aggregate` row, once; the AI rung's VSM checklist and purpose coverage) and the
+  modes and elasticities in `explain`, then one *Left*: the relative gain array, the AI rung's proposal to aggregate
+  (from loop dominance), elasticity over the replay, interface stability over the model's history, and the
+  per-system redesign and daily larger-model review. Eigenvalue elasticity and the VSM checklist are off *Left*, and
+  the ragged line is gone.
+- *Non-blocking, the cost of `rates()` (lesson-12).* `jacobian()`'s `pad` keyword is now `full`. With `full=False`,
+  which is what `rates()` passes, it writes no zero columns, copies neither `errors` nor `clamped`, and builds no
+  `faulted` list (it returns an empty one). It still saves and restores `c.faults`, as `rates()` did before this
+  branch. The entries and `rates()`'s sums are unchanged. No timing was measured (lesson-10), so the claim is only
+  that the work is skipped.
+- *Non-blocking, the broad `except` in `explain` (lesson-12).* `explain` now words only `ArithmeticError` and
+  `ValueError` from `at_start` ("Modes: not worked out: ZeroDivisionError: ..."). Any other exception is a bug and is
+  raised. New test: `test_explain_says_an_arithmetic_failure_and_raises_a_bug`. Break tried: with `except Exception`
+  put back, the test fails.
+
+Net code is 326 lines against main (`git diff --numstat main -- ergostat`: 347 added, 21 removed; budget 330). Local
+main is already in the branch. The clone shows no origin branch, so nothing newer could be merged. Run one file at a
+time: test_modes (28), test_closedloop (15), test_extremes_closed (14), test_numbers (55), test_rates (13),
+test_architecture (9), test_aggregation (10), test_scale_caches (35), test_vsm_review (16), test_spec_mcp_explain (4),
+all passing; ruff is clean. Refused here: an `awk` check of line widths and `git remote -v`. The full unit suite,
+the browser files and `demo_check` are left to the factory.

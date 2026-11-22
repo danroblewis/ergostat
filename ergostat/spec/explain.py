@@ -133,7 +133,8 @@ class Explainer:
             from ..numbers import modes as md
             try:
                 kept["numbers.modes"] = md.at_start(s)
-            except Exception as e:                       # said, never taken as no modes
+            except (ArithmeticError, ValueError) as e:   # the arithmetic failing: said, never taken as no modes;
+                                                         # any other error is a bug and is raised, not worded
                 kept["numbers.modes"] = md.Modes(f"{type(e).__name__}: {e}", [], [])
         return kept["numbers.modes"]
 
