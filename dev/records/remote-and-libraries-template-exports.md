@@ -15,3 +15,31 @@ Acceptance tests: test_exports_must_name_own_parts (an unknown ref is bad-templa
 Size budget: 150 net lines.
 
 Area: remote-and-libraries. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1 (84 net lines outside tests and docs). Every item of the definition is built and its acceptance
+tests pass, except that scripts/demo_check.py was not run here: the session refused
+`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/demo_check.py` (background and
+foreground) and `uv run python scripts/demo_check.py small-requests`. The demo run is left to the merge queue. In its
+place, `test_no_example_reads_an_internal_part` reads each example whose main file uses a template that declares
+exports (today only small-requests, through respond-to) and asserts it gives no template-internal-reference. No other
+example can give the finding, since no other template declares exports. This test reads the model; it does not run the
+demo or check its pages.
+
+Choices made alone, each the more reversible one:
+- "bad-template" for a bad `exports:` entry is a TemplateError naming the entry, as every other fault in a template
+  file is: the template is unreadable (a `template-library` note), and a use of it is `unknown-template` quoting that
+  note. A separate `bad-template` error code at the use line was not added.
+- A template's own text names an inner use's part as `${name}-INNER-x`, because its renaming covers only its own
+  names. In `exports:` the part is written `stock.INNER-x`, accepted when INNER is a key of its `uses:`. Whether the
+  inner template exports x is not checked at read time, since the library is not at hand there. It needs no check: a
+  reference from outside the outer instance is also outside the inner one, so the inner's exports still apply.
+- The references checked are a flow's from:/to:, driven-by: and equation; an auxiliary's driven-by: and equation; a
+  goal's measure; and a block's in:, out: and goal:. A system's `show:`, a loop's `through:` and a sensor's text are
+  not checked. Ergostat's implied keep-GOAL blocks are skipped, because the block that names the goal is checked.
+  SPEC §2a says all of this.
+- A part named wholly by a parameter (`${kind}`) is the owner's name and is never internal. It cannot be listed in
+  `exports:`, so counting it internal would leave it unreadable from anywhere.
+- respond-to exports stock.waiting, auxiliary.oldest, flow.arriving, flow.answered and goal.on-time. Its "README
+  line" went in docs/ADDING.md's respond-to entry, which is where the built-in templates are described.
