@@ -58,3 +58,46 @@ This branch adds no code. When it is done:
 
 0 net lines of code outside `tests/` and `docs/`. The record in `dev/` is prose, and nothing else changes.
 size: S (confidence: high)
+
+## Where it stopped
+
+Round 1: built, awaiting review. No code changed; `docs/GAPS.md` (the P3 entry only) and this section are the diff.
+
+Choice made alone (the more reversible one): this definition may change only by appending this section, so the
+evidence that done point 1 asks the record to hold is written here rather than edited into the text above.
+
+Merge commit: c8c94527 (`Merge branch 'factory/run-budget-reserve'`). Evidence on main, for each point of
+`docs/roadmap/overnight/run-budget-reserve.md` (tests are in `tests/test_run_budget.py`):
+
+1. Config: `ergostat/spec/load.py` (`budget` in `TOP`, not in `PER_MACHINE`), `ergostat/spec/compile.py`
+   (`budget`), `schema/ergostat.schema.json` (`budget`). Tests: `test_check_budget_keys`,
+   `test_empty_budget_is_two_errors`, `test_no_budget_changes_nothing`.
+2. Charged runs, an allowlist: `ergostat/costs/budget.py` (`FREE`, `reserve_of`). Tests: `test_free_run_not_reserved`,
+   `test_free_run_allowlist`.
+3. The permit: `ergostat/costs/budget.py` (`permit` under `fcntl.flock`, `refused`), `ergostat/spec/engine.py`
+   (`run_block`), `ergostat/leases/dispatch.py` (`take`, `once`), `ergostat/cli/spec_cmds.py` (`refused: budget:`).
+   Tests: `test_permit_lock_spans_write_run_block_then_take`, `test_permit_lock_spans_write_take_then_run_block`,
+   `test_permit_lock_across_processes`, `test_permit_refuses_out_of_bounds_at_run_time`, `test_refused_engine_loop`,
+   `test_refused_dispatch_loop`, `test_refused_block_now_unleased`, `test_refused_block_now_leased`,
+   `test_refusal_recorded_once_a_minute`, `test_leased_run_block_reserves_once`.
+4. Spending counted fail-closed, by run id: `ergostat/costs/budget.py` (`fold`). Tests:
+   `test_reserve_held_until_end_with_cost`, `test_end_without_cost_charges_reserve`,
+   `test_malformed_cost_counts_unknown`, `test_unended_reserve_does_not_age_out`, `test_window_by_run_id`,
+   `test_retaken_item_keeps_old_reserve`.
+5. Orphans closed: `ergostat/costs/budget.py` (`recover`, `close`), called from `ergostat/spec/engine.py` at start and
+   from `ergostat/leases/dispatch.py` on the watchdog pass. Tests: `test_orphan_closed_by_recovery`,
+   `test_permit_lists_the_run_under_the_lock`, `test_recover_copies_open_before_reading`,
+   `test_run_block_crash_closes_reserve`, `test_lost_take_releases_reserve`,
+   `test_take_raced_by_the_stop_releases_reserve`, `test_taken_then_stopped_before_its_run_releases_reserve`,
+   `test_recovery_failure_skips_no_watch`.
+6. The measure: `ergostat/numbers/measures.py` (`ergostat.budget.left`, read through `budget.left`). Tests:
+   `test_budget_left_value`, `test_budget_left_fails_closed`.
+7. Scope, stated narrowly: SPEC §9.9 and the P3 entry in `docs/GAPS.md`. Test: `test_only_known_start_paths`. The
+   `budget.*` events are ergostat's own and trip nothing: `test_budget_events_written_only_by_ergostat`,
+   `test_budget_events_trip_no_coherence_or_graph`.
+8. House rules: on this branch `tests/test_run_budget.py` gives 39 passed (35 test functions, some parametrized; the
+   "34 tests" above is the count at the merge), so none fails on main, and ruff is clean. The unit suite and the four
+   browser files were not run by the implementor: by the factory's rule they run in its build step and the merge
+   queue.
+
+No other gap is needed first. Merge main again before landing and read the P3 entry again afterwards (lesson-7).
