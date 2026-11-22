@@ -18,3 +18,18 @@ The owner, 2026-11-21: before ergostat is given to people, review and reduce the
 
 ## Size budget
 0 lines of code; the map under 700 lines.
+
+## Where it stopped
+
+Built: `docs/proposals/code-reduction.md` (478 lines). It has eleven ranked items, about 1,160 net lines in all, what
+was looked at and not found removable, and the first ten written as gap definitions. No code was changed.
+
+Choices taken without asking, the more reversible each time:
+- `scripts/code_evidence.py` was not run, because this session's shell refused `python3`/`uv run python` (and `awk`,
+  redirection, and `git grep -f`). Its "dead" rule was applied instead with `git grep -o -w … | sort | uniq -c` over
+  every tracked file, docs included. The map says so (§1), and the dead-names gap's acceptance test runs
+  `code_evidence.py` to confirm.
+- For `ergostat chat`, the map proposes a new brief from the agent guide, not deleting the command (the Supervisor is a
+  NOTES.md term). Deleting it is left to the owner.
+- Item 11 (the Node/Java/Go re-signing migration) is not written as a gap. It is worth about 7 lines, and it needs the
+  owner's word on old records.
