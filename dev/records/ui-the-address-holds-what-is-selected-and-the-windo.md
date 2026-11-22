@@ -82,3 +82,14 @@ as a whole because the build step has no Playwright ("could not import 'playwrig
 No test failed, so there was no code to fix. I ran it again here with Playwright, under the watchdog:
 tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen_and_the_window passed (rc 0). Ruff is clean.
 To give a verdict on this gap, a build step that runs only browser files needs Playwright (or `[suites] build_browser`).
+
+Round 2 (no review findings to answer; the round was the build step's rc 5). Main (277a9c6c) was already merged in.
+Main's fix for the same skip on the Agents page (ab17bb6e) adds a unit test that the build can run, so I did that
+here too: tests/test_graph_cli_web.py::test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page.
+It reads WINDOWS from main.js and checks that the server reads each name as its own seconds, not its 1h fallback
+(a link's `?window=` becomes the API's `since=`). It also checks that a link with `select=`, `window=` and `filter=`
+is still served as the page. Seen to fail when a window name in main.js was broken ("1d" to "1day": 3600 s, not
+86400). No code outside tests/ changed in this round. Run here: tests/test_graph_cli_web.py, 33 passed;
+the browser acceptance test again with Playwright under the watchdog, 1 passed, rc 0; ruff clean. The four browser
+files were not run again after the merge. The merge brought no change to ergostat/web, and their round 1 results
+are above.
