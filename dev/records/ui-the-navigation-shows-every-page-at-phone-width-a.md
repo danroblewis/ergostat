@@ -43,3 +43,11 @@ Tests: the new test was seen to fail with the rule switched off (both sizes: Loo
 and with `nowrap` (phone: Check and Guide off-screen). `tests/test_items_page.py` under the watchdog with Playwright:
 23 passed, none skipped, rc 0. ruff clean. Not run here (by the factory's rules): the unit suite and the other three
 browser files. No example touched, so no demo_check. main is an ancestor of the branch, so there was nothing to merge.
+
+Round 1, after the build step failed (rc 5): the failure is in the factory's build step, not in the branch's code.
+`[suites] build` runs `scripts/affected_tests.py` without Playwright. The branch changes one style sheet and one browser
+test file, so the step picks only `tests/test_items_page.py`. That file skips whole without Playwright (line 24), and
+pytest gives rc 5 because no test ran. With Playwright, under the watchdog, the same file passed again:
+23 passed, none skipped, rc 0. The code is unchanged. Changing `affected_tests.py` (for example, to treat a selection
+that is all skipped browser files as collection only) or setting `build_browser = true` is outside this gap (lesson-13).
+It belongs in a gap of its own. Until then, a branch that touches only page styles and a browser test fails this step.
