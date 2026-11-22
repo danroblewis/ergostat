@@ -221,3 +221,16 @@ def test_the_host_step_is_never_boxed(tmp_path):
     assert boxes["host"] == "host" and {boxes[n] for n in ("ruff", "unit", "browser", "demo")} == {"queue"}
     assert [n for n, _ in out["seen"]].index("host") > [n for n, _ in out["seen"]].index("unit")
     assert "host" in out["got"]
+
+
+def test_the_shipped_suites_name_their_failures_and_their_skips():
+    # -r replaces pytest's default report chars (fE): without f and E a failing run prints no FAILED line, which is
+    # all fac.failed_tests reads; without s the host step's check cannot name a skip
+    import re
+    import tomllib
+
+    from tests.test_factory import ROOT
+    s = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
+    for name in ("unit", "build", "host"):
+        chars = re.findall(r"\s-r(\w+)", s[name])
+        assert chars and all(set("fEs") <= set(c) for c in chars), (name, chars)

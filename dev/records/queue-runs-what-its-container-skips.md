@@ -115,3 +115,16 @@ Round 5:
   docstring's last line are reflowed to the wrap width (118 in that section, 120 in fac.py). No code changed.
 - Round-4 "not run by this reviewer": this round ran tests/test_queue_host.py (11 passed) and the test_agents test
   above (1 passed); ruff is clean on ergostat, tests, scripts and the three dev/bin files changed.
+
+Round 6:
+- Round-5 finding (blocking, `-rs` drops the FAILED lines): confirmed. scripts/named_tests.py runs `pytest -q -rs`,
+  and a failing test run through it printed `1 failed` and no `FAILED path::test` summary line. `[suites] unit`,
+  `build` and `host` now carry `-rfEs`, so fac.failed_tests still names their failures. Test:
+  `test_the_shipped_suites_name_their_failures_and_their_skips` (each of the three keeps f, E and s in every -r).
+  With `build` put back to `-rs` it was seen to fail (`('build', ['s'])`), and it passes with `-rfEs`.
+- Not changed here (lesson-13): `[suites] browser` and `rerun` carry `-rs` from main (not this branch), so the same
+  loss of FAILED lines applies to browser failures on main. tests/test_agents.py:36 holds them to the substring
+  ` -rs `, so the fix there also needs that test changed. It belongs to its own gap on main.
+- Round-5 "not run by this reviewer": the run that was asked for is the one above.
+- Round-5 test_agents finding (main's PYTEST_ADDOPTS): unchanged, as in round 5. Round-5 README wording: answered in
+  round 5.

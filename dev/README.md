@@ -481,7 +481,7 @@ run undone, no gap blamed until `STALLS_MOST`). `host = ""` turns the step off. 
 (the step's first command not found or not runnable) is a step that did not start, in the queue and in triage's
 rerun: the run fails and is undone, no gap blamed, never read as a pass. A pytest missing behind `suite_watch.py` or
 `uv` exits 1 with no test named, so it counts as a real host failure: red, the batch bisected. A test the host step
-skips that the same run's unit suite skipped too (by `path:line` in their `-rs` summaries) ran nowhere, and fails the
+skips that the same run's unit suite skipped too (by `path:line` in their `-rfEs` summary) ran nowhere, and fails the
 step, unless its reason is one of the stated needs outside the machine in use (an `ERGOSTAT_…_URL`, "spends money",
 "no Chromium to drive", playwright not importable, "needs Docker and the agent image", "no N free ports in"), matched
 as those exact phrases: a new external skip reason must be added to `queue.EXTERNAL`, or it counts. When the unit log
