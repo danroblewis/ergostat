@@ -13,3 +13,12 @@ Acceptance tests: review only.
 Budget: about 200 lines, no code.
 
 Milestone: r4-blocks-textbook. Owner items: R4 (pieces 3-6). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Written: docs/proposals/blocks-levels.md (settles 1-5, sketches for software-factory's top level, big's top level and
+ticket-factory making, a textbook citation for each form, the tests each build gap adds) and the link in
+docs/DISCIPLINES.md. Choices made alone, each the most reversible: :8796 is read as software-factory and :8797 as big
+(from the screenshots' names); the build gaps' names are the proposal's own; uncoupled rows follow model order. The
+widths in the sketches are read from the YAML: running a script to print `diagram()` was refused in this session, so
+the build gaps' tests pin them. Nothing left for this gap beyond review.
