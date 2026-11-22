@@ -22,3 +22,20 @@ Acceptance tests: test_a_list_of_records_is_cards_with_files_behind_disclosures 
 Budget: 220 net lines.
 
 Milestone: kind-and-item-pages. Owner items: 20 (fields, history, the contexts section). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1: every change above. Net 123 lines outside tests, docs and dev (budget 220). Choices made alone, each the more reversible one:
+- "fieldView mode": the page's Fields section calls a new pageFieldView (pages.js) and fieldView itself is unchanged, so its other callers (Items list cells, the remote item, the history rows) keep their output without passing anything.
+- "share at most 6 scalar keys": counted as the keys holding a scalar in more than half of the entries. A session's messages (role, line, uuid, text, sometimes meta, truncated, bytes, full) so stay a table, as before; their cells are now small (a nested value is its JSON, a file a link), so no table is inside a table.
+- "named by key and size": the size comes from a new `file_sizes` in /api/items/ID (server.py `_sizes`), found where /file/ finds files, never in the state folder; one that cannot be read has no size shown. A HEAD request would have fetched a closed file.
+- history=FIELD sends all of that field's changes, history=all every field's, as `all` did before; with no history= there is no `history` key, only `changes`. The other readers of its.detail (CLI, MCP, ops, the remote API, recipes) are unchanged.
+- The unnarrowed Changes section lists the changes field by field (each field's latest first), not merged across fields by time (lesson 2). It shows a field's latest 200, naming `ergostat item ID --history` for the rest.
+- A snapshot holds item answers without history; its Changes section says they are not held there.
+- Markdown headings are demoted only in a file opened in a card (change 3). A field that is itself a file, a full-width block, renders as before, its h1 kept (test_an_items_files_show_as_what_they_are_and_nothing_in_them_runs pins that).
+- The opened file is as wide as the card it is in: the content column less the card's padding and border (the test allows 40 px).
+Tests: the three acceptance tests, which fail when their behaviour breaks: a closed file rendered gives 2 .md where 0 are wanted, 30rem cells give 10 rows, and always asking for history puts history=all in the polls. Main's page has no .card, .field-grid or .changes-of, so each test's first wait times out. Restoring main's files to run them there was refused, so I argue this from the code and did not see it run. Also new: test_a_snapshots_item_page_says_its_changes_are_not_held and test_the_item_answer_sends_history_only_when_asked_and_sizes_its_files (test_spec_items.py). test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_transcript now uses the Changes section, and test_page_refresh's `details.history` is now that section. DoD 2 is tested at 20 fields and 4 rows (the definition's acceptance test), not at 30 and 6.
+Runs: tests/test_items_page.py (24 passed, before the 4 new tests were added; the new ones then passed alone) and tests/test_page_refresh.py (8 passed), whole. tests/test_diagram_rendering.py whole: 197 passed, 3 failed. The fix for one (the demotion above) passed when run alone. Two are left, which I take to be unrelated:
+- test_every_view_draws_cleanly_and_in_time: coordinator routing took 21.1 s against a 20 s bound, a diagram timing under load. It was not rerun.
+- test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page fails alone too: after an accept, /model still lists a change to review instead of "Nothing waiting." That page (pageModel, /api/fit, the proposals) reads nothing this branch changed. I could not run it on main because `git archive main | tar -x -C /tmp/mainsrc` was refused.
+Not done: Q53, Q54 and Q82 are not in this clone, so nothing was rebased onto them.

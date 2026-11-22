@@ -216,7 +216,6 @@ const isScalar = (v) => v == null || typeof v !== "object";
 const CARDS_SHOWN = 3;
 const OPENED = new Set();                                // the file disclosures the reader opened on this page
 function pageFieldView(v, declared, sizes) {
-  if (typeof v === "string" && v.startsWith("file:") && !SNAP && formatOf(v.slice(5), declared) !== "image") return fileView(v.slice(5), fileUrl(v.slice(5)), formatOf(v.slice(5), declared), true);
   if (!Array.isArray(v) || !v.length || !v.every((x) => x && typeof x === "object" && !Array.isArray(x))) return isScalar(v) || Array.isArray(v) ? fieldView(v, false, 0, declared) : recordView(v, sizes);
   const keys = [...new Set(v.flatMap((x) => Object.keys(x)))];
   if (keys.filter((c) => v.filter((x) => c in x && isScalar(x[c])).length * 2 > v.length).length <= 6) {
