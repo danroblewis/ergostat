@@ -1315,6 +1315,21 @@ messages:
 | `precedence` | true or false | true for `blocked_by`, `after`, `depends_on` | Its targets come first: the item is **ready** only once each item it names is finished |
 | `inverse` | a name | `blocks`, `before`, `dependents`, `children`, `duplicated_by`, `related_from`; else `NAME_of` | The other direction's name. Never written: ergostat derives it |
 | `group` | true or false | true for `parent` | A parent: the Graph view hangs its children off it, and the critical path treats it as their summary |
+| `starts_at` | a list of states | none | Precedence only: the target's states, besides finished, in which it no longer blocks (start-to-start: `depends_on: {kind: gap, starts_at: [approved]}`) |
+
+**Starting before a target finishes.** A precedence relation's `starts_at` names states of the kinds it names: a
+target in one of them does not block, so the item's status is *unblocked* (not *blocked*), it is not waited on, and
+`takes: {unblocked: true}` (section 9.5) may take it. Only the state the target is in now counts: one that moves on
+to a state not named, and not finished, blocks again, so name each state from which on the dependent may start. A
+target held under a lease (state `leased`) counts by the state it was taken from (the lease's `back`): one taken
+from `approved` still counts as approved, one taken from its first state still blocks. It changes nothing else: the critical path, slack, the projected schedule and the completion estimates stay
+finish-to-start (conservative: the dependent is projected to start once its target ends). `check` refuses a state
+none of the kinds named has (`starts-at-unknown-state`), `starts_at` on a relation that is not precedence (a group,
+`precedence: false`, a remote's kind: `starts-at-not-precedence`), a finished or paused state (`messages: done:`,
+else the kind's last declared state, not counting the `leased` and `dead` a taken kind gains; `messages: paused:`;
+or `dead`: `starts-at-finished`, a finished target never blocks), and `leased` (`starts-at-leased`: name the state
+it is taken from). The
+Items API and the item page give each relation with its `starts_at`.
 
 A relation is a field like any other: events add and take away links as they change fields (`"data": {"blocked_by":
 "ticket/12"}`, `{"blocked_by": {"remove": "ticket/12"}}`, a JSON Patch), and every change is in its history. The
@@ -2851,7 +2866,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -2874,8 +2889,10 @@ now are held; nothing running is stopped). The lock is this engine's: a lease an
 counted at the next look; on the same item the fold refuses the second lease, on another item both stand, as for a
 `pool:` number. The pool's stock is not one of the block's reads, so its `on-stale` (section 9.6) does not watch it.
 `ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says
-waits on an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
-slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
+waits on an unfinished item is not taken (one in a cycle never is; a target in a state the relation's `starts_at`
+names is not waited on), and the rest are taken the critical first: the least
+slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The slack is read from the
+finish-to-start projection even for a `starts_at` link: it says nothing about starting early. The kind must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
 it), then the states of `at` in order, then the order above (the critical first, or the oldest): `takes: {kind: gap,
