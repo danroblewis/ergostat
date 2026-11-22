@@ -16,6 +16,26 @@ _CACHE: dict = {}
 
 
 MERGES = "Approving merges this code into your repository; it then runs with your rights, outside the sandbox."
+REVERTS = ("Approving reverts the applied fix {commit} in your repository with one new commit (git revert); the program "
+           "goes back to what it was before the fix.")
+
+
+def warning(p, spec, a: dict) -> str | None:
+    """What approving a repair's action does (SPEC §12r): ``revert-fix`` its own sentence, never MERGES."""
+    if not str(a.get("item")).startswith("ergostat.failure/"):
+        return None
+    if a.get("action") != "revert-fix":
+        return MERGES
+    from ..spec import items as its
+    it = its.one(p.events, spec, a["item"])
+    return REVERTS.format(commit=str((it.fields if it else {}).get("commit") or "?")[:12])
+
+
+def command(e: dict) -> str | None:
+    """How an entry is answered, as a command (said by ``inbox``, the status and the notifications alike); None when it
+    has no verb."""
+    flags = {"done": "--done N", "deny": "--deny --note WHY" if e["kind"] == "request" else "--deny"}
+    return f"ergostat inbox {e['id']} " + " | ".join(flags.get(v, f"--{v}") for v in e["verbs"]) if e["verbs"] else None
 
 
 def _cut(s: str, n: int = 80) -> str:
@@ -43,9 +63,10 @@ def _actions(p, spec, now: float) -> list[dict]:
         return []
     return [{"id": f"action/{record.short(a['id'])}", "kind": "action", "time": a["time"], "link": f"/item/{a['id']}",
              "verbs": ["approve", "deny"], "class": a.get("class") or a.get("action"), "action": a.get("action"),
-             **({"warn": MERGES} if str(a.get("item")).startswith("ergostat.failure/") else {}),
+             **({"warn": w} if (w := warning(p, spec, a)) else {}),
              "summary": f"{a.get('action')}" + (f" for {a['item']}" if a.get("item") else "") + f": "
-                        f"{_cut(a.get('command') or '', 70)}", "why": _why(p, spec, a.get("item"))}
+                        f"{_cut(a.get('command') or '', 70)}",
+             "why": w if a.get("action") == "revert-fix" else _why(p, spec, a.get("item"))}
             for a in record.stored(p, until=now).values() if a["state"] == "requested"]
 
 
@@ -138,11 +159,13 @@ def _changes(p, spec, now: float) -> list[dict]:
 
 def _requests(p, spec, now: float) -> list[dict]:
     """What check finds that modelling holds (``ergostat.modelling-request``, held: no tier has a change for it): read
-    on its item's page; answered when check no longer finds it, so it has no verb here."""
+    on its item's page. Approved, it goes back to the modelling loop; denied (with why), it is dismissed until its part
+    changes; and answered of itself when check no longer finds it."""
     from ..numbers import requests as rq
     if MODELLING_REQUEST not in spec.items:
         return []
-    return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now, "verbs": [],
+    return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now,
+             "verbs": ["approve", "deny"] if rq.approvable(spec, r) else ["deny"],
              "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
              "summary": f"modelling holds {r.get('code')} on {r.get('about')}", "why": _cut(r.get("why") or "", 200)}
             for r in rq.stored(p).values() if r["state"] == "held"]

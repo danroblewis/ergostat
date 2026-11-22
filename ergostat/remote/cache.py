@@ -6,6 +6,8 @@ the period after each failure up to ten periods."""
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
 import time
@@ -14,7 +16,7 @@ from pathlib import Path
 from ..spec import files
 from . import client
 
-MODEL, STATUS = "model.json", "status.json"
+MODEL, STATUS, LOCK = "model.json", "status.json", "model.lock"
 BACKOFF_MOST = 10
 TIMEOUT = 3.0
 
@@ -44,26 +46,49 @@ def model(d: Path) -> dict | None:
     return _read(d / MODEL)
 
 
+@contextlib.contextmanager
+def locked(d: Path):
+    """``model.lock`` held (fcntl, exclusive, on its own open file: threads of one process block each other too) while
+    the model file is read and written by a refresh, and while a text for the remote's owner is checked against the
+    version in it and recorded (``numbers/remote_text.py``). Taken after ``proposals.lock``, never before it."""
+    with open(d / LOCK, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def version(d: Path) -> str | None:
+    """The version of the model in the file, read now; None when there is no file, it is not JSON, or it has no
+    version (a non-empty string)."""
+    v = (model(d) or {}).get("version")
+    return v if isinstance(v, str) and v else None
+
+
 def status(d: Path) -> dict:
     return _read(d / STATUS) or {}
 
 
 def refresh(d: Path, url: str, token_file: str | None, root: Path, every: float, force: bool = False,
-            timeout: float = TIMEOUT) -> dict:
+            timeout: float = TIMEOUT, tls: dict | None = None) -> dict:
     """Ask the remote for its model when it is time (or ``force``), and keep what it said: the status after."""
     now = time.time()
     st = status(d)
     if not force and now < float(st.get("next") or 0):
         return st
-    have = model(d)
-    token, why = client.token_of(token_file, root)
-    if token is None:
-        code, body, why_ = 0, None, why
-    else:
-        code, body, _, why_ = client.get(url, "model", token, etag=(have or {}).get("version"), timeout=timeout)
-    if code == 200 and isinstance(body, dict) and body.get("version"):
-        if not have or have.get("version") != body["version"]:
+    with locked(d):                                # what it had, asked again, and written, as one (``locked``)
+        have = model(d)
+        token, why = client.token_of(token_file, root)
+        if token is None:
+            code, body, why_ = 0, None, why
+        else:
+            code, body, _, why_ = client.get(url, "model", token, etag=(have or {}).get("version"), timeout=timeout,
+                                             tls=tls)
+        served = code == 200 and isinstance(body, dict) and body.get("version")
+        if served and (not have or have.get("version") != body["version"]):
             _write(d / MODEL, {**body, "fetched": now, "url": url})
+    if served:
         new = {"checked": now, "ok": True, "why": "", "version": body["version"], "fails": 0, "next": now + every,
                "answered": now, "failing_since": None}
     elif code == 304 and have:
@@ -85,7 +110,7 @@ def note(d: Path, ok: bool, why: str = "", version: str | None = None) -> None:
     st = status(d)
     now = time.time()
     if ok:
-        st.update(read=now, read_ok=True, read_why="", **({"seen_version": version} if version else {}))
+        st.update(read=now, read_ok=True, read_why=why, **({"seen_version": version} if version else {}))
     else:
         st.update(read_ok=False, read_why=why, read_failing_since=st.get("read_failing_since") if st.get("read_ok") is False
                   else now)

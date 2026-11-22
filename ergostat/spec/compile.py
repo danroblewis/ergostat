@@ -46,6 +46,7 @@ from .ir import (
     NamedLoop,
     Parameter,
     Ref,
+    RunBudget,
     Sensor,
     Setpoint,
     Source,
@@ -67,7 +68,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "
                "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -80,7 +81,7 @@ DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the model change that added a part
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
-SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file"}}
+SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file", "tls"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
@@ -133,6 +134,7 @@ class Compiler:
         self.doc = doc
         self.problems: list[Problem] = list(doc.problems)
         self.old: dict[tuple, list] = {}                 # (what was renamed, file) → [first place, how many]
+        self.endless: list[tuple] = []                   # flows with neither from: nor to: (an error unless a delay takes them)
 
     def err(self, msg: str, where: Where | None, code: str = "", about: str = "") -> None:
         self.problems.append(Problem("error", msg, where, code, about))
@@ -466,6 +468,7 @@ class Compiler:
     # ---- sections
 
     def sensors(self, owner: Map, of: Ref, what: str) -> dict[str, Sensor]:
+        from ..library import bounds
         out = {}
         raw = {}
         if "sensor" in owner and "sensors" in owner:
@@ -509,7 +512,8 @@ class Compiler:
                              f"with @POOL, or ergostat.cost.usd (or tokens, cpu, memory, runs), over the last day or with "
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
                              f"oldest, asked), or ergostat.interventions.waiting (or per-day, trend, standing, chattering, "
-                             f"blocked-hours, top-share)",
+                             f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files, "
+                             f"heartbeat-age, stalls, restarts, rollup-due, events-past-keep, measurements-due)",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -547,7 +551,8 @@ class Compiler:
             out[str(name)] = Sensor(str(name), of, run=run, query=dict(q) if q else None, averages=averages, builtin=measure,
                                     items=self.item_sensor(s, of, sw) if counted else None,
                                     changes={"what": changes, "over": self.duration(s, "over", sw, 3600.0)} if changes else None,
-                                    manual=bool(s.get("manual")), every=self.duration(s, "every", sw, 60.0),
+                                    manual=bool(s.get("manual")),
+                                    every=self.duration(s, "every", sw, bounds.default_every(self.doc.uses, s.where, 60.0)),
                                     cron=self.cron(s, "cron", sw),
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
@@ -680,10 +685,17 @@ class Compiler:
         from . import joins
         from .relations import compile_relations
         relations = compile_relations(self, m, what, rules)
+        about = m.get("about")                       # the field naming the parts it is about (SPEC §5a, *About*)
+        if about is not None and (not isinstance(about, str) or not about or about in relations
+                                  or rules.get(about, "replace") != "replace"):
+            self.err(f"{what}.about: the name of a field (not a relation) holding the parts of the model it is about "
+                     f"(goal.x, stock.y), folded by replace: an event that sets it replaces the list", m.at("about"),
+                     "bad-about")
+            about = None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what))
+                        join=joins.compile_join(self, m, what), about=about)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -811,6 +823,32 @@ class Compiler:
                 getattr(got, attr)[str(kind)] = vals[0] if key == "reopen-to" else vals
         spec.messages = got
 
+    def budget(self, spec: Spec) -> None:
+        """``budget:``: the day's AI budget, ``daily`` and ``max-cost``, both required and bounded (SPEC §9.9)."""
+        m, w = self.doc.budget, self.doc.budget_at
+        if m is None:
+            return
+        if not isinstance(m, dict):
+            self.err("budget: a map (daily:, max-cost:)", w, "not-a-map")
+            return
+        self.keys(m, {"daily", "max-cost"}, "budget")
+        got = {}
+        for k in ("daily", "max-cost"):
+            v = m.get(k)
+            if v is None:
+                self.err(f"budget: missing {k}: (dollars{' over the trailing day' if k == 'daily' else ' a run reserves'})",
+                         w, "missing-key")
+            elif isinstance(v, bool) or not isinstance(v, int | float):
+                self.err(f"budget.{k}: a number of dollars, not {v!r}", m.at(k), "bad-number")
+            else:
+                got[k] = float(v)
+        if len(got) == 2:
+            b = RunBudget(got["daily"], got["max-cost"], w)
+            if why := b.problem():
+                self.err(why, w, "out-of-bounds")
+            else:
+                spec.budget = b
+
     def named(self, section: str):
         for name, m in self.doc.sections[section].items():
             what = f"{SINGULAR.get(section, section[:-1])} {name}"
@@ -856,6 +894,13 @@ class Compiler:
         spec.web = web(d.web, wrong)
         for msg in wrong:
             self.err(msg, None, "bad-web")
+        if spec.web.mtls is not None:
+            # each file the listener needs, loaded now (SPEC §4c): an error to ergostat check; a finding when the model
+            # loads, so the loopback page still serves (and says why its listener does not)
+            from ..remote.compose import checking
+            from ..remote.mtls import unreadable
+            for msg in unreadable(spec.web.mtls, d.root):
+                self.problems.append(Problem("error" if checking() else "finding", msg, None, "mtls-unreadable"))
         if spec.web.open:
             self.problems.append(Problem("finding", f"web: {', '.join(spec.web.names)} is public and read only, with no login "
                                          "(open: read): anyone who reaches it reads everything the page shows", None, "web-public"))
@@ -884,7 +929,10 @@ class Compiler:
             self.keys(m, SOURCE_TYPES[t], what)
             if t in ("prometheus", "ergostat") and not m.get("url"):
                 self.err(f"{what}: a {t} source needs url:", m.where, "missing-key")
-            spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"))
+            if m.get("tls") is not None and not isinstance(m["tls"], dict):
+                self.err(f"{what}.tls: a map of cert:, key: and (optional) ca:", m.at("tls"), "bad-remote")
+            spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"),
+                                        dict(m["tls"]) if isinstance(m.get("tls"), dict) else None)
         for name, m, _ in self.named("items"):
             k = self.item_kind(name, m, f"item kind {name}")
             if k.id.startswith("ergostat."):
@@ -897,12 +945,14 @@ class Compiler:
         spec.items[CLAIM] = claim_kind()                     # built in: what blocks said they did, checked (SPEC §12g)
         spec.items[MESSAGE] = message_kind()                 # built in: the owner's messages, routed (SPEC §12h)
         spec.items[VERDICT] = verdict_kind()                 # built in: the intent judge's verdicts on work (SPEC §12i)
-        from ..repair import BLOCKS, FAILURE, failure_kind
+        from ..repair import BLOCKS, FAILURE, VERIFY_MAX, VERIFY_MIN, failure_kind
         if BLOCKS[0] in self.doc.sections.get("blocks", {}):
             spec.items[FAILURE] = failure_kind()             # built in, under use: repair: failing runs (SPEC §12r)
-            if "--approver ai" in str(self.doc.sections["blocks"][BLOCKS[0]].get("run")):
-                self.err("use: repair: approver: ai: not yet: a sound allowlist guard is needed (GAPS)",
-                         self.doc.defined[("blocks", BLOCKS[0])], "not-yet")
+            settle = str((self.doc.sections["blocks"].get(BLOCKS[1]) or {}).get("run") or "").split()
+            n = settle[settle.index("--verify") + 1] if "--verify" in settle[:-1] else None
+            if "--verify" in settle and not (n and re.fullmatch(r"\d{1,3}", n) and VERIFY_MIN <= int(n) <= VERIFY_MAX):
+                self.err(f"use: repair: verify: {n!r} is not a whole number from {VERIFY_MIN} to {VERIFY_MAX}",
+                         self.doc.defined.get(("blocks", BLOCKS[1])) or self.doc.defined[("blocks", BLOCKS[0])], "bounds")
         if any(u.get("template") == "interventions" for u in d.uses.values()):
             from .ir import MODEL_REQUEST, model_request_kind
             spec.items[MODEL_REQUEST] = model_request_kind()  # built in, with the interventions loop (SPEC §12p)
@@ -927,8 +977,7 @@ class Compiler:
         for name, m, what in self.named("flows"):
             self.keys(m, FLOW_KEYS, what)
             if m.get("from") is None and m.get("to") is None:
-                self.err(f"{what}: give it from:, to:, or both (the stocks it drains and fills; leaving one out means "
-                         f"outside the system)", m.where, "flow-without-ends")
+                self.endless.append((name, what, m.where))
             f = Flow(name, m.get("from") and str(m["from"]), m.get("to") and str(m["to"]), self.text(m, "unit"),
                      self.number(m, "rate", what), self.system("flows", name, m), self.text(m, "description"),
                      two_way=self.flag(m, "two-way", what), inferred=self.inferred(m, what), where=m.where)
@@ -1029,6 +1078,8 @@ class Compiler:
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
+        from ..library import bounds
+        bounds.check(self, spec)                             # an untrusted library's parts: their limits (SPEC §2a)
         from . import triggers
         triggers.check(self, spec)                           # blocks started by an event, and their loops (SPEC §9.3)
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
@@ -1079,6 +1130,7 @@ class Compiler:
                     v.sensors["set"] = Sensor("set", Ref("auxiliary", v.name), every=None,
                                               description=f"the value block {b.name} set it to", where=b.where)
         self.messages(spec)
+        self.budget(spec)
         self.counted(spec)
         from .joins import check_joins
         from .relations import check_relations
@@ -1086,6 +1138,7 @@ class Compiler:
         check_joins(self, spec)
         self.references(spec)
         self.equations(spec)
+        self.ends(spec)
         self.watched(spec)
         self.renamed()
         for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values()):
@@ -1174,6 +1227,16 @@ class Compiler:
             self.err(bad, m.at(key), "bad-range")
             return None
         return out[0], out[1]
+
+    def ends(self, spec: Spec) -> None:
+        """A flow with neither from: nor to: is an error, unless another flow's material delay (DELAY1, DELAY3) takes it
+        in: what it moves goes into the delay's own stages, which are its end."""
+        from .equation import delayed_refs
+        fed = {r for f in spec.flows.values() if f.equation for r in delayed_refs(f.equation.tree, material=True)}
+        for name, what, where in self.endless:
+            if f"flow.{name}" not in fed:
+                self.err(f"{what}: give it from:, to:, or both (the stocks it drains and fills; leaving one out means "
+                         f"outside the system)", where, "flow-without-ends")
 
     def equations(self, spec: Spec) -> None:
         """Each ``equation:`` read, its names resolved (a bare name a parameter, a reference a part),
@@ -1475,7 +1538,7 @@ class Compiler:
             self.err(f"{what}: a {t} block needs in: (the signal it works on)", m.where, "missing-key")
         from ..leases import compile as leases
         from . import triggers
-        lease_keys = {"takes": leases.takes(self, m, what), "pool": leases.pool(self, m, what),
+        lease_keys = {"takes": leases.takes(self, m, what), **dict(zip(("pool", "pool_now"), leases.pool(self, m, what), strict=True)),
                       "lease": leases.terms(self, m, "lease", what), "on": triggers.compile_on(self, m, what)} \
             if t in MACHINE else {}
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,

@@ -518,6 +518,8 @@ class Segments:
                     if limit and len(out) >= limit:
                         return out[:limit]
                     for r in self._rows(s, item, types, since, until, after_seq, before_seq, item_test):
+                        if limit and len(out) >= limit:
+                            break
                         e = self._event(s, r)
                         if test is None or test(e):
                             out.append(_row(e))
@@ -641,7 +643,7 @@ class Segments:
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
               since: float | None = None, after_seq: int | None = None, until: float | None = None,
               skip: tuple[str, ...] = (), unvoided: bool = False, machine: str | None = None,
-              before_seq: int | None = None) -> list[dict]:
+              before_seq: int | None = None, first: int | None = None) -> list[dict]:
         tests = []
         if source is not None:
             tests.append(lambda e: e.get("source") == source)
@@ -652,8 +654,11 @@ class Segments:
             if void:
                 tests.append(lambda e: e["id"] not in void)
         test = (lambda e: all(t(e) for t in tests)) if tests else None
-        return self._scan(n=n, item=item if item is not None else ..., type=type, skip=tuple(skip), since=since, until=until,
-                          after_seq=after_seq, before_seq=before_seq, test=test)
+        if first is not None and first <= 0:
+            return []
+        return self._scan(n=None if first is not None else n, item=item if item is not None else ..., type=type,
+                          skip=tuple(skip), since=since, until=until, after_seq=after_seq, before_seq=before_seq,
+                          test=test, limit=first)
 
     def get(self, id: str) -> dict | None:
         segs, head = self._state()
@@ -969,10 +974,26 @@ class Segments:
             self._edit(rows, lambda e: e["seq"] not in gone, put)
             self._bump()
 
+    def prunable(self, before: float) -> int:
+        """How many events ``prune(before)`` would forget, counted from the columns without forgetting any."""
+        rows, old = self._prunable(before)
+        segs, head = self._state()
+        return sum(len(rows(s)) for s in segs) + sum(1 for e in head if e["time"] < before
+                                                    and old(e.get("item"), e["type"], e["seq"]))
+
     def prune(self, before: float) -> int:
         """As ``store.Events.prune``: older than ``before``, but the model's history, each loop's last
         crossing, and every item that has anything newer. Only the segments that lose something are
         rewritten, read by their columns."""
+        rows, old = self._prunable(before)
+        with self._writing():
+            gone = self._edit(rows, lambda e: e["time"] >= before or not old(e.get("item"), e["type"], e["seq"]))
+            if gone:
+                self._bump()
+        return gone
+
+    def _prunable(self, before: float):
+        """What ``prune`` forgets: a segment's rows (``rows``) and whether one event goes (``old``)."""
         alive = {it for it, t in self.last_times().items() if t >= before}
         last_loop: dict[str | None, int] = {}            # each loop's last crossing, of all time, from the columns
         segs, head = self._state()
@@ -1002,11 +1023,7 @@ class Segments:
             c = self._cols(s)
             return {r for r in range(s.count) if c["time"][r] < before
                     and old(s.items[c["item"][r]], s.types[c["type"][r]], c["seq"][r])}
-        with self._writing():
-            gone = self._edit(rows, lambda e: e["time"] >= before or not old(e.get("item"), e["type"], e["seq"]))
-            if gone:
-                self._bump()
-        return gone
+        return rows, old
 
     def size(self) -> int:
         return sum(f.stat().st_size for f in self.dir.glob("*") if f.is_file())

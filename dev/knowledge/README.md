@@ -18,7 +18,9 @@ headings of one id.
 specific: a class of mistake with where it was seen and the check, not a story. Their ids: `rules-process` (the first
 word of each house-rule heading), `lesson-3` (each `## 3. Title`), and `<kind>-<slug of the heading>` for the other
 kinds (`finding-stale-cache`). Every brief carries the rules and lessons, then, within the `[knowledge]` budget of
-`dev/factory.toml`, the relevant decisions, related gaps, past findings on the files it touches and the module map; its
+`dev/factory.toml`, the relevant decisions, related gaps, past findings on the files it touches and the module map
+(cached by main's sha in `run/modules/`, safe for sessions starting together: one read, a missing or half-written file
+made again, a whole write renamed into place, and a prune that keeps its own sha's file and skips one already gone; a temp file left by a killed session is removed after ten minutes); its
 recorded context lists the ids it carried and dropped. Entries of the four other kinds are synced as items but not yet
 carried in briefs. Each entry is an item, `knowledge/<id>` (active, or retired once no file holds it), kept by the
 collector `knowledge-sync` (`knowledge.py sync`) from the running version's files, with how many briefs carried it
@@ -32,6 +34,16 @@ or supersedes it as any decision (`docs/DECISIONS.md`). A brief carries the conf
 proposed) whose scope names a word of the gap's text, recording their `ergostat.decision/...` ids; never a dismissed or
 superseded one. If the items cannot be read, the brief is not built. Editing a heading makes a new decision; editing
 only the body changes nothing already proposed.
+
+**What an entry is about.** An entry may end with an *About:* line naming the parts of the root model (`ergostat.yaml`
+and `dev/model/`) it bears on, comma-separated: `*About:* goal.first-pass-good, goal.few-fix-rounds.` `knowledge.py
+sync` puts the names on the item's `about` field (the whole list each time; the line taken out, or the entry retired
+and back without it, clears it), and the `knowledge` kind declares `about: about` (SPEC §5a, *About*). So `ergostat
+explain goal.first-pass-good` ends with the open (active) entries about that goal, at most 5 and "and N more"; retired
+ones are not listed. An off loop in `ergostat` names at most 3 (and "+N"), and a `check` finding about the goal
+carries their ids. A name that is no part of the model is the finding `about-missing-part`. The lessons about the
+pipeline (4, 6, 7, 8, 9, 10, 12, 13) and the Process and Machine rules name the goals they bear on;
+`tests/test_factory_knowledge.py` checks every name is a part of the root model.
 
 **Kept current by the factory itself.** After each review, the librarian (`dev/bin/librarian.py`) compares the findings
 with `review-lessons.md`: a finding of a class already listed proposes a "seen as" line when it's a new shape; a class

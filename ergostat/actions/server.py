@@ -49,7 +49,8 @@ class Server:
             if a is None:
                 continue
             gate = {"auto": "it runs at once", "approve": "it is held until the owner approves it, then runs",
-                    "deny": "it is denied: never run"}[a.gate]
+                    "deny": "it is denied: never run"}[a.gate] + \
+                ("; held or denied when this act is riskier than its class" if a.severity is not None else "")
             out.append({"name": name, "description": f"{a.description or name} (gated: {gate}; its output is the answer). "
                         f"The only way to do this: do not try it any other way.",
                         "inputSchema": {"type": "object", "properties": {k: {"type": "string", "description": v}

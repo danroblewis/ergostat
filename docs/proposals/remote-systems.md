@@ -25,8 +25,8 @@ brought it in), and refusing edits to a part that belongs to someone else.
   how fast we must answer). We never close a loop *through* its actuators: a local block may not output to a
   remote flow, block or goal. Where we want it to act differently, we propose that to its owner.
 - **Process mining**: its items are objects of other kinds in another log. The local process map draws the
-  remote's map beside ours, frame by frame, marked remote; lines between our items and theirs need a shared id
-  and are left to a later slice.
+  remote's map beside ours, frame by frame, marked remote; a line between one of our items and one of theirs
+  is drawn where our item names theirs through a relation to the remote's kind (the id both logs carry).
 
 ## 1. What a remote ergostat serves
 
@@ -172,19 +172,21 @@ attention.
 
 **Events in place, with a cursor.** The remote's events are read by `seq` cursor, a page of at most 1,000 at a
 time, at most five pages a refresh, into a cache kept in memory and bounded by the window (one day by default,
-20,000 events at most). The cursor is the last `seq` read. The cache serves `ergostat remote events NAME` (and,
-later, the Record page); the remote's items are read in place through its own `/items` and `/counts`.
+20,000 events at most). The cursor is the last `seq` read. The cache serves `ergostat remote events NAME` and the
+Record page (`/record?remote=NAME`), read at most once a period; the remote's items are read in place through its
+own `/items` and `/counts`, at most 8 requests a remote a period (SPEC §4c).
 
 **What the local fold sees of remote items: nothing.** The local item index is the fold of the local record
 (invariant 10); the remote's items are folded where they live. So:
 
 - local `items:` sensors count local items only; to count the remote's, read the remote stock that counts
   them (its sensor is mirrored), or `query: {source: incidents, ref: stock.open}`;
-- the Items page and `ergostat item` list local items; a remote's items are to be listed through its API,
-  marked remote, linking to its own page (a later slice);
+- the Items page and `ergostat item` list local items; the Items page also shows each remote's counts and newest
+  items, asked through its API, in a section marked remote, each linking to a read-only view and to its own page;
 - the process map draws the remote's own map (from `/remote/v1/process`) beside ours; a line between one of
-  our items and one of theirs needs an id both logs carry (a reference in an event's data) and is not drawn
-  in the first slice;
+  our items and one of theirs needs an id both logs carry (a reference in an event's data): a relation naming
+  the remote's kind (`blocked_by: incidents-incident`), drawn to the step the remote says the item was last at
+  (`at=`; built on `remote-process-lines`);
 - coherence (§12l) holds the three views of the **local** model against the **local** record; the remote's
   parts are left out of it (the remote checks its own), as they are of "not exercised by the record".
 
@@ -196,9 +198,10 @@ later, the Record page); the remote's items are read in place through its own `/
   state to integrate: a remote stock in a replay is an input series, like a measured disturbance.
 - **The modelling loop never changes a remote part.** A proposal that would add, remove or change a remote part
   (an estimate, an equation, a rewiring) is refused like an edit to a template's part, and says why. It may
-  instead write the change **as text for the remote's owner**: what to change, the evidence, the fit it would
-  give. Those are kept as proposals marked `for-remote: NAME` and shown, never applied; sending them is the
-  owner's act (an outbound message, by a valve the owner grants).
+  instead write the change **as text for the remote's owner**, in the remote's names: what to change, and the
+  evidence (the points, the window and the series read). Those are kept as proposals marked `for_remote` (the
+  remote and the version of its model read) and shown by `ergostat remote proposals`, never applied; sending
+  them is the owner's act, never ergostat's (built: SPEC §4c, "Proposals for its owner").
 - **Structure on our side is ours to change**: a local flow driven by a remote stock, a goal on a remote measure,
   a new local stock fed from a remote flow, all as any proposal.
 
@@ -235,10 +238,12 @@ model reads the cache and fetches only when the cache is older than `every`.
    remote *incidents* model; the remote's model changes while both run and the local follows; the remote
    stops and the local marks its data stale.
 
-**Left for later**: the event cache feeding the Items and Record pages; cross-log lines in the process map;
-proposals written for the remote's owner (the refusal is built, the text is not); serving the IR
-(`?format=ir`); a remote that is itself composed of remotes (a remote's own imported parts are not served);
-mutual TLS.
+**Left for later**: the event cache feeding the Items and Record pages; serving the IR (`?format=ir`). (Four
+are built: lines in the process map between our items and a remote's (`remote-process-lines`);
+proposals written as text for the remote's owner, SPEC §4c "Proposals for its owner"; a remote that is itself
+composed of remotes, whose imported parts are served with the chain of instances they came through, SPEC §4c;
+and mutual TLS (`remote-mtls`, SPEC §4c): `web: mtls:` serves the remote API alone on a listener of its own,
+to client certificates one CA signed, and a `remotes:` entry's `tls:` reads it.)
 
 ## 9. Decisions, in one place
 

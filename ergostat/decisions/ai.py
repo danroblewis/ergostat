@@ -100,17 +100,67 @@ def command(model: str | None, budget: float | None, system: str | None = None) 
     return cmd
 
 
-def call(prompt: str, model: str | None, budget: float | None, spent: Spent, timeout: float = 600,
-         system: str | None = None) -> str:
-    """One call: what it answered, and its cost added to ``spent`` (``system``: its system prompt, else the extractor's;
-    the intent judge's is its own, SPEC §12i)."""
+def _grouped(cmd: list[str], prompt: str, timeout: float) -> subprocess.CompletedProcess:
+    """``subprocess.run`` in a session of its own: at the timeout the whole process group is killed (its children
+    too, which would otherwise keep the pipes open), then reaped."""
+    import signal
+    with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          start_new_session=True) as pr:
+        try:
+            out, err = pr.communicate(prompt, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(pr.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            pr.communicate()
+            raise
+        except BaseException:
+            try:
+                os.killpg(pr.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            raise
+    return subprocess.CompletedProcess(cmd, pr.returncode, out, err)
+
+
+def call(prompt: str, model: str | None, budget: float | None, spent: Spent, *a, permit: dict | None = None,
+         **k) -> str:
+    """One call (``_once``). ``permit``, from ``costs.budget.ask`` (SPEC §9.9): the call is capped at its reserve
+    (``--max-budget-usd``, whatever ``$ERGOSTAT_AI`` is) and its permit closed at its end, however it ends, with the
+    cost it reported (none, or one that is not a finite number of at least 0: charged its reserve)."""
+    if permit is None:
+        return _once(prompt, model, budget, spent, *a, **k)
+    from ..costs import budget as bg
+    k["seen"] = seen = k["seen"] if k.get("seen") is not None else {}
+    k["capped"] = True
     try:
-        r = subprocess.run(command(model, budget, system), input=prompt, capture_output=True, text=True, timeout=timeout)
+        return _once(prompt, model, permit["reserve"], spent, *a, **k)
+    finally:
+        bg.done(permit, seen.get("cost"))
+
+
+def _once(prompt: str, model: str | None, budget: float | None, spent: Spent, timeout: float = 600,
+          system: str | None = None, group: bool = False, seen: dict | None = None, capped: bool = False) -> str:
+    """One call: what it answered, and its cost added to ``spent`` (``system``: its system prompt, else the extractor's;
+    the intent judge's is its own, SPEC §12i). ``group``: run in a session of its own, the group killed at the
+    timeout. ``capped``: ``--max-budget-usd`` given whatever ``$ERGOSTAT_AI`` is. ``seen``, when given, is filled with
+    the exit code, the reported cost (None: none) and ``is_error``."""
+    seen = seen if seen is not None else {}
+    seen.update(rc=None, cost=None, is_error=False, error=None)
+    cmd = command(model, budget, system)
+    if capped and budget and "--max-budget-usd" not in cmd:
+        cmd += ["--max-budget-usd", f"{budget:.2f}"]
+    try:
+        r = (_grouped(cmd, prompt, timeout) if group else
+             subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout))
     except (OSError, subprocess.TimeoutExpired) as e:
         spent.failed += 1
         spent.notes.append(f"call failed: {type(e).__name__}: {e}"[:300])
+        seen["error"] = f"{type(e).__name__}: {e}"[:300]
         return ""
     spent.calls += 1
+    seen["rc"] = r.returncode
     out = r.stdout
     try:
         d = json.loads(out)
@@ -118,6 +168,7 @@ def call(prompt: str, model: str | None, budget: float | None, spent: Spent, tim
         return out                                    # a plain command: its output is the answer
     if not isinstance(d, dict):
         return out
+    seen["cost"], seen["is_error"] = d.get("total_cost_usd"), bool(d.get("is_error"))
     spent.cost_usd += float(d.get("total_cost_usd") or 0)
     u = d.get("usage") or {}
     spent.tokens_in += sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
@@ -174,8 +225,10 @@ def verified(kind: str, d: dict, batch, spent: Spent) -> dict | None:
 
 
 def extract(exs: list[tuple[Turn, str, str]], model: str | None, cap: float | None, instructions: str | None = None,
-            earlier: dict | None = None, on_found=None) -> Spent:
-    """Run over the exchanges a batch at a time; each finding, checked, goes to ``on_found(kind, data)``."""
+            earlier: dict | None = None, on_found=None, p=None, spec=None) -> Spent:
+    """Run over the exchanges a batch at a time; each finding, checked, goes to ``on_found(kind, data)``. With
+    ``budget:`` in ``spec``, each call first asks the day's budget for its cap (none: ``max-cost``), SPEC §9.9."""
+    from ..costs import budget as bg
     spent = Spent()
     head = (instructions or PROMPT.read_text(encoding="utf-8")).rstrip()
     earlier = earlier if earlier is not None else {"decision": [], "correction": []}
@@ -186,7 +239,12 @@ def extract(exs: list[tuple[Turn, str, str]], model: str | None, cap: float | No
                 spent.stopped = f"the cost cap (${cap:.2f}) would be passed: stopped at line {batch[0][0].line}"
                 break
         left = None if cap is None else max(0.05, min(2.0, cap - spent.cost_usd))
-        text = call(head + "\n\n" + render(batch, earlier) + ANSWER, model, left, spent)
+        prompt = head + "\n\n" + render(batch, earlier) + ANSWER
+        permit, no = bg.ask(p, spec, "decisions-extract", left or getattr(getattr(spec, "budget", None), "max_cost", 0))
+        if no:
+            spent.stopped = f"budget: {no}: stopped at line {batch[0][0].line}"
+            break
+        text = call(prompt, model, left, spent, permit=permit)
         for kind, d in answers(text):
             got = verified(kind, d, batch, spent)
             if got is None:

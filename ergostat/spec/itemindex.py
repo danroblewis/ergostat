@@ -16,7 +16,8 @@ folds only what is newer than it.
   written and replaced with it: an item has no text row to lose.
 - ``links``: every item's relations to other items (SPEC §5a, *Relations*), one row per link (the item, the
   relation, the id it names), indexed both ways, so an item's links and the links to it (the inverse: ``blocks``,
-  ``children``) are both one lookup.
+  ``children``) are both one lookup. A kind that declares ``about:`` keeps there too, as relation ``@about``, each
+  part of the model its items name (``goal.x``), as its field now holds them: "the items about goal.x" is one lookup.
 
 In memory, only items still open are kept folded (their fold state, a few thousand at most, the
 latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
@@ -37,12 +38,15 @@ itself (``events.db``, ``measurements.db``) never is (``store.RecordDamaged``)."
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import functools
 import hashlib
 import logging
 import os
+import re
 import sqlite3
+import stat
 import sys
 import threading
 import time
@@ -52,15 +56,19 @@ from pathlib import Path
 
 from ..store import damaged
 from . import codec
+from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 4                 # of the index's layout: a different one is rebuilt
+VERSION = 5                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links)
+ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
 IDLE = 86400.0              # an item with no event for this long is not kept in memory (storage: items: idle)
 KEPT_FILES = 6              # index files kept per record (a few models' kinds at once)
 TIDY_AGE = 3600.0           # an index file changed more recently than this is never tidied away
+MOST_FILES = 64             # the most index files ``use: upkeep``'s tidier may be told to keep
+NAME = re.compile(r"^[0-9a-f]{16}(\.[0-9]+)?\.db$")   # an index file's name: <hash>.db, <hash>.<n>.db
 
 log = logging.getLogger("ergostat")
 
@@ -94,7 +102,8 @@ def kinds_key(spec) -> tuple:
     """What a fold depends on in the model: its item kinds (a change being tried shares the index
     when it leaves them as they are)."""
     return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())),
-                  tuple(sorted(getattr(k, "relations", None) or {})))
+                  tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None),
+                  *((tuple(sorted(k.moves_from.items())),) if getattr(k, "moves_from", None) else ()))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 
@@ -183,12 +192,32 @@ def _current(d: Path, h: str) -> Path:
         n += 1
 
 
+def retired(p: Path) -> bool:
+    """Whether an index file is retired: its mark ``<hash>[.n].retired`` stands beside it (it is never opened again)."""
+    return _retired(p).exists()
+
+
+def files(d: Path) -> tuple[list[Path], list[Path]]:
+    """The index files in the items folder ``d``, (live, retired): only regular files named ``<hash>[.n].db`` directly
+    in ``d`` (resolved), never a symlink or anything else. OSError when ``d`` is missing or cannot be listed."""
+    root = d.resolve(strict=True)
+    live, old = [], []
+    for e in os.scandir(root):
+        p = root / e.name
+        try:
+            if NAME.match(e.name) and stat.S_ISREG(os.lstat(p).st_mode) and p.resolve().parent == root:
+                (old if retired(p) else live).append(p)
+        except FileNotFoundError:
+            pass                                     # deleted meanwhile by another process's tidy
+    return live, old
+
+
 def _touched(p: Path) -> float:
     """When an index file last changed: its WAL takes the writes between checkpoints."""
     t = 0.0
     for suf in ("", "-wal", "-shm"):
         try:
-            t = max(t, os.stat(str(p) + suf).st_mtime)
+            t = max(t, os.lstat(str(p) + suf).st_mtime)
         except OSError:
             pass
     return t
@@ -455,9 +484,9 @@ class Index:
                                 "arrived=?, raw=?, raw_first=?, body=?, text=? where rid=?", (*values, rid))
             if restored:
                 self.db.execute("delete from moves where rid = ?", (rid,))
-            if k is not None and k.relations:                  # its links, as its fields now hold them
+            if k is not None and (k.relations or k.about):     # its links, as its fields now hold them
                 self.db.execute("delete from links where rid = ?", (rid,))
-                got = links_of(k, it.fields)
+                got = links_of(k, it.fields) + [(ABOUT, t) for t in parts_named(it.fields.get(k.about) if k.about else None)]
                 if got:
                     self.db.executemany("insert into links(rid, rel, dst) values (?,?,?)",
                                         [(rid, self.nid(r), t) for r, t in got])
@@ -711,13 +740,13 @@ class Index:
 
     @_healing
     def links_from(self, ids) -> list[tuple[str, str, str]]:
-        """(item, relation, the id it names) of each link the items ``ids`` hold."""
+        """(item, relation, the id it names) of each link the items ``ids`` hold (the ``@about`` links are not to items)."""
         ids, out = list(ids), []
         for i in range(0, len(ids), 500):
             part = ids[i:i + 500]
             out += [(a, self.name(r), d) for a, r, d in self.db.execute(
                 f"select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid where i.id in ({','.join('?' * len(part))})",
-                part)]
+                part) if self.name(r) != ABOUT]
         return out
 
     @_healing
@@ -728,7 +757,23 @@ class Index:
             part = ids[i:i + 500]
             out += [(a, self.name(r), d) for a, r, d in self.db.execute(
                 f"select i.id, l.rel, l.dst from links l join items i on i.rid = l.rid where l.dst in ({','.join('?' * len(part))})",
-                part)]
+                part) if self.name(r) != ABOUT]
+        return out
+
+    @_healing
+    def about(self, parts=None) -> list[tuple[str, str]]:
+        """(item, part) for each item that names one of the model's ``parts`` (None: any) in its kind's ``about:`` field:
+        the link rows only, by the index on the part named."""
+        rel = self.known(ABOUT)
+        if rel == -1:
+            return []
+        sql, args = "select i.id, l.dst from links l join items i on i.rid = l.rid where l.rel = ?", [rel]
+        if parts is None:
+            return [tuple(r) for r in self.db.execute(sql, args)]
+        parts, out = list(parts), []
+        for i in range(0, len(parts), 500):
+            part = parts[i:i + 500]
+            out += [tuple(r) for r in self.db.execute(f"{sql} and l.dst in ({','.join('?' * len(part))})", (*args, *part))]
         return out
 
     @_healing
@@ -841,8 +886,9 @@ def index_for(events, spec, transcript: bool) -> Index | None:
     with _OPEN_LOCK:
         ix = _OPEN.get(at)
         if ix is None:
-            if not path.exists():
-                _tidy(path.parent)
+            if not path.exists() and not upkept(spec):  # (under use: upkeep its tidier does it: SPEC §2a, Upkeep)
+                with contextlib.suppress(OSError):    # (a folder that cannot be listed: nothing tidied, as before)
+                    _tidy(path.parent, new=True)
             ix = _OPEN[at] = Index(path, spec, transcript, idle)
             while len(_OPEN) > OPEN_MOST:
                 _OPEN.popitem(last=False)[1].close()
@@ -854,25 +900,48 @@ def index_for(events, spec, transcript: bool) -> Index | None:
     return ix
 
 
-def _tidy(d: Path) -> None:
-    """At most ``KEPT_FILES`` indexes per record: the least recently changed go, but only those no
-    process has open (the exclusive lock taken without waiting) and none changed in ``TIDY_AGE``.
-    Retired files go as soon as no process has them open."""
+def upkept(spec) -> bool:
+    """Whether the model hands the index files to ``use: upkeep`` (ergostat's own template): then the engine does not
+    tidy them; the template's ``index-tidier`` block does (``library/run/upkeep.py``)."""
+    return any(isinstance(u, dict) and u.get("template") == "upkeep" and not u.get("owners")
+               for u in (getattr(spec, "uses", None) or {}).values())
+
+
+def _tidy(d: Path, keep: int | None = None, new: bool = False) -> dict:
+    """At most ``keep`` (``KEPT_FILES``) indexes per record, one fewer when one is about to be made (``new``): the
+    least recently changed go, but only those no process has open (the exclusive lock taken without waiting) and none
+    changed in ``TIDY_AGE``, checked again once the lock is held. Retired files go as soon as no process has them
+    open, whatever their age (never opened again). Only index files (``files``) are touched. Returns how many live
+    files were removed, retired ones removed, live ones left, and how many skipped as held or young; OSError when
+    ``d`` exists and cannot be listed."""
+    keep = KEPT_FILES if keep is None else keep
+    out = {"removed": 0, "retired": 0, "left": 0, "held": 0, "young": 0}
     if not d.exists():
-        return
-    files = list(d.glob("*.db"))
-    retired = [p for p in files if _retired(p).exists()]
-    for p in retired:
+        return out
+    live, old = files(d)
+    for p in old:
         if (fd := _take(p)) is not None:
             _remove(p, fd)                          # (its mark stays: the name is not used again)
-    got = sorted((p for p in files if p not in retired), key=_touched)
-    now = time.time()
-    for p in got[:max(0, len(got) - KEPT_FILES + 1)]:
-        if now - _touched(p) < TIDY_AGE:
+            out["retired"] += 1
+        else:
+            out["held"] += 1
+    got = sorted(live, key=_touched)
+    for p in got[:max(0, len(got) - keep + (1 if new else 0))]:
+        if time.time() - _touched(p) < TIDY_AGE:
+            out["young"] += 1
             continue
-        if (fd := _take(p)) is not None:
-            _remove(p, fd)
+        if (fd := _take(p)) is None:
+            out["held"] += 1
+            continue
+        if time.time() - _touched(p) < TIDY_AGE:     # changed between the look and the lock: kept
+            os.close(fd)
+            out["young"] += 1
+            continue
+        _remove(p, fd)
+        out["removed"] += 1
     _unmark(d)
+    out["left"] = len(files(d)[0])
+    return out
 
 
 def _unmark(d: Path) -> None:

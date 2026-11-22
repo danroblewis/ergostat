@@ -8,9 +8,17 @@ from __future__ import annotations
 
 import time
 
+from ..spec.ir import MODELLING_REQUEST
+
 WEEK, DAY = 7 * 86400.0, 86400.0
 PROMOTE = 5                         # approved this many times, none denied: suggested up the ladder
 BY_AGENT = "owner via mcp"          # who an answer given through the MCP is recorded as
+AI_APPROVER = "ai approver ("       # who the repair loop's AI approver is recorded as (``ai approver (MODEL)``)
+
+
+def by_agent(source) -> bool:
+    """An answer an agent gave, not the owner: through the MCP, or the AI approver (SPEC §12r)."""
+    return source == BY_AGENT or str(source or "").startswith(AI_APPROVER)
 
 
 def by_person(source) -> bool:
@@ -59,6 +67,23 @@ def asked(p, spec, since: float, until: float) -> list[dict]:
     for item, (cls, t0) in made.items():
         if item.split("/", 1)[1] in waiting:
             one(cls, item, t0, None, None)
+    held: dict[str, float] = {}
+    code: dict[str, str] = {}
+    for e in p.events.query(n=None, type=f"{MODELLING_REQUEST}.*", until=until) if MODELLING_REQUEST in spec.items else []:
+        what, t0 = e["type"].rsplit(".", 1)[1], held.get(e["item"])
+        code.setdefault(e["item"], e["data"].get("code"))
+        if what == "held" and t0 is None:
+            held[e["item"]] = e["time"]              # held for a decision: asked of a person, in the inbox
+        elif t0 is not None and what != "held":      # answered: dismissed or approved by someone, or moved on by itself
+            mine = what == "dismissed" or bool(e["data"].get("approved_by"))
+            if t0 >= since:
+                one(f"request:{code[e['item']]}", e["item"], t0, e["time"], ("denied" if what == "dismissed" else
+                    "approved") if mine else "superseded", e["source"] if mine else None,
+                    e["data"].get("note") if mine else None)
+            del held[e["item"]]
+    for item, t0 in held.items():
+        if t0 >= since:
+            one(f"request:{code[item]}", item, t0, None, None)
     return out
 
 
@@ -79,7 +104,7 @@ def by_class(p, spec, now: float | None = None) -> dict[str, dict]:
         if x["answered"] is None:
             r["waiting"] += 1
         elif x["verdict"] != "superseded":
-            r["by_agent" if x.get("by") == BY_AGENT else "denied" if x["verdict"] == "denied" else "approved"] += 1
+            r["by_agent" if by_agent(x.get("by")) else "denied" if x["verdict"] == "denied" else "approved"] += 1
             r["times"].append(x["answered"] - x["time"])
     for cls, r in out.items():
         t = sorted(r.pop("times"))
@@ -94,7 +119,7 @@ def suggest(cls: str, r: dict) -> str | None:
     """One line up the ladder for a class always approved by the owner; None for the rest (a person's own work, an
     alarm: their remedies are the interventions loop's)."""
     kind, _, name = cls.partition(":")
-    if r["approved"] < PROMOTE or r["denied"] or kind in ("person", "steptest", "alarm"):
+    if r["approved"] < PROMOTE or r["denied"] or kind in ("person", "steptest", "alarm", "request"):
         return None
     said = f"{r['approved']} approvals of {cls} this week, all approved: consider "
     if kind == "advise":
@@ -105,9 +130,11 @@ def suggest(cls: str, r: dict) -> str | None:
 
 
 def asked_today(p, spec, now: float | None = None) -> list[str]:
-    """The class of each thing asked of a person over the last day (ergostat's own notifications left out)."""
+    """The class of each thing asked of a person over the last day (ergostat's own notifications, and what the AI
+    approver answered, left out)."""
     now = time.time() if now is None else now
-    return [x["class"] for x in asked(p, spec, now - DAY, now) if x["class"] != "notify"]
+    return [x["class"] for x in asked(p, spec, now - DAY, now)
+            if x["class"] != "notify" and not str(x.get("by") or "").startswith(AI_APPROVER)]
 
 
 def record_said(r: dict) -> str:

@@ -15,7 +15,7 @@ from .common import PART_TOPICS
 from .impact_cmd import cmd_impact
 from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
-from .numbers import cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
+from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
 from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
@@ -68,6 +68,7 @@ see it
   system         Draw a system (--blocks: each loop as a block diagram; --wiring: who talks to whom)
   loop           The feedback loops: what each holds, how far off, each part along it
   item           The items (ticket/12): each one's kind, state and fields, folded from its events; --search WORDS
+                 (ID --near [N], ID --path B, ID --about: what its relations and mentions reach, 2,000 items at most)
   lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
   decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
   corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
@@ -214,6 +215,9 @@ def build() -> argparse.ArgumentParser:
                                                      "characters of each item's text)")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
+    i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N hops (1-4, default 1)")
+    i.add_argument("--path", dest="path_to", metavar="B", help="with an item: a shortest chain of relations to B, either way")
+    i.add_argument("--about", dest="about_item", action="store_true", help="with an item: what relates to it or names its id")
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")
     ls.add_argument("--redrive", action="store_true", help="with ITEM: give a dead letter another go (its attempts from nothing)")
     ls.add_argument("--to", metavar="STATE", help="with --redrive: the state it goes back to (default: where it was taken from)")
@@ -286,6 +290,12 @@ def build() -> argparse.ArgumentParser:
     im.add_argument("--redesign", nargs="?", const="model", metavar="SYSTEM",
                     help="ask for a redesign of a system (or the whole model): one change set, judged by its scorecard; "
                          "the template's redesigner takes it up on its next run and puts what it makes in the review queue")
+    im.add_argument("--architecture", nargs="?", const="", metavar="SYSTEM",
+                    help="review a system (or every system of the model's own) against the Viable System Model and its "
+                         "purpose, one AI call each; what it finds is held for you as modelling requests")
+    im.add_argument("--model", help="with --architecture: the AI model (default haiku)")
+    im.add_argument("--max-cost", type=_max_cost, default=1.0, metavar="USD",
+                    help="with --architecture: the run's dollars at most (default 1.00, at most 5.00)")
     for t in PART_TOPICS:
         sp = topic(t, cmd_part, f"The {t}s, or one")
         sp.set_defaults(fn=cmd_part, topic=t)

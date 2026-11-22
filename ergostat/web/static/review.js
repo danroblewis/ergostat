@@ -250,7 +250,7 @@ function reviewEntry(e, { onDone }) {
                     where.files.length ? h("div", { class: "small muted mono" }, where.files.map((f) => `${f.file}:${f.lines.join(",")}`).join("  ")) : null)],
         ["made by", e.by_block ? proposedBy(e) : e.made_by === "owner" ? "you (a what-if)" : null],
         ["why", e.by_block && (e.reasons || []).length ? reasonsView(e.reasons) : e.why],
-        ["scorecard", e.redesign?.rescoring ? h("div", { class: "small muted" }, "rescoring: carried to the model as it is, the judge scores it again")
+        ["scorecard", e.redesign?.rescoring ? h("div", { class: "small muted" }, e.redesign.rescore_error ? `rescoring: ${e.redesign.rescore_error}; the judge scores it again once it can be read` : "rescoring: carried to the model as it is, the judge scores it again")
           : e.redesign?.scorecard?.why ? h("div", { class: e.redesign.scorecard.verdict === "better" ? "small s-ok" : "small s-open" }, e.redesign.scorecard.why) : null],
         ["judged", e.verdict ? h("div", { class: e.verdict.verdict === "dropped" ? "s-open small" : "small" }, `${e.verdict.verdict === "testing" ? "testing" : e.verdict.verdict}: ${e.verdict.why}`) : null],
         ["reviewed", e.review ? h("div", { class: e.review.verdict === "pass" ? "small" : "s-open small" }, `${e.review.verdict}: `,
@@ -283,7 +283,7 @@ function proposableView(d) {
     table(["change", "found by"], (d.can || []).map((c) => h("tr", {}, h("td", {}, c.what), h("td", { class: "small" }, c.how))), "can"),
     h("h3", {}, "Not yet"),
     h("ul", { class: "plain" }, ...(d.cannot || []).map((x) => h("li", {}, x))),
-    h("p", { class: "muted small" }, "The residual-pattern structure finder, for missing stocks, flows and delays and for replacements, is the next piece of work."),
+    h("p", { class: "muted small" }, "From the residuals ergostat finds one kind of missing structure: a delay on a measured stock's inflow (as DELAY3, or as a stock in transit). Not a missing outflow or cause, a delay on an outflow, or a part replaced by another form."),
     ...((d.not_made || []).length ? [h("h3", {}, "Found, and not proposed"),
       table(["change", "why not"], d.not_made.map((x) => h("tr", {}, h("td", {}, x.title), h("td", { class: "small" }, x.why))), "can")] : []));
 }

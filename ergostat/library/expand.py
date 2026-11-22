@@ -38,9 +38,12 @@ from dataclasses import dataclass
 
 from ..spec.ir import NAME, SETPOINT
 from ..spec.load import Problem, Where
-from .templates import Param, Template
+from .templates import Param, Template, trusted
 
-A, B = "\x00", "\x01"                      # around what a parameter brought in: never renamed
+A, H, B = "\x00", "\x02", "\x01"            # A who,type,how,ok H text B: what a parameter brought in, never renamed
+F = "\x03"                                  # before a run holding a field: its writer can't be told
+MARK = re.compile(f"{A}([^{A}{H}{B}]*){H}([^{A}{H}{B}]*){B}")
+OWNER, COMMAND, ERGOSTAT, FOLDER, LIBRARY = "o", "c", "e", "f", "l"    # who wrote a value (SPEC §2a, *Writers*)
 VAR = re.compile(r"\$\{([a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)?)(?::([a-z]+))?(?:\|([^}]*))?\}")
 WHOLE = re.compile(r"^\$\{([a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)?)(?::([a-z]+))?(?:\|([^}]*))?\}$")
 REF = re.compile(r"(?<![\w.-])(stock|flow|goal|block|auxiliary|variable|parameter|system)\.([a-z][a-z0-9-]*)")
@@ -54,6 +57,7 @@ BARE = {("flows", "from"): "stocks", ("flows", "to"): "stocks", ("goals", "stock
 IN_SYSTEM = ("items", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks")
 FALSE = {"", "false", "no", "0", "off", "none"}
 USE_KEYS = {"use", "with", "within", "description"}
+BUILTIN_NAMES = ("name", "python", "ergostat", "lib", "here", "folder")
 MAX_DEPTH = 6
 
 
@@ -76,15 +80,54 @@ class ExpandError(Exception):
 
 @dataclass
 class Given:
-    """A parameter's value, whole (a number, a list): a leaf, never renamed."""
+    """A parameter's value, whole (a number, a list): a leaf, never renamed. ``meta``: who wrote it, as in a mark."""
     value: object
+    meta: tuple | None = None
+
+
+PY = shlex.quote(sys.executable)
+LIB = f"{PY} -m ergostat.library.run"
 
 
 def builtins(name: str, t: Template) -> dict:
-    py = shlex.quote(sys.executable)
-    return {"name": (name, False), "python": (py, False), "ergostat": (f"{py} -m ergostat", False),
-            "lib": (f"{py} -m ergostat.library.run", False), "here": (shlex.quote(str(t.path.parent)), False),
-            "folder": (str(t.path.parent), False)}
+    return {"name": (name, None), "python": (PY, None), "ergostat": (f"{PY} -m ergostat", None),
+            "lib": (LIB, None), "here": (shlex.quote(str(t.path.parent)), None), "folder": (str(t.path.parent), None)}
+
+
+def author(t: Template) -> str:
+    """Who wrote a template's own words: ergostat, the owner's folder, or a library."""
+    return ERGOSTAT if t.builtin else FOLDER if trusted(t) else LIBRARY
+
+
+def mark(meta: tuple, how: str | None, text: str) -> str:
+    """``meta``: (who wrote it, its parameter's type, "1" when its text is its type's narrow form)."""
+    return f"{A}{meta[0]},{meta[1]},{how or ''},{meta[2]}{H}{text}{B}"
+
+
+def texts(x) -> list[str]:
+    """Every text in it, keys too, and the mark of a whole value brought in."""
+    if isinstance(x, Given):
+        return [mark(x.meta, None, "")] if x.meta else []
+    if isinstance(x, dict):
+        return [y for k, v in x.items() for y in (*texts(k), *texts(v))]
+    if isinstance(x, list):
+        return [y for v in x for y in texts(v)]
+    return [x] if isinstance(x, str) else []
+
+
+def forged(x) -> bool:
+    """Text holding a mark's characters: only expand makes marks, so a template or value holding one is refused."""
+    return any(c in s for s in texts(x) for c in (A, H, B, F))
+
+
+def wrote(tw: str, raw, walked, writers: dict) -> str:
+    """Who wrote a value a template made of its own words and its parameters: a library, when the template is one's,
+    any parameter in it is a library's, or it holds a field (``${it.x}``, ``${p.first}``: whose words can't be told);
+    else the template's writer (SPEC §2a)."""
+    refs = [m.group(1) for s in texts(raw) for m in VAR.finditer(s)]
+    marks = [m.group(1) for s in texts(walked) for m in MARK.finditer(s)]
+    bad = any("." in r or writers.get(r, (LIBRARY,))[0] == LIBRARY for r in refs if r in writers or r not in BUILTIN_NAMES)
+    return LIBRARY if tw == LIBRARY or bad or any(m.startswith(LIBRARY) for m in marks) else tw
 
 
 def strip(x):
@@ -92,7 +135,7 @@ def strip(x):
     if isinstance(x, Given):
         return strip(x.value)
     if isinstance(x, str):
-        return x.replace(A, "").replace(B, "")
+        return MARK.sub(lambda m: m.group(2), x).replace(A, "").replace(H, "").replace(B, "").replace(F, "")
     if isinstance(x, list):
         return [strip(v) for v in x]
     if isinstance(x, dict):
@@ -171,34 +214,37 @@ class Scope:
         v, marked = self.names[head]
         if field and isinstance(strip(v), list) and field in ("first", "last", "count"):
             els = [x.get("name") if isinstance(x, dict) else x for x in strip(v)]
-            return (len(els) if field == "count" else (els[0] if field == "first" else els[-1]) if els else None), False
+            return (len(els) if field == "count" else (els[0] if field == "first" else els[-1]) if els else None), None
         if field:
             if not isinstance(v, dict):
                 raise ExpandError(f"${{{name}}}: {head} has no fields")
-            return v.get(field), False
+            return v.get(field), None
         return v, marked
 
-    def sub(self, s: str, mark: bool = True):
+    def sub(self, s: str, marks: bool = True, key=None):
+        if key == "run" and marks and any("." in m.group(1) for m in VAR.finditer(s)):
+            got = self.sub(s, marks)       # a field in a run: whose words it holds can't be told (SPEC §2a)
+            return F + got if isinstance(got, str) else got
         m = WHOLE.match(s)
         if m:
-            v, marked = self.look(m.group(1))
+            v, meta = self.look(m.group(1))
             if v is None and m.group(3) is not None:
                 return m.group(3)
             v = apply(strip(v), m.group(2), m.group(1))
             if v is None:
                 return None
-            if marked and mark:
-                return f"{A}{v}{B}" if isinstance(v, str) else Given(v)
+            if meta and marks:
+                return mark(meta, m.group(2), v) if isinstance(v, str) else Given(v, meta)
             return v
 
         def one(m):
-            v, marked = self.look(m.group(1))
+            v, meta = self.look(m.group(1))
             if v is None and m.group(3) is not None:
                 return m.group(3)
             v = apply(strip(v), m.group(2), m.group(1))
             text = "" if v is None else (v if isinstance(v, str) else json.dumps(v) if isinstance(v, list | dict) else
                                          str(_num(v)) if isinstance(v, float) else str(v).lower() if isinstance(v, bool) else str(v))
-            return f"{A}{text}{B}" if marked and mark else text
+            return mark(meta, m.group(2), text) if meta and marks else text
         return VAR.sub(one, s)
 
 
@@ -224,18 +270,18 @@ def each_scopes(scope: Scope, spec: dict) -> list[Scope]:
         var = {**e, "index": i + 1, "first": i == 0, "last": i == len(els) - 1,
                "next": names[i + 1] if i + 1 < len(els) else spec.get("last", "done"),
                "prev": names[i - 1] if i > 0 else spec.get("first")}
-        out.append(scope.more({as_: (var, False)}))
+        out.append(scope.more({as_: (var, None)}))
     return out
 
 
 DROP = object()
 
 
-def walk(x, scope: Scope):
+def walk(x, scope: Scope, key=None):
     if isinstance(x, Given):
         return x
     if isinstance(x, str):
-        return scope.sub(x)
+        return scope.sub(x, key=key)
     if isinstance(x, list):
         out = []
         for el in x:
@@ -245,7 +291,7 @@ def walk(x, scope: Scope):
                     if v is not None and v is not DROP:
                         out.append(v)
                 continue
-            v = walk(el, scope)
+            v = walk(el, scope, key)
             if v is not None and v is not DROP:
                 out.append(v)
         return out
@@ -253,11 +299,11 @@ def walk(x, scope: Scope):
         if "value" in x and ("if" in x) != ("unless" in x) and set(x) <= {"if", "unless", "value", "else"}:
             word = "if" if "if" in x else "unless"             # a value chosen: {if: C, value: V, else: E}
             hold = truthy(walk(x[word], scope)) == (word == "if")
-            return walk(x["value"], scope) if hold else walk(x["else"], scope) if "else" in x else DROP
+            return walk(x["value"], scope, key) if hold else walk(x["else"], scope, key) if "else" in x else DROP
         if "each" in x and "key" in x and "value" in x:
             got = {}
             for sc in each_scopes(scope, x):
-                k = strip(sc.sub(str(x["key"]), mark=False))
+                k = strip(sc.sub(str(x["key"]), marks=False))
                 v = walk(x["value"], sc)
                 if v is not None and v is not DROP:
                     got[k] = v
@@ -270,8 +316,8 @@ def walk(x, scope: Scope):
                     if isinstance(got, dict):
                         out.update(got)
                 continue
-            k2 = strip(scope.sub(k, mark=False)) if isinstance(k, str) else k
-            v2 = walk(v, scope)
+            k2 = strip(scope.sub(k, marks=False)) if isinstance(k, str) else k
+            v2 = walk(v, scope, k2)
             if v2 is None or v2 is DROP:
                 continue
             out[k2] = v2
@@ -305,7 +351,11 @@ def coerce(p: Param, v):
             raise ExpandError(f"{p.name}: at most {p.max} (max: {p.max}; not {raw!r})")
         return int(n) if t == "integer" else _num(n)
     if t == "duration":
-        hours(raw)
+        h = hours(raw)
+        if p.min is not None and not h >= p.min:
+            raise ExpandError(f"{p.name}: at least {p.min * 3600:g}s (not {raw!r})")
+        if p.max is not None and not h <= p.max:
+            raise ExpandError(f"{p.name}: at most {p.max * 3600:g}s (not {raw!r})")
         return raw
     if t == "setpoint":
         if not SETPOINT.match(str(raw)):
@@ -369,13 +419,20 @@ class Made:
     system: dict            # its own system's entry
     standins: list          # the parameters left to their stand-ins
     values: dict            # every parameter's value
+    marked: dict = None     # section → {name: entry with its marks}, for the gate (trust.py) to judge
+    writers: dict = None    # each nested use → {its with: key: who wrote the value}
 
 
-def params(t: Template, given: dict, scope: Scope) -> tuple[dict, list[str], list[tuple[str, str | None]]]:
+def params(t: Template, given: dict, scope: Scope, writers: dict | None = None):
     """Every parameter's value: given, else its default (else nothing). Also the stand-ins it runs on (each
-    parameter's ``stand-in:`` says what stands in when it, and every parameter saying the same, is left out), and
-    what is wrong (each with the key of ``with:`` it is about)."""
+    parameter's ``stand-in:`` says what stands in when it, and every parameter saying the same, is left out), what
+    is wrong (each with the key of ``with:`` it is about), and each value's mark: who wrote it, its type, and whether
+    its text is its type's narrow form. ``writers``: who wrote each given value; None for the owner's own ``with:``
+    (a value whose writer is not known counts as a library's)."""
+    from .trust import narrow_ok
     values: dict = {}
+    metas: dict = {}
+    tw = author(t)
     wrong: list[tuple[str, str | None]] = []
     for k in given:
         if k not in t.params:
@@ -384,18 +441,24 @@ def params(t: Template, given: dict, scope: Scope) -> tuple[dict, list[str], lis
                           f" (it takes: {', '.join(t.params) or 'none'})"), k))
     forced = bool(os.environ.get("ERGOSTAT_STANDINS"))           # a trial on stand-ins: what they stand in for is left out
     for n, p in t.params.items():
-        sc = scope.more({k: (v, False) for k, v in values.items()})
+        sc = scope.more({k: (v, None) for k, v in values.items()})
         try:
             if n in given and not (forced and p.standin):
                 v = given[n]
+                w = OWNER if writers is None else writers.get(n, LIBRARY)
+                if w in (OWNER, COMMAND):          # an owner's command only while it goes on, whole, as a command
+                    w = COMMAND if p.type == "command" and (writers is None or w == COMMAND) else OWNER
             elif p.has_default:
                 v = walk(p.default, sc)
+                w = wrote(tw, p.default, v, metas)
             elif p.required:
                 wrong.append((f"with.{n}: {t.name} needs it: {p.description or p.type}", None))
                 continue
             else:
-                v = None
-            values[n] = coerce(p, strip(v) if v is not DROP else None)
+                v, w = None, tw
+            raw = strip(v) if v is not DROP else None
+            values[n] = coerce(p, raw)
+            metas[n] = (w, p.type, narrow_ok(p.type, raw))
         except ExpandError as e:
             wrong.append((f"with.{str(e) if str(e).startswith(n + ':') else n + ': ' + str(e)}", n if n in given else None))
     groups: dict[str, list[str]] = {}
@@ -404,7 +467,7 @@ def params(t: Template, given: dict, scope: Scope) -> tuple[dict, list[str], lis
             groups.setdefault(str(p.standin), []).append(n)
     standins = [f"{' or '.join(ns)}: {what}" for what, ns in groups.items()
                 if not any(x in given and not (forced and t.params[x].standin) for x in ns)]
-    return values, standins, wrong
+    return values, standins, wrong, metas
 
 
 def local_names(t: Template, body: dict, inst: str, scope: Scope) -> tuple[dict, dict]:
@@ -429,7 +492,7 @@ def local_names(t: Template, body: dict, inst: str, scope: Scope) -> tuple[dict,
                         continue
                     name = str(name)
                 else:
-                    bare = str(strip(sc.sub(str(key), mark=False)))
+                    bare = str(strip(sc.sub(str(key), marks=False)))
                     name = bare if t.once else f"{inst}-{bare}"
                     renames.setdefault(section, {})[bare] = name
                 rows.append((name, entry, sc))
@@ -460,18 +523,25 @@ def rename(x, section: str, key: str | None, renames: dict):
     return "".join(p if p.startswith(A) else outside(p) for p in parts)
 
 
-def expand(t: Template, inst: str, given: dict) -> Made:
-    """The instance's sections. ExpandError (with the key of ``with:`` it is about) when it cannot be made."""
+def expand(t: Template, inst: str, given: dict, writers: dict | None = None) -> Made:
+    """The instance's sections. ExpandError (with the key of ``with:`` it is about) when it cannot be made.
+    ``writers``: who wrote each value given (None: the owner, in the owner's own ``with:``)."""
+    if forged(t.body) or forged([p.default for p in t.params.values()]) or forged(given):
+        err = ExpandError(f"template {t.name}, or a value given to it, holds a control character only ergostat's own "
+                          f"marks use")
+        err.forged = True
+        raise err
     scope = Scope(builtins(inst, t))
-    values, standins, wrong = params(t, given, scope)
+    values, standins, wrong, metas = params(t, given, scope, writers)
     if wrong:
         err = ExpandError("; ".join(w for w, _ in wrong), next((k for _, k in wrong if k), None))
         err.all = wrong
         raise err
-    scope = scope.more({k: (v, True) for k, v in values.items()})
+    scope = scope.more({k: (v, metas[k]) for k, v in values.items()})
     body = copy.deepcopy(t.body)
     rows, renames = local_names(t, body, inst, scope)
     sections: dict = {}
+    marked: dict = {}
     for section, entries in rows.items():
         out = sections.setdefault(section, {})
         for name, entry, sc in entries:
@@ -479,20 +549,35 @@ def expand(t: Template, inst: str, given: dict) -> Made:
             if got is DROP:
                 continue
             got = rename(got if got is not None else {}, section, None, renames)
+            marked.setdefault(section, {})[name] = got
             got = strip(got)
             if isinstance(got, dict) and section in IN_SYSTEM and not got.get("system"):
                 got["system"] = inst
             if section == "systems" and isinstance(got, dict) and not got.get("within"):
                 got["within"] = inst
             out[name] = got
+    subs: dict = {}
     for sub, entry in (body.get("uses") or {}).items():          # templates made of templates
         got = walk(entry, scope)
         if got is DROP:
             continue
+        name = f"{inst}-{strip(scope.sub(str(sub), marks=False))}"
+        raw, given_on = (entry.get("with") if isinstance(entry, dict) else None), got.get("with")
+        subs[name] = {k: nested(k, v, raw, metas, author(t)) for k, v in given_on.items()} if isinstance(given_on, dict) else {}
         got = strip(rename(got, "uses", None, renames))
         got.setdefault("within", inst)
-        sections.setdefault("uses", {})[f"{inst}-{strip(scope.sub(str(sub), mark=False))}"] = got
-    return Made(sections, {"description": t.description.split("\n")[0]}, standins, values)
+        sections.setdefault("uses", {})[name] = got
+    return Made(sections, {"description": t.description.split("\n")[0]}, standins, values, marked, subs)
+
+
+def nested(k, walked, raw, metas: dict, tw: str) -> str:
+    """Who wrote a value of a nested ``with:``: wholly one ``${p}``, p's writer; else as ``wrote`` says (SPEC §2a).
+    One whose text can't be found in the template counts as a library's."""
+    rv = raw.get(k) if isinstance(raw, dict) else None
+    m = WHOLE.match(rv) if isinstance(rv, str) else None
+    if m and not m.group(2) and m.group(3) is None and m.group(1) in metas:
+        return metas[m.group(1)][0]
+    return LIBRARY if rv is None else wrote(tw, rv, walked, metas)
 
 
 def problem(msg: str, where: Where | None, code: str, inst: str) -> Problem:

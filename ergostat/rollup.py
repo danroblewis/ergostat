@@ -1,7 +1,7 @@
 """Rolling up the record (SPEC §4b): an item's events older than a horizon replaced by one
 ``ergostat.item.snapshot`` event, the originals moved to a compressed archive, and the record kept
 to its ``keep``; the measurements rolled into their tiers. The engine does it every ``storage:
-rollup: every`` (an hour), and ``ergostat compact`` does it now.
+rollup: every`` (an hour, or the ``use: upkeep`` blocks instead), and ``ergostat compact`` now, under ``compaction``.
 
 A snapshot is a ``set`` (SPEC §5a: the whole document at once) of the item's document as of the
 last event it replaces, with what else the fold keeps in its ``data.rollup``: the state and when it
@@ -19,6 +19,8 @@ first and last time). The item page's full history reads it (``archived``)."""
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import gzip
 import json
 import os
@@ -27,6 +29,7 @@ import time
 import uuid
 from pathlib import Path
 
+from . import mirror
 from .spec.items import SNAPSHOT, TRANSCRIPT_TYPES, field_of, fold, kind_of
 
 MIN_EVENTS = 2              # a prefix of fewer events is left as it is: one event is already as small as a snapshot
@@ -153,6 +156,9 @@ def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: flo
     rollup = {**_meta(own), "lines": lines,
               "archived": {"events": archived, "segments": sorted({*(old.get("archived") or {}).get("segments", []), *segments})},
               "made": now}
+    cites = mirror.kept(old.get("cites"), [e for e in prefix if e["type"] != SNAPSHOT])
+    if cites:                                   # a mirror's greatest position, so it resumes from it (mirror.recorded)
+        rollup["cites"] = cites
     if lines:
         whole = fold(id, prefix, kind, history=True, transcript=True)
         rollup["transcript"] = {**_meta(whole), "set": whole.fields}
@@ -285,17 +291,48 @@ def archived(p, id: str, offset: int = 0, n: int = 200) -> dict | None:
     return {"item": id, "total": len(every), "archived": len(old), "offset": offset, "events": every[offset:offset + n]}
 
 
-def upkeep(p, now: float | None = None) -> dict:
-    """What the engine does every ``storage: rollup: every``: roll items up (never keeping more than
-    ``keep`` outside a snapshot), forget what is older than ``keep``, and roll the measurements into
-    their tiers."""
+LOCK = "compact.lock"        # <state>/compact.lock: held by whoever rolls up, prunes, forgets or rolls the measurements
+
+
+@contextlib.contextmanager
+def compaction(p):
+    """The record's compaction lock, an exclusive ``flock`` taken without waiting: True while held, False when another
+    has it (the caller does nothing, says ``busy``). It goes with its holder's process, so a killed one leaves it free."""
+    Path(p.dir).mkdir(parents=True, exist_ok=True)
+    with open(Path(p.dir) / LOCK, "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def record(p, now: float | None = None) -> dict:
+    """The record's part of ``upkeep`` (the caller holds ``compaction``): roll items up (never keeping more than
+    ``keep`` outside a snapshot), forget what is older than ``keep``, and the archive's months past it."""
     now = now if now is not None else time.time()
     keep = p.model.keep
-    out = {"rollup": compact(p, now, cap=keep), "pruned": p.events.prune(now - keep),
-           "archive_forgot": Archive(p.dir).forget(now - keep)}
-    if hasattr(p.measurements, "roll"):
-        out["measurements"] = p.measurements.roll(now)
-    return out
+    return {"rollup": compact(p, now, cap=keep), "pruned": p.events.prune(now - keep),
+            "archive_forgot": Archive(p.dir).forget(now - keep)}
+
+
+def measurements(p, now: float | None = None) -> dict | None:
+    """The measurements rolled into their tiers (the caller holds ``compaction``); None for a store without tiers to roll."""
+    return p.measurements.roll(now if now is not None else time.time()) if hasattr(p.measurements, "roll") else None
+
+
+def upkeep(p, now: float | None = None) -> dict:
+    """The engine's pass without ``use: upkeep``, and ``ergostat compact``: ``record`` then ``measurements``, under the
+    compaction lock; ``{"busy": True}``, nothing done, when another holds it."""
+    with compaction(p) as held:
+        if not held:
+            return {"busy": True}
+        out, me = record(p, now), measurements(p, now)         # (in that order)
+        return {**out, **({"measurements": me} if me is not None else {})}
 
 
 def vacuum(p) -> int:

@@ -3,15 +3,26 @@
     plan.py           the planner: takes a gap at open (or replan). In a read-only clone of main, given the task graph
                       (brief.graph), a session writes its definition of done (acceptance tests by name, a budget, the
                       review lessons that apply as risks, the files to touch). Or it splits the gap into sub-gaps
-                      (`depends-on` among them, `parent:` the gap, which waits in split until every one is merged), or
+                      (`depends-on` among them, `parent:` the gap, which waits in split until every one is merged; each
+                      at most 250 net lines, its <coverage> block saved as run/plans/<parent>.md), or
                       asks research questions and waits for their answers (a question dead, or unanswered after 12
                       waits, is planned without, and the brief says so). Each definition is linted (lint: no AI): one
                       that fails goes back with the findings (the 6th lint failure parks: a planner that cannot write
                       the format); a lint-clean one becomes run/defs/<branch>.md and the gap is ready at once (the
                       owner, 2026-11-20: the plan review is never a gate). Some are marked for the advisory plan review
-                      ([plan] review: sample, all or off; planreview.py). A gap whose definition the coordinator wrote
-                      is made ready as the intake does.
+                      ([plan] review = off marks none). A gap whose definition the coordinator wrote is made ready as
+                      the intake does. By the size class on the gap before it is planned (size_path; dev/README.md,
+                      *Planning by size*): S has no session (its title and text with the house rules, unreviewed), M
+                      one session under [ai] planner_m_session_usd (unreviewed), L the full planner, reviewed on a
+                      sample ([planning] l_review_share, per gap), XL must split; no class at all, and every sub-gap,
+                      take main's path (the full planner, [plan] sample_every's sample); a class not trusted, and
+                      every replan, the full planner, marked for review. The class is read as recorded before
+                      planning: today only a gap.requested event's data sets it. Each session's cost is also
+                      recorded as planning_cost_usd (the whole reservation when it fails).
     plan.py splits    a split gap whose sub-gap parked (or died) parked too, saying which (a program, every 5m)
+    plan.py join      the join judge: takes a split gap at joined (every sub-gap merged); a session reads its entry,
+                      coverage and sub-gaps against main: covered merges it, short requests a sub-gap for what is not
+                      built and splits it again (the short after MOST_SHORT parks it)
     plan.py lint      the plan lint's sweep, every 5m: a plan left in planned, or sent back by the old plan review, made
                       the definition once it is lint-clean (the old review's findings appended as notes)"""
 
@@ -33,6 +44,135 @@ SECTIONS = ("Definition of done", "Files to touch", "Risks", "Acceptance tests",
 TEST = re.compile(r"\btests/[\w/.-]+\.py::\w+")
 TAG = re.compile(r'<definition branch="([^"]*)"(?: title="([^"]*)")?>\n?(.*?)</definition>', re.S)
 DEPS = re.compile(r"^depends-on:\s*\[([^\]]*)\]", re.M)
+SIZE = re.compile(r"\bsize:\s*([A-Za-z]+)\s*\(confidence:\s*([A-Za-z]+)\s*\)")
+CLASSES, CONFIDENCES = ("S", "M", "L", "XL"), ("low", "medium", "high")
+SUB_GAP_MOST_LINES = 250                                 # a sub-gap's budget at most (a single plan: plan_budget_most)
+COVER = re.compile(r"<coverage>(.*?)</coverage>", re.S)
+BY = re.compile(r"\(by:([^()]*)\)\s*$")
+MOST_SHORT = 1                                           # short join verdicts that split again: the next one parks it
+VERDICT, MISSING = re.compile(r"<verdict>\s*(\w+)\s*</verdict>"), re.compile(r"<missing>(.*?)</missing>", re.S)
+REASONS = re.compile(r"<reasons>(.*?)</reasons>", re.S)
+TRUST = {"low": 0.25, "medium": 0.5, "high": 0.75}       # a confidence against [planning] min_size_confidence
+UNSIZED = "unsized"                                      # no class recorded at all: main's path and review sample
+SMALL = """# {branch}: {title}
+
+depends-on: [{deps}]
+
+## Definition of done
+
+{title}
+
+{text}
+
+Written from the gap's own title and text by the size path (an S gap: no planner session, no review). Done means the
+house rules: the acceptance tests exist and pass, the unit suite and the browser files pass, ruff is clean, origin/main
+is merged in and the suites run again.
+
+## Files to touch
+
+(not planned: the implementor names them)
+
+## Risks
+
+(not planned: check the branch against every review lesson)
+
+## Acceptance tests
+
+- the implementor names each test it writes as `tests/...py::test_name`
+
+## Size budget
+
+size: S (confidence: {confidence})
+
+50 net lines.
+"""
+
+
+def size_settings(cfg: dict) -> tuple[float, float, float]:
+    """[ai] planner_m_session_usd (above 0, at most planner_session_usd), [planning] l_review_share and
+    min_size_confidence (each in [0, 1]); unset: the planner's own cap, every L plan reviewed, no class trusted (1.0
+    is above TRUST's high). One out of bounds or not a number stops the run before any session (SystemExit)."""
+    ai, p, full = cfg["ai"], cfg.get("planning") or {}, float(cfg["ai"]["planner_session_usd"])
+    got = {"[ai] planner_m_session_usd": ai.get("planner_m_session_usd", full),
+           "[planning] l_review_share": p.get("l_review_share", 1.0),
+           "[planning] min_size_confidence": p.get("min_size_confidence", 1.0)}
+    if bad := [f"{k} = {v!r} is not a number" for k, v in got.items() if type(v) not in (int, float)]:
+        raise SystemExit("plan.py: " + "; ".join(bad))
+    m, share, bar = (float(v) for v in got.values())
+    bad = [] if 0 < m <= full else [f"[ai] planner_m_session_usd = {m:g}: above 0 and at most planner_session_usd "
+                                    f"({full:g})"]
+    bad += [f"{k} = {v:g}: outside [0, 1]" for k, v in zip(list(got)[1:], (share, bar), strict=True) if not 0 <= v <= 1]
+    if bad:
+        raise SystemExit("plan.py: " + "; ".join(bad))
+    return m, share, bar
+
+
+def size_path(gap: dict, bar: float) -> str | None:
+    """The gap's size class, when trusted: planned_size exactly S, M, L or XL with a size_confidence whose TRUST is at
+    or above ``bar``; UNSIZED when neither field is on an open gap (main's path: the full planner, review_wanted's
+    sample); else None (the full planner, always reviewed). A replan (its state, which the fold sets by seq from the
+    send-back, never by time) is None too, but for XL, which must split whatever."""
+    cls, conf = gap["fields"].get("planned_size"), gap["fields"].get("size_confidence")
+    if cls is None and conf is None and gap["state"] != "replan":
+        return UNSIZED
+    if type(cls) is not str or cls not in CLASSES or type(conf) is not str or TRUST.get(conf, -1) < bar:
+        return None
+    return cls if cls == "XL" or gap["state"] != "replan" else None
+
+
+def sampled(gid: str, share: float) -> bool:
+    """An L plan picked for review: by the gap's id alone, so a retry picks the same."""
+    return int(sha(f"l-review:{gid}"), 16) / 16 ** 40 < share
+
+
+def wanted(cfg: dict, needed: bool) -> bool:
+    return needed and (cfg.get("plan") or {}).get("review", "sample") != "off"
+
+
+def entry_of(cfg: dict, gap: dict) -> str:
+    """A gap's own text: its GAPS.md entry on main, else a join sub-gap's `entry`; empty when it has neither."""
+    f = gap["fields"]
+    return (brief.gaps_entry(cfg, str(f.get("title") or "")) or str(f.get("entry") or "")).strip()
+
+
+def small(cfg: dict, gap: dict, branch: str, text: str) -> int:
+    """An S gap: its definition from its own title and text, no session, no review, a planning cost of 0."""
+    f = gap["fields"]
+    body = SMALL.format(branch=branch, title=" ".join(str(f.get("title") or branch).split()),
+                        deps=", ".join(d.removeprefix("gap/") for d in fac.ids(f.get("depends_on"))),
+                        text=text, confidence=f["size_confidence"])
+    define(cfg, gap["id"], branch, body, "size-s", review=False, planned_at=time.time(), planning_cost_usd=0)
+    return 0
+
+
+def coverage(said: str, names: list[str]) -> tuple[str, list[str]]:
+    """A split's one `<coverage>` block (what the parent must do, a `- ` point per line ending `(by: name, name)`),
+    and what makes it unusable: not exactly one block, a point naming no sub-gap or one not of this split, a sub-gap
+    no point names. Names are matched exactly."""
+    blocks = COVER.findall(said)
+    if len(blocks) != 1:
+        return "", [f"a split needs exactly one <coverage>...</coverage> block, not {len(blocks)}"]
+    points = [x.strip()[2:] for x in blocks[0].splitlines() if x.strip().startswith("- ")]
+    out, named = [] if points else ["the <coverage> block has no `- ` point"], set()
+    for p in points:
+        by = [n.strip() for n in m[1].split(",") if n.strip()] if (m := BY.search(p)) else []
+        out += [] if by else [f"coverage point {p[:80]!r} names no sub-gap: end it `(by: name, name)`"]
+        out += [f"coverage point {p[:80]!r} names {n!r}, not a sub-gap of this split" for n in by if n not in names]
+        named |= set(by)
+    return blocks[0].strip(), out + [f"sub-gap {n!r}: no coverage point names it" for n in names if n not in named]
+
+
+def size_of(body: str) -> dict | str:
+    """The size line of a definition's `## Size budget`: {planned_size, size_confidence}, or why it cannot be taken
+    (never a default class: a guess would be scored as the planner's). Never `size`: that is the groomer's field
+    (backlog.py), on its own scale, and the solver ranks by it."""
+    m = re.search(r"^## Size budget.*?$(.*?)(?=^## |\Z)", body, re.M | re.S)
+    got = SIZE.search(m.group(1)) if m else None
+    if not got:
+        return "no size line `size: S|M|L|XL (confidence: low|medium|high)` in its ## Size budget"
+    if got[1] not in CLASSES or got[2] not in CONFIDENCES:
+        return f"size {got[1]!r} (confidence {got[2]!r}): the class is one of S, M, L, XL, the confidence low, medium, high"
+    return {"planned_size": got[1], "size_confidence": got[2]}
 
 
 def send_back(cfg: dict, gap: dict, why: list[str], **record) -> int:
@@ -58,20 +198,24 @@ def review_wanted(cfg: dict, gid: str) -> bool:
     return mode == "all" or (mode == "sample" and int(sha(gid), 16) % int(p.get("sample_every", 3)) == 0)
 
 
-def define(cfg: dict, gid: str, branch: str, body: str, by: str, notes: list[str] = (), **data) -> None:
-    """A lint-clean plan made the gap's definition (run/defs/<branch>.md; never over one the coordinator wrote
-    meanwhile, which is kept) and the gap ready; ``notes``: appended for the implementor to answer."""
+def define(cfg: dict, gid: str, branch: str, body: str, by: str, notes: list[str] = (), review: bool | None = None,
+           **data) -> None:
+    """A lint-clean plan made the gap's definition (run/defs/<branch>.md, created exclusively: never over one the
+    coordinator wrote meanwhile, which is kept) and the gap ready; ``notes``: appended for the implementor to answer;
+    ``review``: whether it is marked for the plan review (None: review_wanted, the sweep's)."""
     target = fac.run_dir(cfg, "defs") / f"{branch}.md"
     text = body + ("\n## Notes from the plan review (answer each)\n\n" + "".join(f"- {n}\n" for n in notes)
                    if notes else "")
     try:
         with target.open("x") as fh:
             fh.write(text)
-    except FileExistsError:
+    except FileExistsError:                              # the coordinator's definition: not the planner's size
         by = "coordinator"
+        data |= {"planned_size": None, "size_confidence": None} if "planned_size" in data else {}
     fac.say("gap.defined", gid, definition=fac.rel(target), ready_at=time.time(), branch=branch, defined_by=by,
             plan_sha=sha(body), risks=sorted(set(re.findall(r"\blesson-\d+\b", body))),
-            plan_review="wanted" if by != "coordinator" and review_wanted(cfg, gid) else None, **data)
+            plan_review="wanted" if by != "coordinator" and (review_wanted(cfg, gid) if review is None else
+                                                             wanted(cfg, review)) else None, **data)
 
 
 def lint(cfg: dict, body: str, siblings: tuple[str, ...] = ()) -> list[str]:
@@ -123,28 +267,38 @@ def deps_of(body: str) -> list[str]:
 
 def problems(defs: list[tuple[str, str, str]], branch: str, known: set[str]) -> list[str]:
     """What makes a planner's definitions unusable: none, too many, one not for the gap, a sub-gap named as the gap or
-    as a gap that exists (its id reused would merge old fields in), a name that is not lowercase words and dashes, or
-    a dependency on a later sub-gap or on no gap."""
+    as a gap that exists (its id reused would merge old fields in), a name that is not lowercase words and dashes, a
+    sub-gap whose budget is over SUB_GAP_MOST_LINES or names no number (counted as over), a dependency on a later
+    sub-gap or on no gap, or a size line missing or not understood."""
+    sizes = [f"{name!r}: {why}" for name, _, body in defs if isinstance(why := size_of(body), str)]
     if len(defs) == 1:
-        return [] if defs[0][0] == branch else [f"a single definition must be for {branch}, not {defs[0][0]!r}"]
+        return sizes + ([] if defs[0][0] == branch else [f"a single definition must be for {branch}, not {defs[0][0]!r}"])
     names = [d[0] for d in defs]
     out = [] if defs else ["the planner wrote no <definition>"]
+    out += [f"sub-gap {name!r}: its size budget is {n} net lines, at most {SUB_GAP_MOST_LINES} (split it further)"
+            if n >= 0 else f"sub-gap {name!r}: its size budget names no number of net lines (counted as over "
+            f"{SUB_GAP_MOST_LINES})" for name, _, body in defs
+            if not 0 <= (n := fac.budget_of(body, default=-1)) <= SUB_GAP_MOST_LINES]
     out += [f"a split into {len(defs)} sub-gaps: at most {MOST_SPLIT}"] if len(defs) > MOST_SPLIT else []
     for i, (name, _, body) in enumerate(defs):
         if name == branch or not fac.SAFE.match(name) or f"gap/{name}" in known or name in names[:i]:
             out.append(f"sub-gap {name!r}: not a new name of lowercase words and dashes")
         out += [f"sub-gap {name!r} depends on {d}, neither an earlier sub-gap nor a gap" for d in deps_of(body)
                 if d[4:] not in names[:i] and d not in known]
-    return out
+    return out + sizes
 
 
 def planner(cfg: dict, gap: dict) -> int:
+    m_cap, share, bar = size_settings(cfg)              # before anything: no session under a bad setting
     f, branch, now = gap["fields"], fac.branch_of(gap), time.time()
     import intake
     import research as rs
     if where := intake.definition(cfg, gap):
         fac.say("gap.defined", definition=where, ready_at=now, branch=branch, defined_by="coordinator")
         return 0
+    if (path := size_path(gap, bar)) == "S" and (own := entry_of(cfg, gap)):
+        return small(cfg, gap, branch, own)
+    path = None if path == "S" else path                # an S gap with no text of its own: the full path, reviewed
     research = {r["id"]: r for r in fac.items("research")}
     asked = list(f.get("research") or [])
     waiting = [r for r in asked if research.get(r, {}).get("state") not in ("answered", "dead", None)]
@@ -156,17 +310,26 @@ def planner(cfg: dict, gap: dict) -> int:
                                                          else f"was not answered in {MOST_WAITS} waits") + ")"
     _, work = agents.clone(cfg, branch, "planner", at=f"origin/{cfg['git']['base']}")
     reports = [rs.report(cfg, research[r])[:4000] if r in research else "" for r in asked]
+    entry = {"gaps_entry": f["entry"]} if f.get("entry") else {}      # (a join's sub-gap: what was not built)
     text, context = brief.assemble(cfg, "planner", gap, work, definition="", branch=branch, graph=brief.graph(cfg, gap),
+                                   **entry,
                                    plan_findings=brief.
                                    findings_text(f.get("plan_findings") or []), research="\n\n".join(
                                        f"### {r}\n\n{x or unanswered(r)}" for r, x in zip(asked, reports, strict=True))
                                    or "(none)")
     context["brief"] = brief.save(cfg, "planner", gap, text)
-    got = fac.attempt(cfg, "planner", text, work)
+    capped = cfg if path != "M" else {**cfg, "ai": {**cfg["ai"], "planner_session_usd": m_cap}}
+    usd = float(capped["ai"]["planner_session_usd"])
+    try:
+        got = fac.attempt(capped, "planner", text, work)
+    except BaseException:                                # a timeout, an error, a cancel: the whole reservation
+        fac.say("gap.measured", ai_cost_usd=usd, planning_cost_usd=usd, sessions=1)
+        raise
     if got is None:
         return 0
-    said = str(got.get("result", ""))
-    record = dict(contexts=[context], ai_cost_usd=round(float(got.get("total_cost_usd") or 0), 4), sessions=1)
+    said, cost = str(got.get("result", "")), got.get("total_cost_usd")
+    cost = round(usd if cost is None else float(cost), 4)          # (no cost told: the reservation was kept)
+    record = dict(contexts=[context], ai_cost_usd=cost, planning_cost_usd=cost, sessions=1)
     if questions := [" ".join(q.split()) for q in re.findall(r"<research>(.*?)</research>", said, re.S) if q.strip()]:
         if len(asked) + len(questions) > MOST_RESEARCH:
             return send_back(cfg, gap, [f"{len(asked) + len(questions)} research questions: at most {MOST_RESEARCH}"],
@@ -180,17 +343,27 @@ def planner(cfg: dict, gap: dict) -> int:
     defs = [(n.strip(), t.strip(), b.strip() + "\n") for n, t, b in TAG.findall(said)]
     gaps = fac.items("gap")                              # a sub-gap's name is never another gap's id or branch
     known = {g["id"] for g in gaps} | {f"gap/{g['fields'].get('branch')}" for g in gaps}
-    if wrong := problems(defs, branch, known) or linted(cfg, defs):
+    cover, uncovered = coverage(said, [d[0] for d in defs]) if len(defs) > 1 else ("", [])
+    whole = path == "XL" and len(defs) == 1 and defs[0][0] == branch
+    xl = [f"an XL gap must split: not one definition for {branch} (sub-gaps of at most {SUB_GAP_MOST_LINES} lines)"]
+    if wrong := problems(defs, branch, known) + uncovered + (xl if whole else []) or linted(cfg, defs):
         return send_back(cfg, gap, wrong, **record)
+    if cover:                                            # the parent's plan, over any earlier split's (lesson-5)
+        (fac.run_dir(cfg, "plans") / f"{branch}.md").write_text(f"<coverage>\n{cover}\n</coverage>\n")
     for name, title, body in defs:
+        sized = dict(size_of(body), merged_lines=None, merged_lines_error=None)  # never scored on old lines
         if name != branch:
             fac.say("gap.requested", f"gap/{name}", title=title or name, source="plan", branch=name,
                     parent=[gap["id"]], depends_on=deps_of(body), requested_at=now)
-            define(cfg, f"gap/{name}", name, body, "plan-split", planned_at=now)
+            define(cfg, f"gap/{name}", name, body, "plan-split", planned_at=now, planning_cost_usd=0,
+                   **sized)                              # (no class: main's sample; its planning paid on the parent)
         else:
-            define(cfg, gap["id"], name, body, "plan", planned_at=now, replanned=gap["state"] == "replan", **record)
-    if defs[0][0] != branch:
-        fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, **record)
+            review = None if path == UNSIZED else path is None or (path == "L" and sampled(gap["id"], share))
+            define(cfg, gap["id"], name, body, "plan-unreviewed" if review is False else "plan", review=review,
+                   planned_at=now, replanned=gap["state"] == "replan", **sized, **record)
+    if defs[0][0] != branch:                             # a split parent merges nothing: no size of its own
+        fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, planned_size=None,
+                size_confidence=None, **record)
     return 0
 
 
@@ -219,6 +392,8 @@ def sweep(cfg: dict) -> int:
         if (f.get("lease") or {}).get("holder") or not p.is_file() or not (g["state"] == "planned" or old):
             continue
         body = p.read_text()
+        if COVER.search(body):                           # a split parent's coverage: never a definition
+            continue
         if not (found := lint(cfg, body)):
             define(cfg, g["id"], fac.branch_of(g), body, "plan-lint", notes=list(f.get("plan_findings") or []) if old
                    else [], released_from=g["state"])
@@ -227,9 +402,137 @@ def sweep(cfg: dict) -> int:
     return 0
 
 
+def readable(cfg: dict, where: str, branch: str = "") -> str:
+    """A sub-gap's definition (where brief.definition_text reads one), or a parent's coverage (run/plans/<branch>.md,
+    ``branch`` empty): its text, or `(missing: why)`."""
+    try:
+        text = brief.definition_text(cfg, where, branch) if branch else \
+            (fac.run_dir(cfg, "plans") / where.removeprefix("run/plans/")).read_text()
+    except OSError as e:
+        return f"(missing: {where}: {type(e).__name__}: {e.strerror or e})"
+    return text.strip() or f"(missing: nothing readable at {where})"
+
+
+def join_brief(cfg: dict, gap: dict, gaps: list[dict]) -> dict:
+    """What the join judge is given: the parent's entry, its coverage, each sub-gap's definition and last review's
+    verdict and findings; anything that cannot be read says `(missing: why)`, never left out. Its `unread`: a point
+    per sub-gap whose definition or last review could not be read (plan.join judges those short, with no session)."""
+    f, gid, unread = gap["fields"], gap["id"], []
+    reviews = {r["id"]: r["fields"] for r in fac.items("review")}
+    entry = brief.gaps_entry(cfg, f.get("title", "")) or f.get("entry") or "(missing: not in docs/GAPS.md on main)"
+    kids, by_id = {g["id"]: g for g in gaps if gid in fac.ids(g["fields"].get("parent"))}, {g["id"]: g for g in gaps}
+    out = []
+    for k in dict.fromkeys([*fac.ids(f.get("children")), *sorted(kids)]):
+        then, seen = k, set()            # a stopped child continued (parks.split_again): its continuation, a current
+        while then not in kids and then not in seen and then in by_id:  # sub-gap, is judged in its place (as family)
+            seen.add(then)
+            then = (fac.ids(by_id[then]["fields"].get("resumed_as")) or [""])[0]
+        if k not in kids and then in kids:
+            continue
+        if k not in kids:
+            out.append(f"## {k}\n\n(missing: not in the record as a sub-gap of {gid})")
+            unread.append(f"{k}: not in the record as a sub-gap of {gid}")
+            continue
+        kf, b = kids[k]["fields"], fac.branch_of(kids[k])
+        rid = (kf.get("reviews") or [None])[-1]
+        r = reviews.get(rid) if rid else None
+        listed = lambda k: "\n".join(f"- {x}" for x in r.get(k) or []) or "(none)"  # noqa: E731
+        last = "(missing: no review recorded)" if not rid else f"(missing: {rid} not in the record)" if r is None else (
+            f"{rid}: verdict {r.get('verdict') or '(missing: no verdict)'}\n\nBlocking:\n{listed('blocking')}\n\n"
+            f"Not blocking:\n{listed('non_blocking')}")
+        d = readable(cfg, str(kf.get('definition') or f'run/defs/{b}.md'), b)
+        unread += [f"{k}: its {w} could not be read {t}" for w, t in (("definition", d), ("last review", last))
+                   if t.startswith("(missing:") or (w == "last review" and not r.get("verdict"))]
+        out.append(f"## {k} ({kids[k]['state']}), branch `{b}`\n\n### Its definition\n\n{d}\n\n### Its last review"
+                   f"\n\n{last}")
+    return dict(entry=f"{f.get('title') or gid}\n\n{entry}", sub_gaps="\n\n".join(out) or "(missing: no sub-gap found)",
+                coverage=readable(cfg, f"run/plans/{fac.branch_of(gap)}.md"), most_short=str(MOST_SHORT),
+                short_rounds=str(int(f.get("join_short_rounds") or 0)), unread=unread)
+
+
+def judged(said: str) -> tuple[str, list[str], str]:
+    """The judge's answer: (covered or short, the points not built, its reasons). Anything else raises: never covered."""
+    v, m, r = VERDICT.findall(said), MISSING.findall(said), REASONS.search(said)
+    points = [BY.sub("", x.strip()[2:]).strip() for x in (m[0] if len(m) == 1 else "").splitlines()
+              if x.strip().startswith("- ")]
+    if len(v) != 1 or v[0] not in ("covered", "short") or (v[0] == "short") != bool(points) or len(m) > 1:
+        raise RuntimeError(f"the join judge's answer has no readable verdict (one <verdict>covered</verdict>, or short "
+                           f"with one <missing> block of `- ` points): {said[-300:]!r}")
+    return v[0], points, r[1].strip() if r else ""
+
+
+def short_of(unread: list[str]) -> str:
+    """The answer a join with an unreadable sub-gap is given in place of a session's: short, a point for each."""
+    return "<verdict>short</verdict>\n<missing>\n" + "".join(f"- {u}\n" for u in unread) + \
+        "</missing>\n<reasons>a sub-gap's definition or last review could not be read: not judged</reasons>"
+
+
+NAME_TRIES = 50                                          # names join_name tries in each series before it stops
+
+
+def join_name(branch: str, n: int, known: set[str]) -> str:
+    """The short round n's new sub-gap name: <branch>-join-<n>, or when that is taken (an id or branch in ``known``) or
+    not safe, the next of -join-<n+1>, ..., then <branch>-rest, -rest-2, ...; at most NAME_TRIES of each, then it raises."""
+    stem = branch[:52].rstrip("-")
+    for name in [f"{stem}-join-{k}" for k in range(n, n + NAME_TRIES)] + \
+            [f"{stem}-rest" + (f"-{k}" if k > 1 else "") for k in range(1, NAME_TRIES + 1)]:
+        if fac.SAFE.match(name) and f"gap/{name}" not in known:
+            return name
+    raise RuntimeError(f"the join found no unused safe sub-gap name for {branch!r} in {2 * NAME_TRIES} tries")
+
+
+def join(cfg: dict, gap: dict) -> int:
+    """The join judge (a gap at joined): covered merges it; short requests a new sub-gap for the points not built,
+    adds them to the coverage, and only then splits it again (lesson-1: the join cannot fire before the new sub-gap
+    exists), named by join_name (a taken name is never fatal); the short after MOST_SHORT parks it. A sub-gap whose
+    definition or last review cannot be read makes it short at once, with no clone and no session (lesson-3: never
+    judged covered). Covered records no merged_at: no work merged (cycle-hours, cost-per-merged, fix-rounds). An
+    unreadable verdict or a failed session raises (it stays joined, under the lease); a budget refusal waits."""
+    gid, f, branch, now = gap["id"], gap["fields"], fac.branch_of(gap), time.time()
+    given = join_brief(cfg, gap, fac.items("gap"))
+    if unread := given.pop("unread"):
+        got, record = {"result": short_of(unread)}, {"ai_cost_usd": 0.0}
+    else:
+        _, work = agents.clone(cfg, branch, "join_judge", at=f"origin/{cfg['git']['base']}")
+        text, context = brief.assemble(cfg, "join_judge", gap, work, definition="", **given)
+        context["brief"] = brief.save(cfg, "join_judge", gap, text)
+        if (got := fac.attempt(cfg, "join_judge", text, work)) is None:
+            return 0
+        record = dict(contexts=[context], ai_cost_usd=round(float(got.get("total_cost_usd") or 0), 4), sessions=1)
+    n = int(f.get("join_short_rounds") or 0) + 1
+    try:
+        verdict, points, reasons = judged(str(got.get("result", "")))
+    except RuntimeError as e:
+        fac.say("gap.measured", gid, last_error=str(e)[:500], **record)
+        raise
+    seen = dict(join_verdict=verdict, join_reasons=reasons[:4000], join_missing=points, judged_at=now, **record,
+                join_verdicts=[{"verdict": verdict, "missing": points, "at": now}])
+    lines = "".join(f"- {p}\n" for p in points)
+    if verdict == "covered":
+        fac.say("gap.merged", gid, merged_by="join-judge", **seen)
+    elif n > MOST_SHORT:
+        import review
+        fac.say("gap.measured", gid, **seen)
+        review.park(cfg, gap, f"The join judge found it short again ({n} times; at most {MOST_SHORT} split again). "
+                    f"Not built:\n{lines}", "join-judge", where="joined", kind="kill-rule")
+    else:
+        gaps = fac.items("gap")                                                   # (read again after the session)
+        name = join_name(branch, n, {g["id"] for g in gaps} | {f"gap/{g['fields'].get('branch')}" for g in gaps})
+        fac.say("gap.requested", f"gap/{name}", title=f"{f.get('title') or gid}: not built at the join"[:200],
+                source="join", branch=name, parent=[gid], entry=f"{f.get('title') or gid}\n\nNot built:\n{lines}",
+                requested_at=now)
+        p = fac.run_dir(cfg, "plans") / f"{branch}.md"
+        old, new = p.read_text() if p.is_file() else "", "".join(f"- {x} (by: {name})\n" for x in points)
+        i = old.rfind("</coverage>")
+        p.write_text(old[:i] + new + old[i:] if i >= 0 else f"{old}<coverage>\n{new}</coverage>\n")
+        fac.say("gap.split", gid, children=[*fac.ids(f.get("children")), f"gap/{name}"], join_short_rounds=n,
+                split_at=now, **seen)
+    return 0
+
+
 if __name__ == "__main__":
     fac.stop_on_term()
     if sys.argv[1:] in (["splits"], ["lint"]):
         sys.exit((splits if sys.argv[1] == "splits" else sweep)(fac.config()))
     cfg, item = fac.config(), fac.read_input()["item"]
-    sys.exit(0 if fac.drain_holds(cfg) else planner(cfg, item))
+    sys.exit(0 if fac.drain_holds(cfg) else (join if sys.argv[1:] == ["join"] else planner)(cfg, item))

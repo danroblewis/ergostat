@@ -103,12 +103,14 @@ def ai(argv: list[str]) -> int:
     from ...numbers import modeller_spend as sp
     from ...numbers import requests as rq
     p = project()
-    mine = [r for r in rq.waiting(p, ("open", "held")) if r.get("tier") == "ai" and not r.get("owner")
-            and int((r.get("tried") or {}).get("ai") or 0) < a.tries]
+    def fails(r) -> int:                          # its failed calls: counted apart from its tries, and bounded
+        return int((r.get("failed") or {}).get("ai") or 0)
+    mine = [r for r in rq.for_ai(p, a.tries) if fails(r) < md.FAILS]
     if not mine:
         note("modeller: no request waiting for the ai tier")
         return 0
-    group = _near(p, mine)[:a.most]
+    near = sorted(_near(p, mine), key=fails)      # those that failed least first; one that failed before goes alone
+    group = [r for r in near if not fails(r)][:a.most] or near[:1]   # never one that failed with fresh ones
     got = md.answer(p, group, a.model, timeout=md.per_call(a.timeout, 2), on_call=_said,
                     within=lambda text: sp.held(p, md.unsaid(text, a.model)["usd"], a.daily))
     c = got["cost"]
@@ -121,13 +123,24 @@ def ai(argv: list[str]) -> int:
                 for e in ([r.get("evidence")] if not isinstance(r.get("evidence"), list) else r.get("evidence"))}
     cannot = {x.get("cannot"): x.get("why") for x in got["cannot"]}
     share = round(c["usd"] / max(len(group), 1), 6)
-    for r in group:
+    if c.get("error") and not got["tried"]:      # its first call failed: charged, the error said, no try used
+        for r in group:                          # past FAILS failed calls it is held for the owner
+            n = fails(r) + 1
+            gone = f" {n} times; it waits for the owner" if n >= md.FAILS else ""
+            rq.mark(p, r, "held" if gone else r["state"], f"the ai tier's call failed{gone}: {c['error']}"[:500],
+                    error=c["error"][:500], failed={**(r.get("failed") or {}), "ai": n},
+                    cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
+        note(f"modeller ({a.model}): {c['error']}; ${c['usd']:.4f} charged, no try used for {len(group)} requests{said}")
+        return 0
+    for r in group:                              # its first call answered: its failed calls in a row start again
         tried = {**(r.get("tried") or {}), "ai": int((r.get("tried") or {}).get("ai") or 0) + 1}
+        ok = {"failed": {**(r.get("failed") or {}), "ai": 0}} if fails(r) else {}
         if rq.evidence_of(r) in answered:
-            rq.event(p, r["id"], r["state"], {"tried": tried, "cost_usd": round(float(r.get("cost_usd") or 0) + share, 6)})
-            continue
-        why = cannot.get(r["id"]) or "the ai tier proposed nothing that would be proposed"
-        rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried,
+            rq.mark(p, r, r["state"], tried=tried, error=None, **ok, cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
+            continue                                     # (each mark refused if the owner answered it meanwhile)
+        why = cannot.get(r["id"]) or (f"its second call failed: {c['error']}"[:500] if c.get("error")
+                                      else "the ai tier proposed nothing that would be proposed")
+        rq.mark(p, r, "held", f"the ai tier ({a.model}): {why}", tried=tried, error=c.get("error"), **ok,
                 cost_usd=round(float(r.get("cost_usd") or 0) + share, 6))
     n = submitted(p, got["proposals"], "modeller")
     note(f"modeller ({a.model}): {n} proposed for {len(group)} requests, {len(cannot)} it cannot; "
@@ -149,6 +162,17 @@ def _between(kind, lo, hi):
     return one
 
 
+def _model_name(s: str) -> str:
+    """A model's name as claude takes it (``sonnet``, ``claude-sonnet-5-5``), or ``off``: never anything else. ``false``
+    is ``off`` (an unquoted ``review: off`` is YAML 1.1's false, and the template renders it so); ``true`` is no name."""
+    import re
+    if s == "false":
+        return "off"
+    if s == "true" or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,63}", s or ""):
+        raise argparse.ArgumentTypeError(f"not a model name: {s!r}")
+    return s
+
+
 def redesign(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="modelling redesign")
     ap.add_argument("--when", default="auto", choices=("auto", "ask", "off"))
@@ -157,6 +181,8 @@ def redesign(argv: list[str]) -> int:
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--daily", type=float, default=2.0, help="the most dollars the redesigner's runs spend in a day")
     ap.add_argument("--timeout", type=float, default=None, help="the block's timeout, in seconds: its rounds fit in it")
+    ap.add_argument("--review", type=_model_name, default="off",
+                    help="the daily architecture review's model, or off (the template passes sonnet)")
     a = ap.parse_args(argv)
     sys.stdin.read()
     import json
@@ -167,14 +193,24 @@ def redesign(argv: list[str]) -> int:
     if a.when == "off":
         note("redesigner: off")
         return 0
-    from ...numbers import reviewer as rv
     def room() -> float:                          # read again before each call: the reviewer may spend meanwhile
-        # the reviewer's share of the cap is kept for it
-        return round(min(a.daily - rd.spent(p), a.daily * (1 - rv.RESERVE) - rd.spent(p, reviewer=False)), 6)
+        return rd.room(p, a.daily)                # (the reviewer's share of the cap is kept for it)
     left = room()
     if left <= 0:                                # the daily cap, before anything is planned: nothing runs past it
         note(f"redesigner: the day's ${a.daily:.2f} is spent; nothing is reviewed until tomorrow's allowance")
         return 0
+    from ...numbers import archreview as arv
+    timeout = a.timeout
+    if a.when == "auto" and a.review != "off":    # the daily architecture review: it may set the unit taken next
+        limit, rest = arv.timeouts(a.timeout, a.rounds)
+        got = arv.run(p, a.review, a.daily, timeout=limit, on_call=_said)
+        note(got["said"])
+        if got["result"] not in (None, "capped"):  # it called: the rounds get what its share leaves of the timeout
+            timeout = rest
+        left = room()                             # read again: the review spent from the same cap
+        if left <= 0:
+            note(f"redesigner: the day's ${a.daily:.2f} is spent; nothing is redesigned until tomorrow's allowance")
+            return 0
     plan = rd.plan(p, a.when)
     if plan["system"] is None:
         note(f"redesigner: nothing to do ({'; '.join(plan['why'])})")
@@ -188,17 +224,23 @@ def redesign(argv: list[str]) -> int:
     def charged(got: dict) -> None:               # each call charged as it is spent, so a run cut short still counts
         _said(got)
         rd.charge(p, plan["system"], got)
-    out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=min(a.budget, left), rounds=a.rounds, by="redesigner",
-                  timeout=a.timeout, on_call=charged, room=room)
+    out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=max(0.0, min(a.budget, left)), rounds=a.rounds, by="redesigner",
+                  timeout=timeout, on_call=charged, room=room)
     rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "total": out["cost"],
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"], "unit_sig": sig,
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
     from ...numbers import requests as rq
+    run = ("open", "answered")                     # (as it was opened, or answered as never ended meanwhile)
     if out.get("result") == "proposed":
-        rq.event(p, req, "proposed", {"change": out.get("id"), "why": None})
+        rq.move(p, req, "proposed", {"change": out.get("id"), "why": None}, run)
+    elif out.get("result") == "error":           # its call failed: the request stays open, saying so
+        rq.move(p, req, "open", {"why": f"the redesigner's call failed: {out['why_not']}"[:500]}, run)
     else:
-        rq.event(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")})
-    for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner
+        rq.move(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")},
+                run)
+    if plan.get("review"):                        # the review's request it took up: marked if still the one read
+        note(f"redesigner: {arv.mark(p, plan['review'], out)}")
+    for r in out.get("reports") or []:                       # what ergostat could not express: drafted for the owner
         print(json.dumps({"report": r}), flush=True)
     c = out["cost"]
     note(f"redesigner ({a.model}): {plan['system']}: {out.get('result')}" + (f" ({out.get('why_not')})" if out.get("why_not") else "")

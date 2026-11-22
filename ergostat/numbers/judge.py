@@ -32,7 +32,17 @@ or that is simpler (fewer parts, parameters and terms: Occam) where the record r
 one whose bound's high end is below no change and that is worse by the threshold, near it, elsewhere or on a goal's
 stock. One the bound holds within the threshold both ways is said **inconclusive** once it has three times the record
 it needs: the record tells it from the model as it is by less than that. One whose replay is the same as the model's
-waits for record in which what it touches moves. One the bound cannot decide yet says **about how much more record it
+(``compare``'s ``same``: both follow the same stocks and every reading is equal as a float, no tolerance; a NaN never
+is) is **judged by structure** (``unmoved.py``) once it has the record it needs and that record exercised a stock it
+touches (read, and not quiet: ``exercised.py``; a stock with no readings, or a change touching none, never counts):
+the redesign scorecard of the model read from disk against the model it leaves, the fit counting only against it
+(``fit_counts`` off), and coherence that cannot be compared on a side never for it. Better is passed, mixed or worse
+failed, a model that no longer compiles failed; nothing moving, every measure measured, inconclusive at once; nothing
+moving with coherence or the fit unmeasurable, under test (saying which) until the horizon, then inconclusive. The
+verdict says ``on: structure``, its scorecard and the version of the model it read (one read that is not the change's
+own, a hand edit first, records nothing: the next pass carries or supersedes it); a pass on structure alone is the owner's
+to write (``owners``). Otherwise it waits, as a change any record replays the same: for record in which what it touches
+moves. One the bound cannot decide yet says **about how much more record it
 needs** (the bound narrows as one over the root of the record), and stays under test until seven times the record it
 needs, a day at least (``horizon``), then is inconclusive, saying how much more. The verdict keeps the record whole,
 in halves and in quarters (``windows``), sliced from the same replay, for its reader.
@@ -46,8 +56,8 @@ the review queue, its verdict beside it; ``auto`` writes it, as Accept does (the
 pass, recorded as ``ergostat.model-change.accepted`` from the judge, naming the policy, and
 ``ergostat.model.changed``), one a pass. Only a value, an equation or the structure is judged or written so: a
 change to a goal, a block or a sensor waits for the owner, and so does any change that removes structure
-(``removes``) or chains a kind's state stocks (``rewires``: a flow re-pointed or added between them), whatever the
-policy. The owner commits what was written.
+(``removes``) or chains a kind's state stocks (``rewires``: a flow re-pointed or added between them), or that was
+passed on structure alone, whatever the policy. The owner commits what was written.
 
 It is cheap when there is nothing new to judge: a change is looked at again only once its next look is due
 (``due``: the record it needs, or a quarter more, past the last look) and what it touches has been read since (a
@@ -68,6 +78,7 @@ from . import observe as ob
 from . import proposals as pr
 from . import simulate as sim
 from . import trial as tr
+from . import unmoved as un
 from . import version as ver
 from .improve import WORDING  # what a reader is told: judged by check alone, not the record
 
@@ -191,7 +202,8 @@ def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: flo
     """The model as it is and with the change, each replayed once over [since, until] (warmed up beforehand), paired
     with the record bucket by bucket: near what it touches (``stocks``, over those both replay; every stock when none
     is given or none is replayed), the rest of the model, and each goal's own stock. Each stock's rows are (bucket,
-    before, after, record), scaled by the record's root mean square, so their squared errors are its scaled error."""
+    before, after, record), scaled by the record's root mean square, so their squared errors are its scaled error.
+    ``same``: both replays follow the same stocks and every reading of each is equal as a float, with no tolerance."""
     start = since - warm_up
     width = max(ob.MIN_BUCKET, (until - since) / 120, (until - start) / 600)
     grid = ob.Grid(start, until, max(2, int(round((until - start) / width))))
@@ -202,6 +214,8 @@ def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: flo
         run = sim.replay(s, data)
         got.append(readings(s, data, run, first) if run.valid else {})
     rb, ra = got
+    same = bool(rb) and set(rb) == set(ra) and all(      # exactly equal, reading by reading (a NaN never is)
+        set(rb[r]) == set(ra[r]) and all(rb[r][i][0] == ra[r][i][0] for i in rb[r]) for r in rb)
     paired = {}
     for r in sorted(set(rb) & set(ra)):
         both = sorted(set(rb[r]) & set(ra[r]))
@@ -210,7 +224,7 @@ def compare(p, spec: Spec, after: Spec, since: float, until: float, warm_up: flo
             paired[r] = [(i, rb[r][i][0] / sc, ra[r][i][0] / sc, rb[r][i][1] / sc) for i in both]
     near = [r for r in paired if r in set(stocks or ())]
     out = {"since": since, "until": until, "start": start, "width": grid.width, "fallback": not near and bool(stocks),
-           "scored": near or sorted(paired)}
+           "scored": near or sorted(paired), "same": same}
     near = near or sorted(paired)
     out["near"] = {r: paired[r] for r in near}
     out["rest"] = {r: v for r, v in paired.items() if r not in near}
@@ -475,28 +489,22 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     for pid in pr.supersede(p, spec):
         out["verdicts"].append({"id": pid, "verdict": "superseded", "why": "the model changed since it was made"})
     judged = 0
+    from . import redesign_record as rr
+    blind = None                                            # the record's mark could not be read: nothing written
     with pr.locked(p):
         now_spec = pr.files_now(p)                    # judged only on the files as they are: else nothing, until reloaded
         if now_spec is None or ver.version(now_spec) != ver.version(spec):
             out["deferred"] = ("the model's files do not compile" if now_spec is None else
                                "the model's files have changed since it was loaded")
             return out
-        for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):
+        xs = sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0)
+        for x in xs:
             if x.get("kind") == REDESIGN:                    # a change set: judged as a whole, by its scorecard on the record
                 if x["state"] == "checked":
-                    from . import redesign as rd
                     try:
-                        verdict, why, card = rd.judged(p, x, now)
-                    except tr.TrialError as e:
-                        pr.event(p, x["id"], "superseded", {"why": f"its edit no longer applies ({e})"})
-                        out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": str(e)})
-                        continue
-                    pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
-                    out["testing"] += 1
-                    pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by},
-                                                   "rescoring": False, **({"scorecard": card} if card else {})})
-                    out[verdict] += 1
-                    out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
+                        judge_redesign(p, x, now, by, out, first=True)
+                    except rr.Unreadable as e:              # left checked, for a pass that can read it
+                        blind = str(e)
                 continue
             if x["state"] != "passed" and x.get("kind") in WORDING:
                 verdict, why = wording(x)
@@ -543,6 +551,22 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                 continue
             judged += 1
             ev = compare(p, spec, after, since, now, nd["warm_up"], nd["stocks"], nd["goals"], (nd["tau"], nd["tau_with_it"]))
+            if ev["same"] and held + 1.0 >= nd["needs"] and un.exercised_now(p, spec, nd, since, now):
+                try:                                          # the replay cannot tell it: judged by structure
+                    verdict, why, card, v = un.judged(p, x, spec, nd, since, now)
+                except tr.TrialError as e:                    # its edit no longer applies: under test, saying why
+                    verdict, why, card, v = None, f"its edit could not be tried on the model ({e})", None, x.get("version")
+                if v != x.get("version"):                     # a hand edit came first: carried or superseded next pass
+                    out["waiting"].append({"id": x["id"], "held": held, "needs": due(held, nd["needs"]), "why": why})
+                elif verdict is None:
+                    pr.event(p, x["id"], "testing", {"looked": held, "undecided": why, "more": None})
+                    out["waiting"].append({"id": x["id"], "held": held, "needs": due(held, nd["needs"]), "why": why})
+                else:
+                    pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by, "held": held,
+                                                               "on": "structure", "scorecard": card, "version": v}})
+                    out[verdict] += 1
+                    out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
+                continue
             results = slices(ev, windows(since, now, pol.windows, min(nd["tau"] or 0.0, nd["needs"] / 2)))
             f = x.get("findings") or {}
             verdict, why, more = decide(ev, pol.threshold, len(f.get("answered") or []), len(f.get("new") or []), held,
@@ -564,6 +588,17 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                                                       "needs": nd["needs"], "scored": nd["stocks"]}})
             out[state] += 1
             out["verdicts"].append({"id": x["id"], "verdict": state, "why": why})
+        waiting = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN and y["state"] == "passed"] \
+            if any(y.get("kind") == REDESIGN for y in xs) else []     # (no redesign pending: the record not folded again)
+        try:                                                 # a redesign waiting for the owner, scored again as the
+            if blind:                                        # record it was judged on moves (redesign_record)
+                raise rr.Unreadable(blind)
+            for y in rr.due_for_rescore({y["id"]: y for y in waiting}, rr.read(p, spec), now) if waiting else []:
+                judge_redesign(p, y, now, by, out)
+        except rr.Unreadable as e:
+            blind = unreadable(p, waiting, e)
+    if blind:                                                # fails closed: nothing written on a record not read
+        return out
     words = 0
     sets = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN]     # a redesign waiting: nothing written over it
     from . import redesign as rd
@@ -588,8 +623,16 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             continue
         snap = {"at": now, "window": ob.reference(p, now).until - ob.reference(p, now).since}
         try:
-            pr.accept(p, x["id"], snap, by=by, why=f"the judge passed it: {(x.get('verdict') or {}).get('why')}",
-                      policy=f"judge {by}: accept {x['kind']}: auto")
+            if x.get("kind") == REDESIGN:
+                wrote = write_redesign(p, x, snap, by, now, out)
+                if wrote is None:                    # its record's mark unreadable: nothing written this pass
+                    return out
+                if not wrote:                        # no longer better on the record as it is: the pass goes on
+                    held = [y for y in held if y["id"] != x["id"]]
+                    continue
+            else:
+                pr.accept(p, x["id"], snap, by=by, why=f"the judge passed it: {(x.get('verdict') or {}).get('why')}",
+                          policy=f"judge {by}: accept {x['kind']}: auto")
         except pr.ProposalError as e:
             if x.get("kind") == REDESIGN:            # a promoted redesign that cannot be written never blocks the rest
                 pr.event(p, x["id"], "superseded", {"why": f"it could not be written: {e}"})
@@ -605,6 +648,74 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             continue
         break
     return out
+
+
+def judge_redesign(p, x: dict, now: float, by: str, out: dict, first: bool = False) -> str | None:
+    """A redesign judged by its scorecard on the record as it is (under the proposals' lock): its first judging
+    (``first``) or a rescore. The verdict says what it read (``scored``) and clears ``rescoring`` and
+    ``rescore_error``, so one made again under the same id, or carried, keeps neither, nor an old ``scored``. A rescore
+    still passed keeps the reviewer's reading of the change as it stood (its edits are the same), stamped to the new
+    verdict; a first judging or a failed rescore keeps none. The verdict, or None when its edit no longer applies
+    (superseded); ``Unreadable`` when the mark cannot be read."""
+    from . import redesign as rd
+    from . import reviewer as rv
+    try:
+        verdict, why, card, scored = rd.judged(p, x, now)
+    except tr.TrialError as e:
+        pr.event(p, x["id"], "superseded", {"why": f"its edit no longer applies ({e})"})
+        out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": str(e)})
+        return None
+    if first:
+        pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
+        out["testing"] += 1
+    elif verdict == "failed":
+        why = f"no longer better on the record as it is now: {why}"
+    v = {"verdict": verdict, "why": why, "at": now, "by": by}
+    r = rv.review_of(x) if not first and verdict == "passed" else None    # a rescore still passed keeps the review
+    kept = {"review": {**r, "read": rv.seen({**x, "verdict": v}), "kept": now}} if r else {}
+    pr.event(p, x["id"], verdict, {"verdict": v, "scored": scored, "rescoring": False, "rescore_error": None,
+                                   **({"scorecard": card} if card else {}), **kept})
+    out[verdict] += 1
+    out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why, **({} if first else {"rescored": True})})
+    return verdict
+
+
+def unreadable(p, xs: list[dict], e: Exception) -> str:
+    """Each passed redesign said ``rescoring``, with why, when the record's mark cannot be read (written only when the
+    item does not say so already, so a broken store does not write an event every pass)."""
+    why = str(e)
+    for y in xs:
+        if not (y.get("rescoring") and y.get("rescore_error") == why):
+            pr.event(p, y["id"], y["state"], {"rescoring": True, "rescore_error": why})
+    return why
+
+
+def write_redesign(p, x: dict, snap: dict, by: str, now: float, out: dict) -> bool | None:
+    """A promoted, passed redesign written only on a scorecard of the record as it is, all in one hold of the lock:
+    re-read, its mark held against the record's, scored again when they differ (or it is ``rescoring``), and written
+    when still better and, for a reviewed kind, passed by the reviewer as it stands then. True when written; False when
+    not (no longer passed, no longer better, or not passed by the reviewer); None when the mark cannot be read.
+    ``ProposalError`` from the write, as ``pr.accept``."""
+    from . import redesign_record as rr
+    from . import reviewer as rv
+    with pr.locked(p):
+        y = pr.stored(p).get(x["id"])
+        spec = p.model.spec                      # the reviewer's verdict as it is now, not as read before the lock
+        if y is None or y["state"] != "passed" or owners(y) or rv.awaiting(spec, y) or rv.read_for_owner(spec, y):
+            return False
+        try:
+            if y.get("rescoring") or (y.get("scored") or {}).get("mark") != rr.read(p, spec):
+                if judge_redesign(p, y, now, by, out) != "passed":
+                    return False
+                y = pr.stored(p)[x["id"]]
+                if rv.awaiting(spec, y):         # its review kept by the rescore (judge_redesign), or back to the reviewer
+                    return False
+        except rr.Unreadable as e:
+            unreadable(p, [y], e)
+            return None
+        pr._accept(p, x["id"], snap, by=by, why=f"the judge passed it: {(y.get('verdict') or {}).get('why')}",
+                   policy=f"judge {by}: accept {x['kind']}: auto")
+        return True
 
 
 def recorded(p, spec: Spec, stocks: list[str], now: float) -> float | None:
@@ -635,8 +746,9 @@ def pause(got: dict, every: float, idle: int) -> float:
 
 def owners(x: dict) -> bool:
     """A change only the owner writes, whatever the policy (SPEC §12e, ``accept``): one that takes structure away or
-    rewires a kind's chain, and a redesign that changes control."""
-    return removes(x) or bool(x.get("rewires")) or (x.get("kind") == REDESIGN and bool(x.get("control")))
+    rewires a kind's chain, a redesign that changes control, and one passed on structure alone (its replay the model's)."""
+    return removes(x) or bool(x.get("rewires")) or (x.get("kind") == REDESIGN and bool(x.get("control"))) or \
+        (x.get("verdict") or {}).get("on") == "structure"
 
 
 def removes(x: dict) -> bool:

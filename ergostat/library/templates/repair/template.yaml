@@ -1,13 +1,18 @@
 template: repair
 once: true
-description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report (SPEC §12r).
+description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report, answered by a person or, with approver ai, by an AI behind a guard in code (SPEC §12r).
 reading: |
   System dynamics: an aging chain of failures (the built-in kind ergostat.failure, one item a signature), filled as
   programs fail (failures-found) and drained through a fix, its test and its approval; a fix that fails its test flows
-  back (rework), one denied leaves (fixes-dismissed).
+  back (rework), one denied leaves (fixes-dismissed). An applied fix is judged by the runs of its block begun after
+  it: verify runs that finished well verify it (fixes-verified; not a claim the failure is fixed), one that failed
+  regresses it (fixes-regressed) and revert-fix is asked for; an approved revert drains it (fixes-reverted).
   Control: no-open-failures holds the open failures at 0 through the fixer (an AI, haiku by default, no tools: a clone
   of its own, the fix tested in the sandbox, apply-fix asked for with its impact report); fixes-answered holds the
-  fixes waiting at 0 through their approver, the ladder's first rung: the person.
+  fixes waiting at 0 through their approver: the person (the ladder's first rung), or with approver: ai the second,
+  an AI (the same model, no tools) asked only about a fix a guard in code reads as computing with plain values and
+  printing; whatever the guard or the AI does not approve stays held for the person. repair-settle judges the applied
+  fixes, and asks the person for each regressed one's revert.
   It is used once a model, and its parts keep the names written here.
 example: |
   uses:
@@ -19,11 +24,12 @@ params:
   model: {default: haiku, description: "the fixer's model"}
   budget: {type: number, default: 0.25, description: "the most one AI call may cost, in dollars (claude --max-budget-usd)"}
   daily: {type: number, default: 2, description: "the most the loop's AI calls may cost in a day, in dollars: past it, none starts"}
-  approver: {default: person, choices: [person, ai], description: "who answers apply-fix: the person (ai: not yet, refused by check)"}
+  approver: {default: person, choices: [person, ai], description: "who answers apply-fix: the person, or ai (behind the guard of SPEC §12r; what it does not approve stays held for the person)"}
   approve: {default: approve, choices: [approve, deny], description: "the gate on apply-fix (auto is not offered: approval is the ladder's)"}
   test: {type: command, description: "the project's tests, run in the sandbox for a program that is not read-only"}
   timeout: {type: duration, default: 5m, description: how long one AI call, or one test, may take}
   tries: {type: integer, default: 3, description: how many fixes are tried for one failure before it is a dead letter}
+  verify: {type: integer, default: 3, description: "how many runs of the failing block, begun after a fix, must finish well before it counts as verified (1 to 50)"}
   count-every: {type: duration, default: 10s, description: how often the failures are counted by state}
 actions:
   apply-fix:
@@ -31,11 +37,18 @@ actions:
     gate: ${approve}
     in: .
     description: "Approving merges this code into your repository; it then runs with your rights, outside the sandbox (the diff is on the failure's page)"
+  revert-fix:
+    run: ${python} -m ergostat.repair revert
+    gate: ${approve}
+    in: .
+    timeout: 5m
+    description: "Approving reverts the applied fix in your repository with one new commit (git revert): the program goes back to what it was before the fix"
 stocks:
   open-failures: {unit: failures, description: failures waiting for a fix, sensor: {items: ergostat.failure, state: open, every: "${count-every}"}}
   fixing: {unit: failures, description: failures the fixer holds, each in a clone of its own, sensor: {items: ergostat.failure, state: leased, every: "${count-every}"}}
   awaiting-approval: {unit: failures, description: fixes that passed their test, waiting for their approver, sensor: {items: ergostat.failure, state: awaiting-approval, every: "${count-every}"}}
-  applied-fixes: {unit: failures, cumulative: true, description: fixes fast-forwarded into the project, sensor: {items: ergostat.failure, state: applied, every: "${count-every}"}}
+  applied-fixes: {unit: failures, description: fixes applied and being verified by the runs after them, sensor: {items: ergostat.failure, state: applied, every: "${count-every}"}}
+  regressed-fixes: {unit: failures, description: applied fixes a run after them failed, waiting for their revert, sensor: {items: ergostat.failure, state: regressed, every: "${count-every}"}}
 auxiliaries:
   repair-spend:
     unit: USD
@@ -48,6 +61,9 @@ flows:
   fixes-proposed: {from: fixing, to: awaiting-approval, driven-by: +stock.fixing, sensor: {items: ergostat.failure, entering: awaiting-approval, over: 1h}}
   fixes-failed: {from: fixing, to: open-failures, driven-by: +stock.fixing, description: a fix that failed its test, given back (rework), sensor: {items: ergostat.failure, entering: open, where: {lease.back: open}, over: 1h}}
   fixes-applied: {from: awaiting-approval, to: applied-fixes, driven-by: +stock.awaiting-approval, sensor: {items: ergostat.failure, entering: applied, over: 1h}}
+  fixes-verified: {from: applied-fixes, driven-by: +stock.applied-fixes, description: "fixes whose block then ran well verify times (not a claim the failure is fixed)", sensor: {items: ergostat.failure, entering: verified, over: 1h}}
+  fixes-regressed: {from: applied-fixes, to: regressed-fixes, driven-by: +stock.applied-fixes, description: fixes whose block failed again after them, sensor: {items: ergostat.failure, entering: regressed, over: 1h}}
+  fixes-reverted: {from: regressed-fixes, driven-by: +stock.regressed-fixes, description: regressed fixes reverted once their revert was approved, sensor: {items: ergostat.failure, entering: reverted, over: 1h}}
   fixes-dismissed: {from: awaiting-approval, driven-by: +stock.awaiting-approval, description: fixes their approver denied, sensor: {items: ergostat.failure, entering: dismissed, over: 1h}}
 goals:
   no-open-failures: {stock: open-failures, hold: "<= 0", description: every failure is being fixed}
@@ -68,5 +84,6 @@ blocks:
     type: program
     goal: fixes-answered
     every: 30s
-    run: ${python} -m ergostat.repair settle
-    out: [flow.fixes-dismissed]
+    run: ${python} -m ergostat.repair settle --verify ${verify}
+    actions: [revert-fix]
+    out: [flow.fixes-dismissed, flow.fixes-verified, flow.fixes-regressed]

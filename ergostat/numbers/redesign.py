@@ -5,7 +5,9 @@ kind ``redesign``.
 A change set is written ``{"title", "system", "summary", "edits": [...], "confidence"}``: the edits are made in order on
 a scratch copy, it must compile, and it is measured against the record as it is; what it adds says ``inferred:`` (the
 change's own id once recorded). Its verdict is the scorecard's, said again by the judge on the record when it takes it
-up. It is never written by the judge unless the owner promoted the class by name (``accept: {redesign: auto}``).
+up, and again while it waits whenever the record its scorecard reads has moved (``redesign_record``). It is never
+written by the judge unless the owner promoted the class by name (``accept: {redesign: auto}``), and then only on a
+scorecard of the record as it is.
 
 When one is made: the owner asks (``ergostat improve --redesign [SYSTEM]``, the Model page's button), and the
 redesigner block takes the ask up on its next run. At most one waits for each system, and its runs stop for the day
@@ -31,12 +33,15 @@ HELD = "ergostat.model.ai-held"         # a call's dearest, held against the dai
 
 def settings(spec: Spec) -> dict:
     """The redesigner's settings, as the model's ``use: modelling`` gave them (``redesign: {when, model, budget, rounds,
-    daily}``), else the defaults."""
-    out = {"when": "auto", "model": "haiku", "budget": 0.5, "rounds": 3, "daily": 2.0}
+    daily, review}``), else the defaults. ``review``: the daily architecture review's model, or ``off``
+    (``archreview.py``)."""
+    out = {"when": "auto", "model": "haiku", "budget": 0.5, "rounds": 3, "daily": 2.0, "review": "sonnet"}
     for u in (spec.uses or {}).values():
         got = (u.get("values") or {}).get("redesign") if u.get("template") == "modelling" else None
         if isinstance(got, dict):
             out.update({k: got[k] for k in out if got.get(k) is not None})
+    if out["review"] is False:                  # YAML 1.1 reads an unquoted ``review: off`` as false
+        out["review"] = "off"
     return out
 
 
@@ -265,19 +270,24 @@ def waiting(p, spec: Spec, system: str) -> dict | None:
     return None
 
 
-def judged(p, x: dict, at: float | None = None) -> tuple[str, str, dict]:
+def judged(p, x: dict, at: float | None = None) -> tuple[str, str, dict, dict]:
     """The judge's verdict on a redesign: its scorecard worked out again on the record as it is now; passed when it
-    is better, failed otherwise (the scorecard kept either way)."""
+    is better, failed otherwise (the scorecard kept either way); and what it read (``scored``: the record's mark, read
+    just before scoring, ``redesign_record.mark``; the store's last seq, for order only; and when). Called under the
+    proposals' lock. Raises when the mark cannot be read."""
     from ..spec import read
+    from . import redesign_record as rr
     from . import scorecard as sc
     from . import trial as tr
     spec = p.model.spec
+    scored = {"mark": rr.read(p, spec), "seq": p.events.last_seq(), "at": at or time.time()}
     after, problems = tr.compiled(p.model.path, tr.texts_after(tr.edits_of(x)), findings=True)
     if any(e.level == "error" for e in problems):
-        return "failed", "the model it leaves no longer compiles: " + "; ".join(str(e) for e in problems if e.level == "error")[:300], {}
+        errs = "; ".join(str(e) for e in problems if e.level == "error")[:300]
+        return "failed", "the model it leaves no longer compiles: " + errs, {}, scored
     _, before = read(p.model.path)
     card = sc.score(p, spec, before, after, problems, at=at)
-    return ("passed" if card["verdict"] == "better" else "failed"), card["why"], card
+    return ("passed" if card["verdict"] == "better" else "failed"), card["why"], card, scored
 
 
 # ---- when one is made
@@ -362,6 +372,13 @@ def spent(p, now: float | None = None, reviewer: bool = True) -> float:
                      for e in p.events.query(n=None, type=RAN, since=now - DAY)) + (rv.spent(p, now) if reviewer else 0.0)
                  + sum(float(d.get("usd") or 0.0) for d in (e.get("data") or {} for e in p.events.query(n=None, type=HELD, since=now - DAY))
                        if reviewer or d.get("by") != "reviewer"), 6)
+
+
+def room(p, daily: float, now: float | None = None) -> float:
+    """What is left of the day's cap for the redesigner's block (its review and its rounds): the cap less all spent,
+    and never into the share kept for the reviewer (``reviewer.RESERVE``)."""
+    from . import reviewer as rv
+    return round(min(daily - spent(p, now), daily * (1 - rv.RESERVE) - spent(p, now, reviewer=False)), 6)
 
 
 @contextmanager

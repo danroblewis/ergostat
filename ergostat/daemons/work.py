@@ -1,4 +1,5 @@
-"""What is handed to the daemons (SPEC §9.7): runs, readings, cancels; and push readings taken from them. A mixin of
+"""What is handed to the daemons (SPEC §9.7): runs, readings, cancels; and push readings and observations taken from
+them. A mixin of
 the supervisor (``supervise.py``), whose ``slots``, ``draining`` and ``lock`` it reads.
 
 A run is handed over only to the daemon running now under its name, checked and held under the supervisor's lock, so
@@ -8,10 +9,12 @@ off, and the dispatcher hands its block nothing until it is revived."""
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 
 from ..leases.kill import grace
+from .observe import why
 from .proc import Handle, Process
 
 FAILED_AFTER = 60.0            # seconds a run's item given back by a daemon given up is put off
@@ -113,13 +116,17 @@ class Hands:
                 p.log.write(f"cancel {run[:8]}: {why}\n")
         return True
 
-    def stop_block(self, block: str) -> bool:
-        """The owner's ``block NAME --stop``: each run of that block a daemon holds, cancelled."""
+    def holds(self, block: str) -> list[str]:
+        """The runs of that block its daemons hold now."""
         runs = []
         for p in self._procs():
             with p.lock:
                 runs += [r for r, h in p.runs.items() if h.block == block]
-        return any([self.cancel(r, "the owner's stop", asked=True) for r in runs])
+        return runs
+
+    def stop_block(self, block: str) -> bool:
+        """The owner's ``block NAME --stop``: each run of that block a daemon holds, cancelled."""
+        return any([self.cancel(r, "the owner's stop", asked=True) for r in self.holds(block)])
 
     def read(self, s, answer) -> bool:
         """A reading asked of a sensor's daemon, never waited on: ``answer(value, why)`` is called once, later. False
@@ -147,3 +154,32 @@ class Hands:
             self.e.results.put((s, float(value), "", time.time(), None))
             self.e.wake.set()
         return True
+
+    def _observed(self, daemon: str, sensor, obj: dict, now: float | None = None) -> bool:
+        """An observation line of a sensor this daemon serves, read at ``now``, recorded as that sensor's (as a
+        ``run:`` sensor's output is), within the cap (``observe.py``); False for any other sensor (never recorded
+        under another), or once ergostat's stop has said the drops."""
+        with self.lock:
+            s = self.observers.get((daemon, sensor)) if isinstance(sensor, str) else None
+        if s is None:
+            return False
+        from ..spec.engine import observations
+        seen, refused = observations(json.dumps({k: v for k, v in obj.items() if k != "sensor"}))
+        if not seen and not refused:                    # (neither taken nor refused, as {"message": "text"}: the log's,
+            return False                                # never lost unsaid)
+        ok, closed = self.observed.admit(sensor, now)   # (counted only once routed: the windows are the sensors')
+        if ok is None:
+            return False
+        if closed:
+            self._dropped(sensor, closed)
+        if ok:
+            self.e._observer(sensor)(seen, refused)
+        return True
+
+    def _dropped(self, sensor: str, n: int) -> None:
+        self.e.p.events.add("sensor.refused", item=sensor, source="ergostat", data={"why": why(n), "dropped": n})
+        self.e.say(f"sensor {sensor}: {why(n)}")
+
+    def flush_observed(self, every: bool = False) -> None:
+        for sensor, n in self.observed.flush(every=every):
+            self._dropped(sensor, n)

@@ -227,7 +227,9 @@ def test_use_repair_is_a_system_in_all_three_views(tmp_path, monkeypatch):
     p, e = project(tmp_path, monkeypatch)
     e.close()
     spec = p.model.spec
-    assert all(spec.stocks[n].system == "repair" for n in ("open-failures", "fixing", "awaiting-approval", "applied-fixes"))
+    assert all(spec.stocks[n].system == "repair" for n in ("open-failures", "fixing", "awaiting-approval", "applied-fixes",
+                                                           "regressed-fixes"))
+    assert not spec.stocks["applied-fixes"].cumulative, "fixes being verified: drained by fixes-verified, -regressed"
     for g in ("no-open-failures", "fixes-answered"):
         assert spec.loop(g).actuators or spec.loop(g).through, f"{g}: a loop closes it"
     b = spec.blocks["repair-fix"]
@@ -603,11 +605,6 @@ def test_g2_an_approval_after_a_denial_is_ignored_counted_as_denied_and_never_ru
     real(p, aid, "ran", {"exit": 0, "output": "merged"})        # a run that got through before the denial was seen
     assert actions.about(p, fid)[0]["state"] == "ran despite denial"
     assert its.one(p.events, p.model.spec, aid).state == "ran despite denial", "and so on the action's own page"
-
-
-def test_g2_approver_ai_is_refused_by_check(tmp_path, monkeypatch):
-    with pytest.raises(mdl.ModelError, match="approver: ai: not yet: a sound allowlist guard is needed"):
-        project(tmp_path, monkeypatch, approver="ai")
 
 
 def test_g2_a_notification_of_a_repair_always_says_what_approving_does(tmp_path, monkeypatch):

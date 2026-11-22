@@ -22,7 +22,9 @@ this process, its stack first, and any other process with the index open), and r
 next waits its turn in ``restarts.py``'s back-off (60 s, 2 m, 4 m, ... 30 m), said once, while the stall lasts.
 
 Every ``BEAT`` seconds it writes ``<state>/heartbeat.json``: when a pass last finished (wall clock) and the pid, for
-what watches from outside (``watcher.py``, ``ergostat status``): a process frozen whole leaves it stale."""
+what watches from outside (``watcher.py``, ``ergostat status``): a process frozen whole leaves it stale. Under
+``use: upkeep`` it carries ``stale``, the limit of the goal ``heartbeat-fresh``, which the outer watcher uses (60 to
+3600 s). No goal turns this watchdog off: it runs the same whatever the model says."""
 
 from __future__ import annotations
 
@@ -38,6 +40,7 @@ import traceback
 from pathlib import Path
 
 from .. import restarts
+from .ir import heartbeat_stale, stale_ok
 
 STALL = float(os.environ.get("ERGOSTAT_STALL") or 30.0)   # seconds with no pass, or nothing back from the pool
 GRACE = 10.0                # beyond the longest timeout of the readings out
@@ -76,7 +79,10 @@ class Watchdog:
         now = time.monotonic() if now is None else now
         if now - self.beat_at >= BEAT:
             self.beat_at = now
-            heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls)
+            heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls,
+                      heartbeat_stale(getattr(self.e, "spec", None)),   # (the model as it is now: a reload moves it)
+                      getattr(getattr(self.e, "dispatch", None), "failing", None),
+                      shard=getattr(self.e, "shard", None))
 
     # ---- looking
 
@@ -276,14 +282,19 @@ def startup(state: Path, say, restart, deadline: float | None = None) -> threadi
     return done
 
 
-def heartbeat(state: Path, passed: float, stalls: int = 0) -> None:
-    """``heartbeat.json``: when the last pass finished (wall clock), and this pid. Written at start too, so a watcher
-    never reads a slow start by the last process's heartbeat."""
-    path = state / "heartbeat.json"
-    tmp = path.with_name(f"heartbeat.{os.getpid()}.tmp")
+def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None = None,
+              failing: tuple[str, float] | None = None, shard: str | None = None) -> None:
+    """``heartbeat.json`` (a shard engine's: ``heartbeat.SHARD.json``, SPEC §9.8): when the last pass finished (wall
+    clock), and this pid. Written at start too, so a watcher never reads a slow start by the last process's heartbeat.
+    ``stale``: the limit of ``use: upkeep``'s ``heartbeat-fresh`` (``ir.heartbeat_stale``), for the outer watcher; the
+    file is written whole each time, so a model without the template leaves no ``stale`` in it. With ``failing``, the
+    dispatcher's error while every look meets one, and since when (``dispatch_error``)."""
+    path = state / ("heartbeat.json" if shard is None else f"heartbeat.{shard}.json")
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
+    err = {"dispatch_error": {"why": failing[0], "since": round(failing[1], 3)}} if failing else {}
     try:
         tmp.write_text(json.dumps({"pass": round(passed, 3), "written": round(time.time(), 3), "stalls": stalls,
-                                   "pid": os.getpid()}))
+                                   "pid": os.getpid(), **({"stale": stale} if stale_ok(stale) else {}), **err}))
         os.replace(tmp, path)
     except OSError:
         pass

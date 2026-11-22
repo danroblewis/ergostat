@@ -70,6 +70,9 @@ def _in(spec: Spec, unit: str, ref: str | None) -> bool:
         return False
     if unit == "model":
         return True
+    if ref.startswith("system."):                 # a note about a system: this unit's, or one within it
+        s = ref.split(".", 1)[1]
+        return s in spec.systems and unit in spec.chain(s)
     from ..spec import architecture as ar
     return unit in (ar._chains(spec).get(".".join(ref.split(".")[:2])) or [])
 
@@ -81,14 +84,15 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
     from . import redesign as rd
     from . import requests as rq
     from . import structural as stc
-    why = []
+    reqs = reqs if reqs is not None else rq.stored(p)
+    said = review_of(reqs, unit)
+    why = [f"the architecture review: {said['says']}"] if said else []   # (not routine: it sorts first)
     fit = fit if fit is not None else _fit(p, spec)
     if (fit.get("span") or 0.0) >= SUSTAINED:
         worse = [r for r, s in (fit.get("stocks") or {}).items()
                  if _in(spec, unit, r) and (s or {}).get("nmse") is not None and s["nmse"] > 1.0]
         if worse:
             why.append(f"its replay is worse than its mean ({', '.join(sorted(worse)[:3])}: scaled error over 1)")
-    reqs = reqs if reqs is not None else rq.stored(p)
     for r in reqs.values():
         if r["state"] not in rq.OPEN or r.get("source") == "redesign" or not _in(spec, unit, r.get("about")):
             continue
@@ -105,19 +109,31 @@ def triggers(p, spec: Spec, unit: str, now: float, fit: dict | None = None, reqs
         why.append(f"refinement stalled: its last {STALL} changes were all turned away")
     ran = ran if ran is not None else _ran(p, now)
     mine_ran = [e for e in ran if ((e.get("data") or {}).get("system") or "model") == unit]
-    if not (ever if ever is not None else bool(p.events.query(n=1, type=rd.RAN))):
+    if not (ever if ever is not None else _ever(p)):
         why.append("the first run with use: modelling")
     elif not mine_ran or now - max(e["time"] for e in mine_ran) >= DAILY:
         why.append("its daily review")
     return why
 
 
-def signature(spec: Spec, unit: str) -> str:
-    """The unit's own parts as written (what they are and connect, not their words): what a rest is keyed on, so a
-    change elsewhere in the model does not end it, and one to its parts does."""
+def review_of(reqs: dict, unit: str) -> dict | None:
+    """The open request the daily architecture review raised to redesign this unit (``archreview.py``), if any."""
+    about = f"system.{unit}" if unit != "model" else "model"
+    return next((r for r in reqs.values() if r.get("source") == "redesign" and r.get("code") == "review-redesign"
+                 and r["state"] == "open" and r.get("about") == about), None)
+
+
+ALL = ("stock", "flow", "auxiliary", "goal", "block")
+
+
+def signature(spec: Spec, unit: str, kinds: tuple[str, ...] = ALL) -> str:
+    """The unit's own parts of ``kinds`` as written (what they are and connect, not their words), with the parameters
+    their equations use: what a rest is keyed on, so a change elsewhere in the model does not end it, and one to its
+    parts does."""
     from ..spec import architecture as ar
     from . import version as ver
-    refs = sorted(r for r, ch in ar._chains(spec).items() if unit == "model" or unit in ch)
+    refs = sorted(r for r, ch in ar._chains(spec).items()
+                  if (unit == "model" or unit in ch) and r.split(".")[0] in kinds)
     tables = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries, "goal": spec.goals,
               "block": spec.blocks}
     used = set()
@@ -135,7 +151,8 @@ ENDED = ("failed", "refused", "dismissed", "superseded")
 def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, changes: dict | None = None) -> str | None:
     """Why this unit is not to be redesigned now, whatever is due: a redesign waiting, or the rest after one that was
     no better, dismissed, superseded, made nothing, or never ended, while the unit's own parts have not changed
-    since (``signature``)."""
+    since (``signature``), or after ``modeller.FAILS`` failed runs in a row."""
+    from . import modeller as md
     from . import redesign as rd
     if rd.waiting(p, spec, unit) is not None:
         return "a redesign of it is waiting already"
@@ -148,8 +165,12 @@ def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, chang
         d = last.get("data") or {}
         if d.get("result") == "started" and now - last["time"] > rd.RUNNING_FOR:
             return "resting: its last run never ended"
-        if d.get("result") not in ("proposed", "started") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
+        if d.get("result") not in ("proposed", "started", "error") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
             return f"resting: its last redesign was {d.get('result')}, and its parts have not changed since"
+    ended = sorted((e for e in mine if (e.get("data") or {}).get("result") != "started"), key=lambda e: e["time"])[-md.FAILS:]
+    if len(ended) == md.FAILS and all((e.get("data") or {}).get("result") == "error" and now - e["time"] <= COOL
+                                      for e in ended):    # failed calls are no rest, but only so many in a row
+        return f"resting: its last {md.FAILS} runs' calls failed ({(ended[-1].get('data') or {}).get('why_not')})"
     for x in (changes if changes is not None else _changes(p)).values():
         if x.get("kind") == rd.KIND and (x.get("system") or "model") == unit and x["state"] in ENDED and not _sent_back(x) \
                 and now - float(x.get("decided") or x.get("made") or 0) <= COOL and x.get("unit_sig") == sig:
@@ -169,10 +190,8 @@ def unfinished(p, ran: list, now: float) -> None:
             last[d.get("system") or "model"] = e
     for u, e in last.items():
         if (e.get("data") or {}).get("result") == "started" and now - e["time"] > rd.RUNNING_FOR:
-            k = rq.rid("redesign", "redesign-due", u)
-            x = rq.stored(p).get(k)
-            if x is not None and x["state"] in ("open", "proposed"):
-                rq.event(p, k, "answered", {"why": "its run never ended (it crashed, or its block timed out)"})
+            rq.move(p, rq.rid("redesign", "redesign-due", u), "answered",
+                    {"why": "its run never ended (it crashed, or its block timed out)"}, ("open", "proposed"))
 
 
 def _sent_back(x: dict) -> bool:
@@ -193,11 +212,16 @@ def _ran(p, now: float) -> list:
             if (e.get("data") or {}).get("result") != "call"]
 
 
+def _ever(p) -> bool:
+    """A redesigner run was ever recorded (a call charged alone, as the architecture review's, is no run)."""
+    from . import redesign as rd
+    return any((e.get("data") or {}).get("result") != "call" for e in p.events.query(n=50, type=rd.RAN))
+
+
 def next_due(p, now: float | None = None) -> dict:
     """The unit to redesign now, ``{"system", "why", "trigger", "unit_sig"}``, or ``{"system": None, "why"}``; units
     too large are held for the owner as requests (``too-large``) on the way. Among units equally due, the one reviewed
     longest ago (or never) comes first: they take turns."""
-    from . import redesign as rd
     from . import requests as rq
     spec = p.model.spec
     now = now or time.time()
@@ -206,7 +230,7 @@ def next_due(p, now: float | None = None) -> dict:
         hold(p, u, "too-large", f"system {u} is too large to redesign in one pass (more than {MOST_PARTS} parts, and no "
              f"subsystems to take one at a time): split it into systems", owner=True)
     ran, reqs, changes = _ran(p, now), rq.stored(p), _changes(p)      # read once for every unit
-    ever = bool(ran) or bool(p.events.query(n=1, type=rd.RAN))
+    ever = bool(ran) or _ever(p)
     unfinished(p, ran, now)
     fit = _fit(p, spec)
     skipped, due = [], []
@@ -219,7 +243,9 @@ def next_due(p, now: float | None = None) -> dict:
             skipped.append(f"{u}: {rest}")
             continue
         seen = max((e["time"] for e in ran if ((e.get("data") or {}).get("system") or "model") == u), default=0.0)
-        due.append({"system": u, "why": why, "trigger": why[0], "unit_sig": signature(spec, u), "_seen": seen})
+        said = review_of(reqs, u)                                    # the review's stamp, as this plan read it
+        due.append({"system": u, "why": why, "trigger": why[0], "unit_sig": signature(spec, u), "_seen": seen,
+                    **({"review": {"id": said["id"], "stamp": said.get("review")}} if said else {})})
     routine = ("the first run with use: modelling", "its daily review")
     due.sort(key=lambda d: (all(w in routine for w in d["why"]), d["_seen"]))   # what is wrong first; then turns
     if not due:
@@ -227,20 +253,33 @@ def next_due(p, now: float | None = None) -> dict:
     return {k: v for k, v in due[0].items() if k != "_seen"}
 
 
-def hold(p, unit: str, code: str, says: str, owner: bool = False, state: str = "held") -> str:
+def hold(p, unit: str, code: str, says: str, owner: bool = False, state: str = "held", more: dict | None = None,
+         keep: tuple = ()) -> str:
     """A redesign's trigger or result, held as a modelling request about the unit (visible on the Items tab, in the
-    inbox when held, and in ``ergostat status``)."""
+    inbox when held, and in ``ergostat status``). Read and written under the requests' lock: one the owner dismissed
+    stays dismissed while its unit is as it was (``version.part``), and is raised again, a new finding, once it is not.
+    ``more``: fields it carries (the review's stamp); one said again with other fields or words is written again, its
+    old ``change`` cleared. One in a state of ``keep`` is left as it is."""
     from . import requests as rq
+    from . import version as ver
     k = rq.rid("redesign", code, unit)
-    x = rq.stored(p).get(k)
-    data = {"source": "redesign", "code": code, "about": f"system.{unit}" if unit != "model" else "model", "says": says,
-            "tier": "redesigner", "level": "finding", "why": says, **({"owner": True} if owner else {})}
-    if x is None:
-        rq.event(p, k, "raised", {**data, "raised": time.time(), "since": time.time()})
-    elif state == "open" and x.get("state") != "open":
-        rq.event(p, k, "reopened", {**data, "since": time.time(), "change": None})
-    if state != "open" and (x is None or x.get("state") != state or x.get("why") != says):
-        rq.event(p, k, state, data)
+    about = f"system.{unit}" if unit != "model" else "model"
+    data = {"source": "redesign", "code": code, "about": about, "says": says,
+            "tier": "redesigner", "level": "finding", "why": says, **({"owner": True} if owner else {}), **(more or {})}
+    with rq.locked(p):
+        x = rq.stored(p).get(k)
+        if x is not None and x["state"] in keep:
+            return k
+        new = more is not None and x is not None and any(x.get(f) != data[f] for f in ("says", "why", *more))
+        gone = x is not None and x["state"] == "dismissed"
+        if gone and x.get("part") == ver.part(p.model.spec, about):
+            return k
+        if x is None:
+            rq.event(p, k, "raised", {**data, "raised": time.time(), "since": time.time()})
+        elif gone or (state == "open" and (x.get("state") != "open" or new)):
+            rq.event(p, k, "reopened", {**data, "since": time.time(), "change": None, **(rq.fresh() if gone else {})})
+        if state != "open" and (x is None or x.get("state") != state or x.get("why") != says or new):
+            rq.event(p, k, state, data)
     return k
 
 

@@ -1,0 +1,2 @@
+# Many gaps add to the review lessons at once: a merge keeps both sides' lines rather than conflicting.
+review-lessons.md merge=union

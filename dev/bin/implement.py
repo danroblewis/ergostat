@@ -1,28 +1,34 @@
 """implementor: takes a gap at ready (or at fix, sent back with its findings), under a lease, and builds it:
 
 1. a clone of the factory's drop repository (agents.py: never the owner's), on the branch factory/<branch> from main;
-   the definition of done committed first (`docs/roadmap/overnight/<branch>.md`) when the branch lacks it, by this
+   with [suites] build_browser = true only, Playwright's Chromium launched once in the image, in a suite container
+   and the slot (agents.browser_ready): no browser stops the round before it starts (given back uncounted, its
+   reason said), never a browser file skipped;
+   the definition of done committed first (`dev/records/<branch>.md`) when the branch lacks it, by this
    program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
    left for the session, its files in the brief); then published to the drop;
 2. a session in a container of its own (or the stand-in) on a brief assembled from dev/prompts/implementor.md;
 3. what it left uncommitted committed and bundled back to the drop (in a container with no network); before the
    suites, a branch adding scratch files (`strays`: [gates] scratch_patterns, or a new top-level file or folder the
    definition's Files to touch does not name) is refused, back to the session's next round with the list (uncounted;
-   still there after the last, a failed build); the fast suites
-   (ruff, then the unit suite under the watchdog) in a container with no network, in a machine-wide slot; a failure
+   still there after the last, a failed build), and so is one adding `ergostat check` findings (`new_findings`); the
+   fast suites (ruff, then the unit suite and the four browser files under the watchdog, a browser test skipped
+   counting as a failure) in a container with no network, in a machine-wide slot; a failure
    that names tests is triaged first (onmain.py: run alone on the branch, a flake retried once; run on clean main, a
    test failing there too is main's), and a failure of the gap's is given back to a session to fix, `suite_fix_rounds`
    times;
 4. `gap.built`, with its head, net lines, budget, suites, cost and the context it was given.
 
 The kill rule ([gates]): fast suites that fail on `build_failures` runs of it, or building past `build_hours`, park the
-gap with where it stopped. A failure whose every test fails on main too is not counted: the gap waits for main to move
-(`waits_on_main`). Within the day's dollar cap only (fails closed): over it, the gap is given back for an hour,
-uncounted."""
+gap with where it stopped. Each failed run adds one to `build_failures` (summed by the gap kind's fold), over the gap's
+life: a later successful build does not reset it; a continued gap is a new item and starts from none. A failure
+whose every test fails on main too is not counted: the gap waits for main to move (`waits_on_main`). Within the day's
+dollar cap only (fails closed): over it, the gap is given back for an hour, uncounted."""
 
 from __future__ import annotations
 
 import fnmatch
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -38,7 +44,7 @@ import pools  # noqa: E402
 def definition_first(cfg: dict, gap: dict, work: Path) -> tuple[str, str]:
     """The definition file (fac.definition_file), committed as the branch's first commit when the branch does not have
     it (by this program, in the clone it made, before any session); (its text, the commit that holds it)."""
-    branch, rel = fac.branch_of(gap), fac.definition_file(gap)
+    branch, rel = fac.branch_of(gap), fac.definition_file(gap, work)
     target = work / rel
     if not target.is_file():
         text = brief.definition_text(cfg, str(gap["fields"].get("definition", "")), branch)
@@ -69,24 +75,34 @@ def merge_main(work: Path, main: str) -> list[str]:
     return conflicts
 
 
-SCRATCH = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej"]  # [gates] scratch_patterns
+SCRATCH = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej", "test_zz*", "*_tmp.py",
+           "*.tail", ".bench*", ".mut*"]                                           # [gates] scratch_patterns
+
+
+def unlisted(repo: Path, base: str, head: str, definition: str) -> list[str]:
+    """The files the branch adds or changes against main (`base`) that main does not have and the definition's "Files
+    to touch" does not name (the file, or a folder above it). With no such section, every one: none is named."""
+    on_main = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", base).splitlines())
+    named = [p for p, _ in brief.files_of(definition)]
+    changed = fac.git(repo, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "--diff-filter=d",
+                      f"{base}...{head}").splitlines()
+    return [p for p in changed if p not in on_main and not any(p == n or p.startswith(n + "/") for n in named)]
 
 
 def strays(cfg: dict, repo: Path, base: str, head: str, definition: str) -> list[str]:
-    """The files the branch adds or changes against main (`base`) that look like a session's scratch: one with a path
-    part matching a [gates] scratch_patterns glob, or under a new top-level file or folder the definition's "Files to
-    touch" does not name (when it has that section). A file already on main is never one."""
+    """The `unlisted` files that look like a session's scratch: one with a path part matching a [gates]
+    scratch_patterns glob, or under a new top-level file or folder the definition's "Files to touch" does not name
+    (when it has that section). A file on main, or one the definition names, is never one."""
     pats = cfg.get("gates", {}).get("scratch_patterns", SCRATCH)
     if not isinstance(pats, list) or not all(isinstance(p, str) for p in pats):
         raise ValueError(f"[gates] scratch_patterns must be a list of globs, not {pats!r}")
-    on_main = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", base).splitlines())
-    tops = {p.split("/", 1)[0] for p in on_main} | {p.split("/", 1)[0] for p, _ in brief.files_of(definition)}
+    tops = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "--name-only", base).splitlines())
+    tops |= {p.split("/", 1)[0] for p, _ in brief.files_of(definition)} | {
+        fac.DEFS.split("/", 1)[0]}                                         # (the definition's own folder: dev/records)
     listed = brief.section(definition, "Files to touch") is not None
-    changed = fac.git(repo, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "--diff-filter=d",
-                      f"{base}...{head}").splitlines()
-    return [p for p in changed if p not in on_main and (
-        any(fnmatch.fnmatchcase(part, pat) for part in p.split("/") for pat in pats)
-        or listed and p.split("/", 1)[0] not in tops)]
+    return [p for p in unlisted(repo, base, head, definition) if
+            any(fnmatch.fnmatchcase(part, pat) for part in p.split("/") for pat in pats)
+            or listed and p.split("/", 1)[0] not in tops]
 
 
 def stray_brief(text: str, stray: list[str]) -> str:
@@ -94,6 +110,38 @@ def stray_brief(text: str, stray: list[str]) -> str:
             "files that look like scratch ([gates] scratch_patterns), or a new top-level file or folder the definition's "
             "Files to touch does not name:\n\n" + "\n".join(f"- `{p}`" for p in stray) + "\n\nRemove each (`git rm`), "
             "or move what belongs to the gap under a folder main has, commit, and stop.\n")
+
+
+def new_findings(cfg: dict, home: Path, branch: str, base_sha: str, definition: str, logs: Path, tag: str,
+                 mains: dict) -> tuple[list[str], list[str]]:
+    """`ergostat check` ([suites] check) on the work and on main at ``base_sha`` (once a run: ``mains``), by code and
+    part (fac.findings): (new ones the definition does not allow, the allowances used, "code part: why"). A side that
+    said nothing readable is a failure to compare, never "none new"."""
+    def side(h: Path, name: str) -> set[str] | None:
+        agents.suites(cfg, h, ("check",), logs, f"{tag}-{name}")
+        log = logs / f"{tag}-{name}-check.txt"
+        return fac.findings(log.read_text() if log.is_file() else "", fac.RECORD_FINDINGS)
+    if mains.get(base_sha) is None:
+        mhome, _ = agents.clone(cfg, branch, "main", at=base_sha)
+        try:
+            mains[base_sha] = side(mhome, "main")
+        finally:
+            shutil.rmtree(mhome, ignore_errors=True)
+    mine, theirs, allowed = side(home, "branch"), mains[base_sha], fac.allowances(definition)
+    if mine is None or theirs is None:
+        sides = " and ".join(s for s, got in (("main", theirs), ("the branch", mine)) if got is None)
+        return [f"could not compare: `ergostat check` said nothing readable on {sides}"], []
+    if fac.UNFINISHED & (mine | theirs):     # extreme-conditions compared only when both sides finished every test
+        mine, theirs = ({k for k in s if k.split()[0] != "extreme-conditions"} for s in (mine, theirs))
+    new = sorted((mine - fac.UNFINISHED) - theirs)
+    return [k for k in new if k not in allowed], [f"{k}: {allowed[k]}" for k in new if k in allowed]
+
+
+def findings_brief(text: str, new: list[str]) -> str:
+    return (f"{text}\n\n# New `ergostat check` findings\n\nSent back before the suites: `ergostat check` finds these on "
+            "the branch, not on main (by code and part):\n\n" + "\n".join(f"- `{k}`" for k in new) +"\n\nChange the "
+            "model so each goes, commit, and stop. Only the definition's `allows-findings` line allows one: never edit "
+            "it; say so in your report.\n")
 
 
 def conflict_brief(main: str, conflicts: list[str]) -> str:
@@ -132,8 +180,9 @@ def build(cfg: dict, given: dict, began: float) -> int:
     if refused:
         fac.nack(f"budget: {refused}", after="1h", count=False)
         return 0
-    if not pools.my_turn(cfg, "implementor", "implementor", gap["id"]):
-        fac.nack("the implementor pool is full (run/pools.json): waits its turn", after="5m", count=False)
+    if not pools.my_turn(cfg, "implementor", "implementor", gap["id"]):   # (put off under a minute: it keeps its rank
+        # for the next free slot; implement-when holds the block shut while no session fits, so it does not spin)
+        fac.nack("the implementor pool is full (run/pools.json): waits its turn", after="45s", count=False)
         return 0
     rework = (given.get("lease") or {}).get("back", gap["state"]) == "fix"
     rounds = int(f.get("rounds") or 0) + 1
@@ -145,6 +194,9 @@ def build(cfg: dict, given: dict, began: float) -> int:
         return 0
     fac.say("gap.started", branch=branch, rework=rework, building_at=began)
     home, work = agents.clone(cfg, branch, "implementor")
+    logs = fac.run_dir(cfg, "logs")
+    if "browser" in onmain.fast(cfg):                  # (only with [suites] build_browser; no browser: stopped, uncounted)
+        agents.browser_ready(cfg, home, logs, f"{fac.run_tag(branch, began)}-ready")
     base_sha = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")
     definition, held = definition_first(cfg, gap, work)
     conflicts = merge_main(work, base_sha)
@@ -154,13 +206,14 @@ def build(cfg: dict, given: dict, began: float) -> int:
     context["brief"] = brief.save(cfg, "implementor", gap, text)
     context["round"], context["merge_conflicts"] = rounds, conflicts
     cost, sessions, used = 0.0, 0, []
-    logs = fac.run_dir(cfg, "logs")
     suites: dict = {}
-    fast_seconds = 0.0                                  # every try's ruff and unit (times.py's gate `fast`)
-    seen: dict[str, bool] = {}                                  # tests run on main in this run: failed there?
+    fast_seconds = 0.0                                  # every try's fast suites (times.py's gate `fast`)
+    mains, allowed = {}, []                       # main's check findings by its sha; the allowances the branch used
+    seen: dict[str, bool] = {}                                # tests run on main in this run: failed there?
     retried, deadline = False, began + (hours - float(f.get("build_hours") or 0)) * 3600
     for i in range(1 + int(cfg["ai"]["suite_fix_rounds"])):
-        prompt = text if i == 0 else stray_brief(text, suites["stray"]) if suites.get("stray") else (
+        prompt = text if i == 0 else stray_brief(text, suites["stray"]) if suites.get("stray") else findings_brief(
+            text, suites["findings"]) if suites.get("findings") else (
             f"{text}\n\n# The fast suites failed after your work\n\n`{suites['failed']}` failed"
             f" ({', '.join(suites['tests']) or 'see the tail'}). Fix the code (not the tests' bounds), commit, and"
             f" stop. The tail of its output:\n\n```\n{suites['tail']}\n```\n")
@@ -177,9 +230,14 @@ def build(cfg: dict, given: dict, began: float) -> int:
             suites = {"failed": "scratch files", "tests": stray, "stray": stray, "tail": "\n".join(stray)}
             continue
         fac.wait_quiet(cfg)
+        new, allowed = new_findings(cfg, home, branch, base_sha, definition, logs, f"{fac.run_tag(branch, began)}-{i}",
+                                    mains)
+        if new:                                                 # findings added to the model: back before the suites
+            suites = {"failed": "check findings", "tests": new, "findings": new, "tail": "\n".join(new)}
+            continue
         suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
                                        deadline, seen, retried)
-        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in ("ruff", "unit"))
+        fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in onmain.fast(cfg))
         used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
         if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
             break
@@ -188,7 +246,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
                   net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
                   fast_seconds=round(fast_seconds, 1),
                   build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:],
-                  resources=used)
+                  resources=used, allowed_findings=allowed)
     if suites.get("flakes"):
         record["flakes"] = suites["flakes"]
     broken = sorted(t for t, bad in seen.items() if bad)        # (found in any round of this run)
@@ -203,8 +261,10 @@ def build(cfg: dict, given: dict, began: float) -> int:
     if suites.get("failed"):
         fails = int(f.get("build_failures") or 0) + 1
         fac.say("gap.measured", build_failures=1, **record)
-        why = f"the fast suites failed ({suites['failed']}: {', '.join(suites['tests'][:5])})" if not suites.get(
-            "stray") else f"refused before the suites, its scratch files still on the branch: {', '.join(suites['stray'])}"
+        why = (f"refused before the suites, its scratch files still on the branch: {', '.join(suites['stray'])}"
+               if suites.get("stray") else "sent back before the suites, new `ergostat check` findings: "
+               + ", ".join(suites["findings"]) if suites.get("findings") else
+               f"the fast suites failed ({suites['failed']}: {', '.join(suites['tests'][:5])})")
         if fails >= fac.gate(cfg, "build_failures"):
             park(cfg, gap, f"Its fast suites failed {fails} times (the kill rule); the last: {why}.\n\n"
                            f"```\n{suites['tail'][-1500:]}\n```")

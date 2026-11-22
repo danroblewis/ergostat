@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .. import graph, history, series
 from .. import model as mdl
 from .. import state as st
+from ..remote.items import RemoteRefused
 from ..reports.crash import noted as crash_noted
 from ..series import off_stretches
 from ..spec.item_sets import BadSet
@@ -372,6 +373,24 @@ def _process(p, m, snap: dict, q: dict, system: str | None) -> dict:
     return got
 
 
+def _remote_events(spec, name, n, glob) -> dict:
+    """A remote's newest events from its cache, in ``seq`` order, each marked; what failed said, never as none."""
+    import fnmatch
+
+    from ..remote import events, items
+    items.remote(spec, name)
+    kept, why = events.follow(spec, name)
+    if kept is None:
+        raise items.RemoteRefused(502, why)
+    try:
+        n = max(1, min(int(n or 100), EVENTS_MOST))
+    except ValueError:
+        n = 100
+    evs = [{**e, "remote": name} for e in kept["events"] if not glob or fnmatch.fnmatchcase(str(e.get("type")), glob)]
+    return {"remote": name, "ok": kept["ok"], "why": kept["why"], "read": kept["read"], "age": kept["age"],
+            "events": evs[-n:]}
+
+
 def api(live: Live, path: str, q: dict):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view."""
@@ -405,6 +424,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
+        from ..spec import itemgraph as ig
+        asked = [k for k in ("near", "path", "about") if one(k) is not None]
+        if one("at") or len(asked) != 1:
+            raise BadSet("items-query: one of near=ID, path=A&to=B or about=ID, as the record is now (never at=)")
+        ev, s = p.events, getattr(m, "spec", None)
+        try:
+            return ig.near(ev, s, one("near"), one("depth")) if asked == ["near"] else \
+                ig.path(ev, s, one("path"), one("to")) if asked == ["path"] else ig.about(ev, s, one("about"))
+        except ig.Unknown:
+            return None
+        except ig.Bad as e:
+            raise BadSet(str(e)) from e
     at = None
     if one("at"):
         try:
@@ -470,9 +502,13 @@ def _answer(live: Live, path: str, q: dict, project=None):
             g = graph.control(m, snap, graph.select(m), graph.readings(p, at))
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
+            reads = None
+            if getattr(m.spec, "remotes", None):     # when what remotes' boxes show last read (SPEC §4c)
+                from ..remote.measures import read_times
+                reads = read_times(p, m.spec, snap["at"])
             if sd:
-                return {**finish(fold(dynamics(g, m), m, want, system)), "attention": att}
-            return {**fold(g, m, want, system), "attention": att}
+                return {**finish(fold(dynamics(g, m), m, want, system, reads)), "attention": att}
+            return {**fold(g, m, want, system, reads), "attention": att}
         sel = graph.select(m, system, around, int(one("depth") or 1))
         g = graph.control(m, snap, sel, graph.readings(p, at))
         return {**(dynamics(g, m) if sd else g), "attention": att}
@@ -542,6 +578,20 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 for n, a in snap["agents"].items()}
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})
+    if head == "events" and "remote" in q:        # a remote's, from its cache (remote/events.py): never the local record
+        if name is not None:
+            from ..remote.items import RemoteRefused
+            raise RemoteRefused(400, "a remote's events are listed, never opened one by one here")
+        return _remote_events(getattr(m, "spec", None), one("remote"), one("n"), one("type"))
+    if head == "items" and "remote" in q:         # a remote's, asked there within its budget (remote/items.py)
+        from ..remote import items as remote_items
+        spec = getattr(m, "spec", None)
+        remote_items.remote(spec, one("remote"))
+        if len(parts) > 2:
+            raise remote_items.RemoteRefused(400, "a remote item's id is one path segment")
+        if name is not None:
+            return remote_items.detail(spec, one("remote"), name)
+        return remote_items.listing(spec, one("remote"), one("kind"), one("state"), one("n") or 100, one("offset") or 0)
     if head == "events":
         if name:                                  # one event, by id
             return p.events.get(name)
@@ -599,6 +649,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
         out = _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
+            out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
         est = _estimates(p, m, snap, one("whatif"))
         if est and est.get("items"):                  # each open item's estimate (SPEC §5a, Completion estimates)
             out["items"] = [{**i, "eta": {k: est["items"][i["id"]].get(k) for k in ("p50", "p90", "why", "runs")}}
@@ -954,6 +1006,8 @@ def handler(project):
                     data = api(live, u.path.removeprefix("/api/"), q)
                 except BadSet as e:                     # an Items filter that is not one: said, as the asker's
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
+                except RemoteRefused as e:              # a remote not named, not answering, or asked enough (SPEC §4c)
+                    return self._send(e.code, json.dumps({"error": e.why, "ok": False}).encode(), "application/json")
                 except Exception as e:                  # a broken request never takes the page down
                     crash_noted(live, e, "web")                # a report for the owner (SPEC §12m)
                     return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")

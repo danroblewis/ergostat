@@ -53,6 +53,9 @@ every = "1s"
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: takes 10 s or more; started first in a parallel run, so it is not the last to finish")
     config.addinivalue_line("markers", "serial: holds a time bound only on a quiet machine: run alone in a parallel run")
+    if os.environ.get("ERGOSTAT_COVERAGE"):            # the line tracer, only when asked for (dev/README.md, Coverage)
+        from tests import coverage_lines
+        coverage_lines.register(config)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -146,6 +149,7 @@ def home(tmp_path, monkeypatch):
     test's CLI would then talk to that engine instead of its own."""
     for k in [k for k in os.environ if k.startswith("ERGOSTAT_")]:
         monkeypatch.delenv(k)
+    monkeypatch.setenv("ERGOSTAT_CALL_RETRY", "5")    # a run outliving its test's engine gives up soon (rs-calls)
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     return tmp_path / "home"
 

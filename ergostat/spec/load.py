@@ -22,7 +22,7 @@ SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "che
             "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of",
             "daemons": "daemon"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
-       "defaults", "uses", "library", "remotes", *SECTIONS}
+       "defaults", "uses", "library", "remotes", "budget", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -63,6 +63,7 @@ class Problem:
     where: Where | None = None
     code: str = ""             # a short name for the kind of problem: missing-feedback, unknown-key
     about: str = ""            # the reference it is about: goal.disk-headroom
+    items: list = field(default_factory=list)   # the open items about that part (spec/about.py)
 
     def __str__(self) -> str:
         return f"{self.where}: {self.message}" if self.where else self.message
@@ -136,11 +137,14 @@ class Document:
     intake: object = None            # intake: what may push events to the running ergostat (main file only)
     web: object = None               # web: the page's public names and their login (main file only)
     notify: object = None            # notify: where what waits on a person is sent (main file only)
+    budget: object = None            # budget: the day's AI budget runs reserve from (main file only, SPEC §9.9)
+    budget_at: Where | None = None
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
     problems: list[Problem] = field(default_factory=list)
-    library: list[Path] = field(default_factory=list)   # the owner's folders of templates (library:, main file only)
+    library: list[Path] = field(default_factory=list)   # the folders of templates (library:, main file only)
+    untrusted: set[Path] = field(default_factory=set)   # of them, those not the owner's: {folder: PATH} (SPEC §2a)
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
@@ -218,6 +222,13 @@ def load(main: Path) -> Document:
                 doc.notify = data["notify"]
             else:
                 doc.problems.append(Problem("error", "notify: belongs in the main file only", data.at("notify"), "notify-in-include"))
+        if "budget" in data:
+            if top:                          # written but empty: {} (its keys missing, each an error), never no budget
+                doc.budget = data["budget"] if data["budget"] is not None else {}
+                doc.budget_at = data.at("budget")
+            else:
+                doc.problems.append(Problem("error", "budget: belongs in the main file only", data.at("budget"),
+                                            "budget-in-include"))
         if "keep" in data:
             if top:
                 doc.keep = data["keep"]
@@ -236,12 +247,22 @@ def load(main: Path) -> Document:
         if "library" in data:
             if top:
                 lib = data["library"]
-                lib = [lib] if isinstance(lib, str) else lib
-                if not isinstance(lib, list) or not all(isinstance(x, str) for x in lib):
-                    doc.problems.append(Problem("error", "library: a folder of templates, or a list of them", data.at("library"),
-                                                "bad-library"))
-                else:
-                    doc.library = [(path.parent / Path(x).expanduser()).resolve() for x in lib]
+                for x in lib if isinstance(lib, list) else [lib]:
+                    folder = x if isinstance(x, str) else x.get("folder") if isinstance(x, dict) else None
+                    trust = "owner" if isinstance(x, str) else x.get("trust", "untrusted") if isinstance(x, dict) else None
+                    if isinstance(x, dict) and "untrusted" in x:       # {folder, untrusted: BOOL}: a bool, agreeing with trust:
+                        said = {True: "untrusted", False: "owner"}[x["untrusted"]] if type(x["untrusted"]) is bool else None
+                        trust = said if x.get("trust", said) == said else None
+                    if not isinstance(folder, str) or trust not in ("owner", "untrusted") or \
+                            (isinstance(x, dict) and set(x) - {"folder", "trust", "untrusted"}):   # not loaded: never trusted
+                        doc.problems.append(Problem(
+                            "error", "library: a folder of templates (the owner's), {folder: PATH} (one not marked trusted), "
+                            "{folder: PATH, trust: owner} or {folder: PATH, untrusted: true|false}, or a list of them",
+                            getattr(x, "where", None) or data.at("library"), "bad-library"))
+                        continue
+                    doc.library.append((path.parent / Path(folder).expanduser()).resolve())
+                    if trust != "owner":
+                        doc.untrusted.add(doc.library[-1])
             else:
                 doc.problems.append(Problem("error", "library: belongs in the main file only", data.at("library"),
                                             "library-in-include"))

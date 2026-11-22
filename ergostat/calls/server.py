@@ -25,13 +25,25 @@ MOST = 4 * 1024 * 1024           # the largest request read (bytes)
 LIMIT = 100                      # a socket's path is at most 104 bytes on macOS, 108 on Linux
 
 
-def path_for(state: Path) -> Path:
-    """Where the socket is: in the state directory, or, when that path is too long for a socket, a short one named
-    after it (and written into the state directory, ``engine.sock.path``)."""
-    p = Path(state) / SOCKET
+def short() -> Path:
+    """The folder of the short sockets, for state directories whose path is too long for one."""
+    return Path(tempfile.gettempdir()) / f"ergostat-{os.getuid()}"
+
+
+def path_for(state: Path, shard: str | None = None) -> Path:
+    """Where the socket is: in the state directory (``engine.sock``; a shard's ``engine.SHARD.sock``, SPEC §9.8), or,
+    when that path is too long for a socket, a short one named after the state directory and the shard (and written
+    into the state directory, ``pointer_for``)."""
+    p = Path(state) / (SOCKET if shard is None else f"engine.{shard}.sock")
     if len(str(p)) <= LIMIT:
         return p
-    return Path(tempfile.gettempdir()) / f"ergostat-{os.getuid()}" / f"{sha256(str(state).encode()).hexdigest()[:16]}.sock"
+    key = str(state) if shard is None else f"{state}\0{shard}"
+    return short() / f"{sha256(key.encode()).hexdigest()[:16]}.sock"
+
+
+def pointer_for(shard: str | None = None) -> str:
+    """The file in the state directory naming its socket when it is not there (a shard's: ``engine.SHARD.sock.path``)."""
+    return POINTER if shard is None else f"engine.{shard}.sock.path"
 
 
 class Parked:
@@ -42,12 +54,14 @@ class Parked:
 class Server:
     def __init__(self, eng):
         self.e = eng
-        self.path = path_for(eng.p.dir)
+        shard = getattr(eng, "shard", None)                    # (SPEC §9.8: each shard engine its own socket)
+        self.path, self.pointer = path_for(eng.p.dir, shard), eng.p.dir / pointer_for(shard)
         self.sock: socket.socket | None = None
         self.jobs: queue.Queue = queue.Queue()
         self.parked: list[Parked] = []
         self.plock = threading.Lock()
         self.calls = 0
+        self.keep = False                                      # closed to start again (cli/running.py): the file left
 
     # ---- listening
 
@@ -65,7 +79,7 @@ class Server:
             os.umask(old)
         s.listen(512)
         self.sock = s
-        ptr = self.e.p.dir / POINTER
+        ptr = self.pointer
         if self.path.parent != self.e.p.dir:
             ptr.write_text(str(self.path))
         else:
@@ -77,7 +91,8 @@ class Server:
         return str(self.path)
 
     def close(self) -> None:
-        s, self.sock = self.sock, None
+        with self.plock:                                       # (after it, nothing is queued behind the stop markers)
+            s, self.sock = self.sock, None
         if s is not None:
             try:
                 s.close()
@@ -85,23 +100,28 @@ class Server:
                 pass
         for _ in range(WORKERS):
             self.jobs.put(None)
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
-        (self.e.p.dir / POINTER).unlink(missing_ok=True)
+        if not self.keep:                                      # a restart's: left, so a run's call waits its whole bound
+            self.remove()
         with self.plock:
             for w in self.parked:
                 self._close(w.conn)
             self.parked = []
 
+    def remove(self) -> None:
+        self.path.unlink(missing_ok=True)
+        self.pointer.unlink(missing_ok=True)
+
     def _accept(self) -> None:
-        while not self.e.stop.is_set() and self.sock is not None:
+        s = self.sock
+        while not self.e.stop.is_set() and s is not None:
             try:
-                conn, _ = self.sock.accept()
+                conn, _ = s.accept()
             except OSError:
                 return
-            self.jobs.put(conn)
+            with self.plock:                                   # accepted as it closed: closed, so asked again
+                if self.sock is None:
+                    return self._close(conn)
+                self.jobs.put(conn)
 
     def _work(self) -> None:
         while True:
@@ -161,8 +181,14 @@ class Server:
         a, done = program.settled(self.e.p, self.e.spec, cfg, a, end, ran_by)
         if done:
             return self._answer(conn, ops.act_answer(self.e, cfg, a))
-        with self.plock:                                       # it waits without a thread
-            self.parked.append(Parked(conn, cfg, a, end, ran_by))
+        self._park([Parked(conn, cfg, a, end, ran_by)])        # it waits without a thread
+
+    def _park(self, ws: list) -> None:
+        with self.plock:                                       # (closed meanwhile: closed too, so asked again)
+            if self.sock is not None:
+                return self.parked.extend(ws)
+        for w in ws:
+            self._close(w.conn)
 
     def _parker(self) -> None:
         from ..actions import program
@@ -190,8 +216,7 @@ class Server:
                         still.append(w)
                 except Exception as e:
                     self._answer(w.conn, {"error": f"{type(e).__name__}: {e}"})
-            with self.plock:
-                self.parked.extend(still)
+            self._park(still)
 
     @staticmethod
     def _answer(conn, out: dict) -> None:

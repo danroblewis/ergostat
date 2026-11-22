@@ -26,6 +26,11 @@ def call(cli, op: str, timeout: float = 60.0, **kw) -> dict | None:
         return None
 
 
+def key() -> str:
+    import uuid
+    return uuid.uuid4().hex
+
+
 def env() -> dict:
     """What a run's call says of the run (its lease, its actions file)."""
     keys = ("ERGOSTAT_ITEM", "ERGOSTAT_LEASE", "ERGOSTAT_RUN", "ERGOSTAT_ACTIONS", "ERGOSTAT_SANDBOX")

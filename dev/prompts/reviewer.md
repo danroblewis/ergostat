@@ -6,6 +6,9 @@ only the work: judge what is in the branch, not what anyone says about it.
 
 - Gap: {gap} ({title}), review round {round}
 - Branch `{branch}`, checked out read-only at `{worktree}`; compare with `origin/{base}` (`git diff origin/{base}...HEAD`)
+- Your clone is not the implementor's: theirs has no remote by design (no `origin/*`, no other gaps' branches; its
+  local `{base}` is the base as of its clone). A ref visible to you does not disprove what the implementor says of its
+  own clone (`origin/{base}` unknown there, a branch absent there), and such a statement is not a finding.
 - Net lines of core code changed: {net_lines} against a budget of {budget}
 - Mechanical gates already checked by the factory: {gates}
 
@@ -20,6 +23,13 @@ only the work: judge what is in the branch, not what anyone says about it.
 ## Earlier reviews' findings (check each was really fixed)
 
 {findings}
+
+## New files the definition's "Files to touch" does not name
+
+{unlisted}
+
+The factory refuses only the ones that match its scratch patterns. Judge each one listed here: a stray or scratch
+file (a probe, a profile, a tail of a log, a benchmark) committed to the branch is blocking.
 
 ## The change
 

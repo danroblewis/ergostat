@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 
+from ..costs import budget
 from ..spec import items as its
 from ..spec.ir import INTENT_PORTS, IntentKind, Spec
 from . import ai, brief, record, standin
@@ -30,12 +31,18 @@ def judge_one(p, spec: Spec, block: str, kk: IntentKind, it, at: dict, model: st
               held: str = "attention", instructions: str | None = None) -> dict:
     rung = "narrow-ai" if model else "program"          # a judge is a program; on a model, a narrow AI
     br = brief.build(p, spec, kk, it, at)
-    v = record.asked(p, block, br, "ai" if model else "standin", model, rung)
-    t0 = time.time()
-    if model:
-        verdict, why, ev, spent = ai.judge(br, model, cap, instructions)
-    else:
-        (verdict, why, ev), spent = standin.judge(br), {}
+    permit, no = budget.ask(p, spec, block, cap or spec.budget.max_cost) if model and spec.budget else (None, None)
+    if no:                          # (before it is asked: refused, the work stays due, SPEC §9.9)
+        return {"refused": f"budget: {no}"}
+    try:
+        v = record.asked(p, block, br, "ai" if model else "standin", model, rung)
+        t0 = time.time()
+        if model:
+            verdict, why, ev, spent = ai.judge(br, model, cap, instructions, permit)
+        else:
+            (verdict, why, ev), spent = standin.judge(br), {}
+    finally:
+        budget.done(permit, None)   # (closed by its call; else, raised before it, charged its reserve)
     got = record.given(p, v, verdict, why, ev, spent, time.time() - t0)
     if verdict in record.HELD and held == "reopen":
         record.reopen(p, spec, it.id, f"the intent judge ({block}): {why}", by=block, to=kk.reopen_to, verdict=v["id"])
@@ -94,6 +101,9 @@ def run(p, spec: Spec, by: str, model: str | None = None, only: str | None = Non
     out = {p_: 0 for p_ in INTENT_PORTS} | {"verdicts": [], "missed": 0, "cost_usd": 0.0}
     for kk, it, e in due(p, spec, by, only=only, again=again)[:most]:
         v = judge_one(p, spec, by, kk, it, e, model, pol.max_cost, pol.held, instructions_of(spec, b))
+        if v.get("refused"):        # the pass stops; the next with room judges it
+            out["refused"] = v["refused"]
+            break
         out["judged"] += 1
         if v["verdict"] == "met":
             out["met"] += 1

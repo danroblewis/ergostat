@@ -1,7 +1,8 @@
 """One daemon's process (SPEC §9.7). What is written to it goes through a bounded queue to a writer thread of its own,
 so nothing that hands it work waits on it (a full queue, or a write waiting too long, is the supervisor's to see). A
-reader thread gives each line it prints to what it is tagged for: a run's lines to that run, ``done`` (strict) ends
-it, a reading answers its request or is pushed for its sensor; every line says it lives. A line tagged with nothing,
+reader thread gives each line it prints to what it is tagged for: a run's lines to that run (those read together, in
+batches: ``lines.py``), ``done`` (strict) ends it, a reading answers its request or is pushed for its sensor, an
+observation goes to its sensor (``observe.py``); every line says it lives. A line tagged with nothing,
 or with a run or request it does not hold, is written to its log and dropped: never given to another run."""
 
 from __future__ import annotations
@@ -17,10 +18,13 @@ import threading
 import time
 
 from ..costs.sampler import Measured
-from . import usage
+from . import lines, observe, usage
 
 QUEUE = 1000                 # lines waiting for its standard input, at most
-SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SOCKET", "ERGOSTAT_HOME"}
+CHUNK = 65536                # bytes read from its standard output at once
+LINE_MAX = 1 << 20           # a line longer than this (1 MiB) is dropped, never held
+SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SOCKET", "ERGOSTAT_HOME",
+          "ERGOSTAT_CALL_RETRY"}     # (its calls' bound, ``calls/client.py``)
 GROUPS: set[int] = set()         # every daemon's process group not yet seen gone (``supervise.killpg``, ``end_all``)
 GROUPS_LOCK = threading.Lock()   # held for the set's own operations only: never across a wait, a signal or I/O
 CLOSING = False                  # set by ``supervise.end_all`` (ergostat starting itself again): a new group kills itself
@@ -85,8 +89,10 @@ class Handle:
 
 
 class Process:
-    def __init__(self, d, cwd, env: dict, log, on_push):
-        self.d, self.log, self.on_push = d, log, on_push
+    def __init__(self, d, cwd, env: dict, log, on_push, on_observe=lambda sensor, obj, now: False):
+        self.d, self.log, self.on_push, self.on_observe = d, log, on_push, on_observe
+        self.partial, self.skipping = b"", False     # (the reader's: a line not yet whole; one over LINE_MAX)
+        self.read_at: float | None = None            # (the reader's: when this read came, on observe's clock)
         self.q: queue.Queue = queue.Queue(QUEUE)
         self.lock = threading.Lock()
         self.runs: dict[str, Handle] = {}
@@ -159,14 +165,61 @@ class Process:
     # ---- out
 
     def _read(self) -> None:
-        for raw in self.proc.stdout:
-            self.last_out = time.monotonic()
+        fd = self.proc.stdout.fileno()
+        while True:
             try:
-                self.line(raw.decode(errors="replace").strip())
-            except Exception as err:                 # (a run ended meanwhile, its log closed): never the reader's end
-                self.stray(raw.decode(errors="replace").strip(), f"{type(err).__name__}: {err}", False)
+                data = os.read(fd, CHUNK)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            self.chunk(data)
+        self.chunk(b"", eof=True)
         self.proc.wait()
         self.ended.set()
+
+    def chunk(self, data: bytes, eof: bool = False) -> None:
+        """One read's bytes: its whole lines (UTF-8, what is not replaced) taken in ``lines.plan``'s order, a run's
+        together; a partial line kept for the rest of it (at the end of the output, taken as it is). A line over
+        ``LINE_MAX`` is dropped up to its newline, said once, never held."""
+        self.last_out, self.read_at = time.monotonic(), observe._now()   # (its observations judged at one time)
+        if self.skipping:                            # (the rest of a line over LINE_MAX, up to its newline)
+            cut = data.find(b"\n")
+            if cut < 0:
+                return
+            data, self.skipping = data[cut + 1:], False
+        *whole, self.partial = (self.partial + data).split(b"\n")
+        if eof and self.partial:
+            whole.append(self.partial)
+            self.partial = b""
+        if len(self.partial) > LINE_MAX:
+            self.stray(self.partial[:500].decode("utf-8", "replace"), "a line over 1 MiB", False)
+            self.partial, self.skipping = b"", True
+        texts = []
+        for raw in whole:
+            if len(raw) > LINE_MAX:
+                self.stray(raw[:500].decode("utf-8", "replace"), "a line over 1 MiB", False)
+            else:
+                texts.append(raw.decode("utf-8", "replace").strip())
+        for step in lines.plan(texts):
+            if step[0] == "one":
+                try:
+                    self.line(step[1])
+                except Exception as err:             # (a run ended meanwhile, its log closed): never the reader's end
+                    self.stray(step[1], f"{type(err).__name__}: {err}", False)
+                continue
+            _, run, got = step
+            with self.lock:
+                h = self.runs.get(run)
+            if h is None:
+                for x in got:
+                    self.stray(f"(run {run}) {x}", "no run of that id held")
+                continue
+            try:
+                h.take(got)
+            except Exception as err:                 # (the batch as a whole: each of its lines said dropped)
+                for x in got:
+                    self.stray(f"(run {run}) {x}", f"{type(err).__name__}: {err}", False)
 
     def stray(self, text: str, why: str, fault: bool = True) -> None:
         self.log.write(f"dropped ({why}): {text[:500]}\n")
@@ -195,11 +248,17 @@ class Process:
             if "done" in obj:                        # strict: exactly {"done": EXIT, "run": ID}, EXIT a whole number
                 if set(obj) != {"done", "run"} or type(obj["done"]) is not int:
                     return self.stray(text, 'done is exactly {"done": EXIT, "run": ID}, EXIT a whole number')
-                if self.d.warm:
-                    self.charge(h)
-                with self.lock:
-                    self.runs.pop(run, None)
-                    self.served += 1
+                res, left = self.charge() if self.d.warm else (None, [])
+                with self.lock:                      # (the run is charged by whichever takes it: this, or fail_all)
+                    if self.runs.pop(run, None) is not h:
+                        return None
+                    h.resources, self.served = res, self.served + 1
+                    if self.d.warm:                  # replaced before it is handed another: it holds one at a time
+                        self.recycle = self.recycle or (  # so nothing else's CPU is in it
+                            (f"left {len(left)} process(es) of its group running after its run", True) if left else
+                            ("its run was cancelled", False) if h.cancelled is not None else
+                            (f"served {self.served} runs (recycle: {self.d.recycle})", False)
+                            if self.served >= self.d.recycle else None)
                     if not self.runs:
                         self.idle_since = time.monotonic()
                 return h.end(obj["done"])
@@ -214,26 +273,29 @@ class Process:
             if isinstance(v, bool) or not isinstance(v, int | float):
                 return h.answer(None, str(obj.get("error") or "its daemon answered with no number (reading:)")[:200])
             return h.answer(float(v), "")
+        if "sensor" in obj and ("event" in obj or "message" in obj):
+            if "reading" in obj:
+                return self.stray(text, "a reading or an observation, not both")
+            if self.on_observe(obj["sensor"], obj, self.read_at):
+                return None
+            return self.stray(text, "an observation for no sensor of its own, not one in shape "
+                                    "(an event, or a message object), or after ergostat stopped")
         if "sensor" in obj and "reading" in obj and self.on_push(obj["sensor"], obj["reading"]):
             return None
         return self.stray(text, "tagged with no run, request or push sensor of its own")
 
     # ---- runs and readings
 
-    def charge(self, h: Handle) -> None:
-        """(warm) The CPU its group used while it held the run; what it left running, or a cancelled run, and it is
-        replaced before it is handed another (it holds one run at a time, so nothing else's CPU is in it)."""
-        cpu, left, dead = usage.charge(self.before, self.pid)
-        h.resources = {**({"cpu": round(cpu, 3)} if cpu is not None else
-                          {"unmeasured": "its group's CPU could not be read when it was handed the run"}),
-                       "method": "warm", **({"left_running": len(left)} if left else {}),
-                       **({"unreaped": len(dead)} if dead else {})}
-        why = (f"left {len(left)} process(es) of its group running after its run", True) if left else \
-            ("its run was cancelled", False) if h.cancelled is not None else \
-            (f"served {self.served + 1} runs (recycle: {self.d.recycle})", False) if self.served + 1 >= self.d.recycle \
-            else None
-        with self.lock:
-            self.recycle = self.recycle or why
+    def charge(self) -> tuple[dict, list[int]]:
+        """(warm) The run's resources: the CPU its group used while it held the run, at its ``done`` or when it
+        failed (crashed: its leader's from its ``wait4``); unknown, never zero, when that cannot be read. And the
+        members of its group it left running."""
+        ru = self.proc.rusage
+        cpu, left, dead = usage.charge(self.before, self.pid, ru.ru_utime + ru.ru_stime if ru else None)
+        return {**({"cpu": round(cpu, 3)} if cpu is not None else {"unmeasured": "its group's CPU could not be read "
+                + ("when it was handed the run" if self.pid not in self.before else "when the run ended")}),
+                "method": "warm", **({"left_running": len(left)} if left else {}),
+                **({"unreaped": len(dead)} if dead else {})}, left
 
     def hold(self, run: str, h: Handle, line: dict | None) -> bool:
         """The run held; its line sent now, or (None: a warm process's) by ``hand``, outside the supervisor's lock."""
@@ -273,7 +335,13 @@ class Process:
             runs, reqs = list(self.runs.values()), list(self.requests.values())
             self.runs.clear()
             self.requests.clear()
-        for h in runs:
+        for h in runs:                               # (warm: a run sent, crashed or hung, charged what it used)
+            if self.d.warm and h.sent:               # (and replaced: what it left running does not matter)
+                try:
+                    h.resources = self.charge()[0]
+                except Exception as err:             # (unknown, never zero; never the run left unended for it)
+                    h.resources = {"unmeasured": f"its group's CPU could not be read ({type(err).__name__})",
+                                   "method": "warm"}
             h.end(None, note, requeue and h.cancelled is None)
         for h in reqs:
             h.answer(None, note)

@@ -95,6 +95,43 @@ def _check(problems, spec: Spec | None = None, system: str = "model") -> list[st
     return out
 
 
+PORTS = 30                   # interface ports listed in the prompt, the rest counted
+
+
+def own_systems(spec: Spec, within: str | None) -> list[str]:
+    """The systems directly within one (None: the top level), the model's own (not a once template's)."""
+    return [s for s in spec.subsystems(within) if not (spec.uses.get(s) or {}).get("once")]
+
+
+def architecture(spec: Spec, system: str) -> list[str]:
+    """The unit's architecture, from the structure alone (no run, no call): its size, its interface (each port's
+    part, kind, direction and peers), its subsystems and whether it is nearly decomposable; for the whole model,
+    each top system's size."""
+    from ..spec import architecture as ar
+    from ..spec.causal import loops
+    top = None if system == "model" else system
+    subs = own_systems(spec, top)
+    if top is None:
+        z = {"parts": len(ar._chains(spec)), "loops": len(loops(spec)), "through": 0,
+             "depth": max((ar.size(spec, s)["depth"] + 1 for s in subs), default=0)}
+    else:
+        z = ar.size(spec, system)
+    out = [f"size: {ar.size_said(z)}"]
+    if top is not None:
+        ports = sorted(spec.interface(system), key=lambda x: (x["dir"], x["kind"], x["part"]))
+        out.append(f"its interface ({len(ports)} port{'s' * (len(ports) != 1)}):" if ports else "its interface: nothing crosses it")
+        out += [f"- {x['dir']}, {x['kind']}: {x['part']} (peers: {', '.join(sorted(x['peers']))})" for x in ports[:PORTS]]
+        if len(ports) > PORTS:
+            out.append(f"- and {len(ports) - PORTS} more ports")
+    out.append(f"its subsystems: {', '.join(subs) or 'none'}")
+    if subs:
+        out.append(ar.nearly_decomposable(spec, top) or "not nearly decomposable: its subsystems are not its "
+                   "well-separated clusters")
+    if top is None:
+        out += [f"- system {s}: {ar.size_said(ar.size(spec, s))}" for s in subs]
+    return out
+
+
 def _coherence(p, spec: Spec, problems) -> list[str]:
     from .. import coherence as co
     try:
@@ -155,6 +192,7 @@ def prompt(p, s: cs.Scratch, system: str, why: list[str], feedback: list[str] | 
              f"Files: {', '.join(s.rel(f) for f in s.files)}.", "",
              "## The model, as it is now" + (" (with your edits so far)" if s.done else ""), ""]
     lines += _files(s, shown, system)
+    lines += ["", "## Its architecture", ""] + architecture(shown, system)
     lines += ["", f"## What check finds{'' if system == 'model' else f' in system {system}'}", ""] + \
         (_check(problems, shown, system) or ["nothing"])
     if spec is not None:
@@ -315,8 +353,11 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
     cost["seconds"] = round(time.perf_counter() - t0, 1)
     out = {"system": system, "why": why or [], "rounds": log, "cost": cost, "model": model, "budget": budget,
            "version": ver.version(spec), "reports": said}
-    if best is None:
-        out["result"] = "nothing proposed"
+    if best is None:                                   # a failed call is said as one, never as "nothing proposed"
+        failed = next((x["error"] for x in log if x.get("error")), None)
+        out["result"] = "error" if failed else "nothing proposed"
+        if failed:
+            out["why_not"] = failed
         return out
     out["scorecard"] = best[2]
     raw = {"title": title or f"A redesign of {'the model' if system == 'model' else system}", "system": system,

@@ -102,7 +102,7 @@ gated actions included, is refused.
 
 | # | Step | From → to | What it does | Gated actions |
 |---|---|---|---|---|
-| | watcher | → `new` | `bin/watch.py`, a sensor's daemon: the issues in `JIRA_PICK_FROM` labelled `JIRA_LABEL` become tickets | none (reads) |
+| | watcher | → `new` | `bin/watch.py`, a sensor's daemon: the issues in `JIRA_PICK_FROM` labelled `JIRA_LABEL` become tickets; Jira's links on them are recorded as the ticket's relations `blocked_by`, `duplicates`, `relates_to` and `parent` (`ticket.linked`, below) | none (reads) |
 | 1 | `pick-up` | `new` → `picked` | the issue to In Progress, by whichever transition the project has (looked up, never assumed) | `jira-transition` |
 | 2 | `locate` | `picked` → `located` | the repository the issue names (`repo: owner/name`, or a GitHub link), else `GITHUB_REPO`; any other stops it. Its clone (`run/repo`) made or fetched | none |
 | 3 | `work` | `located` → `worked` | in the ticket's workspace (a worktree from the pool `code`, on `ergostat/KEY-slug`), the AI agent does the issue (`prompts/work.md`), or the stand-in writes a file; committed. Its cost is recorded | none: the agent cannot push or call gh |
@@ -263,6 +263,30 @@ its own `ERGOSTAT_*` values taken from its line (`tf.env`: never set in the proc
 them), every line tagged with its run, a `cancel` answered at once, and a heartbeat. The daemons read the record over
 ergostat's socket (`ERGOSTAT_SOCKET`), not by starting `ergostat item`. The watcher records each new ticket as the
 sensor's own (`ticket.found`, source `arrivals.main`), exactly as when its command printed it.
+
+The watcher also records **Jira's links** as the ticket's relations (`ticket.yaml`), at each reading, as the sensor's
+own (`ticket.linked`, source `arrivals.main`; a sensor may record any event, SPEC §9.3 limits only runs started by
+events). It asks Jira once more per reading (every 10 seconds, so 6 more searches a minute, for `issuelinks` and
+`parent` of every labelled issue). Matched by the link type's **name**, as Jira's default scheme calls them: `Blocks`
+seen from the blocked side (`inwardIssue`) is `blocked_by`; `Duplicate` seen from the duplicate (`outwardIssue`) is
+`duplicates`; the other side of these two is the inverse, which ergostat derives (`blocks`, `duplicated_by`), so it
+is not written. Any other type, either way, is `relates_to`, held by each ticket on its own side. A type renamed by an
+admin is then `relates_to` too. `fields.parent` is `parent`: on Cloud an epic or a sub-task's parent. On Data Center
+an epic is the Epic Link custom field, which is not read, so there only a sub-task's parent is recorded. A parent the
+factory never found stays an id never recorded. Each relation is written as a whole set (`{"set": [...]}`) when it
+differs from the ticket's fold, so a link removed in Jira is removed here. What it does not promise:
+- **Caught up after the next reading, not at once.** No lock is taken: each reading compares Jira's answer with the
+  fold as read at that reading. Two readings that overlap (the daemon and a manual `watch.py` whose output is
+  recorded) can land the older answer last, and the record then matches Jira's latest answer again after the next
+  reading.
+- **Tickets only.** A labelled issue the watcher never found is not given links (`ticket.linked` makes no item).
+- **The first 500 labelled issues** (`LINKS_MOST`; the search is paged, Jira answering 100 or fewer a page). An issue
+  past them is not looked at and keeps the links it has.
+- **An issue with a link or parent that can't be read** (no key, no type name, neither side, a key that is not
+  `PROJ-123`) keeps the links it has, and the watcher's log says so at each reading. A search that fails writes
+  nothing.
+- **Only what the Jira account can see.** Jira leaves out a link to an issue the account may not see, so such a link
+  looks removed and is cleared.
 
 **What stays a process each**, on purpose:
 
