@@ -48,7 +48,8 @@ TOOLS = {
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
             "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "librarian": 600, "groomer": 3000,
-            "pipeline_manager": 2400, "suite-queue": 3600, "suite-triage": 3600}   # seconds, each below its block's
+            "pipeline_manager": 2400, "suite-queue": 3600, "suite-triage": 3600,   # seconds, each below its block's
+            "measure-load": 43200}   # (runs.WALL, a whole measurement: its load lives through every run)
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
 SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
@@ -395,9 +396,10 @@ def browser_ready(cfg: dict, home: Path, logs: Path, tag: str) -> None:
                       f"It said: {got['tail'][-400:]}")
 
 
-def contained(cfg: dict, cmd: str, work: Path) -> tuple[str, str]:
-    """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network)."""
-    name = container("suite")
+def contained(cfg: dict, cmd: str, work: Path, role: str = "suite") -> tuple[str, str]:
+    """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network). ``role``, in its
+    name: how long another process's sweep() leaves it (TIMEOUTS)."""
+    name = container(role)
     return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *limits(cfg, "suite"), *SHOTS,
                            "-v", f"{work}:/work", "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
 
@@ -429,13 +431,13 @@ class NotStarted(RuntimeError):
     """A queue suite's container that did not start: an infrastructure failure, never a red suite or a gap's fault."""
 
 
-def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str) -> tuple[str, str]:
+def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str, env: tuple = ()) -> tuple[str, str]:
     """(a container's name, the shell command that runs ``cmd`` in it): one of the merge queue's (``box`` "queue") or
     flake triage's ("triage") suites, in the agent image on ``work`` at /work, with no network (a demo's servers and
     ports in its own namespace), pinned to [agents] queue_cpuset. The Mac's checkout is kept as the Mac left it: the
     image's own environment (/opt/venv), with an empty tmpfs over the checkout's .venv; bytecode and ruff's cache under
     /tmp; the git directory read-only (a worktree's at its own path). run/coverage/ at its own path, as the unit run's
-    ERGOSTAT_COVERAGE names it."""
+    ERGOSTAT_COVERAGE names it. ``env``: more NAME=value settings for it (fac.suite's PYTEST_ADDOPTS)."""
     name, work = container(f"suite-{box}"), work.resolve()
     common = Path(fac.git(work, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
     cov = fac.run_dir(cfg, "coverage").resolve()
@@ -444,7 +446,7 @@ def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str) -> tuple[str, 
             *limits(cfg, "queue", QUEUE_CPUS.get(suite, 4)), *SHOTS, "-v", f"{work}:/work", "-v", f"{cov}:{cov}",
             "-v", f"{common}:{inside}:ro", *(["--tmpfs", "/work/.venv"] if (work / ".venv").is_dir() else []),
             "-e", "UV_PROJECT_ENVIRONMENT=/opt/venv", "-e", "PYTHONPYCACHEPREFIX=/tmp/pycache",
-            "-e", "RUFF_CACHE_DIR=/tmp/ruff", "-w", "/work", settings(cfg)["image"], "sh", "-c", cmd]
+            "-e", "RUFF_CACHE_DIR=/tmp/ruff", *[x for e in env for x in ("-e", e)], "-w", "/work", settings(cfg)["image"], "sh", "-c", cmd]
     return name, shlex.join(args)
 
 

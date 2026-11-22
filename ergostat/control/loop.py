@@ -96,13 +96,13 @@ def tests_in(p, goal: str, since: float, until: float) -> list[dict]:
         t = out.setdefault(tid, {"id": tid})
         if e["type"] == "steptest.started":
             t["started"], t["amount"], t["hold"] = e["time"], e["data"].get("amount"), e["data"].get("hold")
-            t["from"] = e["data"].get("from")
+            t["from"], t["plant"], t["seq"] = e["data"].get("from"), e["data"].get("plant"), e.get("seq")
         elif e["type"] == "steptest.stepped":
             t["up" if e["data"].get("phase") == "up" else "back"] = e["time"]
             if e["data"].get("phase") == "up" and e["data"].get("moved") is not None:
                 t["moved"] = e["data"]["moved"]
         elif e["type"] == "steptest.finished":
-            t["finished"], t["how"] = e["time"], e["data"].get("how")
+            t["finished"], t["how"], t["plant_after"] = e["time"], e["data"].get("how"), e["data"].get("plant")
     return [t for t in out.values() if t.get("started")]
 
 

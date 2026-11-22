@@ -233,11 +233,62 @@ LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or 
 }
 
 
-UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files)$")
+BUDGET_MEASURES = {                # the day's AI budget (SPEC §9.9): what runs may still reserve
+    "ergostat.budget.left": "dollars of budget.daily left over the last day: daily less what ended runs cost and what "
+                            "runs in flight reserved; an error, never a number, when it cannot be worked out",
+}
+BUDGET_MOST = 10000.0             # the ceiling on budget.daily, in dollars
+
+
+@dataclass
+class RunBudget:
+    """``budget:`` (SPEC §9.9): ``daily``, dollars over the trailing day; ``max_cost``, what a charged run reserves
+    before it starts. Checked at compile time and again before every charged run (``problem``)."""
+    daily: float
+    max_cost: float
+    where: Where | None = None
+
+    def problem(self) -> str | None:
+        """Why these values are out of bounds, or None."""
+        d, m = self.daily, self.max_cost
+        if any(isinstance(x, bool) or not isinstance(x, int | float) or x != x for x in (d, m)):
+            return "budget: out of bounds: daily and max-cost must be numbers"
+        if d > BUDGET_MOST:
+            return f"budget.daily: out of bounds: {d:g} is above the ceiling of {BUDGET_MOST:g}"
+        if d <= 0:
+            return f"budget.daily: out of bounds: {d:g} is not above 0"
+        if m <= 0:
+            return f"budget.max-cost: out of bounds: {m:g} is not above 0"
+        if m > d:
+            return f"budget.max-cost: out of bounds: {m:g} is above budget.daily ({d:g})"
+        return None
+
+
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|heartbeat-age|stalls|restarts)$")
 UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
     "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
     "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
+    "ergostat.upkeep.heartbeat-age": "seconds since the last pass heartbeat.json gives; no reading without one",
+    "ergostat.upkeep.stalls": "ergostat.engine.stalled events over the last hour (the engine's watchdog)",
+    "ergostat.upkeep.restarts": "ergostat.engine.restarted events over the last day (the outer watcher)",
 }
+STALE_RANGE = (60, 3600)           # the seconds use: upkeep's heartbeat-fresh may give the outer watcher (SPEC §2a)
+
+
+def stale_ok(x) -> bool:
+    """A real number of seconds within ``STALE_RANGE``: never a bool, NaN or infinity (each fails the comparison)."""
+    return isinstance(x, int | float) and not isinstance(x, bool) and STALE_RANGE[0] <= x <= STALE_RANGE[1]
+
+
+def heartbeat_stale(spec) -> float | None:
+    """The limit of ``use: upkeep``'s goal ``heartbeat-fresh`` (ergostat's own template), for ``heartbeat.json``; None
+    in a model without it, or with one outside ``STALE_RANGE``."""
+    for inst, u in (getattr(spec, "uses", None) or {}).items():
+        if isinstance(u, dict) and u.get("template") == "upkeep" and not u.get("owners"):
+            g = (getattr(spec, "goals", None) or {}).get("heartbeat-fresh")
+            if g is not None and g.system == inst and g.hold.op == "<=" and stale_ok(g.hold.value):
+                return float(g.hold.value)
+    return None
 
 
 def is_measure(name: str) -> bool:
@@ -249,7 +300,8 @@ def is_measure(name: str) -> bool:
     cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), or ergostat's upkeep (``ergostat.upkeep.*``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES or bool(UPKEEP.match(name))
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
-            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES)
+            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES
+            or name in BUDGET_MEASURES)
 
 
 CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign")   # what accept: names (SPEC §12e)
@@ -477,6 +529,7 @@ class Sensor:
     builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
+    untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
 
     @property
     def window(self) -> float:
@@ -660,6 +713,7 @@ class Block:
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
+    untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
 
     @property
     def builtin(self) -> bool:
@@ -785,6 +839,8 @@ class Relation:
     precedence: bool = False        # its targets come first: this item is not ready until each is finished
     inverse: str = ""               # the other direction's name, derived (blocks, children)
     group: bool = False             # a parent: the Graph view groups by it
+    remote: str = ""                # names a remote's kind (incidents-incident): the remote; never precedence (§4c)
+    there: str = ""                 # the kind's name at that remote (incident)
 
 
 @dataclass
@@ -904,6 +960,7 @@ class Spec:
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
+    budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept
