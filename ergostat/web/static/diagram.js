@@ -1343,12 +1343,14 @@ const PLURAL = { stock: "stocks", flow: "flows", auxiliary: "auxiliaries", param
 function foldRow(ms, row) {
   const kinds = new Set(ms.map((m) => String(m.about).split(".")[0])), systems = [...new Set(ms.map((m) => m.system).filter(Boolean))].sort();
   const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text", placeholder: "why (to deny all)", "aria-label": "Why" });
-  const all = h("button", { class: "ghost", "data-verb": "deny-all", onclick: async () => {
-    all.disabled = true;
+  // read from the clicked row as it is on the page: a refresh hands this handler to the kept nodes (patchNode)
+  const all = h("button", { class: "ghost", "data-verb": "deny-all", onclick: async (ev) => {
+    const b = ev.currentTarget, act = b.parentElement, note = act.querySelector("input").value, out = act.querySelector(".note");
+    b.disabled = true;
     const bad = [];                                   // one at a time: each answer is the owner's event, in turn
-    for (const m of ms) await apiPost(`inbox/${encodeURIComponent(m.what)}/deny`, why.value ? { note: why.value } : {}).catch((e) => bad.push(e.message));
-    said.textContent = bad.length ? ` ${bad.length} not denied: ${bad[0]}` : ` ${ms.length} denied`;
-    all.disabled = false; refreshHeader();
+    for (const m of ms) await apiPost(`inbox/${encodeURIComponent(m.what)}/deny`, note ? { note } : {}).catch((e) => bad.push(e.message));
+    out.textContent = bad.length ? ` ${bad.length} not denied: ${bad[0]}` : ` ${ms.length} denied`;
+    b.disabled = false; refreshHeader();
   } }, "Deny all");
   return h("div", { "data-fold": ms[0].fold }, h("details", { class: "fold" },
     h("summary", {}, h("b", { class: "lvl-warn" }, `${ms.length} ${kinds.size === 1 ? PLURAL[[...kinds][0]] || "parts" : "parts"}: ${ms[0].fold.split("|")[0].replace(/-/g, " ")}`),

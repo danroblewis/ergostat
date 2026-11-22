@@ -3882,6 +3882,11 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
         assert "Nothing waiting" not in text and "24 modelling requests held" in text, text[:2000]
         model.close()
         pg.locator(f"{FOLD_ROW} > .inbox-act input").fill("units are not this model's concern")
+        # as a person types: the side list is rebuilt and patched in between (a poll asked after the first one's
+        # answer was drawn), so Deny all must read the reason from the row on the page, not from an earlier build
+        for _ in range(2):
+            with pg.expect_response(lambda r: "/api/graph" in r.url, timeout=60000):
+                pass
         pg.locator(f'{FOLD_ROW} button[data-verb="deny-all"]').click()
         pg.wait_for_function(f"() => !document.querySelector('{FOLD_ROW}')", timeout=60000)
         assert {r["state"] for r in rq.stored(p).values() if r["code"] == "no-unit"} == {"dismissed"}

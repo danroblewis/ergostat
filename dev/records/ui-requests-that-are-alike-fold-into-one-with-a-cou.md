@@ -75,3 +75,21 @@ skips whole without Playwright, so nothing was collected. No page code changed. 
 `fold`/`about`/`system`, and the attention row carrying them), so the build step now runs `tests/test_inbox.py` too. It
 was seen to fail (KeyError) with `state.py`'s pass-through line removed, then put back. `tests/test_inbox.py`: 31
 passed. ruff clean.
+
+Round 2: the review's one finding (blocking), answered. 38 net lines outside tests and docs (budget 60).
+
+- **Finding: Deny all acted on a detached build after a poll (lesson-5).** `foldRow`'s handler now reads the reason,
+  the button and the status span from the clicked button's own row on the page (`ev.currentTarget.parentElement`),
+  not from the elements made in its own build. The members it denies (`ms`) are still from the closure, and that is
+  right: each patch hands the kept button the newest build's handler, so `ms` is the newest list.
+- **The test now crosses a refresh:** between filling the reason and clicking Deny all it waits for two
+  `/api/graph` answers. The second ask starts only after the first answer's side list was drawn and patched in, so
+  the click is on a kept button whose handler came from a later build. With the old handler put back by hand, the test
+  failed (the fold never went: all 24 stayed held, 60 s timeout); with the fix, it passes.
+- **Not fixed, reported (lesson-13):** each member's own Approve/Deny is the shared `inboxAnswer` row, which still
+  closes over its own build's `row`, `said`, `n` and `why`. A reason typed into one member's field across a poll has
+  the same failure on every inbox row, on main as well. Fixing it means changing the shared renderer, which is outside
+  this gap; it needs a gap of its own.
+- **Runs:** the acceptance test (passed, and failed without the fix, as above), `tests/test_inbox_page.py` (passed),
+  `tests/test_inbox.py` (31 passed), ruff clean. Not run: the rest of `tests/test_diagram_rendering.py`, the other
+  browser files, the unit suite. No merge of main: main is the clone's base.
