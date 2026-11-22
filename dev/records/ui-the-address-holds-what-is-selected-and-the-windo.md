@@ -118,3 +118,13 @@ background limit before it reported anything. The command to run it again with a
 (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
 tests/test_diagram_rendering.py > /tmp/diag_full.log 2>&1; ...`, in the background) was refused. The other three
 browser files and the unit suite were not run again either (no Python changed). The merge queue runs them.
+
+Round 4, answering the queue's one finding (a conflict with main in tests/test_diagram_rendering.py). Main
+(afeee013) was merged in (9b552e4e). The conflict came from both sides adding tests at the same place at the end of the
+file, with the same closing lines. Resolved by keeping both: the branch's test (now with its own `assert not errors` /
+`finally` closing), then main's two new tests (the diagram's caption, the needs-attention groups) unchanged. No code
+outside tests/ changed in this round. The merge also brought main's changes to ergostat/web (diagram.js, dynamics.js,
+export.js, pages.js, relations.js, style.css, server.py, eta_api.py); none conflicted with the branch's lines. Run
+here after the merge: the branch's acceptance test and main's two new tests, with Playwright under the watchdog, 3
+passed, rc 0; tests/test_graph_cli_web.py, 36 passed; ruff clean. Not run: the whole of the four browser files and the
+unit suite (the merge queue runs them).
