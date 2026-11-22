@@ -621,7 +621,13 @@ included: it stops bisecting, the prefix a full green run proved lands, and the 
 (`cap` in `run/queue.json`, cleared by the first run that settles one), down to a batch of 1, which is one suite run.
 So, whatever the batch, the block's 3 hour timeout is reached only by a suite run begun inside the allowance that
 lasts past it (over 60 minutes at 120, 30 at 150); nothing here bounds a suite run that hangs. Each run's
-`queue_runs` entry says how many it `tried`, `landed` and `given_back`. `merges-per-hour` (gaps merged over the hours
+`queue_runs` entry says how many it `tried`, `landed` and `given_back`. Each pytest suite's result in `suites_queue`
+(`unit`, `browser`, `host`; never `ruff` or `demo`) has `counts: {passed, failed, skipped, deselected, errors}`, read
+from the last pytest summary line in its whole log (`fac.counts`), or `"unknown"` when it has none, was stopped by a
+failing sibling or could not be read; never zeros; `"not_run"` is kept for a suite not run by a rule, neither unknown
+nor zero (no such rule is on main yet; a suite turned off, as an empty `host`, has no entry at all). A landed run's
+`queue_runs` entry has `counts` summed over the pytest suites that ran in the green run main ends at, `suites` naming
+them, and `"unknown"` if any of them is. The browser's `skipped` field is unchanged. `merges-per-hour` (gaps merged over the hours
 of every queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
