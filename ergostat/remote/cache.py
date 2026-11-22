@@ -71,7 +71,7 @@ def status(d: Path) -> dict:
 
 
 def refresh(d: Path, url: str, token_file: str | None, root: Path, every: float, force: bool = False,
-            timeout: float = TIMEOUT) -> dict:
+            timeout: float = TIMEOUT, tls: dict | None = None) -> dict:
     """Ask the remote for its model when it is time (or ``force``), and keep what it said: the status after."""
     now = time.time()
     st = status(d)
@@ -83,7 +83,8 @@ def refresh(d: Path, url: str, token_file: str | None, root: Path, every: float,
         if token is None:
             code, body, why_ = 0, None, why
         else:
-            code, body, _, why_ = client.get(url, "model", token, etag=(have or {}).get("version"), timeout=timeout)
+            code, body, _, why_ = client.get(url, "model", token, etag=(have or {}).get("version"), timeout=timeout,
+                                             tls=tls)
         served = code == 200 and isinstance(body, dict) and body.get("version")
         if served and (not have or have.get("version") != body["version"]):
             _write(d / MODEL, {**body, "fetched": now, "url": url})

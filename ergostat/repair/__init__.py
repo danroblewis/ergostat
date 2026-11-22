@@ -5,10 +5,12 @@ from __future__ import annotations
 from ..spec.ir import ItemKind
 
 FAILURE = "ergostat.failure"
-STATES = ["noted", "open", "awaiting-approval", "applied", "superseded", "dismissed"]
+STATES = ["noted", "open", "awaiting-approval", "applied", "superseded", "dismissed", "verified", "regressed", "reverted"]
 MOVES = {"opened": "open", "passed": "awaiting-approval", "applied": "applied", "apply-failed": "open",
-         "dismissed": "dismissed", "superseded": "superseded"}
-FROM = {"opened": ("noted", "applied", "superseded"), "superseded": ("noted", "open")}   # moved only from these
+         "dismissed": "dismissed", "superseded": "superseded",
+         "verified": "verified", "regressed": "regressed", "reverted": "reverted"}   # (revert-failed: data only, no move)
+FROM = {"opened": ("noted", "verified", "superseded"), "superseded": ("noted", "open")}   # moved only from these
+VERIFY_MIN, VERIFY_MAX = 1, 50                  # settle's --verify: good runs after a fix, bounded (check, and settle)
 BLOCKS = ("repair-fix", "repair-settle")        # the template's own (once: true keeps their names)
 
 
