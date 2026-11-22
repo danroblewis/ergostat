@@ -310,8 +310,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
     engine stands down from tidying under it; the interlock (lock without waiting, age checked again under the lock,
     an allowlist of index names under the resolved folder) stays in `spec/itemindex.py`. Under `use: upkeep` nothing
     else limits the count if the tidier stops. Still to come: **upkeep-watched-loops** (the watchdog, the heartbeat
-    goal the outer watcher reads, leases and the worktree pool) and **upkeep-record-loops** (the event log's roll-up
-    and measurement retention).
+    goal the outer watcher reads, leases and the worktree pool).
+  - **The record's loops** (done on `factory/upkeep-record-loops`, `dev/records/upkeep-record-loops.md`): the stocks
+    `rollup-due`, `events-past-keep` and `measurements-due`, held at 0 by `record-compactor` (`upkeep rollup`) and
+    `measurement-retainer` (`upkeep retain`), each every 1m to 1d; the engine stops rolling up under `use: upkeep`.
+    Every compactor (the engine, `ergostat compact`, the programs) holds `<state>/compact.lock`, an `flock` taken
+    without waiting, and says `busy` when it is held. A store that cannot count gives no reading.
 - **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):
   - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (done, 3e106ee:
     `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").

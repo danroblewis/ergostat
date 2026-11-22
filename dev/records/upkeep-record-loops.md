@@ -79,3 +79,39 @@ Today `runner._prune` runs `rollup.upkeep` every `storage: rollup: every`: roll-
 ## Notes from the plan review (answer each; not blocking)
 
 - test_a_killed_compactor_releases_the_lock kills the lock holder directly, so it cannot fail on lesson-6 as DoD 6 states it (killed at the block's timeout): if the engine kills only an `sh -c` wrapper, the python child keeps the flock and keeps writing. The test must drive `record-compactor` through the engine with a short timeout and a slowed compaction, then show no process left in the group, the next `upkeep rollup` taking the lock (not busy), and items folding the same as before.
+
+## Where it stopped
+
+Built, round 1: every item of the definition, by its acceptance tests. 281 net lines outside `tests/`, `docs/` and `dev/` (330 added, 49 removed), within the 300 budget.
+
+**The plan review's note, answered.** `test_a_killed_compactor_releases_the_lock` drives the template's own `record-compactor` through `Engine.run_block`. Its `run:` is the template's command with only the module swapped for a script that slows `rollup.record` inside the lock. It runs under the engine's `sh -c` run wrapper, so the python is a grandchild. The block's timeout is made to fire once the child is inside the lock: `stream.follow` is wrapped to wait for the child's flag, then given an immediate deadline. The test then shows no live process left in the run's process group, the next `upkeep rollup` taking the lock and rolling up (not busy), and items folding as before. Breaking `runner._kill` to kill only the wrapper's pid made it fail, with the python child and its `sh` still alive in the group.
+
+**Choices made alone (the most reversible; each a line or two to undo):**
+- The programs take `--every D` (`run: ${lib} upkeep rollup --every ${rollup-every}`, and the same for `retain`), not the bare `upkeep rollup` the definition shows. This is so they can refuse a value outside 1m to 1d at run time (lesson-4, exit 2).
+- "One result line": `upkeep rollup` prints one JSON line moving `flow.rolled-up` (items), with `events`, `pruned` and `archive_forgot` beside it. `upkeep retain` prints one line moving `flow.measurements-forgotten` (rows). `events-forgotten` is measured only by its stock's falls. `busy` is said as words (`busy: ...`, exit 0), not JSON, so the engine logs it and moves nothing.
+- Flow names: `rolled-up`, `events-forgotten`, `measurements-forgotten`. A parameter `due-every` (10m) says how often the three stocks are read. `rollup-due` is a dry roll-up, too heavy for the 1m `count-every`.
+- `events-past-keep` counts what `prune` would forget (`Events.prunable`, `Segments.prunable`, sharing `prune`'s own predicate), not every event older than `keep`. The model's history and each loop's last crossing are never forgotten, so counting them would leave `record-within-keep` off forever.
+- `measurements-due` is 0 for a store with no tiers, because `roll` then forgets nothing.
+- Template params of type `duration` may now carry `min:`/`max:` as durations (`library/templates.py`, `expand.coerce`). That is the load-time check.
+- `Storage.every_set` records that `storage: rollup: every` was written, for the `unused-rollup-every` finding.
+- `ergostat compact --dry-run` takes no lock, since it writes nothing. `vacuum` runs after the lock is let go, as it reads and decides nothing about the record's content.
+- `runner._prune`'s step is the module function `runner.prune_once(p, say)`, because `spec/engine.py` runs `Runner._prune` with the Engine as `self`.
+- The existing `tests/test_upkeep_template.py::test_upkeep_expands_to_the_index_files_loop` pinned the template's exact part sets. It now lists the new parts too.
+
+**Each new test seen failing against broken code (lesson-9):**
+- No `flock` (always held): the lock test, the flock-across-processes test and the engine test's busy half fail.
+- `_kill` killing only the wrapper's pid: the killed-compactor test fails.
+- `rollup-due` read from the item index's candidates: `test_rollup_due_is_what_compact_would_roll` fails, after an item with one old event was added so the two numbers differ.
+- A store that cannot count read as 0: the no-reading test fails.
+- The engine not standing down: the engine and stopped-compaction tests fail.
+- No `min`/`max` in the template, and the program's range check off: the range test fails.
+- The finding off: the finding test fails.
+
+**Run, one file at a time:**
+- test_upkeep_record (12), test_upkeep_template, test_rollup, test_storage, test_item_index and test_templates: 170 passed.
+- test_store_conformance, test_scale_caches, test_runner_and_state and test_resilience: 153 passed, 7 skipped (VictoriaMetrics, no server).
+- ruff: clean.
+
+**Not run:** the whole unit suite, the four browser files and `demo_check`. No example was touched. They are left to the factory's runs. There is no `origin/main` in this clone, and `main` has nothing this branch lacks, so there was nothing to merge.
+
+**Left on the machine.** The lesson-9 run that broke `_kill` left two processes of its own: process group 513, an `sh` and a python asleep holding a lock in a pytest temp folder. `ps` and `kill` were refused in this session, so they could not be removed. The test now kills its own group if that assertion fails.

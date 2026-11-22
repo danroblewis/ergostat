@@ -202,7 +202,8 @@ and `pool:`); `leases:`, each tier's terms, belongs to the model as a whole, as 
 ### Upkeep
 
 `use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own
-upkeep as loops of the model. Its first and so far only loop is the item-index files (section 4b: one
+upkeep as loops of the model: the item-index files, and the record's roll-up and retention (below). The first loop
+is the item-index files (section 4b: one
 `<state>/items/<hash>[.n].db` per shape of the model's item kinds). The stock `index-files` (`ergostat.upkeep.index-files`,
 the live files) fills by `index-files-made` (`changes: rises`, a new file on each change to the kinds) and drains by
 `index-files-tidied` (`changes: falls`). The stock `retired-index-files` (`ergostat.upkeep.retired-index-files`)
@@ -232,7 +233,30 @@ checked before the lock and again once it is held.
 **Fail-safe.** A measure with no state directory, or a folder it cannot list, gives no reading, never 0. If the
 tidier stops, nothing else limits the number of files under `use: upkeep`: they only pile up (one per change of the
 kinds), and every index still opens and folds right. The other upkeep loops (the watchdog, the heartbeat, leases
-and the worktree pool; the event log's roll-up and measurement retention) are still to come.
+and the worktree pool) are still to come.
+
+**The record's loops.** Three stocks, each read every `due-every` (10m) and drained by its falls: `rollup-due`
+(`ergostat.upkeep.rollup-due`, the items with events past their roll-up horizon outside a snapshot: the number
+`compact(p, cap=keep, dry=True)["items"]` gives, read by that dry run, rolling nothing), drained by `rolled-up`;
+`events-past-keep` (`ergostat.upkeep.events-past-keep`, the events older than the model's `keep` that pruning
+would forget: the model's history and each loop's last crossing are never counted, as they are never forgotten),
+drained by `events-forgotten`; and `measurements-due` (`ergostat.upkeep.measurements-due`, raw readings past
+`storage: measurements: raw`, in whole buckets of the finest tier, and each tier's buckets past its keep; 0 without
+tiers, where nothing is forgotten), drained by `measurements-forgotten`. The goals `record-rolled-up`,
+`record-within-keep` and `measurements-within-tiers` hold each at 0. Two controllers on the rule rung serve them:
+`record-compactor`, `${lib} upkeep rollup --every ${rollup-every}`, does the roll-up, the pruning past `keep` and the
+archive's forgetting, and prints `{"out": "flow.rolled-up", "moved": ITEMS, "events": ..., "pruned": ...,
+"archive_forgot": ...}`; `measurement-retainer`, `${lib} upkeep retain --every ${retain-every}`, rolls the
+measurements into their tiers and prints `{"out": "flow.measurements-forgotten", "moved": ROWS, "rolled": ...}`.
+Each runs every its `every` (default 1h; 1m to 1d, refused at load and, exit 2, by the program). Each holds the
+compaction lock (section 4b) for all its work; finding it held, it prints `busy: ...`, does nothing and exits 0. A
+store that cannot count what is due (VictoriaMetrics, which keeps its own retention; an events store without the
+count) gives no reading, never 0. **The engine stands down** here too: under `use: upkeep` its hourly pass still
+rotates and trims its logs but no longer rolls up, prunes or retains, and `check` finds `storage: rollup: every`
+unused (`unused-rollup-every`, naming `rollup-every`). **Fail-safe:** if the two blocks stop, the record only grows;
+items, the flows counted from them, the item index and the archive all still read right
+(`tests/test_upkeep_record.py`). A block killed at its timeout loses its whole process group (each run is its own),
+so the lock goes with it, and the record stays whole: its one write to the record is `p.events.replace`, as before.
 
 ## 3. Names, references and values
 
@@ -516,6 +540,16 @@ engine reads through a cache.
 their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
 it would roll up). A roll-up reads only the items the item index says are due (their first event
 since their snapshot older than the horizon, or a transcript's lines), a batch of them at a time.
+**`use: upkeep` changes this:** the engine then only rotates and trims its logs, and the template's
+`record-compactor` and `measurement-retainer` roll up, forget and retain, each every its own `every`
+(section 2a, *Upkeep*); `rollup.every` is then unused, and `check` says so.
+
+**The compaction lock.** Whoever rolls up, prunes, forgets archive months or rolls the measurements
+(the engine's pass, `ergostat compact`, `upkeep rollup`, `upkeep retain`) holds `<state>/compact.lock`
+for all of it, from reading what is due to writing it back: an exclusive `flock`, taken without
+waiting. One that finds it held does nothing to the record and says `busy` (a line in the engine's
+log; `busy: ...` from `ergostat compact` and from the programs, which exit 0). The lock is the
+kernel's, never a pid file, so it goes when its holder's process dies.
 
 **The page's answers are bounded.** No answer grows with the record: events are at most 1,000 an
 answer (`n`, paged by `after` and `before`), items 500 (`offset`), a kind's finished items a thousand
