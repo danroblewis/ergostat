@@ -2016,9 +2016,11 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                      .length,
                    sizes: [...new Set(sizes)], sum,
                    hullStroke: hull && getComputedStyle(hull).stroke, hullFill: hull && getComputedStyle(hull).fill,
-                   // the panel but its legend (first now), every fold opened: no control word in any of it
+                   // the panel but its legend (first now) and Q42's group words ('Goals off', 'No goal is off.', the
+                   // same in every view), every fold opened: no control word in any of it
                    side: (() => { const s = document.querySelector('.side').cloneNode(true);
                                   s.querySelector('details.legend-box').remove();
+                                  for (const x of s.querySelectorAll('h3.att-head, .att > .none')) x.remove();
                                   for (const d of s.querySelectorAll('details')) d.open = true;
                                   return s.textContent; })() };
         }""")

@@ -73,3 +73,16 @@ Built, round 1: 22 net lines in ergostat/ (budget 80).
   main draws them; then Suggestions, the loops and The model, closed. The rows stay keyed (lesson-5). The panel's
   own 'Needs attention' heading and its 6-entry cap are gone, replaced by main's groups. Q43's header link is still
   not on main. style.css keeps both sides' rules. SPEC's side-panel paragraph names the two groups.
+- Round 2, after the merge: the SD-words test (test_the_dynamics_view_speaks_system_dynamics_...) failed on Q42's
+  own words, 'Goals off' and 'No goal is off.', which are the same in every view. On main this test reads the panel
+  before 'How to read it', and there main's groups come before the legend, so by reading it fails on main too (main
+  could not be run here). Choice made alone, the most reversible: the test now skips Q42's group headings and empty
+  lines (h3.att-head, .att > .none) and still checks every entry and fold. Whether the Dynamics view should say
+  'Goals off' at all is the owner's call, about Q42's wording, not this gap's.
+- Whole tests/test_diagram_rendering.py after the merge, serially under the watchdog: 209 passed, 5 failed. Fixed: the
+  SD-words test (above; passes alone now). Not this gap, as in round 1: test_every_view_draws_cleanly_and_in_time
+  [coordinator, image-squeeze] (routing 41-44 s over 20 s), test_a_big_tangled_model_lays_out_in_time_and_cleanly
+  (draw 3.1 s over 2.5 s), and test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page ('Nothing
+  waiting.' missing on the Model page, pages.js; failed again alone). Also passing: the four acceptance tests, main's
+  test_needs_attention_is_three_headed_groups_in_a_fixed_order, tests/test_inbox_page.py, tests/test_legend_memory.py.
+  ruff is clean. Not run: the unit suite and the other browser files.
