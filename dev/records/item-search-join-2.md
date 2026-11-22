@@ -49,3 +49,18 @@ Built; nothing left. No code changed: only `docs/GAPS.md`'s one entry, this reco
   it. This is the most reversible choice: the merge queue merges origin/main and runs the suites again.
 - Not this gap's: `intake.twice` also reports `gap/external-event-logs` listed twice on main (GAPS.md lines 51 and
   60). I left it alone (lesson-13).
+
+Round 2 (the queue's finding: all four tests failed alone after the merge of main, 97dc1327).
+- Cause (lesson-7): main had since taken item-search-join-1's edit (its form, `(`gap/item-search`): **done**`, plus
+  `512f08ef` and `c5eb54e6`). Merge 97dc1327 kept both versions, so there were two title bullets and the *near, path
+  and about* sub-point's first three lines appeared twice, cut off mid-sentence. The tests caught it.
+- Fix: one entry. It is main's text except for the opening line, which is back in the form intake reads as `done`.
+  `git diff main -- docs/GAPS.md` now changes only that two-line opening.
+- Seen failing: with main's opening line put back, `..._read_done_by_intake` fails (intake reads `open`). The other
+  three pass on main's entry now, because main already names both hashes and lists the entry once. The spliced
+  state the queue ran made all four fail. With the fix, all four pass, and so do `tests/test_gaps_doc.py`,
+  `tests/test_item_search.py` and `tests/test_item_graph_queries.py`. Ruff is clean.
+- This clone still has only local `main` (no `origin`); 97dc1327 merged it, and nothing on it is newer.
+- Not this gap's (lesson-13): main's own GAPS.md has the architecture entry under *Model* spliced three ways by
+  earlier merges (three "system's Dynamics panel" resumes, each with its own *Left* clause). It is the same on main,
+  so I left it alone.
