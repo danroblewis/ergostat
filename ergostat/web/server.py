@@ -451,7 +451,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
         edited = _edited(live, p, running)
         return {"name": m.name, "running": running, "live": snap["live"], "first": p.events.first_time(),
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
-                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"],
+                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 **({"edited": edited} if edited else {}),
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
