@@ -341,6 +341,17 @@ def once_made(spec, x) -> bool:
     return bool(u and u.get("once") and not u.get("owners"))
 
 
+OWN_TEMPLATES = frozenset({"modelling"})   # the owner's decision: these once templates' goals are upkeep, not the system's
+
+
+def upkeep_of(spec, x) -> str | None:
+    """The template's name when a once library template in ``OWN_TEMPLATES`` made ``x``; else None."""
+    if not once_made(spec, x):
+        return None
+    t = spec.uses[x.where.instance].get("template")
+    return t if t in OWN_TEMPLATES else None
+
+
 def modelling_request_kind() -> ItemKind:
     on = {f"{MODELLING_REQUEST}.raised": "open", f"{MODELLING_REQUEST}.reopened": "open", f"{MODELLING_REQUEST}.proposed": "proposed",
           f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered",
@@ -377,7 +388,7 @@ def message_kind() -> ItemKind:
 
 def action_kind() -> ItemKind:
     on = {f"{ACTION}.{s}": s for s in ACTION_STATES}
-    return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "command", "exit"], {},
+    return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "approved by", "command", "exit"], {},
                     None, "a gated action an AI session or a program asked for: approved by its gate (auto) or the owner, or denied; "
                     "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"},
                     final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)

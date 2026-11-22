@@ -774,7 +774,8 @@ each old bucket's last reading. `victoriametrics` keeps every reading as
 `-retentionPeriod` (the open-source server does not downsample): buckets are computed by the
 server (MetricsQL over `query_range`), raw readings exported when there are few (20,000 at most),
 and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
-`measurements.forgotten.json`.
+`measurements.forgotten.json`, and the ledger of backfilled readings (section 6) in
+`measurements.backfilled.db` beside it (with `sqlite`, it is in `measurements.db`).
 
 **Chosen by measurement** (`scripts/loadtest.py`, the demos' records tiled to 1, 7 and 30 days;
 the numbers in `docs/proposals/harness-parity-plan.md`, section 4). The segmented log is the
@@ -1365,7 +1366,7 @@ for:
   state a block takes from, such as review); *blocked* (a precedence relation names an item not finished, a paused
   one too: it is named as what the item waits on); *unblocked* (in its first state, nothing it waits on unfinished;
   not "ready", which is often a state's name); *paused* (in a state its kind declares paused, `messages: paused:`:
-  not finished, not active, kept out of the critical path, and held where it is by the completion estimates, "paused:
+  not finished, not active, kept out of the critical path, and not scheduled by the completion estimates, "paused:
   continued by hand", with no projected bar); *dead* (a dead letter).
 - **Durations**: each kind's time per state, the median of the stays its latest 2,000 items made in it (`leased`, a
   run's hold, counted as the work it is), weighted by how often a finished item visits the state (a rework state,
@@ -1492,8 +1493,8 @@ stand now):
   will; among equals the dispatcher takes the least slack and the longest path ahead first, the projection those
   more items wait on, which agree on a chain but may differ between items of unequal durations). An item waiting in a state
   whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
-  the engine would from the newest readings) is projected not to move: no bar, its reason "waits for B, which is
-  switched off now (by C)", at most the block's capacity at once: its pool now (its `pool:` number, or its stock's
+  the engine would from the newest readings) is projected not to move: not scheduled (below), its reason "waits for
+  B, switched off". A block takes at most its capacity at once: its pool now (its `pool:` number, or its stock's
   newest reading at or before the moment estimated, at most its `most`; a pool read as 0 or not read at all is
   estimated at 1, and each item waiting there says so: "its pool (stock.S) is 0 now: estimated at 1 run at once";
   the what-if `block.NAME.pool` overrides it), its agent's
@@ -1513,6 +1514,15 @@ stand now):
   tail; never past its TTL. A failure share tried in the what-if reaches the runs already held too.
 - **Dependencies:** an item does not leave its kind's first state, nor is it taken by an `unblocked` block, until
   every item its precedence relations name is finished (an item named but not in the record is not waited on).
+- **Items that cannot move are left out of the run** (else every run would go on to the horizon): an item paused
+  (its kind's `paused` message) or waiting at a state whose every block that takes from it is switched off, either
+  not leased (a leased one is run: its lease takes a slot and its run ends), one of a kind with no finished state,
+  and one whose precedence relations reach any of these, however far. Each is **not scheduled**: no p50 or p90, no
+  bar, and why ("paused in parked", "waits for dev, switched off", "waits on gap/x, which is parked"); the Items
+  list and an item's page say that first, then the item's reason as above. Each kind counts them (`unscheduled`),
+  and its last finish is of the items that can move only. An item that reaches a paused or switched-off state
+  partway through a run, and one parked waiting on it, is counted out of that run there: left out of its p50, p90
+  and its kind's last finish in that run, and its share of runs counted out kept (`out`) and said in its why.
 - **Arrivals:** new items at the record's rate per kind (a batch brought in at one moment is not a rate), into the
   states they arrive in, competing for the same capacity.
 
@@ -1528,7 +1538,9 @@ page is given the latest, and the next is worked out by one worker (the latest a
 kept) when the record changed (at most every thirty seconds, and every
 two minutes regardless); of now only (a moment travelled to has none), and not in a snapshot. The owner's what-if
 (`block.NAME.pool`, `block.NAME.failure`: a share of its runs given back, `0.2` or `20%`; typed beside each block's
-identified model) is worked out the same way, apart, and drawn on the same pages. The pages say what is left out
+identified model) is worked out the same way, apart, and drawn on the same pages. A simulation that fails is kept
+as its error (`eta_error` on the Timeline's answer, tried again as an answer would be) and the Timeline says so
+("the simulation failed: KeyError: ..."); with none yet it says the simulation is being worked out. The pages say what is left out
 (below), how many runs, and which blocks' runs are assumed.
 
 **What it leaves out**, and so what makes it wrong: a capacity no block declares (a reviewer who is one person across
@@ -1551,8 +1563,8 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 | View | What it shows |
 |---|---|
 | **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
-`status=` in the address) and says when the critical path is expected to end (until the completion estimates are worked out); a click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the forward pass), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend says when each kind's last open item is done (p50, p90). Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier by default, the finished kept as what happened |
+`status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the critical path's end, rounded up to the minute ("being worked out" until the completion estimates are; at a moment travelled to, when the critical path ends); a click opens the item |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the forward pass), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
@@ -1879,6 +1891,7 @@ sensors:
     every: 30s
   eyes:
     manual: true                 # a person records readings: ergostat sensor inbox.eyes --read 12
+                                 # a past history: ergostat sensor inbox.eyes --backfill history.jsonl
 ```
 
 Counting items (section 5a), on a stock and on a flow:
@@ -1927,6 +1940,36 @@ flows:
 
 On a flow, a sensor's reading is a rate per hour; on a `two-way` flow it may be negative (it ran
 back).
+
+**Backfilled readings.** A history kept outside ergostat (a measure computed at each commit of a
+repository's past, say) is written into a sensor's series at its own times, where the charts, the
+fit and `changes` flows read it as any reading:
+
+| Command | What it does |
+|---|---|
+| `ergostat sensor PART.SENSOR --backfill FILE [--from TEXT] [--json]` | FILE (`-`: standard input) is JSON lines `{"at": <epoch seconds>, "value": <number>}`, written to the series in one transaction. For a sensor that records a value (`run`, `query`, `manual`, `daemon`); refused for `items`, `changes` and `builtin`, which ergostat derives. Refused whole, nothing written, for a line that is not such an object, an `at` or `value` that is not a finite number, an `at` in the future, or more than 200,000 readings. Two lines with one `at`: the last is kept, and the count says so. Prints how many were written and how many skipped |
+| `ergostat sensor PART.SENSOR --backfilled [--json]` | The series' backfills, in the order they were made: when, `from`, the first and last `at` written, how many |
+
+The measurements store keeps a **ledger** of them: each backfill (its id, series, `from`, when it
+was written, first, last, count) and each reading it wrote (series, `at`, the backfill's id). It is
+outside every tier's roll, every `keep` and `prune`, and `forget`, so a backfilled span stays
+distinguishable from live readings for as long as the store is kept. A reading whose series and
+`at` are in the ledger is skipped, whatever has rolled or been pruned since: the same file sent
+twice writes nothing the second time, a day or a year later. Written and skipped are counted from
+the ledger, never by comparing with the buckets; a live reading at the same `at` is not in the
+ledger, so it does not stop a backfilled one. The ledger is read and written in the transaction
+that writes the readings (on `victoriametrics`, held while they are sent; a refused import rolls it
+back). Each backfill records the event `sensor.backfilled` (`sensor`, `written`, `skipped`,
+`repeated`, `first`, `last`, `from`, `backfill`: the ledger's id), which is pruned as any event
+without an item is; the ledger is what lasts.
+
+Readings older than the raw window are written raw and taken into the tiers at the next roll: into
+buckets already made where their span was rolled up (section 4b), and forgotten raw with the rest.
+A tier keeps a reading only as long as its `keep`, so a reading older than every tier's keep is gone
+after that roll (the ledger still names it, and it is still skipped). A bucket keeps the count,
+sum, minimum, maximum, and first and last reading of what fell in it, and a read of readings one by
+one gets each old bucket's last: two readings closer together than an old tier's bucket (two
+commits within the hour, in a tier of one-hour buckets) are one point there, the later one.
 
 `changes` measures a flow by what it did to its stock: a benchmark's score rising with a release
 is its inflow, a sudden fall its outflow. It is how a stock read by a script gets measured flows
@@ -2230,6 +2273,12 @@ goals:
 | `system`, `description` | | | |
 
 A goal exists whether or not anything serves it. A goal nothing serves is **missing feedback**.
+
+**Upkeep goals.** The API's `loops` are the goals' states, each with its `system` (null without a spec) and, for a
+goal a once library template among the owner's upkeep templates made (`modelling` alone for now: not `upkeep`,
+repair or interventions), `upkeep: <template>`: the modelling system's own work, counted beside the system's goals
+and not among them. `/api/status` carries `goals_off` (`system` off, `open`, `unknown`, and `own: {modelling: n}`,
+upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off`.
 
 **Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
 
@@ -2864,7 +2913,9 @@ item's transcript (`claude.*`), renews the lease, in the fold itself. A run may 
 outright (`$ERGOSTAT_CMD lease --renew`). And before a lease expires, ergostat looks once more at what
 its holder did elsewhere since its last renewal: an event it caused about anything, or an event about
 an item it started (its session, `session/developer-1a2b`). If there is one within the TTL, it records
-`renewed`, at that time; if not, `expired`.
+`renewed`, at that time; if not, `expired`. A lease whose run's end this engine has already tried (the end given up,
+or failed) is never renewed so: on the watchdog's first look past its expiry the end is tried once more, and when that
+cannot complete either, the lease expires then, without the grace of a second look.
 
 **How a run's lease ends.** When the run ends, ergostat folds its item: moved on (to a state in
 `to`, or, without `to`, any state but `leased` and those it was taken from) is an ack; otherwise a
@@ -2890,6 +2941,19 @@ that could not be given back (the write failed, or ergostat was killed, or resta
 next engine's watchdog on its TTL, so after a restart no item stays leased by a run that never ran; that expiry counts
 no attempt (`count: false`), since its holder was not a run this engine process took (the dispatcher keeps, in
 memory, the runs it took whose leases have not ended). A lease that expired is not ended again when its run ends.
+
+**Ends wait their turn.** Every end of a lease this engine writes (a run's own, or close's give-back) is checked and
+written under one lock, so two ends of one lease never both write. Its item is read before, outside the lock, and read
+again under it when any event about the item was recorded since that read (a lease's end, or the run's last line moving
+it on, so a moved-on item is acked where it stands, never nacked back), so one end holds the lock for
+milliseconds even while the record is slow to fold. An end that finds the lock held waits its turn, holding none of
+the dispatcher's other locks (takes and the watchdog go on), and tries again with a growing pause (up to 5 s), until
+one `lock_wait` before its lease expires; ergostat stopping meanwhile does not cut that short. Only then is it given
+up, said with the item and the run, and the watchdog ends the lease, or expires it, on its first look past the expiry
+(above). While that lease is held, and for 6 minutes after a watchdog pass finds it let go (one pass of the 5-minute
+pipeline watch, so it is seen once), the engine's heartbeat carries the given-up end as the dispatcher's error
+(`dispatch_error`, since the end was first tried), which health and the pipeline watch report once it is two minutes
+old. A look's own standing error is said before it, with its own since: a given-up end never hides one.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
@@ -3342,15 +3406,39 @@ spends more than its reserve is charged what it spent.
   call that started is closed (`budget.closed`, `run`: the call's id) with the cost it reported, or null (charged its
   reserve) when it raised, timed out, or reported none, or a cost that is NaN, infinite or negative. A call whose
   process died with it is closed by recovery, like a run.
+- **The modeller's calls** through `numbers/modeller` ask too (`modeller.ask`, `modeller.asked`): the redesigner's
+  rounds, the modelling reviewer, the `modelling ai` tier and the daily architecture review. Each reserves the call's
+  `unsaid` estimate. That is an estimate, not a bound: `claude -p` has no output limit, so a call can cost more, and
+  then it is charged what it said. The item is the block's name (`$ERGOSTAT_BLOCK`), else `modeller`. The call is
+  closed with the `usd` it reported. A failed call is closed with null, and charged its reserve, or what it said if
+  that is more. A refusal starts no process and is said `budget: …`. It is checked as well as the template's own
+  daily cap and the `redesign.held` hold, not in their place; the day's budget is asked first, so a refusal charges
+  neither. The redesigner stops its rounds and logs `stopped: budget: …`. A run refused before any round has the
+  result `no budget`, never `nothing proposed`. Nothing is submitted, its `redesign-due` request stays open, and the
+  system takes no rest for it. The reviewer stops its pass with no verdict, `why: budget: …`. The ai tier makes no
+  call, uses no try, and says `no call for N requests; budget: …`. The architecture review is recorded as `capped`
+  before the day's review is stamped.
 - **Counted once.** A call made inside a reserving run belongs to it (`within`): the judge's pass, whose
   `agent.started` (from `Engine.judge`) now carries `reserve: 0` and its `pid`, and whose end sums its verdicts'
   costs (`included: true`); or the run that `$ERGOSTAT_RUN` names, when it is a reserving start, whose end does not
-  include the call (`included: false`). The run is charged the larger of its end's charge and the sum of the calls it
+  include the call (`included: false`). A modeller call inside the run that `$ERGOSTAT_RUN` names is `included:
+  true`: the `modelling` programs print each call's cost as one of the run's Claude Code result lines, so the run's
+  end includes it. The run is charged the larger of its end's charge and the sum of the calls it
   includes, plus the calls it does not include. A call with no enclosing reserving run is charged on its own.
 - **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take` and the
-  calls above, and only those. It does not cover the calls through `numbers/modeller.call` (the redesigner, the
-  modelling reviewer, the `modelling ai` tier), or models in `ergostat.toml` (`runner.run_agent`), which have no
-  `budget:`; their ends count in spent as ends with no reserving run. A pid
+  calls above, and only those. It does not cover models in `ergostat.toml` (`runner.run_agent`), which have no
+  `budget:`; their ends count in spent as ends with no reserving run. "Every AI call asks" is only as wide as a
+  structural scan of `ergostat/` (`tests/test_modeller_budget.py::test_only_listed_ai_starts`). It finds each
+  function that starts a process (`subprocess`, `os` or `asyncio` spawns) in a module that names an AI command
+  (`ERGOSTAT_AI`, `ERGOSTAT_CLAUDE`, `claude` as a command, `AI_COMMAND`, `claude_command`, `decisions.ai.command`).
+  It allows only `decisions/ai.py` and `numbers/modeller.py`, plus this list:
+  - `bench/`: developer benchmarks.
+  - `session.py`: inside a run, which the run's permit covers.
+  - `supervisor.chat`: the owner's own chat.
+  - `spec/engine.py`: an `ai` block's run, which is the permitted run itself.
+  - `repair/fix.py`: inside `repair-fix`'s run, which the run's permit covers.
+
+  That list is the limit of the claim. A command name built at run time out of pieces is not seen. A pid
   reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
   drops out of reserved. Each permit reads 7 days of starts and ends.
 

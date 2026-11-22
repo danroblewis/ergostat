@@ -81,6 +81,23 @@ def test_the_gate_catches_what_it_should():
         assert hit == caught, decl
 
 
+def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():
+    """The narrow-width half of tests/test_items_page.py's phone/200% check, readable without a browser: below 760 px
+    the nav wraps onto its own rows, nothing in the sheet makes it scroll sideways, and the current page keeps its
+    underline."""
+    text = re.sub(r"/\*.*?\*/", "", CSS.read_text(), flags=re.S)
+    narrow = re.search(r"@media \(max-width: 759px\) \{(.*?)\n\}", text, flags=re.S)
+    assert narrow, "no @media (max-width: 759px) block"
+    nav = dict(declarations(re.search(r"\.bar nav \{[^{}]*\}", narrow.group(1)).group(0)))
+    assert nav.get("flex-wrap") == "wrap" and nav.get("overflow-x") == "visible", nav
+    for block in re.findall(r"@media \(max-width: (\d+)px\) \{(.*?)\n\}", text, flags=re.S):
+        if int(block[0]) < 760:
+            for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block[1]):
+                if sel.strip().startswith(".bar nav") and "a" not in sel.split():
+                    assert dict(declarations("{" + body + "}")).get("overflow-x", "visible") == "visible", sel
+    assert "border-bottom-color: var(--ink)" in re.search(r"\.bar nav a\.on \{[^{}]*\}", text).group(0)
+
+
 def _oklab(hexc: str) -> list[float]:
     def lin(c):
         return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
@@ -133,3 +150,13 @@ def test_on_a_phone_the_direction_hint_is_not_hidden():
         for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block):
             if ".panhint" in sel:
                 assert not re.search(r"display\s*:\s*none", body), f"the phone layout hides the hint: {sel.strip()}"
+
+
+def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():
+    """A saved picture is drawn light whatever the theme: each dark-theme rule excludes the class export.js sets on
+    <html> while it reads the drawing's styles, and export.js sets and then clears that very class."""
+    head, _ = split()
+    selectors = [s.strip() for s in re.findall(r"([^{}]+)\{[^{}]*\}", head.split("prefers-color-scheme: dark", 1)[1])]
+    assert selectors and all(s.endswith(":not(.export-light)") for s in selectors), selectors
+    js = (CSS.parent / "export.js").read_text()
+    assert 'classList.add("export-light")' in js and 'classList.remove("export-light")' in js
