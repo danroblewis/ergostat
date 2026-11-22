@@ -165,7 +165,7 @@ def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, chang
         d = last.get("data") or {}
         if d.get("result") == "started" and now - last["time"] > rd.RUNNING_FOR:
             return "resting: its last run never ended"
-        if d.get("result") not in ("proposed", "started", "error") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
+        if d.get("result") not in ("proposed", "started", "error", "no budget") and now - last["time"] <= COOL and d.get("unit_sig") == sig:
             return f"resting: its last redesign was {d.get('result')}, and its parts have not changed since"
     ended = sorted((e for e in mine if (e.get("data") or {}).get("result") != "started"), key=lambda e: e["time"])[-md.FAILS:]
     if len(ended) == md.FAILS and all((e.get("data") or {}).get("result") == "error" and now - e["time"] <= COOL
