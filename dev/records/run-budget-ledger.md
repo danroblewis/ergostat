@@ -215,3 +215,12 @@ Round 9 (the round-8 park's finding):
   way round. Leaving it to the review's clone is the more reversible choice.
 - Run here in round 9: `tests/test_run_budget.py` (39 passed). Ruff is clean. The unit suite and the four browser
   files were not run here (left to the factory and the merge queue).
+
+Round 10 (continued, round 2: the factory's merge of main ae7bdc89, conflicting in `ergostat/numbers/measures.py`):
+- The conflict was only in the module docstring's list of measures. Main added `.rollup-due`, `.events-past-keep`
+  and `.measurements-due` to the upkeep list, and the branch has `ergostat.budget.left`. Both are kept. The code
+  merged cleanly: the `budget.` prefix and the `BUDGET_MEASURES` dispatch and listing are still there.
+- The merge is 3f5a063b, whose second parent is ae7bdc89. This record claims nothing about any remote ref.
+- Run here in round 10, after the merge: `tests/test_run_budget.py` and `tests/test_upkeep_watched.py` (63
+  passed). Ruff is clean. The unit suite and the four browser files were not run here (left to the factory and the
+  merge queue).
