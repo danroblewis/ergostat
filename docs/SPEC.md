@@ -615,6 +615,7 @@ remotes:
 |---|---|---|---|
 | `url` | URL | required | The remote ergostat's page. Plain `http://` only to a loopback address (else **remote-insecure**, an error): across machines, https or an SSH tunnel (`ssh -N -L 8795:127.0.0.1:8781 HOST`) |
 | `token-file` | path | none | The file holding the token the remote made for this model (`ergostat remote token NAME`, on the remote); `~` expanded, relative to this file |
+| `tls` | map | none | Mutual TLS to a remote serving `web: mtls:` (below): `{cert: me.pem, key: me.key, ca: servers.pem}`, the certificate and key this model shows and the CA it trusts for the remote's (`ca` optional: else the system's trust, as for any https). Paths as `token-file`. Only with an `https://` url; a key missing or unknown is **bad-remote**; a file given that is missing, a directory or not PEM is **mtls-unreadable**, an error. Every read of the remote uses it; when a context can't be made from it the read fails (`tls: ca …: why`), never sent without the certificate or with the system's trust in place of `ca` |
 | `systems` | list | all | Only these of the remote's systems, and the systems within them; a reference from them to a part left out is cut (a flow's end becomes a cloud, a cause or an input is dropped) |
 | `within` | system name | the file's default | The local system it is drawn inside |
 | `every` | duration | `1m` | How often its model is checked and its readings read |
@@ -724,6 +725,38 @@ events NAME` reads a remote's newest events in place, by cursor, into a cache ke
 most); `ergostat remote refresh` asks each again now; `ergostat remote proposals` lists the texts written for
 remotes' owners (above).
 
+**Over mutual TLS.** `web: mtls:` (§4d; per machine, so in `ergostat.local.yaml` when the model is shared)
+starts a second listener beside the loopback page that serves only this API, over TLS, to clients whose
+certificate the owner's CA signed:
+
+```yaml
+web:
+  mtls:
+    port: 8796                                       # required, 1..65535
+    bind: 0.0.0.0                                    # an address (default 0.0.0.0)
+    cert: ~/.config/ergostat/tls/server.pem          # this listener's certificate (required)
+    key: ~/.config/ergostat/tls/server.key           # and its key (required)
+    client-ca: ~/.config/ergostat/tls/clients.pem    # required: whose client certificates are taken
+```
+
+Paths expand `~` and are relative to the model's folder. An unknown key, a bad port or a bad address is
+**bad-web**. Each file that is missing, a directory or not PEM (or a key that is not the certificate's) is
+**mtls-unreadable**: an error to `ergostat check`, and when the model loads no port is bound, the loopback
+page serves as ever, and `ergostat run` and `ergostat web` say `remote API over mutual TLS: not listening:
+web.mtls.cert PATH: why` (else `remote API over mutual TLS: https://BIND:PORT`). Both contexts, this
+listener's and a remote's `tls:`, are set to TLS 1.2 at least; the listener requires a client certificate
+and trusts `client-ca` alone (never the system's trust); a remote's checks the host name. Its limits are
+fixed, not settings: 16 connections at once (one more is closed at once, never queued), 10 s for a
+handshake in all (however slowly its bytes come), then 10 s without a byte after it or between requests;
+past either the connection is closed. A client holding a certificate from `client-ca` that sends a byte
+now and then keeps its slot: only the handshake has a total bound. Only `GET` (any
+other method 405) of `/remote/v1/status`, `model`, `events`, `items`, `counts`, `readings`, `series` or
+`process` and below, read on decoded path segments (none `.`, `..`, empty or holding a slash); any other
+path is 404 and never reaches the page. The token is still needed, as on the page (its 10 a second, and
+404 until one is made): the certificate admits the connection and the token names the consumer. The two are
+not tied: any certificate `client-ca` signed may carry any consumer's token. Stopping the page stops the
+listener, closing every open connection.
+
 ## 4d. The page behind a public name
 
 The page answers on this machine only: a request must name it as `127.0.0.1:PORT` (or `localhost`, `[::1]`) in its
@@ -761,6 +794,13 @@ proposal, approved an action, answered the inbox, sent a message); the inbox cou
 never an agent's. Under a public name `/file/` never serves the state directory (its tokens). The push paths (`/api/events`, `/api/hooks/`,
 section 5c) and the remote API (`/remote/`, section 4c) keep their own tokens. Requests still come only from this
 machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**), and names without `access`.
+
+| `web:` key | Meaning |
+|---|---|
+| `names` | the public names the page answers to (a tunnel's hostnames) |
+| `access` | the Cloudflare Access application in front of them: `team`, `aud`, `emails` |
+| `open` | `read`: the names public and read only, with no login (never with `access`) |
+| `mtls` | the remote API on a listener of its own, over mutual TLS: `port`, `bind`, `cert`, `key`, `client-ca` (section 4c) |
 
 ## 5. Stocks
 
@@ -2909,7 +2949,7 @@ sources:
 |---|---|---|
 | `prometheus` | `url` | `source` and `promql`: an instant query, which must return one series |
 | `command` | none | (the same as `run`) |
-| `ergostat` | `url`, `token-file` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
+| `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
 More types (Datadog, CloudWatch, SQL) can follow the same shape.
 

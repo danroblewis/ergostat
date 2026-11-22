@@ -80,7 +80,7 @@ DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the model change that added a part
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
-SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file"}}
+SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file", "tls"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
 MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
@@ -863,6 +863,13 @@ class Compiler:
         spec.web = web(d.web, wrong)
         for msg in wrong:
             self.err(msg, None, "bad-web")
+        if spec.web.mtls is not None:
+            # each file the listener needs, loaded now (SPEC §4c): an error to ergostat check; a finding when the model
+            # loads, so the loopback page still serves (and says why its listener does not)
+            from ..remote.compose import checking
+            from ..remote.mtls import unreadable
+            for msg in unreadable(spec.web.mtls, d.root):
+                self.problems.append(Problem("error" if checking() else "finding", msg, None, "mtls-unreadable"))
         if spec.web.open:
             self.problems.append(Problem("finding", f"web: {', '.join(spec.web.names)} is public and read only, with no login "
                                          "(open: read): anyone who reaches it reads everything the page shows", None, "web-public"))
@@ -891,7 +898,10 @@ class Compiler:
             self.keys(m, SOURCE_TYPES[t], what)
             if t in ("prometheus", "ergostat") and not m.get("url"):
                 self.err(f"{what}: a {t} source needs url:", m.where, "missing-key")
-            spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"))
+            if m.get("tls") is not None and not isinstance(m["tls"], dict):
+                self.err(f"{what}.tls: a map of cert:, key: and (optional) ca:", m.at("tls"), "bad-remote")
+            spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"),
+                                        dict(m["tls"]) if isinstance(m.get("tls"), dict) else None)
         for name, m, _ in self.named("items"):
             k = self.item_kind(name, m, f"item kind {name}")
             if k.id.startswith("ergostat."):

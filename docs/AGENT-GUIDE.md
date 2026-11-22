@@ -379,6 +379,11 @@ keeps running it; this model reads it.
        every: 1m
    ```
 
+   Across machines, when the remote serves `web: mtls:` (its remote API alone, on its own port, to client
+   certificates its owner's CA signed), read it over https with `tls: {cert: me.pem, key: me.key, ca:
+   servers.pem}` on the entry (`ca` optional); the token is still needed. `mtls-unreadable` means one of
+   those files is missing, a directory or not PEM: the remote is not read until it is fixed.
+
    `ergostat remote` says whether it answers and which version of its model was read; `ergostat explain
    system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
    box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in

@@ -16,7 +16,7 @@ def once(project) -> None:
     spec = getattr(project.model, "spec", None)
     for r in (getattr(spec, "remotes", None) or {}).values():
         try:
-            cache.refresh(Path(r["dir"]), r["url"], r.get("token_file"), spec.root, r["every"])
+            cache.refresh(Path(r["dir"]), r["url"], r.get("token_file"), spec.root, r["every"], tls=r.get("tls"))
         except Exception:                      # one remote's trouble never stops the others
             continue
 
