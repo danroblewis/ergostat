@@ -189,3 +189,33 @@ anyone to ask, each the more reversible one:
 - **Not done here:** the clone has no `origin` remote, so origin/main could not be fetched or merged. Local `main`
   (5617e225) is already in the branch. The unit suite and the four browser files were not run whole (the factory and
   the merge queue run them). No page test was run; the review.js change is one sentence of text.
+
+### Round 2: the review's one finding (blocking)
+
+- **A pending residual proposal revised on every pass.** The review was right: `review._again` compared the edit text,
+  so an `initial:` that moved as the window slid, or a τ that drifted as a young record's buckets widened, counted as
+  a revision. Measured on the chain world before the fix, 30 s more record was enough. τ drifted, and the lag also
+  flipped 9 → 10 and the chosen τ flipped to its neighbour trial (0.083 h → 0.149 h), because the two trials' SSEs
+  are close. So a tolerance on τ alone would not have been enough. Two changes:
+  - `review._again` revises only when the finding is on another inflow (the form and the stock are already in the
+    id), or when τ moved by more than `hidden.TAU_MOVES` = a fifth. It no longer looks at the edit text, the
+    `initial:` or k: k flipping by one bucket with τ barely moved is the same delay.
+  - Hysteresis in `hidden._tried`: while a proposal for the stock is pending, the finder keeps its form and a τ
+    within a fifth of it, unless another offered candidate's after-SSE is under `STICK` = 0.9 of it.
+  - Tested in `test_a_residual_finding_found_again_as_it_was_on_a_moved_window_is_not_revised[slid]` (a fixed
+    115-minute window slid by 5 minutes; the edit it would write differs) and `[grown a little]` (30 s more record;
+    τ drifted). Each asserts the stored edit and residual are unchanged and there are no `revisions`. The existing
+    revise test (100 → 180 minutes, a real τ change) still passes.
+  - Seen to fail: `_again` back to comparing `_said` (both cases); the hysteresis removed (`grown a little`); the τ
+    tolerance set to 0 (both cases).
+  - Left: once another candidate is better by a tenth, or τ moves past a fifth, it is revised. On a young record that
+    can still happen more than once a day. It is bounded by those two margins, not by a rate.
+  - SPEC §12b says so.
+- Net lines outside tests, docs and dev: 436 (budget 450).
+- Run:
+  - `tests/test_residual_structure.py` (21 passed);
+  - `tests/test_review.py`;
+  - `tests/test_gate.py`, `tests/test_numbers.py`, `tests/test_architecture.py`;
+  - ruff, clean.
+- Still not done here: the clone has no `origin` remote, so origin/main was not merged. The unit suite and the four
+  browser files were not run whole.

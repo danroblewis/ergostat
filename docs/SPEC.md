@@ -3776,7 +3776,10 @@ the buckets both have past a warm-up of three times the longest τ. The one with
 when that is at most 0.8 of before and q falls; the others are listed with their numbers, and one whose edit does not
 compile, whose run raises or is not valid, or whose residual cannot be worked out is not offered. One look runs at most
 30 residual runs; a stock's six are charged before it is started, and a stock left over says the budget was used.
-Found again with other numbers it is revised under its id; dismissed, neither form is proposed for that stock again.
+While one waits, the finder keeps its form and τ unless another candidate's sum of squares is under 0.9 of it, and it is
+revised under its id only when found on another inflow or with τ moved by more than a fifth: an `initial:` that moves
+as the window slides, or a τ that drifts as a young record's buckets widen, leaves it as it was. Dismissed, neither form
+is proposed for that stock again.
 *Not yet*: a missing outflow or cause, a delay on an outflow, a part replaced by another form (a lookup for a line),
 and the observer's run-time innovations (`observer/X/innovation`) as the trigger. Shown on planted records only: how
 often it finds a real missing delay (bench recall) is not measured.

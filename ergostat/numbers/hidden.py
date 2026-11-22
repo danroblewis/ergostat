@@ -26,6 +26,8 @@ from . import yamledit as ye
 MOST_REPLAYS = 30          # residual runs in one look, the model's own counted
 TAUS = (0.5, 1.0, 2.0)     # τ tried, times the lag's k buckets
 SHRINK = 0.8               # offered when the residual's sum of squares is at most this share of what it was
+STICK = 0.9                # a stock's waiting form and τ kept unless another's sum of squares is under this share of it
+TAU_MOVES = 0.2            # τ within this share of the waiting one's: the same finding (``review._again``)
 FORMS = ("residual-delay", "residual-hidden-stock")
 PER_STOCK = len(FORMS) * len(TAUS)
 METHOD = ("the stock's one-step residuals (its change from bucket to bucket less what the model's flows moved in it), "
@@ -40,10 +42,11 @@ def _no(c, x: str, why: str, code: str = "residual-delay") -> None:
     c.not_made.append({"title": f"A delay on an inflow of {x}", "code": code, "why": why})
 
 
-def _dismissed(p) -> set[str]:
+def _kept(p, status: str) -> dict[str, dict]:
+    """The residual finder's stored proposals in ``status``, by the stock they target."""
     from . import proposals as pr
-    return {x.get("target") for x in pr.stored(p).values()
-            if str(x.get("code") or "").startswith("residual-") and x["status"] == "dismissed"}
+    return {x.get("target"): x for x in pr.stored(p).values()
+            if str(x.get("code") or "").startswith("residual-") and x["status"] == status}
 
 
 def find(c) -> None:
@@ -59,7 +62,7 @@ def find(c) -> None:
     if before.invalid:
         _no(c, "any stock", f"the model's residual run is not valid ({'; '.join(before.invalid)[:200]})")
         return
-    no_again = _dismissed(c.p)
+    no_again, waiting = _kept(c.p, "dismissed"), _kept(c.p, "pending")
     for x, st in spec.stocks.items():
         if not st.sensors or not spec.flows_of(x):
             continue
@@ -99,10 +102,10 @@ def find(c) -> None:
             _no(c, x, f"not examined: the finder's budget of {MOST_REPLAYS} replays was used")
             continue
         used += PER_STOCK
-        _tried(c, x, *best, e)
+        _tried(c, x, *best, e, waiting.get(f"stock.{x}"))
 
 
-def _tried(c, x: str, f, k: int, corr: float, u: list, e: list) -> None:
+def _tried(c, x: str, f, k: int, corr: float, u: list, e: list, was: dict | None = None) -> None:
     data, w = c.data, c.data.grid.width / 3600.0
     names = {"delay": stc._free(f"{f.name}-delay", c.taken), "arrives": stc._free(f"{x}-arrives", c.taken),
              "transit": stc._free(f"{f.name}-in-transit", c.taken)}
@@ -146,6 +149,11 @@ def _tried(c, x: str, f, k: int, corr: float, u: list, e: list) -> None:
                 offered.append(nums)
             tried.append((said, nums, None))
     best = min(offered, key=lambda z: z["sse"][1]) if offered else None
+    w_tau = (was or {}).get("residual", {}).get("tau")
+    same = [z for z in offered if was and z["form"] == was.get("code") and was["residual"].get("inflow") == f"flow.{f.name}"
+            and isinstance(w_tau, (int, float)) and w_tau > 0 and abs(z["tau"] / w_tau - 1) <= TAU_MOVES]
+    if same and best["sse"][1] >= STICK * min(z["sse"][1] for z in same):
+        best = min(same, key=lambda z: z["sse"][1])  # the finding waiting, kept: not flipped to a near neighbour each pass
     for said, nums, why in tried:
         if nums is best and best is not None:
             continue

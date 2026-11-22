@@ -466,3 +466,27 @@ def test_a_residual_proposal_found_again_is_revised_and_a_dismissed_one_is_not_m
     not_made = rv.refresh(p, p.model.spec, at=now + 1, force=True)
     assert [z["status"] for z in pr.stored(p).values() if str(z.get("code")).startswith("residual-")] == ["dismissed"]
     assert any("was dismissed" in w for w in said(not_made, "queue"))           # nor the other form, for the same stock
+
+
+@pytest.mark.parametrize("how", ["slid", "grown a little"])
+def test_a_residual_finding_found_again_as_it_was_on_a_moved_window_is_not_revised(tmp_path, monkeypatch, how):
+    p, now = world(tmp_path, CHAIN, chain=True, order=1)                    # the stock in transit: it writes initial:
+    if how == "slid":
+        monkeypatch.setattr(ob, "REFERENCE", 115 * 60.0)                     # a window of fixed length, sliding
+    first = now - (5 * 60 if how == "slid" else 30)
+    nm = rv.refresh(p, p.model.spec, at=first, force=True)
+    got = [x for x in pr.stored(p).values() if str(x.get("code")).startswith("residual-")]
+    assert len(got) == 1, ([(x["code"], x["status"], x.get("why")) for x in got], said(nm, "downstream"))
+    [x] = got
+    assert x["status"] == "pending", x.get("why")
+    f2, nm2 = find(p, now)
+    got = residual(f2)
+    assert len(got) == 1, (x["residual"], [(z["code"], z["residual"]) for z in got], said(nm2, "downstream"))
+    [again] = got
+    assert again["id"] == x["id"] and again["edit"] != x["edit"]              # what it would write has moved
+    if how == "grown a little":
+        assert again["residual"]["tau"] != x["residual"]["tau"]              # τ drifted with the buckets' width
+    rv.refresh(p, p.model.spec, at=now, force=True)
+    [y] = [y for y in pr.stored(p).values() if str(y.get("code")).startswith("residual-")]
+    assert y["edit"] == x["edit"] and not y.get("revisions") and y["residual"] == x["residual"], \
+        (x["residual"], y["residual"], again["residual"])

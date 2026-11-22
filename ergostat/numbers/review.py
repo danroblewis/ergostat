@@ -28,6 +28,7 @@ from ..durations import human as dur
 from ..spec.ir import Spec
 from . import estimate as es
 from . import gate as gt
+from . import hidden as hd
 from . import improve as im
 from . import leverage as lv
 from . import observe as ob
@@ -99,9 +100,17 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
 
 
 def _again(x: dict, was: dict) -> bool:
-    """A residual finder's change still waiting, found again with other numbers (a new τ as the record grew): revised
-    in place under its id (``pr.admit``), not left saying what it said before."""
-    return str(x.get("code") or "").startswith("residual-") and was.get("state") == "checked" and pr._said(x) != pr._said(was)
+    """A residual finder's change still waiting, found again on another inflow (the form and the stock are in the id)
+    or with τ moved by more than ``hidden.TAU_MOVES``: revised in place under its id (``pr.admit``). An ``initial:`` that
+    moves as the window slides, or a τ that drifts a little as the young record's buckets widen (the lag k flipping by
+    one bucket with it), is the same finding: left as it is, not fitted and revised again on every pass."""
+    if not (str(x.get("code") or "").startswith("residual-") and was.get("state") == "checked"):
+        return False
+    a, b = x.get("residual") or {}, was.get("residual") or {}
+    if a.get("inflow") != b.get("inflow"):
+        return True
+    ta, tb = a.get("tau"), b.get("tau")
+    return not (isinstance(ta, (int, float)) and isinstance(tb, (int, float)) and tb > 0 and abs(ta / tb - 1) <= hd.TAU_MOVES)
 
 
 def _fitted(p, spec: Spec, data, base: dict, x: dict) -> dict:
