@@ -318,6 +318,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
         contradicted.setdefault(e["data"].get("block") or "", []).append(e)
     agents = {}
+    blocks = getattr(getattr(m, "spec", None), "blocks", None) or {}
     for a in m.agents.values():
         counted = project.events.runs(a.name, since, now)
         last_any = max(project.events.query(n=1, item=a.name, type="agent.ran", until=now) +
@@ -332,7 +333,11 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                     got = project.measurements.latest(f"sensor/{r.name}", now)
                     if got is None or _missed(a, got[0], now):
                         stale.append(r.name)
-        agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
+        b = blocks.get(a.name)                            # its block: the goal its valves serve, and whether it takes items
+        goal = b.goal if b is not None else None
+        agents[a.name] = {"kind": a.kind, "rung": a.rung, "leased": bool(b is not None and b.takes),
+                          "roles": [{"kind": r.kind, "name": r.name, **({"goal": goal} if goal and r.kind == "valve" else {})}
+                                    for r in roles],
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),

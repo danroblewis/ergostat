@@ -89,14 +89,59 @@ import json
 
 
 
-@pytest.fixture(scope="module")
-def site(tmp_path_factory):
-    d = tmp_path_factory.mktemp("agents") / "agents-costs"
+LEASED = """
+name: agents-leased
+items:
+  ticket:
+    id: ticket/*
+    states: [located, worked, stopped]
+stocks:
+  located:
+    unit: tickets
+    sensor: {items: ticket, state: located}
+  worked:
+    unit: tickets
+    sensor: {items: ticket, state: worked}
+flows:
+  work:
+    from: located
+    to: worked
+goals:
+  located-worked:
+    stock: located
+    hold: "<= 0"
+blocks:
+  work:
+    type: ai
+    goal: located-worked
+    prompt: "Do the ticket."
+    run: ./work.sh
+    takes: {kind: ticket, at: located, to: [worked, stopped]}
+    out: flow.work
+"""
+
+LEASED_HISTORY = """
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(DIR)))
+now = time.time()
+full = "workspace pool code has none free for ticket/1: 1 in use, 0 held for review, 0 quarantined (of 1)"
+for i in range(28):                                   # nine worked, nineteen given back for want of a workspace
+    data = {"exit": 0, "seconds": 2.0, "why": "lease", "item": f"ticket/{i}", **({} if i < 9 else {"note": full})}
+    begun = p.events.add("agent.started", item="work", source="ergostat", at=now - 1200 + i * 30, data={})
+    p.events.add("agent.ran", item="work", source="ergostat", causedby=begun["id"], at=now - 1198 + i * 30, data=data)
+"""
+
+
+def serve(tmp_path_factory, name: str, model: str, history: str):
+    d = tmp_path_factory.mktemp("agents") / name
     d.mkdir()
-    (d / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    (d / "ergostat.yaml").write_text(textwrap.dedent(model))
     home = d.parent / "home"
     env = {**os.environ, "ERGOSTAT_HOME": str(home)}
-    subprocess.run([sys.executable, "-c", HISTORY.replace("DIR", repr(str(d)))], env=env, check=True, capture_output=True)
+    subprocess.run([sys.executable, "-c", history.replace("DIR", repr(str(d)))], env=env, check=True, capture_output=True)
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -113,6 +158,16 @@ def site(tmp_path_factory):
     yield {"url": url, "dir": d}
     proc.terminate()
     proc.wait(10)
+
+
+@pytest.fixture(scope="module")
+def site(tmp_path_factory):
+    yield from serve(tmp_path_factory, "agents-costs", MODEL, HISTORY)
+
+
+@pytest.fixture(scope="module")
+def leased(tmp_path_factory):
+    yield from serve(tmp_path_factory, "agents-leased", LEASED, LEASED_HISTORY)
 
 
 @pytest.fixture(scope="module")
@@ -188,5 +243,28 @@ def test_the_agents_page_lists_the_daemons(site, browser):
     assert "running" in row and "sensor.pages.main" in row and "2" in row and "1 of 10" in row
     assert "1.5s" in row and "21 MB" in row and "ago" in row
     assert "wall time only" in pg.inner_text(".page")
+    assert not errors, errors
+    pg.close()
+
+
+def test_each_row_says_how_it_is_engaged_and_which_goal_it_serves(site, leased, browser):
+    """Design review Q38: no 'runs when' cell is blank; a leased block reads 'on demand, per item (leased)', its role
+    names the goal it serves, and its panel tallies the runs given back for a full workspace pool apart from those done."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    for s in (site, leased):
+        pg.goto(f"{s['url']}/agents")
+        pg.wait_for_selector("tr.click")
+        when = pg.eval_on_selector_all("tr.click", "trs => trs.map((tr) => tr.children[4].textContent.trim())")
+        assert when and all(when), when
+    row = pg.inner_text("tr.click:has(b:text-is('work'))")
+    assert "on demand, per item (leased)" in row and "valve work → goal located-worked" in row, row
+    pg.click("tr.click:has(b:text-is('work'))")
+    pg.wait_for_selector("#detail h2:text-is('work')")
+    panel = pg.inner_text("#detail")
+    assert "not run by ergostat" not in panel
+    assert "started per item by its lease, not on a schedule" in panel
+    assert "28 runs: 9 done, 19 refused (workspace pool full), 0 failed" in panel, panel
     assert not errors, errors
     pg.close()
