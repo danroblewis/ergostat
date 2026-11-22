@@ -2103,6 +2103,24 @@ def check_guide(seen: dict) -> None:
     assert seen["reinforcing"]["plotted"] == 2 and seen["closed"]["plotted"] == 2           # two runs; y and r
 
 
+def check_guide_steps(pg) -> None:
+    """A section's name goes to its first frame; each dot is a 24px target named 'Step n of 13', and the
+    current one, alone, is aria-current='step'."""
+    from ergostat.guide import frames
+    first = next(k for k, f in enumerate(frames()["frames"]) if f["part"] == "control")
+    pg.locator(".g-part", has_text="Control: what we control").click()
+    pg.wait_for_function(GUIDE_FRAME, arg=first, timeout=60000)
+    assert re.search(rf"[?&]frame={first}\b", pg.url), pg.url
+    dots = pg.evaluate("""() => [...document.querySelectorAll('.g-dot')].map((b) => {
+        const r = b.getBoundingClientRect();
+        return [r.width, r.height, b.getAttribute('aria-label'), b.getAttribute('aria-current')]; })""")
+    assert len(dots) == 13
+    assert all(w >= 24 and hgt >= 24 for w, hgt, _, _ in dots), dots
+    assert [lab for _, _, lab, _ in dots] == [f"Step {n} of 13" for n in range(1, 14)]
+    assert [k for k, (_, _, _, cur) in enumerate(dots) if cur is not None] == [first]
+    assert dots[first][3] == "step"
+
+
 def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, monkeypatch):
     from ergostat import model as mdl
     from ergostat.store import Project
@@ -2128,6 +2146,7 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
         if shots:
             shots.mkdir(parents=True, exist_ok=True)
         check_guide(walk_guide(pg, url + "/guide", shots))
+        check_guide_steps(pg)
         # the cascade's inner block opens on a click, and closes again
         pg.goto(url + "/guide?frame=11&v=1")
         pg.wait_for_function(GUIDE_FRAME, arg=11, timeout=60000)
@@ -2153,6 +2172,7 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
     pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
              else (asked.append(rt.request.url), rt.abort()))
     check_guide(walk_guide(pg, f"file://{out}#/guide"))
+    check_guide_steps(pg)
     pg.close()
     assert not errors and not asked, (errors, asked)
 
