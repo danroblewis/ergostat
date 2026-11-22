@@ -217,7 +217,12 @@ The control diagram is the product's main view. Conventions:
 - **Export** (the zoom bar's Export menu): "SVG" and "PNG" write a standalone file with a header (project, system, view,
   when) and, for the control view, a one-line legend, every style resolved; "Design SVG" leaves out
   what changes minute to minute (values, rates, status, decisions, trends) for a design document; `ergostat snapshot` writes the whole page and its answers as one
-  HTML file that opens offline (agents' logs only with `--with-logs`).
+  HTML file that opens offline (agents' logs only with `--with-logs`). The model behind the picture, as Markdown, for
+  the system drawn: Dynamics' "Model (Markdown)" (a variable table: name, kind, unit, equation or sensor, now; the
+  flows per stock; the feedback loops of the side list, with the goal each closes) and Blocks' "Loops (Markdown)" (a
+  row per loop in view: goal, reference, measured output, controller and its law in the panel's words, actuator,
+  process, sensor and period, status). The server writes them (`GET /api/export?view=dynamics|blocks&system=S`,
+  `format=md` by default, `json` for the page), so `curl` gets the same file; a snapshot file says it cannot.
 
 ## 7. The command line
 

@@ -1127,6 +1127,8 @@ async function pageDiagram(main, q) {
       { label: "SVG", hint: "as drawn", onclick: () => exportSvg(svg, file()) },
       { label: "Design SVG", hint: "no live values", onclick: () => exportSvg(svg, file("-design"), true) },
       { label: "PNG", hint: "twice the size", onclick: () => exportPng(svg, file()) },
+      ...(view === "dynamics" ? [{ label: "Model (Markdown)", hint: "variables, flows, loops", onclick: () => exportMarkdown("dynamics") }] : []),
+      ...(view === "blocks" ? [{ label: "Loops (Markdown)", hint: "a row per loop", onclick: () => exportMarkdown("blocks") }] : []),
     ], { right: true, up: true, title: "Save the diagram as a file" }));
   wrap.append(svg, toolbar, zoom);
   if (typeof splitGrips === "function") splitGrips(wrap);         // a second pane, dragged in from an edge (split.js)

@@ -14,3 +14,34 @@ Acceptance tests: unit tests of both documents on a small spec; a browser test o
 Budget: 180 net lines.
 
 Milestone: r10-take-the-model-out. Owner items: R10 pieces 2, 3 (piece 1 is filed Q70). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. Net lines outside tests and docs: about 156 (export_api.py 126, server.py 16, export.js 12,
+diagram.js 2), within the 180 budget.
+
+What was chosen where the definition left room (each the most reversible reading; none changes the model or a page):
+- Both documents are read off the answer the page itself draws (`/api/graph`, same `system`, `around`, `open`,
+  `since`, `at`), so "a row per part drawn" and "the loops in view" are the page's own sets, not a second derivation.
+- Dynamics: a variable is a drawn stock, auxiliary, flow (valve or disturbance), or a goal's desired level or gap
+  (kind "goal"); clouds, system boxes and shadows are not variables. A flow's words are `dynamics.equation` (the
+  panel's "equation" row); an auxiliary's its written equation, else "from outside the model (exogenous)" or
+  "no equation"; a stock's "the integral of its flows"; each followed by its sensors and how often they read.
+- The loop list is the side list's set (dynamics.js `sdLoopList`), in its order: drawn loops of known polarity, then of
+  unknown polarity, then the loops inside a closed system, which the side list only counts (column "drawn" says
+  "inside S"). The count equals the side list's heading count.
+- Blocks: a row per loop in the side list (`g.loops`), in its order (off first). The law is `block_fn`'s `says` for
+  each of the loop's controllers, the words of the Blocks panel's first paragraph (the panel draws `y_inbox` as a
+  subscript; the text is otherwise equal, and the browser test checks it). "The goal's word" is read as the loop's
+  status now (holding, off, unknown), in the column "now".
+- The endpoint answers `format=md` (the default: text/markdown, for curl) or `format=json` ({file, markdown}: the
+  page uses it for the file name); any other view or format is a 400.
+- A snapshot file has no server: the menu entry says so in a dialog rather than export a partial document.
+- The menu entries are added in diagram.js (where the Export menu is built), a file not in the Files list: two lines.
+- The file name is `<project>-<system or all>-<view>-<YYYY-MM-DD>.md`, the date of the moment shown.
+
+Not run here: the definition's checks 1 and 2 name the demo ports :8796 and :8791, which this container does not
+serve. In their place: `test_software_factory_product_dynamics_matches_what_is_drawn` (the software-factory example,
+system=product) and the browser test on a small model served by `ergostat web`. Each new test was seen to fail on a
+deliberate break: disturbances dropped from the variable table, the Blocks entry asking for the Dynamics document,
+and the snapshot check inverted.
