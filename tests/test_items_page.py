@@ -934,3 +934,51 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+FINISHING = """
+items:
+  gap:
+    id: gap/*
+    states: [open, building, merged, parked, closed]
+    on: {gap.opened: open, gap.started: building, gap.merged: merged, gap.parked: parked, gap.closed: closed}
+  pool:
+    id: pool/*
+    states: [held]
+    on: {pool.measured: held}
+messages:
+  done: {gap: [merged, closed]}
+  paused: {gap: [parked]}
+"""
+
+
+def test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_on(browser, tmp_path):
+    """items-kinds-say-which-states-finish: under each kind's states, 'finished: ... (declared)' with its paused
+    states, or 'lives on' for a kind with one state."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    (tmp_path / "ergostat.yaml").write_text(FINISHING)
+    p = Project(mdl.load(tmp_path))
+    t = time.time() - 600
+    for i in range(1, 4):
+        p.events.add("gap.opened", item=f"gap/g{i}", at=t + i)
+        p.events.add("pool.measured", item=f"pool/p{i}", at=t + i)
+    p.events.add("gap.merged", item="gap/g1", at=t + 10)
+    p.events.add("gap.parked", item="gap/g2", at=t + 11)
+    server, url = web_serve(p, free_port())
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        pg.goto(f"{url}/items")
+        pg.wait_for_function("() => document.querySelectorAll('.kind-flow .finish-line').length >= 2")
+        lines = dict(pg.locator(".kind-flow").evaluate_all("""els => els.map((e) => [
+            e.querySelector('.kname').firstChild.textContent, e.querySelector('.finish-line')?.textContent])"""))
+        assert lines["gap"] == "finished: merged, closed (declared) · paused: parked", lines
+        assert lines["pool"] == "lives on", lines
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()

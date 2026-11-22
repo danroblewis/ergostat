@@ -15,3 +15,27 @@ Acceptance tests: unit: a factory-shaped spec gives gap finished=[merged, closed
 Budget: 130 net lines.
 
 Milestone: items-page-readable. Owner items: 4 (which states are 'done'), 1 (the definition the default filter hides). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. Where the build differs from the text above, and why (each the most reversible option, since nobody was there to ask):
+
+- ticket-factory's ticket is not inferred: examples/ticket-factory/ergostat.yaml:80 declares `done: {ticket: [done]}`.
+  The acceptance test checks that ticket is `declared`, that the example's `okr` (nothing declared) is `inferred`, and
+  that its one-state `report` lives on (tests/test_finished_states.py::test_ticket_factory_kinds_say_where_their_finish_comes_from).
+- numbers/etamodel.py and spec/itemindex.py are not edited. The estimates already read finished and paused from
+  precedence.Kinds, and Kinds now gets them from finish_of, so they go through it with no change to etamodel.py.
+  itemindex.done_states stays as it was for the callers this gap leaves alone, and so does the item cache's
+  `_open` test, which only decides what stays folded in memory.
+- The behaviour change: when every state after the first has been left, the old rule falls back to the last state.
+  finish_of drops that fallback, so the kind lives on (from `none`). This follows the definition's "nothing
+  inferable lives on", and it applies to the relations' status and to the estimates.
+- Parity snapshot (tests/fixtures/finished_parity.json): this session could not unpack main's tree to run the test
+  there, so the snapshot was written on the branch. That stands in for main because `git diff main` is empty for
+  process.py, series.py, messages/route.py and spec/itemindex.py. The test was seen to fail when done_states was changed.
+- The listing reads the states items have left as of now, not as of `until`. A record with no item index on disk
+  has no left states, so its kinds infer from the declared states alone, the same way Kinds does.
+- The line under each kind's states also appears on a card with no flow chart. A finished or paused state's box in the
+  chart's legend carries that word as its title.
+- Q61 is not closed here: no file of filed questions was touched.
+- Not run here: the unit suite as a whole, test_diagram_rendering.py and test_page_polling.py, demo_check (no example changed).

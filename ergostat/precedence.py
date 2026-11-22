@@ -3,8 +3,9 @@ path through the unfinished work, each item's slack, and a schedule projected fr
 index (its links, both ways, and its moves); nothing is declared for it but the relations themselves.
 
 - **Status.** *paused*: in a state its kind declares paused (``messages: paused:``): not finished, not moving, its
-  dependents blocked by it. *done*: in a state its kind counts as finished (``messages: done:``, else as the item index says;
-  never a state a block takes from, its first, ``leased`` or ``dead``). *active*: leased, or in a working state (one
+  dependents blocked by it. *done*: in a state its kind counts as finished (``spec/finished.py``: ``messages: done:``,
+  else the states no item has left yet; never a state a block takes from, its first, ``leased`` or ``dead``; a kind
+  with one state lives on). *active*: leased, or in a working state (one
   that is neither its kind's first state, nor a state a block takes from, nor finished). *blocked*: a precedence
   relation names an item not finished. *queued*: started, and waiting in a later state a block takes from (review).
   *unblocked*: in its first state, nothing it waits on unfinished. *dead*: a dead letter.
@@ -57,17 +58,13 @@ class Kinds:
         return self.got[name]
 
     def _info(self, name: str | None) -> dict:
-        from .spec.itemindex import done_states
+        from .spec.finished import finish_of
         k = (getattr(self.spec, "items", None) or {}).get(name or "")
         if k is None or not k.states:
             return {"name": name, "finished": [], "queue": [], "working": [], "paused": [], "medians": {}, "weights": {},
                     "duration": None, "relations": {}}
-        declared = getattr(getattr(self.spec, "messages", None), "done", None)
-        queue = [k.states[0]] + [s for b in self.spec.blocks.values() if b.takes and b.takes.kind == name
-                                 for s in b.takes.at if s != k.states[0]]
-        paused = list((getattr(getattr(self.spec, "messages", None), "paused", None) or {}).get(name) or [])
-        finished = [s for s in done_states(k, self.ix.left(name) if self.ix else set(), declared)
-                    if s not in queue and s not in (LEASED, DEAD) and s not in paused]
+        fin = finish_of(self.spec, name, self.ix.left(name) if self.ix else set())
+        queue, paused, finished = fin["queue"], fin["paused"], fin["finished"]
         working = [s for s in k.states[1:] if s not in finished and s != DEAD and s not in paused]   # time spent in
         stays, visits, n = self.ix.stays(name, STAYS, finished) if self.ix else ({}, {}, 0)
         medians = {s: median(v) for s, v in stays.items() if v}
@@ -75,7 +72,7 @@ class Kinds:
         # with none finished yet, once each
         weights = {s: (visits.get(s, 0) / n if n else 1.0) for s in medians}
         known = [s for s in working if s in medians]
-        return {"name": name, "finished": finished, "queue": list(dict.fromkeys(queue)), "working": working,
+        return {"name": name, "finished": finished, "queue": queue, "working": working,
                 "paused": paused, "medians": medians, "weights": weights,
                 "duration": sum(medians[s] * weights[s] for s in known) if known else None,
                 "relations": {r.name: {"kinds": r.kinds, "precedence": r.precedence, "inverse": r.inverse, "group": r.group}

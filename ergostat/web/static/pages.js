@@ -703,11 +703,12 @@ async function pageItems(main, q) {
       const fl = flows[k.name];
       if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
-          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])));
+          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k));
       const chosen = kind === k.name ? state : null;
       return h("div", { class: "kind-flow", key: k.name }, name,
-        keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen]), () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st) }),
-             (el) => el.update?.(fl, chosen)));
+        keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen, k.finished, k.paused, k.finished_from]),
+             () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st), kind: k }),
+             (el) => el.update?.(fl, chosen, k)));
     };
     patch(notes, ...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
