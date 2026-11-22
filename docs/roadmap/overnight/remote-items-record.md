@@ -341,3 +341,34 @@ Every finding of review 5, answered (lesson-12):
 been executed or shown failing (lesson-9), so by the house rules the gap is not done until the factory's browser run
 passes them. No merge of origin/main was made this round; this clone has no `origin/main` ref. The whole unit suite
 was not run here either.
+
+## Where it stopped (round 7)
+
+**The finding: the push of the merge ce282fdaf099 was denied and the merge undone.** That commit is not in this clone.
+The branch now holds the factory's new merge of main, a9b99297 (main 7c46bc6d). Main is an ancestor of HEAD, and
+there are no conflict markers. I read the merged doc entries, and none was spliced. GAPS.md's *Remote systems* has
+one *Done* and one *Left*, and *Left* no longer lists this slice. AGENT-GUIDE §3 has step 5 (this branch) followed
+by step 6 (main's). The proposal's two sentences are updated. Pushing is the factory's job, not this run's, and this
+round changed no code.
+
+**Run after the merge, one file at a time:** `tests/test_remote_items.py` (22 passed); `tests/test_remote.py`,
+`tests/test_remote_pair.py` and `tests/test_spec_items.py` (19); `tests/test_graph_cli_web.py` and
+`tests/test_web_access.py` (57). `ruff check ergostat tests scripts` is clean.
+
+**The browser file, run for the first time.** Playwright could be loaded this round
+(`uv run --with playwright==1.63.0`, under `scripts/suite_watch.py`). `tests/test_items_page.py` has 21 tests: all
+passed, none skipped, rc 0, and the thread peak was 209. This includes both remote browser tests.
+
+**Each browser guard broken, and the test that then failed (lesson-9).** The guard was restored after each break, and
+the tree was checked clean against the commit. Finally the whole file was run again: 21 passed.
+- `fieldView`'s `there` branch skipped (`false && there`): `test_a_remote_items_file_field_never_reads_a_local_file`
+  fails, because the `file:` text is never shown as text.
+- The Record page's `remoteSaid` replaced by "Nothing recorded yet." on failure:
+  `test_a_remotes_items_and_events_are_shown_marked_remote` fails at its last step, waiting for "r does not answer".
+- `/item/ID?remote=` routed to the local item page (`false && q?.get("remote")`): the same test fails, because the
+  read-only remote view never appears.
+- The Items page's remote sections not fetched (`remoteTick([])`): the same test fails, waiting for
+  `section.sys-group.remote[data-remote="r"]` and its `incident/3` link.
+
+**Not run here:** the other three browser files, the whole unit suite and `demo_check` (`examples/remote-pair` is not
+touched). The factory and the merge queue run those.
