@@ -373,7 +373,9 @@ function relTimeline(open) {
     setText(note, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
       + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. Not modelled: a goal that switches a block off, a capacity no block declares.`
         + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
-        : d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : ""));
+        : (d.eta_error ? `No estimates: the simulation failed: ${d.eta_error}. The bars are each item's median times, unlevelled. `
+          : Math.abs(Date.now() / 1000 - d.now) < 5 && rows.some((x) => x.status !== "done") ? "No estimates yet: the simulation is being worked out; the bars are each item's median times, unlevelled. " : "")
+        + (d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : "")));
     draw(); toNow();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   };
