@@ -121,3 +121,32 @@ def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
             if ratio < 3:
                 low.append(f"--g{i} {step}: {ratio:.2f}")
     assert not low, low
+
+
+def _ratio(x: str, y: str) -> float:
+    ya, yb = _luminance(_oklab(x)), _luminance(_oklab(y))
+    return (max(ya, yb) + 0.05) / (min(ya, yb) + 0.05)
+
+
+def test_each_inks_second_tone_is_lighter_and_still_seen_in_both_themes():
+    """docs/DESIGN.md, Colour: an information line is drawn in its ink's second tone, 3.0-4.5:1 on the paper (seen,
+    but under the material path), and the ink itself at least 10:1, in the light theme and the dark."""
+    head, _ = split()
+    light_css, dark_css = head.split("prefers-color-scheme: dark", 1)
+    hexes = r"(--[\w-]+):\s*(#[0-9a-fA-F]{6})\b"
+    light = dict(re.findall(hexes, light_css))
+    dark = {**light, **dict(re.findall(hexes, dark_css))}
+    bad = []
+    for theme, t in (("light", light), ("dark", dark)):
+        paper = t["--bg"]
+        for ink, tone in (("--sd-ink", "--sd-ink-2"), ("--ink", "--ink-2-line"), ("--accent", "--accent-2")):
+            assert tone in t and tone in (light_css if theme == "light" else dark_css), f"{theme}: no {tone} of its own"
+            r = _ratio(t[tone], paper)
+            if not 3.0 <= r <= 4.5:
+                bad.append(f"{theme} {tone}: {r:.2f}:1 on the paper")
+            if _ratio(t[ink], paper) <= r:
+                bad.append(f"{theme} {tone} is not lighter than {ink}")
+        for ink in ("--sd-ink", "--ink"):
+            if (r := _ratio(t[ink], paper)) < 10:
+                bad.append(f"{theme} {ink}: {r:.2f}:1 on the paper")
+    assert not bad, bad

@@ -148,7 +148,8 @@ FRAMES = [
      "plot": _plot([_run({"customers": 0}, {"signups": (None, "customers", [[10, []]]),
                                             "churn": ("customers", None, [[1, ["churn-now"]]])},
                          inputs={"churn-now": [[0, 4], [8, 10]]})], 20, "customers")},
-    {"id": "links", "part": "dynamics", "text": "A link carries a sign: more customers, more churn (+).",
+    {"id": "links", "part": "dynamics", "text": "A link carries information, not material, so it is drawn lighter than the pipe. "
+                                                "It has a sign: more customers, more churn (+).",
      "views": [{"view": "dynamics", "loops": False, "model": CUSTOMERS + """
     auxiliaries:
       churn-fraction:

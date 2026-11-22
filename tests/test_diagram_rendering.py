@@ -2574,7 +2574,7 @@ LEGEND = """() => {
 LEGEND_SHOWS = {"stock": "g.node.k-stock", "flow": ".edge.pipe .pipe-out", "biflow": ".edge.pipe .pipe-tail",
                 "source / sink": "g.node.k-cloud", "auxiliary": "g.node.k-auxiliary", "exogenous": "g.node.k-auxiliary",
                 "connector +": ".edge .polarity", "connector −": ".edge .polarity", "reinforcing": ".loop-markers",
-                "balancing": ".loop-markers"}
+                "balancing": ".loop-markers", "a lighter line: information, not material": ".edge .sd-connector"}
 
 
 def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
@@ -2598,6 +2598,103 @@ def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
                 assert row[-1] in signs, (row, signs)
         assert not {"auxiliary", "exogenous", "reinforcing", "balancing"} & set(on), on
         pg.close()
+
+
+TOKEN = """(v) => { const el = document.createElement('span'); el.style.color = `var(${v})`; document.body.append(el);
+  const c = getComputedStyle(el).color; el.remove(); return c; }"""
+SD_TONES = """(tok) => {
+  const ink = tok['--sd-ink'], ink2 = tok['--sd-ink-2'], svg = document.querySelector('svg.canvas'), bad = [];
+  const by = Object.fromEntries(S.graph.nodes.map((n) => [n.id, n]));
+  const drives = new Set(S.graph.edges.filter((e) => e.kind === 'connector' && by[e.source]?.role === 'gap' &&
+                                                     ['valve', 'disturbance'].includes(by[e.target]?.kind)).map((e) => e.id));
+  const want = (el, prop, v, what) => { const got = getComputedStyle(el)[prop];
+    if (got !== v) bad.push(`${what}: ${prop} ${got}, not ${v}`); };
+  let lines = 0, driving = 0;
+  for (const eg of svg.querySelectorAll('g.edge')) {
+    const con = eg.querySelector('.sd-connector');
+    if (!con) continue;
+    lines++; const d = drives.has(eg.dataset.id); driving += d;
+    want(con, 'stroke', d ? ink : ink2, eg.dataset.id);
+    want(eg.querySelector('.sd-head'), 'fill', d ? ink : ink2, eg.dataset.id + ' head');
+  }
+  const full = { stroke: '.pipe-out, .sd-stock, .sd-valve, .sd-cloud, .loop-marker .marker-arc',
+                 fill: '.polarity, .node .sd-name, .marker-letter' };
+  const counts = {};
+  for (const [prop, sel] of Object.entries(full))
+    for (const el of svg.querySelectorAll(sel)) { counts[sel] = (counts[sel] || 0) + 1; want(el, prop, ink, el.getAttribute('class')); }
+  for (const el of svg.querySelectorAll('.loop-marker .marker-name, .k-terminal .sd-shadow')) want(el, 'fill', ink2, el.textContent);
+  const file = standaloneSvg(svg, exportTitle()).text;           // the saved SVG (and the PNG drawn from it) keeps both
+  return { lines, driving, drives: drives.size, counts, bad, saved: [file.includes(`stroke:${ink2}`), file.includes(`stroke:${ink}`)] };
+}"""
+BD_TONES = """(tok) => {
+  const svg = document.querySelector('svg.canvas'), of = (sel, p) => [...svg.querySelectorAll(sel)].map((el) => getComputedStyle(el)[p]);
+  return { ink: tok['--ink'], ink2: tok['--ink-2-line'], record: of('g.bd-edge.bd-record .bd-wire', 'stroke'),
+           aside: of('g.bd-edge.bd-aside .bd-wire', 'stroke'), bus: of('.bd-bus .bd-bar', 'fill'),
+           main: of('g.bd-edge:is(.bd-reference, .bd-error, .bd-control, .bd-output, .bd-measured):not(.bd-aside) .bd-wire', 'stroke'),
+           refErr: of('g.bd-edge:is(.bd-reference, .bd-error):not(.bd-aside) .bd-wire', 'stroke') };
+}"""
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_line_tones_information_lighter_than_the_material_path(browser, tmp_path, scheme):
+    """line-tones (docs/DESIGN.md, Colour iii): in Dynamics each connector and its head in the ink's second tone, but a
+    goal's gap into the flow it drives; pipes, stocks, valves, clouds, signs, names and loop markers in full ink; in
+    Blocks a record wire lighter than a reference or an error wire; the saved picture keeps both; the Guide draws."""
+    def page(url):
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        return pg
+
+    def dynamics(pg, tok, lines):
+        got = pg.evaluate(SD_TONES, tok)
+        assert not got["bad"], got["bad"][:12]
+        assert got["lines"] >= lines and got["driving"] == got["drives"], got
+        assert all(got["counts"].get(k) for k in (".pipe-out, .sd-stock, .sd-valve, .sd-cloud, .loop-marker .marker-arc",
+                                                  ".polarity, .node .sd-name, .marker-letter")), got["counts"]
+        assert got["saved"] == [True, True], got["saved"]
+        return got
+
+    errors: list[str] = []
+    names = ("--sd-ink", "--sd-ink-2", "--ink", "--ink-2-line")
+    with served("first-loop", tmp_path / "a") as url:                  # goals acting: each gap's link to its flow full ink
+        pg = page(url)
+        drawn(pg, url, "", 0)
+        tok = {n: pg.evaluate(TOKEN, n) for n in names}
+        assert tok["--sd-ink"] != tok["--sd-ink-2"] and tok["--ink"] != tok["--ink-2-line"], tok
+        assert dynamics(pg, tok, 3)["driving"] >= 2
+        pg.close()
+    with served("software-factory", tmp_path / "b") as url:
+        pg = page(url)
+        drawn(pg, url, "system=product", 0)
+        dynamics(pg, tok, 10)
+        drawn(pg, url, "view=blocks&open=product,factory", 1)
+        bd = pg.evaluate(BD_TONES, tok)
+        assert set(bd["main"]) == {bd["ink"]}, bd                       # (no reference here: no loop closes inside)
+        assert bd["aside"] and set(bd["record"] + bd["aside"] + bd["bus"]) == {bd["ink2"]}, bd
+        guide(pg, url, tok)
+        pg.close()
+    with served("the-job", tmp_path / "c") as url:                    # a collector: what it records, lighter than r and e
+        pg = page(url)
+        drawn(pg, url, "view=blocks&system=incidents", 0)
+        bd = pg.evaluate(BD_TONES, tok)
+        assert bd["refErr"] and set(bd["main"]) == {bd["ink"]}, bd
+        assert bd["record"] and set(bd["record"] + bd["aside"] + bd["bus"]) == {bd["ink2"]}, bd
+        assert bd["record"][0] not in bd["refErr"], bd                  # definition of done 3
+        pg.close()
+    assert not errors, errors
+
+
+def guide(pg, url: str, tok: dict) -> None:
+    """The Guide's frames 2 and 12 draw, and the one that shows a link (4) draws it lighter than the pipe."""
+    for frame in (2, 4, 12):
+        pg.goto(f"{url}/guide?frame={frame}")
+        pg.wait_for_function(GUIDE_FRAME, arg=frame, timeout=60000)
+        seen = pg.evaluate(GUIDE_SEEN)
+        assert seen["svgs"] and all(v and n for v, n in seen["svgs"]), (frame, seen)
+        if frame == 4:
+            cons = pg.evaluate("() => [...document.querySelectorAll('svg.g-canvas .sd-connector')].map((c) => getComputedStyle(c).stroke)")
+            assert cons and set(cons) == {tok["--sd-ink-2"]}, cons
 
 
 def test_a_closed_systems_panel_charts_its_measures(browser, tmp_path):

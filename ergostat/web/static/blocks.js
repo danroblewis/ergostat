@@ -817,7 +817,10 @@ function bdDraw(svg, g, lay) {
     const pts = le ? bdPts(le) : [];
     if (pts.length < 2) continue;
     const vec = (e.signal?.n || 0) > 1;
-    const eg = s("g", { class: `edge bd-edge${vec ? " bd-vec" : ""}`, "data-id": e.id, "data-nodes": `${e.source} ${e.target}`, "data-net": e.sourcePort });
+    // what it carries, as a class; a record, or a line to or from a port or a disturbance's input, in the ink's second tone
+    const what = `bd-${String(e.signal?.what || "signal").replace(/[^a-z0-9]+/gi, "-")}`;
+    const aside = [byId[e.source], byId[e.target]].some((n) => n?.kind === "port" || n?.role === "disturbance") ? " bd-aside" : "";
+    const eg = s("g", { class: `edge bd-edge ${what}${aside}${vec ? " bd-vec" : ""}`, "data-id": e.id, "data-nodes": `${e.source} ${e.target}`, "data-net": e.sourcePort });
     const { els, mark } = bdEdgeContent(e, pts);
     eg.append(...els);
     eg.addEventListener("mouseenter", () => bdTrace(svg, { net: e.sourcePort }));
@@ -1119,6 +1122,8 @@ function blocksLegend() {
     row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
     row(`<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
     row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
+    row(`<path d="M2,6 H28" ${ink}/><path d="M2,14 H28" stroke="var(--ink-2-line)" stroke-width="1.2"/>`,
+        "a lighter line: information, not material: what a collector records (and its bus), a port's line, a disturbance's input; r, e, u, y and y_m in full ink"),
     row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
     row(`<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
     h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample"));
