@@ -85,10 +85,10 @@ function sdSystem(n, w, hgt) {
   const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
   g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote || n.upkeep ? { "stroke-dasharray": n.upkeep ? "6 4" : "9 5" } : {}) }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
-  const inside = sdInside(S.graph, n.id).length;
-  g.append(s("text", { x: 16, y: 42, class: "t-sub" + (n.remote ? " live" : "") }, n.remote ? n.remote.says   // run by another ergostat, read here
-    : inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));
-  if (n.upkeep) g.append(s("text", { x: 16, y: 58, class: "t-sub sys-upkeep" }, UPKEEP));   // apart from the system it models
+  // under its name, what it is (its description, in at most two lines; its loops are counted on its panel)
+  const said = n.remote ? [n.remote.says] : sdWrap(n.description || "a module: open it to see its structure", Math.floor((w - 32) / CH), 2);
+  said.forEach((t, i) => g.append(s("text", { x: 16, y: 42 + i * 14, class: "t-sub sys-desc" + (n.remote ? " live" : "") }, t)));
+  if (n.upkeep) g.append(s("text", { x: 16, y: 44 + said.length * 14, class: "t-sub sys-upkeep" }, UPKEEP));   // apart from the system it models
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
     s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
   const into = "Into", open = "Open";
@@ -110,6 +110,15 @@ function sdSystem(n, w, hgt) {
       p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
+}
+function sdWrap(text, room, max) {                      // words in lines of ``room`` characters, ``max`` at most (the last cut with …)
+  const lines = [""];
+  for (const wd of text.split(/\s+/)) {
+    const cur = lines[lines.length - 1];
+    if (cur && (cur + " " + wd).length > room) lines.push(wd); else lines[lines.length - 1] = cur ? cur + " " + wd : wd;
+  }
+  if (lines.length > max) lines.splice(max - 1, lines.length, lines.slice(max - 1).join(" ").slice(0, room - 1) + "…");
+  return lines;
 }
 /* a part drawn elsewhere: as Vensim's shadow variable, its name in angle brackets, an input only (nothing
    points into it); what this system drives outside it ends at a stub naming it */
