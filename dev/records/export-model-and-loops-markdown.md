@@ -17,7 +17,7 @@ Milestone: r10-take-the-model-out. Owner items: R10 pieces 2, 3 (piece 1 is file
 
 ## Where it stopped
 
-Built, round 1. Net lines outside tests and docs: about 156 (export_api.py 126, server.py 16, export.js 12,
+Built, round 1. Net lines outside tests and docs: 144 (export_api.py 114, server.py 16, export.js 12,
 diagram.js 2), within the 180 budget.
 
 What was chosen where the definition left room (each the most reversible reading; none changes the model or a page):
