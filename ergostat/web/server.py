@@ -241,6 +241,68 @@ def _laws(p, spec) -> dict:
 
 _FITTING: set = set()   # the projects whose laws are being fitted
 
+# The header's project list (/api/projects): the running projects, worked out by one thread every LIST_EVERY seconds;
+# a request reads the last list and loads nothing. Until the first is made: none, and stopped unknown (None).
+LIST_EVERY = 60.0
+_LISTED: dict = {"running": [], "stopped": None, "at": None}
+_LISTER = threading.Lock()                     # held only to start or stop the one thread (per process)
+_LISTING: dict = {"servers": set(), "stop": None, "thread": None}   # the page servers that need it, its stop, itself
+
+
+def list_once(stop: threading.Event | None = None) -> None:
+    """One pass: ``projects.running()`` into ``_LISTED``, unless ``stop`` was set while it ran. A pass that fails is
+    logged and keeps the last list (the answer's ``age`` says how old it is, and the menu says so when it is old)."""
+    global _LISTED
+    from .. import projects
+    try:
+        got = projects.running()
+    except Exception:
+        import logging
+        logging.getLogger("ergostat").exception("listing the running projects failed; the last list is kept")
+        return
+    if stop is None or not stop.is_set():
+        _LISTED = got
+
+
+def list_projects(stop: threading.Event, every: float = LIST_EVERY) -> None:
+    """``list_once`` at once and then every ``every`` seconds, until ``stop``."""
+    while not stop.is_set():
+        list_once(stop)
+        if stop.wait(every):
+            return
+
+
+def start_lister(server) -> None:
+    """The one lister of this process runs while any of its page servers does (each calls ``stop_lister`` when it
+    shuts down)."""
+    with _LISTER:
+        _LISTING["servers"].add(id(server))
+        if _LISTING["thread"] is None:
+            _LISTING["stop"] = threading.Event()
+            _LISTING["thread"] = threading.Thread(target=list_projects, args=(_LISTING["stop"],),
+                                                  name="ergostat-projects", daemon=True)
+            _LISTING["thread"].start()
+
+
+def stop_lister(server=None, wait: float = 10.0) -> bool:
+    """``server`` no longer needs the lister (None: no server does). When none does, it is stopped and waited for: a
+    pass running then is not kept. True when no lister runs any more (False: one outlasted ``wait``, or others need
+    it)."""
+    with _LISTER:
+        if server is None:
+            _LISTING["servers"].clear()
+        else:
+            _LISTING["servers"].discard(id(server))
+        if _LISTING["servers"]:
+            return False
+        t, _LISTING["thread"] = _LISTING["thread"], None
+        if t is None:
+            return True
+        _LISTING["stop"].set()
+    if t is not threading.current_thread():
+        t.join(wait)
+    return not t.is_alive()
+
 
 def _window(q) -> float:
     from ..durations import parse_duration
@@ -416,6 +478,9 @@ def _answer_with(live: Live, path: str, q: dict, model):
 
 
 def _answer(live: Live, path: str, q: dict, project=None):
+    if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
+        got = _LISTED
+        return dict(got, age=None if got["at"] is None else max(0.0, time.time() - got["at"]))
     p = project or live.get()
     m = p.model
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
@@ -460,12 +525,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
-                "at": snap["at"], "window": snap["window"], "rate_units": rates.overrides(getattr(m, "spec", None)),
+                "at": snap["at"], "window": snap["window"], "recorded": snap.get("recorded"),   # the window's span on record
+                "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:]}
-    if head == "projects":
-        from ..projects import known
-        return known()
     if head == "coherence":                          # the three views held against each other (the Check page)
         from .numbers_api import coherence
         return coherence(live, p, snap, _window(q) if one("since") else None)
@@ -475,6 +538,20 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "guide":                              # the Guide's frames: tiny models, the same for every project
         from ..guide import frames
         return frames()
+    if head == "export":                             # the model behind the picture, as Markdown (export_api.py)
+        from ..blockdiagram import _Diagram, identified, spec_of
+        from .export_api import export, file_name
+        view = one("view")
+        if view not in ("dynamics", "blocks") or (one("format") or "md") not in ("md", "json"):
+            raise BadSet("export: view=dynamics or view=blocks, and format=md (or json)")
+        g = _answer(live, "graph", {**{k: v for k, v in q.items() if k != "have"}, "view": [view]}, p)
+        flat = _Diagram(spec_of(m), {**snap, "laws": _laws(p, getattr(m, "spec", None)) or {}}) \
+            if view == "blocks" and spec_of(m) is not None else None
+        if flat is not None:
+            flat.build()
+            identified(flat)
+        return {"file": file_name(m.name, view, one("system"), snap["at"]),
+                "markdown": export(m, view, one("system"), snap, g, flat)}
     if head == "graph":
         system = one("system") or None
         around = one("around") or None
@@ -1033,6 +1110,8 @@ def handler(project):
                     return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")
                 if data is None:
                     return self._send(404, b'{"error": "not found"}', "application/json")
+                if u.path == "/api/export" and (q.get("format") or ["md"])[0] == "md":    # the document itself, for curl
+                    return self._send(200, data["markdown"].encode(), "text/markdown; charset=utf-8")
                 return self._send(200, json.dumps(data, default=str).encode(), "application/json", True)
             if u.path == "/file":                          # a file an item names (file:PATH), from inside the project only
                 return self._file((parse_qs(u.query).get("path") or [""])[0])

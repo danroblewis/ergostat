@@ -194,6 +194,8 @@ def test_the_web_api_serves_what_the_cli_shows(project):
                 return r.status, r.read()
         st, body = get("/api/status")
         assert st == 200 and json.loads(body)["loops"]["disk-under-80"]["status"] == "holding"
+        s = json.loads(body)                                 # the header's window: how much of it is on record
+        assert isinstance(s["recorded"], (int, float)) and 0 <= s["recorded"] < s["window"]
         assert json.loads(get("/api/graph?view=control")[1])["kind"] == "control"
         assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "process"     # the wiring's address: the process map
         assert json.loads(get("/api/part/stock/disk-used")[1])["now"]["value"] == 70

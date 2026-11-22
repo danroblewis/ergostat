@@ -9,8 +9,8 @@ function page(main, title) {
 }
 const RANK = { off: 0, open: 1, unknown: 2, holding: 3 };   // the loops that need someone first
 const windowNote = () => {
-  const st = S.status, recorded = st?.first ? st.at - st.first : null;
-  return st?.window ? (recorded != null && recorded < st.window * 0.95 ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
+  const st = S.status, recorded = recordedShort();       // the header's own measure of it
+  return st?.window ? (recorded != null ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
 };
 const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("table", { class: cls },
   h("tr", {}, head.map((x) => (Array.isArray(x) ? h("th", { class: x[1] }, x[0]) : h("th", {}, x)))), rows));
@@ -19,7 +19,7 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 
 async function pageLoops(main) {
   const p = page(main, "Loops");
-  const box = h("div"), cap = h("p", { class: "note" });
+  const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
   const perf = {};
   let pts = {}, ptsAt = 0;
   p.append(box, cap);
@@ -115,7 +115,7 @@ async function pageAgents(main) {
           h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak)))))))));
     const ds = Object.entries(daemons || {});
     patch(dbox, ...(ds.length ? [h("h3", {}, "Daemons"), h("p", { class: "note" }, "Long-lived processes the blocks' runs and the " +
-      "sensors' readings are handed to (SPEC §9.7). Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
+      "sensors' readings are handed to. Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
       h("div", { class: "table-wrap" }, h("table", { "data-daemons": "" },
         h("tr", {}, ["daemon", "state", "serves", "restarts", "last line", "in flight", "CPU", "memory"].map((c, i) => h("th", i > 2 ? { class: "num" } : {}, c))),
         ds.map(([n, d]) => h("tr", { key: n, "data-daemon": n },
@@ -463,6 +463,8 @@ function messageView(d, refresh) {
    work item's page the actions asked for about it, with Approve and Deny on each one held; on an action's own page,
    its command, where it runs, its answer and its output */
 const ACTION_KIND = "ergostat.action";
+const actionSays = (f) => `${f.description || f.action}${Object.keys(f.args || {}).length ? ` (${Object.entries(f.args).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`;
+const commandBox = (c) => h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, c || ""));
 function actionAnswer(a, done) {
   if (a.state !== "requested" || SNAP) return null;
   const note = h("input", { type: "text", placeholder: "why (optional)", "aria-label": "Why" });
@@ -479,19 +481,20 @@ function actionAnswer(a, done) {
 function actionsAbout(as, done) {
   if (!as.length) return h("p", { class: "muted" }, "No gated actions asked for about it.");
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, a.action)), " ",
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), " ",
       h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
       h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` + (a.state === "requested" ? "" : a.state === "denied" ? `, ${a["approved by"]}` : `, approved by ${a["approved by"]}`))),
-    h("pre", { class: "mono small" }, a.command || ""),
+    commandBox(a.command),
     actionAnswer(a, done))));
 }
 function actionView(d, refresh) {
   const f = d.fields;
   const by = f.approved_by ? `approved by ${f.approved_by}` : f.denied_by ? `denied by ${f.denied_by}` : "";
   return h("div", { class: "claim" },
+    h("p", { class: "action-says" }, h("b", {}, actionSays(f)), f.item ? `, for ${f.item}` : "", f.block ? `, asked by ${f.block}` : ""),
     h("p", {}, h("span", { class: d.state === "requested" ? "s-open" : d.state === "denied" || d.state === "failed" ? "s-off" : "status" }, d.state === "requested" ? "waiting for approval" : d.state),
       h("span", { class: "muted" }, ` ${f.action}, class ${f.class}, gate ${f.gate}`), by ? `: ${by}` : "", f.note ? ` (${f.note})` : ""),
-    h("pre", { class: "mono small" }, f.command || ""),
+    commandBox(f.command),
     h("p", { class: "muted" }, `in ${f.in || "?"}`, f.item ? [", for ", itemLink(f.item)] : null, f.session ? [", asked by ", itemLink(f.session)] : f.block ? `, asked by block ${f.block}` : ""),
     actionAnswer(d, refresh),
     d.state === "ran" || d.state === "failed" ? [h("h3", {}, `Output (exit ${f.exit ?? "none"})`), h("pre", { class: "mono small" }, f.output || "")] : null,
@@ -552,7 +555,7 @@ function remoteSection(r, d) {
 
 async function pageItems(main, q) {
   const p = page(main, "Items");
-  const notes = h("div"), box = h("div", { class: "item-systems" });
+  const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");
@@ -645,6 +648,7 @@ async function pageItems(main, q) {
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}), ...whatifParams(),
                                                      ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) });
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
+      box.querySelector(".page-loading")?.remove();
       patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
       return;
@@ -711,7 +715,7 @@ async function pageItems(main, q) {
              (el) => el.update?.(fl, chosen)));
     };
     patch(notes, ...[
-      d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
+      d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
@@ -765,7 +769,7 @@ async function pageItems(main, q) {
     const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
     const relPart = async (g) => {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
-      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "No relations among these kinds: a kind declares them under relations: (blocked_by: ticket).")];
+      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no critical path.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);

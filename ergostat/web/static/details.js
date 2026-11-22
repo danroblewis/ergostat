@@ -16,6 +16,12 @@ function showDetail(...kids) {
   d.scrollTop = 0;
   if (typeof panelNote === "function") panelNote(d);   // where the other view draws what is chosen (interact.js)
 }
+/* a panel being opened: its kind and title, and "Loading…", at once, until what it says has been read */
+function panelLoading(kind, title) {
+  const note = h("p", { class: "muted panel-loading" }, "Loading…");
+  showDetail(h("div", { class: "kind" }, kind), h("h2", {}, title), note);
+  return note;
+}
 /* what each kind of thing on the diagram is: said first, in plain words, before how it is now */
 const WHAT = {
   stock: ["Stock", "something that accumulates. It rises and falls only by its flows, and its level is what a goal holds."],
@@ -89,7 +95,9 @@ async function openNode(n) {
   if (n.kind === "system") return openSystem(n);
   const [kind, name] = n.kind === "valve" ? ["valve", n.label] : n.kind === "disturbance" ? ["disturbance", n.flow] : n.id.split(":");
   if (kind === "controller") return openLoop(name, true);
-  const d = await api(`part/${kind}/${encodeURIComponent(name)}`);
+  const note = panelLoading(n.kind === "auxiliary" ? "auxiliary" : kind, name);
+  let d;
+  try { d = await api(`part/${kind}/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; throw e; }
   const m = d.model, now = d.now || {};
   const rows = [["description", m.description], inferredRow(d.inferred)].filter(Boolean);
   const knob = n.kind === "auxiliary" && n.agent;          // what a block sets is not measured: it is what the block said
@@ -133,7 +141,8 @@ async function openNode(n) {
 
 async function openLoop(name, asController = false) {
   let lp;
-  try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { return; }
+  const note = panelLoading(asController ? "Controller" : "Loop", name);
+  try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; return; }
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
   const kids = asController
@@ -219,7 +228,9 @@ function goalAhead(name, lp) {
 const rolesText = (roles) => (roles || []).map((r) => `${r.kind} ${r.name}` + (r.goal ? ` → goal ${r.goal}` : "")).join(", ");
 
 async function openAgent(name) {
-  const a = await api(`agents/${encodeURIComponent(name)}`);
+  const note = panelLoading("Agent", name);
+  let a;
+  try { a = await api(`agents/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; throw e; }
   const kids = [h("div", { class: "kind" }, `Agent, ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
         ["runs", a.schedule || (a.leased ? "started per item by its lease, not on a schedule"
@@ -236,7 +247,7 @@ async function openAgent(name) {
           (a.daemon.alarm ? ` (alarm: ${a.daemon.alarm.why})` : "") +
           (a.daemon.processes ? "; " + Object.entries(a.daemon.processes).map(([k, v]) => `#${k.split("#").pop()} ${v.state}` +
             (v.pid ? ` (pid ${v.pid})` : "")).join(", ") : "") : null],
-        ["log", a.log_path ? h("code", {}, a.log_path) : null]])];
+        ["log", a.log_path ? h("code", {}, a.log_path.split(/[\\/]/).pop()) : null]])];   // its file, not where it lies
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
   if (a.use?.runs?.length) kids.push(...useSection(a.use));
   kids.push(h("h3", {}, "Recent runs"));
@@ -374,6 +385,7 @@ async function openEdge(e) {
   let kind, what;
   if (e.kind === "pipe") {
     kind = "flow · system dynamics";
+    panelLoading(kind, e.flow);
     let d = null;
     try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};

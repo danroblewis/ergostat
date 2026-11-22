@@ -164,7 +164,9 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   // own, and put where there is room after (places.js packLoose)
   const linked = new Set(g.edges.flatMap((e) => [e.source, e.target]));
   const loose = open.size ? roots.filter((c) => byIdNodes[c.id]?.kind === "system" && !linked.has(c.id)) : [];
-  if (loose.length && loose.length < roots.length) roots = roots.filter((c) => !loose.includes(c));
+  // at the top level, the model's own upkeep linked to nothing: read last, bottom right, apart (places.js packLoose)
+  const upkeep = open.size ? [] : roots.filter((c) => byIdNodes[c.id]?.kind === "system" && byIdNodes[c.id].upkeep && !linked.has(c.id));
+  if (loose.length + upkeep.length && loose.length + upkeep.length < roots.length) roots = roots.filter((c) => !loose.includes(c) && !upkeep.includes(c));
   const roomy = g.nodes.some((n) => n.kind === "system" || (n.systems || []).length);
   const graph = {
     id: "root", children: roots, edges: elkEdges,
@@ -187,6 +189,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   if (open.size || lay.children.some((c) => c.children?.length)) flatten(lay);   // (or blocks laid out together: layouts.js)
   placeSatellites(lay, sat);                             // the satellites put back in the room kept (satellites.js)
   if (loose.length && !roots.some((c) => loose.includes(c))) packLoose(lay, loose);
+  if (upkeep.length && !roots.some((c) => upkeep.includes(c))) packLoose(lay, upkeep, true);
   if (again < 2) {                      // ports facing away from what they join, valves facing away: turn them, lay out again
     const w = wanted(lay, g);
     const ports = g.nodes.flatMap((n) => n.ports || []);
@@ -494,12 +497,13 @@ function sysTwin(n, p) {
 /* a system drawn as one part: its name, how its loops are doing, and its ports (what crosses its edge) */
 const SYS_TOP = 70, SYS_ROW = 20, MEAS_ROW = 24;
 const sysTop = (n) => SYS_TOP + (n.measures?.length || 0) * MEAS_ROW;     // its ports start below its measures
+const UPKEEP = "ergostat's upkeep of this model, not the system";      // the modelling system's box says what it is
 function systemSize(n) {
   const side = (d) => n.ports.filter((p) => (p.at || (p.side === "in" ? "west" : "east")) === (d === "in" ? "west" : "east"));
   const lw = (ps) => Math.max(0, ...ps.map((p) => textWidth(p.label + (p.value ? "  " + p.value : ""))));
   const mw = Math.max(0, ...(n.measures || []).map((m) => textWidth(m.label) + textWidth(`${m.value} ${m.unit}`) + textWidth(m.setpoint || "") + 150));
   const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60, mw,
-                    n.remote ? textWidth(n.remote.says) + 40 : 0);
+                    n.remote ? textWidth(n.remote.says) + 40 : 0, n.upkeep ? textWidth(UPKEEP) + 40 : 0);
   return [w, Math.max(96, sysTop(n) + Math.max(side("in").length, side("out").length) * SYS_ROW + 6 + (n.inner?.length ? 16 : 0))];
 }
 function loopsText(n) {
@@ -733,7 +737,6 @@ function drawGraph(svg, g, lay) {
     lay.width = Math.max(lay.base.width, ext.x1) - lay.ox; lay.height = Math.max(lay.base.height, ext.y1) - lay.oy;
   }
   const edgesG = s("g");
-  S.sdSigns = [];                                         // (the polarities placed so far: dynamics.js)
   const flowLinks = sd ? sdFlowLinks(g) : new Set();      // what Flows only keeps, by the model (dynamics.js)
   const flowEnds = new Set(g.edges.filter((e) => flowLinks.has(e.id)).flatMap((e) => [e.source, e.target]));
   if (sd && !flowLinks.size)                              // (shown with Flows only: a level with nothing it keeps says so)
@@ -830,6 +833,7 @@ function drawGraph(svg, g, lay) {
   vp.append(edgesG, nodesG, ...(sd ? [sdLoopMarkers(g, lay)] : []), pinsG);
   svg.replaceChildren(vp);
   svg.classList.toggle("sd", sd);
+  if (sd) sdPlaceSigns(svg);                          // each sign beside its own head (dynamics.js)
   applyView(svg);
   if (S.hl) highlightLoop(S.hl);
   if (sd && S.hlCausal) sdApply(S.hlCausal);
@@ -1068,10 +1072,11 @@ async function pageDiagram(main, q) {
     const now = new Set(S.graph?.open || []);
     if (now.has(name)) { now.delete(name); for (const [k, v] of Object.entries(S.graph?.tree || {})) if (v.within === name) now.delete(k); }
     else now.add(name);
-    S.graphSig = "";
+    S.graphSig = ""; S.opening = name;
     go({ open: [...now].join(",") || "-" });
+    S.opening = null;
   };
-  S.drill = (name) => { S.graphSig = ""; S.fitted = false; go({ system: name, open: "" }); };
+  S.drill = (name) => { S.graphSig = ""; S.fitted = false; S.opening = name || "everything"; go({ system: name, open: "" }); S.opening = null; };
   const crumbs = h("span", { class: "crumbs" });
   const file = (suffix = "") => `${S.status?.name || "ergostat"}-${system || "all"}-${view}${suffix}.svg`;
   const wrapOn = () => S.wrap === true || (S.wrap == null && S.wrapAuto);
@@ -1148,6 +1153,8 @@ async function pageDiagram(main, q) {
       { label: "SVG", hint: "as drawn", onclick: () => exportSvg(svg, file()) },
       { label: "Design SVG", hint: "no live values", onclick: () => exportSvg(svg, file("-design"), true) },
       { label: "PNG", hint: "twice the size", onclick: () => exportPng(svg, file()) },
+      ...(view === "dynamics" ? [{ label: "Model (Markdown)", hint: "variables, flows, loops", onclick: () => exportMarkdown("dynamics") }] : []),
+      ...(view === "blocks" ? [{ label: "Loops (Markdown)", hint: "a row per loop", onclick: () => exportMarkdown("blocks") }] : []),
     ], { right: true, up: true, title: "Save the diagram as a file" }));
   wrap.append(svg, toolbar, zoom);
   if (typeof splitGrips === "function") splitGrips(wrap);         // a second pane, dragged in from an edge (split.js)
@@ -1157,7 +1164,15 @@ async function pageDiagram(main, q) {
   main.append(shell);
   panZoom(svg);
   S.graphSig = ""; S.fitted = false;
-  wrap.append(h("div", { class: "empty loading" }, "Loading\u2026"));
+  const was = S.was;
+  S.was = null;
+  if (was) {                                       // the diagram left stays, dimmed, and the side list with it, until this one is drawn
+    S.layout = null;                               // (only a picture now: nothing waits on its layout)
+    svg.append(s("g", { class: "was" }, ...was.querySelector("svg.canvas").childNodes),
+               s("text", { class: "opening-note", x: "50%", y: "50%", "text-anchor": "middle" }, S.opening ? `Opening ${S.opening}\u2026` : "Loading\u2026"));
+    side.append(...was.querySelector(".side").childNodes);
+    shell.classList.add("opening");
+  } else wrap.append(h("div", { class: "empty loading" }, "Loading\u2026"));
   let fails = 0;
 
   async function tick() {
@@ -1171,7 +1186,7 @@ async function pageDiagram(main, q) {
     const t0 = performance.now();
     try { g = await api("graph", ask); fails = 0; }
     catch (e) {
-      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
+      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); svg.querySelector(".opening-note")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
       return;
     }
     // the next ask: every 2.5s, later when an answer is slow (four times as long as it took, at most a minute)
@@ -1189,6 +1204,7 @@ async function pageDiagram(main, q) {
   }
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
+    shell.classList.remove("opening");
     S.graph = g;
     setText(caption, captionText(S.status, view));
     caption.title = caption.textContent;
@@ -1352,6 +1368,19 @@ function inboxAnswer(a) {
   return row;
 }
 
+/* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
+   its class's record and its suggestion up the ladder (SPEC §12o); its text in full, past three lines folded; the
+   exact command folded below */
+const ticked = (s) => String(s).split("`").map((x, i) => (i % 2 ? h("code", {}, x) : op(x)));
+function inboxBody(a, href) {
+  const ls = [a.first, a.more].filter(Boolean).join("\n").split("\n"), run = [a.run, a.cli].filter(Boolean).join("\n");
+  const first = h("span", { class: "ask" }, ticked(ls.slice(0, 3).join("\n")));
+  return [h("div", { class: "ask-first" }, href ? h("a", { href, class: "plain" }, first) : first, h("span", { class: "muted" }, ` waiting ${a.age}`)),
+    a.record || a.suggest ? h("div", { class: "muted ladder" }, [a.record, a.suggest].filter(Boolean).join(". ")) : null,
+    ls.length > 3 ? h("details", { class: "ask" }, h("summary", {}, "the rest"), h("span", { class: "ask" }, ticked(ls.slice(3).join("\n")))) : null,
+    run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
+}
+
 /* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
    or its summing junction (Blocks), the closed system holding it opened first (one level: the box drawn) */
 function goalButton(name, label) { return h("button", { class: "name", type: "button", onclick: () => showGoal(name) }, label); }
@@ -1401,7 +1430,9 @@ function renderSide(side, g, view) {
       const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
       const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
       const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
-      att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, h("span", { class: "att-word" }, `${word} · `),
+      const said = h("span", { class: "att-word" }, `${word} · `);
+      if (a.answer && a.first) { att.append(h("div", { "data-inbox": a.what }, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
+      att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, said,
         href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
         linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
     });

@@ -204,3 +204,14 @@ def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):
     s.flows["rain"] = Flow("rain")
     assert equation(s, "leak") == "2 per hour, declared: a constant"
     assert equation(s, "rain") == "not known: nothing in the model drives it, and it is not measured"
+
+
+def test_a_connector_declared_with_driven_by_says_so_and_no_other_does(factory):
+    """The page draws a driven-by link dashed (dynamics.js) from this flag; every connector carries it."""
+    g = factory(view="dynamics", open="*")
+    conn = {(e.get("from", e["source"]), e["target"]): e for e in g["edges"] if e["kind"] == "connector"}
+    assert all(isinstance(e["drivenBy"], bool) for e in conn.values())
+    # signups: driven-by: [-stock.bugs-live, -stock.missing-ops] (product.yaml)
+    assert conn[("stock:bugs-live", "flow:signups")]["drivenBy"] is True
+    # a goal's gap feeding the flow that closes it is no driven-by: drawn solid
+    assert conn[("gap:backlog-clear", "flow:submitted")]["drivenBy"] is False
