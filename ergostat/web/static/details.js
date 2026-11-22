@@ -192,7 +192,7 @@ async function openLoop(name, asController = false) {
   showDetail(...kids);
 }
 
-/* a goal ahead, with the loops running (closedloop.py's Monte Carlo): "work-waiting: off at +8h with p≈0.3", and a
+/* a goal ahead, with the loops running (closedloop.py's Monte Carlo, in words by forecast_words.py), and a
    setpoint to try (a what-if, drawn on every chart, never kept) */
 function goalAhead(name, lp) {
   const box = h("div", { class: "ahead whatif-redraw" });
@@ -203,10 +203,10 @@ function goalAhead(name, lp) {
                                      points: CHART_POINTS, ...whatifParams() }).then((d) => {
     const g = (d.risk || []).find((x) => x.goal === name);
     if (d.fan_pending && tries++ < 8) setTimeout(() => { if (box.isConnected) load(); }, 2500);
-    if (d.loops !== "closed") { box.replaceChildren(); return; }
+    if (d.loops !== "closed") { box.replaceChildren(h("h3", {}, "Ahead"), h("p", { class: "muted small" }, d.no_estimate || "No estimate")); return; }
     box.replaceChildren(h("h3", {}, "Ahead, with the loops running"),
-      g?.said ? h("p", { class: g.p_off_end >= 0.5 ? "s-open" : "" }, g.said)
-        : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "no risk to say"),
+      g?.sentence ? forecastEl(g)
+        : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "No estimate: this goal's stock is not in the projection"),
       h("p", { class: "muted small" }, "What if it held at ", whatifField(`goal.${name}`, `what if ${name} held at`, now, "another setpoint"),
         " (the identified models and estimates by their errors, the inputs by how far their mean could move; a fixed seed)"));
   }).catch(() => box.replaceChildren());

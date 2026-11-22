@@ -381,7 +381,12 @@ function loopsToggle(now) {
 }
 /* with the loops running: each goal on these parts, its chance of being off at the horizon (the Monte Carlo's) */
 function riskLines(d) {
-  return (d.risk || []).filter((r) => r.said).map((r) => h("p", { class: `small risk${r.p_off_end >= 0.5 ? " s-open" : ""}` }, r.said));
+  return (d.risk || []).filter((r) => r.sentence).map((r) => forecastEl(r, "small risk"));
+}
+/* a goal's forecast as a sentence (forecast_words.py), its p, runs, horizon and method in its title and a closed disclosure */
+function forecastEl(r, cls = "") {
+  return h("div", { class: `forecast ${cls}` }, h("p", { class: r.p_off_end >= 0.5 ? "s-open" : "", title: r.title }, `${r.goal}: ${r.sentence}`),
+    r.how?.length ? h("details", { class: "small" }, h("summary", { class: "muted" }, "How this was worked out"), dl(r.how)) : null);
 }
 /* what stands in for the machine blocks near these parts, in words (the closed-loop projection runs them, not the blocks) */
 function modelsSaid(d) {

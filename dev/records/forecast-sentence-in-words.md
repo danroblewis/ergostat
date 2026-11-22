@@ -14,3 +14,34 @@ Acceptance tests: the unit test; a browser check of the panel on a fixture goal 
 Budget: 70 net lines.
 
 Milestone: r6-off-tells-the-truth. Owner items: R6 piece 2. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. The choices below were made alone; each one is the easiest to undo.
+
+- Where the line comes from: the panel's 'off at +… with p≈… (100 runs)' is `closedloop.risk_said`, served by
+  `web/numbers_api.add_to_series` (the `/api/series` answer's `risk`), not `review.py forecast()`. So the words are
+  made in a new module `ergostat/numbers/forecast_words.py` (`said()`), and `numbers_api.py` adds them to each `risk`
+  entry, not `server.py`. `risk_said` is unchanged and still feeds `ergostat project --risk` and `said`.
+- control.js prints no forecast. The other place that does is the strip's `riskLines` in `charts.js`, and it now uses
+  the same `forecastEl`. control.js is not changed.
+- Q34 is not in this clone. Clock times are local `14:10` for today, `Tue 14:10` within the week, and `Nov 30 14:10`
+  after that (`forecast_words.clock`). If Q34 settles on another format, only that one function changes.
+- The forms: off now, and back under half the runs within the horizon, gives 'Expected back…by'. Off now and staying
+  off gives a fifth form, 'Likely to stay outside its bound for the next N (about N in 10)'. On track, and reaching half
+  or more at some moment, gives 'Likely to cross…around' with the peak chance. Otherwise 'Likely to stay within…for the
+  next N' gives 1 minus the peak chance. Odds are rounded half up, with 'under 1 in 10' and 'over 9 in 10' at the ends.
+  The short form ('within, 9 in 10', 'cross ~14:10, 7 in 10', 'back by 14:25', 'off, 8 in 10', 'no estimate') is in
+  the answer. The goal row's `expected` cell is not built here: the definition says it 'will carry' the short form.
+- No forecast: `/api/series` gives `no_estimate` when the loops are held or the model has no controller, and when the
+  model can't be read. A goal on the projected stock with no Monte Carlo result says 'No estimate: …' (the watchdog's
+  reason when it stopped). The panel prints these where it used to print nothing.
+- Done item 1 asks for a check on :8796, but that server is not reachable from this container. The browser check
+  `tests/test_forecast_panel.py` runs on a fixture on/off loop goal (queue-short) instead.
+- Tests: `tests/test_forecast_words.py` (the five forms, the odds rounding, no estimate, clock and durations) and
+  `tests/test_forecast_panel.py` (Playwright: the sentence is visible, there is no p≈ or 'runs)' in visible text, the
+  disclosure is closed, the title holds p, and the opened disclosure holds p, runs, horizon and method). The
+  `test_closedloop` page-API test also checks the sentence keys and `no_estimate`. Both new tests were seen to fail on
+  a planted break: `round()` for the half-up rounding (3 failed), and the raw line printed beside the sentence (the
+  browser test failed on 'p≈').
+Overrun reason: about 74 net lines against 70, because a second surface (the strip's riskLines) prints the forecast too, and the no-estimate reasons are wired at two points in add_to_series.
