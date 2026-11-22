@@ -62,3 +62,16 @@ Round 1: built (fdf7b844). The change is 11 net lines of code, in `ergostat/web/
   main: `git checkout -q main && ...` was refused in this session. Running these four tests on clean main is left to
   the factory (lesson 13). Nothing was changed for them here.
 - `origin/main` is absent from the clone and local `main` is this branch's base, so there was nothing to merge.
+
+Round 1, after the build step failed: the `build` step (`scripts/affected_tests.py`) picked
+`tests/test_diagram_rendering.py`, the test file this branch changed, and ran it without Playwright. The file skips
+as a whole at line 38 (`could not import 'playwright.sync_api'`), so pytest ran nothing and exited rc 5. No test
+failed, and no ergostat code is at fault. That file is a browser file and needs `uv run --with playwright==1.63.0`,
+as the four browser files do in the merge queue.
+
+- **Nothing changed in the code.** The fix belongs in the factory's build step: either run a changed browser file
+  with Playwright, or leave it out of the fast set. That is `scripts/affected_tests.py` or `[suites] build` in
+  `dev/factory.toml`, which are outside this gap (lesson 13), so it needs a gap of its own.
+- **The other option was to move the acceptance test out of the browser file.** The definition of done asks for it in
+  the existing browser files, so I did not take it.
+- **Reversibility:** this way no code or test changes. With Playwright, the test passes, as noted above.
