@@ -626,8 +626,11 @@ What you set:
   (`[tracker.example.com]`): only those, for GET and HEAD.
 - **`test:`** in `with:` for programs that write: the project's tests, run in the sandbox. Without it such a fix is
   untested, and only a person may approve it.
-- **`approver:`** `person`, the only one for now: the owner reads each fix in the inbox. `ai` is refused by `check`
-  until a sound guard exists (GAPS).
+- **`approver:`** `person` (the default): the owner reads each fix in the inbox. `ai`: an AI (the same `model`, no
+  tools) may approve a fix the guard of SPEC §12r lets it see (a change that computes with plain values and prints,
+  touching nothing that runs, writes or imports); the rest, and whatever the AI does not approve, waits for the owner.
+  Propose `ai` only once the owner has approved this loop's fixes for a while, and say what the guard does not see
+  (docs/SECURITY.md).
 - **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs
   committed.
 

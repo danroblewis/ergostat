@@ -1,6 +1,6 @@
 template: repair
 once: true
-description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report (SPEC §12r).
+description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report, answered by a person or, with approver ai, by an AI behind a guard in code (SPEC §12r).
 reading: |
   System dynamics: an aging chain of failures (the built-in kind ergostat.failure, one item a signature), filled as
   programs fail (failures-found) and drained through a fix, its test and its approval; a fix that fails its test flows

@@ -5532,7 +5532,7 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
 is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (verifying
-a fix by the runs after it, offering its revert, the ladder's other rungs, a check for programs that swallow their
+a fix by the runs after it, offering its revert, the ladder's lower rungs, a check for programs that swallow their
 errors) is in `docs/GAPS.md`.
 
 ```yaml
@@ -5540,7 +5540,7 @@ uses:
   repair:
     use: repair
     with:
-      approver: person        # the only one for now
+      approver: person        # (default) or ai: the ladder's second rung, behind the guard below
       model: haiku            # the fixer's (default)
       budget: 0.25            # dollars, one AI call at most
       daily: 2                # dollars, every AI call of the loop in a day
@@ -5611,16 +5611,93 @@ each open failure, leased (section 9.5), and:
 A failure the AI cannot fix, a refused proposal, git refusing, or an AI call not answered within its time is given
 back with why.
 
-**The ladder's first rung only** (invariant 5). `apply-fix` is held for the person, answered from the inbox, the CLI
-or the failure's page; a notification of it (section 12o) always carries the sentence "Approving merges this code into
-your repository; it then runs with your rights, outside the sandbox", whatever the channel's `detail`, so a person
-answering from a phone has read it. What an approved fix then does runs with the owner's rights, as the program it
-replaces did. `approver: ai` is refused by `check` ("not yet: a sound allowlist guard is needed"): an AI approver was
-built and cut, since a guard that denies listed calls is bypassed many ways (`docs/GAPS.md`). **A denial is final**
+**The ladder's first two rungs** (invariant 5). With `approver: person` (the default) `apply-fix` is held for the
+person, answered from the inbox, the CLI or the failure's page; a notification of it (section 12o) always carries the
+sentence "Approving merges this code into your repository; it then runs with your rights, outside the sandbox",
+whatever the channel's `detail`, so a person answering from a phone has read it. What an approved fix then does runs
+with the owner's rights, as the program it replaces did. With `approver: ai` an AI may answer instead, but only about
+a fix a guard in code lets it be asked about (below); everything else stays held for the person. **A denial is final**
 (the kind's `final` states, `spec/items.py`): an approval recorded after an action's denial, whoever wrote it and
 however the two raced, is ignored and listed (`ignored`); the action stays denied, is counted as denied (never as
 evidence for promoting its class to `gate: auto`), and is never run; one that ran anyway, having got through before the
 denial was seen, is shown as **ran despite denial** on the action's page.
+
+**The guard** (`ergostat/repair/allow.py`, `escalate(path, old, new, beside)`) returns the reasons a person must
+decide; an empty list means only that the AI may be asked, nothing more. It reads the program's text before and after
+and the names of the files beside it, nothing else, and is an allowlist: what it cannot parse, align or classify is a
+reason.
+
+- **G0.** A `.py` program; both versions parse; at most 40 lines changed (a run of changed lines counted by its longer
+  side); the test result `passed` (untested and failed fixes are refused); the risk `low` or `medium` (missing counts as
+  high). Nowhere in the new module: `import *`; `__builtins__`; an import of `builtins`, `importlib`, `ctypes`, `gc` or
+  `inspect`; a reference to `globals`, `locals`, `vars`, `setattr`, `delattr`, `getattr`, `exec`, `eval`, `compile`,
+  `__import__` or `breakpoint`; an attribute read starting `__` or named `modules`, `f_globals`, `f_locals` or
+  `f_builtins`; a store to an attribute named like a listed builtin, `print`, `json`, `load`, `loads` or `dumps`. These
+  are the ways a name the forms below rely on could be rebound out of the text's sight.
+- **G1, alignment.** The old and new statement lists are aligned with `difflib.SequenceMatcher`, body by body: a simple
+  statement keyed by its whole `ast.dump`, a compound one by its header (its dump with its bodies emptied); two compound
+  statements with equal keys are aligned in each of their bodies. A new statement that matches nothing is *changed*,
+  and so is everything nested in it; an old one is *removed*, with everything nested in it.
+- **Shaped values**: expressions that can only be JSON-type values, so no operation on them runs code other than the
+  interpreter's. Constants (str, int, float, bool, None), f-strings, list, tuple, dict and set displays, subscripts,
+  operators, comparisons and conditionals of shaped parts; comprehensions with name targets over shaped iterables;
+  shaped names; and calls of four forms only: (a) a builtin of `len int float str bool abs min max round sorted list
+  dict tuple set enumerate zip range isinstance repr any all sum reversed` with shaped arguments and no keywords
+  (`isinstance`'s type argument a listed type name, or a tuple of them); (b) `print` with the keywords `sep`, `end` and
+  `flush` only; (c) `json.loads(shaped)`, and `json.dumps(shaped)` with only `indent`, `sort_keys`, `ensure_ascii`; (d)
+  `get strip lower upper split startswith endswith replace join items keys values` on a shaped receiver, no keywords.
+  A builtin or `print` counts only when its name is bound nowhere in the module (a def, class, assignment of any kind,
+  import, loop, comprehension, except or with target, del, parameter or match capture, at any depth); `json` only when
+  bound by one top-level `import json` alone, with no `json.*` beside the program. A name is shaped when it has a
+  binding and every one, anywhere in the module, assigns a shaped value or `json.load`/`json.loads` of anything (no
+  keywords), or is a loop target over a shaped value: the least fixed point, so `a = b; b = a` is not shaped, and a name
+  never bound (`open`, `exit`) is not either. No other attribute reads, no lambda, await, yield or walrus; a call of a
+  function the module defines is not a form (it goes to the person).
+- **G2.** Each changed statement is one of: an assignment or augmented assignment of a shaped value to names (never an
+  attribute or a subscript); a (b) `print`; `if` with a shaped test; `for` with name targets over a shaped value;
+  `pass`, `continue`, `break`; `return` of a shaped value or none; `assert` of shaped parts; `raise X(shaped)` with `X`
+  one of `ValueError KeyError TypeError RuntimeError SystemExit`, unbound in the module. Each removed statement must
+  pass the same, read against the old module: removing a `sys.exit()` or a check call goes to the person.
+- **G3, taint.** Names bound by changed, removed or controlled statements are tainted, and so are names bound by any
+  statement that reads a tainted one; calling a module function that holds a changed, removed, controlled or tainted
+  statement reads a tainted value. An unchanged statement that reads one must itself pass G2, except a statement that
+  is only `NAME = f(args)` or `f(args)`, `f` a module function and no argument tainted (`NAME` is then tainted). So
+  `x = f()` after a change inside `f` is let through, and every later reader of `x` is held to G2 (and since `x` is not
+  shaped, even `print(x)` is refused).
+- **G4, control.** Controlled, and held to G2: the bodies of an unchanged `if`, `for` or `while` whose header reads a
+  tainted name (a `while` itself fails G2); the whole loop after a changed, removed or controlled `continue` or
+  `break`; the rest of the function after such a `return`; the rest of the module after such a `raise` at module
+  level. A changed or removed `raise` inside a function is refused.
+- **G5, exception paths.** Nothing changed, removed, controlled or tainted may sit lexically inside a `try` or `with`;
+  when any of it is inside a function, the module may hold no `try` or `with` at all: a fix that newly raises could
+  otherwise run a handler, a `finally` or an `__exit__` that never ran before.
+
+What the guard does not see, each pinned by a test in `tests/test_repair_allow.py` (`test_residual_*`): (1) **implicit
+raises**: any subscript or division may raise, so a fix can stop the program earlier, or get further than the failing
+one did (that is what a fix does); either way only the old program's own statements run, G5 covers handlers, and hooks
+the program installs (`sys.excepthook`, `atexit`) are not followed. (2) **Standard output**: `print` writes wherever
+the program or a module it imports points it (`sys.stdout = ...`, `dup2`). (3) **One file**: what the modules it
+imports do when imported (rebinding a builtin or `json`), and in-process ways to rebind a name that G0 does not list
+(code `pickle` deserialises, a C extension), are not seen. (4) **Time and memory**: `"x" * 10**9` and `range(10**12)`
+pass; the block's timeout bounds them.
+
+**The AI approver** (`ergostat/repair/approve.py`) runs once a fix's `apply-fix` was just requested, in the fix's own
+run. When the guard gives no reason, the AI (the template's `model`, haiku by default, no tools, the prompt
+`ergostat/repair/approver.md`, inside the loop's ledger and daily cap and a quarter of the timeout, its cost the run's)
+is shown only the program's path, the diff and "passed", never the fixer's explanation or the test's output, and
+answers `{"approve": true or false, "reasons": [...]}`. What it judges is stamped `{action, requested_seq, fix,
+passed_seq}`: seqs and the commit, never times. Under the failure's lock (`repair/<name>.lock`, which the fix also
+holds around recording `passed` and requesting `apply-fix`) it re-reads, and writes `approved` (by `ai approver
+(MODEL)`) only if the action is still `requested`, its latest `requested` event is the stamp's, its key is
+`<name>-<fix>`, the failure is `awaiting-approval` and its latest `passed` is the stamp's, with the same `fix`.
+Anything else is **escalate**: guard reasons, a capped or unreadable ledger, no answer, a timeout, or any answer but
+`"approve": true`. The action stays held for the person, and the fix is not given back. A version that moved since is
+**stale**: nothing approved. Each review is recorded as `ergostat.failure.reviewed` with `approval: {by, model,
+verdict, reasons, guard, action, stamp}`, and every `passed` carries `approval: null`, so a fix made again never shows
+an old approval. The engine's sweep runs an AI approval as it runs any approved action. A person's denial takes no
+lock: the action's fold makes it final whatever the order (before the write there is nothing left to approve; after
+it, the action is denied and never run). The inbox counts the AI's answers as an agent's (`by_agent`), never as a
+person's approvals, and not among the approvals asked of a person in a day.
 
 **Applying** (`python -m ergostat.repair apply`, the approved action, in the model's folder): the failure must be
 awaiting approval with a tested fix; the approved action's `key` must name that fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;
@@ -5642,7 +5719,7 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 |---|---|
 | stocks | `open-failures`, `fixing` (leased), `awaiting-approval`, `applied-fixes` (cumulative) |
 | flows | `failures-found`, `fixes-started`, `fixes-proposed`, `fixes-failed` (rework), `fixes-applied`, `fixes-dismissed` |
-| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver) |
+| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver: the person, or the AI) |
 | action | `apply-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
 
 ## 13. Examples

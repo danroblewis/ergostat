@@ -10,8 +10,22 @@ has no tools at all and reads only the files ergostat gives it. Libraries do not
 as the program it replaced did, with your rights and outside any sandbox. The sandbox only makes testing it safe before
 you decide, and only within limits: a fix can tell it is in a sandbox (its home folder is unreadable, it has no DNS),
 so a fix that behaves only when sandboxed passes. Read the diff before you approve: every notification of a repair
-says so. No AI approves a repair yet: a guard that blocks a list of dangerous calls was tried and bypassed, and a sound
-one (an allowlist) is not built.
+says so.
+
+**What the AI approver does not stop** (`approver: ai`, SPEC §12r). An AI may approve a fix only when a guard in code
+lets it be asked: the guard reads the program before and after and accepts only changes that compute with plain values
+(strings, numbers, lists, dicts read from JSON) and print, and nothing those changes reach may open, run, import, write
+or call anything else. Everything else goes to you, and so does every fix the AI does not approve. The guard says only
+what the AI may be asked about; the AI can still approve a wrong fix within that. What the guard does not see:
+
+- **Implicit errors.** Any lookup or division may raise, so a fix can make the program stop earlier, or get further
+  than the failing program did (that is what a fix does). Only the old program's own statements then run, and a change
+  near a `try` or `with` goes to you; hooks the program installs (`sys.excepthook`, `atexit`) are not followed.
+- **Where output goes.** A fix's `print` writes to the program's standard output, wherever the program or a module it
+  imports has pointed it.
+- **Other files.** The guard reads one file. What the modules the program imports do when imported (say, replace a
+  builtin) is not seen, nor are ways of rebinding names it does not list (code loaded by `pickle`, a C extension).
+- **Time and memory.** A fix may use a lot of either; the block's timeout bounds it.
 
 ## What it stops
 

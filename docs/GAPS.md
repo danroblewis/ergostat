@@ -84,13 +84,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
   program). *Left*: verifying a fix by the runs after it and offering its revert; log events; the
   swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
   failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text.
-- **AI approver for repairs: needs a positive allowlist of the AST changes a fix may make** (SPEC §12r). One was built
-  on `repair2` (the AI shown only the diff and pass or fail, behind a guard that escalated new imports, processes,
-  network, environment, writes and URL or path literals) and cut before merging: a guard that denies by list was
-  bypassed many ways in review: `vars(os)['sys'+'tem']`, `sys.modules[...]`, `().__class__.__subclasses__()`, an
-  existing `subprocess.run` given `['sh', '-c', x]`, calls it did not list (`os.chmod`, `Path.rename`, `marshal`), and
-  relative path literals. A sound guard says what a fix may change (the shapes of expressions and names it may touch)
-  and refuses the rest; until then `approver: ai` is refused by `check`.
+- **What the AI approver's guard does not see** (SPEC §12r, `approver: ai`; the guard is an allowlist of shaped
+  values and statements, `ergostat/repair/allow.py`). Its four residuals, each pinned by a test: implicit raises (a
+  fix may stop the program earlier; process-wide hooks are not followed); where standard output points; other modules
+  (what an import does, and rebinding by means G0 does not list, such as `pickle` or a C extension); time and memory
+  (bounded only by the timeout). *Left*: `inbox/interventions.py` reads `stats.asked`, so an action the AI approved is
+  still counted there as an intervention, as one answered through the MCP already is; a fix that calls one of the
+  module's own functions always goes to the person (the plan's "pure function" form was dropped).
 
 ## Modelling
 
