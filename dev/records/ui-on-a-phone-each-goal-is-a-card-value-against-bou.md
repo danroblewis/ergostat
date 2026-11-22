@@ -61,3 +61,14 @@ background time limit before it ended, with no result. The rerun with a longer l
 (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/drender.log 2>&1`)
 was refused in this session. The round-1 full-file result above is the latest. The other three browser files and the
 unit suite were not run.
+
+Round 3. The one finding, a conflict with main in tests/test_diagram_rendering.py, is resolved in the merge of main
+(bea24a23): main's new test (test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction, with
+its goal_named, RINGED and TITLED) and this branch's phone-card test had been added at the same place and shared one
+server start-up tail. Each is now a whole function of its own, main's first, both waiting up to 300 tries for the server
+as main does. No code outside tests changed in this round. The card stays the last cell of each row, so main's rule
+that each row's first cell is the name button holds. After the merge: ruff is clean; the phone-card test and both cases
+of main's test pass (3 passed, under the watchdog with Playwright); tests/test_runner_and_state.py passes (44).
+Not run in round 3: the whole of tests/test_diagram_rendering.py. The background run
+(`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/drender.log 2>&1; echo done >> /tmp/drender.log`)
+was refused in this session. The other three browser files and the unit suite were not run either.
