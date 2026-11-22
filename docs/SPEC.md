@@ -5650,12 +5650,15 @@ reason.
   `flush` only; (c) `json.loads(shaped)`, and `json.dumps(shaped)` with only `indent`, `sort_keys`, `ensure_ascii`; (d)
   `get strip lower upper split startswith endswith replace join items keys values` on a shaped receiver, no keywords.
   A builtin or `print` counts only when its name is bound nowhere in the module (a def, class, assignment of any kind,
-  import, loop, comprehension, except or with target, del, parameter or match capture, at any depth); `json` only when
-  bound by one top-level `import json` alone, with no `json.*` beside the program. A name is shaped when it has a
-  binding and every one, anywhere in the module, assigns a shaped value or `json.load`/`json.loads` of anything (no
-  keywords), or is a loop target over a shaped value: the least fixed point, so `a = b; b = a` is not shaped, and a name
-  never bound (`open`, `exit`) is not either. No other attribute reads, no lambda, await, yield or walrus; a call of a
-  function the module defines is not a form (it goes to the person).
+  import, loop, comprehension, except or with target, del, parameter, type parameter or match capture, at any depth);
+  `json` only when bound by one top-level `import json` alone, with no `json.*` beside the program. A name is shaped
+  when it has a binding and every one, anywhere in the module, assigns a shaped value or `json.load`/`json.loads` of
+  anything (no keywords), or is a loop target over a shaped value: the least fixed point, so `a = b; b = a` is not
+  shaped, and a name never bound (`open`, `exit`) is not either. A binding that reads its own name (`n += 1`,
+  `n = n + 1`) counts as shaped when another binding of it is shaped and the name is no builtin's and no dunder (before
+  its first binding, reading it raises); so `n = 0; n += 1` is shaped, and `n = n` alone or `sum = 0; sum += 1` is not.
+  No other attribute reads, no lambda, await, yield or walrus; a call of a function the module defines is not a form
+  (it goes to the person).
 - **G2.** Each changed statement is one of: an assignment or augmented assignment of a shaped value to names (never an
   attribute or a subscript); a (b) `print`; `if` with a shaped test; `for` with name targets over a shaped value;
   `pass`, `continue`, `break`; `return` of a shaped value or none; `assert` of shaped parts; `raise X(shaped)` with `X`
@@ -5669,7 +5672,9 @@ reason.
   shaped, even `print(x)` is refused). An attribute is followed by its name (`Cfg.path`, `j.p()` read `path` and
   `p`, names merged as elsewhere), and a class enclosing such a statement is tainted as a function is. A function or
   class holding one may be reached only by a call: decorated, or named other than as a callee (stored, passed on, a
-  base, `Cfg.path`), it is refused, since a decorator or a registry could call it where the text does not show.
+  base, `Cfg.path`), it is refused, since a decorator or a registry could call it where the text does not show. A
+  class holding one, or enclosing a class that does, has no base, keyword or type parameter: a metaclass, or a base's
+  `__init_subclass__`, is given the class's namespace when the class is defined, with no call to follow.
 - **G4, control.** Controlled, and held to G2: the bodies of an unchanged `if`, `for` or `while` whose header reads a
   tainted name (a `while` itself fails G2); the whole loop after a changed, removed or controlled `continue` or
   `break`; the rest of the function after such a `return`; the rest of the module after such a `raise` at module

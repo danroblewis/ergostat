@@ -223,6 +223,50 @@ def test_taint_through_attributes_and_registries_refused(prog, twin, why):
     assert refused(change(prog, prog.replace("'a'", "'../x'", 1)), why)
 
 
+FMETA = "def M(name, bases, ns):\n    for v in ns.values():\n        os.remove(v)\n    return type(name, bases, ns)\n"
+CMETA = ("class Meta(type):\n    def __init__(cls, name, bases, ns):\n        for v in ns.values():\n"
+         "            os.remove(v)\nclass Base(metaclass=Meta):\n    pass\n")
+SUBREG = ("import operator\nREG = []\nclass Base:\n    def __init_subclass__(cls):\n        REG.append(cls)\n")
+SUBUSE = ("for c in REG:\n    for k in dir(c):\n        if not k.startswith('_'):\n"
+          "            os.remove(operator.attrgetter(k)(c))\n")
+
+
+@pytest.mark.parametrize("head, bad, tail", [
+    (FMETA, "class Cfg(metaclass=M):\n", ""),                    # a function metaclass, given the namespace
+    (CMETA, "class Cfg(Base):\n", ""),                           # a class metaclass, through a base
+    (SUBREG, "class Cfg(Base):\n", SUBUSE),                      # a base's __init_subclass__ registers it
+    ("", "class Cfg[T]:\n", ""),                                 # a type parameter
+])
+def test_refuses_change_in_class_with_base_or_keyword(head, bad, tail):
+    """Code in a class's header runs when the class is defined, with no call for G3 to follow: a class holding the
+    change has no base, keyword or type parameter. The same class with none: accepted."""
+    for cls, ok in ((bad, False), ("class Cfg:\n", True)):
+        prog = head + cls + "    path = 'a'\n" + tail
+        why = change(prog, prog.replace("'a'", "'../x'"))
+        assert why == [] if ok else refused(why, "Cfg holds the change and has a base or keyword"), (cls, why)
+
+
+def test_refuses_class_with_base_enclosing_the_change():
+    prog = CMETA + "class Outer(Base):\n    class Cfg:\n        def p(self):\n            return 'a'\n"
+    assert refused(change(prog, prog.replace("'a'", "'../x'")), "Outer holds the change and has a base or keyword")
+    plain = prog.replace("class Outer(Base):", "class Outer:")
+    assert change(plain, plain.replace("'a'", "'../x'")) == []
+
+
+def test_accepts_augmented_assignment_of_a_shaped_name():
+    """A name whose own binding reads it (``n += 1``) is shaped from its other bindings; a builtin's name is not."""
+    assert change("n = 0\nn += 1\nprint(n)\n", "n = 0\nn += 2\nprint(n)\n") == []
+    assert change("n = 0\nn = n + 1\n", "n = 0\nn = n + 2\n") == []
+    assert refused(change("n = os.getpid()\nn += 1\n", "n = os.getpid()\nn += 2\n"), "not shaped")
+    assert refused(change("n = n\n", "n = n\nprint(n)\n"), "print")           # nothing to start from
+    assert refused(change("sum = 0\nsum += 1\n", "sum = 0\nsum += 2\n"), "not shaped")   # read finds the builtin
+
+
+def test_refuses_type_parameter_shadowing_print():
+    assert change("def f[T](x):\n    pass\n", "def f[T](x):\n    pass\nprint(1)\n") == []
+    assert refused(change("def f[print](x):\n    pass\n", "def f[print](x):\n    pass\nprint(1)\n"), "print of shaped")
+
+
 def test_tainted_for_iterable_body_must_pass():
     loop = "def send():\n    pass\nn = {n}\nfor _ in range(n):\n    send()\n"
     assert refused(change(loop.format(n=2), loop.format(n=3)), "steered by the change")

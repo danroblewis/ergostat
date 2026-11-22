@@ -8,6 +8,7 @@ is SPEC §12r's residuals."""
 from __future__ import annotations
 
 import ast
+import builtins
 import copy
 import difflib
 
@@ -26,6 +27,7 @@ MODULES = frozenset({"builtins", "importlib", "ctypes", "gc", "inspect"})
 LISTS = ("body", "orelse", "handlers", "finalbody", "cases")
 LOOPS, FUNCS = (ast.For, ast.AsyncFor, ast.While), (ast.FunctionDef, ast.AsyncFunctionDef)
 GUARDED = (ast.Try, ast.TryStar, ast.With, ast.AsyncWith)
+BUILTINS = frozenset(dir(builtins))                                     # names a read finds before any binding
 
 
 def escalate(path: str, old: str, new: str, beside, tests=None, risk=None) -> list[str]:
@@ -130,10 +132,25 @@ class Shapes:
                      and not any(str(f).split(".")[0] == "json" for f in beside))
         self.names: set[str] = set()
         while True:                                          # the least fixed point: from none shaped, widened
-            more = {k for k, v in self.binds.items() if k not in self.names and all(self.bound(x) for x in v)}
+            more = {k for k, v in self.binds.items() if k not in self.names and self.widens(k, v)}
             if not more:
                 break
             self.names |= more
+
+    def widens(self, k, v) -> bool:
+        """Every binding of ``k`` is shaped, a binding that reads ``k`` itself (``n += 1``) taken as shaped when ``k``
+        names no builtin and no dunder: before its first binding, reading ``k`` raises, so each value it holds was made
+        from shaped ones. One binding must be shaped without it (``n = n`` alone, or ``a = b; b = a``, has no start)."""
+        own = k not in BUILTINS and not k.startswith("__")
+        if own and not any(self.bound(x) for x in v):
+            return False
+        if own:
+            self.names.add(k)
+        try:
+            return all(self.bound(x) for x in v)
+        finally:
+            if own:
+                self.names.discard(k)
 
     @staticmethod
     def binding(n, parent):
@@ -239,13 +256,16 @@ def names_only(t) -> bool:
 
 
 def names_bound_other(n) -> list[str]:
-    """The names a node binds other than by storing a Name: def, class, import, a parameter, except, a match capture."""
+    """The names a node binds other than by storing a Name: def, class, import, a parameter, a type parameter, except,
+    a match capture."""
     if isinstance(n, (*FUNCS, ast.ClassDef)):
         return [n.name]
     if isinstance(n, (ast.Import, ast.ImportFrom)):
         return [x.asname or x.name.split(".")[0] for x in n.names]
     if isinstance(n, ast.arg):
         return [n.arg]
+    if isinstance(n, (ast.TypeVar, ast.ParamSpec, ast.TypeVarTuple)):         # PEP 695: def f[print](x)
+        return [n.name]
     if isinstance(n, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
         return [n.name] if n.name else []
     if isinstance(n, ast.MatchMapping):
@@ -400,9 +420,13 @@ class Fix:
 
     def uses(self, hot) -> list[str]:
         """A function or class holding the change is reached only by a call G3 follows: never decorated (a decorator
-        may register it), never read other than as a callee (passed on, stored, or a class's attribute or base)."""
+        may register it), never read other than as a callee (passed on, stored, or a class's attribute or base). A
+        class holding it has no base, keyword or type parameter: a metaclass or a base's ``__init_subclass__`` would be
+        given its namespace when it is defined, with no call to follow."""
         why = [f"line {n.lineno}: {n.name} holds the change and is decorated" for n in ast.walk(self.new)
                if isinstance(n, (*FUNCS, ast.ClassDef)) and n.name in hot and n.decorator_list]
+        why += [f"line {n.lineno}: {n.name} holds the change and has a base or keyword" for n in ast.walk(self.new)
+                if isinstance(n, ast.ClassDef) and n.name in hot and (n.bases or n.keywords or n.type_params)]
         callees = {id(c.func) for c in ast.walk(self.new) if isinstance(c, ast.Call)}
         for n in ast.walk(self.new):
             ref = (n.id if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) else

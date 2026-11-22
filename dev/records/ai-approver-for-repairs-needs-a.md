@@ -397,3 +397,35 @@ blocking. What changed in `allow.py`, each part fail-closed:
 - Refused in this round: a Bash command that wrote a multi-line Python edit script through a heredoc, and one that
   swapped the round-1 `allow.py` into place with `git show HEAD:... >` and `cp`. Edits and mutations were made with
   the edit tool instead.
+
+### Round 3: the review's findings (a class header ran code with no call; aug-assign; PEP 695)
+
+The review had one blocking finding and two that were not blocking. Each is answered here:
+- **Blocking: a class holding the change was checked only where its name is read, never its header.** A metaclass
+  (a function, or a class reached through a base) or a base's `__init_subclass__` is given the namespace when the
+  class is defined. `Fix.uses()` now refuses a hot class (one holding, or enclosing a class that holds, a changed,
+  removed, controlled or tainted statement) that has any base, keyword or PEP 695 type parameter. Tests:
+  `test_refuses_change_in_class_with_base_or_keyword` (function metaclass, class metaclass via a base,
+  `__init_subclass__` registry read through `dir` and `operator.attrgetter`, a type parameter), and
+  `test_refuses_class_with_base_enclosing_the_change` (an outer class with a base, the change in a nested class's
+  method). Each has an accepted twin: the same program with the class given no base.
+- **Not blocking: `n = 0; n += 1` could never be shaped**, so G2's augmented assignment was never accepted. A binding
+  that reads its own name now counts as shaped when another binding of the name is shaped without it, and the name is
+  no builtin's and no dunder (so a read before its first binding raises, and cannot find a builtin's value).
+  `a = b; b = a`, `n = n` alone and `sum = 0; sum += 1` stay unshaped. Test:
+  `test_accepts_augmented_assignment_of_a_shaped_name`, with refused twins. SPEC's S paragraph says so.
+- **Not blocking: PEP 695 type parameters were not bindings.** `ast.TypeVar`, `ParamSpec` and `TypeVarTuple` now
+  bind their names. Test: `test_refuses_type_parameter_shadowing_print` (`def f[print](x)`), with a `def f[T]` twin.
+
+Each test was seen to fail with its code broken, then the code was restored. With the class-header check off, all 5
+class cases fail and the guard returns `[]` for each, so the bypass was real. With the self-reference seed off, the
+aug-assign test fails. With the builtin exclusion off, its `sum` case fails. With the "another binding is shaped"
+start off, its `n = n` case fails. With type parameters not bound, the PEP 695 test fails.
+
+Size: allow.py +24 net (493 lines), so the total is about 603 against 450. The reason is the same as rounds 1 and 2:
+fail-closed branches added at review.
+
+Run: `tests/test_repair_allow.py` (65 passed) and `tests/test_repair_approver.py` (16 passed, 1 skipped: sandbox).
+Ruff is clean. The unit suite, the four browser files and `test_repair2` (bwrap) were not run here. As before, the
+clone has no `origin/main` (only `main`, already an ancestor of the branch), so nothing was merged. Refused in this
+round: a Bash command that appended this section through a heredoc (`cat >> ... <<'EOF'`); the edit tool was used.
