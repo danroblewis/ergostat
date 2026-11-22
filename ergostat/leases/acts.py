@@ -21,6 +21,11 @@ def _refused(p, spec, item: str, ev: dict) -> str | None:
     return next((r["why"] for r in (it.refused if it else []) if r["event"] == ev["id"]), None)
 
 
+def again(p, ev: dict) -> dict:
+    """The event as recorded: the stored one when its id was recorded before (a call asked again)."""
+    return ev if ev.get("seq") is not None else p.events.get(ev["id"]) or ev
+
+
 def mine(env: dict | None = None) -> tuple[str, int, str]:
     """The lease this process's run holds: its item, fencing number and run, from its environment."""
     env = os.environ if env is None else env
@@ -30,9 +35,10 @@ def mine(env: dict | None = None) -> tuple[str, int, str]:
     return item, int(fence), run
 
 
-def renew(p, spec, by: str = "ergostat", env: dict | None = None) -> dict:
+def renew(p, spec, by: str = "ergostat", env: dict | None = None, id: str | None = None) -> dict:
     item, fence, run = mine(env)
-    ev = p.events.add(RENEWED, item=item, source=by, causedby=run, data={"run": run, "fence": fence, "seen": "asked"})
+    ev = again(p, p.events.add(RENEWED, item=item, source=by, causedby=run, id=id,      # id: a call's (calls/)
+                               data={"run": run, "fence": fence, "seen": "asked"}))
     why = _refused(p, spec, item, ev)
     if why:
         raise LeaseError(why)
@@ -40,7 +46,7 @@ def renew(p, spec, by: str = "ergostat", env: dict | None = None) -> dict:
 
 
 def nack(p, spec, why: str, after: float | None = None, count: bool = True, by: str = "ergostat",
-         env: dict | None = None) -> dict:
+         env: dict | None = None, id: str | None = None) -> dict:
     item, fence, run = mine(env)
     it = its.one(p.events, spec, item)
     lease = held(it.fields) if it else None
@@ -50,9 +56,9 @@ def nack(p, spec, why: str, after: float | None = None, count: bool = True, by: 
         n = int(lease.get("attempts") or 0) + (1 if count else 0)
         state = DEAD if count and n >= int(lease.get("max") or 1) else lease.get("back")
         end = {"item": item, "state": state, "terminal": terminal(spec, it.kind, state)}
-    ev = p.events.add(ENDED, item=item, source=by, causedby=run,
-                      data={"run": run, "fence": fence, "how": "nack", "why": why, **({"after": after} if after else {}),
-                            **({} if count else {"count": False}), **end})
+    ev = again(p, p.events.add(ENDED, item=item, source=by, causedby=run, id=id,
+                               data={"run": run, "fence": fence, "how": "nack", "why": why, **({"after": after} if after else {}),
+                                     **({} if count else {"count": False}), **end}))
     refused = _refused(p, spec, item, ev)
     if refused:
         raise LeaseError(refused)

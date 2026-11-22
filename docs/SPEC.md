@@ -1350,6 +1350,22 @@ answered, so a step's own code may speak it with no ergostat installed: `{"op": 
 `{"elsewhere": ...}`). An answer is the command's `--json` answer, or `{"error": WHY, "code": EXIT}`. An `act` that
 waits for an approval holds no thread: it is answered when the owner answers.
 
+A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no engine answers (no socket, a refused
+connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
+120, at most 3600), then does what it does with no engine. A command from a shell does not wait. It does not wait
+where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
+the socket is removed it waits 10 s at most for it to be made again. Only a final stop removes it: `ergostat run`
+starting itself again in place under the same name (a change of storage or format, or the watchdog's restart) leaves
+it, as a killed engine does, so its calls wait the whole bound for the new engine; a new name is a new state folder,
+so that restart removes it. Over-long keys are hashed, never cut short. Each call carries a
+key, `"call"`, made once by the command, the same on every try and in what the command records itself when it falls
+back: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
+renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again (its answer is
+the event recorded the first time); an `act` with
+no `--key` from a run with no item is keyed by it, so one held for the owner is asked once (a run with an item already
+finds its held action again, by its action and arguments). An `act` asked again after a restart waits for its `wait`
+again, from when it is asked.
+
 ## 6. Sensors
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It
@@ -2645,7 +2661,10 @@ It serves blocks only (a sensor naming one is an error). The protocol is the one
 run, the run is charged its CPU (`resources: {cpu, method: warm}`): what its process group used between hand-over
 and `done`, each member's own CPU and that of every descendant it reaped (read from outside: `proc_pid_rusage` on
 macOS, `/proc` on Linux; elsewhere none): the group's total at `done` less its total at hand-over, so a member that
-ended during the run and was reaped inside the group is charged only its part since. Everything outside a run is
+ended during the run and was reaped inside the group is charged only its part since. A run that never says `done`
+(its process crashed, or hung past its timeout and was restarted) is charged the same way when it is failed, its
+leader's part read from its exit (`wait4`) once it has ended; when its leader can be read neither way, the run's CPU
+is `unmeasured`, never zero. Everything outside a run is
 the process's own, left over with its start-up: CPU used after `done` and before the next hand-over is no run's;
 only what is used after the next hand-over's total was taken is that run's. Not charged: a child
 that left the group (`setsid`) or was orphaned and reaped outside it, and a member whose usage cannot be read. At
