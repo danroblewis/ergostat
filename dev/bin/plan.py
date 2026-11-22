@@ -14,8 +14,10 @@
                       the intake does. By the size class on the gap before it is planned (size_path; dev/README.md,
                       *Planning by size*): S has no session (its title and text with the house rules, unreviewed), M
                       one session under [ai] planner_m_session_usd (unreviewed), L the full planner, reviewed on a
-                      sample ([planning] l_review_share, per gap), XL must split; no class, or one not trusted, and
-                      every replan and sub-gap, take the full planner, marked for review. Each session's cost is also
+                      sample ([planning] l_review_share, per gap), XL must split; no class at all, and every sub-gap,
+                      take main's path (the full planner, [plan] sample_every's sample); a class not trusted, and
+                      every replan, the full planner, marked for review. The class is read as recorded before
+                      planning: today only a gap.requested event's data sets it. Each session's cost is also
                       recorded as planning_cost_usd (the whole reservation when it fails).
     plan.py splits    a split gap whose sub-gap parked (or died) parked too, saying which (a program, every 5m)
     plan.py join      the join judge: takes a split gap at joined (every sub-gap merged); a session reads its entry,
@@ -51,6 +53,7 @@ MOST_SHORT = 1                                           # short join verdicts t
 VERDICT, MISSING = re.compile(r"<verdict>\s*(\w+)\s*</verdict>"), re.compile(r"<missing>(.*?)</missing>", re.S)
 REASONS = re.compile(r"<reasons>(.*?)</reasons>", re.S)
 TRUST = {"low": 0.25, "medium": 0.5, "high": 0.75}       # a confidence against [planning] min_size_confidence
+UNSIZED = "unsized"                                      # no class recorded at all: main's path and review sample
 SMALL = """# {branch}: {title}
 
 depends-on: [{deps}]
@@ -106,9 +109,12 @@ def size_settings(cfg: dict) -> tuple[float, float, float]:
 
 def size_path(gap: dict, bar: float) -> str | None:
     """The gap's size class, when trusted: planned_size exactly S, M, L or XL with a size_confidence whose TRUST is at
-    or above ``bar``; else None (the full planner, reviewed). A replan (its state, which the fold sets by seq from the
+    or above ``bar``; UNSIZED when neither field is on an open gap (main's path: the full planner, review_wanted's
+    sample); else None (the full planner, always reviewed). A replan (its state, which the fold sets by seq from the
     send-back, never by time) is None too, but for XL, which must split whatever."""
     cls, conf = gap["fields"].get("planned_size"), gap["fields"].get("size_confidence")
+    if cls is None and conf is None and gap["state"] != "replan":
+        return UNSIZED
     if type(cls) is not str or cls not in CLASSES or type(conf) is not str or TRUST.get(conf, -1) < bar:
         return None
     return cls if cls == "XL" or gap["state"] != "replan" else None
@@ -349,12 +355,12 @@ def planner(cfg: dict, gap: dict) -> int:
         if name != branch:
             fac.say("gap.requested", f"gap/{name}", title=title or name, source="plan", branch=name,
                     parent=[gap["id"]], depends_on=deps_of(body), requested_at=now)
-            define(cfg, f"gap/{name}", name, body, "plan-split", review=True, planned_at=now, planning_cost_usd=0,
-                   **sized)                              # (no class: reviewed; its planning paid on the parent)
+            define(cfg, f"gap/{name}", name, body, "plan-split", planned_at=now, planning_cost_usd=0,
+                   **sized)                              # (no class: main's sample; its planning paid on the parent)
         else:
-            review = path is None or (path == "L" and sampled(gap["id"], share))
-            define(cfg, gap["id"], name, body, "plan" if review else "plan-unreviewed", review=review, planned_at=now,
-                   replanned=gap["state"] == "replan", **sized, **record)
+            review = None if path == UNSIZED else path is None or (path == "L" and sampled(gap["id"], share))
+            define(cfg, gap["id"], name, body, "plan-unreviewed" if review is False else "plan", review=review,
+                   planned_at=now, replanned=gap["state"] == "replan", **sized, **record)
     if defs[0][0] != branch:                             # a split parent merges nothing: no size of its own
         fac.say("gap.split", children=[f"gap/{d[0]}" for d in defs], split_at=now, planned_size=None,
                 size_confidence=None, **record)

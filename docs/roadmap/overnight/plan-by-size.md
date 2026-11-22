@@ -212,3 +212,44 @@ is left alone; the owner's amendment should say whether the XL path is meant to 
 Parked by the factory (review/plan-by-size-3, 2026-11-22 01:45).
 
 Built to its definition and tested by its own account: S/M/L/XL routing, the fail-closed path, config bounds checked before any session, the per-gap L sample, exclusive create of the S definition, planning_cost_usd summed with the whole reservation charged on failure, planning-cost-share leaving out unrecorded and out-of-range gaps, model flows, sensors and the auxiliary, README and prompt. Left: no program records a size class on a gap before it is planned (planned_size comes only from the planner's own plan), so on main the size paths never fire. The only live effect would be every planner-made plan reviewed instead of 1 in 3. The owner must decide where the pre-planning class comes from (the groomer, a coordinator manage.py tool, or a cheap sizing step) and whether unsized plans keep main's review sample, and the definition must be amended to match. Building more under the current definition ships dead routing and higher review spend.
+
+## Where it stopped
+
+Brought back by the owner (2026-11-22): the branch's work stays, and only what was left is done. These are the two
+blocking findings of review/plan-by-size-3, each answered with the more reversible option. Nobody could be asked.
+
+- *Unsized plans reviewed three times as often (plan.py:355, :352).* Fixed. A gap that has neither `planned_size`
+  nor `size_confidence` is now unsized (`size_path` returns `UNSIZED`) and takes main's path exactly: the full
+  planner, `defined_by: plan`, and `plan_review` from `review_wanted`, so `[plan] sample_every` holds again. On main
+  that is every gap today. Split sub-gaps take main's sample as well: `define` is called with no `review`, as on main.
+  The always-reviewed fail-closed path is kept for the inputs it was meant for: a class or confidence present but not
+  trusted (`"s "`, a class with no or an unreadable confidence, a confidence alone, one below the bar), an S gap with
+  no text, and every replan. Reading of the definition: its "today's path: the full planner, always reviewed" is
+  read as *today's path* (main's sample) for a gap with no class at all. For a class that is present but not trusted,
+  it is read as *always reviewed*. Main never reviewed every plan, so the definition's two words disagree for the
+  unsized case, and keeping main's spend is the reversible side. If the owner wants every unsized plan reviewed, it is
+  one line (`UNSIZED` back to `None`).
+- *No program records a class before planning (plan.py:108-115, :160-169).* Answered without building a new source.
+  One input already carries a class before planning: a `gap.requested` event's data (`ergostat event --add
+  gap.requested --item gap/NAME --data '{..., "entry": ..., "planned_size": "S", "size_confidence": "high"}'`), which
+  the fold puts on the gap. So the size paths can be reached through the documented request path, and a test now goes
+  through it. The README and plan.py's docstring now say plainly that this is the only source today, that gaps from
+  docs/GAPS.md and the coordinator's filed gaps carry no class, and that the choice of a proper source (the groomer,
+  a coordinator tool, a sizing step) is still the owner's. A new writer would sit outside 'Files to touch' and be a
+  design choice that belongs to the owner, so it is not built here. The definition's "the size class that gap-size
+  records" is wider than this: gap-size records a class only from the planner's own plan, which the planner does not
+  read before it plans (except on a replan, where only XL counts). The claim is narrowed in the README, not in the
+  definition, which may not be changed.
+
+Tests: `test_an_unsized_plan_keeps_mains_review_sample` (new). It uses `review = sample`, 1 in 3, with gaps that
+main's sample picks and does not pick, for a whole plan and for split sub-gaps.
+`test_a_class_recorded_on_request_routes_the_plan` (new) has an S class on the request reach `size-s` with no session.
+`test_an_unsized_or_unsure_gap_takes_the_full_path` now runs on a gap that main's sample would not pick, so "always
+reviewed" is distinguishable from the sample. Its no-size case moved to the new test, and it gained a
+confidence-alone case. Mutation checks (lesson-9), each seen to fail its test: unsized sent to the always-reviewed
+path; the unsized check reading the class only (not the confidence); split sub-gaps forced to review.
+
+Run here: `tests/test_factory_knowledge.py` with `tests/test_daemon_docs.py` (123 passed) and
+`ruff check ergostat tests scripts` (clean). Local `main` is an ancestor of the branch, and there is no `origin`
+here, so there was nothing to merge. The unit suite and the browser files were not run here. The factory runs them.
+Size: +6 net lines in plan.py, about 170 of 220 in all.

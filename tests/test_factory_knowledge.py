@@ -1645,7 +1645,7 @@ def test_a_medium_plan_skips_review_under_its_own_cap(tmp_path):
     assert reserved(f) == [0.4]                                        # its own cap, not planner_session_usd (1.0)
     assert g["defined_by"] == "plan-unreviewed" and g["plan_review"] is None and g["planning_cost_usd"] == 0
     assert (f.model / "run" / "defs" / "alpha-thing.md").read_text().startswith("# alpha-thing: a plan")
-    # an M gap that splits: the sub-gaps have no class, so they take the full path: marked for review
+    # an M gap that splits: the sub-gaps have no class, so they take main's path (here review = all: marked)
     f.fold([{"event": "gap.requested", "item": "gap/delta", "data": {"branch": "delta"}}], None)
     size_as(f, "gap/delta", "M", "high")
     split = PLAN.format(b="d-one") + PLAN.format(b="d-two") + covered("d-one", "d-two")
@@ -1714,19 +1714,70 @@ def test_an_xl_gap_planned_whole_is_sent_back(tmp_path):
     assert f.item("gap/alpha-one")["state"] == f.item("gap/alpha-two")["state"] == "ready"
 
 
-@pytest.mark.parametrize("fields", [{}, {"planned_size": "s ", "size_confidence": "high"},
+def mains_pick(gid: str) -> bool:
+    """main's plan review sample (plan.review_wanted at sample_every = 3)."""
+    import hashlib
+    return int(hashlib.sha1(gid.encode()).hexdigest(), 16) % 3 == 0
+
+
+def sampling(f: Instance) -> tuple[list[str], list[str]]:
+    """[plan] review = sample, 1 in 3, and gap names main's sample picks and does not pick."""
+    f.config.write_text(f.config.read_text().replace('review = "all"', 'review = "sample"\nsample_every = 3'))
+    names = [f"g{i}" for i in range(40)]
+    return [n for n in names if mains_pick(f"gap/{n}")], [n for n in names if not mains_pick(f"gap/{n}")]
+
+
+@pytest.mark.parametrize("fields", [{"planned_size": "s ", "size_confidence": "high"},
                                     {"planned_size": "S", "size_confidence": "low"}, {"planned_size": "S"},
-                                    {"planned_size": "S", "size_confidence": 0.9},
+                                    {"size_confidence": "high"}, {"planned_size": "S", "size_confidence": 0.9},
                                     {"planned_size": "M", "size_confidence": "sure"}])
 def test_an_unsized_or_unsure_gap_takes_the_full_path(fields, tmp_path):
+    # a class present but not trusted: the full planner, reviewed even where main's sample would not pick it
     f = Instance(tmp_path)
     by_size(f, share=0, bar=0.5)
-    gid = f.opened()
-    f.fold([{"event": "gap.measured", "item": gid, "data": fields}], None)
-    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing"))
+    _, unpicked = sampling(f)
+    gid = f"gap/{unpicked[0]}"
+    f.fold([{"event": "gap.requested", "item": gid, "data": {"branch": unpicked[0], "entry": "Its text."} | fields}],
+           None)
+    said, _ = f.run("plan.py", gid, FACTORY_STANDIN_PLANNER=PLAN.format(b=unpicked[0]))
     g = f.item(gid)["fields"]
     assert said == ["gap.defined"] and reserved(f) == [1.0]               # the full planner, under its own cap
     assert (g["defined_by"], g["plan_review"]) == ("plan", "wanted")      # reviewed, never the S or M path
+
+
+def test_an_unsized_plan_keeps_mains_review_sample(tmp_path):
+    # no class at all (every gap on main today, and every split's sub-gap): main's path and main's 1-in-3 sample,
+    # never every plan reviewed (review/plan-by-size-3)
+    f = Instance(tmp_path)
+    by_size(f, share=1)
+    picked, unpicked = sampling(f)
+    for n, want in ((picked[0], "wanted"), (unpicked[0], None)):
+        f.fold([{"event": "gap.requested", "item": f"gap/{n}", "data": {"branch": n}}], None)
+        said, _ = f.run("plan.py", f"gap/{n}", FACTORY_STANDIN_PLANNER=PLAN.format(b=n))
+        g = f.item(f"gap/{n}")["fields"]
+        assert said == ["gap.defined"] and (g["defined_by"], g["plan_review"]) == ("plan", want), n
+    assert reserved(f) == [1.0, 1.0]                                      # the full planner each time
+    f.fold([{"event": "gap.requested", "item": "gap/parent", "data": {"branch": "parent"}}], None)
+    a, b = picked[1], unpicked[1]
+    said, _ = f.run("plan.py", "gap/parent", FACTORY_STANDIN_PLANNER=PLAN.format(b=a) + PLAN.format(b=b) + covered(a, b))
+    assert said[-1] == "gap.split"
+    for n, want in ((a, "wanted"), (b, None)):
+        s = f.item(f"gap/{n}")["fields"]
+        assert (s["defined_by"], s["plan_review"], s["planning_cost_usd"]) == ("plan-split", want, 0), n
+
+
+def test_a_class_recorded_on_request_routes_the_plan(tmp_path):
+    # where a class comes from before planning: the gap.requested event's data (`ergostat event --add gap.requested
+    # --item gap/NAME --data '{...}'`), its text in `entry`
+    f = Instance(tmp_path)
+    by_size(f)
+    f.fold([{"event": "gap.requested", "item": "gap/small-one", "data": {
+        "branch": "small-one", "title": "Small one", "entry": "Only this.", "planned_size": "S",
+        "size_confidence": "high"}}], None)
+    said, _ = f.run("plan.py", "gap/small-one")
+    g = f.item("gap/small-one")
+    assert said == ["gap.defined"] and g["state"] == "ready" and reserved(f) == []
+    assert g["fields"]["defined_by"] == "size-s" and "Only this." in (f.model / "run" / "defs" / "small-one.md").read_text()
 
 
 @pytest.mark.parametrize("setting, key", [(dict(m_usd=2.0), "planner_m_session_usd"),
