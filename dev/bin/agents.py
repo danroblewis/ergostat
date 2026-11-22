@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shlex
 import stat
 import subprocess
@@ -39,7 +40,8 @@ TOOLS = {
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
                     "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
                     "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
-                    "Bash(uv run python scripts/suite_watch.py:*)"],   # (its own clone, in a container of its own)
+                    "Bash(uv run python scripts/suite_watch.py:*)"],   # (its own clone, in a container of its own;
+                                                    # the suites under the watchdog, the browser files with Playwright)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
@@ -48,6 +50,7 @@ TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600,
             "pipeline_manager": 2400}   # seconds, each below its block's
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
+SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
 TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
              join_judge=TOOLS["reviewer"], pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
              researcher=TOOLS["reviewer"] + ["WebSearch"])      # all read-only: only the implementor writes; WebSearch is
@@ -130,7 +133,7 @@ def run_args(cfg: dict, role: str, work: Path, name: str, keep=None) -> list[str
     """`docker run` for a session: the token by name only (its value is in the docker client's environment alone).
     ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id."""
     proxy = f"http://{PROXY}:{PORT}"
-    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS,
+    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS, *SHOTS,
             "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work",
             *(["-v", f"{keep.raw}:{keep.HOME}"] if keep else []),
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
@@ -354,8 +357,11 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             if name:
                 killed(name)
         out[n] = {"rc": rc, "seconds": round(secs)} | ({"resources": use} if use else {})
-        if rc:
-            text = log.read_text()
+        text = log.read_text()
+        skipped = max([len(re.findall(r"^SKIPPED", text, re.M))] + [int(k) for k in re.findall(  # (-rs's lines, or
+            r"\b(\d+) skipped\b", text)]) if n in ("browser", "rerun") else 0   # pytest's summary; a skip fails, as
+        if rc or skipped:                                                                   # in the queue)
+            out[n] |= {"skipped": skipped} if skipped else {}
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
     if "unit" in out:                                  # the quarantined tests beside it, never blocking
@@ -364,11 +370,24 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
     return out
 
 
+def browser_ready(cfg: dict, home: Path, logs: Path, tag: str) -> None:
+    """Playwright and its Chromium launched once, in a suite container of the implementor's image on the session's
+    work, in the suite slot, before the round: missing (or no [suites] browser_ready to say how), the round stops here
+    (Refused, uncounted), never a browser file skipped later."""
+    if not str(cfg["suites"].get("browser_ready") or "").strip():
+        raise Refused("no [suites] browser_ready in the factory's settings: the round cannot know the browser is there")
+    got = suites(cfg, home, ("browser_ready",), logs, tag)
+    if got.get("failed"):
+        raise Refused(f"no browser: Playwright's Chromium does not launch in {settings(cfg)['image']} (the browser files "
+                      f"would skip); rebuild the dev image, then `docker build -t {settings(cfg)['image']} dev/agent`. "
+                      f"It said: {got['tail'][-400:]}")
+
+
 def contained(cfg: dict, cmd: str, work: Path) -> tuple[str, str]:
     """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network)."""
     name = container("suite")
-    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS, "-v", f"{work}:/work",
-                           "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
+    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS, *SHOTS,
+                           "-v", f"{work}:/work", "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
 
 
 def suite_containers() -> int:

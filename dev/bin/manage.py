@@ -106,9 +106,10 @@ def on_main(cfg: dict, g: dict, tests: list[str], contained: bool) -> tuple[int,
     base, tag = cfg["git"]["base"], f"manager-{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:4]}"
     if contained:
         main = str(g["fields"].get("built_main") or "") or f"origin/{base}"
-        got = onmain.failing(cfg, fac.branch_of(g), main, tests, fac.run_dir(cfg, "manager"), tag)
+        by = onmain.AGAIN.get(str((g["fields"].get("suites_fast") or {}).get("failed")), "alone")  # (browser: rerun)
+        got = onmain.failing(cfg, fac.branch_of(g), main, tests, fac.run_dir(cfg, "manager"), tag, by)
         return int(bool(got.get("failed"))), list(got.get("tests") or []), fac.rel(fac.run_dir(cfg, "manager")
-                                                                                   / f"{tag}-alone.txt")
+                                                                                   / f"{tag}-{by}.txt")
     log = fac.run_dir(cfg, "manager") / f"{tag}.txt"
     cmd = cfg["suites"]["rerun"].format(tests=" ".join(map(shlex.quote, tests)))
     wt = fac.path(cfg, "worktrees") / ".manager"
