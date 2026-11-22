@@ -20,9 +20,11 @@ gates and each run (`my_turn`) also hold them to the machine's headroom. The ris
     pools.py set ROLE N WHY   by hand: set it (within 1 and its most)
 
 The merge queue's batch (`batch`: approved gaps it merges and tests together, dev/bin/queue.py) lives here too: [pools]
-batch to start (1, a gap a run), at most [pools] batch_max and never past BATCH_MOST. The tuner asks to raise it by
-one, the same gated action (`raise batch FROM TO`), while the goal queue-wait-short is off (dev/model/measures.yaml);
-it is not lowered on risk (it changes how gaps are tested, not how many are built), only by hand (`set batch N`)."""
+batch to start (1, a gap a run), at most [pools] batch_max (8 when unset; never past BATCH_CEILING, 32); a run past its
+time allowance stops bisecting (queue.py allowance()), so no batch size reaches the block's timeout. The tuner asks to
+raise it by one, the same gated action (`raise batch FROM TO`), while the goal queue-wait-short is off
+(dev/model/measures.yaml); it is not lowered on risk (it changes how gaps are tested, not how many are built), only by
+hand (`set batch N`)."""
 
 from __future__ import annotations
 
@@ -40,8 +42,7 @@ ROLES = ("implementor", "reviewer")
 POOLS = (*ROLES, "batch")
 HARD = 9                                    # no pool above this, whatever [pools] says (each is AI sessions at once)
 DEMAND = ("ready", "fix", "building")       # the implementor pool's work: waiting for it, and in its hands now
-BATCH_MOST = 4         # a batch of 4 with every merge failing is at most 8 suite runs (~1.5 h; the 3 h timeout
-                       # also covers the lock and quiet-machine waits)
+BATCH_CEILING = 32      # the batch's own ceiling (gaps merged together, not AI sessions), far above batch_max
 
 
 def state(cfg: dict) -> dict:
@@ -72,8 +73,9 @@ def locked(cfg: dict):
 
 
 def most(cfg: dict, role: str) -> int:
-    n = max(1, min(HARD, int(cfg.get("pools", {}).get(f"{role}_max", 1))))
-    return min(n, BATCH_MOST) if role == "batch" else n
+    if role == "batch":                             # (gaps merged together, not sessions: its own ceiling)
+        return max(1, min(BATCH_CEILING, int(cfg.get("pools", {}).get("batch_max", 8))))
+    return max(1, min(HARD, int(cfg.get("pools", {}).get(f"{role}_max", 1))))
 
 
 WAIT_GOAL = re.compile(r"^\s*queue-wait-short:\s*$.*?^\s*hold:\s*\"<=\s*([\d.]+)\"\s*$\s*tolerance:\s*([\d.]+)",

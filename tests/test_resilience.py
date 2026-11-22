@@ -1,4 +1,4 @@
-"""What upkeep's fault injection found (docs/proposals/upkeep.md §4), each fault caused here first, then shown mended:
+"""What upkeep's fault injection found (docs/roadmap/overnight-2026-11-19.md, 01:30), each fault caused here first, then shown mended:
 a dead engine, the watchdog's cause and back-off, alarms shown, and the caps."""
 
 import json

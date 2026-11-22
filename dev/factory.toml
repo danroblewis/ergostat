@@ -69,7 +69,8 @@ hosts = ["api.anthropic.com"]        # the only hosts a session can reach, on 44
 token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude setup-token`; mode 600, or no session
                                      # Docker's VM has 24 CPUs, split three ways so none slows another (the owner,
                                      # 2026-11-21); an empty cpuset pins nothing (agents.limits)
-session_cpus = 1.5                   # one session's container's --cpus
+session_cpus = 1.5                   # each AI session's (and its finish's) container's --cpus; the suite containers
+                                     # keep their 4. Empty or absent: 4; above 4 or not a number refuses the session
 session_cpuset = "0-7"               # the sessions' (implementor, reviewer, ...) and their finish's CPUs
 suite_cpuset = "8-11"                # a gap's own suites' (the implementor's rounds, 4 CPUs each)
 queue_cpuset = "12-23"               # the merge queue's and flake triage's suites ([suites] queue_container): unit (8)
@@ -84,7 +85,10 @@ cycle_hours = 2                      # the cycle time assumed before one is meas
 hold = true                          # operator (2026-11-20): the role pools stay where `pools.py set` put them; the tuner
                                      # says what it would do (pool.measured, held). false: sized by risk
 batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
-batch_max = 4                        # the most the tuner may ask for while the queue wait is off (never past 4)
+batch_max = 8                        # the most a batch may be (the tuner asks for more while the queue wait is off)
+batch_minutes = 120                  # a queue run's time allowance from its start: past it, no more bisecting (what is
+                                     # proven lands, the rest back to approved uncounted); over 150 refused, so one suite
+                                     # run after it stays inside the block's 3 h timeout
 
 [manager]                            # the pipeline manager's sessions (dev/bin/watch.py, manager.py)
 open = 1                             # the switch managing-open: 0 pauses it
@@ -153,7 +157,11 @@ build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_
                                      # it: it always runs unit, browser and demo in full
 browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
 browser_ready = "uv run --with playwright==1.63.0 python -c 'from playwright.sync_api import sync_playwright as s; p = s().start(); p.chromium.launch().close(); p.stop()'"
-                                     # before each implementor round (agents.browser_ready): no browser stops it
+                                     # before an implementor round with build_browser (agents.browser_ready): no
+                                     # browser stops it
+build_browser = false                # true: each implementor round also runs the four browser files (-n 4, minutes
+                                     # of 4 CPUs) after a Chromium launch; false: only ruff and build (unit where no
+                                     # build is set). The merge queue runs unit, browser and demo in full either way
 demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)

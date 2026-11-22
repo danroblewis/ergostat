@@ -853,6 +853,7 @@ class ItemKind:
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
+    moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
 
     def matches(self, id: str) -> bool:
         import fnmatch
