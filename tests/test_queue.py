@@ -267,9 +267,12 @@ def test_a_suite_past_its_wall_limit_is_stopped(tmp_path):
 
 
 def reaped(pidfile) -> None:
-    """The stand-in's group stopped by the test itself when the code under test failed to (never left running)."""
+    """The stand-in's group stopped by the test itself when the code under test failed to (never left running). Only
+    while it is alive and still leads its own group: a pid gone and reused is never signalled (it is not ours)."""
     try:
-        os.killpg(int(pidfile.read_text()), signal.SIGKILL)
+        pid = int(pidfile.read_text())
+        if not gone(pid) and os.getpgid(pid) == pid:
+            os.killpg(pid, signal.SIGKILL)
     except (OSError, ValueError):
         pass
 

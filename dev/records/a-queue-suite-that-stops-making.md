@@ -36,3 +36,10 @@ Built, round 1. Choices made alone (the most reversible each time):
 - Not handled: a test that hangs every time is taken again every time. No cap is placed on that here.
 - The container is stopped by the finally that was already there (agents.killed by name). The tests run with
   `queue_container = false`, so they show that the process group is gone, not that a container is.
+- After the fast suites: `unit` came back failed with a log that ends in eight dots, with no failing test, no pytest
+  summary and no closing JSON line from suite_watch (which it always prints unless it is SIGKILLed). So the run was
+  killed by a signal, not failed by a test. tests/test_queue.py and tests/test_agents.py each pass alone (9 and 9).
+  Running them under -n 8 here, and timing main for comparison, were refused, so the cause was not found. The one
+  SIGKILL this branch sends to a pid it may no longer own was the tests' reaped(). It signalled the stand-in's pid
+  after the code under test had already killed it, and a reused pid would be someone else's group. It now kills
+  only a group that is alive and still led by that pid. Whether this was the cause is not shown.
