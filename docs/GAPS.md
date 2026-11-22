@@ -310,9 +310,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   of reserving events and ends, failing closed (no end: the reserve; a missing or malformed cost: the reserve, or
   `max-cost`; a `budget.closed` not written by ergostat: not counted, and `budget.*` refused as ergostat's own type
   to block output, `event --add`, MCP and pushes); and `ergostat.budget.left`, which raises when no budget is
-  declared or the record cannot be read. *Left*
-  (`run-budget-permit`): the permit under a file lock before each run of `Engine.run_block` and `Dispatcher.take`,
-  `budget.refused`, `--now` saying the refusal, and recovery closing runs left without an end (`budget.closed`).
+  declared or the record cannot be read. *Left* (`run-budget-permit`): the permit under a file lock before each run
+  of `Engine.run_block` and `Dispatcher.take`, `budget.refused`, `--now` saying the refusal, and recovery closing
+  runs left without an end (`budget.closed`).
   Then `run-budget-trip`, and ergostat's own AI calls under the budget.
 - **Linux: two bugs the dev container found** (done; `linuxfix`, 2026-11-19). (1) The segmented event log
   (`ergostat/segments.py`, `_sync`) noticed new sealed segments by the directory's mtime alone, and Linux timestamps

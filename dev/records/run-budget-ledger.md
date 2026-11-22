@@ -124,3 +124,19 @@ Round 5 (the round-4 review's findings):
   `main`, and 59c5ab69 merges it (48b1481a is an ancestor of HEAD; `git log HEAD..main` is empty). No code changed.
 - The review could not run the tests or ruff. Run here in round 5: `tests/test_run_budget.py` (9 passed). Ruff is
   clean. The unit suite and the four browser files were not run here (left to the factory and the merge queue).
+
+Round 6 (the queue's conflict in `ergostat/numbers/measures.py`, and the round-5 review's notes):
+- The factory's merge of main (4a1bcd10) conflicted only in the module docstring of `ergostat/numbers/measures.py`,
+  where main added `.heartbeat-age`, `.stalls` and `.restarts` to the upkeep list and the branch added
+  `ergostat.budget.left`. Both are kept. The code merged cleanly, and both the `budget.` prefix and the
+  `BUDGET_MEASURES` dispatch are still there. The merge is 82834802, whose second parent is 4a1bcd10.
+- Refs in this clone (`git for-each-ref`): `refs/heads/main` at 4a1bcd10 and this branch. `git log HEAD..main` is
+  empty, so everything on `main` here is in the branch. Rounds 2 to 5 give the origin/main of their own clones, and
+  this round claims nothing about it.
+- After the merge, SPEC §9.9, the two measure tables and the GAPS entry were checked: each appears once, and nothing
+  of main's is spliced into them. The GAPS entry's *Left* line is reflowed.
+- The round-5 note about a reserve of 0: `fold` charges a lease's well-formed reserve as written, as the definition
+  says. `run-budget-permit` must never write a reserve below `max-cost`. That is left to it, and no code changed here.
+- Run here in round 6, after the merge: `tests/test_run_budget.py` and `tests/test_upkeep_watched.py` (33 passed),
+  test_spec_schema, test_upkeep_template and test_run_costs (54 passed). Ruff is clean. The unit suite and the four
+  browser files were not run here (left to the factory and the merge queue).
