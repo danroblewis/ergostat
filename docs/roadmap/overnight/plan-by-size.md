@@ -249,7 +249,8 @@ reviewed" is distinguishable from the sample. Its no-size case moved to the new 
 confidence-alone case. Mutation checks (lesson-9), each seen to fail its test: unsized sent to the always-reviewed
 path; the unsized check reading the class only (not the confidence); split sub-gaps forced to review.
 
-Run here: `tests/test_factory_knowledge.py` with `tests/test_daemon_docs.py` (123 passed) and
+Run here: `tests/test_factory_knowledge.py` with `tests/test_daemon_docs.py` (123 passed), `tests/test_factory.py`
+(164 passed, 2 skipped for want of Docker) and
 `ruff check ergostat tests scripts` (clean). Local `main` is an ancestor of the branch, and there is no `origin`
 here, so there was nothing to merge. The unit suite and the browser files were not run here. The factory runs them.
 Size: +6 net lines in plan.py, about 170 of 220 in all.
