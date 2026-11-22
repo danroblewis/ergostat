@@ -63,7 +63,16 @@ def _kill(p: subprocess.Popen) -> int:
 
 
 def _exited(p: subprocess.Popen, block: bool = False) -> bool:
-    """Whether the leader has exited, leaving it unreaped."""
+    """Whether the leader has exited, leaving it unreaped. Where ``os.waitid`` is missing (macOS on Python 3.12) the
+    leader is reaped and its group killed at once: while any child is left in it, the group id is not given out again."""
+    if not hasattr(os, "waitid"):
+        if (p.wait() if block else p.poll()) is None:
+            return False
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        return True
     try:
         return os.waitid(os.P_PID, p.pid, os.WEXITED | os.WNOWAIT | (0 if block else os.WNOHANG)) is not None
     except ChildProcessError:                      # (reaped already, by the timer's kill)

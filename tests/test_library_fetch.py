@@ -342,9 +342,18 @@ def test_symlink_hashed_not_followed(tmp_path, capsys):
                           ([("x.yaml", tarfile.REGTYPE, b"x"), ("h", tarfile.LNKTYPE, "x.yaml")], "not a folder"),
                           ([("p", tarfile.FIFOTYPE, None)], "not a folder"),
                           ([("/abs", tarfile.REGTYPE, b"x")], "not a plain relative path"),
-                          ([("a/../../b", tarfile.REGTYPE, b"x")], "not a plain relative path")]:
+                          ([("a/../../b", tarfile.REGTYPE, b"x")], "not a plain relative path"),
+                          # each reads as the copy's top, but x/y goes through x/s: two levels up on disk
+                          ([("x", tarfile.DIRTYPE, None), ("x/s", tarfile.SYMTYPE, ".."),
+                            ("x/y", tarfile.SYMTYPE, "s/../..")], "through another link"),
+                          ([("x/y", tarfile.SYMTYPE, "s/../.."), ("x/s", tarfile.SYMTYPE, "..")], "through another link"),
+                          ([("x/y", tarfile.SYMTYPE, "./../.."), ("x/s", tarfile.SYMTYPE, "..")], "out of the copy")]:
         with pytest.raises(tree.Refused, match=said):
             tree.extract(_tar(*members), str(tmp_path / f"x{len(os.listdir(tmp_path))}"))
+    ok = tmp_path / "ok"                                   # a link to a link inside, and one up to the top: kept
+    tree.extract(_tar(("x/s", tarfile.SYMTYPE, ".."), ("x/y", tarfile.SYMTYPE, "s"), ("g", tarfile.REGTYPE, b"g")),
+                 str(ok))
+    assert os.path.realpath(ok / "x" / "y") == str(ok.resolve())
 
 
 def _clean(d: Path) -> None:
@@ -418,6 +427,27 @@ def test_stalled_git_is_killed_by_the_timeout(tmp_path, capsys, calls, monkeypat
         assert rc == 1 and "took longer than 1s" in err, err
         _gone(calls)
         _clean(d)
+
+
+def test_fetch_without_waitid(tmp_path, capsys, calls, monkeypatch):
+    """Where ``os.waitid`` is missing (macOS on Python 3.12): a fetch still locks, and a stalled git's group is still
+    killed. Fails with AttributeError if fetch calls ``os.waitid`` unguarded."""
+    monkeypatch.delattr(os, "waitid", raising=False)
+    up = upstream(tmp_path)
+    d = model(tmp_path, {"a": lib(up)})
+    real = fetch.argv
+    monkeypatch.setattr(fetch, "TIMEOUT", 1.0)
+    monkeypatch.setattr(fetch, "argv", lambda *a: ["sh", "-c", "sleep 60 & sleep 60"] if a[0] == "fetch" else real(*a))
+    rc, _, err = run_fetch(d, capsys)
+    assert rc == 1 and "took longer than 1s" in err, err
+    _gone(calls)
+    _clean(d)
+    monkeypatch.setattr(fetch, "argv", real)
+    calls.clear()
+    rc, _, err = run_fetch(d, capsys)
+    assert rc == 0, err
+    assert set(json.loads((d / "libraries.lock").read_text())["libraries"]) == {"a"}
+    _gone(calls)
 
 
 def test_library_folder_link_refused(tmp_path, capsys):

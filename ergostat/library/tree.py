@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import posixpath
 import stat
 import tarfile
 
@@ -70,6 +69,21 @@ def _folders(dest: str, rel: str) -> None:
             os.mkdir(at, 0o755)
 
 
+def _inside(rel: str, to: str, linked: set) -> None:
+    """``rel``'s target walked a step at a time from ``rel``'s folder: refused if a step goes above the copy or passes
+    through another link member (whose own target would move the walk), so the text is where it leads on disk."""
+    at, steps = rel.split("/")[:-1], [p for p in to.split("/") if p not in ("", ".")]
+    for i, p in enumerate(steps):
+        if p != "..":
+            at.append(p)
+            if i < len(steps) - 1 and "/".join(at) in linked:
+                raise Refused(f"{rel}: a link through another link ({to})")
+        elif not at:
+            raise Refused(f"{rel}: a link out of the copy ({to})")
+        else:
+            at.pop()
+
+
 def extract(stream, dest: str, strip: str = "") -> None:
     """``stream`` (a tar, read once, mode ``r|``) into the new folder ``dest``, ``strip/`` taken off each name."""
     os.mkdir(dest, 0o755)
@@ -103,15 +117,16 @@ def extract(stream, dest: str, strip: str = "") -> None:
                             raise Refused(f"{m.name}: more than {MAX_BYTES} bytes (the cap), as written")
                         out.write(chunk)
             elif m.issym():
-                to = posixpath.normpath(posixpath.join(posixpath.dirname(rel), m.linkname))
-                if m.linkname.startswith("/") or to == ".." or to.startswith("../"):
+                if m.linkname.startswith("/"):
                     raise Refused(f"{m.name}: a link out of the copy ({m.linkname})")
                 links.append((rel, m.linkname))
             else:
                 raise Refused(f"{m.name}: not a folder, a regular file or a link")
-    for rel, _ in links:
+    linked = {rel for rel, _ in links}
+    for rel, to in links:
         if any(n.startswith(rel + "/") for n in names):
             raise Refused(f"{rel}: a link with members under it")
+        _inside(rel, to, linked)
     for rel, to in links:                                  # last: nothing is written through one
         _folders(dest, rel)
         os.symlink(to, os.path.join(dest, rel))

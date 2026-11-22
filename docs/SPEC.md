@@ -413,7 +413,8 @@ Git runs with ergostat's own git environment, `https` and `file` only, no redire
 URL and ref after `--end-of-options`, one process at a time, each in its own process group with a 100 MB cap on any
 file it writes (`RLIMIT_FSIZE`). The clone's folder is summed every 0.25 s and the group killed past 100 MB (it can
 overshoot by what arrives in one poll) or 120 s; `git archive` has the same 120 s and group kill. The archive is
-extracted into a new folder: folders, regular files (their exec bit kept) and links whose target stays inside, at most
+extracted into a new folder: folders, regular files (their exec bit kept) and relative links whose target, walked a step at a time,
+never goes above the copy's top or through another link (so a link resolves inside the copy), at most
 2,000 entries and 20 MB (by the headers' sizes before a member is read, and by the bytes written); hard links,
 devices, FIFOs, absolute names, `..` and anything under a link are refused. The old copy is moved aside, the new one
 put in its place, and `libraries.lock` (JSON: `{"libraries": {NAME: {git, version, path, commit, tree}}}`, `tree`

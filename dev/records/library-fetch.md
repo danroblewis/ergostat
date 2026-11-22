@@ -229,3 +229,29 @@ four browser files (no page changed) and `demo_check` (no example touched).
   never to add `trust: owner` to a fetched library or edit the lock to make one load.
 
 Overrun reason: 719 net lines against 560. The plan review added work the budget did not include: the swap rollback, the `git archive` timer and group kill, killing each group without reaping its leader (a group left alive was a real flake while building), the locked-commit check, the `files.tree` replay table with its noting, and the schema entry (19 lines). `fetch.py` is 266 lines against 170; everything else is close to its share.
+
+### Round 2: the review's two findings
+
+1. **A link through another link (blocking).** `tree.extract` no longer reads only a target's text. After every
+   member is listed, each link's target is walked one step at a time from the link's folder. It is refused if a step
+   goes above the copy's top, or if any step before the last lands on another link member, because that link's own
+   target would move the walk. So `x/s -> ..` plus `x/y -> s/../..` is refused, in either archive order. A link
+   that ends on another link is kept (`x/y -> s`), since that link is checked the same way. The new cases are in
+   `test_symlink_hashed_not_followed`, along with a kept case whose real path is the copy's top. SPEC §2a and
+   SECURITY.md now describe this rule instead of "links that stay inside". Mutant: with the through-link check
+   removed, the test fails (`DID NOT RAISE Refused`).
+2. **`os.waitid` on macOS.** This session runs on Linux, so I could not run `python -c 'import os; os.waitid'` on the
+   Mac. I took the finding as true, because CPython 3.12 (the floor in `pyproject.toml`) leaves `os.waitid` out on
+   Apple platforms. Where `os.waitid` is missing, `fetch._exited` now reaps the leader with `poll`/`wait` and kills
+   its group right away. While any child is left in the group, POSIX does not give that id to a new process. The
+   one gap: if the group is already empty, another process could take that id as a new group in the few
+   microseconds before the kill. Where `waitid` exists, nothing changed. New test `test_fetch_without_waitid` removes
+   `os.waitid` and checks two things: a stalled git's group is killed with no `.tmp-` folder left, and a real fetch
+   locks with every group gone. Mutant: with the `hasattr` guard removed, it fails with `AttributeError`. Not run:
+   `test_library_fetch.py` on macOS itself.
+
+All 19 tests in `tests/test_library_fetch.py` pass. `tests/test_cli_fallback.py`, `tests/test_templates.py` and
+`tests/test_modelling_template.py` pass unchanged (59). Ruff is clean. `git merge main`: already up to date.
+
+Overrun reason: about 743 net lines against 560. Round 1's reasons stand. Round 2 adds about 24 lines: the stepwise
+link walk (13) and the fallback for platforms without `os.waitid` (9).
