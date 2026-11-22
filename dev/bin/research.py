@@ -6,7 +6,7 @@ summary said on the item (research.answered). A planner waiting on it is given t
 Each source line is checked first (``check``): a `path` or `path:line` must be in the clone at the sha it was cloned
 at, the line within the file; a URL must be one the session opened (``opened``, from its transcript). An answer with
 no checked source is research.unsourced and given back to be asked again, the why in its next brief; the second is
-research.dead. Each is given back counted: the researcher's lease has two attempts, so the engine, which never lets
+research.dead-lettered (state dead). Each is given back counted: the researcher's lease has two attempts, so the engine, which never lets
 a run's own events leave an item dead, ends the second one a dead letter."""
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ def main() -> int:
         fac.say("research.answered", report=fac.rel(p), answered_at=time.time(), **data)
         return 0
     why = ("; ".join(u["why"] for u in unchecked) or "the report has no ## Sources lines")[:900]
-    fac.say("research.dead" if f.get("unsourced") else "research.unsourced", unsourced_report=fac.rel(p), unsourced=1,
+    fac.say("research.dead-lettered" if f.get("unsourced") else "research.unsourced", unsourced_report=fac.rel(p), unsourced=1,
             unsourced_why=why, **data)
     fac.nack(f"unsourced: {why}", after="1m")       # (counted: the second unsourced answer is its lease's last attempt)
     return 0

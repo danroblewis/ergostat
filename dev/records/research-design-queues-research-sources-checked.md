@@ -60,3 +60,7 @@ Choices made with nobody to ask (the most reversible one each time):
   so its next unsourced answer is dead at once.
 - Not run: `uv run ergostat check` on the model (refused by the shell). The unit suite and the browser files were
   not run, per the brief.
+- `ergostat check` found `event-names-mixed items.research`: "dead" does not read as a past tense. So the second
+  unsourced answer's event is `research.dead-lettered`, the form examples/coordinator uses, where the definition says
+  research.dead. The state is still `dead`, which plan.py and manage.py read. The definition's text is unchanged.
+  Not run after the rename: the tests, ruff and `ergostat check` (the shell refused them).

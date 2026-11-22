@@ -548,7 +548,7 @@ def test_research_second_unsourced_is_dead_and_planner_goes_on(tmp_path):
     assert said == ["gap.measured"]                                      # an unsourced question is still waited on
     said, lines = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=bad)
     r = f.item(rid)
-    assert said == ["research.dead"] and r["state"] == "dead" and r["fields"]["unsourced"] == 2
+    assert said == ["research.dead-lettered"] and r["state"] == "dead" and r["fields"]["unsourced"] == 2
     assert any(x.get("nack", {}).get("count") is True for x in lines)          # its lease's last attempt: a dead letter
     said, _ = f.run("plan.py", gid)
     assert said == ["gap.defined"]                                       # planned without it

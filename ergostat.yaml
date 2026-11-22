@@ -261,7 +261,7 @@ items:
       research.asked: asked
       research.unsourced: unsourced  # no source checked: given back (counted), asked again with the why in its brief
       research.answered: answered    # at least one source checked (sources_checked; the rest in sources_unchecked)
-      research.dead: dead            # unsourced a second time: its lease's last attempt, a dead letter
+      research.dead-lettered: dead   # unsourced a second time: its lease's last attempt, a dead letter
     show: [question, gap, summary, report, sources_checked, sources_unchecked, unsourced_why]
     fold: {unsourced: sum}           # how many answers had no source checked
 
