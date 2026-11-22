@@ -185,6 +185,7 @@ function sdBlocked(lay, e) {
    or a connector, thin and curved, its arrowhead and its polarity at the head */
 function sdEdgeContent(e, pts, lay) {
   const out = [];
+  if (e.bundle) return sdTrunk(e, pts, lay);
   if (e.kind === "pipe") {
     const two = e.twoWay && !e.arrow;                  // a biflow: its first pipe ends in a head at its start too
     let body = e.arrow ? shortened(pts, 14) : pts;
@@ -211,6 +212,87 @@ function sdEdgeContent(e, pts, lay) {
     taken.push(p);
     out.push(s("text", { x: p.x, y: p.y + 4.5, "text-anchor": "middle", class: "polarity", "paint-order": "stroke" }, sign));
   }
+  return out;
+}
+/* PROTOTYPE, off unless ?bundle=1 (docs/proposals/dynamics-bundled-connectors.md; reverted after its evidence):
+   the connectors between two closed modules, two or more, drawn as one trunk that branches at each end to the
+   members' own ports, each branch with its own head and sign, the trunk marked in words ('3 links: +2 −1') */
+function sdBundle(g) {
+  if (g.kind !== "dynamics" || !new URLSearchParams(location.search).has("bundle")) return g;
+  const groups = {};
+  for (const e of g.edges) if (e.kind === "connector" && e.sourcePort && e.targetPort) (groups[`${e.source}>${e.target}`] ||= []).push(e);
+  const drop = new Set(), add = [];
+  for (const [k, es] of Object.entries(groups)) {
+    if (es.length < 2) continue;
+    es.forEach((e) => drop.add(e.id));
+    const all = (f) => [...new Set(es.flatMap((e) => e[f] || []))];
+    add.push({ ...es[0], id: `bundle:${k}`, bundle: true, members: es, polarity: null, loops: all("loops"), causal: all("causal") });
+  }
+  return add.length ? { ...g, edges: [...g.edges.filter((e) => !drop.has(e.id)), ...add] } : g;
+}
+function sdTrunk(e, pts, lay) {
+  const out = [], portAt = (id) => {
+    for (const c of lay.children || []) {
+      const p = (c.ports || []).find((q) => q.id === id);
+      if (p) return { x: c.x + p.x + (p.width || 0) / 2, y: c.y + p.y + (p.height || 0) / 2 };
+    }
+    return null;
+  };
+  const ends = (k) => [...new Map(e.members.map((m) => [m[k], m[k]])).keys()].map((id) => portAt(id)).filter(Boolean);
+  const cen = (ps, dflt) => (ps.length ? { x: ps.reduce((a, p) => a + p.x, 0) / ps.length, y: ps.reduce((a, p) => a + p.y, 0) / ps.length } : dflt);
+  const A = cen(ends("sourcePort"), pts[0]), B = cen(ends("targetPort"), pts[pts.length - 1]);
+  const len = pts.slice(1).reduce((a, q, i) => a + Math.hypot(q.x - pts[i].x, q.y - pts[i].y), 0);
+  const J = Math.min(+(new URLSearchParams(location.search).get("join") || 30), len / 3);
+  const along = (ps, d) => {                           // the point d along a polyline, its index, its direction
+    for (let i = 1; i < ps.length; i++) {
+      const a = ps[i - 1], b = ps[i], L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      if (d <= L || i === ps.length - 1) { const t = Math.min(1, d / L); return { p: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, i, u: { x: (b.x - a.x) / L, y: (b.y - a.y) / L } }; }
+      d -= L;
+    }
+  };
+  // the trunk: the routed line (it keeps clear of parts), its ends moved to the middle of each end's member rows
+  const s0 = along(pts, J), t0 = along(pts.slice().reverse(), J), last = pts[pts.length - 1];
+  const nA = s0.u, nB = t0.u;                            // (the route leaves each box square to its side)
+  const P = (p, n, k) => ({ x: p.x + n.x * k, y: p.y + n.y * k });
+  const js = { x: s0.p.x + A.x - pts[0].x, y: s0.p.y + A.y - pts[0].y }, jt = { x: t0.p.x + B.x - last.x, y: t0.p.y + B.y - last.y };
+  const mid = [js, ...pts.slice(s0.i, pts.length - t0.i), jt];
+  const c = sdCurve(mid, null);
+  const cub = (p0, c1, c2, p1) => [0, 0.2, 0.4, 0.6, 0.8, 1].map((t) => [0, 1].map((ax) => { const f = ax ? "y" : "x";
+    return (1 - t) ** 3 * p0[f] + 3 * (1 - t) ** 2 * t * c1[f] + 3 * (1 - t) * t * t * c2[f] + t ** 3 * p1[f]; }));
+  out.push(s("path", { d: c.d, class: "info sd-connector sd-trunk", style: "stroke-width:2.4" }));
+  const branches = (S.sdBranches ||= []), counts = { "+": 0, "-": 0, "?": 0 };
+  branches.push({ id: `${e.id}#t`, trunk: e.id, kind: "connector", pts: mid.map((q) => [q.x, q.y]) });
+  const fromDone = new Set();
+  e.members.forEach((m, i) => {
+    counts[m.polarity === "+" || m.polarity === "-" ? m.polarity : "?"]++;
+    const a = portAt(m.sourcePort) || pts[0], b = portAt(m.targetPort) || pts[pts.length - 1];
+    const a1 = P(a, nA, J / 2), a2 = P(js, nA, -J / 2), b1 = P(jt, nB, -J / 2), cb = P(b, nB, J / 2);  // tangent to the trunk at each join
+    if (!fromDone.has(m.sourcePort)) {                 // (one branch out of a port that several members leave)
+      fromDone.add(m.sourcePort);
+      out.push(s("path", { d: `M${a.x},${a.y} C${a1.x},${a1.y} ${a2.x},${a2.y} ${js.x},${js.y}`, class: "info sd-connector" }));
+      branches.push({ id: `${e.id}#${i}a`, kind: "connector", bundle: e.id, source: m.source, target: m.target, pts: cub(a, a1, a2, js) });
+    }
+    out.push(s("path", { d: `M${jt.x},${jt.y} C${b1.x},${b1.y} ${cb.x},${cb.y} ${b.x},${b.y}`, class: "info sd-connector" }),
+             arrowHead([cb, b], "head sd-head", 7));
+    branches.push({ id: `${e.id}#${i}b`, kind: "connector", bundle: e.id, source: m.source, target: m.target, pts: cub(jt, b1, cb, b) });
+    const sign = sdSign(m.polarity);
+    if (sign) {
+      const L = Math.hypot(b.x - cb.x, b.y - cb.y) || 1, ux = (b.x - cb.x) / L, uy = (b.y - cb.y) / L;
+      const taken = (S.sdSigns ||= []);
+      const at = [[14, 9], [14, -9], [26, 9], [26, -9], [38, 9]].map(([bk, o]) => ({ x: b.x - ux * bk - uy * o, y: b.y - uy * bk + ux * o }));
+      const p = at.find((q2) => !taken.some((t) => Math.hypot(t.x - q2.x, t.y - q2.y) < 12)) || at[0];
+      taken.push(p);
+      out.push(s("text", { x: p.x, y: p.y + 4.5, "text-anchor": "middle", class: "polarity", "paint-order": "stroke" }, sign));
+    }
+  });
+  const said = [counts["+"] && `+${counts["+"]}`, counts["-"] && `${MINUS}${counts["-"]}`, counts["?"] && `?${counts["?"]}`].filter(Boolean).join(" ");
+  const mp = c.mid, marks = (S.sdMarks ||= []);          // beside the trunk's middle, clear of another trunk's mark
+  const D = Math.hypot(jt.x - js.x, jt.y - js.y) || 1, perp = { x: -(jt.y - js.y) / D, y: (jt.x - js.x) / D };
+  const spot = [12, -12, 26, -26].map((o) => P(mp, perp, o)).find((q2) => !marks.some((t) => Math.abs(t.x - q2.x) < 70 && Math.abs(t.y - q2.y) < 14)) || P(mp, perp, 12);
+  marks.push(spot);
+  out.push(s("text", { x: spot.x, y: spot.y + 4, "text-anchor": "middle", class: "bundle-mark",
+                       style: "fill:var(--sd-ink);font-size:11px;stroke:var(--sd-paper);stroke-width:3px", "paint-order": "stroke" },
+                 `${e.members.length} links: ${said}`));
   return out;
 }
 function sdPipeHead(pts, cls) {                         // a flow's head: hollow, as wide as the pipe and more, at its very end
