@@ -38,7 +38,7 @@ class Param:
     description: str = ""
     default: object = None
     standin: object = None              # what stands in, free and offline, when it is left out (said in a finding)
-    required: bool = False
+    required: bool | str = False        # or a condition on the parameters before it (``${approver} == program``)
     has_default: bool = False
     choices: list | None = None
     min: float | None = None            # a number's least and most (an ExpandError names the bound)
@@ -119,7 +119,8 @@ def read(path: Path, builtin: bool, trust: str = "untrusted") -> Template:
                                 or not isinstance(spec[k], int | float)):
                 raise TemplateError(f"template {t.name}: param {n}: {k}: a number, on a number, integer or duration param")
         t.params[str(n)] = Param(str(n), ty, str(spec.get("description") or "").strip(), spec.get("default"),
-                                 spec.get("stand-in"), bool(spec.get("required")), "default" in spec,
+                                 spec.get("stand-in"), r if isinstance(r := spec.get("required"), str) else bool(r),
+                                 "default" in spec,
                                  spec.get("choices"), spec.get("min"), spec.get("max"))
     t.body = {k: data[k] for k in BODY if data.get(k) is not None}
     t.trust = "ergostat" if builtin else trust
