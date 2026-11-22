@@ -13,7 +13,7 @@ KEEP = ("id", "state", "action", "class", "gate", "args", "command", "in", "item
 def listing(p, item: str | None = None) -> dict:
     from ..actions import record
     got = record.about(p, item) if item else sorted(record.stored(p).values(), key=lambda a: -a["time"])
-    return {"actions": [{k: a.get(k) for k in KEEP} for a in got[:100]], "classes": record.by_class(p),
+    return {"actions": [{**{k: a.get(k) for k in KEEP}, **record.who(a)} for a in got[:100]], "classes": record.by_class(p),
             "counts": record.counts(p)}
 
 

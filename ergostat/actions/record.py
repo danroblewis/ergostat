@@ -42,6 +42,14 @@ def fold(aid: str, events: list[dict]) -> dict:
             "moves": it.moves, **({"ignored": ignored} if ignored else {})}
 
 
+def who(f: dict) -> dict:
+    """Who asked for it (the block, else the session) and who answered (the gate, or the owner with their note)."""
+    said = lambda by: "gate (auto)" if by == GATE else f"{by} ({f['note']})" if f.get("note") else by   # noqa: E731
+    return {"by": f.get("block") or f.get("session") or "a session",
+            "approved by": said(f["approved_by"]) if f.get("approved_by") else
+            f"denied by {said(f['denied_by'])}" if f.get("denied_by") else "not yet answered"}
+
+
 def get(p, aid: str) -> dict | None:
     evs = p.events.query(n=None, item=item_of(aid))
     if not evs:                                            # a short prefix of its id will do

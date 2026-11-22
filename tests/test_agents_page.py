@@ -54,6 +54,10 @@ blocks:
     type: program
     run: ./tidy.sh
     out: flow.tidied
+actions:
+  push:
+    run: "echo pushed"
+    description: Push the page
 """
 
 HISTORY = """
@@ -62,6 +66,7 @@ from pathlib import Path
 from ergostat import model as mdl
 from ergostat.store import Project
 from ergostat.costs import record as cr
+from ergostat.actions import record as ar
 p = Project(mdl.load(Path(DIR)))
 random.seed(7)
 now = time.time()
@@ -77,9 +82,25 @@ for i in range(60):                                   # the last twenty hours, a
         if model:
             toks = int(30000 + 40000 * random.random())
             data["ai"] = {"cost_usd": round(usd, 5), "cost": how, "tokens": {"total": toks}, "model": model}
+        if block == "writer":                         # its runs are each about a page: done, refused or failed
+            data["item"] = f"page/{i}"
+            if i == 58:
+                data["nack"] = {"why": "no workspace free: every one of the pool's three workspaces is held by an "
+                                           "item under review, so this run was given back and put off until one is"}
+            if i == 57:
+                data["note"] = "exited 2"
         begun = p.events.add("agent.started", item=block, source="ergostat", at=t - data["seconds"], data={})
-        e = p.events.add("agent.ran", item=block, source="ergostat", causedby=begun["id"], at=t, data=data)
+        e = p.events.add("agent.failed" if data.get("note") else "agent.ran", item=block, source="ergostat",
+                         causedby=begun["id"], at=t, data=data)
         cr.write_series(p, block, data, t)
+        if block == "writer" and i >= 55:             # the outward actions it asked for, as the gate records them
+            aid = ar.new_id("push")
+            ar.step(p, aid, "requested", {"action": "push", "class": "push", "gate": "owner", "args": {},
+                                          "command": "git push", "item": data["item"], "run": begun["id"],
+                                          **({"session": "session/w1"} if i == 56 else {"block": "writer"})},
+                    by="writer", causedby=begun["id"])
+            ar.step(p, aid, "approved", {"approved_by": "owner", "note": "offline stand-in"}, by="owner")
+            p.events.add("page.edited", item=data["item"], source="writer", at=t, data={})
 import json
 (p.dir / "daemons.json").write_text(json.dumps({"at": now, "daemons": {"counter": {   # as the engine writes it (SPEC §9.7)
     "state": "running", "pid": 4242, "restarts": 2, "restarts_total": 3, "last_line": now - 4, "in_flight": 1,
@@ -163,8 +184,10 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     assert "per hour" in pg.inner_text(".use-charts .chart:first-of-type .chart-head")
     totals = pg.inner_text(".use-totals")
     assert "60 runs" in totals and "$" in totals and "tokens" in totals and "CPU" in totals
-    runs = pg.eval_on_selector_all("#detail table:has(th:text-is('tokens')) tr", "trs => trs.slice(1).map((tr) => tr.innerText)")
-    assert len(runs) == 10 and all("$" in r and "MB" in r for r in runs)
+    runs = pg.eval_on_selector_all(".runs-table > table tr", "trs => trs.slice(1).map((tr) => tr.textContent)")
+    assert len(runs) == 10 and all("$" in r for r in runs)
+    used = pg.eval_on_selector_all("#detail table:has(th:text-is('tokens')) tr", "trs => trs.slice(1).map((tr) => tr.textContent)")
+    assert len(used) == 10 and all("MB" in r for r in used)                 # behind its 'resources' disclosure
     # the cursor on one chart moves them all, and each says its value there
     box = pg.locator(".use-charts .chart-plot").first.bounding_box()
     pg.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] / 2)
@@ -174,6 +197,44 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     shot(pg, f"agent-panel-{theme}.png")
     pg.eval_on_selector("#detail table:has(th:text-is('tokens'))", "el => el.scrollIntoView({ block: 'end' })")
     shot(pg, f"agent-panel-runs-{theme}.png")
+    assert not errors, errors
+    pg.close()
+
+
+def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_and_fit_the_panel(site, browser):
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site['url']}/agents")
+    pg.click("tr.click:has(b:text-is('writer'))")
+    pg.wait_for_selector(".runs-table td a[href^='/item/']")
+    rows = pg.eval_on_selector_all(".runs-table > table tr", """trs => trs.slice(1).map((tr) => ({
+        item: tr.cells[1].querySelector("a")?.getAttribute("href"), outcome: tr.cells[2].textContent,
+        asked: [...tr.cells[3].querySelectorAll("a")].map((a) => a.getAttribute("href"))}))""")
+    assert len(rows) == 10 and all((r["item"] or "").startswith("/item/page") for r in rows)
+    words = [r["outcome"].split(":")[0] for r in rows]                         # newest first: 59 .. 50
+    assert words[0] == "done" and words[1] == "refused" and words[2] == "failed" and set(words[3:]) == {"done"}
+    assert "no workspace free" in rows[1]["outcome"] and "exited 2" in rows[2]["outcome"]
+    assert [len(r["asked"]) for r in rows] == [1, 1, 1, 1, 1, 0, 0, 0, 0, 0]  # the runs that asked for a push
+    assert all(h.startswith("/item/ergostat.action") for r in rows for h in r["asked"])
+    edge = pg.evaluate("""() => [document.querySelector('.runs-table > table').getBoundingClientRect().right,
+                                document.querySelector('#detail').getBoundingClientRect().right]""")
+    assert edge[0] <= edge[1] + 0.5, edge                                     # not clipped by the panel
+    assert not pg.is_visible("#detail th:text-is('CPU')")                     # behind 'resources' until opened
+    pg.click("details.runs-resources summary")
+    assert pg.is_visible("#detail th:text-is('CPU')")
+    pg.goto(f"{site['url']}/items?kind=ergostat.action")
+    pg.wait_for_selector("table.items tr.click, table tr.click")
+    heads = pg.eval_on_selector_all("table:has(th button[title='Sort by by']) th", "ths => ths.map((t) => t.textContent.trim())")
+    by, ok = heads.index("by"), heads.index("approved by")
+    cells = pg.eval_on_selector_all("table:has(th button[title='Sort by by']) tr.click",
+                                    f"trs => trs.map((tr) => [tr.cells[{by}].textContent, tr.cells[{ok}].textContent])")
+    assert len(cells) == 5 and all(c[0] not in ("", "–") for c in cells), cells
+    assert sorted(c[0] for c in cells) == ["session/w1"] + ["writer"] * 4
+    assert all(c[1] == "owner (offline stand-in)" for c in cells), cells
+    pg.goto(f"{site['url']}/item/{'page%2F59'}")                              # the item's own 'Gated actions'
+    pg.wait_for_selector("h2:has-text('Gated actions')")
+    assert "asked by writer, approved by owner (offline stand-in)" in pg.inner_text("body")
     assert not errors, errors
     pg.close()
 

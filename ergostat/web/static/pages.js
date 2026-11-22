@@ -479,7 +479,7 @@ function actionsAbout(as, done) {
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
     h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, a.action)), " ",
       h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
-      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}`)),
+      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` + (a.state === "requested" ? "" : a.state === "denied" ? `, ${a["approved by"]}` : `, approved by ${a["approved by"]}`))),
     h("pre", { class: "mono small" }, a.command || ""),
     actionAnswer(a, done))));
 }
