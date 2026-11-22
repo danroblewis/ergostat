@@ -385,9 +385,9 @@ class _Upstream:
         self.real, self.reply = client.get, None
         monkeypatch.setattr(client, "get", self)
 
-    def __call__(self, url, path, token, params=None, etag=None, timeout=5.0):
+    def __call__(self, url, path, token, params=None, etag=None, timeout=5.0, tls=None):
         if url != FAKE:
-            return self.real(url, path, token, params, etag, timeout)
+            return self.real(url, path, token, params, etag, timeout, tls=tls)
         if path != "readings" or self.reply is None:
             return 0, None, None, "unreachable (refused)"
         return 200, self.reply(), None, ""

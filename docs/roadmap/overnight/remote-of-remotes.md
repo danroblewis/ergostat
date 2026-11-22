@@ -287,3 +287,26 @@ Every finding of review 4:
 Size: about 4 net lines added in `readings.py`, within 380. After this round these pass: `test_remote_chain.py` (29),
 and `test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` (23). Ruff is clean. Not run here:
 the whole unit suite, the four browser files and `demo_check`.
+
+### Round 6
+
+The queue's finding was a conflict with main (48b1481a, which brings in `remote-mtls`) in three files. It is resolved
+in the merge commit 78240625, keeping both sides:
+- `client.get` opens the URL with main's TLS context (`context=` only when `tls:` is given) and still reads at most
+  `BODY_MOST + 1` bytes, failing past that ("answer too large").
+- `readings.answer` passes main's `tls=` to `client.get` and still refuses a body that is not a dict.
+- The "Left for later" line in `docs/proposals/remote-systems.md` lists only the IR as left among those three, and
+  says that proposals text, a remote composed of remotes and mutual TLS are built.
+
+The merge also spliced GAPS.md's *Remote systems* entry cleanly but wrongly (lesson-7). It left a dangling
+"(`remote-proposals-text`; …)" fragment, a repeated `examples/remote-pair/` line, a repeated closed-box paragraph and
+two *Left* clauses: one said mutual TLS was left, and the other said a remote composed of remotes was left. The
+entry now has one Done text, with mutual TLS added after this gap's sentence, and one *Left* clause that lists
+neither.
+
+After the merge, `test_remote_chain.py` failed twice. Its fake `client.get` (`_Upstream`) took no `tls` argument,
+and `readings.answer` now passes one. The fake now takes `tls` and passes it on. That is a test-only change. After
+it, these pass when run one file at a time: `test_remote_chain.py` (29), `test_remote_mtls.py` (23),
+`test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` together (23), and
+`test_remote_proposals.py` (31). Ruff is clean. No code changed in substance outside the merge, so the size is as in
+round 5. Not run here: the whole unit suite, the four browser files and `demo_check`.
