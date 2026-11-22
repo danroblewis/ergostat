@@ -264,3 +264,26 @@ Every finding of review 3, blocking and not:
 
 This round changed docs only, and no code. The review of remote-mtls had a SPEC:722 wording note, but it is about
 that branch's text, which this branch does not have.
+
+### Round 5
+
+Every finding of review 4:
+- *Blocking, readings.py `_num` accepted NaN (lesson-3, lesson-2).* `_num` now also requires `math.isfinite`, so a
+  `now` or `time` of NaN or Infinity counts as none. `read` refuses it ("has no time" / "without its own time"),
+  `keep` stores `age: null` for it, and `relayed` then serves `value: null, time: null`. The two age tests in `read`
+  are also written as `not age >= -FUTURE_LEAST` and `not age <= limit`, so an age that is not a number is
+  refused even if it ever got past `_num`. `test_a_reading_with_no_time_or_no_now_is_stale` gains time NaN,
+  now = time = Infinity, and now NaN. `test_a_middle_serves_the_origin_age_not_its_own_time` gains A answering
+  time NaN, then now = time = Infinity: M refuses it, `readings.json` holds `age: null`, and M's `/readings`
+  serves null. With `isfinite` removed by hand (comparisons kept), both tests fail (`human(NaN)` raises
+  `ValueError`). The change was then put back. SPEC §4c (reading age) says a non-finite `now` or `time` counts as none.
+- *origin/main has moved (lesson-7).* This clone has no `origin`, and local `main` is already merged (bd17b43d), so
+  there is nothing to merge here. The merge queue does it.
+- *Non-blocking, a later remote's box beats an earlier remote's served system of the same name.* The code is
+  unchanged, since it fails closed. SPEC §4c *Names taken* now says that boxes are put when `remotes:` is read,
+  before any remote's parts. `test_a_local_part_named_like_an_imported_one_wins` now checks this: m serves system
+  `a`, the box `m-a` of remote m-a keeps the name, and m gets `remote-name-taken`.
+
+Size: about 4 net lines added in `readings.py`, within 380. After this round these pass: `test_remote_chain.py` (29),
+and `test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` (23). Ruff is clean. Not run here:
+the whole unit suite, the four browser files and `demo_check`.

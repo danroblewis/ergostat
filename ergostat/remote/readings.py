@@ -4,8 +4,8 @@ incidents, ref: stock.open}`` (a part's reading as the remote reckons it). Every
 one request a period: the first to read asks for every series and part the model reads of that remote, and the
 others take theirs from that answer for half their period. A reading's age is the answer's ``now`` less its
 ``time``, both in the answerer's clock (never compared with this one): one older than three of the sensor's periods
-(two minutes at least), more than five seconds in the answerer's future, with no ``time``, in an answer with no
-``now``, or marked ``unreachable`` is not taken; a remote that does not answer fails the reading. Either way the
+(two minutes at least), more than five seconds in the answerer's future, with no finite ``time``, in an answer with
+no finite ``now``, or marked ``unreachable`` is not taken; a remote that does not answer fails the reading. Either way the
 engine keeps the last reading, with its time, and records why.
 
 A middle (an ergostat serving on parts it imported, SPEC §4c *A remote composed of remotes*) keeps each answer
@@ -15,6 +15,7 @@ reading from it with the origin's age carried into this clock (``got - age``), s
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from pathlib import Path
@@ -54,7 +55,8 @@ def wanted(spec, source: str) -> tuple[list[str], list[str]]:
 
 
 def _num(x) -> bool:
-    return isinstance(x, int | float) and not isinstance(x, bool)
+    """A finite number: a NaN or infinite time (JSON takes the literals) would make every age test False."""
+    return isinstance(x, int | float) and not isinstance(x, bool) and math.isfinite(x)
 
 
 def keep(d: Path, body: dict | None, why: str) -> None:
@@ -194,9 +196,9 @@ def read(spec, src, s) -> tuple[float | None, str]:
         return None, f"{src.name}'s reading of {what} has no time, so it counts as stale"
     from ..durations import human
     age = now - at                                       # both in the answerer's clock
-    if age < -FUTURE_LEAST:
+    if not age >= -FUTURE_LEAST:                         # written so an age that is not a number is refused
         return None, f"{src.name}'s reading of {what} is {human(-age)} in its own future (stale)"
-    if age > max(STALE_LEAST, STALE_RUNS * period):
+    if not age <= max(STALE_LEAST, STALE_RUNS * period):
         return None, f"{src.name}'s reading of {what} is {human(age)} old (stale: its sensor there has not read since)"
     try:
         return float(got["value"]), ""

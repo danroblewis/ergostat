@@ -310,6 +310,12 @@ def test_a_local_part_named_like_an_imported_one_wins(tmp_path):
     assert leak.where.remote == "m-a" and leak.source is None and leak.target == "m-a-pool"
     taken = [p for p in codes(problems, "remote-name-taken") if p.about == "stock.m-a-open"]
     assert taken and "remote m-a" in taken[0].message and not codes(problems, "defined-twice")
+    plant(lroot, "l", "m", body("e" * 16, {"systems": {"a": {"via": [], "description": "m's a"}}}))
+    spec, problems = load(lroot / "ergostat.yaml")      # a box is put first: m-a's box beats m's served system a
+    assert "m-a" in spec.systems and spec.systems["m-a"] != "m's a"
+    taken = [p for p in codes(problems, "remote-name-taken") if "m-a" in (p.about or "")]
+    assert taken and "remote m" in taken[0].message, [p.message for p in problems]
+    assert not codes(problems, "defined-twice")
 
 
 # --- reading age -------------------------------------------------------------------------------------------------
@@ -340,6 +346,16 @@ def test_a_reading_with_no_time_or_no_now_is_stale(tmp_path, monkeypatch):
     v, why = readings.read(spec, spec.sources["m"], s)
     assert v is None and "has no time" in why
     _answering(monkeypatch, {"series": {"sensor/x.main": {"value": 4, "time": now}}})
+    v, why = readings.read(spec, spec.sources["m"], s)
+    assert v is None and "without its own time" in why
+    nan, inf = float("nan"), float("inf")                            # JSON's NaN and Infinity literals
+    _answering(monkeypatch, {"now": now, "series": {"sensor/x.main": {"value": 4, "time": nan}}})
+    v, why = readings.read(spec, spec.sources["m"], s)
+    assert v is None and "has no time" in why
+    _answering(monkeypatch, {"now": inf, "series": {"sensor/x.main": {"value": 4, "time": inf}}})
+    v, why = readings.read(spec, spec.sources["m"], s)
+    assert v is None and "without its own time" in why
+    _answering(monkeypatch, {"now": nan, "series": {"sensor/x.main": {"value": 4, "time": now}}})
     v, why = readings.read(spec, spec.sources["m"], s)
     assert v is None and "without its own time" in why
     _answering(monkeypatch, {"now": now, "series": {"sensor/x.main": {"value": 4, "time": now - 1}}})
@@ -424,6 +440,14 @@ def test_a_middle_serves_the_origin_age_not_its_own_time(chain):
     assert got["instance"] == instance.own(c.p.dir)
     latest = c.p.measurements.latest("sensor/a-open.main")          # M did record it, at its own now
     assert latest and latest[0] > now - 5
+    for t_now, t_at in ((time.time(), float("nan")), (float("inf"), float("inf"))):   # a NaN age is never kept
+        c.up.reply = lambda t_now=t_now, t_at=t_at: {"now": t_now, "instance": c.a["instance"],
+                                                     "series": {"sensor/open.main": {"value": 4, "time": t_at}}}
+        assert _m_reads(c)[0] is None
+        kept = json.loads((c.dir / readings.RELAYED).read_text())
+        assert kept["series"]["sensor/open.main"]["age"] is None
+        g = _get(f"{c.url}/remote/v1/readings?series=sensor/a-open.main", c.tok)["series"]["sensor/a-open.main"]
+        assert g["value"] is None and g["time"] is None and g["why"], g
 
 
 def test_a_middle_with_its_upstream_down_never_serves_fresh_looking_data(chain):

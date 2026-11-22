@@ -650,7 +650,9 @@ not answer, the model is drawn from the cache, every reading from it fails and k
 its age (`sensor.failed`), its box says *not answering for 2m · readings 3m old*, and the status and
 `check` carry **remote-unreachable**. A reading's age is the answer's `now` less the reading's `time`, both
 in the remote's clock; one older than three of its sensor's periods (two minutes at least), more than 5 s in
-the remote's future, with no `time`, in an answer with no `now`, or marked `unreachable` is not taken.
+the remote's future, with no `time`, in an answer with no `now`, or marked `unreachable` is not taken. A
+`now` or `time` that is not a finite number (JSON's `NaN` or `Infinity`) counts as none, and a middle keeps
+no age for it, so it serves that reading on as `time: null`.
 
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
@@ -745,7 +747,9 @@ consumer L, which composes them like any of M's (`stock.m-a-open`, in the system
 - *Names taken.* A remote's parts are put after every file and include is read. A local part always wins: a
   remote part whose name is defined here is not put (**remote-name-taken**, naming both; never
   `defined-twice`); between two remotes whose parts get the same name (remote `m`'s `a-open`, remote `m-a`'s
-  `open`) the first declared wins. The part not put is cut from the rest of its remote, as above (a flow's
+  `open`) the first declared wins. Each remote's own box system is put when `remotes:` is read, before any
+  remote's parts, so a box keeps its name against another remote's served system (remote `m-a`'s box `m-a`
+  against remote `m`'s served system `a`) whichever is declared first. The part not put is cut from the rest of its remote, as above (a flow's
   end at it becomes a cloud, a cause or an equation naming it is dropped), so a remote's flow never drains
   the local part, or another remote's part, that took its name. A local reference belongs to the remote
   with the longest matching prefix.
