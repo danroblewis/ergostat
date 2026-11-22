@@ -42,3 +42,19 @@ This lands the built work of the parked `factory/library-sandbox-sensors` (its r
 ## Size budget
 220 net lines
 size: L (confidence: medium)
+
+## Where it stopped
+Built, round 1; no part of the definition is left undone (179 net lines). Decisions taken alone, each the reversible one:
+- The parked `factory/library-sandbox-sensors` branch and its record are not in this clone. Its items 1–9 and the
+  nested-marker fix were rebuilt from this definition on `main`, not merged from that branch.
+- So that a library's own sensor `run:` reaches the sandbox at all, trust.py now accepts it (spec `SBX`) instead of
+  refusing it `library-untrusted`. Block runs, `parse`, `every`, `cron` and `timeout` are refused as before. The
+  R1/R2 verdict is computed on the marked text in `uses.py` (`owner_runs`, kept in the use's record with `above`,
+  the instance above it) and read by compile. So three files outside "Files to touch" changed: `library/trust.py`,
+  `library/uses.py` and `library/bounds.py` (the daemon error's code). To undo it, put `RUN` back in
+  `trust.SENSOR["run"]`.
+- 22 existing tests in `tests/test_library_trust.py`, `tests/test_library_provenance.py` and
+  `tests/test_library_untrusted.py` asserted that a library sensor run is refused. Each now asserts that the run
+  compiles with `run_in == "sandbox"`, or uses a block run where the refusal itself was the point.
+- The four live-sandbox tests (`test_live_*`) did not run here: bwrap is installed but cannot make its namespaces in
+  this container, so they skip.
