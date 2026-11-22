@@ -270,6 +270,113 @@ def test_the_factory_model_loads():
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
 
 
+def without_landed(text: str) -> str:
+    """A model file as main had it before gaps-landed-stock: no stock gaps-landed (its block, whatever it holds),
+    gaps-merged and joins-covered to clouds, gaps-merged counting every gap entering merged."""
+    import re
+    return re.sub(r"(?m)^  gaps-landed:\n(?:    .*\n)*", "", text).replace("    to: gaps-landed\n", "").replace(
+        "entering: merged, where: {merged_by: null}, over: 1d", "entering: merged, over: 1d")
+
+
+def factory_copy(where: Path, edit=lambda text: text) -> Path:
+    """The factory's model in a folder of its own, each model file passed through ``edit``."""
+    (where / "dev" / "model").mkdir(parents=True)
+    for x in (ROOT / "dev").iterdir():
+        if x.name != "model":
+            (where / "dev" / x.name).symlink_to(x)
+    for x in (ROOT / "dev" / "model").iterdir():
+        (where / "dev" / "model" / x.name).write_text(edit(x.read_text()))
+    (where / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+    return where
+
+
+def test_the_factory_model_loads_with_gaps_landed_and_the_flows_into_it():
+    """gaps-landed-stock: a stock of the gaps merged on main, filled by every flow that ends a gap in merged (the
+    queue's, and the join judge's), drained by none, and read by no goal, pool or gate."""
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    st = spec.stocks["gaps-landed"]
+    assert st.unit == "gaps" and st.system == "landing" and "merged on main" in st.description
+    (sensor,) = st.sensors.values()
+    assert sensor.items["kind"] == "gap" and sensor.items["state"] == ["merged"] and sensor.every == 60
+    into = {f.name for f in spec.flows.values() if f.target == "gaps-landed"}
+    assert into == {"gaps-merged", "joins-covered"}
+    assert not [f.name for f in spec.flows.values() if f.source == "gaps-landed"]           # it only rises
+    ends_merged = {f.name for f in spec.flows.values() for s in f.sensors.values()
+                   if s.items and s.items.get("kind") == "gap" and s.items.get("entering") == "merged"}
+    assert ends_merged == into                                   # every flow ending a gap in merged goes to it
+    gm = spec.flows["gaps-merged"]
+    assert gm.source == "gaps-queued" and gm.equation.text == \
+        "(1 - queue-fail-share - conflict-share) * stock.gaps-queued / queue-time"
+    assert not [g.name for g in spec.goals.values() if g.of.name == "gaps-landed"]          # no goal on it
+    texts = "".join(x.read_text() for x in (ROOT / "dev" / "model").iterdir()) + (ROOT / "ergostat.yaml").read_text()
+    assert texts.count("stock.gaps-landed") == 0                 # nothing reads it: no pool, gate or equation
+    assert spec.flows["upgrades-opened"].equation.text == "upgrades-per-merge * flow.gaps-merged"
+
+
+def test_a_joined_gap_that_lands_enters_the_landed_stock_once(tmp_path):
+    """gaps-landed-stock: a gap the queue merged is counted by gaps-merged alone, a joined gap the join judge found
+    covered (merged_by join-judge, plan.py) by joins-covered alone, so the inflows' count is the stock's rise."""
+    from ergostat import model as mdl
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    m = mdl.load(factory_copy(tmp_path / "m"))
+    (tmp_path / "state").mkdir()
+    p = Project(m, directory=tmp_path / "state")
+    ev, spec = p.events, m.spec
+    t = time.time() - 3600
+    for g in ("sub-a", "sub-b"):                                 # the queue's merges: the joined gap's sub-gaps
+        for k, e in enumerate(("gap.found", "gap.defined", "gap.started", "gap.built", "gap.review-started",
+                               "gap.approved", "gap.queued", "gap.merged")):
+            ev.add(e, item=f"gap/{g}", data={"parent": ["gap/whole"]} if k == 0 else {}, at=t + k)
+    ev.add("gap.found", item="gap/whole", at=t)
+    ev.add("gap.split", item="gap/whole", data={"children": ["gap/sub-a", "gap/sub-b"]}, at=t + 1)
+    ev.add("gap.merged", item="gap/whole", data={"merged_by": "join-judge", "join_verdict": "covered"}, at=t + 20)
+    now = t + 30
+
+    def reading(part) -> float:
+        (s,) = part.sensors.values()
+        v, _ = its.measure(ev, spec, s, now=now)
+        return v
+    day = 86400 / 3600                                           # (a flow's reading is per hour, over a day)
+    merged, covered = reading(spec.flows["gaps-merged"]) * day, reading(spec.flows["joins-covered"]) * day
+    assert (round(merged), round(covered)) == (2, 1)            # the joined gap in joins-covered alone
+    assert reading(spec.stocks["gaps-landed"]) == 3 == round(merged + covered)
+
+
+@pytest.mark.slow
+def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, capsys, monkeypatch):
+    """gaps-landed-stock: `ergostat check` on the model with gaps-landed says nothing it did not say without it, and
+    the Dynamics diagram draws the stock with the pipes into it."""
+    from ergostat import model as mdl
+    from ergostat.cli import main, spec_cmds
+    from ergostat.numbers import extremes_cache
+    from ergostat.store import Project
+    from ergostat.web.server import Live, api
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # (no extremes kept from another test's run)
+    monkeypatch.setattr(spec_cmds, "CHECK_WAIT", None)                # both sides' extreme-conditions tests run whole
+    monkeypatch.setattr(extremes_cache, "BOUND", 900.0)
+
+    def found(where: Path) -> set[str]:
+        main(["-C", str(where), "check", "--json"])
+        got = json.loads(capsys.readouterr().out)
+        assert got["ok"], [x for x in got["found"] if x["level"] == "error"]
+        return {x["id"] for x in got["found"] if x["level"] != "error"}
+    before = factory_copy(tmp_path / "before", without_landed)
+    old = "".join(x.read_text() for x in (before / "dev" / "model").iterdir())
+    assert "\n  gaps-landed:" not in old and "to: gaps-landed" not in old and "merged_by: null" not in old
+    now = found(factory_copy(tmp_path / "now"))
+    assert not [x for x in now if x.startswith(("extremes-running", "extremes-skipped"))]
+    assert sorted(now - found(before)) == []
+    (tmp_path / "state").mkdir()
+    live = Live(Project(mdl.load(tmp_path / "now"), directory=tmp_path / "state"))
+    g = api(live, "graph", {"view": ["dynamics"], "open": ["*"]})
+    ids = {n["id"] for n in g["nodes"]}
+    assert "stock:gaps-landed" in ids
+    into = {e.get("from", e["source"]) for e in g["edges"] if e["kind"] == "pipe" and e["target"] == "stock:gaps-landed"}
+    assert {"flow:gaps-merged", "flow:joins-covered"} <= into, into
+
+
 def test_the_factory_blocks_take_their_pools_from_the_pool_stocks():
     from ergostat.spec.ir import Ref
     spec, problems = read(ROOT / "ergostat.yaml")
