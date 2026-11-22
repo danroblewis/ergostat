@@ -12,3 +12,13 @@ Acceptance tests: review only.
 Budget: about 150 lines, no code.
 
 Milestone: agent-show-page. Owner items: 19 (narrow AI's specification; a decision's means of deciding). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Round 3: the proposal is written, and both round-2 findings are answered. A controller has no closed answer set, so
+its page shows its grouped words and the commands acted on, read from `block.commanded`/`valve.opened`.
+`examples/docs-fresh` is not changed, because `pick.py` already prints decision lines. The proposal also says that a
+target with two commanders is shown as shared and not credited to one of them, because `data.from` names only the
+last commander read. Nothing is left in this gap; the follow-up `agent-page-narrow-ai-and-decision` is scoped at the
+proposal's end.
+Overrun reason: the proposal is 170 lines, not about 150, because the round-2 findings required each controller-record source and its limits to be stated with file references; there is no code.

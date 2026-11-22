@@ -82,7 +82,9 @@ The agent page, one block at a time (no new panel: rows in the agent page the ow
     counted once per run (`causedby`), not once per goal.
   - *what was carried out*, one row per `out` port, read from the record each kind of port leaves: a block port
     from the target's `block.commanded` events whose `data.from` is this block (`spec/engine.py:743, 990`); a flow
-    port from `valve.opened` with this block as `source`; an auxiliary from `auxiliary.set`. A goal port (a
+    port from `valve.opened` with this block as `source`. A target with two or more commanders takes the largest
+    command, but `data.from` names only the last commander read (`engine.py:736-743`), so there the row says
+    "shared with …" and counts nothing, never crediting one commander with another's command (lesson-8); an auxiliary from `auxiliary.set`. A goal port (a
     setpoint) leaves no event, so it is shown as declared with "not recorded", not 0. The row is named "commands
     acted on", because a zero command, a command superseded while the target runs (only the latest starts it), and
     an advised command still waiting for approval leave no `block.commanded` (`pick.py`'s "wait" is never counted there). It is not a count of
@@ -162,6 +164,6 @@ This amends that gap's (unwritten here) scope to the above: no new key, and the 
   `docs/SPEC.md`, `docs/vocabulary.md`. `examples/docs-fresh` is not changed (its decision lines are already there).
 - **Tests:** `tests/test_agent_means.py` (the approver fixture: 0 row, other, unattributed, a same-name remake, spans
   by version; a controller fixture serving two goals: each word counted once per run, a zero command not counted as
-  acted on, a goal port shown as not recorded), the browser file that covers the Agents page (both rungs shown),
+  acted on, a goal port shown as not recorded, a target with two commanders shown as shared), the browser file that covers the Agents page (both rungs shown),
   and `demo_check` on both examples.
 - **Budget:** about 250 net lines of code outside tests and docs.
