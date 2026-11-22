@@ -10,7 +10,8 @@ A **compute system** is a pool of **nodes** that run what this engine decided. I
 record: the engine leases the item, starts the run, reads its lines and records what happened, exactly as it does
 for a local run; the node only executes, keeps the run's output until the engine has read it, and stops the run
 when told to or when it can no longer hear the engine. On each node a **worker** (`ergostat worker --stdio`) does
-this, reached over an SSH session, with no port of its own.
+this, reached over an SSH session, with no port of its own; each run has a **keeper**, a small detached process of
+the worker's that holds the run's deadlines and outlives the session (section 2.4).
 
 Words. "Agent" means whatever fills a role (NOTES.md, *Agents*), so a node and its worker are never called agents:
 a worker fills no role, shows no rung and decides nothing. The block's agent is still the block's agent, wherever
@@ -38,7 +39,7 @@ In the disciplines' terms:
   an outflow (nodes lost, slots taken). It is read like any stock (section 4), so a controller can hold a queue
   against it, and a valve can add nodes when the owner grants one that does.
 - **Control**: the pool is an **actuator** with limited authority: it saturates at `c`. The engine is still the one
-  controller of its runs; the node has a local safety interlock only (a run stops when its lease cannot be renewed,
+  controller of its runs; the node has a local safety interlock only (a run's keeper stops it when its lease is not renewed,
   section 2.7), never a decision of its own about what to run.
 
 ## 1. Where runs execute today
@@ -137,15 +138,15 @@ refusal for any other reason (`no such image`, `limits over the node`) is said i
 item back the same way, so a misconfigured node costs no item an attempt. A **backend** is how a run is made
 to execute under its limits; each says the same four things: start, is it still going, stop, and what it used.
 
-- **process**: a session of its own and the same `sh` wrapper that writes the exit code (`runrecord.py:21-29`), so
-  the run never depends on the worker; memory and processes by `setrlimit` (`RLIMIT_AS`, `RLIMIT_NPROC`) before
-  `exec`; CPU, where the node lets a user write a cgroup v2 (`systemd-run --user --scope -p CPUQuota=`), as a share,
+- **process**: a session of its own, started by the run's keeper (section 2.4), which writes the exit code as a
+  local run's `sh` wrapper does (`runrecord.py:22-30`), so the run never depends on the worker; memory and
+  processes by `setrlimit` (`RLIMIT_AS`, `RLIMIT_NPROC`) before `exec`; CPU, where the node lets a user write a cgroup v2 (`systemd-run --user --scope -p CPUQuota=`), as a share,
   else only as a ceiling on CPU **time** (`RLIMIT_CPU` at `cpus × wall`), and `hello` says which. No network limit:
   `network: none` is refused on this backend rather than pretended.
 - **docker**: `docker run -d --init --name ergostat-run-RUN --cpus --memory --memory-swap --pids-limit
   --network none --cap-drop ALL --security-opt no-new-privileges`, the same limits the factory's containers carry
   (`agents.py:53-54`); the work folder mounted at `/work`, the run's output to files in the run folder, never to
-  `docker logs` alone. Docker is a resource limit, not a security boundary (CLAUDE.md:98): the proposal claims no
+  `docker logs` alone; the keeper starts it and waits on it (`docker wait`). Docker is a resource limit, not a security boundary (CLAUDE.md:98): the proposal claims no
   more.
 - **kubernetes** (a later gap): a Job per run named `ergostat-run-RUN`, the limits as its requests and limits,
   the worker running wherever `kubectl` reaches the cluster. The protocol does not change.
@@ -168,22 +169,52 @@ dropped.
 
 ### 2.4 Runs that outlive the connection
 
-The worker that SSH started dies with its session; the runs do not. Each run is its own session under the wrapper,
-or a detached container, and its folder holds its record (`run.json`: run id, block, lease, backend handle, the
-pid's start time or the container's id, its offsets, its limits, its deadline). A new `ergostat worker --stdio`
-reads the run folders at start and lists their runs in `hello`. The engine, on reconnecting, attaches every run it
+The worker that SSH started dies with its session; the runs do not, and neither does what stops them. A local
+run's wrapper only writes the exit (`runrecord.py:28`) and `docker run -d` holds no deadline, so the deadlines
+cannot live in the worker: they live in the run's **keeper**.
+
+- **What it is.** `python3 -I worker.py --keep RUN`, the same module, started by the worker before it answers
+  `started`, detached from the session (its own session by `setsid`, standard input from `/dev/null`, its output
+  to `runs/RUN/keeper.log`, SIGHUP ignored), so a cut session, an ended worker or a killed `sshd` leaves it running.
+  One keeper per run, single-threaded, no network, no socket; it reads and writes only its run's folder and its
+  run's container. If it cannot be started, the `start` is `refused` (`no keeper`) and given back uncounted.
+- **What it holds.** Two deadlines on the node's suspend-counting clock (`CLOCK_BOOTTIME`), so a keeper compares
+  only times of its own machine: the **wall** deadline, fixed at start as the start plus `limits.wall`, never moved;
+  and the **lease** deadline, in `runs/RUN/deadline`, which the worker writes (to a temporary file, then
+  `os.replace`) each time it computes one (section 2.7), the first before the keeper starts. The keeper reads the
+  file every quarter second. When it cannot read or parse the file it keeps the last deadline it read, so a bad
+  or missing write never moves the deadline later.
+- **What it does.** The process backend's run is the keeper's child: it forks, the child takes its own process
+  group, its limits and `PR_SET_PDEATHSIG = SIGKILL` (Linux, by `ctypes`), raises its own `oom_score_adj` so the
+  kernel's OOM killer takes the run before its keeper, and `exec`s the command. The keeper reaps it and writes its
+  exit (`runs/RUN/exit`) as the wrapper does. For docker it runs `docker wait ergostat-run-RUN` and writes what it
+  says. At the earlier of the two deadlines, or when the worker writes `runs/RUN/stop` (a `kill`, section 2.7), it
+  sends SIGTERM to the run's group (or `docker stop -t K`), then SIGKILL (or `docker rm -f`) `K` seconds later, and
+  writes how in the exit. After the run ends it waits for the worker's `runs/RUN/done` or a day past the end, removes
+  its run's container and folder by name (section 2.9), and exits.
+- **What it does not claim.** A keeper that is itself killed holds no deadline. Then the kernel SIGKILLs the run's
+  first process (the death signal; on Linux and the process backend only), but descendants in the run's group and a
+  container go on until a worker starts on that node again, finds the keeper gone (its pid and start time in
+  `run.json`), and stops the run by name as for `unknown` below. Where the system's login manager ends a user's
+  processes at logout, the runs end with the session: that stops them, never prolongs them, and lingering
+  (`loginctl enable-linger`) is the owner's to set.
+
+Each run's folder holds its record (`run.json`: run id, block, lease, backend handle, the pid's start time or the
+container's id, the keeper's pid and start time, its offsets, its limits, its wall deadline). A new
+`ergostat worker --stdio` reads the run folders at start and lists their runs in `hello`. The engine, on reconnecting, attaches every run it
 still holds a lease for, and sends `kill` for every one it does not (a run the engine no longer knows is never left
 running on a node). Each run the worker lists is in one of three states, and **gone** needs evidence read:
 
 - **running**: its pid alive with the start time recorded (as `runrecord.py:79-83`), or its container running with
   the id recorded;
-- **gone**: only on one of an allowlist of readings: the wrapper's exit file written; the container read as exited
+- **gone**: only on one of an allowlist of readings: the keeper's exit file written; the container read as exited
   with the id recorded; or the pid absent (or now another process, by its start time) *and* the run's process group
   read as empty. Then the run ended, and its exit (or its want of one) is reported as `ended`;
 - **unknown**: anything else: the record unreadable, the start time not read (a failed or timed-out `ps`, the
-  case lesson-3 records), `docker inspect` failing, the group not read. Unknown is never gone and never fine. The
-  worker tries a stop by name at once (SIGTERM then SIGKILL to the group in `runs/RUN/pgid`, a file of its own
-  written before the run starts; `docker rm -f ergostat-run-RUN`), and keeps listing the run as unknown until a
+  case lesson-3 records), `docker inspect` failing, the group not read, the run alive but its keeper gone. Unknown
+  is never gone and never fine. The worker tries a stop by name at once, itself and not through the keeper
+  (SIGTERM then SIGKILL to the group in `runs/RUN/pgid`, a file of the keeper's written before the run starts;
+  `docker rm -f ergostat-run-RUN`), and keeps listing the run as unknown until a
   reading puts it in one of the other two states. The engine keeps the lease, records no end, and sends no
   renewal: the lease expires at its TTL through the watchdog as a silent run's does (`dispatch.py:468-504`), the
   run ends `agent.failed` with the note `unknown on its node`, and whatever the run still says is refused by the
@@ -223,11 +254,13 @@ it misses an encoded copy); the claim is "never written by ergostat", not "never
 
 ### 2.7 Kill, timeouts and a lost lease
 
-- **Kill.** `kill {"run", "why", "grace"}`: SIGTERM to the run's group and its descendants, SIGKILL after the grace
-  (as `kill.py:1-6`); for docker, `docker stop -t GRACE` then `docker rm -f`. The worker answers `ended` with how
-  (`TERM`, `KILL`) as `ergostat.run.killed` records it today (`kill.py:56-63`).
-- **The wall timeout is the worker's.** The worker holds the run's deadline (`limits.wall`, the block's `timeout:`,
-  `ir.py:703`) and kills it there whether or not the engine is connected.
+- **Kill.** `kill {"run", "why", "grace"}`: the worker writes `runs/RUN/stop` with the grace, and the keeper sends
+  SIGTERM to the run's group and its descendants, SIGKILL after the grace (as `kill.py:1-6`); for docker,
+  `docker stop -t GRACE` then `docker rm -f`. With the keeper gone the worker does the same itself (section 2.4).
+  The worker answers `ended` with how (`TERM`, `KILL`) as `ergostat.run.killed` records it today (`kill.py:56-63`).
+- **The wall timeout is the keeper's.** The keeper holds the run's wall deadline (`limits.wall`, the block's
+  `timeout:`, `ir.py:703`), fixed at start, and kills the run there whether or not a worker is running or the engine
+  connected, so a node that never reconnects keeps no run past its wall time.
 - **A lost lease stops its run.** The engine gives a silent run's item to another no earlier than its expiry plus
   `grace(ttl) = max(1, min(0.1 × ttl, 30))` seconds (`terms.py:38-41`): the watchdog expires a lease only on a
   second look, `grace(ttl)` after the pass that first found it overdue (`dispatch.py:468-480`), and no pass finds it
@@ -242,8 +275,10 @@ it misses an encoded copy); the claim is "never written by ergostat", not "never
     window keeps two clocks' drift, tens of parts per million, to a few milliseconds). A run's deadline is
     `sent + base + left` from the latest renewal heard: the engine's expiry on the worker's clock, late by at most
     the fastest one-way transit of the window (`d_min`), however late *this* renewal came. A renewal that arrives
-    slow therefore cannot move the deadline later than a fast one would.
-  - *The kill.* At its deadline the worker sends SIGTERM to the run's group (or `docker stop -t K`), and SIGKILL (or
+    slow therefore cannot move the deadline later than a fast one would. The worker turns that deadline into its
+    own clock's reading and writes it to `runs/RUN/deadline` for the keeper (section 2.4). Only a renewal heard
+    moves it; a session cut, a worker ended or a worker stalled moves it never, so the deadline last written stands.
+  - *The kill.* At the deadline the keeper, not the worker, sends SIGTERM to the run's group (or `docker stop -t K`), and SIGKILL (or
     `docker rm -f`) `K = grace(ttl) / 4` seconds later: SIGTERM by `expiry + d_min`, SIGKILL by
     `expiry + d_min + grace(ttl) / 4`.
   - *What the engine checks.* It sends `ping` every 2 seconds and times each `pong` on its own monotonic clock;
@@ -251,17 +286,19 @@ it misses an encoded copy); the claim is "never written by ergostat", not "never
     most `grace(ttl) / 4` for the block's TTL (else `start` is not sent and the item goes back uncounted, as a
     `full`; with a 60 s TTL that is 1.5 s), and kills a running one by `kill` if its node's round trips grow past it.
     The SIGKILL is then sent by `expiry + grace(ttl) / 2`, leaving half the grace for the kernel or Docker to end
-    the processes and for the worker's own timer (a quarter second), before the watchdog's second look can give the
-    item away. With a 60 s TTL: grace 6 s, the kill asked by expiry + 3 s.
+    the processes and for the keeper's tick (a quarter second), before the watchdog's second look can give the
+    item away. With a 60 s TTL: grace 6 s, the kill asked by expiry + 3 s. This holds the same whether the session
+    is alive, cut, or never comes back: the keeper does not need the worker to kill.
   - *What is not claimed.* A node that is suspended stops its runs with it; on waking, a run may go on for one tick
-    of the worker's timer before the kill, and what it says then is refused by the fence. A run's descendants that
+    of the keeper before the kill, and what it says then is refused by the fence. A keeper that is itself killed
+    holds no deadline (section 2.4 says what stops then). A run's descendants that
     left its group are reached by `reap` only as the local kill reaches them (`kill.py:53-57`). Docker's own stop
     time past `rm -f` is Docker's.
 
   On the engine's side,
   `kill()` reaches a node's run through its handle as it reaches a local one through `eng.live` today
   (`kill.py:39-46`). The fence still refuses whatever a run says after its lease ended (`engine.py:2061-2085`), so
-  the interlock on the node is a second stop, not the only one.
+  the keeper on the node is a second stop, not the only one.
 - **Every number has a ceiling**: slots at most 64 a node, nodes at most 64 and runs on nodes at most
   256 over all pools (section 3), `wall` at most a day, a `kill`'s `grace` at most 10 minutes, retries of a lost session backed off up to ten minutes; each refused at `check` above its
   ceiling and again by the worker at `start` (the review lessons' lesson-4).
@@ -278,9 +315,11 @@ pool's `ergostat.compute.*` series (section 4) and each run's totals; no `beat` 
 ### 2.9 Cleanup by name
 
 Every name the worker makes is made from the run id, which must match `^[0-9a-f]{32}$` (refused otherwise): the
-folder `runs/RUN/`, the worktree under it, the container `ergostat-run-RUN`. It removes a run's folder and container
-only after the engine has said `done {"run"}` (it has recorded the end and fetched what it wanted), or past the
-run's deadline plus a day with no engine to say so. A sweep at start and every hour removes only names of that form
+folder `runs/RUN/`, the worktree under it, the container `ergostat-run-RUN`. A run's folder and container are
+removed only after the engine has said `done {"run"}` (it has recorded the end and fetched what it wanted; the
+worker writes `runs/RUN/done`), or a day past the run's end with no engine to say so. The run's keeper does this,
+not the worker (section 2.4), so it happens on a node no worker runs on again; with the keeper gone, the next
+worker's sweep does it. A sweep at start and every hour removes only names of that form
 under its own root and its own container prefix, resolved and checked to be under the root before anything is
 deleted; it never deletes all-but-a-list (lesson-11). The bare repositories are pruned by age and size (`--keep`,
 a disk cap).
@@ -384,7 +423,7 @@ blocks:
 - **Nothing of its own accord (invariant 12).** No pool, node or worker exists until the owner declares one; an
   empty `compute:` runs nothing.
 - **Leases and fences.** A run's lease, fence, attempts and dead letters are today's (SPEC §9.5); a node adds a
-  second stop (its interlock), never a second judgement of whether a lease is held.
+  second stop (its run's keeper, which outlives the session), never a second judgement of whether a lease is held.
 - **Fail closed.** A missing beat counts as a lost node, a hello of an unknown version as refused, a node too slow
   for a block's grace as refused for it. A run counts as gone only on a reading from an allowlist (section 2.4);
   an unreadable record, a start time not read or a container not inspected is **unknown**: its lease kept, a stop
@@ -402,6 +441,7 @@ These are open; each is the most reversible choice, and each can change without 
 | Secrets | named files, read at each start, sent in `start`, never written by ergostat |
 | The run's environment on a node | an allowlist, not the engine's environment |
 | When a node's interlock kills | at the engine's expiry, timed on the node's own clock from the renewals heard; SIGKILL `grace(ttl) / 4` later |
+| What holds a run's deadlines | a detached keeper per run, moved forward by the worker through a file; not a resident per-node service, which would need the owner to install and supervise one |
 | What a node keeps | run folders until `done`, bare repositories by age and size |
 | Sensors, daemons, AI blocks | engine-local in this milestone; AI blocks in a later gap |
 | Kubernetes | a later backend, the same protocol |
@@ -420,20 +460,24 @@ These are open; each is the most reversible choice, and each can change without 
    to the backend. The local backend still gives the engine's environment (today's behaviour); the spec's allowlist
    is what other backends use. Tests: the spec of each block type, round-tripped through JSON.
 3. **`compute-worker-stdio`**: `ergostat worker --stdio`, standard library only, protocol v1 (section 3), with the
-   process backend: hello and beats, start with `setrlimit` limits, output by offset, the wall timeout, kill with a
-   grace, the run folders and cleanup by name. Tested over a pipe to a worker on the same machine (no SSH): a run's
-   lines, its exit, a kill, a timeout, a line resent below the taken offset dropped, a bad run id refused, a sweep
-   that deletes only its own names.
+   process backend: hello and beats, start with `setrlimit` limits, output by offset, kill with a grace, the run
+   folders and cleanup by name, and the per-run keeper (section 2.4) holding the wall timeout and the cleanup. Tested
+   over a pipe to a worker on the same machine (no SSH): a run's lines, its exit, a kill, a timeout, a line resent
+   below the taken offset dropped, a bad run id refused, a sweep that deletes only its own names; a worker whose
+   stdin is closed mid-run leaves its run going and the keeper kills it at its wall time and removes its folder a
+   (shortened) day later; a keeper SIGKILLed leaves its run's first process killed by the death signal and the next
+   worker reads the run as unknown and stops its group.
 4. **`compute-pools`**: `compute:` and `runs-on:` in the YAML, their `check` findings and ceilings; the engine's
    connection per node (`ssh`, or `connect:`), a `remote` backend of the runner interface over it; the
    `ergostat.compute.*` measures and the dispatcher's room capped by a pool's free slots; a pool's status in the
    engine's heartbeat and `/api/status`. Acceptance: a block with `runs-on` over a same-machine worker runs and
    records as a local block does; a block without it is unchanged.
-5. **`compute-lease-on-node`**: the lease's expiry in `start`, `renew` on each renewal, the worker's interlock
-   killing a run whose lease it has not heard renewed, the engine's lease kill reaching node runs, a node lost after
-   three beats missed, its slots out of the stock at once, `ping` round trips and the `grace(ttl) / 4` bound, the
-   engine-wide ceilings of section 3. Tests: a worker whose session is cut has SIGKILLed its run by the expiry plus
-   `grace(ttl) / 2`, before the watchdog expires the lease; a worker whose clock of day is set an hour off kills at
+5. **`compute-lease-on-node`**: the lease's expiry in `start`, `renew` on each renewal, the worker writing the
+   lease deadline for the keeper and the keeper killing a run whose lease was not renewed, the engine's lease kill
+   reaching node runs, a node lost after three beats missed, its slots out of the stock at once, `ping` round trips
+   and the `grace(ttl) / 4` bound, the engine-wide ceilings of section 3. Tests: a session cut and its worker ended
+   (no worker left on the node): the run's keeper has SIGKILLed it by the expiry plus `grace(ttl) / 2`, before the
+   watchdog expires the lease; an unreadable deadline file does not move the deadline later; a worker whose clock of day is set an hour off kills at
    the same moment; a renewal delayed in the pipe does not move the deadline later; a node whose round trip is past
    the bound is sent no `start`; the item goes back once; a line the cut-off run sends after reconnecting is refused
    by the fence.
@@ -451,7 +495,8 @@ These are open; each is the most reversible choice, and each can change without 
    record or any log (a test that searches them all), and its name is on the run.
 9. **`compute-docker-backend`**: the Docker backend on the worker: the limits and `--init`, the container named
    for the run, the images in `hello`, per-run readings from the container's cgroup, `docker stop` then `rm -f`,
-   `network: none` by default.
+   `network: none` by default, and the keeper waiting on the container (`docker wait`) and stopping it at its
+   deadlines. Test: after a session is cut, the keeper has asked `docker rm -f` by the lease's expiry plus `grace(ttl) / 2`.
 10. **`compute-calls-from-node`**: a run on a node may call `ergostat act`, `event --add`, `lease` and `item` as a
     local run does: the worker serves a socket in the run's folder and forwards each call to the engine, which
     answers it as its own socket does (`engine.py:1791-1800`), at most 20 calls a second a run. Until then `check`

@@ -50,3 +50,22 @@ Round 2 (about 465 lines, still no code), answering every finding of review 1:
   run time with the draining runs included.
 The most reversible choices taken here: ten minutes for the window, 2 s for the ping, a quarter of the grace for
 each bound, and 256 for the engine-wide ceiling. Each can change without changing the protocol.
+
+Round 3 (about 500 lines, still no code), answering the one finding of review 2 (the deadline holder):
+- A per-run **keeper** (§2.4) holds the deadlines and outlives the session: `worker.py --keep RUN`, detached by
+  `setsid`, SIGHUP ignored, started before `started` is answered (`refused`, `no keeper`, uncounted, if it cannot
+  start). It holds the wall deadline, fixed at start, and the lease deadline, which the worker moves forward through
+  `runs/RUN/deadline` (written by replace; an unreadable file keeps the last deadline read), both on the node's own
+  `CLOCK_BOOTTIME`. The process backend's run is its child (it writes the exit, in place of the wrapper, which only
+  writes the exit, `runrecord.py:28`); for docker it waits with `docker wait`. At either deadline, or on the
+  worker's `stop` file, it sends SIGTERM then SIGKILL (or `docker stop`, `docker rm -f`); after the run's end it
+  removes the run's container and folder on `done` or a day later.
+- §2.4, §2.7 (kill, wall timeout, the interlock's kill), §2.9 and gaps 3, 5 and 9 now agree: the kill and the
+  cleanup are the keeper's; the worker only computes the deadline. Gap 5's test is a session cut *and* its worker
+  ended, with the keeper's SIGKILL by expiry + `grace(ttl)/2`; gap 3 tests a closed stdin and a killed keeper.
+- What is not claimed, said in §2.4: a keeper itself killed holds no deadline (the run's first process gets
+  SIGKILL by `PR_SET_PDEATHSIG` on Linux; descendants and a container wait for the next worker, which reads the
+  run as unknown and stops it by name); a login manager that ends a user's processes at logout ends the runs.
+The most reversible choice taken here: a detached keeper per run rather than a resident per-node service (which
+the owner would have to install and supervise), listed in §6. A keeper can become such a service later without
+changing the protocol.
