@@ -31,15 +31,16 @@ def _open(p) -> list[dict]:
 
 
 def resume(eng) -> None:
-    """At start: a test cut off by a stop is said finished; one approved a moment ago is run."""
-    p = eng.p
+    """At start: a test cut off by a stop is said finished; one approved a moment ago is run. Only the tests of this
+    engine's goals (``eng.follows``: an unknown goal's are the lead's; SPEC §9.8)."""
+    p, mine = eng.p, getattr(eng, "follows", lambda k: True)
     started = {e["data"].get("test"): e for e in p.events.query(n=200, type="steptest.started")}
     finished = {e["data"].get("test") for e in p.events.query(n=200, type="steptest.finished")}
     for tid, e in started.items():
-        if tid not in finished:
+        if tid not in finished and mine(f"goal.{e['item']}"):
             p.events.add("steptest.finished", item=e["item"], source=SOURCE,
                          data={"test": tid, "how": "cut off: ergostat stopped during it, and its controller took over"})
-    for e in _open(p):
+    for e in (e for e in _open(p) if mine(f"goal.{e['data'].get('goal') or e['item']}")):
         if time.time() - e["time"] > STALE:
             p.events.add("steptest.finished", item=e["item"], source=SOURCE,
                          data={"test": e["data"].get("id"), "how": "not run: approved while ergostat was not running"})
@@ -47,13 +48,14 @@ def resume(eng) -> None:
             begin(eng, e)
 
 
-def begin(eng, approval: dict) -> None:
-    plan = approval["data"]
-    if plan.get("block") not in eng.spec.blocks or plan.get("goal") not in eng.spec.goals:
+def begin(eng, approval: dict, spec=None) -> None:
+    """``spec``: the model the approval was judged under (the engine's now if None): the test runs under it."""
+    plan, spec = approval["data"], spec or eng.spec
+    if plan.get("block") not in spec.blocks or plan.get("goal") not in spec.goals:
         eng.p.events.add("steptest.finished", item=approval.get("item"), source=SOURCE,
                          data={"test": plan.get("id"), "how": "not run: its block or goal is no longer in the model"})
         return
-    threading.Thread(target=run, args=(eng, plan), name=f"ergostat-step-test-{plan.get('id')}", daemon=True).start()
+    threading.Thread(target=run, args=(eng, plan, spec), name=f"ergostat-step-test-{plan.get('id')}", daemon=True).start()
 
 
 def _step(eng, b, plan: dict, amount: float, to: float | None = None) -> float | None:
@@ -105,11 +107,22 @@ def _fits(u0: float, amount: float, limits) -> bool:
     return (lo is None or v >= lo - 1e-9) and (hi is None or v <= hi + 1e-9)
 
 
-def run(eng, plan: dict) -> None:
-    p = eng.p
+def _stamp(spec, goal: str) -> dict | None:
+    """The plant each system enclosing the goal is, innermost first (``rga.plant_signature``), for the relative gain
+    array to know the test was made of the system as it is; None when one cannot be worked out (the test runs anyway)."""
+    try:
+        from ..spec.architecture import _chains
+        from . import rga
+        return {s: rga.plant_signature(spec, s) for s in _chains(spec)[f"goal.{goal}"]}
+    except Exception:
+        return None
+
+
+def run(eng, plan: dict, spec=None) -> None:
+    p, spec = eng.p, spec or eng.spec
     tid, goal = plan["id"], plan["goal"]
-    b = eng.spec.blocks[plan["block"]]
-    hold = [x for x in plan.get("hold_blocks", [b.name]) if x in eng.spec.blocks]
+    b = spec.blocks[plan["block"]]
+    hold = [x for x in plan.get("hold_blocks", [b.name]) if x in spec.blocks]
     res = plan.get("resolution")
     amount = plan["amount"]
     eng.held.update(hold)
@@ -121,7 +134,8 @@ def run(eng, plan: dict) -> None:
             time.sleep(0.2)                                     # a run already under way finishes first
         u0 = eng.signals.get(plan["u"]) if plan.get("u") else None
         p.events.add("steptest.started", item=goal, source=SOURCE, data={"test": tid, "block": b.name, "held": hold,
-                                                                          "amount": amount, "hold": plan["hold"], "from": u0})
+                                                                          "amount": amount, "hold": plan["hold"], "from": u0,
+                                                                          "plant": _stamp(eng.spec, goal)})
         if plan.get("u") and u0 is None:
             how = f"not run: {plan['u']} has no reading to put it back to"
             return
@@ -155,5 +169,6 @@ def run(eng, plan: dict) -> None:
         eng.held.difference_update(hold)
         if hasattr(eng, "poke"):
             eng.poke(*hold, now=False)       # the controllers held look again at once
-        p.events.add("steptest.finished", item=goal, source=SOURCE, data={"test": tid, "how": how, "from": u0})
+        p.events.add("steptest.finished", item=goal, source=SOURCE, data={"test": tid, "how": how, "from": u0,
+                                                                           "plant": _stamp(eng.spec, goal)})
         eng.say(f"step test {tid} on {goal}: {how}")

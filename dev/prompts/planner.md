@@ -56,7 +56,8 @@ lessons below; your plan is where they are prevented.
 Each definition is exactly these, in this order:
 
 - `# BRANCH: one line on what it is`, then the line `depends-on: [names]`: branches of gaps or earlier sub-gaps, or
-  branches merged into main; `[]` for none.
+  branches merged into main; `[]` for none. A sub-gap never lists its parent (the gap being split, or any gap above
+  it) in `depends-on`: the parent waits on its children, so that would be a loop, and the intake refuses it.
 - `## Definition of done`: what is true when it is done, said so a reviewer can check it.
 - `## Relation to other work`: one line per overlapping gap of the graph (or `none`).
 - `## Files to touch`: one bullet per file, its path in backticks (`` `ergostat/x.py` ``); a file not on main yet says

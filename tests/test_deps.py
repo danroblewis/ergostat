@@ -59,3 +59,23 @@ def test_a_dependency_whose_branch_is_on_main_is_said_landed_not_closed(tmp_path
     sit = f.watch()
     got = [t["why"] for t in sit["triggers"] if t["trigger"] == "stuck" and t["subject"] == "gap/top"]
     assert len(got) == 1 and "landed, not closed" in got[0]                  # not explained away as a dependency wait
+
+
+def test_the_intake_refuses_a_dependency_on_an_ancestor_and_records_the_problem(tmp_path, monkeypatch):
+    """A sub-gap depending on its own split parent (or the parent's parent), named on the item or in its definition
+    file, is refused: a dependency_problem, never written to depends_on; a sibling stays a dependency."""
+    gaps = gaps_in(top="ready", kid="ready", grand="ready", sib="ready")
+    gaps["gap/kid"]["fields"].update(parent=["gap/top"], depends_on=["gap/top", "gap/sib"])
+    gaps["gap/top"]["fields"]["parent"] = "gap/grand"
+    fac_module(tmp_path, monkeypatch)
+    sys.modules["fac"] = module("fac")
+    deps = module("deps")
+    want = deps.plan(gaps, {"gap/kid": [("grand", "dev/records/kid.md")]}, {})
+    assert want["gap/kid"]["depends_on"] == ["gap/sib"]
+    got = want["gap/kid"]["problems"]
+    assert any("gap/top" in p and "its own ancestor" in p for p in got), got
+    assert any("gap/grand" in p and "dev/records/kid.md" in p and "its own ancestor" in p for p in got), got
+    said = dict(deps.changes(gaps, want))["gap/kid"]
+    assert said["dependency_problem"] is True and said["depends_on"] == {"set": ["gap/sib"]}
+    gaps["gap/top"]["fields"]["parent"] = "gap/kid"                            # a loop of parents ends
+    assert deps.ancestors(gaps, "gap/kid") == {"gap/top"}

@@ -4,8 +4,9 @@ engine's waiters wake on it at once (``notify.py``) and the item index folds it 
     {"event": "ticket.found", "item": "ticket/SCRUM-12", "data": {"title": "..."}}
     [{"event": ...}, {"event": ..., "item": ..., "patch": [...]}, {"event": ..., "id": "jira-10023-1700000000"}]
 
-``type`` is taken for ``event``. ``id`` is the caller's: an event already recorded with it is not recorded again
-(a webhook delivered twice). ``source`` is who pushed (a hook's name, else ``push``); ``causedby`` a run's id, when a
+``type`` is taken for ``event``. ``id`` is the caller's, except one starting ``cite:`` (a mirror's, which only the
+sensor it names records: ``mirror.py``): an event already recorded with it is not recorded again (a webhook delivered
+twice). ``source`` is who pushed (a hook's name, else ``push``); ``causedby`` a run's id, when a
 step pushes. An event type is lowercase words joined by dots, never ergostat's own (``agent.``, ``loop.``, ...)."""
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from __future__ import annotations
 import json
 import time
 import uuid
+
+from ..mirror import PREFIX
 
 MOST = 1000                   # events in one push
 
@@ -49,6 +52,8 @@ def check(e: dict, i: int = 0) -> dict:
     unknown = set(e) - {"event", "type", "item", "data", "patch", "set", "id", "source", "causedby"}
     if unknown:
         raise Refused(f"{where}unknown keys {sorted(unknown)} (an event: event, item, data or patch or set, id)")
+    if e.get("id") is not None and str(e["id"]).startswith(PREFIX):
+        raise Refused(f"{where}cite: ids are a mirror's own: only its sensor records them")
     item, data = e.get("item"), e.get("data")
     if item is not None and not isinstance(item, str):
         raise Refused(f"{where}item: an id, like ticket/12")
@@ -82,7 +87,9 @@ def record(p, evs: list[dict], source: str = "push", causedby: str | None = None
         r = rows[0]
         ev = p.events.add(r["type"], item=r.get("item"), source=r["source"], data=r.get("data"), causedby=r.get("causedby"),
                           id=r.get("id"), patch=r.get("patch"), set=r.get("set"))
-        return {"recorded": 0 if ev.get("seq") is None else 1, "ids": [ev["id"]], "time": ev["time"], "events": [ev]}
+        new = ev.get("seq") is not None
+        ev = ev if new else p.events.get(ev["id"]) or ev    # recorded before (a call asked again): the stored one
+        return {"recorded": int(new), "ids": [ev["id"]], "time": ev["time"], "events": [ev]}
     for r in rows:
         r.setdefault("id", uuid.uuid4().hex)
         r["at"] = now

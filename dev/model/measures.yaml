@@ -131,7 +131,7 @@ goals:
 blocks:
   factory-off:
     type: expr
-    description: any of the factory's own measures off, or a dependency problem
+    description: any of the factory's own measures off (the code measures' through code-health-off), or a dependency problem
     in:
       firstpass: goal.first-pass-good.off
       fixes: goal.few-fix-rounds.off
@@ -142,7 +142,8 @@ blocks:
       deps: goal.dependencies-sound.off
       plans: goal.plans-agreed.off
       denials: goal.no-tool-denials.off
-    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, plans, denials)
+      code: block.code-health-off
+    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, plans, denials, code)
     out: block.improve-factory
   improve-factory:
     type: person

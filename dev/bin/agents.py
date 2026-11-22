@@ -34,20 +34,22 @@ import fac
 NET, PROXY, PORT = "ergostat-agents", "ergostat-egress", 3128
 DENY = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)", "Bash(curl:*)",
         "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
+NAMED = "uv run python scripts/named_tests.py"   # (an allowlist: 1 to 3 named test files, no options; never a suite)
+BROWSER_FILE = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py"
 TOOLS = {
     "implementor": ["Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)",
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
-                    "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
+                    f"Bash({NAMED}:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
                     "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
-                    "Bash(uv run python scripts/suite_watch.py:*)"],   # (its own clone, in a container of its own;
-                                                    # the suites under the watchdog, the browser files with Playwright)
+                    f"Bash({BROWSER_FILE}:*)"],  # (a browser file: under the watchdog, with Playwright)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
             "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "librarian": 600, "groomer": 3000,
-            "pipeline_manager": 2400}   # seconds, each below its block's
+            "pipeline_manager": 2400, "suite-queue": 3600, "suite-triage": 3600,   # seconds, each below its block's
+            "measure-load": 43200}   # (runs.WALL, a whole measurement: its load lives through every run)
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
 SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
@@ -66,6 +68,17 @@ def settings(cfg: dict) -> dict:
     return {"image": a.get("image", "ergostat-agent:latest"), "hosts": list(a.get("hosts") or ["api.anthropic.com"]),
             "token_file": Path(os.path.expanduser(a.get("token_file", "~/.config/ergostat/claude-token"))),
             "proxy_image": a.get("proxy_image", "ergostat-dev:latest")}
+
+
+def session_cpus(a: dict) -> str:
+    """[agents] session_cpus: a session container's --cpus (empty or absent: the suites' 4); outside (0, 4] refused."""
+    got = str(a.get("session_cpus", "")).strip()
+    try:
+        if got and not 0 < float(got) <= 4:
+            raise ValueError(got)
+    except ValueError:
+        raise Refused(f"[agents] session_cpus = {got!r}: a number of CPUs above 0 and at most 4") from None
+    return got or LIMITS[LIMITS.index("--cpus") + 1]
 
 
 def token(cfg: dict) -> str:
@@ -133,7 +146,7 @@ def run_args(cfg: dict, role: str, work: Path, name: str, keep=None) -> list[str
     """`docker run` for a session: the token by name only (its value is in the docker client's environment alone).
     ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id."""
     proxy = f"http://{PROXY}:{PORT}"
-    return ["run", "--rm", "-i", "--name", name, "--network", NET, *LIMITS, *SHOTS,
+    return ["run", "--rm", "-i", "--name", name, "--network", NET, *limits(cfg, "session"), *SHOTS,
             "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work",
             *(["-v", f"{keep.raw}:{keep.HOME}"] if keep else []),
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
@@ -314,8 +327,8 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *a
     else:
         name = container("finish")
         try:
-            docker("run", "--rm", "--name", name, "--network", "none", *LIMITS, "-v", f"{home / 'work'}:/work",
-                   "-v", f"{out}:/out", "-w", "/work", settings(cfg)["image"], "sh", "-c", script,
+            docker("run", "--rm", "--name", name, "--network", "none", *limits(cfg, "session"),
+                   "-v", f"{home / 'work'}:/work", "-v", f"{out}:/out", "-w", "/work", settings(cfg)["image"], "sh", "-c", script,
                    timeout=TIMEOUTS["finish"])
         finally:
             killed(name)
@@ -346,7 +359,7 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
         cmd, name = cfg["suites"][n], None
         if tests is not None:
             cmd = cmd.format(tests=" ".join(map(shlex.quote, tests)))
-        cmd = fac.deselected(n, cmd, held + own)
+        cmd = fac.deselected("unit" if n == "build" else n, cmd, held + own)   # (build: the unit suite's few)
         if cfg["ai"]["mode"] != "standin":
             name, cmd = contained(cfg, cmd, home / "work")
         log = logs / f"{tag}-{n}.txt"
@@ -364,7 +377,7 @@ def suites(cfg: dict, home: Path, names: tuple[str, ...], logs: Path, tag: str, 
             out[n] |= {"skipped": skipped} if skipped else {}
             out.update(failed=n, tail=text[-3000:], tests=fac.failed_tests(text))
             break
-    if "unit" in out:                                  # the quarantined tests beside it, never blocking
+    if "unit" in out or "build" in out:                # the quarantined tests beside it, never blocking
         fac.beside(held, logs / f"{tag}-quarantined-alone.txt",
                    lambda ts: suites(cfg, home, ("alone",), logs, f"{tag}-quarantined", tests=ts))
     return out
@@ -383,11 +396,67 @@ def browser_ready(cfg: dict, home: Path, logs: Path, tag: str) -> None:
                       f"It said: {got['tail'][-400:]}")
 
 
-def contained(cfg: dict, cmd: str, work: Path) -> tuple[str, str]:
-    """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network)."""
-    name = container("suite")
-    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *LIMITS, *SHOTS,
+def contained(cfg: dict, cmd: str, work: Path, role: str = "suite") -> tuple[str, str]:
+    """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network). ``role``, in its
+    name: how long another process's sweep() leaves it (TIMEOUTS)."""
+    name = container(role)
+    return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *limits(cfg, "suite"), *SHOTS,
                            "-v", f"{work}:/work", "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
+
+
+CPUSET = re.compile(r"^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$")
+
+
+def limits(cfg: dict, kind: str, cpus: float | None = None) -> list[str]:
+    """LIMITS for one kind of container: `session`, `suite` (a gap's own suites) or `queue` (the merge queue's and flake
+    triage's), each pinned to its own CPUs of Docker's VM by [agents] <kind>_cpuset (empty: not pinned), so none slows
+    another. ``cpus``: its --cpus (a session's: [agents] session_cpus; else LIMITS' 4). A cpuset that is not a list of
+    CPUs and ranges is refused (raised), never dropped."""
+    a = cfg.get("agents") or {}
+    cpus = cpus or (session_cpus(a) if kind == "session" else None)
+    out = list(LIMITS)
+    if cpus:
+        out[out.index("--cpus") + 1] = f"{float(cpus):g}"
+    pin = str(a.get(f"{kind}_cpuset") or "").strip()
+    if pin and not CPUSET.match(pin):
+        raise ValueError(f"[agents] {kind}_cpuset = {pin!r}: not a cpuset such as '12-23' or '0,2-5'")
+    return out + (["--cpuset-cpus", pin] if pin else [])
+
+
+QUEUE_CPUS = {"unit": 8, "browser": 4}   # the queue's unit and browser run at once in queue_cpuset (12); others 4
+NOT_STARTED = (125, 126, 127)            # docker run's own failure, or a command that could not be run in it
+
+
+class NotStarted(RuntimeError):
+    """A queue suite's container that did not start: an infrastructure failure, never a red suite or a gap's fault."""
+
+
+def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str, env: tuple = ()) -> tuple[str, str]:
+    """(a container's name, the shell command that runs ``cmd`` in it): one of the merge queue's (``box`` "queue") or
+    flake triage's ("triage") suites, in the agent image on ``work`` at /work, with no network (a demo's servers and
+    ports in its own namespace), pinned to [agents] queue_cpuset. The Mac's checkout is kept as the Mac left it: the
+    image's own environment (/opt/venv), with an empty tmpfs over the checkout's .venv; bytecode and ruff's cache under
+    /tmp; the git directory read-only (a worktree's at its own path). run/coverage/ at its own path, as the unit run's
+    ERGOSTAT_COVERAGE names it. ``env``: more NAME=value settings for it (fac.suite's PYTEST_ADDOPTS)."""
+    name, work = container(f"suite-{box}"), work.resolve()
+    common = Path(fac.git(work, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
+    cov = fac.run_dir(cfg, "coverage").resolve()
+    inside = f"/work/{common.relative_to(work)}" if common.is_relative_to(work) else str(common)
+    args = ["docker", "run", "--rm", "--name", name, "--network", "none",
+            *limits(cfg, "queue", QUEUE_CPUS.get(suite, 4)), *SHOTS, "-v", f"{work}:/work", "-v", f"{cov}:{cov}",
+            "-v", f"{common}:{inside}:ro", *(["--tmpfs", "/work/.venv"] if (work / ".venv").is_dir() else []),
+            "-e", "UV_PROJECT_ENVIRONMENT=/opt/venv", "-e", "PYTHONPYCACHEPREFIX=/tmp/pycache",
+            "-e", "RUFF_CACHE_DIR=/tmp/ruff", *[x for e in env for x in ("-e", e)], "-w", "/work", settings(cfg)["image"], "sh", "-c", cmd]
+    return name, shlex.join(args)
+
+
+def sweep_box(box: str) -> list[str]:
+    """The ``box``'s containers left by a run killed with no finally (SIGKILL): removed now, by name. Called under
+    the lock that lets one such run at a time (the queue's), so none of them is a live run's."""
+    got = docker("ps", "-a", "--filter", f"name={PREFIX}suite-{box}-", "--format", "{{.Names}}", check=False)
+    for name in got.stdout.split():
+        killed(name)
+    return got.stdout.split()
 
 
 def suite_containers() -> int:

@@ -27,6 +27,7 @@ import time
 import uuid
 from pathlib import Path
 
+from . import mirror
 from .spec.items import SNAPSHOT, TRANSCRIPT_TYPES, field_of, fold, kind_of
 
 MIN_EVENTS = 2              # a prefix of fewer events is left as it is: one event is already as small as a snapshot
@@ -153,6 +154,9 @@ def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: flo
     rollup = {**_meta(own), "lines": lines,
               "archived": {"events": archived, "segments": sorted({*(old.get("archived") or {}).get("segments", []), *segments})},
               "made": now}
+    cites = mirror.kept(old.get("cites"), [e for e in prefix if e["type"] != SNAPSHOT])
+    if cites:                                   # a mirror's greatest position, so it resumes from it (mirror.recorded)
+        rollup["cites"] = cites
     if lines:
         whole = fold(id, prefix, kind, history=True, transcript=True)
         rollup["transcript"] = {**_meta(whole), "set": whole.fields}

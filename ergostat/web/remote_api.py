@@ -13,6 +13,7 @@ EVENTS_MOST = 1000
 ITEMS_MOST = 500
 READINGS_MOST = 200
 POINTS_MOST = 1000
+AT_MOST = 200                        # the items a process call may ask where they are (at=)
 RATE, BURST = 10.0, 30.0             # a token's requests a second, and how many it may make at once
 
 _buckets: dict[str, list[float]] = {}
@@ -168,5 +169,10 @@ def answer(live, path: str, q: dict):
         now = time.time()
         since = _float(q, "since") or now - st.WINDOW
         kinds = [k for k in ",".join(q.get("kinds") or []).split(",") if k in spec.items] or pm.kinds_of(spec, None)
-        return 200, pm.process(p.events, spec, kinds, since, now, (q.get("by") or [None])[0], 0.0)
+        at = list(dict.fromkeys(q.get("at") or []))       # each id whole, as given: never split on ","
+        if len(at) > AT_MOST:
+            return 400, {"error": f"at most {AT_MOST} items a call (at=)"}
+        got = pm.process(p.events, spec, kinds, since, now, (q.get("by") or [None])[0], 0.0, at if "at" in q else None)
+        got.pop("remote_links", None)                       # its own lines to its remotes: not composed (§4c)
+        return 200, got
     return 404, {"error": f"no {head} here (status, model, events, items, counts, readings, series, process)"}
