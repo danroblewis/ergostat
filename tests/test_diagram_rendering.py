@@ -2377,6 +2377,83 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     assert not errors and not asked, (errors, asked)
 
 
+OFF_PIXELS = """(c, [x, y, w, hh]) => {      // a canvas region's pixels near the bad wash, and near the bad ink
+  const css = getComputedStyle(document.documentElement), hex = (n) => { const s = css.getPropertyValue(n).trim().slice(1);
+    return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16)); };
+  const wash = hex("--bad-wash"), bad = hex("--bad");
+  const near = (d, i, k, tol) => Math.abs(d[i] - k[0]) + Math.abs(d[i + 1] - k[1]) + Math.abs(d[i + 2] - k[2]) <= tol;
+  const d = c.getContext("2d").getImageData(x, y, w, hh).data;
+  let a = 0, b = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) { if (near(d, i, wash, 24)) a++; else if (near(d, i, bad, 60)) b++; }
+  return [a, b];
+}"""
+CONTRAST = """(els, prop) => els.map((el) => {   // each element's colour (or border) against the ground under it
+  const rgb = (s) => s.match(/[\\d.]+/g).map(Number), lum = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => v / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  let ground = null;
+  for (let p = el.parentElement; p && !ground; p = p.parentElement) {
+    const c = rgb(getComputedStyle(p).backgroundColor);
+    if (c.length < 4 || c[3] > 0) ground = c;
+  }
+  const fg = lum(rgb(getComputedStyle(el)[prop])), bg = lum(ground || [255, 255, 255]);
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+})"""
+
+
+def test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_both_themes(browser, tmp_path, monkeypatch):
+    """A loop's off stretch is hatched on its y, u and e charts (the bad ink's stripes over the wash, not the
+    wash alone), labelled 'off' on the chart over the time axis, and keyed by a swatch of the same hatch and
+    the word 'off' (no 'Red: off'). The lifecycle's arrows and the Guide's dots are 3:1 or more on their page,
+    light and dark."""
+    d = charted(tmp_path, monkeypatch)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        for scheme in ("light", "dark"):
+            pg = browser.new_page(viewport={"width": 1500, "height": 1000}, color_scheme=scheme)
+            errors: list[str] = []
+            pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
+            pg.goto(url + "/loops")
+            pg.evaluate("""() => { window.SAID = []; const f = CanvasRenderingContext2D.prototype.fillText;
+                CanvasRenderingContext2D.prototype.fillText = function (t, ...r) {
+                  SAID.push([String(t), this.canvas]); return f.call(this, t, ...r); }; }""")
+            pg.locator("td.spark-cell").first.click()
+            pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3 && document.querySelector('#detail .scope .off-key')",
+                                 timeout=20000)
+            pg.wait_for_timeout(300)
+            for i in range(3):                     # y, u, e: each its off stretch hatched, along the top of its plot
+                wash, ink = pg.evaluate(f"""() => {{ const u = document.querySelectorAll('#detail .scope .chart-plot')[{i}].plot;
+                    return ({OFF_PIXELS})(u.ctx.canvas, [u.bbox.left, u.bbox.top + 2, u.bbox.width, 10]); }}""")
+                assert wash > 30 and ink > 10, (scheme, i, wash, ink)
+            assert pg.evaluate("""() => { const c = document.querySelectorAll('#detail .scope .chart-plot')[2].plot.ctx.canvas;
+                return SAID.some(([t, k]) => t === 'off' && k === c); }"""), "the e chart, over the time axis, says 'off'"
+            foot = pg.locator("#detail .scope .chart-foot")
+            assert "Red: off" not in foot.inner_text() and foot.locator(".off-said").inner_text().strip() == "off"
+            wash, ink = foot.locator("canvas.off-key").evaluate(f"(c) => ({OFF_PIXELS})(c, [0, 0, c.width, c.height])")
+            assert wash > 10 and ink > 10, (scheme, wash, ink)
+            pg.goto(url + "/item/ticket%2F1")
+            pg.wait_for_selector(".track .arrow")
+            arrows = pg.locator(".track .arrow").evaluate_all(CONTRAST, "color")
+            assert len(arrows) == 2 and min(arrows) >= 3, (scheme, arrows)
+            pg.goto(url + "/guide")
+            pg.wait_for_selector(".g-dot")
+            dots = pg.locator(".g-dot:not(.on)").evaluate_all(CONTRAST, "borderTopColor")
+            assert dots and min(dots) >= 3, (scheme, dots)
+            pg.close()
+            assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
     """They help and they clutter: the ⋯ menu hides them; a reload keeps them hidden; it shows them again."""
     with served("software-factory", tmp_path) as url:
