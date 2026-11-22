@@ -22,6 +22,7 @@ import yaml
 
 from ..spec.load import FILE, texts
 from . import templates as tp
+from . import untrusted as ut
 
 SKIP = (".git", "__pycache__", ".venv", "node_modules", "run", "outbox", "reports", ".ergostat-scratch")
 
@@ -45,11 +46,30 @@ def library(root: Path | None, name: str | None = None) -> dict:
         t = got.get(name)
         if t is None:
             raise AuthorError(f"no template {name!r} (there are: {', '.join(sorted(got))})")
-        return {**t.summary(), "reading": t.reading, "example": t.example}
-    return {"templates": [{"template": t.name, "description": t.description, "from": t.summary()["from"],
-                           "trust": t.trust, "params": list(t.params)} for t in got.values()],
-            "folders": [str(f) for f in tp.folders(extra)], **({"notes": notes} if notes else {}),
-            "next": "templates with name: NAME for its parameters and its reading; add_use to try one"}
+        return marked(t, {**t.summary(), "reading": t.reading, "example": t.example})
+    out = {"templates": [marked(t, {"template": t.name, "description": t.description, "from": t.summary()["from"],
+                                    "trust": t.trust, "params": list(t.params)}) for t in got.values()],
+           "folders": [str(f) for f in tp.folders(extra)], **({"notes": notes} if notes else {}),
+           "next": "templates with name: NAME for its parameters and its reading; add_use to try one"}
+    shown = any(t.untrusted for t in got.values()) or any(n.startswith("untrusted library folder") for n in notes)
+    return {**out, "markers": ut.SAYS} if shown else out
+
+
+TEXT = ("description", "reading", "example", "from")               # an untrusted template's text, marked (SPEC §2a)
+PARAM_TEXT = ("description", "stand-in", "default", "choices")
+
+
+def marked(t: tp.Template, entry: dict) -> dict:
+    """An untrusted template's entry with its library text marked (a string; a list or map as JSON, then marked; a
+    number or a bool as it is): never its name, its parameters' names or their types. A trusted one's, as it is."""
+    if not t.untrusted:
+        return entry
+    label = ut.LABEL.format(t.name)                                 # (its name matched tp.SAFE when it was read)
+    out = {k: ut.mark_all(v, label) if k in TEXT else v for k, v in entry.items()}
+    if isinstance(out.get("params"), dict):
+        out["params"] = {n: {k: ut.mark_all(v, label) if k in PARAM_TEXT else v for k, v in p.items()}
+                         for n, p in out["params"].items()}
+    return {**out, "untrusted": True, **({"markers": ut.SAYS} if "reading" in entry else {})}
 
 
 # ---- writing an instance

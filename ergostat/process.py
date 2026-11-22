@@ -352,11 +352,13 @@ def _every(spec, block: str) -> str:
 
 
 def process(events, spec, kinds: list[str], since: float, until: float, by: str | None = None,
-            paths: float = 0.0) -> dict:
+            paths: float = 0.0, at: list[str] | None = None) -> dict:
     """The process map of ``kinds`` over the span: nodes, lines (``follows`` within an item, ``caused``
     between items), each with its count and median time, the more frequent first; lines below ``paths`` (a
     share, 0 to 1, of the most frequent line of their kind) left out, as process mining tools' slider does,
-    and the nodes it leaves with no line. Bounded: what was left out is said."""
+    and the nodes it leaves with no line. Bounded: what was left out is said. ``at``: some item ids, each answered
+    with its kind and the step it was last at in the window (``at``; one with no step there left out)."""
+    from .spec.relations import ids_in
     by = by if by in BY else default_by(spec, kinds)
     w = Window(events, spec, kinds, since, until, by)
     nodes: dict[str, dict] = {}
@@ -424,10 +426,17 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         e["_causes"].add(ci)
         e["_types"][(cty, ety)] = e["_types"].get((cty, ety), 0) + 1
         e["_times"].append(max(0.0, t - tc))
-    # relations (SPEC §5a): each link between two items drawn, at the activity each was last at in the window
+    # relations (SPEC §5a): each link between two items drawn, at the activity each was last at in the window; a link
+    # to a remote's item kept for ``remote/process.py`` to draw against the remote's map (SPEC §4c)
+    remote_links = []
     for id, steps in w.steps.items():
         kind, it = w.kind_of[id], w.folded.get(id)
         for rel in spec.items[kind].relations.values() if it is not None else ():
+            if rel.remote:
+                remote_links += [{"item": id, "kind": kind, "activity": steps[-1][1], "relation": rel.name,
+                                  "remote": rel.remote, "there": rel.there, "target": t}
+                                 for t in ids_in(it.fields.get(rel.name))]
+                continue
             v = it.fields.get(rel.name)
             for t in v if isinstance(v, list) else [v]:
                 if not isinstance(t, str) or t not in w.steps or t == id:
@@ -459,10 +468,10 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
             order[x["id"]] = float(k.states.index(a))
         else:                                  # an event: its usual place in its items' runs (the first, 0)
             order[x["id"]] = median(pos.get((x["itemKind"], a), [0.0]))
-    def at(id):                                            # as the page lays them out: ties by name
+    def place(id):                                         # as the page lays them out: ties by name
         return order[id], nodes[id]["activity"]
     for e in edges.values():
-        e["rework"] = e["kind"] == "follows" and (e["source"] == e["target"] or at(e["target"]) < at(e["source"]))
+        e["rework"] = e["kind"] == "follows" and (e["source"] == e["target"] or place(e["target"]) < place(e["source"]))
         e["self"] = e["source"] == e["target"]
     total = {"nodes": len(nodes), "edges": len(edges)}
     # the frequency filter: lines below the share of their kind's most frequent left out
@@ -517,9 +526,13 @@ def process(events, spec, kinds: list[str], since: float, until: float, by: str 
         info.append({"name": k, "states": list(ki.states), "drawn": k in present,
                      "by": by if (by == "events" or ki.states) else "events",
                      "items": sum(1 for id in w.steps if w.kind_of.get(id) == k)})
-    return {"kind": "process", "by": by, "paths": paths, "kinds": info, "nodes": out_nodes, "edges": out_edges,
-            "since": since, "until": until, "events": len(w.evs), "capped": {k: v for k, v in capped.items() if v},
-            "total": total, "hidden": hidden, "most": {"nodes": MOST_NODES, "edges": MOST_EDGES, "events": MOST_EVENTS}}
+    out = {"kind": "process", "by": by, "paths": paths, "kinds": info, "nodes": out_nodes, "edges": out_edges,
+           "since": since, "until": until, "events": len(w.evs), "capped": {k: v for k, v in capped.items() if v},
+           "total": total, "hidden": hidden, "most": {"nodes": MOST_NODES, "edges": MOST_EDGES, "events": MOST_EVENTS},
+           "remote_links": remote_links}
+    if at is not None:                  # where each item asked was last (a consumer's lines to it, SPEC §4c)
+        out["at"] = {i: {"kind": w.kind_of[i], "activity": w.steps[i][-1][1]} for i in at if i in w.steps}
+    return out
 
 
 

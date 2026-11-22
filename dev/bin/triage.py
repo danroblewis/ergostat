@@ -3,7 +3,8 @@ the branch merged into the main it failed on, `pre`, whatever main has become si
 under a suite slot once the machine is quiet; never under the queue's lock, so neither the rerun nor the wait holds the
 queue). If they pass alone, each is a `flake` item and the gap goes back to the queue (retried, not blamed), at most
 `RETRIES` times; if they fail again, or nothing names the tests (ruff, a watchdog kill, demo_check), the failure is the
-branch's: back to fix with what failed, or parked on its `[gates] kill_after`-th failed gate."""
+branch's: back to fix with what failed, or parked on its `[gates] kill_after`-th failed gate. A rerun stopped for a
+limit (fac.Stalled) is tried again later, uncounted, until the gap's fac.STALLS_MOST-th stall: then it is the branch's."""
 
 from __future__ import annotations
 
@@ -57,8 +58,16 @@ def main() -> int:
         got = {"why": f"retried {RETRIES} times as flaky already: the failure is the branch's"}
     elif tests:
         fac.wait_quiet(cfg)                             # (a suite slot, in fac.suite: never the queue's lock)
-        rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n,
-                         str(f.get("failed_suite") or ""))
+        try:
+            rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n,
+                             str(f.get("failed_suite") or ""))
+        except fac.Stalled as e:                        # (stopped for a limit: not the branch's, tried again later,
+            n = int(f.get("stalls") or 0) + 1           # until its fac.STALLS_MOST-th stall: then the branch's)
+            fac.say("gap.measured", stalled=e.suite, stalled_why=e.why, stalled_test=e.test, stalled_tail=e.tail, stalls=1)
+            if n < fac.STALLS_MOST:
+                fac.nack(f"triage: {e}", after="10m", count=False)
+                return 0
+            got = {"why": f"stalled {n} times ({e.why}), on {e.test or 'no named test'}", "stalled": e.suite}
     if rc == 0:                                  # (only quarantined tests failed: no flake seen, no retry spent)
         tests = [t for t in tests if t not in got.get("quarantined", [])]
         for t in tests:

@@ -174,6 +174,8 @@ rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.
 check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
 queue_container = true               # the queue's and triage's suites each in a container of the agent image, on
                                      # [agents] queue_cpuset, no network (agents.queued); false: on the Mac, as before
+stall_minutes = 10                   # a queue or triage suite whose log has not grown this long is stopped (at most 60)
+wall_minutes = 45                    # ... and one past this long in all (3 x the suites-in-time goal; at most 120)
 queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the
                                      # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under
                                      # run/coverage/ (dev/README.md, Coverage). On: its overhead on the full unit

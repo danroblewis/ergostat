@@ -18,10 +18,12 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
    recorded and never blocking (fac.beside()). With `[suites] queue_container` (the default) each suite runs in a
    container of the agent image on `[agents] queue_cpuset` with no network (agents.queued); one that does not start
-   fails the run (agents.NotStarted: undone, no gap blamed), and a stopped run kills its containers by name. After
-   unit and browser, `[suites] host` (the sandbox's tests, which skip in the container) runs on the Mac, never boxed,
-   as a suite like the others (its log `<tag>-host.txt`; red bisects); empty, the step is off. Exit 126 or 127 is a
-   step that did not start (NotStarted), and a test it skips that the unit run skipped too fails it (nowhere());
+   fails the run (agents.NotStarted: undone, no gap blamed), and a stopped run kills its containers by name. A suite
+   whose log stops growing, or that runs too long (fac.limits()), is stopped as a stall: undone, the next batch
+   halved, no gap blamed until one alone stalls fac.STALLS_MOST times (stalled()). After unit and browser,
+   `[suites] host` (the sandbox's tests, which skip in the container) runs on the Mac, never boxed, as a suite like
+   the others (its log `<tag>-host.txt`; red bisects); empty, the step is off. Exit 126 or 127 is a step that did not
+   start (NotStarted), and a test it skips that the unit run skipped too fails it (nowhere());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    when its 1 to 3 named tests each pass alone on the red tree twice and the suites it did not finish pass, it lands as
@@ -758,6 +760,26 @@ def main() -> int:
         release({"then": HELD["said"]})
 
 
+def stalled(cfg: dict, gap: dict, batch: list, pre: str, e: fac.Stalled) -> None:
+    """A suite stopped for a limit (fac.limits()) is a stall, not the batch's failure: said on the run's own gap
+    (stalled: the suite, the test its log was on, its tail), whose lease is given back uncounted; its batch-mates never
+    left `approved`, and the next run takes half as many (at least 1; a settled run clears it: likely, not sure). A stall
+    of the own gap alone is counted (`stalls`); its fac.STALLS_MOST-th goes to triage (queue-failed, the stalled test
+    as its failed test). Until then nothing goes to fix or triage for it (an outcome already held for it stands)."""
+    save(cfg, {**state(cfg), "cap": max(1, len(batch) // 2)})          # (under the queue's lock: take())
+    alone = int(len(batch) == 1 and batch[0][0]["id"] == gap["id"])
+    fac.say("gap.measured", stalled=e.suite, stalled_why=e.why, stalled_test=e.test, stalled_tail=e.tail,
+            stalled_batch=[g["id"] for g, _ in batch], stalls=alone)
+    if HELD["said"]:
+        return
+    n = int(gap["fields"].get("stalls") or 0) + alone
+    if alone and n >= fac.STALLS_MOST:
+        tell("gap.queue-failed", gap["id"], failed_suite=e.suite, failed_tests=[e.test] if e.test else [], pre=pre,
+             findings=[f"{e.suite} stalled {n} times with this gap alone in the queue, on {e.test or 'no named test'}"])
+    else:
+        fac.nack(f"queue: {e}", after="10m", count=False)
+
+
 def take(cfg: dict, gap: dict, repo, started: float) -> int:
     """Under the queue's lock throughout: whether a push waits is read from run/queue.json, the gap is taken
     (`gap.queued`), and a push asked for is written there, in one hold, so no run between them takes a gap. Its
@@ -797,7 +819,11 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
         save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": [g["id"] for g, _ in batch], "at": began}})
         done = settled = False
         try:
-            landed, merged, back = land(cfg, repo, batch, pre, began, waited, dried, until)
+            try:
+                landed, merged, back = land(cfg, repo, batch, pre, began, waited, dried, until)
+            except fac.Stalled as e:                       # (main undone below; no gap blamed for it)
+                stalled(cfg, gap, batch, pre, e)
+                return 0
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
                 HELD["said"] = []

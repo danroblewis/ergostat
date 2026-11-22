@@ -253,17 +253,23 @@ made a definition by the lint sweep; each sub-gap's plan review is given it (`(n
 file). Once every sub-gap is merged the join moves the parent to `joined`, never to `merged`, and the **join judge**
 (`plan.py join`, the plan reviewer's model and session cap, `[ai] join_judge_*`) reads, in a read-only clone of main,
 the parent's entry, its coverage, and each sub-gap's definition and last review (anything unreadable shown as
-`(missing: why)`). `covered` merges the parent, its verdict, reasons and `judged_at` recorded. `short` requests a new
-sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points not built), adds those points to the
-coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
-most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
-cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
-The judge's verdicts are measured by `split-quality` (of parents first judged in 14 days, the share whose first
-verdict, in record order, was `covered`), `split-joins` (parents judged at least once, whole record) and
-`split-overhead` (the median, over parents merged in 14 days, of the parent's and its children's AI cost, a parked
+`(missing: why)`). A sub-gap whose definition or last review cannot be read (or a child not in the record) makes the
+verdict `short` at once, a point naming each, with no clone, no session and cost 0. `covered` moves the parent to
+`merged` with its verdict, reasons and `judged_at`, but no `merged_at`: no work merged, so it stays out of
+cycle-hours, cost-per-merged and fix-rounds. "Covered" is the planner's coverage mapping plus an AI judgment at the
+join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (the next unused name when that one is
+taken; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
+name)`, and only then splits the parent again, so the join waits for the new sub-gap. At most `plan.MOST_SHORT` = 1
+short round splits again: the second `short` parks the parent, its "Where it stopped" listing the points not built. A
+verdict that cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget
+refusal waits. The judge's verdicts are measured by `splits-covered` (of parents first judged in 14 days, the share
+whose first verdict, in record order, was `covered`), `split-budgets-held` (of sub-gaps merged in 14 days, the share
+whose `net_lines` are at or under their own definition's `## Size budget`; a definition, budget or `net_lines` that
+cannot be read is not held), `split-joins` (parents judged at least once, whole record) and `split-overhead` (the
+median, over parents judged covered in 14 days by `judged_at`, of the parent's and its children's AI cost, a parked
 sub-gap's and its continuation's both, over the median cost of merged unsplit gaps of the children's size class; a
 parent unpriced, with a child unmerged, unsized or unpriced, or with no unsplit gap of its class is left out and
-named), and `split-quality ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
+named), and `splits-covered ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -533,6 +539,28 @@ only with batch-mates on both walks. In that second case the gap is given back w
 after 10 minutes), and the count is kept on the gap as `empty_batches`, per reviewed commit. The third such run on
 the same commit (`EMPTY_MOST` in queue.py) sends the gap back instead, as a failed gate, with the reason as its finding,
 so it is never taken forever.
+
+A suite that hangs does not hold the queue for the block's 3 hour timeout. Each of the queue's and triage's suites is
+stopped (its process group and its container) when its log has not grown for `[suites] stall_minutes` (10; at most 60)
+or when it has run past `[suites] wall_minutes` (45, three times the 15-minute `suites-in-time` goal; at most 120).
+A value past its ceiling, or not above 0, is refused when the settings are read, and again when a suite starts. Past
+either limit the run's lease is no longer renewed. A stopped suite is a stall, not the batch's failure: main is
+undone, the run's own gap gets `stalled` (the suite), `stalled_why`, `stalled_test`, `stalled_tail` and
+`stalled_batch`, and its lease is given back uncounted, so it and its batch-mates (which never left `approved`) are
+taken again, with no failed gate and nothing sent to fix or triage. `-q` prints no test ids while tests run, so each
+of these suites runs with `PYTEST_ADDOPTS=-o faulthandler_timeout=<half the stall limit>`. A test still running then
+has its stack dumped into the log, and `stalled_test` is the `tests/test_*.py::test_*` function in the last such
+stack. A method or a parametrized case is named by its file and function only. With no stack, it is the last test id
+the log names, or null. Each hung test's dump grows the log once, so it stops the suite up to half a stall limit
+later. A stall also halves the next run's batch (at least 1), so a gap that hangs tends to come to run alone. This is
+not guaranteed: any run that settles a gap clears the halving, and a stall in a batch of more than one counts on no
+gap. A stall during a bisect throws away a green prefix that run already found. Gaps that run already sent on (to
+triage, or back for a conflict) keep that outcome, though `stalled_batch` still lists them. A stall
+with the gap alone in its batch is counted on it (`stalls`). The clocks start once `[suites] slot` (triage's suites)
+is held, so a wait for the slot is never a stall. Its third (`STALLS_MOST` in fac.py) is no longer given
+back: it goes to triage as `queue-failed`, the stalled test as its failed test. In triage, a stalled rerun gets the
+same fields and `stalls`, and its lease is given back the same way until the gap's third stall. Then the failure is
+the branch's: back to fix, or parked by the kill rule.
 
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
