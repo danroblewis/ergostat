@@ -388,3 +388,32 @@ def test_a_growing_transcript_gains_its_new_turns_and_keeps_what_is_open(browser
     assert not any(n in ("DETAILS", "PRE", "TABLE") for m in ms for n in m["removed"]), ms
     assert turns >= 2, ms
     assert after["connected"] and abs(after["top"] - before["anchorTop"]) <= 1, (before, after)
+
+
+def options(pg) -> list[list]:
+    return pg.evaluate("() => [...document.querySelectorAll('#project option')].map((o) => [o.textContent, o.value, o.disabled])")
+
+
+def test_the_header_menu_lists_running_projects_then_counts_the_stopped(browser, site):
+    """The real answer: this project is the only one, and has no engine, so the menu says 1 stopped. Then a list with
+    another running project (the answer stood in for): offered with its 'N off', and choosing it goes to its page."""
+    pg, errors, _ = open_page(browser, site, "loops", "projects")
+    pg.wait_for_function("() => document.querySelectorAll('#project option').length > 1", timeout=10000)
+    got = options(pg)
+    pg.close()
+    assert got[-1] == ["1 stopped (ergostat projects)", "", True], got
+    assert len(got) == 2 and not errors, (got, errors)
+    pg = browser.new_page(viewport={"width": 1280, "height": 800})
+    listed = {"running": [{"name": "elsewhere", "web": "http://elsewhere.test", "off": ["a", "b"], "unknown": []},
+                          {"name": "no-page", "web": None, "off": [], "unknown": []}], "stopped": 7, "at": 1.0}
+    pg.route("**/api/projects?*", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(listed)))
+    pg.route("http://elsewhere.test/**", lambda r: r.fulfill(status=200, content_type="text/html", body="<p>elsewhere</p>"))
+    pg.goto(f"{site['url']}/loops")
+    pg.wait_for_function("() => document.querySelectorAll('#project option').length > 3", timeout=10000)
+    got = options(pg)
+    assert got[1:] == [["elsewhere (2 off)", "http://elsewhere.test", False], ["no-page (no page)", "", True],
+                       ["7 stopped (ergostat projects)", "", True]], got
+    pg.select_option("#project", "http://elsewhere.test")
+    pg.wait_for_url("http://elsewhere.test/**", timeout=10000)
+    assert pg.url == "http://elsewhere.test/loops", pg.url
+    pg.close()

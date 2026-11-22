@@ -241,6 +241,34 @@ def _laws(p, spec) -> dict:
 
 _FITTING: set = set()   # the projects whose laws are being fitted
 
+# The header's project list (/api/projects): the running projects, worked out by one thread every LIST_EVERY seconds;
+# a request reads the last list and loads nothing. Until the first is made: none, and stopped unknown (None).
+LIST_EVERY = 60.0
+_LISTED: dict = {"running": [], "stopped": None, "at": None}
+_LISTER = threading.Lock()                     # held only to start the one thread (per process, however many servers)
+_LISTER_STARTED: list = []
+
+
+def list_projects(stop: threading.Event, every: float = LIST_EVERY) -> None:
+    """``projects.running()`` into ``_LISTED``, at once and then every ``every`` seconds until ``stop``; a pass that
+    fails keeps the last list (its ``at`` says how old it is)."""
+    global _LISTED
+    from ..projects import running
+    while True:
+        try:
+            _LISTED = running()
+        except Exception:
+            pass
+        if stop.wait(every):
+            return
+
+
+def start_lister() -> None:
+    with _LISTER:
+        if not _LISTER_STARTED:
+            _LISTER_STARTED.append(threading.Event())
+            threading.Thread(target=list_projects, args=(_LISTER_STARTED[0],), name="ergostat-projects", daemon=True).start()
+
 
 def _window(q) -> float:
     from ..durations import parse_duration
@@ -415,6 +443,8 @@ def _answer_with(live: Live, path: str, q: dict, model):
 
 
 def _answer(live: Live, path: str, q: dict, project=None):
+    if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
+        return _LISTED
     p = project or live.get()
     m = p.model
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
@@ -459,9 +489,6 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 "at": snap["at"], "window": snap["window"], "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:]}
-    if head == "projects":
-        from ..projects import known
-        return known()
     if head == "coherence":                          # the three views held against each other (the Check page)
         from .numbers_api import coherence
         return coherence(live, p, snap, _window(q) if one("since") else None)

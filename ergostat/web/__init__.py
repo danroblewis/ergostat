@@ -8,7 +8,7 @@ import socket
 import threading
 from http.server import ThreadingHTTPServer
 
-from .server import handler
+from .server import handler, start_lister
 
 DEFAULT_PORT = 8781
 
@@ -116,6 +116,7 @@ def serve(project, port: int | None = None, mtls_port: int | None = None):
         server.mtls_port = server.mtls.server_address[1] if server.mtls else None
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=record_fits, args=(server.RequestHandlerClass.live,), name="ergostat-fit-history", daemon=True).start()
+    start_lister()                               # the header's project list, off the request path
     url = f"http://127.0.0.1:{port}"
     (project.dir / "web.json").write_text(json.dumps({"url": url}))
     return server, url

@@ -14,3 +14,28 @@ Acceptance tests: the 2,000-folder unit test (time, size, rows); the CLI test fo
 Budget: 90 net lines outside tests.
 
 Milestone: pages-answer-fast. Owner items: 2. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. `projects.running()` (ergostat/projects.py) lists the projects whose engine holds `run.pid`, each with
+its `known` row (page from web.json, goals off), and counts the stopped folders without loading their models.
+`ergostat projects` still calls `known()`, which is unchanged. The page server starts one lister thread per process
+(`start_lister` in `serve()`, ergostat/web/__init__.py; `list_projects` in ergostat/web/server.py). It works out the
+list at once and then every 60 s, and keeps the last list if a pass fails. `/api/projects` returns that list before
+any model or snapshot of its own project is read, and takes no lock. The header (util.js `refreshProjects`) shows the
+running projects with 'N off' / 'N unknown', then one disabled line, 'N stopped (ergostat projects)'. The change
+also reaches ergostat/web/__init__.py, which is outside the Files list: it is one line there, to start the thread
+where the page's other background threads start.
+Choices made with nobody to ask (each easy to undo):
+- Until the first pass is done, the answer is `{"running": [], "stopped": null, "at": null}`: no stopped count is
+  shown rather than a false 0, and the page asks again the next time the reader comes to the menu.
+- A running project with no web.json is listed, disabled, as '(no page)'.
+- The page's own project counts among the stopped ones when its engine is not running.
+- The answer's shape changed from a list to `{running, stopped, at}`.
+Tests: tests/test_projects_header.py has the 2,000-folder test (DoD 1 and 2: 2 models loaded by the pass, none and no
+snapshot inside the request, under 0.3 s and 20 KB), a failed pass keeping the last list, and the CLI test (DoD 4).
+tests/test_page_refresh.py::test_the_header_menu_lists_running_projects_then_counts_the_stopped is the browser check
+(DoD 3): the real answer, then a stand-in answer, switching to the other project's page. Each test was seen to fail
+when its code was broken: an answer worked out inside the request, stopped projects loaded, the 'N off' dropped.
+Not run here: the owner-machine check (/api/projects under 0.5 s cold), the full unit suite, and the other three
+browser files.

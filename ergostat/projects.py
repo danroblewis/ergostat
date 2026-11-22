@@ -78,6 +78,25 @@ def known(fresh: bool = False) -> list[dict]:
         return out
 
 
+def running() -> dict:
+    """The header's list: each project whose engine runs (``running_pid``), with its row as ``known`` gives it (its page
+    from ``web.json``, its goals off), and how many are stopped: those are counted by their folders, no model loaded.
+    Worked out off the request path (the page server's lister, ``web/server.py``), with no lock: nothing is kept."""
+    from .runner import running_pid
+    rows, stopped = [], 0
+    for f in sorted(home().glob("*/repo.json")):
+        d = f.parent
+        pid = running_pid(SimpleNamespace(dir=d), wait=False)
+        if not pid:
+            stopped += 1
+            continue
+        try:
+            rows.append(_row(d, json.loads(f.read_text()), pid)[0])
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            rows.append({"name": d.name, "repo": None, "running": True, "error": f"{type(e).__name__}: {e}"})
+    return {"running": rows, "stopped": stopped, "at": time.time()}
+
+
 def orphans() -> list[dict]:
     """The folders under the home whose ``repo.json`` names a repository that is gone (its parent folder is there and
     it is not: a drive or share not mounted is not gone), and no engine runs in: each with that repository and its
