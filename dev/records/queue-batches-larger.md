@@ -118,3 +118,18 @@ Review 2's other findings stay as written in round 2: the cap alternating (about
 alone using up the allowance. Neither breaks point 2, and neither puts an unproven prefix on main.
 Run: tests/test_factory.py whole (143 passed, 2 skipped), tests/test_queue.py (5 passed), ruff clean. Not run: the
 unit suite and the four browser files (the factory runs them).
+
+Round 4, after the factory's unit run failed with the same kind of tail: two "bringing up nodes...", a skip and 20
+passes, then nothing. There is no FAILED line, no pytest summary and no JSON line from scripts/suite_watch.py. So the
+run was killed from outside the watchdog, and no test was reported failing. No code changed, since no failure was
+found. Run here, each file alone and serially: tests/test_factory.py (143 passed, 2 skipped, 4 min 8 s);
+tests/test_queue.py, test_agents.py, test_agents_drop.py, test_review.py, test_code_health_coverage.py and
+test_code_health_simplifier.py (60 passed together, 1 min 50 s). Seen while timing: the first heavy step in a process
+takes about 60 s here. test_the_factory_model_loads takes 60.4 s, a test that reads only the model, in which this branch
+changes one description string. test_queue.py's first queue.main() also takes 60.5 s, a run that takes no batch and
+reaches none of the branch's new code past allowance(). That matches extremes_cache.BOUND (60 s of model conditions on
+a cache miss), which is not this branch's code. Under `-n 8`, the full suite in this container may be slow enough to
+reach the slot's timeout, but that is a guess. It was not measured. Refused here: `git worktree add /tmp/mainwt main`
+(to time the same tests on main), suite_watch around a test file, and a python -c profile of read(). Left: a unit run
+that reaches its end (its summary and suite_watch's JSON line), or the same tests timed on main, to show whether the
+stop is this branch's.
