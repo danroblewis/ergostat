@@ -45,3 +45,25 @@ A small, pure module `ergostat/library/run/conformance_lists.py`:
 At most 140 net lines outside `tests/`.
 
 Area: conformance. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: `ergostat/library/run/conformance_lists.py` (138 lines) and `tests/test_conformance_lists.py`
+(19 tests: the 11 named plus not-a-mapping/bad YAML, list name off pattern, no check, unparseable timeout, asked
+not a bool, a case name given twice, no names, and the module's size and imports). Nothing is left in this gap; the
+runner and the lists are later gaps.
+
+Choices the definition left open, each taken the stricter (more reversible) way:
+- A list or case name is checked against the pattern before any path is built, so `../x` never reaches the disk
+  (lesson-11).
+- A key given twice in a file (two cases with one name) is refused, not silently kept as the last (lesson-3).
+- A NaN timeout (`.nan`) is refused as well as one over 10m; `.inf` is over 10m.
+- `names` empty, or a string rather than a list, is refused; `cases:` missing or not a mapping is refused;
+  `cases: {}` is read as a list of no cases (it is a list that was read, not one that failed).
+- `check` must be a non-blank string; `from` and `description` strings or absent (absent reads as "").
+- `digest` is a sha256 over each named file's name, length and bytes, in the order of `names` as given (so naming
+  the same lists in another order also moves it, as the cases' order moves).
+- Over 20 lists is refused by the 21st name; over 500 across is refused by the list whose cases cross 500.
+
+Mutations seen to fail the tests: the repeated-name check off, the across-lists cap counting one list only, the
+timeout check without its NaN guard, and the digest without the file bytes (4 of 19 failed, then all passed again).
