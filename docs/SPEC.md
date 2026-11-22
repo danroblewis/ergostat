@@ -2899,10 +2899,11 @@ again under it only when a lease event about the item was recorded since that re
 milliseconds even while the record is slow to fold. An end that finds the lock held waits its turn, holding none of
 the dispatcher's other locks (takes and the watchdog go on), and tries again with a growing pause (up to 5 s), until
 one `lock_wait` before its lease expires; ergostat stopping meanwhile does not cut that short. Only then is it given
-up, said with the item and the run; for an hour after, the engine's heartbeat carries it as the dispatcher's error
+up, said with the item and the run, and the watchdog ends the lease, or expires it, on its first look past the expiry
+(above). While that lease is held, and for 6 minutes after a watchdog pass finds it let go (one pass of the 5-minute
+pipeline watch, so it is seen once), the engine's heartbeat carries the given-up end as the dispatcher's error
 (`dispatch_error`, since the end was first tried), which health and the pipeline watch report once it is two minutes
-old, and the watchdog ends
-the lease, or expires it, on its first look past the expiry (above).
+old. A look's own standing error is said before it, with its own since: a given-up end never hides one.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left

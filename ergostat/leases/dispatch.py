@@ -46,7 +46,7 @@ SOURCE = "ergostat"
 LOOK = 0.25           # seconds between looks at the record for something new, when no write wakes it (notify.py)
 EVERY = 1.0           # a look at every block's queue, and the watchdog's pass, at least this often
 GAP = 0.005           # seconds a look waits after a write wakes it, for the writes that come with it
-HOLD = 3600.0         # seconds a lease end given up stands in ``failing`` (the heartbeat's dispatch error)
+HOLD = 360.0          # seconds a given-up end stays in ``failing`` once its lease is let go (one 5 min watch.py pass)
 
 
 def moved_on(b, it) -> bool:
@@ -84,7 +84,7 @@ class Dispatcher:
         self.unread: set[str] = set()                 # blocks whose pool's stock has no reading, said once
         self.looks_failing: tuple[str, float] | None = None  # (the latest error, since when: wall) while every look meets one
         self.ending: dict[str, tuple] = {}            # run → (block, item, fence, out, since): its end tried, not done
-        self.dropped: dict[str, tuple] = {}           # run → (item, since, given up at): the ends given up (``failing``)
+        self.dropped: dict[str, tuple] = {}           # run → (item, since, let go at|None): the ends given up (``failing``)
 
     @property
     def spec(self):
@@ -166,11 +166,14 @@ class Dispatcher:
 
     @property
     def failing(self) -> tuple[str, float] | None:
-        """A lease end given up within ``HOLD``, since its end was first tried; else the looks' standing error."""
-        for run, (item, since, at) in list(getattr(self, "dropped", {}).items()):
-            if time.time() - at < HOLD:
+        """The looks' standing error; else an end given up (since first tried), while held and ``HOLD`` after."""
+        if self.looks_failing:
+            return self.looks_failing
+        for run, (item, since, gone) in list(getattr(self, "dropped", {}).items()):
+            if gone is None or time.time() - gone < HOLD:
                 return f"the end of run {run}'s lease on {item} was given up (another end held the lock)", since
-        return self.looks_failing
+            self.dropped.pop(run, None)
+        return None
 
     @failing.setter
     def failing(self, v) -> None:
@@ -406,7 +409,7 @@ class Dispatcher:
         pause = 0.05
         while not self.ends.acquire(timeout=self.e.lock_wait):
             if time.time() + pause >= until:
-                self.dropped[run] = (item, self.ending[run][4], time.time())
+                self.dropped[run] = (item, self.ending[run][4], None)
                 raise TimeoutError(f"run {run}'s end on {item} given up: another end held the lock till its TTL was near")
             time.sleep(pause)                            # (not the stop's wait: stopping is no reason to drop it)
             pause = min(pause * 2, 5.0)
@@ -416,6 +419,7 @@ class Dispatcher:
             ev = self._finish(b, it, item, fence, run, out)
             self.mine.pop(run, None)
             self.ending.pop(run, None)
+            self.let_go({run})
         finally:
             self.ends.release()
         if ev is not None:
@@ -477,7 +481,7 @@ class Dispatcher:
         mono = time.monotonic() if mono is None else mono
         holding = False
         overdue: dict[tuple, float] = {}
-        looked: set[str] = set()
+        looked, holders = set(), set()
         self.stale = True                                 # (read once a pass: what it records is about the item it looks at)
         try:
             for kind in self.kinds():
@@ -485,15 +489,22 @@ class Dispatcher:
                     lease = held(it.fields)
                     holding = holding or lease is not None
                     looked.add(it.id)
+                    holders |= {lease["holder"]} if lease else set()
                     if not lease or now <= float(lease.get("expires") or 0):
                         continue
                     try:
                         self.look(it, lease, now, mono, overdue)
                     except Exception as e:                 # (one item's trouble stops no other's look)
                         self.e.say(f"leases: the lease on {it.id}: {type(e).__name__}: {e}")
+            self.let_go(set(self.dropped) - holders)     # (a whole pass read: ended or expired, here or elsewhere)
         finally:                                           # (the first looks kept, of the items not reached too)
             self.overdue = {**{k: v for k, v in self.overdue.items() if k[0] not in looked}, **overdue}
         self.holding = holding
+
+    def let_go(self, runs: set[str]) -> None:
+        """These runs' given-up ends hold no lease now: each stays in ``failing`` for ``HOLD`` more."""
+        for run in runs & {r for r, v in self.dropped.items() if v[2] is None}:
+            self.dropped[run] = (*self.dropped[run][:2], time.time())
 
     def look(self, it, lease: dict, now: float, mono: float, overdue: dict) -> None:
         """A held lease past its expiry: renewed by what its holder was seen to do since; else, a grace after the first

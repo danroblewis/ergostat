@@ -173,6 +173,12 @@ def test_an_end_that_cannot_complete_before_the_ttl_raises_a_situation(tmp_path)
         assert r0 in why and "ticket/0" in why and t0 - 1 <= since <= t0 + 1
         e.dispatch.note(None)                          # (a clean look does not clear it)
         assert e.dispatch.failing == (why, since)
+        t1 = time.time()
+        e.dispatch.note("other: KeyError: 'y'")        # a look's own error is not hidden behind it: said first, its since
+        got, at = e.dispatch.failing
+        assert got == "other: KeyError: 'y'" and t1 <= at <= time.time()
+        e.dispatch.note(None)
+        assert e.dispatch.failing == (why, since)
         heartbeat(tmp_path, time.time(), 0, failing=e.dispatch.failing)
         beat = json.loads((tmp_path / "heartbeat.json").read_text())
         assert beat["dispatch_error"]["why"] == why
@@ -188,7 +194,42 @@ def test_an_end_that_cannot_complete_before_the_ttl_raises_a_situation(tmp_path)
         assert not p.events.query(n=None, type=RENEWED)
         assert [x["data"]["run"] for x in p.events.query(n=None, type=EXPIRED)] == [r0], "expired on its first look"
         assert lease(p, 0)["holder"] is None
+        assert e.dispatch.failing == (why, since), "still said until a pass finds the lease let go"
+        e.dispatch.watch()                             # (the next pass: no lease held by the run)
+        assert e.dispatch.failing == (why, since) and e.dispatch.dropped[r0][2] is not None
     finally:
+        closed(e)
+
+
+def test_a_given_up_end_is_said_only_while_its_lease_is_held_and_one_watch_pass_after(tmp_path, monkeypatch):
+    """Once the watchdog has ended the lease of a run whose end was given up, the situation stands for ``HOLD`` (one
+    pipeline-watch pass, so it is seen once), then is gone: the record of it too."""
+    from ergostat.leases import dispatch as dp
+    p, e = engine(tmp_path, 1, "{ttl: 2s}")
+    b, f0, r0 = taken(e, 0)
+    expires = float(lease(p, 0)["expires"])
+    errors: list = []
+    e.dispatch.ends.acquire()
+    try:
+        ending(e, b, 0, f0, r0, errors).join(10)
+    finally:
+        e.dispatch.ends.release()
+    try:
+        assert len(errors) == 1 and e.dispatch.dropped[r0][2] is None
+        later = time.time() + 10 * dp.HOLD             # (held, the end stands however long ago it was given up)
+        monkeypatch.setattr(dp, "time", type("T", (), {"time": staticmethod(lambda: later), "sleep": time.sleep,
+                                                       "monotonic": time.monotonic}))
+        assert r0 in e.dispatch.failing[0]
+        monkeypatch.setattr(dp, "time", time)
+        e.dispatch.watch(now=expires + 1)              # its end tried again, done: the lease let go
+        assert lease(p, 0)["holder"] is None and r0 in e.dispatch.failing[0]
+        gone = e.dispatch.dropped[r0][2]
+        assert gone is not None
+        monkeypatch.setattr(dp, "time", type("T", (), {"time": staticmethod(lambda: gone + dp.HOLD + 1),
+                                                       "sleep": time.sleep, "monotonic": time.monotonic}))
+        assert e.dispatch.failing is None and not e.dispatch.dropped
+    finally:
+        monkeypatch.setattr(dp, "time", time)
         closed(e)
 
 

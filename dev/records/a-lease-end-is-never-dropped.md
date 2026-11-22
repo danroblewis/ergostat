@@ -75,3 +75,37 @@ factory runs them. Run here, each passing: `tests/test_lease_end_turns.py`, `tes
 `tests/test_one_bad_link.py`, `tests/test_run_budget.py`, `tests/test_queue.py`, `tests/test_resilience.py`,
 `tests/test_lease_kill.py`, `tests/test_lease_refused_cost.py`, `tests/test_leased_workspaces.py`; ruff clean. Local
 `main` merged in (already up to date; there is no origin here).
+
+### Round 2
+
+The one finding of round 1 (dispatch.py:167-172, lesson-3: a given-up end hid the looks' errors for an hour and stood
+an hour after its lease was ended), answered in each of its parts:
+- The looks' standing error is now reported first, with its own text and its own `since`; a given-up end is said only
+  while no look is failing. `test_an_end_that_cannot_complete_before_the_ttl_raises_a_situation` now records a look
+  error after the give-up and checks that `failing` is that error with a fresh `since`, then the end again once the
+  looks are clean. Seen to fail with the old order (the given-up end returned first).
+- An entry in `dropped` no longer has a fixed hour. It stands while its lease is held, however long that is. It is
+  marked let go when its end completes (`finish`), or when a whole watchdog pass finds no lease held by its run (ended
+  or expired, here or elsewhere). After that it stands for `HOLD`, now 360 s, then `failing` removes it. 360 s is one
+  pass of the pipeline watch's 5-minute `broken` sensor (`dev/model/manager.yaml`) plus a minute: "what is needed for
+  the watch to see it once". New test
+  `test_a_given_up_end_is_said_only_while_its_lease_is_held_and_one_watch_pass_after`: with the lease held it is said
+  at 10×`HOLD` later; once the watchdog has ended the lease it is marked let go; `HOLD` after that, `failing` is None and
+  `dropped` is empty. Seen to fail with the `finish` marking removed, and with the `HOLD` check skipped. The round-1
+  test above now also checks that the watchdog's next pass after the expiry marks the entry let go. Seen to fail with
+  the pass's marking removed.
+- SPEC §9.5 *Ends wait their turn* now says so: held, then 6 minutes after a pass finds it let go; a look's own error
+  is said first and never hidden.
+
+Choice made alone (the most reversible): the watchdog's expiry in `look` does not mark the entry let go directly. Only
+a later pass that reads the lease as not held does, because that expiry can be refused (renewed meanwhile), and
+clearing the situation on a refused expiry would fail open. So the situation stands one watchdog pass (about a
+second, `EVERY`) longer than strictly needed. The watch's wording ("failed every look for N min") still comes from
+`dev/bin/live.py`, outside this gap's files, as in round 1.
+
+Size: 49 net lines in `ergostat/leases/dispatch.py` (66 added, 17 removed), within the 50 budget.
+
+Run here, each passing: `tests/test_lease_end_turns.py` (5), `tests/test_leases.py`, `tests/test_one_bad_link.py`,
+`tests/test_lease_kill.py`, `tests/test_lease_refused_cost.py`, `tests/test_leased_workspaces.py`, `tests/test_queue.py`,
+`tests/test_resilience.py`, `tests/test_run_budget.py`; ruff clean; local `main` merged (already up to date). Not
+run: the whole unit suite, the four browser files (no page changed) and demo_check (no example touched).
