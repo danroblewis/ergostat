@@ -64,7 +64,7 @@ def check(work: Path, sha: str, source: str, urls: set[str]) -> str | None:
     """Why a source line is not checked; None when it is: a URL the session opened, or a file (and its line, or
     lines a-b) in the clone at ``sha``."""
     if u := URL.search(source):
-        return None if norm(u[0]) in urls else f"{u[0]}: the session never opened it"
+        return None if norm(u[0]) in urls else f"{u[0].rstrip('.,;:')}: the session never opened it"
     m = re.match(r"`([^`]+)`", source.strip())
     where = m[1] if m else (source.split() or [""])[0].rstrip(":,;")
     got = re.fullmatch(r"(?:/work/|\./)?([^:\s]+?)(?::(\d+)(?:-(\d+))?)?:?", where)

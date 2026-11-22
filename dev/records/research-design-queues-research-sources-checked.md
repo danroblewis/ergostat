@@ -31,3 +31,32 @@ Acceptance tests (tests/test_factory_knowledge.py):
 Size budget: 120 net lines (code, YAML and prompt; tests excluded).
 
 Area: research-design-queues. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: all four acceptance tests and test_researcher_answers pass (named_tests.py, one file at a time), as
+does test_the_knowledge_model_loads. Ruff is clean. Net 94 lines outside tests. Each guard was broken and its test
+seen to fail: with the line bound loosened, test_research_source_file_and_line_checked failed; with a failed WebFetch
+counted as opened, test_research_url_checked_against_tool_calls failed.
+
+Choices made with nobody to ask (the most reversible one each time):
+- The URLs are read from the session's own transcript (run/sessions/<item>-researcher-<n>.jsonl, the highest n),
+  which holds the same lines the session item folds as tool_calls and tool_results. That file is complete once the
+  session ends. The engine folds the item from it asynchronously (every 2 s), so the item could still be missing the
+  last calls when research.py reads it (lesson-3). A WebFetch counts as opened only when its result came back with no
+  error; a call that has no result counts as not opened.
+- "The walker's goto": no walker exists in this repo. Any tool whose name ends in `goto` is read for its input `url`,
+  the way WebFetch is.
+- Dead: the engine never lets a run's own events leave an item `dead` (leases/dispatch.py moved_on). A lease's end
+  puts the item back where it was taken from unless its attempts are spent. So each unsourced answer is given back
+  *counted*, and the researcher's lease has `attempts: 2`: the first unsourced answer goes back to asked (its
+  research.unsourced still counts in the flow research-unsourced), and the second, research.dead, is the lease's
+  last attempt, a dead letter. The cost: a crashed attempt also counts, so a crash followed by one unsourced answer
+  is dead too. Raising the lease's attempts would allow more re-asks than the one this gap promises. Fixing that in
+  the engine is outside the gap's files. The fake ergostat in the tests folds the events and not the lease, so this
+  engine path is reasoned from the code, not tested.
+- An unsourced answer's report is kept as `unsourced_report`, not `report`, so a planner never reads an unchecked
+  report (plan.py reads `report`). `unsourced` folds by sum. A dead letter that is redriven still has unsourced=2,
+  so its next unsourced answer is dead at once.
+- Not run: `uv run ergostat check` on the model (refused by the shell). The unit suite and the browser files were
+  not run, per the brief.
