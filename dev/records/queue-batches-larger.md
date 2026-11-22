@@ -81,3 +81,14 @@ time during the excusal, no prefix has been proven by a full green run (lo is 0)
 back uncounted. Now 55 net lines of code against main (queue.py +50, pools.py +2, factory.toml +3), within the 60.
 Run: tests/test_factory.py whole (142 passed, 2 skipped), ruff on ergostat tests scripts. Not run: the unit suite and
 the four browser files (the factory runs them). No test runs out of time inside the excusal.
+
+Round 3, after the factory's unit run failed. The tail it gave names no failing test: two "bringing up nodes...", one
+line of 59 passes and a skip, then nothing, no FAILED line and no summary. That reads as a run cut short (killed or
+timed out), not a test failing. The merge of main was already committed (29e38dfc), with no conflict markers left.
+Every test file that loads dev/bin/queue.py or pools.py, or reads dev/factory.toml or dev/model, passes when run alone
+here: tests/test_factory.py (142 passed, 2 skipped), test_queue.py (5), test_agents_drop.py (3), test_identify.py,
+test_mended.py and test_review.py (36 together), and test_factory_resources.py, test_agents.py,
+test_code_health_simplifier.py and test_code_health_coverage.py (36 together). No code was changed in this round,
+since no failure could be found to fix. Refused here: test_factory.py under `scripts/suite_watch.py` with `-n 8`, and
+the whole unit suite run serially, so the failure was never reproduced. Left: the factory's full unit output (or a
+rerun of it) to name the failing test. If no test fails there, the cut-short run was the machine, not this branch.
