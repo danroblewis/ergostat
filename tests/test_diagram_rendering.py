@@ -3808,3 +3808,100 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+GROUPED = """
+name: grouped
+stocks:
+  backlog:
+    unit: tickets
+    sensor:
+      manual: true
+flows:
+  finishing:
+    from: backlog
+goals:
+  short-backlog:
+    stock: backlog
+    hold: "<= 5"
+blocks:
+  reviewer:
+    type: person
+    ask: review the backlog
+    goal: short-backlog
+    out: flow.finishing
+uses:
+  modelling:
+    use: modelling
+"""
+GROUPS = """() => [...document.querySelectorAll('.side h3.att-head')].map((hd) => {
+  const det = hd.closest('details'), list = det ? det.querySelector('.att') : hd.nextElementSibling;
+  const rows = [...list.children].filter((x) => !x.classList.contains('none'));
+  return { head: hd.textContent.trim(), open: det ? det.open : true,
+           rows: rows.map((x) => x.tagName === 'HR' ? '---' : x.textContent.trim()),
+           words: rows.filter((x) => x.tagName === 'DIV')
+                      .map((x) => x.firstElementChild?.classList.contains('att-word') ? x.firstElementChild.textContent : '') };
+})"""
+
+
+def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_path, monkeypatch):
+    """The side list (design review Q42): 'Waiting for you N', 'Goals off N' (the system's goals first, modelling's
+    after a rule), 'Model housekeeping N' (folded), always in that order, each ending in its count; the 'Goals off'
+    count is the header's 'loops off'; every entry begins with its state or kind word, so colour is not the only cue."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "grouped"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(GROUPED)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # the server is given it too
+    p = Project(mdl.load(d))
+    now = time.time()
+    p.measurements.add("sensor/backlog.main", 9, at=now - 30)                    # the system's goal: off
+    p.measurements.add("sensor/unanswered-requests.main", 3, at=now - 30)        # modelling's goal: off
+    p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 2, "ask": "review the backlog"})
+    from ergostat.numbers import requests as rq
+    for code in ("collector-undescribed", "flow-unmeasured"):                  # modelling's held requests: housekeeping
+        rq.event(p, rq.rid("check", code, "flow.x"), "held", {"code": code, "about": "flow.x", "source": "check",
+                                                               "tier": "ai", "why": "its tries are used"})
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for view in ("", "diagram?view=blocks"):
+            pg.goto(f"{url}/{view}")
+            pg.wait_for_function("() => document.querySelectorAll('.side h3.att-head').length === 3 && "
+                                 "/loops? off/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
+            groups = pg.evaluate(GROUPS)
+            heads = [g["head"] for g in groups]
+            assert [re.sub(r" \d+$", "", x) for x in heads] == ["Waiting for you", "Goals off", "Model housekeeping"], heads
+            assert [int(x.rsplit(" ", 1)[1]) for x in heads] == [len([r for r in g["rows"] if r != "---"]) for g in groups]
+            header = pg.locator("#running").inner_text()
+            assert int(heads[1].rsplit(" ", 1)[1]) == int(re.match(r"(\d+) loops? off", header).group(1)) == 2, (heads, header)
+            waiting, off, house = groups
+            assert len(waiting["rows"]) == 1 and waiting["rows"][0].startswith("waiting · ") \
+                and "request/" not in waiting["rows"][0], waiting                # only the person's ask
+            held = [r for r in house["rows"] if "request/" in r]
+            assert len(held) == 2 and all(r.startswith("request · request/") for r in held), house
+            assert off["rows"][0].startswith("off · loop short-backlog"), off          # the system's first,
+            assert off["rows"][1] == "---", off                                         # a rule,
+            assert off["rows"][2].startswith("off · loop requests-handled"), off       # then modelling's
+            assert not house["open"] or "fault · " in house["words"], house            # folded, unless a fault is in it
+            for g in groups:                                    # a state or kind word first, never colour alone
+                assert all(re.fullmatch(r"[a-z]+ · ", w) for w in g["words"]), g
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)

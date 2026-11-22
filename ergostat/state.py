@@ -621,7 +621,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                  f"({_t.strftime('%Y-%m-%d %H:%M', _t.localtime(snap['starts']))}): nothing is known then"}]
     out = []
     from .remote import remote_parts
-    theirs = remote_parts(getattr(model, "spec", None))
+    spec = getattr(model, "spec", None)
+    theirs = remote_parts(spec)
+    mod = {i for i, u in (getattr(spec, "uses", None) or {}).items() if (u or {}).get("template") == "modelling"}
     for name, lp in snap["loops"].items():
         if f"goal.{name}" in theirs:                   # a remote's own loop: its business, said on its own page (SPEC §4c)
             continue
@@ -654,6 +656,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                        else f" (sensor {', '.join(lp['sensors'])})")
             out.append({"level": "warn", "what": f"loop {name}", "says": f"no reading of {lp['stock']} yet: "
                         f"the loop cannot tell whether it holds{who}"})
+        if out and out[-1]["what"] == f"loop {name}":   # its state word, and whether the goal is modelling's (the page groups)
+            out[-1].update(state=lp["status"], **({"modelling": True} if mod and getattr(spec.goals.get(name), "system",
+                                                                                     None) in mod else {}))
     if model is not None and getattr(model, "spec", None) is not None:   # remotes that do not answer (SPEC §4c)
         from .remote import attention as remote_attention
         out += remote_attention(model.spec)
@@ -713,7 +718,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                     f"workspaces {w['pool']} --free {w['slot']}"})
     if snap.get("reports"):                         # reports upstream waiting for the owner to read (SPEC §12m): one line
         rs = snap["reports"]
-        out.append({"level": "warn", "what": "reports upstream", **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
+        out.append({"level": "warn", "what": "reports upstream", "waiting": True, **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
                     "says": (f"{len(rs)} drafted" if len(rs) > 1 else f"\u201c{rs[0]['title'][:70]}\u201d drafted")
                     + " about ergostat itself, scrubbed, for you to read and submit by hand if you choose: ergostat report"})
     for h in snap.get("hints", []):
@@ -723,7 +728,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
     from .inbox import entries as en
-    asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"],     # waiting on a person
+    asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
              + (f". {en.command(e)}" if e["verbs"] else "")}
