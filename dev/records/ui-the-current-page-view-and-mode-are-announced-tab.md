@@ -71,3 +71,10 @@ would take changing the build step or affected_tests.py (outside this gap, lesso
 test only to be selected (a test that guards nothing). Left as is; the fix belongs to the factory (run the build
 step's browser files with Playwright, or treat a selection of only browser files as collection-only). The browser
 files were run with Playwright in round 1 (results above).
+
+Build step again (same tail: rc 5, "2 skipped", both at the `playwright.sync_api` import): same cause, no code change.
+The branch's change is in JS, CSS and HTML under `ergostat/web/static/`, and `scripts/affected_tests.py` maps only
+`ergostat/**/*.py` to unit tests, so no unit test is selected. A unit test added only to be selected would guard
+nothing the gap changed (served HTML carries none of the new names: aria-current, aria-pressed and the labels are set
+by the scripts), and moving that work into `server.py` to change the selection would be work outside the gap. The
+gap waits on the factory: run the build step with Playwright installed, or set `build_browser = true` for it.
