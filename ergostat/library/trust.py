@@ -135,6 +135,7 @@ REFUSED = {"agents": "who acts, and on which rung", "workspaces": "folders and r
            "actions": "outward acts a session may ask for", "sources": "outside sources read over the network",
            "claims": "commands that check claims", "contexts": "what an AI session is given to read",
            "leases": "terms of work queues", "daemons": "processes kept running", "loops": "loops declared by hand",
+           "operating": "operating states, which cap or stop every block's pool",
            "variables": "the old name of auxiliaries, kept for the owner's own files"}
 
 

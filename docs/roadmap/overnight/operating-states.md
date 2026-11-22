@@ -455,3 +455,14 @@ first run, `tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_
 passed alone, and the whole file passed when run again. It is main's test, its model declares no `operating:`, and
 it is not in this branch's diff, so it is reported here and not fixed (lesson-10, lesson-13). Not run by the
 implementor: the full unit suite and the four browser files. No demo is touched, so `demo_check` is not needed.
+
+Round 11 (the queue's finding: the merge of main 9b993691 brought in main's library-trust allowlist, and
+`tests/test_library_trust.py::test_every_compile_key_classified` failed, alone too, because the new `operating:`
+section was not classified). Fixed in `ergostat/library/trust.py`: `operating` is in `REFUSED` ("operating states,
+which cap or stop every block's pool"). A template from a folder the owner did not mark trusted may not declare
+operating states, since a state can stop every pool or trip a freeze. This is the fail-closed choice, and the more
+reversible one: allowing it later is one line. SPEC §2a already says any section not listed as allowed is refused, so
+no doc changed. +1 line, so the size is 454 net lines, 4 over the budget (round 6's reason, plus this line). The test
+failed without the line and passes with it. Tests run: `tests/test_library_trust.py` (48 passed),
+`tests/test_operating.py` and `tests/test_cli_fallback.py` (51 passed), and ruff is clean. Not run by the implementor:
+the full unit suite and the four browser files. No demo is touched, so `demo_check` is not needed.
