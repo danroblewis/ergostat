@@ -1932,8 +1932,18 @@ class Engine:
         if self.shard is None:
             old.kill_all()
         else:                                   # a shard's: only its own runs, never STOPPING (SPEC §9.8); a run
-            with self.lock:                      # started past the stop kills itself (start: self.stop is set)
-                mine = list(self.live.values())
+            got = self.lock.acquire(timeout=self.lock_wait)   # started past the stop kills itself (self.stop is
+            try:                                 # set); a lock held for good is waited on at most lock_wait
+                mine = []
+                for _ in range(100):             # (without the lock: a run registering mid-copy, copied again)
+                    try:
+                        mine = list(self.live.values())
+                        break
+                    except RuntimeError:
+                        continue
+            finally:
+                if got:
+                    self.lock.release()
             for proc in mine:
                 old._kill(proc)
         self.daemons.close()

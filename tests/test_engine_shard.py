@@ -415,3 +415,44 @@ def test_unknown_shard_is_shard_error(tmp_path):
     with pytest.raises(ShardError, match="no shard 'a'") as got:
         e.swap(new)
     assert all(s in str(got.value) for s in shards.plan(new.spec).shards)
+
+
+def test_shard_close_past_a_held_lock(two):
+    """A lock held for good (a wedged thread): a shard's close waits at most lock_wait, still kills its run, returns."""
+    import threading
+    p, by = two
+    procs = going(p, by)
+    a = by["a"]
+    a.lock_wait = 0.2
+    held, done = threading.Event(), threading.Event()
+
+    def hold():
+        with a.lock:
+            held.set()
+            done.wait(30)
+    threading.Thread(target=hold, daemon=True).start()
+    assert held.wait(5)
+    try:
+        t = threading.Thread(target=a.close, daemon=True)
+        t.start()
+        assert procs["a"].wait(timeout=5) is not None, "its run killed past the held lock"
+        t.join(15)
+        assert not t.is_alive(), "close returned"
+        assert procs["b"].poll() is None
+    finally:
+        done.set()
+
+
+def test_run_registered_after_close_copied_kills_itself(two, monkeypatch):
+    """The gap between a run's start and its registration in live: a close past it (stop set, live copied without
+    this run) is not missed, the run kills itself (lesson-1)."""
+    from ergostat.spec import engine as eng
+    p, by = two
+    a, write = by["a"], eng.runrecord.write
+
+    def late(*args, **kw):                                  # close comes here: stop set, live copied (empty)
+        a.stop.set()
+        return write(*args, **kw)
+    monkeypatch.setattr(eng.runrecord, "write", late)
+    assert a.start(p.model.spec.blocks["a-work"], "approved")
+    assert until(lambda: ran(p, "a-work"), 10)["data"].get("note") == runner.STOPPED_WITH_US

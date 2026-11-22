@@ -76,3 +76,16 @@ tests, and no test outside `tests/test_engine_shard*.py` is edited. The watchdog
 `getattr(e, "shard", None)`, because main's stand-in engines have no `shard`. `watcher.beats` lists the state directory
 with `os.listdir` instead of `glob`, so the watcher still opens or stats only `run.pid`, the heartbeats and `stopped`
 (`test_the_watcher_reads_only_its_three_files`).
+
+Round 3, the review's findings:
+- Blocking (lesson-6): a shard engine's `close` took `with self.lock:` with no limit. It now takes the lock with
+  `timeout=self.lock_wait`, as `shut` does. If that fails, it copies `self.live` without the lock, trying again on
+  `RuntimeError` (at most 100 tries), and still kills each run. `test_shard_close_past_a_held_lock` holds the lock in
+  another thread with `lock_wait` 0.2: the run is killed, close returns, and `b`'s run keeps going. It failed with an
+  unbounded acquire.
+- The round-1 race now has a test: `test_run_registered_after_close_copied_kills_itself` sets `stop` between Popen and
+  registration (through `runrecord.write`), and the run kills itself and is recorded as stopped with ergostat. It
+  failed with the self-kill turned off.
+- SPEC §9.8 lines past the wrap width after the `ShardError` edits are reflowed. The close paragraph now says it waits
+  at most `lock_wait`.
+- `client.owner` and the short folder: kept as the written choice above (non-blocking). Nothing changed.
