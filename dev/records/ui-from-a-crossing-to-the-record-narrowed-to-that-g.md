@@ -102,3 +102,17 @@ machine= and a machine's instance, and with about=). It fails when the scope is 
 Tests run: tests/test_graph_cli_web.py (35 passed); tests/test_items_page.py with Playwright under suite_watch
 (22 passed, rc 0, no skips); ruff clean. About 48 net lines outside tests. Not run: the whole unit suite, the other
 browser files, demo_check (no example touched). No merge of main was needed: `git log HEAD..main` is empty.
+
+Round 4: the factory's merge of main (9bfce815) conflicted in tests/test_items_page.py, where both sides added tests
+at the same place. Resolved by keeping both: the branch's `add_record`, `record_rows` and crossing test, then main's
+`STRIP` and lifecycle-strip test. No page code changed in this round.
+
+Tests run after the merge: tests/test_graph_cli_web.py (40 passed); tests/test_items_page.py with Playwright under
+suite_watch, twice (27 passed, 1 failed, no skips), and the failing test alone (failed); ruff clean. The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (line 1249: waiting for the project
+switcher's entry for the other project times out). It came from main (35c0bb01) and checks the header and the
+project switcher on /items. This branch changes only the Record's query (`_record_rows`), the crossing links in
+details.js and the Record's filter box in pages.js, and none of those touch the header or the switcher, so the
+failure is unrelated and was left alone (lesson-13). Not shown: whether it also fails on clean main. Neither a
+worktree of main nor a temporary checkout of main's `ergostat/web` was allowed in this session. Not run: the whole
+unit suite, the other browser files, demo_check (no example touched).
