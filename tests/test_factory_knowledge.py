@@ -461,11 +461,99 @@ def test_researcher_answers(tmp_path):
     r = f.item(rid)
     assert r["state"] == "answered" and r["fields"]["summary"] == "The stand-in's answer."
     assert (f.model / r["fields"]["report"]).read_text().startswith("# The stand-in's answer")
-    assert r["fields"]["contexts"][0]["role"] == "researcher" and r["fields"]["sources"] == ["none"]
+    assert r["fields"]["contexts"][0]["role"] == "researcher" and r["fields"]["sources"] == ["`docs/GAPS.md:1`: the gaps"]
+    assert r["fields"]["sources_checked"] == r["fields"]["sources"] and r["fields"]["sources_unchecked"] == []
     said, _ = f.run("plan.py", gid)
     assert said == ["gap.defined"]
     brief = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
     assert "Nothing was read." in brief                        # the report went into the planner's brief
+
+
+def answer(*sources: str) -> str:
+    """A researcher's answer citing these sources."""
+    return ("<report>\n# Q\n\nA.\n\n## Sources\n\n" + "".join(f"- {s}\n" for s in sources) +
+            "</report>\n<summary>A.</summary>")
+
+
+def asked(f: Instance) -> tuple[str, str]:
+    """(a gap, the research question its planner asked)."""
+    gid = f.opened()
+    f.run("plan.py", gid, FACTORY_STANDIN_PLANNER="<research>How does the queue decide?</research>")
+    return gid, f.item(gid)["fields"]["research"][0]
+
+
+def test_research_source_file_and_line_checked(tmp_path):
+    f = Instance(tmp_path)
+    _, rid = asked(f)
+    said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`app.py:1`: it prints", "`app.py:1-9`: all"))
+    r = f.item(rid)["fields"]
+    assert said == ["research.answered"] and r["sources_checked"] == ["`app.py:1`: it prints"]
+    assert r["sources_unchecked"] == [{"source": "`app.py:1-9`: all", "why": "app.py: line 9 past the end (1 lines)"}]
+
+
+def test_research_missing_source_is_unsourced_and_asked_again(tmp_path):
+    f = Instance(tmp_path)
+    _, rid = asked(f)
+    said, lines = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`nowhere.py:3`: it", "app.py:2: past"))
+    r = f.item(rid)
+    assert said == ["research.unsourced"] and r["state"] == "unsourced" and "report" not in r["fields"]
+    why = r["fields"]["unsourced_why"]
+    assert "nowhere.py: no such file at" in why and "app.py: line 2 past the end (1 lines)" in why
+    assert [x["source"] for x in r["fields"]["sources_unchecked"]] == ["`nowhere.py:3`: it", "app.py:2: past"]
+    assert any(x.get("nack", {}).get("count") is True for x in lines)          # given back, to be asked again
+    said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("`app.py`: the app"))
+    r = f.item(rid)
+    assert said == ["research.answered"] and r["state"] == "answered"
+    brief = (f.model / r["fields"]["contexts"][-1]["brief"][5:]).read_text()
+    assert "Asked again: the last answer had no source that could be checked (nowhere.py: no such file" in brief
+
+
+def test_research_url_checked_against_tool_calls(tmp_path):
+    f = Instance(tmp_path)
+    _, rid = asked(f)
+    said, _ = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=answer("https://example.org/a: never opened"))
+    assert said == ["research.unsourced"]
+    assert f.item(rid)["fields"]["unsourced_why"] == "https://example.org/a: the session never opened it"
+    use = lambda i, name, inp: {"type": "assistant", "message": {"content": [  # noqa: E731
+        {"type": "tool_use", "id": i, "name": name, "input": inp}]}}
+    back = lambda i, content, err=False: {"type": "user", "message": {"content": [  # noqa: E731
+        {"type": "tool_result", "tool_use_id": i, "content": content, "is_error": err}]}}
+    rows = [use("a", "WebFetch", {"url": "https://example.org/fetched/"}), back("a", "the page"),
+            use("b", "WebSearch", {"query": "q"}), back("b", [{"type": "text", "text": 'Links: [{"url": "https://ex.org/s"}]'}]),
+            use("c", "WebFetch", {"url": "https://example.org/failed"}), back("c", "404", err=True),
+            use("d", "mcp__walker__goto", {"url": "https://example.org/walked"}), back("d", "ok"),
+            use("e", "WebFetch", {"url": "https://example.org/no-result"}), "not json"]
+    t = tmp_path / "t.jsonl"
+    t.write_text("\n".join(x if isinstance(x, str) else json.dumps(x) for x in rows) + "\n")
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import research; from pathlib import Path; "
+            "urls = research.opened(Path(sys.argv[2])); print(json.dumps([sorted(urls)] + "
+            "[research.check(Path('.'), 'x', s, urls) for s in sys.argv[3:]]))")
+    srcs = ["https://example.org/fetched: read", "<https://ex.org/s>.", "https://example.org/failed",
+            "https://example.org/walked", "https://example.org/no-result", "https://example.org/a"]
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(t), *srcs], capture_output=True, text=True,
+                       cwd=f.model, env=f.env, timeout=60)
+    got = json.loads(r.stdout or r.stderr)
+    assert got[0] == ["https://ex.org/s", "https://example.org/fetched", "https://example.org/walked"]
+    assert got[1:4] == [None, None, "https://example.org/failed: the session never opened it"]
+    assert got[4] is None and got[5:] == ["https://example.org/no-result: the session never opened it",
+                                          "https://example.org/a: the session never opened it"]
+
+
+def test_research_second_unsourced_is_dead_and_planner_goes_on(tmp_path):
+    f = Instance(tmp_path)
+    gid, rid = asked(f)
+    bad = answer("none")
+    assert f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=bad)[0] == ["research.unsourced"]
+    said, _ = f.run("plan.py", gid)
+    assert said == ["gap.measured"]                                      # an unsourced question is still waited on
+    said, lines = f.run("research.py", rid, FACTORY_STANDIN_RESEARCHER=bad)
+    r = f.item(rid)
+    assert said == ["research.dead"] and r["state"] == "dead" and r["fields"]["unsourced"] == 2
+    assert any(x.get("nack", {}).get("count") is True for x in lines)          # its lease's last attempt: a dead letter
+    said, _ = f.run("plan.py", gid)
+    assert said == ["gap.defined"]                                       # planned without it
+    brief = (f.model / f.item(gid)["fields"]["contexts"][-1]["brief"][5:]).read_text()
+    assert f"### {rid}\n\n(no answer: the question is a dead letter" in brief
 
 
 LIB = "```json\n{}\n```"
