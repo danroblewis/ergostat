@@ -1,0 +1,29 @@
+# research-design-queues-walk-and-demo-scripts: Two scripts let a session start a demo and walk it in Chromium: demo_up.py and walk.py
+
+depends-on: []
+
+Problem: no factory session can look at a running demo. The design review's walker lives outside the repository (the design folder's browse.py), and the only demo runner, scripts/demo_check.py:150-187 (fresh_copy, OFFLINE), is a whole check that cannot be asked for one demo left running. Sessions run only allowlisted commands (dev/bin/agents.py:38-46), so without a named script no implementor, designer or researcher can open a page. Chromium is already in the image (Dockerfile: playwright==1.63.0, /opt/ms-playwright; tests/test_agents.py:25).
+
+Change: add scripts/demo_up.py, which uses demo_check's fresh_copy and OFFLINE. `demo_up.py start DEMO [--port N]` copies examples/DEMO to a new folder under /tmp, runs it with `python -m ergostat -C COPY run --port N`, waits up to 90 s for its web to answer, and prints one JSON line {demo, url, copy, log}. `demo_up.py stop DEMO` stops it. A demo name must be a folder of examples/ that holds an ergostat.yaml; anything else is refused. Also add scripts/walk.py, the design review's walker brought in with tests. It reads a JSON list of steps (goto, size, dark, wait, click, hover, fill, press, scroll, shot, text) and runs them in one Chromium page, 1440x900 by default. Screenshots go to --shots DIR, which must exist, under names that match ^[a-z0-9][a-z0-9._-]{0,63}\.png$. Text is printed cut at 6000 characters, and console errors and failed requests at the end. It launches Chromium with no proxy for 127.0.0.1 and localhost, and with HTTPS_PROXY as Chromium's proxy for any other host when that is set. A step that fails is printed and the walk goes on. The exit code is 0 when every step ran, and 2 otherwise.
+
+Definition of done:
+1. demo_up.py start brings up any one of the-job, ticket-factory, image-squeeze, roadmap, software-factory and big, prints its URL, and stop ends it. A second start of the same demo is refused while the first runs.
+2. An unknown demo name, a path, or `..` is refused before anything is copied.
+3. walk.py runs every step kind, writes the named screenshots only under --shots, and refuses a shot name outside the pattern.
+4. walk.py passes no proxy for loopback URLs and HTTPS_PROXY for others (unit-tested on the launch arguments).
+5. docs/DEVELOPMENT.md says what the two scripts are for and how to run them.
+
+Files to touch: scripts/demo_up.py (new), scripts/walk.py (new), scripts/demo_check.py (only if fresh_copy and OFFLINE must be importable without side effects), docs/DEVELOPMENT.md, tests/test_walk_scripts.py (new).
+
+Acceptance tests (tests/test_walk_scripts.py):
+- test_demo_up_refuses_unknown_and_paths
+- test_demo_up_starts_and_stops_the_job (a real start of the-job on a free port: its /api/model answers, then stop)
+- test_walk_runs_steps_against_a_local_page (a stdlib http.server fixture page: a click changes text, the text step prints it, and a shot file exists)
+- test_walk_refuses_bad_shot_names
+- test_walk_proxy_only_off_loopback
+- test_walk_exit_code_on_failed_step
+The browser tests run under `uv run --with playwright==1.63.0`, like the four browser files.
+
+Size budget: 200 net lines (scripts only; tests and docs excluded).
+
+Area: research-design-queues. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
