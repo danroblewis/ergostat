@@ -16,21 +16,28 @@ is not what the box means.
 
 ## 1. A subsystem is C, P, or a named block
 
-**Rule.** A system is classified by what its closed box does to the systems around it. It is read from the folded
-signal graph, never declared, and always says it was inferred (invariant 11).
+**Rule.** A system is classified only by the wires that cross its border at the level it is drawn, never by what
+is inside it. It is read from the folded signal graph, never declared, and always says it was inferred (invariant 11).
+A wire is a **u wire** when its signal is set by a controller inside the source system (a block's output, or a flow
+that a block drives) and it enters a flow or stock of the target system. Every other wire is a **y wire** (a stock
+or auxiliary of the source, read by the target). A block that reads nothing and is commanded by nothing (the world,
+`WORLD_NOTE`) is a disturbance source d, not a controller, so its wires are never u wires.
 
-- **C** (it controls). It holds controllers whose outputs reach the process of another system, and its inputs are
-  that system's measurements or references. It may hold inner loops of its own (queues it keeps clear). These are
-  inside C, as a cascade's inner loop is.
-- **P** (it is acted on). None of its goals is held by a controller inside it. Its inputs are other systems'
-  controller outputs u and disturbances d. A block that reads nothing and is commanded by nothing (the world,
-  `WORLD_NOTE`) is a disturbance source, not a controller, so it does not make a system mixed.
-- **A named block** (mixed: it holds its own loops closed). The box is labelled with the system's name and no
-  letter, for example `api`. Its inputs are its references r and the disturbances d. Its outputs are its
-  measurements y. It is the closed-loop block T = PC/(1 + PCH), drawn as one block, as in block-diagram reduction
-  (Ogata, *Modern Control Engineering*, 5th ed., §2-3; Franklin, Powell & Emami-Naeini, *Feedback Control of
-  Dynamic Systems*, 8th ed., §3.2).
-- A system that fits more than one class is a named block. Being named is always true, so it is the fallback.
+- **C** (it controls): at least one u wire leaves it, and no u wire enters it.
+- **P** (it is acted on): at least one u wire enters it, and no u wire leaves it.
+- **A named block**: every other case. That is either **mixed** (u wires both leave it and enter it: it controls
+  one system and is controlled by another) or **neither** (no u wire crosses its border either way: it holds only
+  its own loops). The box is labelled with the system's name and no letter, for example `api`. Its inputs are its
+  references r, the disturbances d and any y wires. Its outputs are its measurements y. It is the closed-loop block
+  T = PC/(1 + PCH), drawn as one block, as in block-diagram reduction (Ogata, *Modern Control Engineering*, 5th ed.,
+  §2-3; Franklin, Powell & Emami-Naeini, *Feedback Control of Dynamic Systems*, 8th ed., §3.2).
+
+The three cases are exclusive and cover every system, so each system gets exactly one answer. **Loops a system holds
+closed inside it do not enter the rule.** They are inside C (or P) as a cascade's inner loop is inside its outer
+controller. So software-factory's `factory` holds backlog-clear, reviews-done and all-live closed, and it is still
+**C**: `deployed` is a u wire into `product`, and nothing enters `factory` except product's measurements (y wires).
+`product` is **P**. In ticket-factory, `factory` → `oversight` carries only y wires, so both are named (neither).
+Each of big's six systems and every `modelling` system is named (neither).
 
 **The same letter and p × m at both levels.** The box carries `C_name` or `P_name` with p × m, where p counts its
 outputs and m counts its inputs, **disturbances included**. Skogestad & Postlethwaite (§3.2) write the plant as
@@ -68,20 +75,28 @@ Sketch for :8796, assumed to be software-factory (story G6, `ceb-annotated-sf-to
  users-growing └──────────── y_m ◄──────[ H_product = diag(1,1,1) ]◄────┘
 ```
 
-`intake` and `delivery` stay inside C_factory. Opening `factory` shows them in its frame under the same C_factory,
-1 × 3. The widths here come from reading the YAML. The build gap's test pins them from `diagram()`.
+Below this loop, as a second row by §3's rule, sits `r_modelling ──►[ modelling ]──► y_modelling`, and the caption
+"no signals between these" is drawn once. `intake` and `delivery` stay inside C_factory (`deployed` is
+`delivery.yaml`'s deployer block's output, `out: flow.deployed`). Opening `factory` shows them in its frame under
+the same C_factory, 1 × 3. The widths here come from reading the YAML. The build gap's test pins them from `diagram()`.
 
 ## 3. Uncoupled systems: parallel rows, each with its own r and y
 
-When no signal passes between two systems at the top level, they are drawn as **parallel rows**, one per system.
-Each row has its own r on the left and its own y on the right, and the rows are aligned at their left edges. One
-caption reads **"no signals between these"**. This is the multiloop or decentralised form, in which each loop is
+**The counting rule.** Take the top level's systems as nodes and every wire between two of them, in either
+direction, as an edge. **Each connected component is one row.** Every top-level system counts, `modelling` (from
+`uses:` or `systems:`) included, with no exception. A row is drawn by §2 when it holds a C and a P. Otherwise it is
+drawn as its named blocks joined by their labelled wires, upstream to the left. When there are two or more rows, they
+are drawn as **parallel rows**. Each row has its own r on the left and its own y on the right, and the rows are
+aligned at their left edges. One caption, **"no signals between these"**, is drawn once, under the last row. So a
+top level with a C-P loop and an uncoupled system (software-factory with `modelling`) is two rows: §2's loop
+above and the uncoupled system below. This is the multiloop or decentralised form, in which each loop is
 drawn and tuned on its own when the plant is diagonal (Skogestad & Postlethwaite, §10.6; Seborg, Edgar, Mellichamp
 & Doyle, *Process Dynamics and Control*, 4th ed., ch. 18, where loops with no interaction are drawn as separate
 loops). It uses the same top-level assembly as §2 and is built after it. A row is §2's loop with one system: a named
 block (§1) with r in and y out, or a C-and-P loop when the row holds a pair. The rows are ordered by the model's own
-order (the order of `systems:`, then the order of the files), because uncoupled rows have no signal order to follow.
-That is the easiest choice to reverse.
+order of each row's first system (the order of `systems:`, then of the included files, then of `uses:`). Uncoupled
+rows have no signal order to follow, and model order is the easiest choice to reverse. It puts `modelling` last in
+all four examples.
 
 Sketch for :8797, assumed to be big (`ceb-big-blocks-dark.png`, today seven boxes in a column with no signals):
 
@@ -96,9 +111,22 @@ Sketch for :8797, assumed to be big (`ceb-big-blocks-dark.png`, today seven boxe
                          no signals between these
 ```
 
-The-job is drawn the same way with two rows, `job` and `modelling`. Systems that are coupled one way only, with no
-loop closing between them, are one row with the labelled wire (ticket-factory: `factory` →
-y_factory (pr-open, review-asked, changes-asked, sailed) → `oversight`, both named blocks). In ticket-factory the
+By the same rule, the four examples give these rows (top-level systems → rows):
+
+| example | rows, top to bottom | count |
+|---|---|---|
+| software-factory | {factory → product, §2 loop}, {modelling} | 2 |
+| ticket-factory | {factory → oversight, one labelled wire}, {modelling} | 2 |
+| big | {api}, {billing}, {build}, {data}, {support}, {web}, {modelling} | 7 |
+| the-job | {job}, {modelling} | 2 |
+
+The table assumes, from the YAML, that `modelling` exchanges no signal with the other systems at the top level. If
+`diagram()` shows a wire to it, the rule still decides: `modelling` joins that system's row, and the build gap's test
+pins the count the rule gives, not this table's.
+
+Systems that are coupled one way only, with no loop closing between them, are one row joined by the labelled wire
+(ticket-factory: `factory` → y_factory (pr-open, review-asked, changes-asked, sailed) → `oversight`, both named
+blocks by §1). In ticket-factory the
 owner's approvals do not flow back into any factory flow. That is a modelling finding for the owner. It is not
 drawn, because the drawing shows only what the model says.
 
@@ -166,18 +194,24 @@ The four build gaps are confirmed, renamed as below (the names are this proposal
 the closed block's r/y/status gap waits on the first.
 
 1. **blocks-classified-subsystems** (§1). `tests/test_blocks_classified.py`:
-   on software-factory at the top level, `sys:factory` has `fn.sym == "C"` and `sys:product` has `"P"`. On big,
-   `sys:api` is a named block with no letter. For every example and every system, the letter and p × m of the closed
+   on software-factory at the top level, `sys:factory` has `fn.sym == "C"` (although it holds loops closed inside)
+   and `sys:product` has `"P"`. On big, `sys:api` is a named block with no letter, and so are ticket-factory's
+   `sys:factory` and `sys:oversight` and every `sys:modelling`. A fixture with three systems a → b → c, each joined
+   by a u wire, makes `b` a named block (mixed). For every example and every top-level system, the class equals the
+   one §1's rule gives from the edges' u/y marks, computed in the test, so each system has exactly one class. For every example and every system, the letter and p × m of the closed
    box equal those of its frame when it is opened (`focus=` the system), with disturbances counted. No node's `fn`,
    math text or `says` contains `Q`, across all examples. Each of these fails on main today.
 2. **blocks-top-level-loop** (§2). `tests/test_blocks_top_loop.py`: software-factory at the top level has one
    reference node per goal of P that C serves, a sum node whose edge goes into `sys:factory`, an H node on the
-   return from `sys:product` to the sum, and a non-empty `signal.sym` on every edge between systems. The Blocks
+   return from `sys:product` to the sum, and a non-empty `signal.sym` on every edge between systems. `sys:modelling`
+   is drawn, and it is not on that loop: no edge joins it to the sum, H, `sys:factory` or `sys:product`. The Blocks
    browser file must show, on software-factory: the sum to the left of C, H below the forward path, and each label
    drawn on its wire.
-3. **blocks-uncoupled-rows** (§3, after 2). Unit: big's top level has seven rows, each with its own reference and
-   y, and one caption "no signals between these". The-job has two rows. Ticket-factory has one row with a labelled
-   wire. Browser: the rows' vertical extents do not overlap, their left edges are equal, and the caption is drawn
+3. **blocks-uncoupled-rows** (§3, after 2). Unit: for every example, the top level's rows are exactly the
+   connected components of its system-to-system edges (computed in the test), `modelling` included, and there is
+   one caption "no signals between these" when there are two rows or more, none with one. Pinned by §3's table:
+   big 7 rows, the-job 2, ticket-factory 2 (`factory` and `oversight` in one row with a labelled wire, then
+   `modelling`), software-factory 2 (the §2 loop, then `modelling`). Each row has its own reference and y. Browser: the rows' vertical extents do not overlap, their left edges are equal, and the caption is drawn
    once.
 4. **blocks-rows-per-loop** (§4, with diagram-layout-engine-proposal). Unit: each node in an open system carries
    its loop's row index. In ticket-factory `making`, located-worked's row is above worked-opened's. In big `api`,
@@ -196,5 +230,7 @@ Each new test is to be seen failing against main first (review lesson 9). The re
   the other example if that reading is wrong.
 - The gap names in the list above are this proposal's own. The rows of uncoupled systems follow model order, and
   the junction is kept ahead of C rather than using the two-degree-of-freedom drawing.
+- §1 reads "mixed" as controlling one system and being controlled by another, and classifies by border wires only,
+  so inner loops never change the class. `modelling` is counted as an ordinary system in every example.
 - The widths in the sketches come from reading the YAML. A script that prints `diagram()` could not be run in this
   session. The build gaps' tests pin the real widths.

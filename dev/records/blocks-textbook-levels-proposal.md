@@ -22,3 +22,19 @@ docs/DISCIPLINES.md. Choices made alone, each the most reversible: :8796 is read
 (from the screenshots' names); the build gaps' names are the proposal's own; uncoupled rows follow model order. The
 widths in the sketches are read from the YAML: running a script to print `diagram()` was refused in this session, so
 the build gaps' tests pin them. Nothing left for this gap beyond review.
+
+Round 2 (answering review 1's two findings, both blocking; there were no others):
+- Classification contradiction (§1): the rule now reads only the wires crossing a system's border, marked u
+  (set by a controller inside the source, entering the target's flow or stock) or y. C means u wires out and none in.
+  P means u wires in and none out. Named covers both (mixed) and neither. Inner loops never enter the rule, so
+  software-factory's factory is C with no second answer. Test 1 now computes the class from the edges for every
+  system and adds a mixed a → b → c fixture.
+- Uneven `modelling` counting (§2/§3): one rule, rows are the connected components of the top level's
+  system-to-system edges, with `modelling` counted as any system. A table gives the counts: software-factory 2
+  (the §2 loop, then modelling), ticket-factory 2, big 7, the-job 2. The software-factory sketch places modelling
+  as the second row. Tests 2 and 3 follow this rule. The proposal says these counts assume, from the YAML, that
+  modelling has no top-level wire. If it has one, the rule decides.
+- Not run: `diagram()` was never printed. The Bash tool was refused in this session (the first command, a grep and
+  sed over blockdiagram.py and the examples), so the facts were read with the file tools and nothing was committed
+  by me: the commit is left to the factory.
+Overrun reason: the proposal is 236 lines against about 200, because round 2 adds the u/y wire rule, the rows table and the modelling note that review 1 asked for.
