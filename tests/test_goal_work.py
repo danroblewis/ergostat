@@ -60,6 +60,42 @@ def test_one_goal_slower_than_the_budget_is_its_pass_alone():
     assert w.run_pass() == 1 and w.run_pass() == 1 and w.run_pass() == 0
 
 
+def test_a_later_asked_window_fills_before_an_earlier_one():
+    w = GoalWork(budget=0.0, background=False)          # one goal a pass
+    worked: list = []
+    work = lambda g, win: worked.append((g, win)) or g   # noqa: E731
+    goals = ["a", "b", "c"]
+    w.ask("performance", goals, 100.0, 1, work, 300)     # a moment picked on the slider, then another,
+    w.ask("performance", goals, 200.0, 1, work, 300)
+    w.ask("performance", goals, None, 1, work, 300)      # then back to live
+    for _ in range(3):
+        w.run_pass()
+    assert worked == [("a", None), ("b", None), ("c", None)], "live first, its goals in the order asked"
+    w.ask("performance", goals, 200.0, 1, work, 300)     # the moment asked again comes before the one left
+    w.run_pass()
+    assert worked[-1] == ("a", 200.0)
+    worked.clear()
+    w.ask("performance", goals, None, 1, work, 0)        # life 0: live is due again, and asked last, so first
+    w.run_pass()
+    assert worked == [("a", None)]
+
+
+def test_a_window_no_longer_asked_is_let_go():
+    w = GoalWork(budget=0.0, background=False, forsake=0.2, windows=2)
+    worked: list = []
+    work = lambda g, win: worked.append((g, win)) or g   # noqa: E731
+    for at in (1.0, 2.0, 3.0):                           # three moments: the first is past the most wanted
+        w.ask("performance", ["a"], at, 1, work, 300)
+    while w.run_pass():
+        pass
+    assert sorted(worked) == [("a", 2.0), ("a", 3.0)]
+    w.ask("performance", ["a", "b"], 4.0, 1, work, 300)
+    time.sleep(0.3)                                      # nobody asks any more: nothing is worked out
+    worked.clear()
+    assert w.run_pass() == 0 and worked == [] and not w._wanted
+    assert w.ask("performance", ["a"], 3.0, 1, work, 300) == {"a": "a"}, "what was worked out is still kept"
+
+
 def test_work_under_way_when_a_decision_is_made_is_not_kept():
     w = GoalWork(background=False)
     calls = []

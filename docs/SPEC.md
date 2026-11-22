@@ -4412,7 +4412,8 @@ far it **overshot** to the other side. Shown under the scope, and in a word on t
 says what it lacks, "needs θ" or "too little record", rather than nothing). The page asks for every goal's word
 in one answer (`/api/loops?perf=1`, with each stock's points for its trend): the server works each goal out in the
 background, one at a time within 2 s a pass, again after 5 minutes (`web/goal_work.py`), and a goal not worked out
-yet says "being worked out".
+yet says "being worked out". The moment asked for most recently is worked out first; a moment (or the live view) not
+asked for in 30 s is no longer worked out, and at most 4 moments are wanted at once.
 
 **Tuning** (`tuning.py`; Skogestad's SIMC, 2003): for a controller whose law its block writes and the
 process the model holds: PI, Kc = τ/(K(τc + θ)), τI = min(τ, 4(τc + θ)); on an integrator, Kc =

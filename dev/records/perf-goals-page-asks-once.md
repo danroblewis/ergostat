@@ -83,3 +83,31 @@ so a `getattr` fallback in `forget` would only hide the next stand-in that is mi
 `Live` in tests (grep for `_kept=`). The test failed before the fix and passes after it (26 of 26 in the file). Main
 had not moved since the branch's last merge of it (`git log HEAD..main` is empty). After that merge,
 `tests/test_page_polling.py` ran under the watchdog: 20 passed, rc 0, none skipped, 1056 s, peak 205 threads.
+
+Round 3 (the review's finding: abandoned moments on the header's slider kept ahead of the moment shown). In
+`goal_work.py`:
+- Order. Every ask takes the next number of a counter (`_asks`), and each key keeps its ask's number and its place in
+  that ask. The next key worked out is the one asked most recently, by that number and never by wall time (lesson-2).
+  Within it, a goal never worked out comes before one past its life, and goals go in the order asked. The polled
+  window (live, or the moment now shown) is asked again every 3 s, so it always comes before a moment left behind.
+- Life of windows no longer asked. A key not asked for in `FORSAKE` = 30 s (ten of the page's polls) is no longer
+  wanted, so a moment left behind stops being worked out within 30 s. It then no longer takes `control_api.WORKING`
+  from the opened goal's loop-control panel (lesson-6). What was worked out is kept: an entry no longer wanted is
+  dropped `IDLE` = 600 s after it was worked out, so "Back to live" after a few minutes still shows the live words
+  at once (with the same model's tag).
+- A ceiling (lesson-4). Of each kind, at most `WINDOWS` = 4 windows are wanted at once. When an ask brings a fifth,
+  the least recently asked window is let go at once. The constructor clamps `windows` to 1..64.
+- Tests (`tests/test_goal_work.py`): `test_a_later_asked_window_fills_before_an_earlier_one` asks two moments, then
+  live. It checks that live's goals are worked out first and in the order asked, that a moment asked again comes
+  before the one left behind, and that a live entry past its life comes first again. `test_a_window_no_longer_asked_is_let_go`
+  checks the cap (of three moments with `windows=2`, the first is never worked out), that nothing is worked out once
+  nobody asks for `forsake`, and that what was worked out is still served. Each was seen to fail with the code it
+  guards broken: `_next` back to age alone (live's goals came after the moment at 100); the cap removed (the first
+  moment was worked out); the forsake prune back to `idle` (a pass still worked out a goal).
+- SPEC §12 says the most recent moment comes first, the 30 s and the 4 moments.
+- Most reversible choices, made with nobody to ask: 30 s and 4 windows are numbers to tune, not measured on the
+  factory. A window let go by the cap keeps what was worked out for it, so asking for it again shows that at once.
+Overrun reason: the review's finding needs the ask order, the forsake prune and the window ceiling in goal_work.py (21 net lines), which takes the branch from 129 to 150 net lines against its 130.
+Main had not moved since round 2's merge (`git log HEAD..main` empty). Run: `tests/test_goal_work.py` (8 passed),
+`tests/test_web_access.py` (26 passed; it ran beside the browser file, not one at a time as the rule asks), ruff
+clean. `tests/test_page_polling.py` under the watchdog: see the next line.
