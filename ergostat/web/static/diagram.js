@@ -1369,7 +1369,7 @@ function renderSide(side, g, view) {
     const d = h("details", { class: "suggest", open: open ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
-      const loop = /^loop (\S+)/.exec(a.says)?.[1];
+      const loop = a.goal;                                // the goal it is about, a field (never read from its words)
       d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", op(a.says), " ",
         loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "Evidence") : null));
     }

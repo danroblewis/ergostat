@@ -431,12 +431,17 @@ _WORDS = [
 ]
 
 
-def words(text: str) -> str:
-    """A card's text in system dynamics' words: no controller, setpoint, rule, goal or valve."""
+def words(text: str, goals=()) -> str:
+    """A card's text in system dynamics' words: no controller, setpoint, rule, goal or valve. A goal named
+    (``goal NAME`` for a NAME in ``goals``) is kept: it is the part's name, not the word."""
     import re
-    for a, b in _WORDS:
-        text = re.sub(a, b, text)
-    return text
+    names = sorted(goals, key=len, reverse=True)
+    kept = re.compile(r"\bgoal (" + "|".join(map(re.escape, names)) + r")(?![\w-])") if names else None
+    parts = kept.split(text) if kept else [text]          # odd places: the names the goals are kept by
+    for i in range(0, len(parts), 2):
+        for a, b in _WORDS:
+            parts[i] = re.sub(a, b, parts[i])
+    return "".join(p if i % 2 == 0 else f"goal {p}" for i, p in enumerate(parts))
 
 
 def attention(att: list[dict], snap: dict) -> list[dict]:
@@ -447,9 +452,9 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
     for a in att:
         a = dict(a)
         what = a.get("what", "")
-        name = what.split(" ", 1)[1] if what.startswith(("loop ", "controller ")) else None
+        name = a.get("goal")                               # the goal by its field, never parsed from the words
         lp = loops.get(name) if name else None
-        if lp and lp.get("status") == "off" and what.startswith("loop "):
+        if lp and lp.get("status") == "off" and a.get("level") != "hint":
             sp = _sp(lp.get("setpoint") or "")
             want = sp.lstrip("≤≥=<> ")
             err = lp.get("error")
@@ -457,10 +462,7 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
             gap = "" if err is None else f": {'excess' if over else 'gap'} {fmt(abs(err))}"
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
-            a["says"] = words(a.get("says", ""))
-        if name:
-            a["what"] = f"loop {name}"
-        else:
-            a["what"] = words(what)
+            a["says"] = words(a.get("says", ""), loops)
+        a["what"] = words(what, loops)
         out.append(a)
     return out

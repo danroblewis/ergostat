@@ -107,7 +107,7 @@ def test_a_stale_reading_turns_a_goal_stale_for_each_policy(tmp_path, monkeypatc
     assert len(went) == 1 and went[0]["data"]["on_stale"] == policy
     snap = state.snapshot(e.p, now=e.clock.t)
     assert snap["loops"]["short"]["status"] == "stale" and snap["loops"]["short"]["on_stale"] == policy
-    assert any(a["what"] == "loop short" and "stale" in a["says"] for a in state.attention(snap, True, e.p.model))
+    assert any(a["what"] == "goal short" and "stale" in a["says"] for a in state.attention(snap, True, e.p.model))
     expect = {"act": (0.0, 0.0), "hold": (1.0, 1.0), "off": (1.0, 1.0)}[policy]   # (the goal's .off, the onoff's output)
     assert (e.signals["goal.short.off"], e.signals["block.keep"]) == expect
     assert bool(e.p.events.query(n=None, type="loop.holding", item="short")) == (policy == "act")
@@ -288,7 +288,7 @@ def test_the_page_says_a_goal_is_stale_and_needs_attention(tmp_path, monkeypatch
     snap = state.snapshot(e.p, now=e.clock.t + 31)
     lp = snap["loops"]["short"]
     assert lp["status"] == "stale" and lp["stale"] == pytest.approx(31) and lp["on_stale"] == "off"
-    said = [a for a in state.attention(snap, True, e.p.model) if a["what"] == "loop short"]
+    said = [a for a in state.attention(snap, True, e.p.model) if a["what"] == "goal short"]
     assert said and said[0]["level"] == "warn" and "it counts as off" in said[0]["says"]
     _read(e, "sensor/queue.main", 9)                            # off outranks stale
     assert state.snapshot(e.p, now=e.clock.t + 31)["loops"]["short"]["status"] == "off"

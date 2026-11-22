@@ -279,7 +279,7 @@ def test_status_off_loop_points_at_knowledge(home, capsys):
     _off(p, "c", 1)
     main(["-C", str(home), "status"])
     out = capsys.readouterr().out
-    att = next(x for x in out.splitlines() if "loop a:" in x)
+    att = next(x for x in out.splitlines() if "goal a:" in x)
     assert re.search(r"items about it: knowledge/\w+, knowledge/\w+, knowledge/\w+ \+2$", att), att
     assert "knowledge/measured" in att                                       # the latest, through stock.a
     row = next(x for x in out.splitlines() if re.match(r"^a\s", x))
@@ -287,8 +287,20 @@ def test_status_off_loop_points_at_knowledge(home, capsys):
     calm = next(x for x in out.splitlines() if re.match(r"^calm\s", x))
     assert "holding" in calm and "knowledge/q" not in out                    # a loop that holds names none
     main(["-C", str(home), "status", "--json"])
-    loops = json.loads(capsys.readouterr().out)["loops"]
+    got = json.loads(capsys.readouterr().out)
+    loops = got["loops"]
     assert loops["a"]["about"].endswith("+2") and "about" not in loops["calm"]
+    assert {a.get("goal") for a in got["attention"]} >= {"a", "quiet"}, got["attention"]   # quiet: nothing holds it
+    # --system S: only its goals' entries, the field matched
+    from ergostat.cli import status as cs
+    real = cs.parts_of
+    cs.parts_of = lambda args, m: {"a", "drain-a"} if args.system == "s" else real(args, m)
+    try:
+        main(["-C", str(home), "status", "--system", "s", "--json"])
+    finally:
+        cs.parts_of = real
+    att = json.loads(capsys.readouterr().out)["attention"]
+    assert [a["what"] for a in att if a.get("goal")] == ["goal a"] and "items about it" in att[0]["says"], att
 
 
 def test_status_at_a_past_time_names_no_items(home, capsys):
@@ -303,7 +315,7 @@ def test_status_at_a_past_time_names_no_items(home, capsys):
     assert json.loads(capsys.readouterr().out)["loops"]["a"].get("about") == "knowledge/g"   # live: named
     main(["-C", str(home), "status", "--at", "30m"])
     out = capsys.readouterr().out
-    assert "loop a:" in out and "knowledge/" not in out, out
+    assert "goal a:" in out and "knowledge/" not in out, out
     main(["-C", str(home), "status", "--at", "30m", "--json"])
     got = json.loads(capsys.readouterr().out)
     assert "about" not in got["loops"]["a"] and "knowledge/" not in json.dumps(got["attention"])
@@ -332,7 +344,7 @@ def test_status_with_an_unreadable_index_says_unknown(home, capsys, monkeypatch)
     _off(p, "a", 50)
     _break_index(p, monkeypatch)
     main(["-C", str(home), "status"])
-    att = next(x for x in capsys.readouterr().out.splitlines() if "loop a:" in x)
+    att = next(x for x in capsys.readouterr().out.splitlines() if "goal a:" in x)
     assert att.endswith("items about it: unknown (the item index could not be read)"), att
 
 

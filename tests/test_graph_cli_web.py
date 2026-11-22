@@ -364,6 +364,34 @@ def test_at_looks_at_a_past_moment(project):
     assert not past["live"]
 
 
+def test_the_projects_summary_counts_goals(monkeypatch, capsys):
+    import types
+
+    from ergostat import projects
+    from ergostat.cli import running
+    row = {"name": "p", "running": False, "web": None, "repo": "/r", "loops": 3, "off": ["x"], "unknown": []}
+    monkeypatch.setattr(projects, "known", lambda: [row, {**row, "name": "q", "loops": 0, "off": []}])
+    running.cmd_projects(types.SimpleNamespace(json=False))
+    out = capsys.readouterr().out
+    assert "GOALS" in out and "3 goals: 2 holding, 1 off: x" in out and "no goals" in out, out
+
+
+def test_an_attention_entry_about_a_goal_names_it_as_a_field(project):
+    """/api/status: an off goal's entry, and a hint about it, read 'goal NAME' and carry goal: NAME; none says 'loop '."""
+    from ergostat.web import server
+    project.measurements.add("sensor/disk-usage", 90)
+    live = server.Live(project)
+    att = server.api(live, "status", {})["attention"]
+    mine = [a for a in att if a.get("goal") == "disk-under-80"]
+    assert mine and all(a["what"] == "goal disk-under-80" for a in mine) and mine[0]["level"] == "bad", att
+    assert not [a for a in att if a["what"].startswith("loop ")], att
+    snap = {**server.st.snapshot(project), "hints": [{"controller": "disk-under-80", "goal": "disk-under-80",
+                                                       "says": "goal disk-under-80 was off 60% of the time"}]}
+    hint = [a for a in server.st.attention(snap) if a["level"] == "hint"]
+    assert hint == [{"level": "hint", "what": "goal disk-under-80", "goal": "disk-under-80",
+                     "says": "goal disk-under-80 was off 60% of the time"}], hint
+
+
 def test_agent_now_runs_it_once_and_says_what_it_said(repo, project, capsys):
     repo.write("clean.py", """
         import json

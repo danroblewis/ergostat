@@ -146,16 +146,20 @@ def test_lines_out_of_and_into_a_closed_module_end_in_a_shadow_and_a_stub_inside
 def test_the_attention_cards_speak_system_dynamics():
     from ergostat.dynamics import attention
     snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0}}}
-    att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
-           {"level": "hint", "what": "controller backlog-clear", "says": "loop backlog-clear was off 60% of the time; why (a valve "
+    snap["loops"]["a"] = {"status": "holding", "stock": "x"}
+    g = "backlog-clear"
+    att = [{"level": "bad", "what": f"goal {g}", "goal": g, "says": "backlog is 4, setpoint <= 0 (off by 4)"},
+           {"level": "hint", "what": f"goal {g}", "goal": g, "says": f"goal {g} was off 60% of the time; why (a valve "
             "too small, or acting too seldom) is said after 10m of record"},
            {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill controller x"},
-           {"level": "hint", "what": "controller a", "says": "loop a keeps feeding x: Hold a back (its controller can read x)"}]
+           {"level": "hint", "what": "goal a", "goal": "a", "says": "goal a keeps feeding x: Hold a back (its controller can read x)"}]
     out = attention(att, snap)
     assert out[0]["says"] == "backlog is 4, desired backlog = 0: excess 4"
+    assert [a["what"] for a in out] == [f"goal {g}", f"goal {g}", "decision x", "goal a"]     # a goal by its name
+    assert out[1]["says"].startswith(f"goal {g} was off 60%") and out[3]["goal"] == "a"     # the field kept
     import re
     for a in out:
-        text = a["what"] + " " + a["says"]
+        text = re.sub(r"\bgoal (backlog-clear|a)\b", "", a["what"] + " " + a["says"])
         assert not re.search(r"controller|setpoint|\brule|\bgoal|valve|<=|>=", text), text
 
 

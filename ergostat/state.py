@@ -520,8 +520,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             continue
         if snap.get("recorded", 0) < 600:                # too little record to tell saturation from slow sampling
             out.append({"controller": name, "agent": m.controllers[name].agent, "kind": "", "share": lp["off_share"],
-                        "count": 0, "decision": "", "about": "loop",
-                        "says": f"loop {name} was off {round(lp['off_share'] * 100)}% of the time; why (a valve too small, "
+                        "count": 0, "decision": "", "about": "loop", "goal": name,
+                        "says": f"goal {name} was off {round(lp['off_share'] * 100)}% of the time; why (a valve too small, "
                                 f"or acting too seldom) is said after 10m of record ({human(snap.get('recorded', 0))} so far)"})
             continue
         c = m.controllers[name]
@@ -551,16 +551,16 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             limits = [m.valves[v].max for v in lp["valves"] if m.valves[v].max]
             at_limit = (bool(limits) and len(amounts) >= 3 and sum(a >= limits[0] * 0.999 for a in amounts) >= len(amounts) / 2) or (
                 not limits and len(amounts) >= 3 and len(set(amounts)) == 1 and (amounts[0] or 0) > 0)
-            says = (f"loop {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "
+            says = (f"goal {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "
                     f"{fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "") + ". "
                     + ((f"Its openings ran at its max of {fmt(limits[0])}" if limits else f"Every opening moved {fmt(amounts[0])}")
                    + ": the valve is at its limit (saturated); it needs more per run, or less load" if at_limit else
                        "More per run, or acting more often" + (f" ({slowest} is the slowest stage)" if slowest else "")))
         elif slowest:
-            says = (f"loop {name} was off {off}% of the time though its valve keeps up on average: it answers too late; "
+            says = (f"goal {name} was off {off}% of the time though its valve keeps up on average: it answers too late; "
                     f"{slowest} is the slowest stage")
         else:
-            says = f"loop {name} was off {off}% of the time though its valve keeps up on average: it answers too late"
+            says = f"goal {name} was off {off}% of the time though its valve keeps up on average: it answers too late"
         # a job that empties the stock on a schedule holds only if load × period fits the room under the setpoint
         pts = snap["stocks"].get(stock, {}).get("points") or []
         op, target = c.target()
@@ -572,7 +572,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                          + (" (cron cannot: once a minute is its finest)" if needed < 60 and any(
                              x.cron for x in m.agents.values() if x.name in slowest) else ""))
         out.append({"controller": name, "agent": c.agent, "kind": a.kind if a else "", "share": lp["off_share"],
-                    "count": 0, "decision": "", "about": "loop", "says": says})
+                    "count": 0, "decision": "", "about": "loop", "goal": name, "says": says})
     # upstream action piling up behind a loop that is off: the anti-windup question for loops in series
     for up, lp in snap["loops"].items():
         for f in lp["flows"]:
@@ -585,8 +585,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                 moved = snap["flows"].get(f, {}).get("rate") or 0
                 if moved > 0:
                     out.append({"controller": up, "agent": m.controllers[up].agent, "kind": "", "share": dl["off_share"],
-                                "count": 0, "decision": "", "about": "loop",
-                                "says": f"loop {up} keeps feeding {down_stock} ({fmt(moved)}/h) while loop {down} is off "
+                                "count": 0, "decision": "", "about": "loop", "goal": up,
+                                "says": f"goal {up} keeps feeding {down_stock} ({fmt(moved)}/h) while goal {down} is off "
                                         f"{round(dl['off_share'] * 100)}% of the time: work piles up downstream. Hold {up} back "
                                         f"while {down} is off (its controller can read {down_stock}, or listen for loop.holding@{down})"})
     for c in m.controllers.values():
@@ -627,24 +627,25 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             continue
         if lp["status"] == "open" and f"stock.{lp['stock']}" in theirs:   # a goal here on a remote's stock: watched,
             continue                                                       # acted on there (nothing here may act on it)
+        of = {"what": f"goal {name}", "goal": name}     # the goal by its name, a field: never parsed from the words
         if lp["status"] == "off" and lp.get("breaking"):
             n, each = lp["breaking_n"], lp["per"]
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"{n} {each}{'' if n == 1 else 's'} break{'s' if n == 1 else ''} "
+            out.append({"level": "bad", **of, "says": f"{n} {each}{'' if n == 1 else 's'} break{'s' if n == 1 else ''} "
                         f"it (each {each}'s {lp['stock']} {setpoint_text(lp)}): {per_says(lp)}"})
         elif lp["status"] == "off" and lp.get("per"):        # off, and none past its tolerance: holding only back within
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"the worst {lp['per']}'s {lp['stock']} is "
+            out.append({"level": "bad", **of, "says": f"the worst {lp['per']}'s {lp['stock']} is "
                         f"{fmt(lp['value'])}, setpoint {setpoint_text(lp)}: none is past its tolerance now; it holds again "
                         "once each is back within the setpoint"})
         elif lp["status"] == "off":
-            out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
+            out.append({"level": "bad", **of, "says": f"{lp['stock']} is {fmt(lp['value'])}, "
                         f"setpoint {setpoint_text(lp)} (off by {fmt(abs(lp['error']))})"})
         elif lp["status"] == "stale":
             does = {"act": "its controllers act on it as it was", "hold": "what it commands is held",
                     "off": "it counts as off"}[lp["on_stale"]]
-            out.append({"level": "warn", "what": f"loop {name}", "says": f"{lp['stock']} was last read {human(lp['stale'])} "
+            out.append({"level": "warn", **of, "says": f"{lp['stock']} was last read {human(lp['stale'])} "
                         f"ago, too long for its sensor: stale ({does}; on-stale: {lp['on_stale']})"})
         elif lp["status"] == "open":
-            out.append({"level": "warn", "what": f"loop {name}", "says": "cannot close: " + "; ".join(lp["gaps"])})
+            out.append({"level": "warn", **of, "says": "cannot close: " + "; ".join(lp["gaps"])})
         elif lp["status"] == "unknown" and running and snap.get("recorded", 0) > UNKNOWN_GRACE:
             who = ""
             if model is not None:
@@ -652,7 +653,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                 kinds = {model.agents[a].kind for a in fillers}
                 who = (" (its sensor is filled by a person, who has reported no reading)" if kinds == {"person"}
                        else f" (sensor {', '.join(lp['sensors'])})")
-            out.append({"level": "warn", "what": f"loop {name}", "says": f"no reading of {lp['stock']} yet: "
+            out.append({"level": "warn", **of, "says": f"no reading of {lp['stock']} yet: "
                         f"the loop cannot tell whether it holds{who}"})
     if model is not None and getattr(model, "spec", None) is not None:   # remotes that do not answer (SPEC §4c)
         from .remote import attention as remote_attention
@@ -717,7 +718,8 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                     "says": (f"{len(rs)} drafted" if len(rs) > 1 else f"\u201c{rs[0]['title'][:70]}\u201d drafted")
                     + " about ergostat itself, scrubbed, for you to read and submit by hand if you choose: ergostat report"})
     for h in snap.get("hints", []):
-        out.append({"level": "hint", "what": f"controller {h['controller']}", "says": h["says"]})
+        out.append({"level": "hint", **({"what": f"goal {h['goal']}", "goal": h["goal"]} if h.get("goal")
+                                        else {"what": f"controller {h['controller']}"}), "says": h["says"]})
     for name, r in snap["residuals"].items():
         if r["significant"]:
             out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "

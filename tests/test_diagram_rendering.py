@@ -3808,3 +3808,41 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+def test_a_suggestion_about_a_goal_has_an_evidence_link_to_its_panel(browser, tmp_path):
+    """Dynamics and Blocks: a hint about a goal (its name in the ``goal`` field, its text 'goal NAME was off...')
+    has an Evidence link, and the link opens that goal's panel. The hint is put into the page's answers here,
+    as the engine says it after 10 minutes of record off (state.ladder_hints, state.attention)."""
+    goal = "disk-under-80"
+    hint = {"level": "hint", "what": f"goal {goal}", "goal": goal, "says": f"goal {goal} was off 60% of the time"}
+
+    def add_hint(rt):
+        got = rt.fetch()
+        body = got.json()
+        if isinstance(body, dict) and "attention" in body:
+            body["attention"] = [*body["attention"], hint]
+        rt.fulfill(response=got, json=body)
+
+    with served("disk-space", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/graph*", add_hint)
+        for i, view in enumerate(("view=dynamics", "view=blocks")):
+            drawn(pg, url, view, i)
+            pg.wait_for_selector(".suggest .hint", state="attached", timeout=30000)
+            pg.evaluate("() => { document.querySelector('.suggest').open = true; }")
+            rows = pg.locator(".suggest .hint")
+            assert rows.count() == 1 and rows.first.inner_text().startswith(f"goal {goal} goal {goal} was off"), view
+            rows.first.locator("a", has_text="Evidence").click()
+            pg.wait_for_function("(g) => document.querySelector('#detail h2')?.textContent.startsWith(g)", arg=goal,
+                                 timeout=30000)
+            assert pg.locator("#detail .kind").first.inner_text() in ("Loop", "Open loop"), view
+        # the Model page's tool link to a goal's controller: its panel scrolled to the goal's section, found by data-goal
+        pg.evaluate("""(g) => { window.scrolled = []; const f = Element.prototype.scrollIntoView;
+          Element.prototype.scrollIntoView = function (o) { window.scrolled.push(this.dataset?.goal || ""); return f.call(this, o); };
+          openTool({ view: "blocks", find: isController(g), goal: g }); }""", goal)
+        pg.wait_for_function("(g) => window.scrolled.includes(g)", arg=goal, timeout=60000)
+        pg.close()
+    assert not errors, errors

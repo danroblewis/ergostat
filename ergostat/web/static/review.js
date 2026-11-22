@@ -55,7 +55,7 @@ function lookAt(el) {
 }
 /* a panel holding several loops' sections (a MIMO process, a controller of several): scrolled to the loop's own */
 function scrollToLoop(goal, tries = 40) {
-  const el = [...document.querySelectorAll("#detail .control h3")].find((x) => x.textContent.includes(`loop ${goal}`));
+  const el = [...document.querySelectorAll("#detail .control h3[data-goal]")].find((x) => x.dataset.goal === goal);
   if (el) return el.scrollIntoView({ block: "start" });
   if (tries > 0) setTimeout(() => scrollToLoop(goal, tries - 1), 250);
 }

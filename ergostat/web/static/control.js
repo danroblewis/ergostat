@@ -188,7 +188,7 @@ function identRows(d) {
 
 function processSection(d, done) {
   if (d.why) return [h("p", { class: "muted small" }, `The loop ${d.goal}: ${d.why}.`)];
-  const kids = [h("h3", {}, `The loop ${d.goal}, from u to y`)];
+  const kids = [h("h3", { "data-goal": d.goal }, `The loop ${d.goal}, from u to y`)];
   const u = (d.u || "").split(".").slice(1).join("."), y = (d.y || "").split(".").slice(1).join(".");
   kids.push(h("p", { class: "muted small" }, `u: ${u} (${d.how === "valve" ? "what its valve moves, a rate" : "the setting its controller steps"}); y: ${y}.`));
   if (d.known) kids.push(h("p", { class: "small" }, d.known + "."));
@@ -224,7 +224,7 @@ function processSection(d, done) {
 }
 
 function controllerSection(d, done) {
-  const kids = [h("h3", {}, `With the loop ${d.goal}'s process`)];
+  const kids = [h("h3", { "data-goal": d.goal }, `With the loop ${d.goal}'s process`)];
   const c = d.controller || {};
   if (!c.law) {
     kids.push(h("p", { class: "muted small" }, `${c.says || "Its law is not known"}: no closed loop worked out.`));

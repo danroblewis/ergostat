@@ -110,7 +110,7 @@ def status(args) -> int:
         for n, says in off_about(p, spec, loops).items():
             loops[n]["about"] = says
             for a in att:
-                if a["what"] == f"loop {n}":
+                if a.get("goal") == n and a["level"] != "hint":
                     a["says"] += f" · items about it: {says}"
     if args.system:                                      # only what is in that system
         parts = parts_of(args, m)
