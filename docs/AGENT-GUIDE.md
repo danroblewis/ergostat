@@ -147,10 +147,13 @@ Work through these steps in order. Ask the person only what you cannot infer.
    default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
    for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
-   its item-index files held at `index-files` (6) by a rule-tier tidier that takes over from the engine's own, and
-   the engine's watchdog and the outer watcher drawn as external blocks under `no-stalls` and `heartbeat-fresh`
-   (`stale`, 180 s; `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it when the files a
-   model's changing kinds leave behind, or the engine's own health, should show on the diagram.
+   its item-index files held at `index-files` (6) by a rule-tier tidier, and the record's roll-up, forgetting past
+   `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and
+   `measurement-retainer` (`with: {rollup-every: 1h, retain-every: 1h}`, 1m to 1d), each taking over from the
+   engine's own, and the engine's watchdog and the outer watcher drawn as external blocks under `no-stalls` and
+   `heartbeat-fresh` (`stale`, 180 s; `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
+   when the files a model's changing kinds leave behind, the record's growth, or the engine's own health, should show
+   on the diagram; with it, leave `storage: rollup: every` out (`check` says it is unused).
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three

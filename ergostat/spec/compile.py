@@ -513,7 +513,7 @@ class Compiler:
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
                              f"oldest, asked), or ergostat.interventions.waiting (or per-day, trend, standing, chattering, "
                              f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files, "
-                             f"heartbeat-age, stalls, restarts)",
+                             f"heartbeat-age, stalls, restarts, rollup-due, events-past-keep, measurements-due)",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":

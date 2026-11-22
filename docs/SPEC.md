@@ -365,19 +365,20 @@ re-ping's 10 s sensors and 30 s pinger) pass the gate but not those limits; coll
 
 `use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own
 upkeep as loops of the model: the item-index files (section 4b: one `<state>/items/<hash>[.n].db` per shape of the
-model's item kinds), and the watched loops below. The stock `index-files` (`ergostat.upkeep.index-files`,
-the live files) fills by `index-files-made` (`changes: rises`, a new file on each change to the kinds) and drains by
-`index-files-tidied` (`changes: falls`). The stock `retired-index-files` (`ergostat.upkeep.retired-index-files`)
-drains by `retired-index-files-removed`. A file is *retired* when its mark `<hash>[.n].retired` stands beside it
-(`itemindex.retired`, the one test the measures and the tidy both use): a process still held it when it was due to
-go, and it is never opened again. The goal `index-files-few` holds `index-files <= ${index-files}` (default 6, 1 to
-64, checked when the model loads), and `no-retired-index-files` holds the retired ones at 0. The controller
-`index-tidier` is a program on the rule rung, `${lib} upkeep tidy --keep ${index-files}` every `tidy-every` (10m).
-It works from the state directory alone (never the project, its model or an index, which it only locks), refuses
-`--keep` outside 1 to 64 (exit 2), and exits 1 with a message when `<state>/items` is missing or cannot be listed.
-It prints one line per output: `{"out": "flow.index-files-tidied", "moved": LIVE, "left": ..., "held": ...,
-"young": ...}` (the live files it removed) and `{"out": "flow.retired-index-files-removed", "moved": RETIRED}` (the
-retired ones), so the engine opens each flow's valve by its own count.
+model's item kinds), the record's roll-up and retention, and the watched loops below. The stock `index-files`
+(`ergostat.upkeep.index-files`, the live files) fills by `index-files-made` (`changes: rises`, a new file on each
+change to the kinds) and drains by `index-files-tidied` (`changes: falls`). The stock `retired-index-files`
+(`ergostat.upkeep.retired-index-files`) drains by `retired-index-files-removed`. A file is *retired* when its mark
+`<hash>[.n].retired` stands beside it (`itemindex.retired`, the one test the measures and the tidy both use): a
+process still held it when it was due to go, and it is never opened again. The goal `index-files-few` holds
+`index-files <= ${index-files}` (default 6, 1 to 64, checked when the model loads), and `no-retired-index-files`
+holds the retired ones at 0. The controller `index-tidier` is a program on the rule rung, `${lib} upkeep tidy
+--keep ${index-files}` every `tidy-every` (10m). It works from the state directory alone (never the project, its
+model or an index, which it only locks), refuses `--keep` outside 1 to 64 (exit 2), and exits 1 with a message when
+`<state>/items` is missing or cannot be listed. It prints one line per output: `{"out": "flow.index-files-tidied",
+"moved": LIVE, "left": ..., "held": ..., "young": ...}` (the live files it removed) and `{"out":
+"flow.retired-index-files-removed", "moved": RETIRED}` (the retired ones), so the engine opens each flow's valve by
+its own count.
 
 **The engine stands down.** In a model whose `uses:` holds ergostat's own `upkeep`, `index_for` no longer tidies the
 folder when it makes a new file; the `index-tidier` does. The engine reads that from the model it is given (the
@@ -393,8 +394,46 @@ checked before the lock and again once it is held.
 
 **Fail-safe.** A measure with no state directory, or a folder it cannot list, gives no reading, never 0. If the
 tidier stops, nothing else limits the number of files under `use: upkeep`: they only pile up (one per change of the
-kinds), and every index still opens and folds right. The event log's roll-up and measurement retention are still
-to come.
+kinds), and every index still opens and folds right.
+
+**The record's loops.** Three stocks, each read every `due-every` (default 10m; 1m to 1d, refused at load, as each
+reading of `rollup-due` is a dry roll-up) and drained by its falls: `rollup-due` (`ergostat.upkeep.rollup-due`,
+the items with events past their roll-up horizon outside a snapshot: the number
+`compact(p, cap=keep, dry=True)["items"]` gives, read by that dry run, rolling nothing; on a large record the dry
+run may outlast the sensor's timeout, and the stock then has no reading), drained by `rolled-up`;
+`events-past-keep` (`ergostat.upkeep.events-past-keep`, the events older than the model's `keep` that pruning would
+forget: the model's history and each loop's last crossing are never counted, as they are never forgotten), drained
+by `events-forgotten`; and `measurements-due` (`ergostat.upkeep.measurements-due`, raw readings past
+`storage: measurements: raw`, and each tier's buckets past its keep, counted at the cut the roll forgets at: whole
+buckets of the next tier, never what it has not taken; so it is 0 straight after a roll; 0 without tiers, where
+nothing is forgotten), drained by `measurements-forgotten`. The goals `record-rolled-up`, `record-within-keep` and
+`measurements-within-tiers` hold each at 0. Three controllers on the rule rung serve them, each run while its goal
+is off: `record-compactor` (for `record-rolled-up`), `${lib} upkeep rollup --every ${rollup-every}`, does the
+roll-up, the pruning past `keep` and the archive's forgetting, and prints `{"out": "flow.rolled-up", "moved":
+ITEMS, "events": ..., "pruned": ..., "archive_forgot": ...}`; `record-pruner` (for `record-within-keep`) runs the
+same roll-up with `--flow events-forgotten`, its line moving `flow.events-forgotten` by the events pruned, so
+events past `keep` that no roll-up touches (with no item, of an item of no kind, of an idle item) are forgotten
+while nothing is due to roll up. No stock counts the archive's months past `keep`: they are forgotten only when one
+of these two runs, so while `rollup-due` and `events-past-keep` both stay 0 they wait. `measurement-retainer`,
+`${lib} upkeep retain --every ${retain-every}`, rolls the measurements into their tiers and prints `{"out":
+"flow.measurements-forgotten", "moved": ROWS, "rolled": ...}`. Each runs at most once each `rollup-every` or
+`retain-every` (default 1h; 1m to 1d, refused at load and, exit 2, by the program). The two record blocks are
+stopped after `rollup-timeout` (default 1h, 1m to 1d). A stopped run has written none of its pruning and, on all
+but a very large record, none of its roll-up: `compact` writes the archive then replaces the record every million
+snapshots, so a run stopped past one such step keeps what it wrote, which the next run goes on from (the archive
+reads each event once). A backlog longer than the timeout is never rolled up whole by the loop: raise it, or run
+`ergostat compact` once by hand. The retainer has no timeout parameter, so it is stopped at the block default
+(300 s); it commits a few hours of readings at a time, so one stopped keeps the buckets it rolled, and a large
+first retention takes several runs, one each `retain-every`. Each holds the compaction lock (section 4b) for all
+its work; finding it held, it prints `busy: ...`, does nothing and exits 0. A store that cannot count what is due
+(VictoriaMetrics, which keeps its own retention; an events store without the count) gives no reading, never 0; a
+measure name outside the three is refused, not read as one of them. **The engine stands down** here too: under
+`use: upkeep` its hourly pass still rotates and trims its logs but no longer rolls up, prunes or retains, and
+`check` finds `storage: rollup: every` unused (`unused-rollup-every`, naming `rollup-every`). **Fail-safe:** if the
+three blocks stop, the record only grows; items, the flows counted from them, the item index and the archive all
+still read right (`tests/test_upkeep_record.py`). A block killed at its timeout loses its whole process group (each
+run is its own), so the lock goes with it, and the record stays whole: its one write to the record is
+`p.events.replace`, as before.
 
 **The watched loops.** The template also draws the functions that keep the engine itself going. They are drawn,
 not run: each controller is ergostat's code, a `type: external` block (observed, never started by ergostat), and no
@@ -728,6 +767,16 @@ engine reads through a cache.
 their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
 it would roll up). A roll-up reads only the items the item index says are due (their first event
 since their snapshot older than the horizon, or a transcript's lines), a batch of them at a time.
+**`use: upkeep` changes this:** the engine then only rotates and trims its logs, and the template's
+`record-compactor`, `record-pruner` and `measurement-retainer` roll up, forget and retain, each every its own `every`
+(section 2a, *Upkeep*); `rollup.every` is then unused, and `check` says so.
+
+**The compaction lock.** Whoever rolls up, prunes, forgets archive months or rolls the measurements
+(the engine's pass, `ergostat compact`, `upkeep rollup`, `upkeep retain`) holds `<state>/compact.lock`
+for all of it, from reading what is due to writing it back: an exclusive `flock`, taken without
+waiting. One that finds it held does nothing to the record and says `busy` (a line in the engine's
+log; `busy: ...` from `ergostat compact` and from the programs, which exit 0). The lock is the
+kernel's, never a pid file, so it goes when its holder's process dies.
 
 **The page's answers are bounded.** No answer grows with the record: events are at most 1,000 an
 answer (`n`, paged by `after` and `before`), items 500 (`offset`), a kind's finished items a thousand

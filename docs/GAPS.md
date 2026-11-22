@@ -377,8 +377,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `use: upkeep` with the loop `index-files` / `index-files-few` / `index-tidier` (`upkeep tidy --keep N`); the
     engine stands down from tidying under it; the interlock (lock without waiting, age checked again under the lock,
     an allowlist of index names under the resolved folder) stays in `spec/itemindex.py`. Under `use: upkeep` nothing
-    else limits the count if the tidier stops. Still to come: **upkeep-record-loops** (the event log's roll-up
-    and measurement retention).
+    else limits the count if the tidier stops.
+  - **The record's loops** (done on `factory/upkeep-record-loops`, `dev/records/upkeep-record-loops.md`): the stocks
+    `rollup-due`, `events-past-keep` and `measurements-due`, held at 0 by `record-compactor` and `record-pruner` (both
+    `upkeep rollup`) and `measurement-retainer` (`upkeep retain`), each every 1m to 1d; the engine stops rolling up
+    under `use: upkeep`. Every compactor (the engine, `ergostat compact`, the programs) holds `<state>/compact.lock`,
+    an `flock` taken without waiting, and says `busy` when it is held. A store that cannot count gives no reading.
   - **The watched loops** (done on `factory/upkeep-watched-loops`, `dev/records/upkeep-watched-loops.md`): the
     stocks `heartbeat-age`, `stalls` and `restarts` (`ergostat.upkeep.*`), the goals `heartbeat-fresh` (`<= stale`,
     180, 60 to 3600) and `no-stalls`, and the engine's watchdog and the outer watcher as `type: external` blocks;
