@@ -41,3 +41,17 @@ Branch `cx-backfill-replace`, from main. Core.
 130 net lines outside `tests/` and `docs/`.
 
 From the owner's request of 2026-11-22: measure ergostat's code complexity in many forms and slices, as stocks on main, backfilled from git history.
+
+## Where it stopped
+
+Built, round 1: every item of the definition and every named acceptance test, plus `test_a_store_from_before_the_columns_takes_a_replace`; 81 net lines outside tests, docs and dev.
+Choices taken without asking (each the more reversible one):
+- "why" is a new column, `forgotten.why`, and "replaced, with when" a new column, `backfills.replaced` (a time). Both are added to an existing file by `alter table` at open, the way `events.change` already was (`store.ADDED`). On `victoriametrics` the readings set aside go to `measurements.forgotten.json` with a `why` key.
+- An earlier backfill is marked `replaced` when its first-to-last span overlaps the new one, even if only in part. Its ledger entries outside the span stay, so those readings are still skipped.
+- `replaced: N` counts the raw readings set aside, plus the readings of finest-tier buckets that were dropped because their raw readings were gone. A dropped bucket that overlaps the span's edge loses its readings outside the span too, and those are in N. Coarser buckets are made again from the next finer tier, where it still holds them. SPEC says this.
+- Late readings are dropped across all the dropped buckets, not only inside the span. Late readings are also raw readings, and the finest buckets are remade from the raw readings, so keeping them would count them twice at the next roll.
+- On `victoriametrics` the compaction lock (`compact.lock`) is taken with waiting, together with the ledger's transaction. It does not stop the engine's live writes: a reading sent between the read-out and the delete is lost. If the import after the delete fails, the series is left without its readings: the ledger rolls back, but the server cannot. `forget` already had both windows. SPEC states the first.
+- Outside "Files to touch": `ergostat/goodmodel.py` (`replace` listed with the read-only flags; it only modifies `--backfill`, which is already an act) and `ergostat/victoria.py` (the server backend's module the definition names).
+Found and left alone (lesson 13; already on main): after a roll has forgotten a series' raw readings, one late reading written raw makes `Measurements._sources` treat raw as holding everything after it. Until the next roll, `range` then hides the buckets after that reading. `test_backfill_replace` reads its "outside" baseline before the late reading so this does not affect it.
+Checked that the tests can fail: with the overlapping buckets dropped but not remade, `test_backfill_replace[tiers]` fails; with late readings left, it fails; with the span's raw readings not deleted, four of the six named tests fail.
+Not run: the VictoriaMetrics case of the conformance suite (`ERGOSTAT_TEST_VM_URL` unset, no server in the container); the whole unit suite and the browser files (left to the factory). No page changed.

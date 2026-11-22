@@ -102,6 +102,22 @@ def test_changes_flow_sees_no_false_step(repo, tmp_path, capsys):
     assert changed(spec, spec.flows["gained"].sensors["main"], p.measurements, now)[0] == 8.0
 
 
+def test_a_store_from_before_the_columns_takes_a_replace(tmp_path):
+    """``forgotten.why`` and ``backfills.replaced`` are added to a file made before them."""
+    import sqlite3
+
+    from ergostat.store import Measurements
+    old = sqlite3.connect(tmp_path / "measurements.db")
+    old.executescript("create table forgotten (series text not null, time real not null, value real not null, "
+                      "forgotten_at real not null); create table backfills (id text primary key, series text not null, "
+                      "src text, written_at, first real, last real, count int);")
+    old.close()
+    m = Measurements(tmp_path)
+    m.backfill("s", [(100.0, 1.0)], "v1")
+    assert m.backfill("s", [(100.0, 2.0)], "v2", replace=True)["replaced"] == 1
+    assert m.range("s", 0, 200) == [(100.0, 2.0)] and m.backfills("s")[0]["replaced"] is not None
+
+
 def test_replaced_readings_are_kept_aside(repo, tmp_path, capsys):
     now = time.time()
     old = [(now - 300, 1.0), (now - 200, 2.0)]
