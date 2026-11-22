@@ -117,3 +117,9 @@ Round 1 stopped before any code: the gap this one depends on is not on main.
   - refuse any template text or value that holds a mark character, and test that a forged owner mark is refused;
   - bound or drop `--every` and `--limit` in `LIB_DATA_FLAGS`, and test that a library `--every 0ms` and an
     oversized `--limit` are refused. That makes lesson-4 apply to this gap.
+
+## Where it stopped
+
+Parked by the factory (review/library-provenance-marks-1, 2026-11-21 18:06).
+
+Done: only the definition of done and a 'Where it stopped' note; no code, tests or docs. Left: all of the definition (writer marks in expand.py and uses.py, R1/R2 in trust.py with LIB_DATA_FLAGS/LIB_EXEC_FLAGS and fullmatch patterns, every acceptance test in tests/test_library_provenance.py, SPEC/SECURITY/AGENT-GUIDE/GAPS), plus answers to both plan-review notes (mark-character forgery refused; --every/--limit bounded or dropped, with tests). Why stop: two rounds have produced no work, and the round-2 reason (dependency missing from main) is disproved by the clone. library-trust-folders landed on origin/main as 1171fb2f before the stop commit was written. The next attempt must merge origin/main first and then build the definition as written.
