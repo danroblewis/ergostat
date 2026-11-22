@@ -21,13 +21,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
     (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
+    `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
+    parts written as text for its owner, in its names, against the version read, never applied or sent
+    (`remote-proposals-text`; `ergostat remote proposals`, SPEC §4c "Proposals for its owner").
     `examples/remote-pair/` and its two-instance test. A remote's measures on its closed box (done on
     `remote-box-measures`): its top systems' served `show:`, or a `show:` on its `remotes:` entry in its own
     names (`remote-show-unresolved` for one it does not serve), each marked stale with its age when the remote
     or the reading is not current.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
-    it); lines in the process map between our items and theirs (needs an id both logs carry); proposals
-    written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
+    it); lines in the process map between our items and theirs (needs an id both logs carry); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
     not served); mutual TLS.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
@@ -87,9 +89,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
-  program). *Left*: verifying a fix by the runs after it and offering its revert; log events; the
-  swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
-  failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text.
+  program). Triage reads Python, Node, Java and Go traces and notes an error a good run swallowed (M5) without moving
+  any failure. *Left*: verifying a fix by the runs after it and offering its revert; log events; the ladder's lower
+  rungs (narrow AI, program, rule) and promoting a class automatically; a program with uncommitted changes is fixed
+  from its committed text; a Python traceback more than 8,000 characters before the end of a failed run's output is
+  now signed by how the run ended; a daemon's run hands back little or no standard error, so what a daemon swallows is
+  not seen; Ruby and other languages are not read.
 - **AI approver for repairs: needs a positive allowlist of the AST changes a fix may make** (SPEC §12r). One was built
   on `repair2` (the AI shown only the diff and pass or fail, behind a guard that escalated new imports, processes,
   network, environment, writes and URL or path literals) and cut before merging: a guard that denies by list was

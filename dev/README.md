@@ -121,20 +121,25 @@ read is taken, the other waits). Each run fetches its session's work to a side r
 (`refs/incoming/<run>/factory/NAME`). Before each implementor run on a branch behind main, implement.py merges main in
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
 (it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
-`uv run python scripts/suite_watch.py`; its refused calls are kept as `tool_denials`, and a session with no result or
+`scripts/named_tests.py`, below; its refused calls are kept as `tool_denials`, and a session with no result or
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
 `tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after: ruff, `[suites] build` and the four browser files, each under the watchdog in a suite container of the agent
-image and the suite slot; a browser test skipped fails them, as in the queue. `build` is the small set
+after: ruff and `[suites] build`, each under the watchdog in a suite container of the agent image and the suite slot.
+The four browser files run there too only with `[suites] build_browser = true` (default false: minutes of 4 CPUs a
+round, plus a Chromium launch); then a browser test skipped fails them, as in the queue. `build` is the small set
 (`scripts/affected_tests.py`: the test files the branch changed since main and `tests/test_<module>.py` of each
 `ergostat/**/<module>.py` it changed; only collection when there are none; the full suite when the diff cannot be
 read). With `build` commented out or empty, the full `unit` suite runs there instead. The merge queue never reads
-`build`: it runs `unit`, `browser` and `demo` in full. **No browser stops the round:** before the
-session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
+`build`: it runs `unit`, `browser` and `demo` in full. **No browser stops the round** (with `build_browser` only):
+before the session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
 missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
-starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with
-`uv run --with playwright==1.63.0` (inside its own container's limits: the host's slot is not reachable from there).
+starts. The session itself runs tests only through `scripts/named_tests.py`: 1 to 3 named `tests/test_*.py` files
+or test ids, no options, pytest run serially (no xdist, the ini's addopts cleared); a browser file the same way under
+`scripts/suite_watch.py` with `uv run --with playwright==1.63.0`. Never a whole suite: those run in the merge queue.
+Each session's container has `[agents] session_cpus` CPUs (1.5; empty: the suites' 4), its suites' containers 4.
+The script holds against habit, not against a session that edits it (it has Edit on its clone): such an edit shows in
+the branch's diff, for the review.
 The unit suite's tests/test_agents.py::test_implementor_environment_has_a_browser really launches Chromium that way, so
 every unit run (the queue's on the host, a developer's, an implementor's offline container) needs Playwright 1.63.0
 cached for `uv run --with` and its Chromium installed, or it fails: on purpose, a missing browser is a failure, not a
@@ -530,10 +535,16 @@ time from being taken again each time.
 
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
-`run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
-a batch of 4 whose every merge fails is at most 8 suite runs (about 1.5 hours at 12 minutes), and the block's 3 hour
-timeout also covers the wait for the lock and a quiet machine. `merges-per-hour` (gaps merged over the hours of every
-queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
+`run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max` (8, never
+past 32). A run starts no suite run once `[pools] batch_minutes` (120; a value of 0 or less, over 150 or NaN is refused,
+and the queue takes no gap) have passed since it began, the wait for the lock and a quiet machine and the dry merges
+included: it stops bisecting, the prefix a full green run proved lands, and the gaps not yet settled go back to
+`approved` uncounted, for the next run. A run that settled none of its batch leaves the next one half as many
+(`cap` in `run/queue.json`, cleared by the first run that settles one), down to a batch of 1, which is one suite run.
+So, whatever the batch, the block's 3 hour timeout is reached only by a suite run begun inside the allowance that
+lasts past it (over 60 minutes at 120, 30 at 150); nothing here bounds a suite run that hangs. Each run's
+`queue_runs` entry says how many it `tried`, `landed` and `given_back`. `merges-per-hour` (gaps merged over the hours
+of every queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
 
@@ -558,7 +569,7 @@ or unreadable bookmark makes it read every gap again (and write only a changed t
   it ends at the approval after it, or at a park or close straight from fix. While it still goes round, `loop_ended` is
   empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
-  `build_hours`), `fast` (its fast suites: ruff, unit and browser, every try in a round, `fast_seconds`; a build recorded before it
+  `build_hours`), `fast` (its fast suites: ruff, build or unit, and browser with `build_browser`, every try in a round, `fast_seconds`; a build recorded before it
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
@@ -621,8 +632,9 @@ on a read-only clone of main, its conversation kept as a session item related to
 **What it is given.** Every standing trigger no earlier session answered (by fingerprint): the queue blocked; a gap dead
 past half an hour, or parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or
 none said), unless another gap carries its branch on or the park is `deferred` or `cancelled` (its kind, or the
-coordinator's `deferred: true` or `cancelled: true`); a `waits_on` or `needs`
-park not cleared in `park_wait_hours` (24, at least 1); a `split` park never (each stopped sub-gap raises its own
+coordinator's `deferred: true` or `cancelled: true`), or an old park classified `unknown` whatever its age; a `waits_on`
+or `needs` park not cleared in `park_wait_hours` (24, at least 1); a continuing gap whose branch intake could not fetch
+(`unfetched`); a `split` park never (each stopped sub-gap raises its own
 trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
 else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
@@ -656,11 +668,21 @@ records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a ga
 the reviewer, the queue, triage, the plan lint, dead letters), `deferred` (the manager's park, once the coordinator
 approved it), `cancelled` (the plan review's), `split` (split-watch: the stopped sub-gaps). The reviewer's park verdict
 gives its kind and condition; one naming nothing checkable is a `defect`. The block `park-resume` (every 5 minutes, no
-AI) resumes `waits_on` once the gap merged or the commits are on main, `needs` once
+AI) resumes `waits_on` once the gap's work is on main as pushed (its merge on the checkout's `origin/main`; a merge not
+pushed has not cleared), through its continuation (`resumed_as`, followed) when it was continued, or once the commits
+are on pushed main; `needs` once
 `ergostat event --add gap.need-met --item gap/NAME --data '{"need_met": "what was done"}'` is recorded, and `split`
 once each stopped sub-gap is resumed or closed (the split gap back to split, the continuations its children). A resume
 is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the parked gap saying what cleared (a
-continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Measures:
+continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Each pass
+first classifies, once, the parks from before kinds (`classified_by: park-classify`): `kill-rule` by who parked it,
+`waits_on` the one other gap whose merge its branch carries (one merge in `base..branch`; whether main already has that
+gap's work is not checked, and if it has, the wait clears on the next pass), else `unknown` (the manager's);
+a `deferred` or `cancelled` one, one the plan review or the manager parked, or one continued already (`resumed_as`:
+its work goes on in the continuation) is left alone, and an `unknown` one continued is not raised past its age. Expect the first
+session after this lands to carry many `parked` triggers, one for each old park classified `unknown` (a reviewer's
+included), once; after that, only new ones. An old park classified `waits_on` keeps its first `parked_at`, so one whose
+gap is not on pushed main raises `waiting` at once too (past `park_wait_hours`). Measures:
 `measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.
 
 ## Upgrade and revert

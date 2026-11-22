@@ -395,6 +395,9 @@ keeps running it; this model reads it.
 5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
    the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
    incidents, ref: stock.open}`.
+6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
+   equations for the remote's parts, written as text in its names for its owner, each marked current or not.
+   They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
 
@@ -630,6 +633,9 @@ Add `use: repair` (once a model, like `modelling`; SPEC §12r) when the owner wa
 failed run becomes an `ergostat.failure` item, one per signature, counted; one whose block runs a program of the
 project's is fixed by an AI (haiku by default, with no tools: ergostat gives it the program and the files beside it) in
 a clone of the repository, tested in the sandbox, and proposed as the gated action `apply-fix` with its impact report.
+Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
+is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is

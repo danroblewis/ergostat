@@ -644,6 +644,35 @@ The local residuals, coherence and attention leave its parts out: they are held 
 **Never edited here.** A model change (§12e) that would write a remote part is refused, as one that would
 write a template's part: it is the remote owner's to make.
 
+**Proposals for its owner** (`ergostat/numbers/remote_text.py`). When the calibration's parameter estimate or the
+equation finder (§12b) finds a change whose every edited part is one remote's (a parameter proposal's parameters, an
+equation's flow), it is written as **text for that remote's owner**, never as an edit. Under the same id the local
+one would have, it is an `ergostat.model-change` item holding only `kind`, `title`, `text`, `evidence`,
+`for_remote` (`{remote, version, parts: {local ref: remote ref}}`), `subject`, `made_by`, `created` and `made`
+(an allowlist, `FIELDS`): no fit, gate, estimate, edit or local version. Its text names the remote's parts in the
+remote's own names (looked up in what it served, `parameter.incidents-rate` → `parameter.rate`; a stand-in is never
+there), says what to change (a value from → to, ± one standard error; or a flow's equation and each new parameter's
+value, the new names made from the remote's names and free against its parameters), and gives the evidence: points,
+window and the series read. It makes no claim of fit. When a name is not served, nothing is written, and what is
+under its id is left as it was. It is recorded under the proposals' lock and, inside it, the remote's cache lock
+(`<state>/remotes/NAME/model.lock`, which a refresh holds while it reads and writes `model.json`), only when the
+version in the cache file is the version the evidence was computed on: a file missing, unreadable or without a
+version, or another version, records nothing. It is **current** only while both versions are read and equal (never
+by time); a superseding pass supersedes it when the cache's version has moved (saying from what to what), and one
+that cannot be read supersedes nothing but is listed as not current, with why. Found again at the same version with
+the same text it is left alone, and a dismissed one is not written again there; at a new version, or with another
+text, it is made again, open, and nothing of a decision under that id is kept (a change of this model's own under
+the id, whatever became of it, is superseded first; one made again from a text loses `for_remote`, `text` and
+`evidence`). Its state is `checked` and it is never in the review queue (`proposals.pending`), the judge, the
+inbox, MCP or the Model page; Accept refuses it first, by every path ("is text for remote NAME's owner: it is never
+applied here"); dismiss lets it go. It is **never sent by ergostat: sending it is the owner's act.** `ergostat
+remote proposals [NAME] [--json]` lists the open and the dismissed ones, each with the version it was written
+against, whether it is current and its text; it takes no lock and writes nothing, and runs on the last good model
+while the YAML is broken (`goodmodel.READ_WHAT`; the rest of `ergostat remote` acts). `ergostat proposals` says how
+many are waiting there. Not made for a remote: a change touching both this model's parts and a remote's, or two
+remotes' (kept with its edit's error, and refused by Accept as before); structural changes, redesigns, a block's
+proposal and the owner's what-if (refused, as any edit of a remote part).
+
 **What a remote serves.** Any ergostat whose page runs serves this read-only API once a token is made
 (`ergostat remote token NAME`, printed once, kept only as its hash; `--revoke`; `ergostat remote tokens`).
 Every request carries `Authorization: Bearer TOKEN`; only `GET`; 10 requests a second per token (bursts
@@ -662,7 +691,8 @@ what admits.
 
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
-most); `ergostat remote refresh` asks each again now.
+most); `ergostat remote refresh` asks each again now; `ergostat remote proposals` lists the texts written for
+remotes' owners (above).
 
 ## 4d. The page behind a public name
 
@@ -1172,7 +1202,13 @@ gives the same.
 **States.** An item arrives in its kind's first state (a move from nowhere, so a flow can count
 arrivals with `entering:`), and stays there until an event its kind maps moves it; every move is
 kept (from, to, when, by which event), so how long it spent in each state is known. An item no
-kind matches is still shown, with its fields (folded with no rules) and no state.
+kind matches is still shown, with its fields (folded with no rules) and no state. A built-in kind
+may also say which states an event moves an item **from** (`ItemKind.moves_from`: event type to a
+tuple of states): such an event moves the item only when its state at that point of the fold (in
+the record's order, `seq`) is one of them; otherwise it moves nothing, and the item lists it in
+`refused` with `form: "from"`. So a decision to move an item is made against its state where the
+event lands, not where its writer last read it (the repair loop's failures, section 12r). It is
+not written in a model's YAML.
 
 A field whose value is `file:PATH` names a file in the project (a picture a program made, a report,
 an agent's transcript): the page shows it where the item is shown, as what it is (`formats`, or its
@@ -5637,8 +5673,7 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
 is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (verifying
-a fix by the runs after it, offering its revert, the ladder's other rungs, a check for programs that swallow their
-errors) is in `docs/GAPS.md`.
+a fix by the runs after it, offering its revert, the ladder's other rungs) is in `docs/GAPS.md`.
 
 ```yaml
 uses:
@@ -5656,8 +5691,26 @@ uses:
 **Triage.** In a model that uses repair, every failed run of a `program` or `ai` block is recorded as
 `ergostat.run.failed` about an item of the built-in kind **`ergostat.failure`** (it exists only in such a model), one
 item a **signature**: the block, its program (the first word of its `run:` that is a file under the model's folder), the
-exception's type and its innermost frame in the project (from Python's traceback); without a traceback, the block, its
-program and how it ended. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
+exception's type and its innermost frame in the project, from the last trace in the run's output; without one, the
+block, its program and how it ended. Traces are read from the **tail** only: the last 8,000 characters of the run's own
+file, its first partial line dropped when it does not begin at the run's start. Four languages are read
+(`repair/traces.py`): **Python**'s `Traceback (most recent call last)` (its frame the innermost one outside
+`site-packages`, `/lib/python`, `<frozen` and `<string>`, as triage always signed it, so a Python failure keeps its id);
+**Node**'s `Name[ [CODE]]: message` directly followed by `    at` lines; **Java**'s outer exception line (with or
+without `Exception in thread "T"`) directly followed by `\tat` lines, then its `Caused by:` blocks (indented
+`Suppressed:` blocks ignored); **Go**'s `panic: message`, `goroutine N [running]:` and its function and file lines (its
+type `panic`). The trace whose header line comes last is taken, and **a trace needs its header**: one whose header the
+tail cut off is no trace, whatever frames or `Caused by:` lines are left, and the run is signed by how it ended (so a
+Python traceback more than 8,000 characters before the end of a failed run's output is too). A **project frame** is one
+whose file, a relative path taken against the model's folder, lies under that folder, in none of its `site-packages`,
+`node_modules`, `.venv`, `venv` or `vendor` folders, and is not the runtime's (`node:`, `<frozen`, `<string>`); for
+Node and Go the signature frame is the innermost project frame, else the innermost frame. **Java** signs by its **root
+cause** (the last `Caused by:`, else the outer exception): its type and message, and the innermost project frame of
+its own frames, else of the nearest enclosing exception's, else its innermost frame. A Java frame's file is its class's
+package path (`com/acme/Store.java`), the project's when a file under the model's folder ends with it; the folder is
+walked for that once a trace, at most 5,000 entries (dot-folders and the library folders not entered), and a walk that
+reaches the cap finds no Java frame the project's (the trace says `walk: capped`). Ruby and other languages are not
+read. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
 of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. The standard
 error is read only from the run's own file (`log`, `logs/runs/<block>/<seq>-<id>.log`, section 4b), never from the
@@ -5669,10 +5722,34 @@ note `could not start: its run log: ...`), so its failure stays `noted`. A failu
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
 timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
 (SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that
-exits with such a code on purpose is noted too. One that fails again after its fix was applied is opened again. The loop's
-own blocks (`repair-fix`, `repair-settle`) and any run a failure's events caused (six steps up the cause chain) record no
-failure. States: `noted`, `open`, `leased` (being fixed), `awaiting-approval`, `applied`, `dismissed`, `dead` (its fixes
-failed `tries` times).
+exits with such a code on purpose is noted too. One that fails again after its fix was applied is opened again. Triage
+writes `ergostat.failure.opened` whenever the run's own facts allow it, and the **fold decides** whether it moves the
+item, by the item's state at that event's place in the record (`moves_from`, section 5a): `opened` moves a failure only
+from `noted`, `applied` or `superseded`, so a failure leased, awaiting approval, dismissed or dead stays where it is,
+the refusal listed, whatever triage read before it wrote. What triage still decides from a read (whether the item is
+new, when its run of failures `began`, which old item it supersedes) is read, decided and written while it holds
+`repair/capture.lock` in the state directory. The loop's own blocks (`repair-fix`, `repair-settle`) and any run a
+failure's events caused (six steps up the cause chain) record no failure. States: `noted`, `open`, `leased` (being
+fixed), `awaiting-approval`, `applied`, `superseded`, `dismissed`, `dead` (its fixes failed `tries` times).
+
+**Swallowed errors.** A run of a `program` or `ai` block that ended well (exit 0, no note), whose block runs a program
+of the project's, has its tail read the same way. When its last trace has a project frame, one
+`ergostat.run.swallowed` is written about the failure that trace signs (the same signature a failure would get). A new
+item arrives `noted`, with a failure's fields, `swallowed: 1` and `count: 0`, and is never opened by it; for an
+item that exists, in any state, the event says only `{"swallowed": 1, "last_swallowed": RUN}` (`swallowed` folds as a
+sum). The event moves no state, writes no `repair/NAME.input` for an existing item, and carries none of the fields the
+fixer reads, so a failure being fixed keeps its lease and its traceback. A trace with only library or runtime frames,
+or none, records nothing. A later failed run with the same signature opens the noted item as usual. A daemon's run
+hands back no standard error (above), so what a daemon swallows is not seen.
+
+**Superseding.** Node, Java and Go failures were signed by how they ended before triage read their traces, so their old
+items have other ids. When a failure is signed by such a trace, triage looks for the item at its old signature (block,
+program, how it ended); only if that item's kept `stderr` parses to the same new signature does it write
+`ergostat.failure.superseded` (`{"by": NEW}`) about it, which moves it to `superseded` from `noted` or `open` only. One
+being worked (leased, awaiting approval, applied) is not moved, the refusal listed, and a later failure tries again;
+one whose stderr is another bug that ended the same way is left alone. A failure at that old signature with no readable
+trace (one that ended the same way) opens the superseded item again, so it hides nothing. Python failures are never
+superseded: their signatures did not change.
 
 **Sealed.** A failure's fields are ergostat's alone: its kind is *sealed* (`ItemKind.sealed`), so the fold
 (`spec/items.py`) refuses every event about it whose type is not ergostat's own (`ergostat.*`, which no block line,

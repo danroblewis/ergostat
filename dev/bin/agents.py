@@ -34,14 +34,15 @@ import fac
 NET, PROXY, PORT = "ergostat-agents", "ergostat-egress", 3128
 DENY = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)", "Bash(curl:*)",
         "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
+NAMED = "uv run python scripts/named_tests.py"   # (an allowlist: 1 to 3 named test files, no options; never a suite)
+BROWSER_FILE = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py"
 TOOLS = {
     "implementor": ["Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)",
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
-                    "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
+                    f"Bash({NAMED}:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
                     "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
-                    "Bash(uv run python scripts/suite_watch.py:*)"],   # (its own clone, in a container of its own;
-                                                    # the suites under the watchdog, the browser files with Playwright)
+                    f"Bash({BROWSER_FILE}:*)"],  # (a browser file: under the watchdog, with Playwright)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
@@ -66,6 +67,17 @@ def settings(cfg: dict) -> dict:
     return {"image": a.get("image", "ergostat-agent:latest"), "hosts": list(a.get("hosts") or ["api.anthropic.com"]),
             "token_file": Path(os.path.expanduser(a.get("token_file", "~/.config/ergostat/claude-token"))),
             "proxy_image": a.get("proxy_image", "ergostat-dev:latest")}
+
+
+def session_cpus(a: dict) -> str:
+    """[agents] session_cpus: a session container's --cpus (empty or absent: the suites' 4); outside (0, 4] refused."""
+    got = str(a.get("session_cpus", "")).strip()
+    try:
+        if got and not 0 < float(got) <= 4:
+            raise ValueError(got)
+    except ValueError:
+        raise Refused(f"[agents] session_cpus = {got!r}: a number of CPUs above 0 and at most 4") from None
+    return got or LIMITS[LIMITS.index("--cpus") + 1]
 
 
 def token(cfg: dict) -> str:
@@ -399,7 +411,7 @@ def limits(cfg: dict, kind: str, cpus: float | None = None) -> list[str]:
     another. ``cpus``: its --cpus (a session's: [agents] session_cpus; else LIMITS' 4). A cpuset that is not a list of
     CPUs and ranges is refused (raised), never dropped."""
     a = cfg.get("agents") or {}
-    cpus = cpus or (a.get("session_cpus") if kind == "session" else None)
+    cpus = cpus or (session_cpus(a) if kind == "session" else None)
     out = list(LIMITS)
     if cpus:
         out[out.index("--cpus") + 1] = f"{float(cpus):g}"
