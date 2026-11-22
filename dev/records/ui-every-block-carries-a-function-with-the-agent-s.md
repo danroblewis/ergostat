@@ -25,3 +25,28 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. Net +9 lines outside tests/docs (blocks.js +8, blockdiagram.py +1).
+
+- A named block (ai, program, person, external, and the rule-run kinds) now has its function as its main label. That is
+  the identified law (`u = …`) when there is one, the standard nonlinearity it is (`u = relay(e)`, `u = sat(x)`,
+  `u = dz(e)`, `u = ZOH(x)`, `u = table(x)`, …), or else `f(·), law not stated`. Its name and tier (its kind when it
+  has no tier) are its caption, `open-pr · program`, in the top band where the tier badge was (`text.bd-tier`, so
+  the existing badge test still holds).
+- A sensor with H = 1 says `H = 1, every 3 s`, using the sensor's own period (`fn.every` from blockdiagram.py). Choice
+  made: the period with the collector's added (13 s in the ticket factory) stays in the panel. The reads line beneath
+  still says `every 3 s` as well, because removing the repeat would change what
+  test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip pins. These are the most reversible options.
+- Collectors (drawn as sensors, an instrument rather than a law) are unchanged. None is drawn in making.
+- Acceptance: tests/test_diagram_rendering.py::test_every_block_carries_a_function_with_the_agents_name_as_its_caption
+  passes. It failed against two breaks: the name drawn as the main label again, and the caption reduced to the tier.
+- The full test_diagram_rendering.py had 197 passed and 4 failed. All four failures are outside this change, which
+  touches only `?view=blocks`:
+  - test_every_view_draws_cleanly_and_in_time[coordinator] and [image-squeeze] (routing open=* 37 s / 34 s > 20 s),
+    and test_a_big_tangled_model_lays_out_in_time_and_cleanly (3351 ms > 2500 ms). All three draw only the default
+    view, not Blocks. They failed again when rerun alone. They were not run on main: `git worktree add` of main was
+    refused in this session.
+  - test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page ('Nothing waiting.'): earlier
+    reviews already reported this failure on other branches.
