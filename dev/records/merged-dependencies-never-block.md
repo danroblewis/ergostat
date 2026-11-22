@@ -63,3 +63,9 @@ run the benchmark through a test to get around those refusals. **Left:** time `p
 suites run again (the factory runs these after me). Run here, one file at a time: test_precedence_cap,
 test_take_order, test_relations, test_relations_asof (35 passed), and test_eta, test_backlog and test_factory
 (184 passed, 2 skipped; I did not look into the skips). Ruff is clean.
+
+## Where it stopped
+
+Parked by the factory (review/merged-dependencies-never-block-1, 2026-11-21 19:56).
+
+Done: definition items 1-3. A precedence target cut by MOST_PULLED is read by id in one ix.items(ids=cut, moves=False) call under the index lock, and its real status decides waiting. One that cannot be read counts as unfinished and is named. The cut is made in sorted id order, so graph and eligibility do not depend on PYTHONHASHSEED. Four tests in tests/test_precedence_cap.py cover the three acceptance tests, and the implementor reports seeing them fail when the code is broken. 9 net lines against 40. Left: item 4, time precedence.build (or order_ready) on a copy of the factory's record before and after the branch, and write both numbers in Where it stopped. It stops because the implementor's sandbox refused to run any benchmark or reach the record, so another fix round cannot take the measurement.
