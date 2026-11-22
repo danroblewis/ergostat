@@ -231,3 +231,12 @@ taken:
   - The full unit suite and the four browser files were not run here; the house process leaves them to the
     factory and the merge queue.
   - `examples/remote-pair/` was not touched, so `demo_check` was not run.
+
+Round 2: the factory merged main (48b1481a) and `ergostat/remote/process.py` conflicted in `fetched`. Main had
+added mutual TLS: the `process` GET passes `tls=r.get("tls")`. The resolution keeps the branch's `fetched` (the `at`
+ids, the key by ids, the last good map per remote, `_kept` cleared past 30) and adds main's `tls=` argument to its
+GET. The fake `client.get` in `tests/test_remote_lines.py` now takes `tls=None`. After the merge, ruff is clean, and
+these pass: `tests/test_remote_lines.py`, `tests/test_remote.py`, `tests/test_remote_mtls.py`, and
+`tests/test_diagram_rendering.py::test_a_line_to_a_remote_is_drawn_dashed_between_the_frames` (Playwright, under
+the watchdog, rc 0). The full unit suite and the four browser files were not run here; they are left to the
+factory and the merge queue.
