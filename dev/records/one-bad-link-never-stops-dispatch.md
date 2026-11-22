@@ -66,3 +66,17 @@ Tests run in round 2, one file at a time: test_one_bad_link.py, test_deps.py, te
 test_relations.py, test_relations_asof.py, test_eta.py, test_numbers.py, test_graph_cli_web.py (all pass); ruff clean
 on ergostat tests scripts. Not run: the whole unit suite, the four browser files, demo_check. Still no origin/main in
 this clone (`git branch -a` lists only main and this branch).
+
+Round 3 (the merge of main 4a1bcd10, and review 2's findings):
+- The conflict in `ergostat/spec/watchdog.py`: both kept. `heartbeat()` takes main's `stale` (4th) and the branch's
+  `failing` (5th, by keyword), and writes both `stale` and `dispatch_error`; `Watchdog.beat` passes both. The test's
+  call now passes `failing=` by name.
+- Review 2, non-blocking: the docstring finding is answered (a comment in `build` says a cycle through a parent holds
+  the items between, and none is taken). Left as is, as review 2 allowed: the intake does not refuse a dependency on a
+  descendant (DoD 4 asks for ancestors; the graph marks it a cycle and never takes it), and a held block still ends
+  the whole look (from main, untouched here; it deserves its own gap). The size finding: below.
+Overrun reason: 86 net lines outside tests/ and docs/ (35 in ergostat/: precedence.py 12, dispatch.py 19, watchdog.py 4; 51 in dev/), against 70; outside tests/, docs/ and dev/ (the brief's count) it is 35. Round 3 added 2: the merged heartbeat signature split over two lines (1) and the comment above (1).
+Tests run in round 3, one file at a time after the merge: test_one_bad_link.py, test_upkeep_watched.py,
+test_watchdog.py, test_deps.py, test_precedence_cap.py, test_take_order.py (all pass); ruff clean on ergostat tests
+scripts. Not run: the whole unit suite, the four browser files, demo_check (the merge queue runs them). `git branch -a`
+lists only main and this branch; main here is 4a1bcd10's line, merged in.

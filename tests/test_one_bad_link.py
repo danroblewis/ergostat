@@ -149,7 +149,7 @@ def test_a_repeated_dispatcher_error_raises_a_situation(tmp_path, monkeypatch):
     d.note(None)
     assert d.failing is None
     monkeypatch.undo()
-    heartbeat(tmp_path, time.time(), 0, ("first: KeyError: 'gap/x'", time.time() - 200))
+    heartbeat(tmp_path, time.time(), 0, failing=("first: KeyError: 'gap/x'", time.time() - 200))
     beat = json.loads((tmp_path / "heartbeat.json").read_text())
     assert beat["dispatch_error"]["why"] == "first: KeyError: 'gap/x'"
     f = Pipe(tmp_path / "pipe")

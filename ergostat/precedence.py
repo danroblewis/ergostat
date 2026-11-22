@@ -337,7 +337,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     # its work is theirs (a start and an end of no time, its children between), and what comes before or after it
     # comes before its children start, or after they all end. Cycles are then sought over exactly the pairs the
     # critical path reads (a parent's start and end nodes included), again until none is left, so a loop through a
-    # parent either way (a descendant depending on its ancestor, or an ancestor on its descendant) never reaches cpm
+    # parent either way (a descendant depending on its ancestor, or an ancestor on its descendant) never reaches cpm;
+    # such a cycle holds the items between too (a middle generation lies on the loop), and none of them is taken
     todo = {a for a, s in st.items() if s not in ("done", "paused")} - {x for c in found for x in c}   # (paused: not projected)
     while True:
         kids: dict[str, list[str]] = {}
