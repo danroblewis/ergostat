@@ -10,8 +10,8 @@
 
    Timeline: a Gantt chart. One row an item; its bar its states over time, from its moves (what happened), and for
    the unfinished, faint bars ahead: what the kind's medians project, each after what it waits on (the critical
-   path method's forward pass). Arrows from each item to what waits on it; a now line; ctrl or cmd and the wheel
-   zoom it, a drag moves it.
+   path method's forward pass). Arrows from each item to what waits on it; a now line, scrolled into view at load;
+   ctrl or cmd and the wheel zoom it, a drag moves it.
 
    Both are kept across refreshes: drawn again only when what they show changed, in place, with the reader's pan
    and zoom kept. Bounded: RG.NODES cards, RG.BARS rows; a note says when that was reached. */
@@ -250,7 +250,15 @@ function relTimeline(open) {
     const t = a + ((e.clientX - r.left - RG.LABEL) / Math.max(1, r.width - RG.LABEL - 12)) * (b - a);
     zoom(Math.exp(Math.max(-40, Math.min(40, e.deltaY)) * 0.006), t);
   }, { passive: false });
-  new ResizeObserver(() => { if (cur && Math.abs(el.clientWidth - width) > 4) draw(); }).observe(el);
+  let opened = false;                                    // at load, once: the page scrolled to the first unfinished row, at now
+  const toNow = () => {
+    const r = !opened && el.isConnected && cur && svg.querySelector(".rg-row:not(.rg-done):not(.rg-lane)");
+    if (!r) return;
+    opened = true;
+    const b = r.getBoundingClientRect();
+    if (b.top < 0 || b.bottom > innerHeight) r.scrollIntoView({ block: "center" });
+  };
+  new ResizeObserver(() => { if (cur && Math.abs(el.clientWidth - width) > 4) draw(); toNow(); }).observe(el);
   function draw() {
     if (!cur) return;
     width = el.clientWidth || 900;
@@ -365,8 +373,10 @@ function relTimeline(open) {
     setText(note, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
       + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. Not modelled: a goal that switches a block off, a capacity no block declares.`
         + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
-        : d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : ""));
-    draw();
+        : (d.eta_error ? `No estimates: the simulation failed: ${d.eta_error}. The bars are each item's median times, unlevelled. `
+          : Math.abs(Date.now() / 1000 - d.now) < 5 && rows.some((x) => x.status !== "done") ? "No estimates yet: the simulation is being worked out; the bars are each item's median times, unlevelled. " : "")
+        + (d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : "")));
+    draw(); toNow();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   };
   /* by lanes: each block that takes items, a row a lane (at most its capacity), the projected runs in them */
@@ -391,7 +401,26 @@ function relTimeline(open) {
   return el;
 }
 
-/* the legend: how many of each status, the critical path and when it is expected to end, any cycle */
+/* a moment as a clock time, rounded up to the minute (never earlier than it); its date too when not today */
+const rgClock = (t, now) => {
+  const c = new Date(Math.ceil(t / 60) * 60 * 1000), hm = c.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
+  return c.toDateString() === new Date(now * 1000).toDateString() ? hm : `${c.toLocaleDateString([], { month: "short", day: "numeric" })} ${hm}`;
+};
+/* when the last open item drawn is done, in one sentence: its kind's last finish (p50, p90), never before the
+   critical path's end; while the first estimate is worked out, said so */
+function rgFinish(d) {
+  const key = (txt, title = "") => h("span", { class: "rg-key rg-eta", key: "eta", title }, txt);
+  if (!d.eta) return d.eta_pending && !SNAP ? key("the last item's finish: being worked out") : null;
+  const last = d.items.filter((x) => x.eta && x.status !== "done").reduce((a, x) => (a && (a.eta.p50 ?? Infinity) >= (x.eta.p50 ?? Infinity) ? a : x), null);
+  if (!last) return null;
+  const e = d.eta.kinds[last.kind] || last.eta, lo = Math.max(e.p50 ?? Infinity, d.end), who = `last ${last.kind} (${last.id.split("/").pop()})`;
+  return key(e.p50 == null ? `${who} beyond the horizon` : `${who} expected ${rgClock(lo, d.now)}, `
+      + (e.p90 != null ? `by ${rgClock(Math.max(e.p90, lo), d.now)} at worst (9 in 10)` : `no worst case under 20 runs (${d.eta.runs})`),
+    `When the last open ${last.kind} is done: the p50 (expected) and the p90 (at worst) of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework; never before the critical path's end (${rgClock(d.end, d.now)}). Not modelled: a goal that switches a block off, a capacity no block declares`
+      + (e.visits && Object.keys(e.visits).length ? `\nExpected visits per state, from the first: ${Object.entries(e.visits).map(([st, v]) => `${st} ${v.toFixed(2)}`).join(", ")}` : ""));
+}
+
+/* the legend: how many of each status, the critical path and when the last item is expected done, any cycle */
 function relLegend(m, d, pick = null, chosen = null) {
   const n = m.counts;
   const crit = d.critical.length;
@@ -401,10 +430,8 @@ function relLegend(m, d, pick = null, chosen = null) {
       ...(pick ? { title: chosen === st ? "Show every status again" : `Show only the ${RG_WORD[st]}`, "aria-pressed": String(chosen === st), onclick: () => pick(st) } : {}) },
       h("i", {}), `${n[st]} ${RG_WORD[st]}`)),
     crit ? h("span", { class: "rg-key rg-critkey", key: "crit", title: "The longest chain of unfinished work, by the kinds' median times: nothing on it can slip without moving the end" },
-      h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}` + (d.eta ? "" : `, done in about ${dur(Math.max(0, d.end - d.now))}`)) : null,
-    ...Object.entries(d.eta?.kinds || {}).map(([k, e]) => h("span", { class: "rg-key rg-eta", key: `eta:${k}`, title: `When the last open ${k} is done: the p50 and the p90 of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework; not modelled: a goal that switches a block off, a capacity no block declares`
-        + (e.visits && Object.keys(e.visits).length ? `\nExpected visits per state, from the first: ${Object.entries(e.visits).map(([st, v]) => `${st} ${v.toFixed(2)}`).join(", ")}` : "") },
-      `last of ${e.open} ${k} done ${e.p50 == null ? "beyond the horizon" : "in about " + dur(e.p50 - d.now)}${e.p90 != null ? ` (p90 ${dur(e.p90 - d.now)})` : d.eta.runs < 20 ? ` (${d.eta.runs} runs: no p90)` : ""}`)),
+      h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}` + (d.eta || (d.eta_pending && !SNAP) ? "" : `, ends about ${rgClock(d.end, d.now)}`)) : null,
+    rgFinish(d),
     d.eta?.whatif?.length ? h("span", { class: "rg-key whatif-said", key: "whatif" }, `what if ${d.eta.whatif.join(" and ")} (not saved)`) : null,
     d.cycles.length ? h("span", { class: "rg-key bad", key: "cycle" }, `${d.cycles.length} cycle${d.cycles.length > 1 ? "s" : ""}: ${d.cycles.map((c) => c.join(" → ")).join("; ")}`) : null,
     Object.keys(d.capped || {}).length ? h("span", { class: "muted", key: "capped" }, "(the newest drawn: " + Object.keys(d.capped).join(", ") + " capped)") : null);

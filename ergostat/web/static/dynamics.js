@@ -85,9 +85,9 @@ function sdSystem(n, w, hgt) {
   const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
   g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote ? { "stroke-dasharray": "9 5" } : {}) }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
-  const inside = sdInside(S.graph, n.id).length;
-  g.append(s("text", { x: 16, y: 42, class: "t-sub" + (n.remote ? " live" : "") }, n.remote ? n.remote.says   // run by another ergostat, read here
-    : inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));
+  // under its name, what it is (its description, in at most two lines; its loops are counted on its panel)
+  const said = n.remote ? [n.remote.says] : sdWrap(n.description || "a module: open it to see its structure", Math.floor((w - 32) / CH), 2);
+  said.forEach((t, i) => g.append(s("text", { x: 16, y: 42 + i * 14, class: "t-sub sys-desc" + (n.remote ? " live" : "") }, t)));
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
     s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
   const into = "Into", open = "Open";
@@ -109,6 +109,15 @@ function sdSystem(n, w, hgt) {
       p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
+}
+function sdWrap(text, room, max) {                      // words in lines of ``room`` characters, ``max`` at most (the last cut with …)
+  const lines = [""];
+  for (const wd of text.split(/\s+/)) {
+    const cur = lines[lines.length - 1];
+    if (cur && (cur + " " + wd).length > room) lines.push(wd); else lines[lines.length - 1] = cur ? cur + " " + wd : wd;
+  }
+  if (lines.length > max) lines.splice(max - 1, lines.length, lines.slice(max - 1).join(" ").slice(0, room - 1) + "…");
+  return lines;
 }
 /* a part drawn elsewhere: as Vensim's shadow variable, its name in angle brackets, an input only (nothing
    points into it); what this system drives outside it ends at a stub naming it */
@@ -624,7 +633,11 @@ async function openNodeSD(n) {
               ["measured", now.at ? ago(now.at) : null]);
     if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? rateText(now.inflow, "", sdStockFlow(n.label, "in")) : null],
                                       ["outflow", now.outflow != null ? rateText(now.outflow, "", sdStockFlow(n.label, "out")) : null]);
-    for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
+    for (const gl of n.goals || []) {                     // the goal, and what serves it wherever it is in the model
+      const by = (gl.by || []).map((b) => b.system ? `${b.block} in ${b.system}` : b.block).join(", ");
+      rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint} (${gl.name})` +
+        (by ? `, served by ${by}` : gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)")]);
+    }
     if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });
     found = findingsNote(d);
     counts = countsLines(d);                              // what it counts, first (itemsets.js)
