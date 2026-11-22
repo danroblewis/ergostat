@@ -78,3 +78,17 @@ rounds, and these pages call no `toLocaleString`. It passes (3 passed) and ruff 
 copied the static files to /tmp, broke each guarded piece and ran these tests against the copy
 (`uv run python /tmp/mut/run.py`) was refused. So these new tests have not been seen to fail. The browser test was
 seen to fail on each break earlier in round 1.
+
+Round 2: the merge of main (9bfce815) conflicted only in `tests/test_items_page.py`, where both sides added a test at
+the end of the file. Both are kept: the branch's `test_every_time_is_one_stamp_with_its_date_and_zone` and main's
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. No page code changed this round. ruff is clean;
+`tests/test_time_stamp.py` passes (3 passed). With Playwright under the watchdog, `tests/test_items_page.py` gave
+27 passed and 1 failed (rc 1), twice. The failure is main's new test: at `tests/test_items_page.py:1248` it waits
+30 s for the other project's entry in the header's `#project` list. It failed alone too, with the branch's stamp
+test passing in the same run. I read it as unrelated to this gap: the branch's only util.js change adds `stamp` and
+`timeField` and removes `tidy`, which is unused on main. It touches neither the switcher (`refreshProjects`) nor the
+server's lister. My reading of the cause, which I have not run on main: each server makes its project list once at
+start-up and then every 60 s (`ergostat/web/server.py`, `LIST_EVERY`). A project started before the other is up can go
+60 s without listing it, and the test waits only 30 s. It is left for main, per lesson 13. The command that would have
+written this section, a `cat >> … <<'EOF'` followed by `git add` and `git commit`, was refused, so it was written with
+the editor.
