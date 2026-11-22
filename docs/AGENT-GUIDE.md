@@ -417,7 +417,9 @@ keeps running it; this model reads it.
 4. **Check against what it serves now**: `ergostat check` asks the remote first. A
    `remote-reference-unresolved` finding means the remote renamed or dropped a part you reference: fix the
    reference here (a stand-in is drawn meanwhile). `remote-unreachable` means it did not answer: the model
-   runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
+   runs on what it read last, with its age shown; fix the URL, the tunnel or the token. `remote-stale`
+   means the remote answers but its readings fail or are too old to take: its sensors there are not
+   reading, which is not fixed here; tell its owner, with the reason and the age the finding gives.
 5. **Use its measures, not its items.** Its items can be seen in the Items page (a section marked remote)
    and its events in the Record page (`/record?remote=incidents`), but they are still never folded or counted
    locally: count them through the remote stock that counts them (its sensor is mirrored), or a sensor of your
