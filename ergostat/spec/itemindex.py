@@ -102,7 +102,8 @@ def kinds_key(spec) -> tuple:
     """What a fold depends on in the model: its item kinds (a change being tried shares the index
     when it leaves them as they are)."""
     return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())),
-                  tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None))
+                  tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None),
+                  *((tuple(sorted(k.moves_from.items())),) if getattr(k, "moves_from", None) else ()))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 

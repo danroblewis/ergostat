@@ -16,9 +16,11 @@ build_failures = 6                   # the implementor's failed fast suites that
                                      # are not counted: dev/bin/onmain.py)
 build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
 plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
-scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej"]
-                                     # globs on each path part of a file the branch adds: the implementor's program
-                                     # refuses the build before the suites (dev/bin/implement.py strays)
+scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej", "test_zz*",
+                    "*_tmp.py", "*.tail", ".bench*", ".mut*"]
+                                     # globs on each path part of a file the branch adds that the definition does not
+                                     # name: the implementor's program refuses the build before the suites
+                                     # (dev/bin/implement.py strays; the last five from 2026-11-21's real strays)
 
 [plan]                               # the advisory plan review (dev/bin/planreview.py): never a gate
 review = "sample"                    # sample (1 in sample_every plans), all, or off
@@ -65,13 +67,28 @@ image = "ergostat-agent:latest"      # docker build -t ergostat-agent:latest dev
 proxy_image = "ergostat-dev:latest"  # runs the egress proxy, dev/agent/egress.py
 hosts = ["api.anthropic.com"]        # the only hosts a session can reach, on 443
 token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude setup-token`; mode 600, or no session
+                                     # Docker's VM has 24 CPUs, split three ways so none slows another (the owner,
+                                     # 2026-11-21); an empty cpuset pins nothing (agents.limits)
+session_cpus = 1.5                   # each AI session's (and its finish's) container's --cpus; the suite containers
+                                     # keep their 4. Empty or absent: 4; above 4 or not a number refuses the session
+session_cpuset = "0-7"               # the sessions' (implementor, reviewer, ...) and their finish's CPUs
+suite_cpuset = "8-11"                # a gap's own suites' (the implementor's rounds, 4 CPUs each)
+queue_cpuset = "12-23"               # the merge queue's and flake triage's suites ([suites] queue_container): unit (8)
+                                     # and browser (4) at once
 
-[pools]                              # the AI pools start at 1 and ramp up on good results (dev/bin/pools.py)
-implementor_max = 9                  # the most each may reach (the blocks' pool: in the model is this cap)
+[pools]                              # the AI pools start at 1, sized by risk (dev/bin/pools.py; the owner's tolerance is
+                                     # the parameter risk-tolerance in dev/model/pools.yaml)
+implementor_max = 9                  # the most each may reach (the blocks' pool: in the model is this cap; at most 9)
 reviewer_max = 6                     # operator: reviewers spend AI budget, not machine; suites are capped by the suite slots
-streak = 3                           # good gaps in a row before an increase is asked for
+probation = 3                        # gaps given a verdict after a raise before the next raise is asked for
+cycle_hours = 2                      # the cycle time assumed before one is measured (short: more gaps a day, more risk)
+hold = true                          # operator (2026-11-20): the role pools stay where `pools.py set` put them; the tuner
+                                     # says what it would do (pool.measured, held). false: sized by risk
 batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
-batch_max = 4                        # the most the tuner may ask for while the queue wait is off (never past 4)
+batch_max = 8                        # the most a batch may be (the tuner asks for more while the queue wait is off)
+batch_minutes = 120                  # a queue run's time allowance from its start: past it, no more bisecting (what is
+                                     # proven lands, the rest back to approved uncounted); over 150 refused, so one suite
+                                     # run after it stays inside the block's 3 h timeout
 
 [manager]                            # the pipeline manager's sessions (dev/bin/watch.py, manager.py)
 open = 1                             # the switch managing-open: 0 pauses it
@@ -101,6 +118,17 @@ suite_cpus = 4.0                     # one of its suites' (in a container of 4 C
 suite_memory_gb = 4.0
 session_keep_hours = 24              # session folders and installs younger than this are never cleaned up
 
+[code_health]                        # coverage (dev/README.md, Coverage) and the simplifier's pick (dev/bin/simplify.py;
+                                     # its pool is 1, fixed in the code). The pick reads main's latest coverage report
+                                     # under run/coverage/ as measure.py does (by seq, on main, not stale); none, no pick
+coverage_floor = 0.6                 # a module whose share of statements run by the unit suite is under this is
+                                     # named (measure.py coverage-below-floor; coverage_report.py --below), and one
+                                     # under it (or not in the report) is never picked
+size = 1.0                         # the weights of a module's score: net lines over the 75th percentile (as a share
+churn = 0.25                         # of it), commits in the last 60 days, duplicate bodies, dead candidates
+duplicates = 1.0
+dead = 0.5
+
 [instance]
 port = 8798
 
@@ -122,11 +150,22 @@ slot = ""                            # a command that holds a machine-wide suite
                                      # coordinator's suite-slot.sh
 ruff = "uv run ruff check ergostat tests scripts"
 unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal"
+build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_tests.py -- uv run python -m pytest -q -n 8 --dist worksteal"
+                                     # the implementor's test step (onmain.py): the tests the branch changed and those
+                                     # of the modules it changed (affected_tests.py). Comment it out or leave it ""
+                                     # and the step runs the full unit suite, as before. The merge queue never reads
+                                     # it: it always runs unit, browser and demo in full
 browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+browser_ready = "uv run --with playwright==1.63.0 python -c 'from playwright.sync_api import sync_playwright as s; p = s().start(); p.chromium.launch().close(); p.stop()'"
+                                     # before an implementor round with build_browser (agents.browser_ready): no
+                                     # browser stops it
+build_browser = false                # true: each implementor round also runs the four browser files (-n 4, minutes
+                                     # of 4 CPUs) after a Chromium launch; false: only ruff and build (unit where no
+                                     # build is set). The merge queue runs unit, browser and demo in full either way
 demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
-rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
+rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -p no:randomly {tests}"
 measure = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"  # one run of
                                      # a definition's named measurement (manage.py measure-runs, dev/bin/runs.py)
 load = '''python3 scripts/suite_watch.py -- python3 -c '
@@ -145,11 +184,9 @@ while time.monotonic() - at < stale:
                                      # once {beat} is gone or unchanged for {stale} s (runs.loaded touches it)
 load_stale_s = 30                    # 1-300
 check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
+queue_container = true               # the queue's and triage's suites each in a container of the agent image, on
+                                     # [agents] queue_cpuset, no network (agents.queued); false: on the Mac, as before
 queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the
                                      # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under
                                      # run/coverage/ (dev/README.md, Coverage). On: its overhead on the full unit
                                      # suite measured within noise (code-health-coverage.md, Where it stopped)
-
-[code_health]
-coverage_floor = 0.6                 # a module whose share of statements run by the unit suite is under this is
-                                     # named (measure.py coverage-below-floor; coverage_report.py --below)
