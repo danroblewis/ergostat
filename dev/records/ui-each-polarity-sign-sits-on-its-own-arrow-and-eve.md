@@ -55,3 +55,8 @@ Built, round 1. Nothing left inside the definition.
   open=* view, once per geometry (memoized on the paths' `d`).
 - Not run: the unit suite and the four browser files in full (the merge queue runs them).
 - Size: 60 net lines outside tests/docs/dev (88 added, 28 removed), at the budget.
+- After the build step: it failed with rc 5 because the only test file it picked, tests/test_diagram_rendering.py,
+  skips as a whole where playwright is not installed. Nothing in ergostat was wrong. To give the build step a test
+  that runs, tests/test_dynamics_view.py::test_a_connector_declared_with_driven_by_says_so_and_no_other_does was added.
+  It is browser-free and checks the `drivenBy` flag that ergostat/dynamics.py now sets. This round's shell was refused
+  for every command, so this test has not been run and has not been seen to fail. The edit is also uncommitted.
