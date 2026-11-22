@@ -17,6 +17,27 @@ const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("tab
 /* a part of a page known by what it is, wherever a refresh puts it (patch() matches by it) */
 const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el; };
 
+/* a loop's behaviour, with hysteresis: its class (the words without their numbers) changes only once the new class
+   has held for HOLD_SHARE of the window (a minute at least), and within a class its numbers are kept as long;
+   remembered across reloads, so a reload alone never flips it */
+const HOLD_SHARE = 0.05;
+function steadyWord(name, word, win) {
+  const key = `ergostat.behaviour.${name}`, now = Date.now(), hold = Math.max(60, HOLD_SHARE * win) * 1000;
+  const cls = (w) => w.replace(/[\d(−-].*$/, "").replace(/[,\s]+$/, "");
+  let k = null;
+  try { k = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { /* none kept */ }
+  if (!k || typeof k.word !== "string") k = { word, at: now };
+  else if (cls(k.word) !== cls(word)) {                    // another class: it must hold before it is shown
+    if (k.next !== cls(word)) Object.assign(k, { next: cls(word), since: now });
+    if (now - k.since >= hold) k = { word, at: now };
+  } else {
+    delete k.next;
+    if (now - k.at >= hold) k = { word, at: now };
+  }
+  try { localStorage.setItem(key, JSON.stringify(k)); } catch (e) { /* this page only */ }
+  return k.word;
+}
+
 async function pageLoops(main) {
   const p = page(main, "Loops");
   const box = h("div"), cap = h("p", { class: "note" });
@@ -43,8 +64,9 @@ async function pageLoops(main) {
     // for every 5 minutes, not every tick (each is an identification on the server, up to a second or two, for every loop)
     if (!perf.at || Date.now() - perf.at > 300000) {
       perf.at = Date.now();
-      for (const [n] of rows) loopControl(n).then((d) => {
-        perf[n] = performanceWord(d);
+      const st = S.status, win = st?.window ? Math.min(st.window, st.first ? st.at - st.first : st.window) : 0;
+      for (const [n, lp] of rows) loopControl(n).then((d) => {
+        perf[n] = steadyWord(n, lp.times_off >= FLAP_AT ? `flapping (${lp.times_off} crossings in ${dur(win)})` : performanceWord(d), win);
         const cell = [...box.querySelectorAll("td[data-perf]")].find((c) => c.dataset.perf === n);
         if (cell) setText(cell, perf[n]);
       }).catch(() => {});
@@ -55,12 +77,12 @@ async function pageLoops(main) {
         h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num nowrap" }, op(lp.setpoint) + (lp.band || "")),
         h("td", { class: "num", title: "e = r − y" }, lp.error != null ? fmt(lp.error) : ""),
-        h("td", { class: "num", title: "The share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
+        h("td", { class: "num", title: "The share of the window the loop spent off" }, shareText(lp.off_share)),
         h("td", { class: "num", title: lp.back_in != null ? `Typically holding again this long after going off (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times); its valve opens ${lp.answers_in != null ? dur(lp.answers_in) : "?"} after` : "It has not gone off and come back in the window" },
           lp.back_in != null ? dur(lp.back_in) : "–"),
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
           (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
-        h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, perf[n] || ""),
+        h("td", { class: "nowrap", "data-perf": n, title: "Flapping (gone off 20 times or more in the window), oscillating, saturated, past or within its bound, or its Harris index: from its scope, over the last day of record; it changes only once the new behaviour has held a while" }, perf[n] || ""),
         h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();

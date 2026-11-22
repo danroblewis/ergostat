@@ -161,6 +161,11 @@ function keepAnchor(a) {
   if (Math.abs(dy) >= 1) a.sc.scrollTop += dy;
 }
 
+/* a share as a percentage: one that is not zero is never written '0%' ('<1%') */
+const shareText = (x) => (x > 0 && x < 0.005 ? "<1%" : `${Math.round((x || 0) * 100)}%`);
+/* a goal that went off this many times in the window or more is flapping: past its bound and back, again and again */
+const FLAP_AT = 20;
+
 /* the one number formatter: integers as they are (thousands separated from 10,000), others to three
    significant figures, a real minus */
 function fmt(x) {

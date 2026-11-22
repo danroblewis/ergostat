@@ -145,7 +145,8 @@ async function openLoop(name, asController = false) {
   kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}${lp.per ? `, each ${lp.per}` : ""}`],
     ["now", lp.per ? `${fmt(lp.value)}, the worst ${lp.per}'s` : fmt(lp.value)],
     ["stale", lp.stale != null ? `read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}` : null],
-    ["error", lp.error ? fmt(lp.error) : "0"], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
+    ["error", lp.error ? fmt(lp.error) : "0"], ["time off", `${shareText(lp.off_share)} ${windowWords}` +
+      (lp.times_off >= FLAP_AT ? `; flapping: ${lp.times_off} crossings, off and back` : "")],
     ["typically", lp.answers_in != null || lp.back_in != null ? [
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
       lp.back_in != null ? `it holds again ${dur(lp.back_in)} after (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times)` : null,

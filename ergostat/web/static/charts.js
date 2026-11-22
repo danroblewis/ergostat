@@ -543,7 +543,7 @@ function loopScope(goal, { numbers = true } = {}) {
                             off: d.off, height: 60, zero: true, xAxis: true }));
     const nb = d.numbers || {};
     box.replaceChildren(...charts, h("div", { class: "chart-foot" }, h("span", { class: "muted" }, d.off.length ? "Red: off" : ""), group.when),
-      numbers ? dl([["time off", numbers === "new" ? null : `${Math.round((nb.off_share || 0) * 100)}%`],
+      numbers ? dl([["time off", numbers === "new" ? null : shareText(nb.off_share)],
                     ["back in", numbers === "new" || nb.back_in == null ? null : `${dur(nb.back_in)}, typically (${nb.times_off} times)`],
                     ["saturated", nb.saturated != null ? `${Math.round(nb.saturated * 100)}% of ${u.openings ? "its openings" : "the time"}` : null],
                     ["last decision", nb.last_decision ? `${ago(nb.last_decision.time)}: ${nb.last_decision.decision ?? "–"}` : null]]) : null);

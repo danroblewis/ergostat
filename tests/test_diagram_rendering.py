@@ -2377,6 +2377,64 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     assert not errors and not asked, (errors, asked)
 
 
+def test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named(browser, tmp_path, monkeypatch):
+    """Five reloads of the Loops page, each answered with a share past its bound that flips (4%, 0%, 4%, ...) and
+    no change of status: the behaviour text stays the same; no cell says '0%' beside 'past', and a share under
+    1% is '<1%'; a goal that went off 23 times in the window reads 'flapping' with its count. The scope's
+    'past its bound' says what it is beside time off."""
+    d = charted(tmp_path, monkeypatch)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    loaded = [0]
+    row = {"stock": "backlog", "value": 5, "setpoint": "<= 8", "band": "", "error": 0, "status": "holding",
+           "off_share": 0.003, "back_in": None, "times_off": 1, "observed": True}
+
+    def loops(rt):
+        rt.fulfill(status=200, content_type="application/json",
+                   body=json.dumps({"steady": row, "flappy": {**row, "times_off": 23, "off_share": 0.05}}))
+
+    def control(rt):                                     # the share past its bound flips with each load, its status not
+        loaded[0] += "goal=steady" in rt.request.url
+        share = 0.04 if loaded[0] % 2 else 0.0
+        rt.fulfill(status=200, content_type="application/json", body=json.dumps(
+            {"goal": "steady", "performance": {"constraint": {"share": share, "share_off": 0, "mean": 1, "worst": 1}}}))
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route(lambda u: "/api/loops?" in u, loops)
+        pg.route(lambda u: "/api/loop-control?" in u, control)
+        seen = []
+        for _ in range(5):
+            pg.goto(url + "/loops")
+            pg.wait_for_function("() => { const c = [...document.querySelectorAll('td[data-perf]')];"
+                                 " return c.length === 2 && c.every((x) => x.textContent); }", timeout=20000)
+            cells = pg.evaluate("() => [...document.querySelectorAll('td')].map((c) => c.textContent)")
+            perf = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('td[data-perf]')]"
+                               ".map((c) => [c.dataset.perf, c.textContent]))")
+            seen.append(perf["steady"])
+            assert not [c for c in cells if "past" in c and re.search(r"(?<![\d<])0%", c)], cells
+            assert "<1%" in cells and "0%" not in cells, cells
+            assert "flapping" in perf["flappy"] and "23 crossings" in perf["flappy"], perf
+        assert loaded[0] >= 5 and len(set(seen)) == 1, (loaded, seen)
+        rows = pg.evaluate("() => performanceRows({ performance: { constraint: { share: 0.003, share_off: 0, mean: 1, worst: 1 } } })")
+        past = dict(rows)["past its bound"]
+        assert past.startswith("<1% of the time (0% past its tolerance)") and "by any amount" in past and "time off" in past, past
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
     """They help and they clutter: the ⋯ menu hides them; a reload keeps them hidden; it shows them again."""
     with served("software-factory", tmp_path) as url:
