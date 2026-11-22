@@ -18,7 +18,10 @@ index (its links, both ways, and its moves); nothing is declared for it but the 
   backward pass from the last end, and each item's slack, how long it may slip without moving the end. The
   critical items have none. Not levelled: a pool's limit is in the completion estimates (``numbers/eta.py``), whose
   levelled run the Timeline draws in place of this projection once it is worked out.
-- **Cycles.** Items whose precedence relations go round are a finding: they are left out of the projection.
+- **Cycles.** Items whose precedence relations go round, or round through a parent (a summary ends after its
+  children, which start after it starts: a descendant depending on its ancestor, or an ancestor on its descendant, at
+  any depth), are a finding: they are left out of the projection,
+  and a block that takes unblocked items takes none of them.
 - **The schedule** (the Timeline): each item's actual segments, its states over time from its moves, and for the
   unfinished, projected segments from the forward pass, state by state.
 
@@ -312,9 +315,6 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             out["edges"].append({"from": d, "to": a, "rel": r, "kind": "group"})
         else:
             out["edges"].append({"from": a, "to": d, "rel": r, "kind": "other"})
-    found = cycles(list(got), before)
-    out["cycles"] = found
-    in_cycle = {x for c in found for x in c}
     # statuses: blocked by a predecessor not finished (one past the cap by its own status; one not found at all is not
     # known to be finished)
     def finished(d: str) -> bool:
@@ -332,14 +332,30 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
         waiting[a] = [d for d in preds if not finished(d)]
     for a, it in got.items():
         st[a] = status(it, info[it.kind], waiting[a])
+    found = cycles(list(got), before)
     # the critical path, over the unfinished items outside any cycle. A parent with unfinished children is a summary:
     # its work is theirs (a start and an end of no time, its children between), and what comes before or after it
-    # comes before its children start, or after they all end
-    todo = {a for a, s in st.items() if s not in ("done", "paused") and a not in in_cycle}   # (paused: not projected)
-    kids: dict[str, list[str]] = {}
-    for e in out["edges"]:
-        if e["kind"] == "group" and e["from"] in todo and e["to"] in todo:
-            kids.setdefault(e["from"], []).append(e["to"])
+    # comes before its children start, or after they all end. Cycles are then sought over exactly the pairs the
+    # critical path reads (a parent's start and end nodes included), again until none is left, so a loop through a
+    # parent either way (a descendant depending on its ancestor, or an ancestor on its descendant) never reaches cpm;
+    # such a cycle holds the items between too (a middle generation lies on the loop), and none of them is taken
+    todo = {a for a, s in st.items() if s not in ("done", "paused")} - {x for c in found for x in c}   # (paused: not projected)
+    while True:
+        kids: dict[str, list[str]] = {}
+        for e in out["edges"]:
+            if e["kind"] == "group" and e["from"] in todo and e["to"] in todo:
+                kids.setdefault(e["from"], []).append(e["to"])
+        end_of = lambda a, kids=kids: a + END if a in kids else a        # noqa: E731
+        pairs = [(end_of(x), y) for x, y in before if x in todo and y in todo]
+        for p_, cs in kids.items():
+            pairs += [(p_, c) for c in cs] + [(end_of(c), p_ + END) for c in cs]
+        more = [sorted({n.removesuffix(END) for n in c}) for c in cycles([], pairs)]
+        if not more:
+            break
+        found += more
+        todo -= {x for c in more for x in c}
+    out["cycles"] = found
+    in_cycle = {x for c in found for x in c}
     ahead, d, sure = {}, {}, {}
     for a in todo:
         it = got[a]
@@ -348,10 +364,6 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             d[a + END] = 0.0
             continue
         d[a], ahead[a], sure[a] = remaining(it, info[it.kind], now, fallback)
-    end_of = lambda a: a + END if a in kids else a        # noqa: E731
-    pairs = [(end_of(x), y) for x, y in before if x in todo and y in todo]
-    for p_, cs in kids.items():
-        pairs += [(p_, c) for c in cs] + [(end_of(c), p_ + END) for c in cs]
     plan = cpm(d, pairs, [a for a in todo if st[a] in ("active", "queued") or (st[a] == "blocked" and started(got[a], info[got[a].kind]))
                           and a not in kids])
     end = max([p["ef"] for p in plan.values()] or [0.0])
