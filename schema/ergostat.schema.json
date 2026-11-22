@@ -1252,6 +1252,12 @@
           "required": ["input", "output"],
           "additionalProperties": false
         },
+        "law": {
+          "type": "object",
+          "description": "An external block's known law, declared with identify: (SPEC §12d, Known laws): kubernetes-hpa or alert-rule and its parameters",
+          "properties": {"kind": {"enum": ["kubernetes-hpa", "alert-rule"]}},
+          "required": ["kind"]
+        },
         "integral-time": {
           "$ref": "#/$defs/duration",
           "description": "A machine block's integral time, when its law is PI (passed in its params)"

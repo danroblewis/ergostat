@@ -634,6 +634,10 @@ blocks:
   duration past a threshold, each with a cooldown), each with a delay, and keeps the one that predicts the held-out record best for its
   number of parameters. The Blocks view writes the law in the block, marked *identified*; the closed-loop projection,
   what-if and risk run it in place of a generic stand-in.
+- Where the controller's law is known, declare it beside `identify:` (SPEC §12d, *Known laws*):
+  `law: {kind: kubernetes-hpa, target: 0.7, min: 2, max: 20}` (tolerance 0.1, stabilize-down 5m, stabilize-up 0s,
+  every 15s unless written) or `law: {kind: alert-rule, threshold: 300, side: above, for: 5m}`. A wrong kind, key or
+  value is `bad-law` at that key. For now it is only checked and kept in the model, not yet drawn or run.
 - `external-unidentified` means too little record (40 points of both at least, and three moves of its output) or no law
   fits: wait for more, or check the sensors read the right series. `external-not-run` means its output is an auxiliary
   (or a stock its `out:` flow does not move): the law is drawn, but the projection runs a generic stand-in.
