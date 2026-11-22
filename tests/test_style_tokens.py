@@ -81,6 +81,23 @@ def test_the_gate_catches_what_it_should():
         assert hit == caught, decl
 
 
+def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():
+    """The narrow-width half of tests/test_items_page.py's phone/200% check, readable without a browser: below 760 px
+    the nav wraps onto its own rows, nothing in the sheet makes it scroll sideways, and the current page keeps its
+    underline."""
+    text = re.sub(r"/\*.*?\*/", "", CSS.read_text(), flags=re.S)
+    narrow = re.search(r"@media \(max-width: 759px\) \{(.*?)\n\}", text, flags=re.S)
+    assert narrow, "no @media (max-width: 759px) block"
+    nav = dict(declarations(re.search(r"\.bar nav \{[^{}]*\}", narrow.group(1)).group(0)))
+    assert nav.get("flex-wrap") == "wrap" and nav.get("overflow-x") == "visible", nav
+    for block in re.findall(r"@media \(max-width: (\d+)px\) \{(.*?)\n\}", text, flags=re.S):
+        if int(block[0]) < 760:
+            for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block[1]):
+                if sel.strip().startswith(".bar nav") and "a" not in sel.split():
+                    assert dict(declarations("{" + body + "}")).get("overflow-x", "visible") == "visible", sel
+    assert "border-bottom-color: var(--ink)" in re.search(r"\.bar nav a\.on \{[^{}]*\}", text).group(0)
+
+
 def _oklab(hexc: str) -> list[float]:
     def lin(c):
         return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
@@ -136,3 +153,26 @@ def test_the_first_level_note_sits_on_the_canvas_and_stacks_with_the_toolbar_on_
     narrow = [sel for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
               if "position: static" in body and ".toolbar" in sel]
     assert any(".open-level" in sel for sel in narrow), "on a narrow screen the note stays absolute over the toolbar"
+
+
+def test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked():
+    """Into, Open (ui-open-into-and-every-panel-link-show-that-somethi): the diagram left stays on the screen, dimmed,
+    under 'Opening …', with its side list; neither may take a click meant for the diagram being opened."""
+    _, rules = split()
+    for sel in ("svg.canvas g.was", ".diagram.opening > .side"):
+        block = next((b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
+                      if sel in [x.strip() for x in s.split(",")]), None)
+        assert block is not None, f"no rule for {sel}"
+        decl = dict(declarations("{" + block + "}"))
+        assert float(decl.get("opacity", "1")) < 1, f"{sel} is not dimmed"
+        assert decl.get("pointer-events") == "none", f"{sel} still takes clicks"
+
+
+def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():
+    """A saved picture is drawn light whatever the theme: each dark-theme rule excludes the class export.js sets on
+    <html> while it reads the drawing's styles, and export.js sets and then clears that very class."""
+    head, _ = split()
+    selectors = [s.strip() for s in re.findall(r"([^{}]+)\{[^{}]*\}", head.split("prefers-color-scheme: dark", 1)[1])]
+    assert selectors and all(s.endswith(":not(.export-light)") for s in selectors), selectors
+    js = (CSS.parent / "export.js").read_text()
+    assert 'classList.add("export-light")' in js and 'classList.remove("export-light")' in js

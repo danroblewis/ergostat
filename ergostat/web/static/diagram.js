@@ -164,7 +164,9 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   // own, and put where there is room after (places.js packLoose)
   const linked = new Set(g.edges.flatMap((e) => [e.source, e.target]));
   const loose = open.size ? roots.filter((c) => byIdNodes[c.id]?.kind === "system" && !linked.has(c.id)) : [];
-  if (loose.length && loose.length < roots.length) roots = roots.filter((c) => !loose.includes(c));
+  // at the top level, the model's own upkeep linked to nothing: read last, bottom right, apart (places.js packLoose)
+  const upkeep = open.size ? [] : roots.filter((c) => byIdNodes[c.id]?.kind === "system" && byIdNodes[c.id].upkeep && !linked.has(c.id));
+  if (loose.length + upkeep.length && loose.length + upkeep.length < roots.length) roots = roots.filter((c) => !loose.includes(c) && !upkeep.includes(c));
   const roomy = g.nodes.some((n) => n.kind === "system" || (n.systems || []).length);
   const graph = {
     id: "root", children: roots, edges: elkEdges,
@@ -187,6 +189,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   if (open.size || lay.children.some((c) => c.children?.length)) flatten(lay);   // (or blocks laid out together: layouts.js)
   placeSatellites(lay, sat);                             // the satellites put back in the room kept (satellites.js)
   if (loose.length && !roots.some((c) => loose.includes(c))) packLoose(lay, loose);
+  if (upkeep.length && !roots.some((c) => upkeep.includes(c))) packLoose(lay, upkeep, true);
   if (again < 2) {                      // ports facing away from what they join, valves facing away: turn them, lay out again
     const w = wanted(lay, g);
     const ports = g.nodes.flatMap((n) => n.ports || []);
@@ -494,12 +497,13 @@ function sysTwin(n, p) {
 /* a system drawn as one part: its name, how its loops are doing, and its ports (what crosses its edge) */
 const SYS_TOP = 70, SYS_ROW = 20, MEAS_ROW = 24;
 const sysTop = (n) => SYS_TOP + (n.measures?.length || 0) * MEAS_ROW;     // its ports start below its measures
+const UPKEEP = "ergostat's upkeep of this model, not the system";      // the modelling system's box says what it is
 function systemSize(n) {
   const side = (d) => n.ports.filter((p) => (p.at || (p.side === "in" ? "west" : "east")) === (d === "in" ? "west" : "east"));
   const lw = (ps) => Math.max(0, ...ps.map((p) => textWidth(p.label + (p.value ? "  " + p.value : ""))));
   const mw = Math.max(0, ...(n.measures || []).map((m) => textWidth(m.label) + textWidth(`${m.value} ${m.unit}`) + textWidth(m.setpoint || "") + 150));
   const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60, mw,
-                    n.remote ? textWidth(n.remote.says) + 40 : 0);
+                    n.remote ? textWidth(n.remote.says) + 40 : 0, n.upkeep ? textWidth(UPKEEP) + 40 : 0);
   return [w, Math.max(96, sysTop(n) + Math.max(side("in").length, side("out").length) * SYS_ROW + 6 + (n.inner?.length ? 16 : 0))];
 }
 function loopsText(n) {
@@ -733,7 +737,6 @@ function drawGraph(svg, g, lay) {
     lay.width = Math.max(lay.base.width, ext.x1) - lay.ox; lay.height = Math.max(lay.base.height, ext.y1) - lay.oy;
   }
   const edgesG = s("g");
-  S.sdSigns = [];                                         // (the polarities placed so far: dynamics.js)
   const flowLinks = sd ? sdFlowLinks(g) : new Set();      // what Flows only keeps, by the model (dynamics.js)
   const flowEnds = new Set(g.edges.filter((e) => flowLinks.has(e.id)).flatMap((e) => [e.source, e.target]));
   if (sd && !flowLinks.size)                              // (shown with Flows only: a level with nothing it keeps says so)
@@ -830,6 +833,7 @@ function drawGraph(svg, g, lay) {
   vp.append(edgesG, nodesG, ...(sd ? [sdLoopMarkers(g, lay)] : []), pinsG);
   svg.replaceChildren(vp);
   svg.classList.toggle("sd", sd);
+  if (sd) sdPlaceSigns(svg);                          // each sign beside its own head (dynamics.js)
   applyView(svg);
   if (S.hl) highlightLoop(S.hl);
   if (sd && S.hlCausal) sdApply(S.hlCausal);
@@ -1041,6 +1045,25 @@ function openLevelNote(wrap, g, system, svg, view) {   // said while what is ope
   else wrap.append(h("div", { class: "open-level", role: "status" }, say));
 }
 
+/* the diagram's caption, the page's h1: which discipline's diagram, the model and what it is for, and its verdict
+   (Dynamics: every goal; Blocks: the goals a controller holds, its control loops; off as the loops say) */
+const DIAGRAM_TYPE = { dynamics: "Stock-and-flow diagram (system dynamics)", blocks: "Block diagram (control)",
+                       process: "Process map (process mining)" };
+function captionText(st, view) {
+  const parts = [DIAGRAM_TYPE[view] || view];
+  if (!st) return parts[0];
+  const n = (k, word) => `${k} ${word}${k === 1 ? "" : "s"}`;
+  parts.push(st.purpose ? `${st.name}: ${st.purpose}` : st.name);
+  if (st.top) parts.push(n(st.top, "system"));
+  // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
+  if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
+    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
+    const off = names.filter((x) => st.loops[x]?.status === "off").length;
+    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
+  }
+  return parts.join(" · ");
+}
+
 async function pageDiagram(main, q) {
   // the system dynamics view is the first; "control", its old name, still reaches it
   if (q.get("view") === "wiring") {                             // the wiring the process map replaced: its address reaches it
@@ -1060,7 +1083,8 @@ async function pageDiagram(main, q) {
   S.pins = loadPins();
   S.showHulls = !around;
   const wrap = h("div", { class: "canvas-wrap" });
-  const svg = s("svg", { class: "canvas" });
+  const svg = s("svg", { class: "canvas", "aria-labelledby": "diagram-caption" });
+  const caption = h("h1", { id: "diagram-caption", class: "caption" }, captionText(S.status, view));   // the page's name
   const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "Everything"));
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
@@ -1075,10 +1099,11 @@ async function pageDiagram(main, q) {
     const now = new Set(S.graph?.open || []);
     if (now.has(name)) { now.delete(name); for (const [k, v] of Object.entries(S.graph?.tree || {})) if (v.within === name) now.delete(k); }
     else now.add(name);
-    S.graphSig = "";
+    S.graphSig = ""; S.opening = name;
     go({ open: [...now].join(",") || "-" });
+    S.opening = null;
   };
-  S.drill = (name) => { S.graphSig = ""; S.fitted = false; go({ system: name, open: "" }); };
+  S.drill = (name) => { S.graphSig = ""; S.fitted = false; S.opening = name || "everything"; go({ system: name, open: "" }); S.opening = null; };
   const crumbs = h("span", { class: "crumbs" });
   const file = (suffix = "") => `${S.status?.name || "ergostat"}-${system || "all"}-${view}${suffix}.svg`;
   const wrapOn = () => S.wrap === true || (S.wrap == null && S.wrapAuto);
@@ -1138,14 +1163,15 @@ async function pageDiagram(main, q) {
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "seg", role: "group", "aria-label": "View" },
       h("button", { class: view === "dynamics" ? "on" : "", title: "The stock-and-flow diagram, as system dynamics draws it",
-                    onclick: () => go({ view: "dynamics" }) }, "Dynamics"),
-      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => go({ view: "blocks" }) }, "Blocks"),
+                    onclick: () => go({ view: "dynamics" }) }, "Dynamics", h("span", { class: "what" }, " · what is")),
+      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => go({ view: "blocks" }) },
+        "Blocks", h("span", { class: "what" }, " · what is controlled")),
       h("button", { class: view === "process" ? "on" : "", title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
-                    onclick: () => go({ view: "process" }) }, "Process")),
+                    onclick: () => go({ view: "process" }) }, "Process", h("span", { class: "what" }, " · what happened"))),
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
     around ? h("span", { class: "around" }, "around ", h("b", {}, around), " ", h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ around: "" }) }, "\u00d7")) : null,
-    more);
+    more, caption);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
     h("button", { class: "z", title: "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
@@ -1156,6 +1182,8 @@ async function pageDiagram(main, q) {
       { label: "SVG", hint: "as drawn", onclick: () => exportSvg(svg, file()) },
       { label: "Design SVG", hint: "no live values", onclick: () => exportSvg(svg, file("-design"), true) },
       { label: "PNG", hint: "twice the size", onclick: () => exportPng(svg, file()) },
+      ...(view === "dynamics" ? [{ label: "Model (Markdown)", hint: "variables, flows, loops", onclick: () => exportMarkdown("dynamics") }] : []),
+      ...(view === "blocks" ? [{ label: "Loops (Markdown)", hint: "a row per loop", onclick: () => exportMarkdown("blocks") }] : []),
     ], { right: true, up: true, title: "Save the diagram as a file" }));
   wrap.append(svg, toolbar, zoom);
   if (typeof splitGrips === "function") splitGrips(wrap);         // a second pane, dragged in from an edge (split.js)
@@ -1165,7 +1193,15 @@ async function pageDiagram(main, q) {
   main.append(shell);
   panZoom(svg);
   S.graphSig = ""; S.fitted = false;
-  wrap.append(h("div", { class: "empty loading" }, "Loading\u2026"));
+  const was = S.was;
+  S.was = null;
+  if (was) {                                       // the diagram left stays, dimmed, and the side list with it, until this one is drawn
+    S.layout = null;                               // (only a picture now: nothing waits on its layout)
+    svg.append(s("g", { class: "was" }, ...was.querySelector("svg.canvas").childNodes),
+               s("text", { class: "opening-note", x: "50%", y: "50%", "text-anchor": "middle" }, S.opening ? `Opening ${S.opening}\u2026` : "Loading\u2026"));
+    side.append(...was.querySelector(".side").childNodes);
+    shell.classList.add("opening");
+  } else wrap.append(h("div", { class: "empty loading" }, "Loading\u2026"));
   let fails = 0;
 
   async function tick() {
@@ -1179,7 +1215,7 @@ async function pageDiagram(main, q) {
     const t0 = performance.now();
     try { g = await api("graph", ask); fails = 0; }
     catch (e) {
-      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
+      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); svg.querySelector(".opening-note")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
       return;
     }
     // the next ask: every 2.5s, later when an answer is slow (four times as long as it took, at most a minute)
@@ -1197,7 +1233,10 @@ async function pageDiagram(main, q) {
   }
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
+    shell.classList.remove("opening");
     S.graph = g;
+    setText(caption, captionText(S.status, view));
+    caption.title = caption.textContent;
     proposedBanner(wrap, g, proposal, go);
     if (view !== "process") openLevelNote(wrap, g, system, svg, view);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
@@ -1359,6 +1398,31 @@ function inboxAnswer(a) {
   return row;
 }
 
+/* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
+   its class's record and its suggestion up the ladder (SPEC §12o); its text in full, past three lines folded; the
+   exact command folded below */
+const ticked = (s) => String(s).split("`").map((x, i) => (i % 2 ? h("code", {}, x) : op(x)));
+function inboxBody(a, href) {
+  const ls = [a.first, a.more].filter(Boolean).join("\n").split("\n"), run = [a.run, a.cli].filter(Boolean).join("\n");
+  const first = h("span", { class: "ask" }, ticked(ls.slice(0, 3).join("\n")));
+  return [h("div", { class: "ask-first" }, href ? h("a", { href, class: "plain" }, first) : first, h("span", { class: "muted" }, ` waiting ${a.age}`)),
+    a.record || a.suggest ? h("div", { class: "muted ladder" }, [a.record, a.suggest].filter(Boolean).join(". ")) : null,
+    ls.length > 3 ? h("details", { class: "ask" }, h("summary", {}, "the rest"), h("span", { class: "ask" }, ticked(ls.slice(3).join("\n")))) : null,
+    run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
+}
+
+/* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
+   or its summing junction (Blocks), the closed system holding it opened first (one level: the box drawn) */
+function goalButton(name, label) { return h("button", { class: "name", type: "button", onclick: () => showGoal(name) }, label); }
+function showGoal(name) {
+  const corr = S.graph?.corr, stock = (S.graph?.loops?.[name] || S.status?.loops?.[name])?.stock;
+  const part = S.graph?.kind === "blocks" ? `goal.${name}` : [`stock.${stock}`, `auxiliary.${stock}`].find((p) => corr?.parts?.[p]) || `stock.${stock}`;
+  const box = (corr?.parts?.[part] || []).map((id) => corr.shapes?.[id]).find((x) => x?.region && x.system)?.system;
+  choose([part]);
+  if (box && !(S.graph?.open || []).includes(box)) S.toggleSystem?.(box);
+  openLoop(name);
+}
+
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
@@ -1374,23 +1438,42 @@ function renderSide(side, g, view) {
   }
   const charts = view === "dynamics" ? sideCharts(out) : null;      // charts.js: the parts chosen, at the top
   if (charts && S.sel?.size) side.append(live(charts));
-  side.append(h("h3", {}, "Needs attention", problems.length ? h("span", { class: "muted" }, ` ${problems.length}`) : null));
-  const att = h("div", { class: "att" });
-  if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
-  const MAX = 6;
+  // three groups, always in this order, each with its count: what waits on a person; the goals off (the system's,
+  // then modelling's after a rule: as many as the header's "loops off"); the rest, the model's housekeeping (folded,
+  // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
+  // colour is not the only cue.
+  const ask = (a) => (Array.isArray(a.answer) && a.kind !== "request") || a.waiting;
+  const waiting = problems.filter(ask);
+  const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
+  const rest = problems.filter((a) => !waiting.includes(a) && !off.includes(a));
+  const count = (xs) => h("span", { class: "muted" }, ` ${xs.length}`);
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
-  for (const a of problems.slice(0, MAX)) {
-    const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
-    att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
-      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
-  }
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
-  side.append(att);
+  const list = (xs, none) => {
+    const att = h("div", { class: "att" });
+    if (!xs.length) att.append(h("div", { class: "none" }, none));
+    xs.forEach((a, i) => {
+      if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
+      const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
+      const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
+      const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
+      const said = h("span", { class: "att-word" }, `${word} · `);
+      if (a.answer && a.first) { att.append(h("div", { "data-inbox": a.what }, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
+      att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, said,
+        href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
+        linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
+    });
+    return att;
+  };
+  side.append(h("h3", { class: "att-head" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you."));
+  side.append(h("h3", { class: "att-head" }, "Goals off", count(off)), list(off, "No goal is off."));
+  const house = h("details", { class: "housekeeping", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
+    h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
+      h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy."));
+  side.append(house);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside
     // (the moment drawn, not now; and once the reader opens or closes them, as they left them)
@@ -1400,8 +1483,8 @@ function renderSide(side, g, view) {
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.says)?.[1];
-      d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", op(a.says), " ",
-        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "Evidence") : null));
+      d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
+        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }
     side.append(d);
   }

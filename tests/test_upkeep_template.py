@@ -86,7 +86,8 @@ def test_upkeep_expands_to_the_index_files_loop(tmp_path):
     watched = {"stocks": {"heartbeat-age", "stalls", "restarts"}, "flows": {"heartbeat-aged", "heartbeat-renewed", "restarts-made",
                                                                          "restarts-aged-out",
                                                                      "stalls-mended"},
-               "goals": {"heartbeat-fresh", "no-stalls"}, "blocks": {"watchdog", "outer-watcher"}}   # (test_upkeep_watched)
+               "goals": {"heartbeat-fresh", "no-stalls", "few-restarts"},
+               "blocks": {"watchdog", "outer-watcher", "restarts-keeper"}}   # (test_upkeep_watched)
     record = {"stocks": {"rollup-due", "events-past-keep", "measurements-due"},   # (test_upkeep_record.py)
               "flows": {"rolled-up", "events-forgotten", "measurements-forgotten"},
               "goals": {"record-rolled-up", "record-within-keep", "measurements-within-tiers"},
