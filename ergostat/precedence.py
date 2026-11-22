@@ -47,6 +47,7 @@ STAYS = 2000             # the latest items whose stays give a kind's medians
 ASSUMED = 600.0          # an item's duration when nothing is known of any kind's (seconds)
 EPS = 1e-6
 END = "\0end"          # a summary's end, in the critical path
+WAIT = "\0wait"        # a step that is a wait in a queue, in the levelling: no lane held through it
 
 
 class Kinds:
@@ -228,7 +229,9 @@ def level(steps: dict[str, list], edges, started, plan: dict, lanes: dict[str, i
     resource-constrained scheduling. In precedence order, the least slack first, then the longest path ahead (the
     dispatcher's tie-break; ``plan``, from ``cpm``), each item is placed at the earliest time what it waits on is done
     (a started one at 0) and the block that takes it has a lane free for each of its ``steps`` (``[(block or None,
-    [(state, seconds)])]``, one after another; a step of no block waits on none). ``lanes``: block → capacity.
+    [(state, seconds)])]``, one after another; a step of no block waits on none). A ``WAIT`` step, a queue, holds no
+    lane: the step after it takes its lane at the wait's median end, or later when no lane is free by then (the
+    levelling's wait in place of the median's, never both). ``lanes``: block → capacity.
     Returns each item's start (``es``), end (``ef``) and ``segs``, ``[state, from, to, block, lane]``."""
     preds, succs = _graph(steps, edges)
     started, deg = set(started), {n: len(p) for n, p in preds.items()}
@@ -236,30 +239,47 @@ def level(steps: dict[str, list], edges, started, plan: dict, lanes: dict[str, i
     ready = [key(n) for n, k in deg.items() if not k]
     heapq.heapify(ready)
     free: dict[str, list[list]] = {}          # block → each lane's free gaps, [(from, to)] in order, the last to inf
+
+    def fit(block, t, dur):                   # the earliest lane gap from t that holds dur: (start, lane, gap)
+        gaps = free.setdefault(block, [])
+        if len(gaps) < max(1, lanes[block]):
+            gaps.append([(0.0, float("inf"))])       # a lane not yet used: it starts at t (none is earlier)
+        fits = []
+        for k, g in (enumerate(gaps) if gaps[-1] != [(0.0, float("inf"))] else [(len(gaps) - 1, gaps[-1])]):
+            i = max(0, bisect.bisect_right(g, (t, float("inf"))) - 1)
+            while max(g[i][0], t) + dur > g[i][1] + EPS:
+                i += 1
+            fits.append((max(g[i][0], t), k, i))
+        return min(fits)
     end, out = {}, {}
     while ready:
         n = heapq.heappop(ready)[-1]
         t = 0.0 if n in started else max([end[p] for p in preds[n]] or [0.0])
-        out[n] = []
+        out[n], wait = [], None
         for block, segs in steps[n]:
             dur = sum(x for _, x in segs)
+            if block == WAIT:                        # a queue: no lane; the take after it is levelled from its start
+                wait = (t, dur, segs)
+                continue
             lane = None
             if block in lanes and dur > 0:
-                gaps = free.setdefault(block, [])
-                if len(gaps) < max(1, lanes[block]):
-                    gaps.append([(0.0, float("inf"))])       # a lane not yet used: it starts at t (none is earlier)
-                fits = []                                    # each lane's earliest gap from t that holds it
-                for k, g in (enumerate(gaps) if gaps[-1] != [(0.0, float("inf"))] else [(len(gaps) - 1, gaps[-1])]):
-                    i = max(0, bisect.bisect_right(g, (t, float("inf"))) - 1)
-                    while max(g[i][0], t) + dur > g[i][1] + EPS:
-                        i += 1
-                    fits.append((max(g[i][0], t), k, i))
-                t, lane, i = min(fits)
-                a, b = gaps[lane][i]
-                gaps[lane][i:i + 1] = [x for x in ((a, t), (t + dur, b)) if x[1] - x[0] > EPS]
+                t0 = wait[0] if wait else t
+                t, lane, i = fit(block, t0, dur)
+                if wait and t < t0 + wait[1]:        # free before its median wait is out: taken when the wait ends
+                    t, lane, i = fit(block, t0 + wait[1], dur)
+                if wait:                             # the wait drawn: from where it began to the take
+                    out[n].append([wait[2][0][0], t0, t, None, None])
+                a, b = free[block][lane][i]
+                free[block][lane][i:i + 1] = [x for x in ((a, t), (t + dur, b)) if x[1] - x[0] > EPS]
+            elif wait:
+                segs = wait[2] + segs
+            wait = None
             for s_, secs in segs:
                 out[n].append([s_, t, t + secs, block if lane is not None else None, lane])
                 t += secs
+        for s_, secs in wait[2] if wait else []:
+            out[n].append([s_, t, t + secs, None, None])
+            t += secs
         end[n] = t
         for s in succs[n]:
             deg[s] -= 1
@@ -425,8 +445,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
              and a not in kids]
     plan = cpm(d, pairs, going)
     end = max([p["ef"] for p in plan.values()] or [0.0])
-    # levelled by each block's capacity (``lanes``, from etamodel.capacities): a state a block takes from is its
-    # block's; a working state, the block that took it from the queue before it; a hold, its holder's
+    # levelled by each block's capacity (``lanes``, from etamodel.capacities): a state a block takes from is a wait,
+    # no block's (``WAIT``); a working state, the block that took it from the queue before it; a hold, its holder's
     by_state: dict[tuple, str | None] = {}
     for kk, k in spec.items.items():
         cur = None
@@ -439,7 +459,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
         lease = held(got[a].fields) or {}
         for s_, secs in ahead[a] or [(got[a].state or "", d[a])]:
             b = lease.get("block") if s_ == LEASED and lease.get("block") in (lanes or {}) else \
-                by_state.get((got[a].kind, lease.get("back") if s_ == LEASED else s_))
+                WAIT if s_ in info[got[a].kind]["queue"] else by_state.get((got[a].kind, lease.get("back") if s_ == LEASED else s_))
             if steps[a] and steps[a][-1][0] == b:
                 steps[a][-1][1].append((s_, secs))
             else:

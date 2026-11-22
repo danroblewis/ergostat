@@ -128,6 +128,59 @@ def test_capacity_comes_from_one_function(tmp_path, monkeypatch):
     assert most_at_once(bars(g)) == 2 and g["end"] - now == pytest.approx(6 * MEDIAN)
 
 
+REVIEWED = """
+items:
+  ticket:
+    id: ticket/*
+    states: [todo, doing, review, reviewing, done]
+    on: {ticket.started: doing, ticket.submitted: review, ticket.picked: reviewing, ticket.done: done}
+messages:
+  done: {ticket: [done]}
+blocks:
+  worker:
+    type: program
+    run: "true"
+    takes: {kind: ticket, at: todo}
+    pool: 6
+  reviewer:
+    type: program
+    run: "true"
+    takes: {kind: ticket, at: review}
+    pool: 1
+"""
+
+
+def test_queue_wait_holds_no_lane(tmp_path):
+    """A block that takes at a later state (review, its median wait 2 h) with capacity 1: the wait holds no lane, and
+    the take is levelled from where the wait began (its median end, or later when the lane is busy then), so the
+    contention is counted once. 12 tickets: doing ends at 20 and 40 min, waits at 2 h 20 and 2 h 40, then the 12
+    reviews of 10 min one after another from 2 h 20: done at 4 h 20 (holding the lane through the wait: about 26 h)."""
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(REVIEWED))
+    p = Project(mdl.load(tmp_path))
+    ev = p.events
+    for i in range(5):                                     # doing 20 min, the review wait 2 h, reviewing 10 min
+        t = T0 + i
+        for name, dt in (("planned", 0), ("started", 10), ("submitted", 10 + MEDIAN), ("picked", 10 + MEDIAN + 7200),
+                         ("done", 10 + MEDIAN + 7800)):
+            ev.add(f"ticket.{name}", item=f"ticket/old{i}", at=t + dt)
+    for i in range(12):
+        ev.add("ticket.planned", item=f"ticket/n{i:03}", at=T0 + 9000)
+    now = T0 + 10_000
+    lanes = etamodel.capacities(p, {"at": now})
+    assert lanes["reviewer"]["lanes"] == 1 and lanes["worker"]["lanes"] == 6
+    g = pr.build(p.events, p.model.spec, ["ticket"], now, now - 3600, lanes=lanes)
+    b = bars(g)
+    assert g["end"] - now == pytest.approx(4 * 3600 + 1200)
+    assert max(seg[3] for seg in b) == pytest.approx(g["end"])
+    assert sum(1 for seg in b if seg[1] == "review") == 12 and all(len(seg) == 4 for seg in b if seg[1] == "review")
+    # (the wait: no block's lane; the first ticket's take at its median end, the others' later, the lane busy)
+    laned = [s for s in b if len(s) == 6]
+    assert most_at_once([s for s in laned if s[4] == "reviewer"]) == 1 and most_at_once([s for s in laned if s[4] == "worker"]) == 6
+    for x in (x for x in g["items"] if x.get("projected")):                 # each one's take after its median wait
+        segs = {s[0]: s for s in x["projected"]}
+        assert segs["reviewing"][1] - segs["doing"][2] >= 7200 - 1e-6 and segs["review"][2] == segs["reviewing"][1]
+
+
 @pytest.mark.serial
 def test_levelling_600_items_is_quick():
     """The levelling alone, 600 items (chains of 5) on a block of 6: under 50 ms (the best of three)."""

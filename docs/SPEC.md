@@ -1383,8 +1383,10 @@ for:
 - **The levelled projection**: the forward pass again, each block at most its capacity at once (the serial
   schedule-generation scheme of resource-constrained scheduling). In precedence order, the least slack first, then the
   longest path ahead (the dispatcher's tie-break), each item is placed at the earliest time what it waits on is done
-  and the block that takes it from its state has a lane free: a state a block takes from is that block's, a working
-  state the block that took it from the queue before it, a hold its holder's; each state its kind's median time.
+  and the block that takes it from its state has a lane free. A state a block takes from is a wait that holds no
+  lane: the block takes the item when the wait's median is out, or later when none of its lanes is free by then (the
+  levelling's wait then stands in for the median's, never both, so contention is counted once). A working state is
+  the block's that took it from the queue before it, a hold its holder's; each state its kind's median time.
   A block's capacity (its pool, or its pool now from its stock, its agent's seats, its daemon's runs at once, whichever
   binds) is decided in one place, `etamodel.capacities`, worked out once per snapshot and kept with it; the completion
   estimates' simulation reads the same table, so the two change together. Its bars and its end are what the Timeline
