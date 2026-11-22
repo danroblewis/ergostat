@@ -71,3 +71,16 @@ test failed. Again no code was changed. Nothing in the branch fails, and getting
 `scripts/affected_tests.py` (outside this gap, lesson 13) or adding a unit test only to give the build step something
 to collect, which would test nothing the change touches (lesson 9). Bash was refused in this session (`git -C /work
 status --short`, and a `git log`/`sed` read before it), so this note could not be committed and no test was run.
+
+Round 2: main (bea24a23) merged in. The only conflict was in `tests/test_diagram_rendering.py`, where main had added
+two tests at the end of the file, just where this branch's acceptance test sits. Both sides were kept (c32deef1). No
+code was changed. Ruff is clean. With Playwright under the watchdog:
+- the acceptance test passes (rc 0);
+- main's `test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_verdict` passes;
+- main's `test_needs_attention_is_three_headed_groups_in_a_fixed_order` fails twice: the 30 s wait for three
+  `.side h3.att-head` headings and 'loops off' times out (line 4281). With its loop narrowed for a moment to the home
+  page alone (`/`, which never draws the Blocks view or calls `blocksLegend`), it fails the same way, so the failure is
+  not in this branch's change. The probe edit was undone and never committed. This branch changes only `bdBody`'s
+  subsystem letter, the frame title and `blocksLegend` in `blocks.js`, and none of these reach the side list. I tried to
+  run that test on a clean main checkout (`git worktree add --detach /tmp/mainwt main -q && cd /tmp/mainwt && ...`),
+  but the command was refused. Comparing with main is left to the factory's rerun on clean main (lesson 13).
