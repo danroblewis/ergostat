@@ -186,17 +186,19 @@ def record_fits(live, every: float = 300.0, stop: threading.Event | None = None)
 
 
 def serve(project, port: int | None = None, mtls_port: int | None = None):
-    """The page on ``port`` (or the next free one), on this machine only unless ``intake: bind:`` says where else; from
+    """The page on ``port`` (or the next free one; 0 for any), on this machine only unless ``intake: bind:`` says where else; from
     another machine only events may be pushed (``intake: allow:``). The push token is made now (``intake/token.py``).
     With ``web: mtls:``, the remote API's own listener beside it (``remote/listen.py``; ``mtls_port`` overrides its
     port, 0 for any): ``server.mtls_said`` says where it listens, or why not, and the page serves either way."""
     spec = getattr(project.model, "spec", None)
     host = getattr(getattr(spec, "intake", None), "bind", None) or "127.0.0.1"
-    port = _free(port or DEFAULT_PORT) if host == "127.0.0.1" else _free(port or DEFAULT_PORT, host)
+    if port != 0:                                   # (0: the system picks one at bind, so no other process takes it first)
+        port = _free(port or DEFAULT_PORT, host)
     from ..intake.token import token
     token(project.dir)
     server = PooledServer((host, port), handler(project))
     server.daemon_threads = True
+    port = server.server_address[1]
     server.mtls, server.mtls_said, server.mtls_port = None, "", None
     conf = getattr(getattr(spec, "web", None), "mtls", None)
     if conf is not None:
