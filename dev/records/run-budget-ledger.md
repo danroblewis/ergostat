@@ -140,3 +140,42 @@ Round 6 (the queue's conflict in `ergostat/numbers/measures.py`, and the round-5
 - Run here in round 6, after the merge: `tests/test_run_budget.py` and `tests/test_upkeep_watched.py` (33 passed),
   test_spec_schema, test_upkeep_template and test_run_costs (54 passed). Ruff is clean. The unit suite and the four
   browser files were not run here (left to the factory and the merge queue).
+
+Round 7 (the queue's merge of main 5617e225, conflicting in eight files):
+- Main now holds the whole of P3: `factory/run-budget-reserve` was merged into it (c8c94527, an ancestor of
+  5617e225). That covers this definition's items 1 to 4 in its own form (`RunBudget` in `spec/ir.py`,
+  `Compiler.budget`, `costs/budget.py` with `fold`, `permit`, `recover` and `left`), plus the permit and recovery
+  that `run-budget-permit` was to add. The branch's own lift was a second copy of the same thing under a different
+  API (`Budget`, `parse`, `check`, `fold` returning a `runs` map).
+- The merge is b0fbc839, whose second parent is 5617e225. Refs in this clone (`git for-each-ref`): `refs/heads/main`
+  at 5617e225 and this branch. `git log HEAD..main` is empty. This record claims nothing about any other ref.
+- The resolution keeps main's code wherever both wrote the same thing, since main's engine and dispatcher call it.
+  The branch's `Budget`, `parse`, `check`, its second `BUDGET_MEASURES`, its compile block and its second measure
+  dispatch are removed. What the branch still adds over main: `budget:` written empty is two errors, not no budget
+  (`spec/load.py`; main read it as none, which fails open); the schema's 10000 ceiling on `max-cost`; the
+  `OWN_TYPES` comment; the measures and `is_measure` docstrings; and the two SPEC measure-table rows. The net count
+  outside `tests/`, `docs/` and `dev/` against main is now 10 lines added and 7 removed.
+- Docs: SPEC §9.9 is main's text plus the empty-`budget:` sentence. The agent guide §3b bullet saying "nothing is
+  refused yet" and the GAPS entry with its *Left* (`run-budget-permit`) clause were removed, since main's own text in
+  both places describes the permit as built. GAPS now has one P3 entry, main's. It still says "in progress" and
+  names `factory/run-budget-reserve`, which main has merged. That is main's wording and is left as it is.
+- Tests: `tests/test_run_budget.py` is main's file. Its `test_check_budget_keys`, `test_reserve_held_until_end_with_cost`,
+  `test_malformed_cost_counts_unknown`, `test_retaken_item_keeps_old_reserve` and `test_budget_left_fails_closed`
+  take the place of the branch's tests of the same names. Ported to main's API: `test_free_run_allowlist` and
+  `test_window_by_run_id`. Added: `test_empty_budget_is_two_errors`. Each was seen to fail with its guard broken by
+  hand: `free` as a denylist, the 24 h test on ends removed, and an empty `budget:` read as none.
+- Where main's code differs from this definition. Each difference is main's reviewed design, so none is changed
+  here, because changing one would reopen a landed gap:
+  (a) An `ergostat.lease.taken` with no `reserve`, or a malformed one, is not a reserving event in main (the
+  definition's round-1 choice charged `max-cost`). Main's permit always writes one.
+  (b) An end with no cost, no `ai` part and no reserving event is charged 0 (the definition: `max-cost`). Main's
+  SPEC §9.9 says so.
+  (c) Free runs reserve 0 at the permit instead of being left out of the fold by block. So
+  `test_free_block_runs_fold_to_nothing` and `test_forged_close_as_ergostat_is_refused` were dropped. Main's
+  `test_free_run_not_reserved` and `test_budget_events_written_only_by_ergostat` cover the same ground.
+  If the owner wants (a) or (b) to fail closed, that belongs in its own gap against main.
+- `run-budget-permit` is now built on main by `run-budget-reserve`. Its definition should be checked against main
+  before it is started.
+- Run here in round 7, after the merge: `tests/test_run_budget.py` (39 passed); test_spec_schema, test_local_settings
+  and test_upkeep_watched (54 passed); test_run_costs, test_spec_structure and test_remote_mtls (48 passed). Ruff is
+  clean. The unit suite and the four browser files were not run here (left to the factory and the merge queue).
