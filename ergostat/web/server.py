@@ -400,13 +400,13 @@ def _record_rows(p, m, snap, about, match, n, skip, span) -> list[dict]:
         valves = [v for v in lp["valves"] if v in m.valves]
         c = m.controllers.get(about)
         names += [*valves, *(x for x in (c and c.agent, *(m.valves[v].agent for v in valves)) if x)]
-    asks = [{k: v} for v in dict.fromkeys(names) for k in ("item", "machine")] + ([] if about else [{"type": match}])
+    names = list(dict.fromkeys(names))
+    asks = [{k: v} for v in names for k in ("item", "machine")] + ([] if about else [{"type": match}])
+    if about and match:          # the match asked inside each question, so none is capped at n before it is matched
+        asks = [{k: v, **w} for v in names for k, o in (("item", "machine"), ("machine", "item"))
+                for w in ({"type": match}, {o: match})] + ([{"item": match}, {"machine": match}] if match in names else [])
     got = {e["id"]: e for a in asks for e in p.events.query(n=n, skip=skip, **a, **span)}
-    rows = sorted(got.values(), key=lambda e: e["seq"])
-    if about and match:
-        import fnmatch
-        rows = [e for e in rows if fnmatch.fnmatchcase(e["type"], match) or match in (e.get("item"), e.get("source"))]
-    return rows[-n:]
+    return sorted(got.values(), key=lambda e: e["seq"])[-n:]
 
 
 def api(live: Live, path: str, q: dict):

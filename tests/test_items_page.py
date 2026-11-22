@@ -417,7 +417,11 @@ def test_a_crossing_opens_the_record_narrowed_to_its_goal_and_time_and_the_filte
     pg.press('input[aria-label="Event type, item or source"]', "Enter")
     pg.wait_for_function("() => location.search.includes('match=fixer')")
     for _ in range(2):
-        pg.wait_for_function("() => document.querySelector('main').textContent.includes('mk-fixer-source')")
+        # the unfiltered Record holds mk-fixer-source too: wait for the filtered rows, not only for the text
+        pg.wait_for_function("""() => { const rs = [...document.querySelectorAll('main .page table tr:has(td)')]
+            .map((tr) => [...tr.children].map((c) => c.textContent.trim()));
+            return rs.length && rs.some((r) => r[4].includes('mk-fixer-source'))
+                && rs.every((r) => r[2] === 'fixer' || r[3] === 'fixer'); }""")
         rows = record_rows(pg)
         assert rows and all(r["source"] == "fixer" or r["item"] == "fixer" for r in rows), rows
         pg.reload()

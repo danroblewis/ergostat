@@ -150,6 +150,30 @@ def test_the_record_narrows_to_a_goal_and_its_window_and_the_filter_matches_item
         server.server_close()
 
 
+def test_the_goals_filtered_rows_are_not_lost_behind_more_than_n_newer_events_of_one_name(repo):
+    """With about= and match= both, the match is asked with each name, so matching events older than the newest n
+    of that name still show (never 'Nothing recorded yet.' while they exist)."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    for i in range(5):                        # more than n newer events of the goal, and of its agent, none matching
+        p.events.add("loop.on", item="disk-under-80", source="ergostat", at=now - 50 + i)
+        p.events.add("scan.done", item="tmp", source="cleaner", at=now - 40 + i)
+    server, url = serve(p, free_port())
+    try:
+        def types(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [e["type"] for e in json.loads(r.read())]
+        assert types("about=disk-under-80&match=loop.off&n=3") == ["loop.off"]                  # by type
+        assert types("about=disk-under-80&match=disk&n=3") == ["cleanup.done", "cleanup.done"]   # by item
+        assert types("about=disk-under-80&match=disk-under-80&n=3") == ["loop.on"] * 3           # the goal itself
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def run_cli(repo, *args, capsys=None):
     rc = main(["-C", str(repo.path), *args])
     out = capsys.readouterr().out if capsys else ""

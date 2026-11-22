@@ -66,3 +66,24 @@ a test that needs no browser, of the server's narrowing (`about=` with the goal'
 `match=` as type, item or source; an unknown goal gives nothing). The build step now selects that file too. The test
 failed when the controller's, valves' and agents' names were dropped from `_record_rows` (reverted). Run:
 tests/test_graph_cli_web.py (32 passed); ruff clean.
+
+Round 2, answering the review's one finding (blocking): with both `about=` and `match=`, each question was capped at
+the newest n before the match was applied, so older matching events were dropped. Now `_record_rows`
+(`ergostat/web/server.py`) puts the match into each question itself, for each of the goal's names: item=NAME or
+machine=NAME, each with type=MATCH, or with the other field equal to MATCH (plus item=MATCH and machine=MATCH when
+MATCH is one of the goal's names). So the cap of n applies only after the match, and the merged newest n is exact.
+The filter after the queries is gone. With `about=`, a type in `match=` now also takes commas, as it already did
+without `about=`. New test:
+`tests/test_graph_cli_web.py::test_the_goals_filtered_rows_are_not_lost_behind_more_than_n_newer_events_of_one_name`
+(n=3, with five newer non-matching events of the goal and five of its agent `cleaner`; matched by type, by item and
+by the goal's own name). It fails on the round-1 code (`[] == ['loop.off']`) and when the match is dropped from the
+questions. Both breaks were reverted.
+
+Also found in this round: the first full run of tests/test_items_page.py failed once, at line 422 of this gap's own
+browser test. The test passed when run alone. The fault was in the test, not the page: the unfiltered Record already
+holds `mk-fixer-source`, so waiting for that text could pass before the filtered rows were drawn, and the test then
+read the unfiltered rows. The test now waits until all drawn rows are fixer rows. Only the test changed.
+
+Tests run: tests/test_graph_cli_web.py (34 passed); tests/test_items_page.py with Playwright under suite_watch, twice
+after the test fix (22 passed each time, rc 0, no skips); ruff clean. Not run: the whole unit suite, the other
+browser files, demo_check (no example touched). No merge of main was needed: `git log HEAD..main` is empty.
