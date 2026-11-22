@@ -33,3 +33,17 @@ This takes over `factory/library-fetch`'s `ergostat/library/sources.py`, `ergost
 ## Size budget
 230 net lines
 size: L (confidence: medium)
+
+## Where it stopped
+
+Round 1: built. All five acceptance tests pass, plus `test_not_read_while_replaying`. `tests/test_cli_fallback.py` (the existing users of `files.py`) passes too. ruff is clean.
+
+The parked branch `factory/library-fetch` and its record are not in this clone, so the modules were written fresh to this definition, not cut down from that code. The choices made, each the more reversible one:
+- `sources.check(map)` returns the checked map and raises `SourceError(code, field)`. `git` and `version` are required and `path` is optional. Any other key is refused, a value that is not a string is refused, and a version or path that begins with `-` or `.` is refused. The YAML key `libraries:` is not wired into loading, because that belongs to library-fetch-load. For the same reason SPEC and the agent guide are unchanged: nothing a user can reach yet.
+- `files.tree` and `tree.extract` raise `files.TreeError` with code `bad-library-tree` or `library-too-big`. `files.tree` also refuses past `DEPTH` = 64 folders. That ceiling keeps the recursion and its open folder handles bounded (lesson-4). `files.tree` raises `NotKept` while a snapshot is replaying, because a library copy is not in the snapshot.
+- `tree.extract` refuses a name that has a `.` or empty step, including a leading `./`. `git archive` writes none. On any refusal it removes `dest`, which only it created (it makes `dest` with `mkdir`, and the mkdir fails if `dest` exists). A tar or OS error is turned into `bad-library-tree`. A link whose step walk lands on any link, even as its last step, is refused.
+- Checked by breaking the code (lesson-9), with each test seen to fail: dropping the re-walk after all links exist, dropping case folding, not counting written bytes, hashing exec as file, and opening a FIFO blocking without the lstat refusal (that one timed out at 20 s).
+
+Left: nothing in this definition. library-fetch-git and library-fetch-load build on it.
+
+Overrun reason: 257 net lines against 230 (tree.py 147, files.py +66, sources.py 44). The extra lines are fail-closed handling the definition's risks ask for: the folded parent check, the second link walk once all links exist, the folder-by-handle O_NOFOLLOW descent in both walk and extract, and the depth ceiling. The docstrings were already trimmed once.
