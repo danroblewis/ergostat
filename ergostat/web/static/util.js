@@ -354,8 +354,8 @@ async function refreshHeader() {
       sel.dataset.filled = "1";
       sel.replaceChildren(h("option", { value: "" }, st.name));
       sel.addEventListener("change", () => { if (sel.value) location.href = sel.value + location.pathname + location.search; });
-      // the other projects: once, and again when the reader comes to the list (each is a model loaded and a
-      // snapshot of its record on the server: not asked for while the page is only left open)
+      // the other projects: once, and again when the reader comes to the list (the server's last list, made every
+      // minute off the request path: not asked for while the page is only left open)
       const fresh = () => { if (Date.now() - (S.projectsAt || 0) > 30000) refreshProjects(sel); };
       sel.addEventListener("pointerenter", fresh);
       sel.addEventListener("focus", fresh);
@@ -381,20 +381,24 @@ async function refreshHeader() {
   } catch (e) { /* the server may be restarting */ }
 }
 
-/* the other projects on this machine, in the header's list: running ones to switch to, with what is off
-   or unknown; stopped ones shown, not offered. Not waited for, and not changed while the list is open */
+/* the other running projects on this machine, in the header's list, to switch to, with what is off or unknown; then
+   one muted line counting the stopped ones (the server lists them every minute, off the request path). Not waited
+   for, and not changed while the list is open */
 function refreshProjects(sel) {
   S.projectsAt = Date.now();
   api("projects").then((ps) => {
+    if (ps.at == null) S.projectsAt = 0;             // not listed yet: asked again the next time the reader comes to it
     const name = S.status?.name || "";
     const opts = [h("option", { value: "" }, name)];
-    for (const p of ps) {
+    for (const p of ps.running || []) {
       if (p.name === name) continue;
       const [off, unknown, upkeep] = [p.goals_off, p.unknown, p.upkeep_off].map((x) => (x || []).length);   // as its header
       const bits = [off || upkeep ? `${off} off` : "", unknown ? `${unknown} unknown` : "", upkeep ? `model upkeep ${upkeep}` : "",
-                    p.web ? "" : "stopped"].filter(Boolean);
-      opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
+                    p.error ? "cannot load" : p.web ? "" : "no page"].filter(Boolean);
+      opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "", title: p.error || null }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
     }
+    if (ps.stopped) opts.push(h("option", { value: "", disabled: "" }, `${ps.stopped} stopped (ergostat projects)`));
+    if (ps.age > 180) opts.push(h("option", { value: "", disabled: "" }, `listed ${Math.round(ps.age / 60)} min ago`));   // the lister has stopped updating
     if (document.activeElement !== sel) sel.replaceChildren(...opts);
   }).catch(() => { /* kept as it was */ });
 }
