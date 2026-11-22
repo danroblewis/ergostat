@@ -42,11 +42,11 @@ def _row(d: Path, note: dict, pid: int | None, m=None) -> tuple[dict, list, obje
         return {"name": d.name, "repo": None, "error": f"{type(e).__name__}: {e}"}, [], None
     p = Project(m, d, note=False)                # read only: another project's note is its own to write
     snap = st.snapshot(p)
-    loops = {n: lp["status"] for n, lp in snap["loops"].items()}
+    g = st.goals_off(snap, names=True)
     files = list(getattr(m, "files", None) or ([m.path] if m.path else []))
     return {"name": m.name, "repo": note["repo"], "running": bool(pid), "web": web_url(p) if pid else None,
-            "loops": len(loops), "off": sorted(n for n, s in loops.items() if s in ("off", "open")),
-            "unknown": sorted(n for n, s in loops.items() if s == "unknown"),
+            "loops": len(snap["loops"]), "off": sorted(g["system"] + g["open"]), "unknown": g["unknown"],
+            "upkeep_off": sorted(n for v in g["own"].values() for n in v),
             "attention": len([a for a in st.attention(snap, bool(pid), m) if a["level"] != "hint"])}, files, m
 
 
