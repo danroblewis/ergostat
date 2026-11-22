@@ -35,7 +35,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
     process map between our items and theirs (done on `remote-process-lines`): a relation may name a remote's
     kind (`blocked_by: incidents-incident`, never precedence); the remote says the step each named item was
     last at (`at=`, at most 200 ids, chosen by id), and a link not drawn is counted by its reason
-    (`unlinked`), never dropped.
+    (`unlinked`), never dropped. A remote's parts are data here (done on `remote-and-libraries-remote-parts-are-data`):
+    its stocks given, never integrated, in the replay and the projection (open and closed loop), and left out of the
+    fit's total (listed under `remote`), the residuals and the not-exercised findings; its flows' equations still
+    serve the texts for its owner.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
     it); serving the IR beside `ergostat-model/1` once it exists.
     measures on its closed box (done on `remote-box-measures`): its top systems' served `show:`, or a

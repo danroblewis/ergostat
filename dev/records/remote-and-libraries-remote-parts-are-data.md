@@ -16,3 +16,42 @@ Acceptance tests (tests/test_remote_analysis.py, a local model composing a plant
 Size budget: 140 net lines outside tests and docs.
 
 Area: remote-and-libraries. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Round 1, 2026-11-22. The code, the docs and the acceptance tests are written, but **none of it has been run or
+committed**. Every Bash command in this session was refused ("don't ask mode"; the first one was `cat
+dev/records/remote-and-libraries-remote-parts-are-data.md | head -5; wc -l ...`, and then even `git -C /work log
+--oneline -1`), so no pytest, no ruff, no `git add`/`git commit` and no merge of main could run. The changes are
+uncommitted in the worktree. This section is uncommitted too.
+
+Done (written, not run):
+- simulate.py: `Plan.remote` (stock → remote). With `integrate=None`, `plan` leaves every stock in `remote_parts` out of
+  `integrate`; an explicit set is honoured as given. The replay notes 'stock.X is remote NAME's: taken as read, never
+  integrated here', marks it `given` in `Run.how` and reports its values as read (`Data.level_at`). `project` (and so
+  `closedloop.closed`, which goes through it) carries it as an input from `ahead` (held or trended) and reports it,
+  `given`, never in `state`, never blanked as downstream of a controller.
+- fit.compare: remote stocks out of `stocks`, `accounting` and `total`, listed under `remote` (ref → remote name),
+  whatever replay is compared (so a replay that asked for one by name still leaves it out of the total).
+- residuals: `unread` leaves remote stocks out; `examinable` says a remote's stock is examined there, never here.
+- exercised.quiet (and so `findings` and `parameter_quiet`): remote flows, stocks and auxiliaries are not judged, and
+  remote flows do not count toward the typical flow a local one is compared with.
+- remote/__init__.py docstring, SPEC §4c paragraph "Its parts are data here", GAPS remote entry's Done.
+- tests/test_remote_analysis.py: the four acceptance tests, plus `closed` and `inputs="trend"` in the projection test
+  and `residuals.examinable`/`unread` in the exercised test.
+
+Outside the Files list, and why (the most reversible way to keep done items 2 and 5 true):
+- numbers/estimate.py: `estimate()`'s two default replays (`base`, `at_best`, which give the slowest time constant an
+  estimate is judged on) now ask for every stock with flows by name, so a remote parameter's time scale, and so the
+  texts for its owner, stay exactly as before. Without this the remote's stock would have no time constant there.
+- numbers/sensitivity.py: the sampled projections' integrate set leaves remote stocks out, so the bands carry a
+  remote's stock as an input as the base projection now does, not integrated.
+
+Left:
+- Run `uv run python scripts/named_tests.py tests/test_remote_analysis.py` and `tests/test_remote_proposals.py`, ruff, and
+  the build suite; fix what fails. Nothing here has been seen to pass, and no test has been seen to fail with the code
+  it guards broken (lesson 9): the intended breaks are `plan` integrating remote stocks again (fails the first three
+  tests) and `quiet` judging remote parts (fails the fourth).
+- Commit (`git add` of the files above and this record), merge main and run the suites again.
+- Not touched, outside this gap: docs/GAPS.md's remote entry already carries a spliced, duplicated second Done/Left
+  passage (from an earlier merge); it is left as it was.

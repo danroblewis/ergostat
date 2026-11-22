@@ -863,6 +863,16 @@ first). A local block may not output to a remote part (**remote-output**, an err
 changed there. A reference the remote no longer serves is a finding, never a refused model
 (**remote-reference-unresolved**): a stand-in with no sensor takes its place until it resolves again.
 
+**Its parts are data here.** A remote's stocks are **given**: the replay takes each as read and never integrates
+it (`given` in the run, with the note *stock.X is remote NAME's: taken as read, never integrated here*), and the
+projection, open or closed loop, carries it as one of its inputs, held where it was or carried on along its trend,
+as every input is; a local flow from or to it still moves the local stock. Left out of what the local record is held
+to: the fit's total and its stocks (the fit lists the remote's under `remote`, so the model's own error is not moved
+by the remote's dynamics), the residuals, what the record has not exercised (**not-exercised**), the account of a
+stock's change and the loops' attention. The remote's flows keep their equations, worked out from its stocks as
+read; the estimate (which still integrates its stocks, asked for by name, to fit its parameters) and the equation
+finder use them for the texts written for its owner (*Proposals for its owner*, below).
+
 **Kept current.** The remote's model is cached in `<state>/remotes/NAME/model.json`, with its version, and
 how it last answered in `status.json`. The running ergostat and the page ask again every `every`
 (conditionally: an unchanged model is a 304), and at once when a reading says its version moved; a new
