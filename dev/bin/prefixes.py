@@ -85,39 +85,42 @@ def run_all(cfg: dict, repo: Path, heads: list[str], check, tag: str, logs: Path
     most = prefix_most(cfg) if most is None else most
     if type(most) is not int or not 1 <= most <= MOST:
         raise ValueError(f"prefix runs at once = {most!r}: a whole number from 1 to {MOST}")
-    if cfg.get("suites", {}).get("queue_container", True) is not False:
-        agents.prefix_cpus(cfg)                         # (refused before any is made, never one by one)
+    agents.prefix_cpus(cfg)                             # (refused before any is made, never one by one)
     root, repo = fac.run_dir(cfg, ROOT).resolve(), Path(repo)
     sweep(cfg, repo)
     made, out, gate, stop = [], [None] * len(heads), threading.Semaphore(most), threading.Event()
+    done = [threading.Event() for _ in heads]           # (set as each ends: never is_alive, a broken join's lie)
 
     def one(i: int, head: str) -> None:
-        with gate:
-            if stop.is_set():
-                return
-            log, wt = log_of(logs, tag, i), root / f"{tag}-{i}"
-            log.unlink(missing_ok=True)                 # (never an earlier run's log read as this one's)
-            made.append(wt.name)                        # (before it is made: a half-made one is removed too)
-            try:
-                fac.git(repo, "worktree", "add", "-q", "--detach", str(wt), head)
-                rc, why = (None, "stopped") if stop.is_set() else (check(i, wt), "")
-            except BaseException as e:                  # (a check that raised: its result unknown, said)
-                rc, why = None, f"{type(e).__name__}: {e}"[:400]
-            out[i] = read(head, rc, log, "stopped" if stop.is_set() else why)
+        try:
+            with gate:
+                if stop.is_set():
+                    return
+                log, wt = log_of(logs, tag, i), root / f"{tag}-{i}"
+                made.append(wt.name)                    # (before it is made: a half-made one is removed too)
+                try:
+                    log.unlink(missing_ok=True)         # (never an earlier run's log read as this one's)
+                    fac.git(repo, "worktree", "add", "-q", "--detach", str(wt), head)
+                    rc, why = (None, "stopped") if stop.is_set() else (check(i, wt), "")
+                except BaseException as e:              # (a check that raised: its result unknown, said)
+                    rc, why = None, f"{type(e).__name__}: {e}"[:400]
+                out[i] = read(head, rc, log, "stopped" if stop.is_set() else why)
+        finally:
+            done[i].set()
 
     ts = [threading.Thread(target=one, args=(i, h), daemon=True) for i, h in enumerate(heads)]
     try:
         for t in ts:
             t.start()
-        while any(t.is_alive() for t in ts):
-            for t in ts:
-                t.join(0.5)
+        for d in done:
+            d.wait()
     except BaseException:                               # stopped: no check starts, each running one is killed
-        stop.set()
-        while any(t.is_alive() for t in ts):
+        stop.set()                                      # (one not yet in one() sees it; one in it is waited for)
+        live = [d for t, d in zip(ts, done, strict=True) if t.ident is not None]
+        while not all(d.is_set() for d in live):
             fac.stop_suites()                           # (again each pass: one started as the stop came)
-            for t in ts:
-                t.join(0.5)
+            for d in live:
+                d.wait(0.5)
         raise
     finally:
         for name in list(made):

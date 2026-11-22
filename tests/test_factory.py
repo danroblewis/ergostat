@@ -4747,6 +4747,25 @@ def test_a_stopped_prefix_run_leaves_no_worktree_or_container(tmp_path, monkeypa
     assert len(worktrees(repo)) == 1 and (tmp_path / "outside" / "x").read_text() == "kept\n"  # killed one's gone
 
 
+def test_a_prefix_run_waits_for_its_checks_whatever_a_join_says(tmp_path, monkeypatch):
+    # A signal that breaks a Thread.join (3.12's _wait_for_tstate_lock) marks the live thread stopped: is_alive False.
+    # run_all must wait on its own record of each check's end, never on is_alive, or it returns with checks running.
+    p = prefixes_module()
+    repo, heads, cfg, logs = prefix_repo(tmp_path, 3)
+    monkeypatch.setattr(p.threading.Thread, "is_alive", lambda self: False)
+    monkeypatch.setattr(p.threading.Thread, "join", lambda self, timeout=None: None)
+    ended = []
+
+    def check(i, work):
+        time.sleep(0.3)
+        p.log_of(logs, PREFIX_TAG, i).write_text("ok\n")
+        ended.append(i)
+        return 0
+    got = p.run_all(cfg, repo, heads, check, PREFIX_TAG, logs, 3)
+    assert sorted(ended) == [0, 1, 2] and [r["result"] for r in got] == ["pass"] * 3
+    assert len(worktrees(repo)) == 1
+
+
 def test_a_prefix_run_that_did_not_start_is_unknown(tmp_path):
     p = prefixes_module()
     repo, heads, cfg, logs = prefix_repo(tmp_path, 6)

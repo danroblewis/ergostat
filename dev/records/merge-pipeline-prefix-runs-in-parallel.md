@@ -56,3 +56,16 @@ Choices made alone (nobody to ask), each the most reversible:
 - run_all starts a thread per head, so a run's heads are capped too: more than 64 refused (lesson-4; [pools]
   batch_max is at most 8).
 - The sweep removes only entries of run/queue-prefix/ named <run tag>-<i> (a symlink of that name: the link only).
+
+Round 1, a second pass: the stop test was not reliably passing. Run alone again it failed 1 run in 6
+(a container's name left in fac.BOXES, its process group in fac.SUITES), so the "passes" above was one lucky run.
+The cause: on Python 3.12, a SIGTERM handler raising while Thread.join waits (threading._wait_for_tstate_lock)
+releases the live thread's lock and marks the thread stopped, so is_alive() says False while its suite runs. run_all
+waited on is_alive, so it returned with that check's container and process still running (done item 3, lesson-6).
+Fixed: each thread sets an Event of its own in a finally as it ends, and run_all waits on those Events, never on
+join or is_alive. A stop waits on the Events of every thread that had started; one that had not started sees the stop
+and makes nothing. After the fix the stop test passed 20 runs of 20. A new test,
+test_a_prefix_run_waits_for_its_checks_whatever_a_join_says, fakes the broken state (is_alive False, join returning
+at once) and fails on the old wait (run_all returned before any check ended), so it does not depend on timing.
+To keep within 140 lines: [agents] prefix_cpus is now checked at every run_all start, also when queue_container is
+false (stricter, and easy to undo). dev/bin: 140 net lines.
