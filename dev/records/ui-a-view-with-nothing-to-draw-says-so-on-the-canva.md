@@ -62,3 +62,17 @@ Built, 8 net lines outside tests (diagram.js +3, style.css +3 net of the two cha
     git checkout HEAD -- ...`) was refused here. Left for the merge queue's run on clean main (lesson 13).
 - Not run: the unit suite and the other three browser files (left to the factory and the merge queue, as the rules
   say). There is nothing to merge from main: this clone's `main` is the branch's base.
+
+## Where it stopped (round 1, after the build step)
+
+- The factory's `build` step gave rc 5, not a test failure: `affected_tests.py` picked the one test file the branch
+  changed, tests/test_diagram_rendering.py, and ran it with `uv run python -m pytest` and no Playwright, so the
+  file's module-level `importorskip('playwright.sync_api')` (line 38) skipped it whole ("1 skipped", no tests
+  collected, pytest's rc 5). No test ran, so none failed.
+- Nothing in the branch's code can change that: the change is page script and style, and the only test that can
+  check it is a browser test (the definition asks for one, in this file). Making the step green would mean adding
+  Playwright to `[suites] build` in dev/factory.toml or having scripts/affected_tests.py treat rc 5 / browser-only
+  selections differently. Both are factory changes outside this gap (lesson 13), so they are not made here; they
+  belong in their own gap. The reversible choice: leave the code as it is.
+- The two acceptance tests were run with Playwright in round 1 and passed (above); the browser files run in full in
+  the merge queue.
