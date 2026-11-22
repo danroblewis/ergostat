@@ -2864,7 +2864,9 @@ item's transcript (`claude.*`), renews the lease, in the fold itself. A run may 
 outright (`$ERGOSTAT_CMD lease --renew`). And before a lease expires, ergostat looks once more at what
 its holder did elsewhere since its last renewal: an event it caused about anything, or an event about
 an item it started (its session, `session/developer-1a2b`). If there is one within the TTL, it records
-`renewed`, at that time; if not, `expired`.
+`renewed`, at that time; if not, `expired`. A lease whose run's end this engine has already tried (the end given up,
+or failed) is never renewed so: on the watchdog's first look past its expiry the end is tried once more, and when that
+cannot complete either, the lease expires then, without the grace of a second look.
 
 **How a run's lease ends.** When the run ends, ergostat folds its item: moved on (to a state in
 `to`, or, without `to`, any state but `leased` and those it was taken from) is an ack; otherwise a
@@ -2890,6 +2892,17 @@ that could not be given back (the write failed, or ergostat was killed, or resta
 next engine's watchdog on its TTL, so after a restart no item stays leased by a run that never ran; that expiry counts
 no attempt (`count: false`), since its holder was not a run this engine process took (the dispatcher keeps, in
 memory, the runs it took whose leases have not ended). A lease that expired is not ended again when its run ends.
+
+**Ends wait their turn.** Every end of a lease this engine writes (a run's own, or close's give-back) is checked and
+written under one lock, so two ends of one lease never both write. Its item is read before, outside the lock, and read
+again under it only when a lease event about the item was recorded since that read, so one end holds the lock for
+milliseconds even while the record is slow to fold. An end that finds the lock held waits its turn, holding none of
+the dispatcher's other locks (takes and the watchdog go on), and tries again with a growing pause (up to 5 s), until
+one `lock_wait` before its lease expires; ergostat stopping meanwhile does not cut that short. Only then is it given
+up, said with the item and the run; for an hour after, the engine's heartbeat carries it as the dispatcher's error
+(`dispatch_error`, since the end was first tried), which health and the pipeline watch report once it is two minutes
+old, and the watchdog ends
+the lease, or expires it, on its first look past the expiry (above).
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
