@@ -299,7 +299,7 @@ function relTimeline(open) {
         return;
       }
       if (x.heading) { parts.push(s("g", { class: "rg-heading" }, s("text", { class: "rg-id", x: 10, y: y + 4 }, x.heading))); return; }
-      const why = x.status !== "done" && d.eta && x.eta?.unscheduled;
+      const why = x.status !== "done" && d.eta && x.eta?.unscheduled && (x.eta.said || "not scheduled");
       const row = s("g", { class: `rg-row rg-${x.status}${x.critical && x.status !== "done" ? " rg-critical" : ""}`, "data-id": x.id });
       if (i % 2) row.append(s("rect", { class: "rg-band", x: 0, y: y - RG.ROW / 2, width, height: RG.ROW }));
       const lab = s("g", { class: "rg-label", role: "link", tabindex: 0, onclick: () => open(x.id), onkeydown: (ev) => { if (ev.key === "Enter") open(x.id); } },
@@ -385,8 +385,9 @@ function relTimeline(open) {
         + `Capacity: ${Object.entries(d.eta.capacity || {}).map(([b, c]) => `${b} ${c} at once (${(d.eta.sources || {})[b] || "pool"})`).join(", ") || "no block takes these items"}. `
         + `Not modelled: a goal that switches a block off, a capacity no block declares.`
         + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
-        : (d.eta_pending && !SNAP ? `Working out the schedule: a simulation of ${rgOpen(d.items || [])} at each block's capacity; meanwhile the bars ahead are the forward pass (its kind's median times, no capacity). ` : "")
-          + (d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : "")));
+        : (d.eta_error ? `No estimates: the simulation failed: ${d.eta_error}. The bars ahead are the forward pass (its kind's median times, no capacity). `
+          : d.eta_pending && !SNAP ? `Working out the schedule: a simulation of ${rgOpen(d.items || [])} at each block's capacity; meanwhile the bars ahead are the forward pass (its kind's median times, no capacity). ` : "")
+        + (d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : "")));
     draw(); toNow();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   };

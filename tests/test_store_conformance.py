@@ -108,17 +108,33 @@ def test_valves_controllers_and_runs(ev):
     run = ev.add("agent.ran", item="a", data={"refused": 2, "unread": 1}, at=T)
     ev.add("agent.ran", item="a", data={"why": "by hand", "refused": 5}, at=T + 1)
     ev.add("agent.failed", item="a", at=T + 2)
+    full = "workspace pool code has none free for ticket/1: 1 in use, 0 held for review, 0 quarantined (of 1)"
+    for i in range(9):                                   # runs that found the pool full: given back, not failed
+        ev.add("agent.ran", item="a", data={"note": full}, at=T + 2 + i / 10)
+    ev.add("agent.ran", item="a", data={"note": "workspace pool code: could not make a worktree"}, at=T + 2.95)
     ev.add("valve.opened", item="v", data={"amount": 2}, at=T + 3)
     ev.add("valve.opened", item="v", data={"amount": 3}, causedby=run["id"], at=T + 4)
     ev.add("valve.opened", item="v", causedby=run["id"], at=T + 5)
     ev.add("controller.decided", item="c", data={"decision": "up"}, at=T + 6)
     ev.add("controller.decided", item="c", data={"decision": "up"}, at=T + 7)
     ev.add("controller.decided", item="c", data={"decision": "hold"}, at=T + 8)
-    assert ev.runs("a", T, T + 10) == {"runs": 3, "failed": 1, "refused": 2, "unread": 1}
+    assert ev.runs("a", T, T + 10) == {"runs": 13, "failed": 1, "refused": 2, "unread": 1, "pool_full": 9}
     assert ev.opened("v", T, T + 10) == {"count": 3, "amount": 6.0, "last": T + 5}
     assert ev.last_opening("v") == {"time": T + 5, "count": 2, "amount": 4.0}
     assert ev.last_opening("v", until=T + 3.5) == {"time": T + 3, "count": 1, "amount": 2.0}
     assert sorted(ev.decided("c", T, T + 10)) == [("hold", 1), ("up", 2)]
+
+
+def test_a_segment_sealed_before_the_pool_full_tally_is_read_not_counted_as_none(tmp_path):
+    ev = Segments(tmp_path, seal=7)
+    full = "workspace pool code has none free for ticket/1: 1 in use, 0 held for review, 0 quarantined (of 1)"
+    for i in range(20):
+        ev.add("agent.ran", item="a", data={"note": full} if i % 2 else {}, at=T + i)
+    segs = ev._hstate()[0]
+    assert segs and all(s.tallies is not None for s in segs)
+    for s in segs:                                       # as a segment sealed by an older ergostat: no "full" tally
+        s.tallies.pop("full")
+    assert ev.runs("a", T, T + 30)["pool_full"] == 10
 
 
 def test_unvoided(ev):
