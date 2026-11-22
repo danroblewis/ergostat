@@ -5651,7 +5651,12 @@ reason.
   `get strip lower upper split startswith endswith replace join items keys values` on a shaped receiver, no keywords.
   A builtin or `print` counts only when its name is bound nowhere in the module (a def, class, assignment of any kind,
   import, loop, comprehension, except or with target, del, parameter, type parameter or match capture, at any depth);
-  `json` only when bound by one top-level `import json` alone, with no `json.*` beside the program. A name is shaped
+  `json` only when bound by one top-level `import json` alone, with no `json.*` beside the program, no other import
+  naming it (`from json import decoder`, `import json.decoder as d`), and `json` read nowhere but as the receiver of a
+  `json.load`, `json.loads` or `json.dumps` call (`j = json` refuses it). `print` and `json` count only when the module
+  stores or deletes no attribute, except `X.stdout = open(<constants>)`: `json.loads` runs `json._default_decoder`, and
+  `print` runs `sys.stdout.write`, so `json._default_decoder = E()`, `sys.stdout = W()` or `out.write = f` (any object,
+  since an alias is not followed) would hand a changed value to the program's own code. A name is shaped
   when it has a binding and every one, anywhere in the module, assigns a shaped value or `json.load`/`json.loads` of
   anything (no keywords), or is a loop target over a shaped value: the least fixed point, so `a = b; b = a` is not
   shaped, and a name never bound (`open`, `exit`) is not either. A binding that reads its own name (`n += 1`,
@@ -5686,11 +5691,14 @@ reason.
 What the guard does not see, each pinned by a test in `tests/test_repair_allow.py` (`test_residual_*`): (1) **implicit
 raises**: any subscript or division may raise, so a fix can stop the program earlier, or get further than the failing
 one did (that is what a fix does); either way only the old program's own statements run, G5 covers handlers, and hooks
-the program installs (`sys.excepthook`, `atexit`) are not followed. (2) **Standard output**: `print` writes wherever
-the program or a module it imports points it (`sys.stdout = ...`, `dup2`). (3) **One file**: what the modules it
-imports do when imported (rebinding a builtin or `json`), and in-process ways to rebind a name that G0 does not list
-(code `pickle` deserialises, a C extension), are not seen. (4) **Time and memory**: `"x" * 10**9` and `range(10**12)`
-pass; the block's timeout bounds them.
+the program installs (`sys.excepthook`, `atexit`) are not followed. (2) **Standard output**: `print` writes to a file
+the program opened by a constant name (`sys.stdout = open('out', 'w')`), or wherever its file descriptor points
+(`dup2`); this file cannot give it a `write` of its own (above). Another module can (3), and its code then runs on what
+`print` is given. (3) **One file**: other modules' code is not read: what a module the program imports does when
+imported, and what another module's function does when the program calls it (rebinding a builtin, `json.loads` or
+`sys.stdout` given its name as a string, as `unittest.mock.patch('json.loads', f)` does; code `pickle` deserialises; a
+C extension). What this file itself does is read, and a way of rebinding in it that the guard does not classify is a
+reason. (4) **Time and memory**: `"x" * 10**9` and `range(10**12)` pass; the block's timeout bounds them.
 
 **The AI approver** (`ergostat/repair/approve.py`) runs once a fix's `apply-fix` was just requested, in the fix's own
 run. When the guard gives no reason, the AI (the template's `model`, haiku by default, no tools, the prompt

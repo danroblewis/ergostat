@@ -21,10 +21,12 @@ what the AI may be asked about; the AI can still approve a wrong fix within that
 - **Implicit errors.** Any lookup or division may raise, so a fix can make the program stop earlier, or get further
   than the failing program did (that is what a fix does). Only the old program's own statements then run, and a change
   near a `try` or `with` goes to you; hooks the program installs (`sys.excepthook`, `atexit`) are not followed.
-- **Where output goes.** A fix's `print` writes to the program's standard output, wherever the program or a module it
-  imports has pointed it.
-- **Other files.** The guard reads one file. What the modules the program imports do when imported (say, replace a
-  builtin) is not seen, nor are ways of rebinding names it does not list (code loaded by `pickle`, a C extension).
+- **Where output goes.** A fix's `print` writes to the program's standard output, or to a file the program opened by
+  a constant name. A program that stores any attribute (its own `sys.stdout`, a replaced `write`) goes to you, but a
+  module it imports can still point standard output at its own code, which then runs on what `print` is given.
+- **Other files.** The guard reads one file. What the modules the program imports do, when imported or when the
+  program calls them (say, `unittest.mock.patch` replacing `json.loads` or a builtin by name, or code loaded by
+  `pickle`), is not seen.
 - **Time and memory.** A fix may use a lot of either; the block's timeout bounds it.
 
 ## What it stops

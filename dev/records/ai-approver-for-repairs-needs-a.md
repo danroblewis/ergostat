@@ -429,3 +429,51 @@ Run: `tests/test_repair_allow.py` (65 passed) and `tests/test_repair_approver.py
 Ruff is clean. The unit suite, the four browser files and `test_repair2` (bwrap) were not run here. As before, the
 clone has no `origin/main` (only `main`, already an ancestor of the branch), so nothing was merged. Refused in this
 round: a Bash command that appended this section through a heredoc (`cat >> ... <<'EOF'`); the edit tool was used.
+
+### Round 4: the review's findings (json's internals; a stdout of the program's own)
+
+Two findings are answered. One is blocking, from round 3's review. The other is a round-3 note that the round-3 fix
+did not answer (lesson-12):
+- **Blocking: `json` was trusted while its internals could be changed.** `json._default_decoder = E()` (and
+  `_default_encoder`, `json.decoder.JSONDecoder.decode = f`, `from json import decoder`, an alias `j = json`) let
+  `json.loads(changed)` reach `E.decode`, which called `os.system`, and the guard returned `[]`. `Shapes.json` is now
+  true only when all of these hold: the one top-level `import json` is the only import naming json (no `from json ...`,
+  no `import json.x as y`); every read of `json` is the receiver of a `json.load`, `json.loads` or `json.dumps` call;
+  and the module stores or deletes no attribute at all. The last rule is not narrowed to json's names, because a chain
+  through another module (`requests.models.complexjson._default_decoder`) or an alias would get past a list of names.
+  Test: `test_refuses_json_internals_changed`, 8 cases, among them the reviewer's own trace. Each has an accepted twin:
+  the same program without the bad line.
+- **Not blocking (round 3): a program's own `sys.stdout` runs its `write()` on what `print` is given.** I chose the
+  refusal, not only a reworded doc. `print` counts as form (b) only when the module stores or deletes no attribute,
+  except `X.stdout = open(<constants>)` with `open` bound nowhere. That case keeps the definition's residual test,
+  `sys.stdout = open('out', 'w')`. `sys.stdout = W()`, `sys.stdout.write = f`, `out = sys.stdout; out.write = f` and
+  `open(input())` are refused. Test: `test_refuses_print_into_program_code`, each case with accepted twins (no store,
+  and `sys.stdout = open('out', 'w')`).
+- **SPEC residual 3 narrowed** (the review's last point). It now names only other modules' code: what an import does,
+  and what another module's function does when the program calls it. Examples are `unittest.mock.patch('json.loads',
+  f)`, `pickle` and a C extension. It also says that a way of rebinding in this file that the guard does not classify
+  is a reason. `test_residual_other_modules_not_read` pins the `mock.patch` case as accepted. Residual 2 says that
+  `print` goes to a constant-named file or a file descriptor, and that only another module can give it code of its own.
+  SECURITY and GAPS follow. GAPS also says that a program storing any attribute has no trusted `print` or `json`, so
+  many real programs' fixes go to the person.
+
+Seen to fail with the code broken, then restored:
+- Attribute stores ignored for json: the `o.x = 1` case fails.
+- The other-import rule off: the `from json import decoder` and `import json.decoder as jd` cases fail.
+- The receiver rule off: the `j = json` case fails.
+- Both the store rule and the receiver rule off (round 3's code): 5 cases fail, the reviewer's trace among them, so the
+  bypass was real.
+- The store rule off for `print`: all 4 print cases fail.
+
+Size: allow.py is +26 net (519 lines), so the total is about 629 against 450. The reason is the same as earlier rounds:
+fail-closed branches added at review.
+
+Run: `tests/test_repair_allow.py` with `tests/test_repair_approver.py`: 93 passed, 1 skipped (sandbox). Ruff is clean.
+The unit suite, the four browser files and `test_repair2` (bwrap) were not run here. As before, the clone has no
+remote ref, and `main` is an ancestor of the branch, so there was nothing to merge.
+
+Refused in this round:
+- `python3 -c` probing whether a text file's `write` can be set. The rule refuses every attribute store instead of
+  relying on the answer.
+- A compound command (`git merge-base ... && echo; git remote -v; git diff --stat`). It was run as separate commands.
+- `git diff -U0 docs | grep | awk` to find long lines. The new doc lines were checked with the search tool.

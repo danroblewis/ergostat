@@ -86,9 +86,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text.
 - **What the AI approver's guard does not see** (SPEC §12r, `approver: ai`; the guard is an allowlist of shaped
   values and statements, `ergostat/repair/allow.py`). Its four residuals, each pinned by a test: implicit raises (a
-  fix may stop the program earlier; process-wide hooks are not followed); where standard output points; other modules
-  (what an import does, and rebinding by means G0 does not list, such as `pickle` or a C extension); time and memory
-  (bounded only by the timeout). *Left*: `inbox/interventions.py` reads `stats.asked`, so an action the AI approved is
+  fix may stop the program earlier; process-wide hooks are not followed); where standard output points (a module the
+  program imports may point it at code of its own); other modules' code (what an import does, and what another
+  module's function does when called, such as `unittest.mock.patch('json.loads', f)`, `pickle` or a C extension);
+  time and memory (bounded only by the timeout). A program that stores any attribute has no trusted `print` or `json`
+  (bar `X.stdout = open(<constants>)`), so many real programs' fixes go to the person. *Left*: `inbox/interventions.py` reads `stats.asked`, so an action the AI approved is
   still counted there as an intervention, as one answered through the MCP already is; a fix that calls one of the
   module's own functions always goes to the person (the plan's "pure function" form was dropped).
 

@@ -125,11 +125,20 @@ class Shapes:
                 self.binds.setdefault(n.id, []).append(self.binding(n, parent))
             for name in names_bound_other(n):
                 self.binds.setdefault(name, []).append(None)
+        # An attribute stored or deleted could change what print writes to (sys.stdout.write = f) or what json.loads
+        # runs (json._default_decoder = E()), so (b) and (c) need none, except a stdout pointed at a file by name.
+        self.stores = [n for n in ast.walk(t) if isinstance(n, ast.Attribute) and not isinstance(n.ctx, ast.Load)
+                       and not self.to_file(n, parent.get(id(n)))]
         js = self.binds.get("json")
         self.json = (js == [None] and any(isinstance(s, ast.Import) and any(x.name == "json" and x.asname is None
                                                                              for x in s.names) for s in t.body)
                      and sum(name == "json" for n in ast.walk(t) for name in names_bound_other(n)) == 1
-                     and not any(str(f).split(".")[0] == "json" for f in beside))
+                     and not any(str(f).split(".")[0] == "json" for f in beside) and not self.stores
+                     and not any(isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "json"
+                                 or isinstance(n, ast.Import) and any(x.name.startswith("json.") for x in n.names)
+                                 for n in ast.walk(t))
+                     and all(self.json_use(n, parent) for n in ast.walk(t) if isinstance(n, ast.Name)
+                             and n.id == "json" and isinstance(n.ctx, ast.Load)))
         self.names: set[str] = set()
         while True:                                          # the least fixed point: from none shaped, widened
             more = {k for k, v in self.binds.items() if k not in self.names and self.widens(k, v)}
@@ -151,6 +160,21 @@ class Shapes:
         finally:
             if own:
                 self.names.discard(k)
+
+    def to_file(self, n, p) -> bool:
+        """``X.stdout = open(<constants>)``, ``open`` bound nowhere: print then writes to a file, not to program code."""
+        v = p.value if isinstance(p, ast.Assign) and p.targets == [n] else None
+        return (n.attr == "stdout" and isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "open"
+                and self.free("open") and all(isinstance(x, ast.Constant) for x in v.args)
+                and all(k.arg and isinstance(k.value, ast.Constant) for k in v.keywords))
+
+    @staticmethod
+    def json_use(n, parent) -> bool:
+        """``json`` read only as the receiver of a json.load, json.loads or json.dumps call (never aliased or passed)."""
+        p = parent.get(id(n))
+        c = parent.get(id(p))
+        return isinstance(p, ast.Attribute) and p.attr in ("load", "loads", "dumps") and isinstance(c, ast.Call) \
+            and c.func is p
 
     @staticmethod
     def binding(n, parent):
@@ -240,7 +264,7 @@ class Shapes:
             if f.id in CALLS - {"isinstance"}:                                                # (a)
                 return not kws and all(self.shaped(x) for x in args)
             if f.id == "print":                                                               # (b)
-                return all(k.arg in PRINT_KW for k in kws) and all(self.shaped(x) for x in args)
+                return not self.stores and all(k.arg in PRINT_KW for k in kws) and all(self.shaped(x) for x in args)
             return False
         if self.is_json(f, ("loads",)):                                                       # (c)
             return not kws and len(args) == 1 and self.shaped(args[0])

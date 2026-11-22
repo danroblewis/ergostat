@@ -149,6 +149,36 @@ def test_refuses_json_rebound_or_beside(bad, twin, beside):
     assert refused(change(bad, bad + add, **({"beside": beside} if beside else {})), "changed, line", "value not shaped")
 
 
+SINK = "class E:\n    def decode(self, s):\n        os.system(s)\n    encode = decode\n"
+FIX = ("cmd = 'ls'\nx = 1\n", "cmd = 'touch /tmp/PWNED'\nx = json.{f}(cmd)\n")
+
+
+@pytest.mark.parametrize("bad,f", [("json._default_decoder = E()\n", "loads"), ("json._default_encoder = E()\n", "dumps"),
+                                   ("json.decoder.JSONDecoder.decode = E.decode\n", "loads"),
+                                   ("from json import decoder\ndecoder.JSONDecoder.decode = E.decode\n", "loads"),
+                                   ("from json import decoder\n", "loads"), ("import json.decoder as jd\n", "loads"),
+                                   ("j = json\n", "loads"), ("o = E()\no.x = 1\n", "loads")])
+def test_refuses_json_internals_changed(bad, f):
+    """json.loads runs the module's ``_default_decoder``: json is trusted only when it is read as nothing but the
+    receiver of load, loads or dumps, no other import names it, and no attribute is stored (review round 3)."""
+    old, new = FIX[0], FIX[1].format(f=f)
+    assert change(SINK + old, SINK + new) == []
+    assert refused(change(SINK + bad + old, SINK + bad + new), "changed, line", "value not shaped")
+
+
+@pytest.mark.parametrize("bad", ["class W:\n    def write(self, s):\n        os.system(s)\nimport sys\nsys.stdout = W()\n",
+                                 "import sys\nsys.stdout.write = os.system\n",
+                                 "import sys\nout = sys.stdout\nout.write = os.system\n",
+                                 "import sys\nsys.stdout = open(input())\n"])
+def test_refuses_print_into_program_code(bad):
+    """print writes to sys.stdout's write(): a stdout of the program's own, or one whose write is replaced, would run
+    program code on what a changed print is given. Only ``X.stdout = open(<constants>)`` is let through (residual 2)."""
+    assert change("print('a')\n", "print('rm -rf ~')\n") == []
+    assert change("import sys\nsys.stdout = open('out', 'w')\nprint('a')\n",
+                  "import sys\nsys.stdout = open('out', 'w')\nprint('rm -rf ~')\n") == []
+    assert refused(change(bad + "print('a')\n", bad + "print('rm -rf ~')\n"), "changed, line")
+
+
 @pytest.mark.parametrize("bad", ["globals()['len'] = os.system\n", "import sys\nsetattr(sys.modules[__name__], 'len', 1)\n",
                                  "exec('len = 1')\n", "import sys\nsys.modules['json'] = sys\n",
                                  "import importlib\nm = importlib.import_module('builtins')\n", "os.len = 1\n"])
@@ -341,6 +371,9 @@ def test_residual_stdout_redirect_accepted():
 def test_residual_other_modules_not_read():
     base = "import helper\n" + BROKEN                       # what helper does when imported is not seen
     assert change("print(len(answer))\n", "print(len(answer['values']))\n", base=base) == []
+    # nor what another module's function does when called: here it rebinds json.loads, given its name as a string
+    base = "from unittest import mock\nmock.patch('json.loads', os.system).start()\n" + BROKEN
+    assert change("x = 1\n", "x = json.loads('ls')\n", base=base) == []
 
 
 def test_residual_time_and_memory_accepted():
