@@ -231,3 +231,16 @@ No other code changed. Net lines outside `tests/`, `docs/` and `dev/`: 347 of th
 Tests run, one batch at a time: `tests/test_run_budget.py` (30 passed), `test_engine_shard_asks.py` with
 `test_calls.py` (25 passed), and `test_daemons.py` with `test_leases.py` and `test_resilience.py` (111 passed).
 ruff is clean. I did not run the whole unit suite or the four browser files here. The factory runs them.
+
+Round 4: the queue's failure was `tests/test_library_trust.py::test_every_compile_key_classified`. That test scans
+`spec/compile.py` for every literal `self.keys(` set and asks that each be classified for library trust. This
+branch's `budget()` added `self.keys(m, {"daily", "max-cost"}, "budget")`, which the test did not know about. It
+failed only once merged with main's library-trust test (lesson-7). `budget` is now classified as `None`, the same
+as `messages`: main file only. A template cannot write it, because `budget` is not in `templates.BODY`, and
+`templates.py` refuses any body key outside `HEAD | BODY`. `load.py` refuses it in an include. The fix is one test
+line in `tests/test_library_trust.py`, outside this definition's file list. It is this branch's own key, so it is
+inside the gap. No code changed. Net lines outside `tests/`, `docs/` and `dev/`: still 347 of the 380.
+I saw the test fail before the line was added. Tests run: `tests/test_library_trust.py` (48 passed) and
+`tests/test_run_budget.py` (30 passed). ruff is clean. The whole unit suite and the four browser files were not run
+here. The factory runs them. A shell heredoc that appended this section was refused (Bash, "don't ask" mode). The
+section was written with the editor instead.
