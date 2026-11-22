@@ -170,6 +170,7 @@ class Factory:
             demo = "true"
             rerun = "echo again {{tests}}"
             alone = "{alone} {{tests}}"
+            queue_container = false            # (tests/test_agents.py runs the queue's in a fake Docker)
             check = "{sys.executable} {tmp / 'fake_check.py'}"
             """))
         (tmp / "fake_check.py").write_text(CHECK)

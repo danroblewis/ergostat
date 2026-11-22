@@ -16,7 +16,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
 5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py (the first
    to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
    tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
-   recorded and never blocking (fac.beside());
+   recorded and never blocking (fac.beside()). With `[suites] queue_container` (the default) each suite runs in a
+   container of the agent image on `[agents] queue_cpuset` with no network (agents.queued); one that does not start
+   fails the run (agents.NotStarted: undone, no gap blamed), and a stopped run kills its containers by name;
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    bisected to the first failing merge (land(), on the failing tests alone when the run named any), which goes on to
@@ -90,7 +92,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD") -> dict:
             if name == "unit" and cfg["suites"].get("queue_coverage") is True else None
         cmd = fac.deselected(name, f"ERGOSTAT_COVERAGE={shlex.quote(str(cov))} {cfg['suites']['unit']}", held) \
             if cov else None
-        rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held)  # the lock is its slot
+        rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held, box="queue")  # (lock: slot)
         text = log.read_text()
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {})}
@@ -111,8 +113,8 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD") -> dict:
                 with said:                             # (which failed first, decided and kept in one hold)
                     if isinstance(r, dict) and r.get("failure") and first:
                         r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]}
-                    elif isinstance(r, dict) and r.get("failure"):
-                        first.append(n)
+                    elif isinstance(r, BaseException) or r.get("failure"):   # (a container that did not start:
+                        first.append(n)                                          # its sibling is stopped too)
                     got[n] = r
             ts.append(threading.Thread(target=body, daemon=True))
             ts[-1].start()
@@ -131,7 +133,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD") -> dict:
         return {n: got[n] for n in names}
 
     def quarantined(tests: list[str]) -> None:
-        fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, tests=tests)
+        fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, box="queue", tests=tests)
 
     out = {}
     for step in (("ruff",), ("unit", "browser"), ("demo",)):
@@ -155,7 +157,7 @@ def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
     never counts as the green run anything lands on (land())."""
     tests = failed["tests"]
     log = logs / f"{tag}-named.txt"
-    rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, tests=[*tests, "-rA"])
+    rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box="queue", tests=[*tests, "-rA"])
     text = log.read_text()
     said = fac.outcomes(text, tests)
     got = {"named": {"suite": failed["failed"], "tests": len(tests), "rc": rc, "seconds": round(secs)}}
@@ -648,6 +650,8 @@ def take(cfg: dict, gap: dict, repo) -> int:
     """Under the queue's lock throughout: whether a push waits is read from run/queue.json, the gap is taken
     (`gap.queued`), and a push asked for is written there, in one hold, so no run between them takes a gap."""
     with fac.queue_lock(cfg):
+        if cfg["suites"].get("queue_container", True) is not False:
+            agents.sweep_box("queue")                  # a SIGKILLed run's containers (under the lock: none is live)
         try:
             why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
         except Unreadable as e:                        # (it cannot tell whether a push waits: no gap is taken)
