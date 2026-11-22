@@ -137,7 +137,8 @@ BETWEEN = """() => [[...POLLS].every((p) => !p.running) && !(S.layout && S.layou
 def idle_metrics(pg, cdp, deadline: float) -> dict:
     """The page's metrics read with no poll running and no lines being routed before the collection, and no drawing
     made between that look and the read (a refresh started outside the poll, as S.relayout() does, is not seen as
-    busy; only its draw is seen, through S.drawN, and then the read is taken again). Past ``deadline`` with no such read, the test fails: an unreadable metric never passes it."""
+    busy; only its draw is seen, through S.drawN, and then the read is taken again). Past ``deadline`` with no such
+    read, the test fails: an unreadable metric never passes it."""
     while True:
         before = pg.evaluate(BETWEEN)
         if before[0]:
