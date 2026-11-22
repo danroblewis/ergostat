@@ -60,3 +60,14 @@ data, that only the Record's two calls ask for the fold, and that the run list d
 branch now changes, so the build step has tests that run. It checks the source text, not behaviour; the behaviour is
 the browser test above. Seen to fail with `e.source` dropped from the key, and with the local Record's fold switched
 off. The whole file passes (32 passed); ruff clean.
+
+Round 2: main (9bfce815) merged in. The two conflicts (tests/test_graph_cli_web.py, tests/test_items_page.py) were
+both new tests added side by side; both sides were kept, and no page code conflicted. After the merge
+tests/test_graph_cli_web.py has 38 passed and ruff is clean. With Playwright under the watchdog,
+tests/test_items_page.py has 27 passed and 1 failed; the Record fold test passes. The failure is
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart, which comes from main. It fails alone too (rc 1,
+timeout in `wait_for_function` for / off/ in `#running` on /items). It covers the header and the project switcher,
+which this branch does not touch (the branch changes only `eventsTable`/`showRun` in details.js, the Record's two calls
+in pages.js, and one CSS rule). So it is reported, not fixed here (lesson 13). Not confirmed on clean main: making a
+worktree of main under /tmp was refused here. Not run: the unit suite, tests/test_diagram_rendering.py,
+tests/test_page_polling.py, tests/test_page_refresh.py (left to the factory and the merge queue).
