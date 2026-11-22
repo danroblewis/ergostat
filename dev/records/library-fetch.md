@@ -295,3 +295,21 @@ plus main's new `tests/test_compute_worker_protocol.py` (141). Ruff is clean. No
 four browser files (no page changed) and `demo_check` (no example touched).
 
 Overrun reason: about 754 net lines against 560, as in round 3 (737 under `ergostat/` and 19 in the schema). Round 4 adds none, and the reasons from rounds 1 to 3 stand.
+
+## Where it stopped
+
+Parked by the factory (reviewer, 2026-11-22 14:18).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/review.py", line 143, in main
+    return judge(cfg, given["item"], began)
+  File "/Users/user/ergostat-live/instance/dev/bin/review.py", line 195, in judge
+    got = fac.session(cfg, "reviewer", text, wt)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
