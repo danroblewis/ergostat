@@ -34,7 +34,6 @@ Round 2 (answering review 1's two findings, both blocking; there were no others)
   (the §2 loop, then modelling), ticket-factory 2, big 7, the-job 2. The software-factory sketch places modelling
   as the second row. Tests 2 and 3 follow this rule. The proposal says these counts assume, from the YAML, that
   modelling has no top-level wire. If it has one, the rule decides.
-- Not run: `diagram()` was never printed. The Bash tool was refused in this session (the first command, a grep and
-  sed over blockdiagram.py and the examples), so the facts were read with the file tools and nothing was committed
-  by me: the commit is left to the factory.
+- Not run: `diagram()` was never printed. A shell command was refused in this session (a grep and sed over
+  blockdiagram.py and the examples), so the facts were read with the file tools.
 Overrun reason: the proposal is 236 lines against about 200, because round 2 adds the u/y wire rule, the rows table and the modelling note that review 1 asked for.
