@@ -52,4 +52,6 @@ The existing main-red tests now commit a real tests/test_b.py on main, so that l
 
 Breaking each guard made its test fail: the remedy read made unreachable failed the remedy test, and lacks() forced to False failed both cases of the missing-test test. Both guards were restored, and the tests passed again.
 
+Run in round 2: tests/test_factory.py, 173 passed and 2 skipped (both need Docker and the agent image). ruff check ergostat tests scripts was clean, and so was ruff on dev/bin/queue.py. Not run: the unit suite and the four browser files, which the factory and the queue run. main was not merged again because it has not moved since 10a3308e (the clone has no remote).
+
 Overrun reason: queue.py is +87 -3 against main (84 net, budget 50). About 23 of those lines are docstrings, the module docstring among them, which is the queue's own documentation that item 4 asks for. Round 2 adds 17 lines (3 docstring). These close the two ways the round-1 hold could never end, which the review found blocking: the remedy read, lacks(), and the NotStarted reason. The code is about 60 lines.
