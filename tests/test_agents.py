@@ -89,6 +89,15 @@ def test_the_whole_suite_watch_command_is_not_the_implementors():
     assert not [r for r in ("reviewer", "planner", "librarian") if may(f"{NAMED} tests/test_agents.py", r)]
 
 
+def test_the_implementor_may_write_the_graph_fixtures_and_the_reviewer_may_not():
+    """`python -m tests.graph_fixtures` writes tests/fixtures/graphs/<model>-<view>.json from ergostat's own model,
+    offline; the implementor may run it, a read-only role may not."""
+    fixtures = "uv run python -m tests.graph_fixtures"
+    assert may(fixtures) and may(f"{fixtures} --model x")
+    assert not [r for r in ("reviewer", "planner", "groomer") if may(fixtures, r)]
+    assert not may("uv run python -m tests.graph_fixtures_other") and not may("uv run python -m tests")
+
+
 def test_named_tests_runs_named_files_only(tmp_path, monkeypatch):
     """The allowlist: 1 to 3 existing tests/test_*.py files or test ids; no glob's many files, directory or option."""
     import importlib.util
