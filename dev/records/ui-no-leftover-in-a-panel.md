@@ -76,3 +76,18 @@ so the before-the-fix failure from round 1 is the only evidence. The build's rc 
 `scripts/affected_tests.py` and `[suites] build` are the same on main, so the factory's build step will skip this
 browser-only file again. That is the factory's own fix to make in a gap of its own, not this one (lesson 13). Nothing in
 this gap is left to build.
+
+Round 2, after the build failed again (rc 5, the browser-only file skipped without Playwright): fixed in the branch
+this time, instead of waiting for a factory gap, because it is the most reversible fix. A unit check that needs no
+browser, `tests/test_graph_cli_web.py::test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis`, reads
+`charts.js`. It checks that no string literal there is '…' (or `…`) or ends in ' …', that the `working()`
+placeholder says "being worked out", and that `causesStrip`, `loopDominance`, `moduleCharts` and `loopScope` each use it.
+That follows the pattern of the `util.js` check in the same file. `affected_tests.py` now picks this file as well, so
+the build has a test to run. Its first run failed on the only bare '…' left in `charts.js`, the quoted ellipsis in
+round 1's comment over `working()`. That comment now says "a bare ellipsis" (a comment, 0 net lines). So the check is
+seen to fail on a literal '…' and pass without one. Not run: the check against main's `charts.js` (the command that
+swapped the file in was refused), and the build command itself
+(`uv run python scripts/suite_watch.py -- uv run python scripts/affected_tests.py -- uv run python -m pytest -q -rfEs -n 8 --dist worksteal`,
+refused). Also refused: `named_tests.py tests/test_graph_cli_web.py tests/test_diagram_rendering.py`. Run: the whole
+`tests/test_graph_cli_web.py`, 33 passed; ruff clean. The browser file still skips without Playwright when the build
+runs. With this file selected too, pytest should end rc 0 with the skip named, but the factory's build is what will show it.
