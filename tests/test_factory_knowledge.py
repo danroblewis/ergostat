@@ -624,7 +624,8 @@ def test_split_measures(tmp_path):
     defs = f.model / "run" / "defs"
     defs.mkdir(parents=True, exist_ok=True)
     for b, budget, lines in (("s-at", "100 net lines", 100), ("s-over", "100 net lines", 101),
-                             ("s-unbudgeted", None, 50), ("s-uncounted", "100 net lines", None), ("s-undefined", "", 5)):
+                             ("s-unbudgeted", None, 50), ("s-uncounted", "100 net lines", None), ("s-undefined", "", 5),
+                             ("s-unnumbered", "about a hundred", 50), ("s-fractional", "100 net lines", 99.5)):
         if budget is not None:
             text = "# x\n\n## Definition of done\n\nIt works.\n" + (f"\n## Size budget\n\n{budget}\n" if budget else "")
             if b != "s-undefined":
@@ -634,17 +635,19 @@ def test_split_measures(tmp_path):
     merged_gap(f, "gap/unsplit", now - DAY, net_lines=900)                              # not a sub-gap
     (defs / "s-old.md").write_text("## Size budget\n\n100 net lines\n")
     r = size_measure(f, "split-budgets-held")
-    assert r.returncode == 0 and r.stdout.strip() == "0.2", r.stderr                  # only s-at, of five
-    g = Instance(tmp_path / "b")
+    assert r.returncode == 0 and r.stdout.strip() == "0.143", r.stderr                # only s-at, of seven
+    g = Instance(tmp_path / "b")                                     # judged and merged only before the window
     merged_gap(g, "gap/s-old", now - 20 * DAY, parent=["gap/p"], net_lines=1)
     merged_gap(g, "gap/unsplit", now - DAY, net_lines=1)
-    r = size_measure(g, "split-budgets-held")
-    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
+    g.fold([{"event": "gap.split", "item": "gap/p-old", "data": {"children": ["gap/p-old-1"]}},
+            {"event": "gap.measured", "item": "gap/p-old", "data": {"join_verdicts": [
+                {"verdict": "covered", "missing": [], "at": now - 20 * DAY}]}}], None)
+    for r in (size_measure(g, "splits-covered"), size_measure(g, "split-budgets-held")):
+        assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
     spec, _ = read(ROOT / "ergostat.yaml")
     for name in ("splits-covered", "split-budgets-held"):
         aux = spec.auxiliaries[name]
-        assert [s.run for s in aux.sensors.values()] == [f"python3 dev/bin/measure.py {name}"]
-        assert "split-quality" not in spec.auxiliaries
+        assert aux.system == "intake" and [s.run for s in aux.sensors.values()] == [f"python3 dev/bin/measure.py {name}"]
 
 
 def deny(f: Instance, aid: str, lid: str, by: str = "coordinator", note: str = "too narrow") -> None:

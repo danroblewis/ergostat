@@ -48,3 +48,10 @@ depends-on: []
 ## Size budget
 120 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built. Most of this definition was already on main from gap/split-verified-join-1: the rename to `splits-covered`, `split-budgets-held`, the two auxiliaries and their sensors, a covered parent with no `merged_at`, `split-overhead` by `judged_at`, a missing sub-gap judged short with no session, the second short parking, `most_short` in the prompt, and the docs' "not a proof" text. This branch adds what was still open:
+- **A taken name is not fatal.** `plan.join_name` tries `-join-<n>` … `-join-<n+49>`, then `-rest`, `-rest-2` … `-rest-50`. It skips any name that is taken (as an id or a branch) or not safe, and raises only after those 100 tries. It runs only on the short path, so a covered parent or a park never fails on a name. Before, an unsafe name raised even when the verdict was covered. `dev/README.md` says so.
+- **Tests.** `test_join_moves_parent_to_joined_then_judge_merges` now checks that `split-overhead` finds the covered parent, which has only `judged_at`. `test_join_with_missing_sub_gap_definition_is_not_covered` adds the combined case: one child with no definition and another not in the record give two points and a new sub-gap. `test_split_measures` adds a budget with no number, a non-integer `net_lines`, and `splits-covered` with only an out-of-window judgment, which gives no value. A new test, `test_a_taken_or_unsafe_join_name_takes_the_next`, covers the next name, the `-rest` fallback and the bounded error.
+- **`git grep split-quality`.** It still finds the old name, but only in definition records (`docs/roadmap/overnight/split-verified-3.md`, `dev/records/split-verified-join-1.md` and this file). Those files may only be appended to, so they were left as they are; this was the reversible choice. The last test line that held the old name (in `test_split_measures`) was removed. No code, model or doc file names it.
+- `docs/GAPS.md` has no entry for this gap or its parent, so it was not changed.

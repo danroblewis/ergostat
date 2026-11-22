@@ -257,8 +257,9 @@ the parent's entry, its coverage, and each sub-gap's definition and last review 
 verdict `short` at once, a point naming each, with no clone, no session and cost 0. `covered` moves the parent to
 `merged` with its verdict, reasons and `judged_at`, but no `merged_at`: no work merged, so it stays out of
 cycle-hours, cost-per-merged and fix-rounds. "Covered" is the planner's coverage mapping plus an AI judgment at the
-join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (the next unused name when that one is
-taken; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
+join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (when that one is taken or not safe, the
+next unused safe one of `-join-<n+1>`, …, then `<parent-branch>-rest`, `-rest-2`, …, at most 50 of each before it
+stops with an error; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
 name)`, and only then splits the parent again, so the join waits for the new sub-gap. At most `plan.MOST_SHORT` = 1
 short round splits again: the second `short` parks the parent, its "Where it stopped" listing the points not built. A
 verdict that cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget

@@ -351,13 +351,27 @@ def short_of(unread: list[str]) -> str:
         "</missing>\n<reasons>a sub-gap's definition or last review could not be read: not judged</reasons>"
 
 
+NAME_TRIES = 50                                          # names join_name tries in each series before it stops
+
+
+def join_name(branch: str, n: int, known: set[str]) -> str:
+    """The short round n's new sub-gap name: <branch>-join-<n>, or when that is taken (an id or branch in ``known``) or
+    not safe, the next of -join-<n+1>, ..., then <branch>-rest, -rest-2, ...; at most NAME_TRIES of each, then it raises."""
+    stem = branch[:52].rstrip("-")
+    for name in [f"{stem}-join-{k}" for k in range(n, n + NAME_TRIES)] + \
+            [f"{stem}-rest" + (f"-{k}" if k > 1 else "") for k in range(1, NAME_TRIES + 1)]:
+        if fac.SAFE.match(name) and f"gap/{name}" not in known:
+            return name
+    raise RuntimeError(f"the join found no unused safe sub-gap name for {branch!r} in {2 * NAME_TRIES} tries")
+
+
 def join(cfg: dict, gap: dict) -> int:
     """The join judge (a gap at joined): covered merges it; short requests a new sub-gap for the points not built,
     adds them to the coverage, and only then splits it again (lesson-1: the join cannot fire before the new sub-gap
-    exists); the short after MOST_SHORT parks it. A sub-gap whose definition or last review cannot be read makes it
-    short at once, with no clone and no session (lesson-3: never judged covered). Covered records no merged_at: no work
-    merged (cycle-hours, cost-per-merged, fix-rounds). An unreadable verdict or a failed session raises (it stays
-    joined, under the lease); a budget refusal waits."""
+    exists), named by join_name (a taken name is never fatal); the short after MOST_SHORT parks it. A sub-gap whose
+    definition or last review cannot be read makes it short at once, with no clone and no session (lesson-3: never
+    judged covered). Covered records no merged_at: no work merged (cycle-hours, cost-per-merged, fix-rounds). An
+    unreadable verdict or a failed session raises (it stays joined, under the lease); a budget refusal waits."""
     gid, f, branch, now = gap["id"], gap["fields"], fac.branch_of(gap), time.time()
     given = join_brief(cfg, gap, fac.items("gap"))
     if unread := given.pop("unread"):
@@ -369,12 +383,7 @@ def join(cfg: dict, gap: dict) -> int:
         if (got := fac.attempt(cfg, "join_judge", text, work)) is None:
             return 0
         record = dict(contexts=[context], ai_cost_usd=round(float(got.get("total_cost_usd") or 0), 4), sessions=1)
-    n, gaps = int(f.get("join_short_rounds") or 0) + 1, fac.items("gap")       # (read again after the session)
-    known, k = {g["id"] for g in gaps} | {f"gap/{g['fields'].get('branch')}" for g in gaps}, n
-    while f"gap/{(name := branch[:52].rstrip('-') + f'-join-{k}')}" in known:     # a taken name: the next unused
-        k += 1
-    if not fac.SAFE.match(name):
-        raise RuntimeError(f"the join's new sub-gap name {name!r} is not a safe branch name")
+    n = int(f.get("join_short_rounds") or 0) + 1
     try:
         verdict, points, reasons = judged(str(got.get("result", "")))
     except RuntimeError as e:
@@ -391,6 +400,8 @@ def join(cfg: dict, gap: dict) -> int:
         review.park(cfg, gap, f"The join judge found it short again ({n} times; at most {MOST_SHORT} split again). "
                     f"Not built:\n{lines}", "join-judge", where="joined", kind="kill-rule")
     else:
+        gaps = fac.items("gap")                                                   # (read again after the session)
+        name = join_name(branch, n, {g["id"] for g in gaps} | {f"gap/{g['fields'].get('branch')}" for g in gaps})
         fac.say("gap.requested", f"gap/{name}", title=f"{f.get('title') or gid}: not built at the join"[:200],
                 source="join", branch=name, parent=[gid], entry=f"{f.get('title') or gid}\n\nNot built:\n{lines}",
                 requested_at=now)
