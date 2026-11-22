@@ -52,3 +52,16 @@ tests/test_diagram_rendering.py::test_a_stocks_panel_names_its_goal_and_what_ser
 Breaks seen to fail (lesson-9): `by` forced empty failed the acceptance browser test and the updated unit test;
 `acted` forced true failed the new no-controller test. Not run here: the unit suite and the four browser files in full
 (left to the factory and the merge queue). main merged: already up to date.
+
+Round 2: main (720426bd) merged in. The only conflict was in tests/test_diagram_rendering.py: main renamed the next
+test to `test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_and_draws_no_port_squares`. Both are kept
+(this branch's acceptance test, then main's renamed test). The code diff against main did not change (ergostat/dynamics.py,
+ergostat/web/static/dynamics.js).
+
+Tests after the merge: tests/test_dynamics_view.py 13 passed; ruff clean; under suite_watch the acceptance test and
+main's renamed module test passed. `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`
+fails (rc 1). The side list's text matches `SD_WORDS` on "Goals off 0 / No goal is off.", which is the needs-attention
+heading main added in cd71c13e (ergostat/web/static/diagram.js:1377). This branch leaves diagram.js and the side list
+alone, and the assertion that fails reads only the side list, so I believe it is a failure on main and not
+this gap's (lesson 13): reported, not fixed. I could not confirm it on clean main: making a worktree of main under /tmp
+to run the test there was refused.
