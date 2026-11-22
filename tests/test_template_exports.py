@@ -84,6 +84,38 @@ def test_exports_must_name_own_parts(tmp_path):
         tp.read(f, False, "untrusted")
 
 
+def test_exports_naming_an_inner_part_not_made_is_bad_template(tmp_path):
+    # read time sees only that in- starts a use's name; after expansion the entry must name a part the use made
+    for bad in ("stock.in-typo", "goal.in-level"):
+        path = project(tmp_path, "uses:\n  p:\n    use: plant\n", plant=f"exports: [{bad}]")
+        _, ps = read(path)
+        got = [p for p in ps if p.code == "bad-template"]
+        assert len(got) == 1 and got[0].level == "error" and f"exports: {bad}," in got[0].message, ps
+        assert got[0].message.startswith("use p: template plant")
+    _, ps = read(project(tmp_path, "uses:\n  p:\n    use: plant\n", plant="exports: [stock.in-level, goal.in-low]"))
+    assert [p for p in ps if p.code == "bad-template"] == []
+
+
+def test_inner_use_placed_elsewhere_is_still_inside(tmp_path):
+    # an inner use that writes within: is placed in another system, but it is still planned inside the outer instance
+    plant = PLANT.replace("    use: tank\n", "    use: tank\n    within: elsewhere\n")
+    tank = TANK.format(exports="exports: [stock.level]").replace("from: spare", "from: spare, driven-by: [stock.p-feed]")
+    main = owner_goal("p-in-level").replace("t:\n            use: tank", "p:\n            use: plant").rstrip(" ") + \
+        "        systems:\n          elsewhere: {description: x}\n"
+
+    def at(plant_exports):
+        path = project(tmp_path, main, plant=plant_exports)
+        (tmp_path / "lib" / "plant.yaml").write_text(plant.format(exports=plant_exports))
+        (tmp_path / "lib" / "tank.yaml").write_text(tank)
+        assert read(path)[0].within.get("p-in") == "elsewhere"
+        return sorted(p.message.split(" is internal")[0] for p in internal(path))
+    # the inner tank reading plant's internal feed is inside plant: free; the owner's goal on the inner level is
+    # outside plant, which does not re-export it: a finding
+    assert at("exports: [stock.feed]") == ["goal.mine: stock.p-in-level", "goal.p-inner: stock.p-in-spare"]
+    assert at("exports: []") == ["goal.mine: stock.p-in-level", "goal.p-inner: stock.p-in-spare"]
+    assert at("exports: [stock.in-level]") == ["goal.p-inner: stock.p-in-spare"]
+
+
 def test_reference_to_internal_part_is_finding(tmp_path):
     path = project(tmp_path, owner_goal("t-spare"))
     got = internal(path)

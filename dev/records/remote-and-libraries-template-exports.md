@@ -43,3 +43,19 @@ Choices made alone, each the more reversible one:
   `exports:`, so counting it internal would leave it unreadable from anywhere.
 - respond-to exports stock.waiting, auxiliary.oldest, flow.arriving, flow.answered and goal.on-time. Its "README
   line" went in docs/ADDING.md's respond-to entry, which is where the built-in templates are described.
+
+Round 2 (103 net lines outside tests and docs), answering both findings of the round-1 review (both were blocking;
+there were no others):
+- An `exports:` entry naming an inner use's part (`stock.in-typo`, `goal.in-level` when level is a stock) is now
+  checked after expansion (uses.unmade): if no inner use made the part, the use is an error `bad-template` at its
+  `use:` line, naming the entry. Read time still checks the template's own sections' entries (a TemplateError). The
+  check after expansion covers inner entries only, so an own part left out by an `if:` is not refused at a use.
+  Test: test_exports_naming_an_inner_part_not_made_is_bad_template. Seen to fail with the check commented out.
+- Each use record now holds `outer`, the instance it was planned under. The compiler's check reads `outer`, no longer
+  `within` (the system placement), so an inner use that writes `within:` is still inside the outer instance. Test:
+  test_inner_use_placed_elsewhere_is_still_inside asserts the inner system really sits in `elsewhere`. Seen to fail
+  when the check reads `within` again.
+- SPEC §2a says both.
+- Not run: scripts/demo_check.py. The session refused it again, as given:
+  `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/demo_check.py small-requests`.
+  It is left to the merge queue, with test_no_example_reads_an_internal_part standing in, as in round 1.

@@ -1686,10 +1686,10 @@ class Compiler:
         holds = {u: set(r.get("parts") or ()) for u, r in uses.items()}
         for u, r in uses.items():
             seen, at = {u}, r
-            while at.get("depth") and at.get("within") in uses and at["within"] not in seen:
-                seen.add(at["within"])
-                holds[at["within"]] |= set(r.get("parts") or ())
-                at = uses[at["within"]]
+            while at.get("outer") in uses and at["outer"] not in seen:    # the instance it was planned under, not
+                seen.add(at["outer"])                                        # its system placement (within:)
+                holds[at["outer"]] |= set(r.get("parts") or ())
+                at = uses[at["outer"]]
         closed = [(u, r) for u, r in uses.items() if r.get("exports") is not None]
         if not closed:
             return

@@ -176,13 +176,32 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
             chain.steps.append(("put", section, name, as_map(got, via), via))
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
-                                      "depth": depth, "trust": t.trust, "untrusted": untrusted, **exports(t, inst, made)}))
+                                      "depth": depth, "trust": t.trust, "untrusted": untrusted, "outer": within,
+                                      **exports(t, inst, made)}))
     if made.standins:
         chain.steps.append(("problem", Problem("finding", f"use {inst}: runs on free stand-ins "
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "
                                                f"real", via, "template-stand-in", f"system.{inst}")))
+    start = len(chain.steps)
     for sub, e in (made.sections.get("uses") or {}).items():
         given_on = made.writers.get(sub, {})
         if under is not None and named:                     # what it gives may hold the name: only the owner's known
             given_on = {k: w if w in trust.fine(trust.NAMED) else LIBRARY for k, w in given_on.items()}
         plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on)
+    unmade(t, inst, chain, start, at, said)
+
+
+def unmade(t: tp.Template, inst: str, chain: Chain, start: int, at, said) -> None:
+    """An ``exports:`` entry naming an inner use's part the expansion did not make (a typo, a wrong kind) is
+    bad-template naming the entry (SPEC §2a); entries for its own sections' parts were checked when it was read."""
+    rec = next((s[2] for s in chain.steps[:start] if s[0] == "use" and s[1] == inst), None)
+    if rec is None or rec.get("exports") is None:
+        return
+    made = set(rec["parts"]).union(*(s[2].get("parts") or () for s in chain.steps[start:] if s[0] == "use"))
+    own = {f"{k}.{n}" for k, sec in tp.EXPORT_SECTIONS.items() for n in t.body.get(sec) or {}}
+    for x in rec["exports"]:
+        kind, name = x.split(".", 1)
+        if x not in own and (x if t.once else f"{kind}.{inst}-{name}") not in made:
+            chain.steps.append(("problem", Problem("error", f"use {inst}: " + said(
+                f"template {t.name} exports: {x}, which is not a part it or any of its uses makes"), at,
+                "bad-template", f"system.{inst}")))

@@ -151,11 +151,14 @@ written in its own sections (`stock.waiting`, `flow.x`, `auxiliary.y`, `goal.on-
 `each:` or named wholly by a parameter cannot be listed). A part named wholly by a parameter (`${kind}`) is the
 owner's name and is never internal. An entry naming no part it defines, or not a ref of those five kinds, makes the
 template unreadable (a `template-library` note, as any bad template; for an untrusted template each name must also be
-lowercase letters, digits and -, at most 64). Without `exports:` every part is exported, as before; `exports: []`
+lowercase letters, digits and -, at most 64). An entry naming an inner use's part (`stock.INNER-x`) is checked once the
+use is expanded: if no inner use made that part, the use is an error, **bad-template**, at its `use:` line, naming the
+entry. Without `exports:` every part is exported, as before; `exports: []`
 exports none. A reference from outside an instance to one of its parts it does not export is a finding,
 **template-internal-reference**, at the referring line: `goal.mine: stock.q-spare is internal to instance q
 (template tank exports: stock.level)`. Outside means the owner's own parts and every other instance's; a part the
-instance made, or an instance within it made, refers to any of its parts freely. The references checked are a flow's
+instance made, or an instance within it made, refers to any of its parts freely (an inner use is within the
+instance whose template uses it, even when its `within:` places its system elsewhere). The references checked are a flow's
 `from:` and `to:`, a flow's or auxiliary's `driven-by:` and equation, a goal's measure, and a block's `in:`, `out:`
 and `goal:` (an implied `keep-GOAL` block is its block's); a system's `show:` and a loop's `through:` are not. An
 inner instance's part is exported from the outer one only when the outer lists it by its local name
