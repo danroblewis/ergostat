@@ -70,8 +70,15 @@ Sterman (ch. 5) marks the loops that carry the argument and keeps the rest out o
 
 - **Drawn**, with a marker: (a) each loop a `loops:` entry names; (b) **one per goal**, its
   goal-seeking loop. That is the shortest *balancing* loop through its gap, named by the goal
-  unless a `loops:` entry already names it. Ties go by dominance (below), then by the name of the
-  first flow. One loop counts once even when it is both (a) and (b).
+  unless a `loops:` entry already names it. Ties go to a loop a `loops:` entry names, then by
+  dominance (below), then by the name of the first flow. One loop counts once even when it is
+  both (a) and (b). A goal no block serves has no goal-seeking loop; its stub says so.
+- **Through its gap.** The gap is drawing only; it is not in the causal graph, so it is matched
+  there by the link it is drawn on. For a goal a block reads (`goal:` or `goal.x`), a loop runs
+  through the gap when its members include `goal.x`, as `lp.goals` already records. For a goal
+  whose serving block reads its stock instead (all three of product's), a loop runs through the
+  gap when it contains that read as consecutive members, `stock.X` then `block.B`: the link the
+  routing of §1 draws through the gap. `lp.goals` and the §12a heads stay as they are.
 - **Minor**: every other loop. It is listed in the side list under *Minor*, with its path, and drawn
   (marker, parts lit) only while it is selected there.
 - **'+1' removed.** Two drawn loops whose visible parts are the same (they differ only inside a
@@ -108,14 +115,30 @@ loops:
   features-shipped:  # B: what customers ask for is filed, built and shipped (goal few-missing)
     through: [flow.filed-features, flow.shipped]
   users-won:         # B: shipping what was missing brings users in (goal users-growing)
-    through: [goal.users-growing, flow.shipped, flow.signups]
+    through: [flow.shipped, flow.signups]
   long-tail:         # B: more users ask for more, and what is missing drives them off (limits to growth)
     through: [flow.asks, flow.churn]
 ```
 
-`users-won` names the loop because `users-growing` has several balancing loops of the same length
-(through `shipped` or `fixes`, then `signups` or `churn`). No rule chooses one without dominance,
-so the choice is the modeller's (Sterman §5.2: name the loop for the story it tells).
+Every `through` lists flows only. Names are matched on the causal graph
+(`ergostat/spec/causal.py`, `names()`), where `goal.users-growing` has only the link in from
+`stock.users`: `product-manager` reads the stock, so no loop contains the goal. An entry naming
+the goal would name nothing, and the compiler checks only that each part exists. Each entry
+above matches, by hand from `product.yaml` and `intake.yaml`, the shortest loop containing its
+flows (others differ only by detours inside `factory`): `bug-fixing` and `regressions`
+are bugs-live → support → filed-bugs → … → deployed → fixes or regressions →
+bugs-live; `features-shipped` is missing-ops → product-manager → filed-features → … → shipped
+→ missing-ops; `users-won` is users → product-manager → … → shipped → missing-ops → signups →
+users; `long-tail` is users → asks → missing-ops → churn
+→ users.
+
+`users-growing` has four balancing loops of the same length through its gap (the read users →
+product-manager), going by `shipped` or `fixes`, then `signups` or `churn`. Rule 2 would pick
+one by dominance, else by the first flow's name, but that pick moves with the replay and need
+not tell the story. The entry pins it (Sterman §5.2: name the loop for the story it tells), and
+the named-first tie makes `users-won` the goal's goal-seeking loop. There is then no tenth
+marker called `users-growing`. Likewise `bug-fixing` (balancing, while `regressions` is
+reinforcing) is `no-live-bugs`'s loop, and `features-shipped` is `few-missing`'s.
 
 ## 4. What the counts then mean
 
@@ -199,6 +222,10 @@ removal of '+N'):
   marker names containing ` via `. The side list's heading says D drawn and M minor, with D + M
   equal to the number of elementary loops, so M is that number less 9 (9 on the definition's count
   of 18; the build gap states the count it measures).
+- Each of the six `loops:` entries names exactly one loop (`names()` returns each name once).
+  The goal-seeking loops of `no-live-bugs`, `few-missing` and `users-growing` are the loops named
+  `bug-fixing`, `features-shipped` and `users-won`. Each contains the stock → block read its gap
+  is drawn on. 0 markers are named for a product goal.
 - Selecting a minor row draws its marker; deselecting removes it (0 minor markers at rest).
 - The box counts in big: the sum of the "inside" counts equals the number of loops with every
   member inside a closed module (no loop counted twice).

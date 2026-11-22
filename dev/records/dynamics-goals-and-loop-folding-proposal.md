@@ -13,3 +13,16 @@ Acceptance tests: review only.
 Budget: about 180 lines, no code.
 
 Milestone: r5-dynamics-tells-the-story. Owner items: R5 (pieces 3-5). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Round 2: the proposal is written and answers both round-1 findings. `users-won` now lists flows
+only (`through: [flow.shipped, flow.signups]`). Rule 2 says a loop runs through a goal's gap when
+it contains `goal.x`, or, for a goal whose serving block reads its stock, when it contains that
+`stock.X` → `block.B` read, which is the link the gap is drawn on. Ties go to a named loop first,
+then dominance, then the first flow, and the text no longer says that no rule picks a loop. The
+acceptance adds counts that tie each `loops:` entry to exactly one loop and each product goal to
+its named loop.
+The loop membership was worked out by hand from the YAML because a scratch script to list the
+causal loops was refused. The build gaps check it against `names()`, as the acceptance says.
+Overrun reason: the proposal is about 230 lines against about 180, because round 1's fix needed the gap-matching rule and the hand check of each named loop written out; it is docs only, no code.
