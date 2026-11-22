@@ -312,6 +312,9 @@ def test_an_item_paused_partway_through_a_run_does_not_hold_it():
     t = time.monotonic()
     g = eta.simulate(inp, runs=200)
     assert g["runs"] == 200 and time.monotonic() - t < 1.0      # (was: a run to the horizon whenever one parks)
+    assert g["kinds"]["t"]["p50"] is not None                   # (was: inf, the counted out in the kind's last)
+    outs = [x for x in g["items"].values() if x.get("out")]
+    assert outs and all(x["why"].startswith("counted out in ") and x["p50"] is not None for x in outs)
     run = eta._Run(inp, eta.Flags(), random.Random(3), {}, {}, False)
     run.go(eta.HORIZON)
     assert run.open == 0 and run.gone and "t/0" in run.start

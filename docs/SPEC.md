@@ -1520,7 +1520,8 @@ stand now):
   bar, and why ("paused in parked", "waits for dev, switched off", "waits on gap/x, which is parked"); the Items
   list and an item's page say that first, then the item's reason as above. Each kind counts them (`unscheduled`),
   and its last finish is of the items that can move only. An item that reaches a paused or switched-off state
-  partway through a run, and one parked waiting on it, is counted out of that run there: not finished in it.
+  partway through a run, and one parked waiting on it, is counted out of that run there: left out of its p50, p90
+  and its kind's last finish in that run, and its share of runs counted out kept (`out`) and said in its why.
 - **Arrivals:** new items at the record's rate per kind (a batch brought in at one moment is not a rate), into the
   states they arrive in, competing for the same capacity.
 

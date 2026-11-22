@@ -87,6 +87,8 @@ def _work(p, spec, kinds, w) -> dict:
             r = dict(why.get(i) or {})
             if x.get("unscheduled") and not r.get("why", "").startswith(x["why"]):
                 r["why"] = f"not scheduled: {x['why']}" + (f"; {r['why']}" if r.get("why") else "")
+            elif x.get("out"):                          # (counted out in some runs: said after reasons' words)
+                r["why"] = "; ".join(filter(None, [r.get("why"), x["why"]]))
             x.update(r)
         ans["assumed"] = {b.name: b.assumed for b in inp.blocks if b.assumed}
         ans["whatif"] = w.said()

@@ -325,7 +325,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     t_end = time.monotonic() + budget                   # (the runs within ``budget``, the levelled one within as much again)
     live = {i: x for i, x in inp.items.items() if not x.unscheduled}   # (the rest: not scheduled, said why)
     fins, starts, deads, lasts = {i: [] for i in live}, {i: [] for i in live}, {i: 0 for i in live}, []
-    n = 0
+    outs, n = {i: 0 for i in live}, 0
     for r in range(runs):
         if n and time.monotonic() > t_end:
             break
@@ -335,6 +335,9 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         n += 1
         last = {}
         for i, x in live.items():
+            if i in run.gone:                         # counted out: no finish, and not in its kind's last
+                outs[i] += 1
+                continue
             f = run.finish.get(i, float("inf"))
             fins[i].append(f)
             starts[i].append(run.start.get(i, f))
@@ -345,7 +348,11 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     mean = lambda xs: sum(xs) / len(xs) if xs and max(xs) < float("inf") else None   # noqa: E731
     items = {i: {"p50": _q(fins[i], 0.5), "p90": None if few else _q(fins[i], 0.9), "mean": mean(fins[i]),
                  "start": _q(starts[i], 0.5),
-                 "dead": round(deads[i] / n, 3), "runs": n} for i in live} if n else {}
+                 "dead": round(deads[i] / n, 3), "runs": n, "out": round(outs[i] / n, 3)} for i in live} if n else {}
+    for x in items.values():
+        if x["out"]:
+            x["why"] = (f"counted out in {round(x['out'] * 100)}% of runs, where it cannot move on (paused, at blocks"
+                        " off, or waiting on such an item); its p50 and p90 are of the other runs")
     for i, x in inp.items.items() if n else ():
         if x.unscheduled:
             items[i] = {"unscheduled": True, "why": x.unscheduled, "p50": None, "p90": None, "mean": None,
