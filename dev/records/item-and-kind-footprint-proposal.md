@@ -34,3 +34,14 @@ reversible choices taken, and said in the proposal:
   150-shape fallback, part of diagram-draws-what-an-item-or-kind-touches.
 - Item page drawing: the proposal picks the smaller refactor (share the Guide's existing `guideDrawNow`) over a
   per-mount renderer, and amends item-page-draws-its-path to that.
+
+Round 2 (the one finding of review 1, blocking): §1's Blocks part no longer uses diagram()'s per-loop `nodes`
+(blockdiagram.py:1431-1438, drawn ids after fold, present only for goals with a reading). Touched goals now come
+from the model alone: `spec.loop(g)` (spec/ir.py:1153-1160) in the footprint's own `kind.name` form, for every goal
+in `spec.goals`. The drawn nodes are the unfolded `_Diagram` nodes that `mark_loops` (blockdiagram.py:1179-1204)
+marks with a touched goal. The folded tree is now settled per view. Dynamics stays flat (server.py:501). Blocks
+still folds (it returns at server.py:488-492, before that condition), through `blockdiagram.fold`
+(blockdiagram.py:1230), with a new `keep` set (a node outside it is `"ext"`, so outside wires end at terminal ports)
+and every system holding a kept node open, so no touched loop is hidden in a `sys:` box and the systems show as
+frames. The two alternatives (unfolded with no frames, or closed systems as `Q(s)` boxes) and why they lose are
+stated. The follow-on gap's tests in §6 are amended to match. The proposal is 254 lines. No code changed.

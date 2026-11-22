@@ -10,7 +10,8 @@ owner, and each says the alternative and why it lost. Line numbers are as of `ma
 a stock or auxiliary with an `items: K` sensor (SPEC.md:1694, 1912), a flow counted from K's moves between states
 (SPEC.md:1696, 3579), and a block whose `takes:` reads K (SPEC.md:1488). An item's footprint is the part of its
 kind's footprint it went through: the stocks whose states it entered and the blocks (valves) that took it. Below,
-the footprint is a set of part names, plus counts for an item. If the footprint API lands with another shape, the
+the footprint is a set of part names in the model's `kind.name` form (`stock.queue`, `flow.done`, `block.triage`),
+plus counts for an item. If the footprint API lands with another shape, the
 gaps adapt to it. The decisions below do not depend on its shape.
 
 ## 1. How the diagrams draw a subset
@@ -35,10 +36,25 @@ or B) is marked only when every link of it is in the set. Half a loop marked R w
 drawing does not show.
 
 **Blocks: whole control loops.** Today `blockdiagram.diagram` takes only `open_` and `focus` (blockdiagram.py:1423).
-The server passes `system` as the focus and ignores `around` (server.py:488-492). It gets `loops=`, a set of goals:
-every goal whose loop has a node in the footprint (the `nodes` per loop that diagram() already lists,
-blockdiagram.py:1430-1436). Each such loop is drawn whole: its goal, comparator, controller, actuator (valve),
-process and sensor. Nothing outside those loops is drawn. A part of the footprint that is in no control loop (a
+The server passes `system` as the focus and ignores `around` (server.py:488-492). It gets `loops=`, a set of goals,
+chosen from the model alone, never from the snapshot or the drawing:
+
+- *Which goals are touched.* For each goal in `spec.goals`, its loop's parts in the model's own names come from
+  `spec.loop(g)` (ergostat/spec/ir.py:1153-1160; the fields at ir.py:903-912): the goal's stock or auxiliary
+  (`g.of`), `block.C` for each controller and actuator, `flow.V` for each valve and disturbance, the `through`
+  path, and the stocks its sensors read. A goal is touched when that set meets the footprint. The footprint is in
+  the same `kind.name` form, so no mapping from drawn ids is needed. Every declared goal is tried, so a goal with
+  no reading yet is touched like any other. Not the per-loop `nodes` that `diagram()` lists
+  (blockdiagram.py:1431-1438): those are drawn ids after folding (a loop inside a closed system shows as `sys:S`),
+  and exist only for goals with a reading in `snap["loops"]`, so a goal never read would never be touched
+  (lesson-3).
+- *Which nodes are drawn.* The unfolded `_Diagram`'s nodes whose `loops` name a touched goal. `mark_loops`
+  (blockdiagram.py:1179-1204, called from `build` at :476) sets them before `fold`, from `spec.loop` and the
+  diagram's own wires, not from the snapshot. That is the goal's reference and comparator, its controllers and
+  actuators (`blk:NAME`, part `block.NAME`), the process and output of the held stock, its sensor and collectors,
+  and the processes of its valves and disturbances.
+
+Each touched loop is drawn whole, and nothing outside those loops. A part of the footprint in no control loop (a
 stock no goal holds) is not drawn in Blocks. The strip below the drawing names it, with a link to Dynamics.
 
 - *Alternative: draw only the touched blocks.* It loses. A block diagram is the loop: controller, actuator,
@@ -56,13 +72,34 @@ the kind in the window. The order of the visits is not drawn. Order is the proce
 - *Alternative: number the steps (1, 2, 3...) along the pipes.* It loses. A rework loop revisits a stock, so
   ordinals pile up on one shape. The process map already draws exactly that sequence.
 
-**The folded system tree.** A drawn set is drawn flat, as `around` is today: the server folds only when `around` is
-unset (server.py:501), and the page turns system outlines off when `around` is set (diagram.js:1034). `item` and
-`kind` join that same condition. Each part still names its systems in its panel (graph.py:124, `systems=`). This
-is the reversible choice, because it adds no new fold path.
+**The folded system tree.** The two views differ, because their folds differ.
 
-- *Alternative: fold, with the systems the set touches opened.* It is deferred, not refused. It needs `fold`
-  (ergostat/fold.py:61) to take a part set as well as `open_`. It can be added later with no change of address.
+*Dynamics* draws the set flat, as `around` is today. In the Dynamics branch the server folds only when `around` is
+unset (server.py:501), and the page turns system outlines off when `around` is set (diagram.js:1034). `item` and
+`kind` join both conditions. Each part still names its systems in its panel (graph.py:124, `systems=`).
+
+- *Alternative: fold, with the systems the set touches opened.* It is deferred, not refused. It needs
+  `ergostat/fold.py`'s `fold` (fold.py:61) to take a part set as well as `open_`. It can be added later with no
+  change of address.
+
+*Blocks* is never flat today: `view=blocks` returns before that condition (server.py:488-492) and always folds
+through `blockdiagram.fold` (blockdiagram.py:1230), with `system` as its focus. With `loops=`, it still goes
+through `fold`, with every system the drawn nodes sit in opened and no focus:
+
+- `fold` gets one argument, `keep`, the drawn nodes' ids. Its `rep` (blockdiagram.py:1240-1248) answers `"ext"`
+  for a node outside `keep`. That is the path a node outside `focus` takes today, so a wire from outside into a
+  touched loop (a disturbance, a setpoint set from outside) is drawn as that loop's in-port or out-port
+  (`term:in:KEY`, blockdiagram.py:1287-1302, 1304-1316). It is not dropped and not left hanging.
+- `open_` is every system in `spec.chain` of each kept node's `system`. So `rep` answers the node's own id for
+  every kept node: no part of a touched loop is hidden inside a `sys:` box, which would draw a partial loop.
+- The systems still show, as the frames `fold` already draws for open systems that hold a drawn node
+  (`frame_of`, blockdiagram.py:1364-1384). A system none of the loops enters gets no frame and no box. `?open=`
+  and `system=` are ignored on an `item`/`kind` address, and the page's system menu shows *Everything*.
+
+- *Alternative: draw Blocks unfolded, with no frames.* It loses. The system tree is how the model is read (SPEC.md:586,
+  §4a), and the frames cost nothing because `fold` draws them already. The only new code is `keep` in `rep`.
+- *Alternative: leave closed the systems a loop passes through, drawn as `Q(s)` boxes.* It loses. A loop whose
+  controller or sensor sits inside a box reads as a partial loop, which §1 refuses above.
 
 **Pins.** Today the pin key is `ergostat.pins.<project>.<view>.<system>.<around>` (diagram.js:1032). A drawn set
 adds `.kind:K`. An item's drawing uses its kind's key too, so all of a kind's items share one arrangement. An
@@ -184,10 +221,14 @@ gaps cite the fix they absorb. Q61 is closed as superseded by §3 and §4.
 
 In order. Each depends on kind-and-item-footprint-api.
 
-1. **diagram-draws-what-an-item-or-kind-touches** (confirmed). §1: `item=` and `kind=` on `/api/graph` for
-   Dynamics and Blocks, `graph.select(parts=)`, `blockdiagram.diagram(loops=)`, the marks, the pin key, the flat
-   drawing, and the 150-shape fallback with its measurement on dev/model. Tests: a kind's Dynamics set equals its
-   footprint plus its flows' ends. A Blocks drawing holds every node of each touched loop and nothing else. A
+1. **diagram-draws-what-an-item-or-kind-touches** (confirmed; amended for Blocks). §1: `item=` and `kind=` on
+   `/api/graph` for Dynamics and Blocks, `graph.select(parts=)`, `blockdiagram.diagram(loops=)` with the touched
+   goals chosen from `spec.loop`, `fold(keep=)` with the kept nodes' systems open, the marks, the pin key, the
+   flat Dynamics drawing, and the 150-shape fallback with its measurement on dev/model. Tests: a kind's Dynamics
+   set equals its footprint plus its flows' ends. A Blocks drawing holds every node of each touched loop and
+   nothing else, and no `sys:` box. A goal with no reading in the snapshot is still touched. A loop inside a
+   system closed by default is drawn whole inside that system's frame. A wire from outside a loop ends at a
+   terminal port. A
    kind's pin key is the same for its items. The browser file tests/test_diagram_rendering.py covers the marks.
 2. **item-page-says-where-it-went** (confirmed; amended: it may land before 1, with its links gated until 1 is on
    main). §2's *Where it went* strip and links. It absorbs the item half of Q57/Q58.
