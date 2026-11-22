@@ -716,7 +716,9 @@ the failure is fixed); one that fails again regresses it, and the gated action `
 the fix. A regressed fix whose revert is denied stays regressed, for the owner.
 Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
 is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
-swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read. With
+no such trace, its last error-level log line is noted the same way, in two forms only: Python logging's default
+`ERROR:logger:message` (or `CRITICAL`) and a JSON line with `level`/`levelname`/`severity` error, critical or fatal.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is
