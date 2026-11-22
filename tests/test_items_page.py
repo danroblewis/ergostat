@@ -354,6 +354,51 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     pg.close()
 
 
+STRIP = """() => {
+  const t = document.querySelector('.track');
+  if (!t) return null;
+  const c = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const rgb = (css) => { c.clearRect(0, 0, 1, 1); c.fillStyle = css; c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data]; };
+  const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+    .reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const bg = (el) => { for (; el; el = el.parentElement) { const x = rgb(getComputedStyle(el).backgroundColor);
+    if (x[3] === 255) return x; } return [255, 255, 255, 255]; };
+  const ratio = (el) => { const a = lum(rgb(getComputedStyle(el).color)), b = lum(bg(el));
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
+  const top = [...t.children];
+  return { path: top.filter((e) => !e.classList.contains('alt')).map((e) => e.classList.contains('arrow') ? '→' : e.textContent),
+           alt: [...t.querySelectorAll('.alt .stbox')].map((e) => e.textContent),
+           final: [...t.querySelectorAll('.stbox.final')].map((e) => e.textContent.trim()).sort(),
+           double: [...t.querySelectorAll('.stbox.final')].every((e) => getComputedStyle(e).borderTopStyle === 'double'),
+           worst: Math.min(...[...t.querySelectorAll('.stbox'), t.querySelector('.alt')].filter(Boolean).map(ratio)) };
+}"""
+
+
+def test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apart(browser, site):
+    """A done session's strip is 'open → done', ending at its present state; its other endings (failed, lost) sit apart
+    with no arrow element between 'done' and them, each ending double-bordered, and every state label is at least
+    4.5:1 against its background in light and dark. An open session draws only 'open', its other states apart."""
+    add_events(("session.started", "session/strip", {"role": "researcher"}), ("session.ran", "session/strip", {}))
+    errors: list[str] = []
+    for theme in ("light", "dark"):
+        pg = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme=theme)
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{site}/item/session/strip")
+        pg.wait_for_function("() => document.querySelector('.track .stbox.on')?.textContent === 'done'", timeout=20000)
+        got = pg.evaluate(STRIP)
+        assert got["path"] == ["open", "→", "done"], got
+        assert got["alt"] == ["failed", "lost"], got
+        assert not pg.locator(".track .alt .arrow").count()                  # nothing points from 'done' to another ending
+        assert got["final"] == ["done", "failed", "lost"] and got["double"], got
+        assert got["worst"] >= 4.5, (theme, got)
+        pg.goto(f"{site}/item/session/s1")
+        pg.wait_for_function("() => document.querySelector('.track .stbox.on')?.textContent === 'open'", timeout=20000)
+        got = pg.evaluate(STRIP)
+        assert got["path"] == ["open"] and got["alt"] == ["done", "failed", "lost"] and got["worst"] >= 4.5, (theme, got)
+        assert not errors, errors
+        pg.close()
+
+
 # ---- the Graph and the Timeline (relations: SPEC §5a; relations.js), on the roadmap example's record
 
 ROADMAP = "roadmap"

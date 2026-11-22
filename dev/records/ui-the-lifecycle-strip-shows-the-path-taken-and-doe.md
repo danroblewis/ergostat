@@ -25,3 +25,15 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. The strip on /item/… draws the states the item's moves passed through (repeats in a row folded), joined by arrows, ending at its present state. A done item's other endings sit apart, with no arrow, under "could also have ended:"; an unfinished item's other states sit apart under "its other states:". Both are in --muted (5.2:1 light). Endings carry a 3px double border. About 13 net lines outside tests.
+
+Choices made alone, each easy to undo:
+- A kind declares no final states, so "an ending" is what the process map already counts as finished (`process._done`: `messages: {done:}` if declared, else the states after the first that no item has left, never `leased`). The item API (`ergostat/web/server.py`) adds this to `kind_of` as `final`. On a young record some states not yet left count as endings; the process map shares that limit.
+- An unfinished item lists its unvisited states apart, with no arrow, instead of hiding them, so the page still names every state of its kind.
+
+Acceptance test: tests/test_items_page.py::test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apart (a done session in light and dark: the path is exactly open → done, no arrow among the other endings, endings double-bordered, every label at least 4.5:1). Seen to fail with each of two breaks: the old all-states strip (extra arrows), and the alternatives set in --line-strong (1.63:1).
+
+Run: tests/test_items_page.py with Playwright (22 passed, none skipped); tests/test_page_refresh.py with Playwright (8 passed); tests/test_relations_asof.py and tests/test_remote_items.py; ruff clean. Not run: the unit suite and the other browser files (the factory and the merge queue run them). Local main has no commits past the branch's base, so there was nothing to merge.
