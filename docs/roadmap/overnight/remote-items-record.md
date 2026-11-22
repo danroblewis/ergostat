@@ -467,3 +467,27 @@ not touched). `git branch -a` lists only `factory/remote-items-record` and local
 after it, is left to the factory.
 
 **Size:** +8 net lines under `ergostat/` this round, about 340 in all (budget 420).
+
+## Where it stopped (continued, round 2)
+
+**The finding: the merge of main (5617e225) conflicted in docs/AGENT-GUIDE.md.** Fixed. I finished the merge in
+a6597ff0. In §3 step 5, both texts are kept: this branch's sentence (the remote's items can be seen in the Items
+page and its events in the Record page, but they are never folded or counted locally), then main's new sentence on
+naming a remote's kind in `relations:` (from `remote-process-lines`). Main's step 6 follows unchanged.
+
+**A splice the merge made without a conflict (lesson-7), fixed.** The merge left GAPS.md's *Remote systems* entry
+with two *Done* tails and two *Left* clauses. The second *Left* clause still listed "the remote's events in the Items
+and Record pages". The entry now has one *Done* and one *Left*. *Done* is main's text (box measures, mutual TLS,
+and process-map lines, now done on `remote-process-lines`), followed by this slice's sentence. *Left* holds only the
+IR beside `ergostat-model/1` and a remote of remotes. I read the other doc diffs against main again: SPEC §4c and
+the Items table, the proposal and AGENT-GUIDE §3. None is spliced, and the tree has no conflict markers. No code
+changed this round.
+
+**Run after the merge, one file at a time:** `tests/test_remote_items.py` (24 passed); `tests/test_remote.py`,
+`tests/test_remote_pair.py` and `tests/test_remote_mtls.py` (36); `tests/test_graph_cli_web.py`,
+`tests/test_web_access.py` and `tests/test_spec_items.py` (63). `tests/test_items_page.py` with Playwright under
+`scripts/suite_watch.py`: 21 passed, none skipped, rc 0, thread peak 203. `ruff check ergostat tests scripts` is
+clean.
+
+**Not run here:** the other three browser files, the whole unit suite and `demo_check` (`examples/remote-pair` is
+not touched). The merged ref is main 5617e225, as the factory gave it.
