@@ -2822,7 +2822,9 @@ A trip fires once per spell: a spell no earlier `entered` of the state names is 
 owner's later `leave` covers it. Spells are compared for equality on what was read (event ids, stored reading
 times), never as newer or older: the owner's `leave` is not undone by the same crossing or the same silence, on later
 looks or after a restart; a new crossing, or a new reading and a new silence, is a new spell. When a trip's inputs
-cannot be read, nothing is recorded, the engine says why, and dispatch uses pool 0 until a look reads them cleanly.
+cannot be read, nothing is recorded, the engine says why, and the lead's dispatch uses pool 0 until a look reads
+them cleanly. That hold is the lead's alone: with several shards, the other shards' dispatchers are not held by it
+and cap their blocks by `in_force` only.
 
 **Scheduling the pool.** Each look reads the state in force once; a block's room is `min(pool, the state's pool)`
 less its runs in flight (and its daemon's room, as before), so a state never raises a pool. Under pool 0 nothing new

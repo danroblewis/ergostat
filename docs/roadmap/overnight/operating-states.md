@@ -515,3 +515,21 @@ Round 14 (the fix round for review operating-states-11). Each finding:
    runs them). No demo is touched, so `demo_check` is not needed.
 
 Overrun reason: 455 net lines, 5 over the 450 budget: 3 for the try/except in `Dispatcher.trip` that review operating-states-4 asked for (a trip write that raises holds dispatch at pool 0), 1 for classifying `operating` as refused in `library/trust.py` that main's allowlist test required after its merge, and 1 for moving `take()`'s post-TAKEN re-check inside the `try` that review operating-states-9 asked for; nothing else in the gap could go without dropping a part of the definition.
+
+## Where it stopped
+
+Round 15 (the fix round for review operating-states-12). Each finding:
+
+1. **Size: no overrun reason found** (blocking). Round 14 wrote the line, but it sat in the section that begins
+   "Parked by the factory", and the size gate (`dev/bin/review.py` `stopped()`) leaves that section out. So the gate
+   never read it. This new section, written by the branch, carries the line again below. No code changed.
+2. **The trips' hold is the lead's alone** (non-blocking, `dispatch.py` `trip()`/`cap()`). Narrowed in SPEC §9.5,
+   not changed in code (the more reversible choice, 0 lines): when the trips' inputs cannot be read, the lead's
+   dispatch uses pool 0, and with several shards the other shards' dispatchers are not held by it. They cap their
+   blocks by `in_force` only. Sharing the hold through the record would be a later gap if wanted.
+3. **Not run by that review** (a note). This session's shell refused running the gate check
+   (`uv run python /tmp/gate.py`). Only the definition file and SPEC changed, so no test was run this round. Round
+   14's runs stand: `tests/test_operating.py` and `tests/test_cli_fallback.py` (54 passed), and ruff clean. Not run:
+   the full unit suite and the four browser files. No demo is touched, so `demo_check` is not needed.
+
+Overrun reason: 455 net lines, 5 over the 450 budget: 3 for the try/except in `Dispatcher.trip` that review operating-states-4 asked for (a trip write that raises holds dispatch at pool 0), 1 for classifying `operating` as refused in `library/trust.py` that main's allowlist test required after its merge, and 1 for moving `take()`'s post-TAKEN re-check inside the `try` that review operating-states-9 asked for; nothing else in the gap could go without dropping a part of the definition.
