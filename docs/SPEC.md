@@ -3128,10 +3128,28 @@ spends more is charged what it spent, and nothing stops it as it runs (that is T
   (whatever its `--as`), push, MCP call or trigger may record one, so no run can close itself, or another, at 0.
 - **`ergostat.budget.left`** is daily − spent − reserved. With no `budget:`, or a record that cannot be read, it is
   an error (`MeasureError`), never `daily` or 0: the measures list shows none and the error.
-- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take`, and only
-  those. It does not cover ergostat's own judge passes (`Engine.judge`), the AI calls inside ergostat that keep their
-  own per-call caps (decisions extract, intent verdicts, the redesigner), or models in `ergostat.toml`
-  (`runner.run_agent`), which have no `budget:`; their ends count in spent as ends with no reserving run. A pid
+- **ergostat's own AI calls** through `decisions/ai.call` ask too: `decisions extract`, the intent judge's verdicts
+  (from `Engine.judge` and `ergostat intent judge`) and `improve --architecture`. Each call reserves its own per-call
+  cap (the extractor's per-batch cap, the judge's `max-cost`, the review's $0.25), or `max-cost` when it has none,
+  under the same lock, and is run with `--max-budget-usd` at that reserve whatever `$ERGOSTAT_AI` is. Its reserving
+  event is `budget.call` (item: the call's name, `decisions-extract`, the judge's block, `architecture-review`; data:
+  `reserve`, `pid`, `within`, `included`). It is refused like a run, and also when its reserve is not a finite number
+  above 0 and within `daily`: no process starts and `budget.refused` is written (item: the call's name, at most once a
+  minute). A refused extract stops with a `stopped` note that starts `budget:`. A refused verdict is refused before
+  the work is recorded as asked, so it writes no verdict: the work stays due, the pass stops (`refused`), and the next
+  pass with room judges it. A refused review lists that system and the rest as not reviewed, `why: budget: …`. Every
+  call that started is closed (`budget.closed`, `run`: the call's id) with the cost it reported, or null (charged its
+  reserve) when it raised, timed out, or reported none, or a cost that is NaN, infinite or negative. A call whose
+  process died with it is closed by recovery, like a run.
+- **Counted once.** A call made inside a reserving run belongs to it (`within`): the judge's pass, whose
+  `agent.started` (from `Engine.judge`) now carries `reserve: 0` and its `pid`, and whose end sums its verdicts'
+  costs (`included: true`); or the run that `$ERGOSTAT_RUN` names, when it is a reserving start, whose end does not
+  include the call (`included: false`). The run is charged the larger of its end's charge and the sum of the calls it
+  includes, plus the calls it does not include. A call with no enclosing reserving run is charged on its own.
+- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take` and the
+  calls above, and only those. It does not cover the calls through `numbers/modeller.call` (the redesigner, the
+  modelling reviewer, the `modelling ai` tier), or models in `ergostat.toml` (`runner.run_agent`), which have no
+  `budget:`; their ends count in spent as ends with no reserving run. A pid
   reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
   drops out of reserved. Each permit reads 7 days of starts and ends.
 

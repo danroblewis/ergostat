@@ -91,3 +91,50 @@ Round 1 stopped before any code: the gap this one depends on is not in the clone
 Parked by the factory (review/ai-calls-ask-the-budget-1, 2026-11-22 00:02).
 
 Done: only the definition of done and a 'Where it stopped' note (dev/records/ai-calls-ask-the-budget.md). Left: all of it, points 1-5 and the eight acceptance tests in tests/test_ai_calls_budget.py. It stops because it depends on run-budget-reserve's P3 permit (costs/budget.py: flock, fold, refused, recover), and the plan review says to build on its merged form. That gap's branch exists (origin/factory/run-budget-reserve 8e4f2923), but this branch's base does not contain it. The record's claim that the ref is absent from the clone is wrong and should be corrected when work resumes.
+
+## Where it stopped
+
+Continued (gap/ai-calls-ask-the-budget-continued, round 1). Built: points 1–5 and the eight acceptance tests, plus one more.
+
+- **Correcting the earlier record.** The first note above said `origin/factory/run-budget-reserve` was absent from the
+  clone. That was stated from `git for-each-ref` in that clone alone, which lists no remote-tracking refs, so it said
+  nothing about the ref existing elsewhere. The factory's parking note says the ref exists (8e4f2923). In this round's
+  clone, `git for-each-ref` again lists only `refs/heads/main` (5617e225) and this branch. But `main` now holds the
+  merged P3 (`ergostat/costs/budget.py`, SPEC §9.9), and `git merge-base --is-ancestor main HEAD` holds (e7d14d64
+  merged it). So this round builds on P3's merged form, as the plan review asked.
+- **The per-call permit** is `costs/budget.ask(p, spec, name, reserve)` and `budget.done(permit, cost)`, written so
+  `modeller-calls-ask-the-budget` and `toml-models-budget` can reuse them. Both already declare
+  `depends-on: [ai-calls-ask-the-budget]`, so no dependency was added. `ask` holds P3's flock across the fold, the
+  decision and the write of a new `budget.call` reserving event (`reserve`, `pid`, `within`, `included`). It refuses
+  on a non-finite, non-positive or over-`daily` reserve, or an unreadable record, and the P3 refusal is written per
+  call name. `read` takes `budget.call` as a reserving event, so `recover` closes orphaned calls unchanged.
+- **The counted-once rule** (plan review note 2) is in `fold`. A call's charge goes with its enclosing run only when
+  `included`, and the run is charged max(its end, the sum of its included calls) plus the calls it does not include.
+  `Engine.judge` sets `budget.WITHIN` (a context variable) to (its pass, included), and its `agent.started` carries
+  `reserve: 0` and `pid` only when `budget:` is declared. Otherwise `$ERGOSTAT_RUN` names the run, if it is a
+  reserving start, with `included: false`.
+- **Note 1** (refusal before `record.asked`): `judge_one` asks before `record.asked` and returns `{"refused": …}`, and
+  `run` stops its loop and reports `refused`. `ergostat/intent/ai.py` takes the permit. **Note 5** (reserve equals
+  the extractor's cap): `ai.extract` reserves `left`, or `max-cost` when there is no cap. `ai.call(permit=…)` always
+  forces `capped=True` at the reserve, and closes the permit in a `finally`. **Note 3**: built against the merged
+  form. **Note 4**: 104 net lines, within 140.
+- **Choices taken as the most reversible, with nobody to ask.** The calls are named `decisions-extract`, the judge's
+  block name, and `architecture-review`. A refused review lists that system and the rest of the run as not reviewed,
+  and writes no `ergostat.architecture.unreviewed` event, so a refusal is not counted as a failed call. A file outside
+  the list was touched: `ergostat/cli/intent.py` (4 lines). It prints `refused: budget: …` and exits 1, so a refused
+  pass does not say "nothing waiting to be judged".
+- **Tests.** `tests/test_ai_calls_budget.py` has the eight named tests (13 cases with the parametrisations) and
+  `test_architecture_review_refused_lists_not_reviewed`, which covers point 2's third clause. Each named one was seen
+  to fail with its guard broken, then pass with it restored:
+  - flock removed from `held`: both lock orders failed;
+  - the included-calls rule disabled: counted-once failed (0.4 for 0.2);
+  - `done` charging 0 for an unknown cost: all 5 cost modes failed;
+  - `record.asked` moved before the ask: stays-due failed;
+  - extract's refusal skipped: refused-when-gone failed;
+  - `capped` not forced: uncapped failed;
+  - recovery skipping calls: orphan failed;
+  - review refusal skipped: architecture failed.
+- **Run here:** the new file, test_run_budget, test_decisions, test_intent, test_vsm_review and
+  test_architecture_review, all passing, and ruff clean. Not run here, as the house rules say: the full unit suite, the
+  four browser files (no page is changed) and `demo_check` (no example is touched). No remote ref of main is in this
+  clone to merge again beyond the local `main`, which is already in HEAD.

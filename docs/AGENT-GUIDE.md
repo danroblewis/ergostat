@@ -474,7 +474,8 @@ blocks:
 
 The goal above is a loop the model holds. When the person also wants the model's runs held to a day's budget before
 they start, whatever the wiring, add `budget:` to `ergostat.yaml` (SPEC §9.9). It is a check at each start, not a
-cap on spending: a run can spend more than it reserved, and the judge and ergostat's own AI calls are outside it:
+cap on spending: a run can spend more than it reserved. The modeller's calls (the redesigner, the modelling
+reviewer and ai tier) are outside it:
 
 ```yaml
 budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charged run reserves $0.50 to start
@@ -488,7 +489,10 @@ budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charge
   `program` or `rule`. Give program blocks an agent of kind `program`, or each of their runs is charged.
 - `ergostat.budget.left` reads what is left (a sensor's `builtin:`, or `ergostat measure`); it is an error, not a number, when no
   `budget:` is declared or the record cannot be read.
-- It covers the model's own runs only, not ergostat's judge passes or its own internal AI calls (SPEC §9.9).
+- ergostat's own calls ask too: `decisions extract`, the intent judge's verdicts and `improve --architecture` each
+  reserve their per-call cap (or `max-cost`) and are refused when it is not there: the extract stops (`budget: …`),
+  a verdict is left due for the next pass, a system is listed as not reviewed. Not yet covered: the modeller's
+  calls and models in `ergostat.toml` (SPEC §9.9).
 
 ## 3c. Stale readings and estimates
 
