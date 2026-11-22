@@ -1,0 +1,18 @@
+# diagram-line-tones: A second tone of each ink: information links and secondary signals drawn lighter than the material path; the colour rules written once
+
+depends-on: []
+
+Problem: the owner: 'only two colours ... a second tone of each colour for non-critical lines and information links'. Dynamics draws stocks, valves, pipes, modules, 1.1 px connectors, heads, loop markers, names and signs all in --sd-ink (ergostat/web/static/style.css:510-528); Blocks draws every wire and bar in --ink (style.css:454-476). No second-tone token exists (--sd-muted is a text colour). On :8796 ?system=product about 25 connectors and 18 loop markers have the same value as the six stocks and their pipes (shots/plan-notation-sf-product-dyn.png, -dark.png, plan-notation-tf-dyn-open-dark.png). DESIGN.md already asks for 'thin, light lines for structure'. Tones of one ink keep decision 2 (Blocks stays monochrome; tone carries importance, never status). Three later gaps would otherwise give the accent three meanings (a traced loop, an off goal, selection).
+Change: tokens in both themes' token block: --sd-ink-2 (sd-ink mixed toward the paper: about 55% light, 50% dark; contrast 3.0-4.5:1 on the paper), --ink-2-line for Blocks, --accent-2 (the accent's lighter tone). Dynamics: connector lines and heads, loop names, shadow variables and stubs use tone 2; stocks, pipes, valves, clouds, part names and values, polarity signs and the loop marker stay full ink; the connector from a goal's gap to the flow it drives stays full ink (a class on it). Blocks: each edge group gets a bd-<signal.what> class (blocks.js:821); wires with what=record, the bus bars, wires to or from port pills and disturbance inputs use tone 2; r, e, u, y, y_m stay ink. A lit (selected or traced) loop draws pipes in --accent and connectors in --accent-2. Legends (SD_LEGEND dynamics.js:450, the Blocks legend blocks.js:1099, export.js:58-68, the SD export legend dynamics.js:753) gain 'a lighter line: information, not material', and the Guide frame that shows connectors is updated. DESIGN.md's Colour section is rewritten as the one place for the rules: (i) the accent and its tone mean selection or trace, in both views, and nothing else; (ii) --bad together with the printed word means a goal is off, in Dynamics and on lists only; Blocks carries status in text and weight, never colour; (iii) tone carries importance, never status. It drops the stale 'action purple' and 'green holding' (DESIGN.md:146-148).
+Definition of done:
+1. The tokens exist for light and dark; tests/test_style_tokens.py passes; no colour is written outside the block.
+2. In Dynamics every .sd-connector stroke and .sd-head fill computes to --sd-ink-2 except each goal's gap -> flow link; every pipe, stock and valve stroke and every .polarity fill computes to --sd-ink.
+3. In Blocks a record wire's stroke differs from a reference or error wire's.
+4. Tone 2 has contrast between 3.0:1 and 4.5:1 on the paper and the ink at least 10:1, in both themes.
+5. Exported SVG and PNG keep the tones; /guide?frame=2 and frame=12 render in both themes.
+6. DESIGN.md's Colour section states rules (i)-(iii).
+Files: ergostat/web/static/style.css, dynamics.js, blocks.js, export.js, ergostat/guide.py, docs/DESIGN.md, tests/test_style_tokens.py, tests/test_diagram_rendering.py.
+Acceptance tests: check `line-tones` on :8796 ?system=product and ?view=blocks&open=product,factory in light and dark (getComputedStyle per class; structure only); a token contrast unit test; the render audit over every example and view passes.
+Budget: 100 net lines.
+
+Milestone: diagram-notation. Owner items: 8 (line tones). From the owner's list and the design review of 2026-11-22.
