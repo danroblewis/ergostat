@@ -6199,7 +6199,10 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
 - The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
   each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own.
+  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own. Held modelling
+  requests that are alike (one code, one asker: the entry's `fold`) are one entry, folded: their count, their code and
+  the systems of their parts, with one why and *Deny all* (each denied in turn); opened, each with its own answer.
+  The Model page's *Changes to review* counts them as waiting.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 

@@ -1329,6 +1329,33 @@ function inboxAnswer(a) {
   return row;
 }
 
+/* held requests alike (one code, one asker: the server's fold) as one entry, where the first of them stood */
+function folded(xs) {
+  const by = {}, out = [];
+  for (const a of xs) {
+    if (!a.fold) out.push(a);
+    else if (by[a.fold]) by[a.fold].members.push(a);
+    else out.push(by[a.fold] = { members: [a] });
+  }
+  return out.map((a) => (a.members?.length === 1 ? a.members[0] : a));
+}
+const PLURAL = { stock: "stocks", flow: "flows", auxiliary: "auxiliaries", parameter: "parameters", goal: "goals", block: "blocks" };
+function foldRow(ms, row) {
+  const kinds = new Set(ms.map((m) => String(m.about).split(".")[0])), systems = [...new Set(ms.map((m) => m.system).filter(Boolean))].sort();
+  const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text", placeholder: "why (to deny all)", "aria-label": "Why" });
+  const all = h("button", { class: "ghost", "data-verb": "deny-all", onclick: async () => {
+    all.disabled = true;
+    const bad = [];                                   // one at a time: each answer is the owner's event, in turn
+    for (const m of ms) await apiPost(`inbox/${encodeURIComponent(m.what)}/deny`, why.value ? { note: why.value } : {}).catch((e) => bad.push(e.message));
+    said.textContent = bad.length ? ` ${bad.length} not denied: ${bad[0]}` : ` ${ms.length} denied`;
+    all.disabled = false; refreshHeader();
+  } }, "Deny all");
+  return h("div", { "data-fold": ms[0].fold }, h("details", { class: "fold" },
+    h("summary", {}, h("b", { class: "lvl-warn" }, `${ms.length} ${kinds.size === 1 ? PLURAL[[...kinds][0]] || "parts" : "parts"}: ${ms[0].fold.split("|")[0].replace(/-/g, " ")}`),
+      systems.length ? ` (${systems.join(", ")})` : ""), ...ms.map(row)),
+    SNAP || S.at ? null : h("div", { class: "row inbox-act" }, why, all, said));
+}
+
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
@@ -1353,13 +1380,14 @@ function renderSide(side, g, view) {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
-  for (const a of problems.slice(0, MAX)) {
+  const row = (a) => {
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
     const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
-    att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
-      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
-  }
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
+    return h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
+      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null);
+  };
+  for (const a of folded(problems).slice(0, MAX)) att.append(a.members ? foldRow(a.members, row) : row(a));
+  if (folded(problems).length > MAX) att.append(h("div", { class: "more" }, `${folded(problems).length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
   side.append(att);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside

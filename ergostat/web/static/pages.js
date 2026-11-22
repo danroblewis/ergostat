@@ -1065,7 +1065,7 @@ async function pageModel(main) {
     patch(notes, ...d.notes.map((n) => h("p", { class: "muted small" }, n)));
     const why = Object.entries(d.not_proposed || {});
     const q = d.queue || [];
-    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length, x.state])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed +
+    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length, x.state])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed + d.held +
       JSON.stringify([d.redesigns?.asked, d.redesigns?.last?.id, d.redesigns?.last?.result]);
     if (sig !== propSig && !answering()) {
       propSig = sig;
@@ -1081,7 +1081,8 @@ async function pageModel(main) {
       const all = h("button", { onclick: () => simulateAll(sims, allBox, all), disabled: sims.length < 1 ? "" : null }, "Simulate all pending");
       const kinds = {};
       for (const x of q) kinds[x.what] = (kinds[x.what] || 0) + 1;
-      qHead.replaceChildren("Changes to review", h("span", { class: "muted" }, q.length ? ` ${q.length} waiting` : ""));
+      const held = d.held ? h("p", { class: "muted" }, `${d.held} modelling request${d.held > 1 ? "s" : ""} held for you: answered in `, h("a", { href: "/diagram" }, "Needs attention"), ".") : null;
+      qHead.replaceChildren("Changes to review", h("span", { class: "muted" }, q.length + (d.held || 0) ? ` ${q.length + (d.held || 0)} waiting` : ""));
       qActions.replaceChildren(...[SNAP ? null : all, SNAP ? null : btn, SNAP ? null : pick,
         h("span", { class: "muted small" }, d.to_estimate.length
           ? `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`
@@ -1089,7 +1090,7 @@ async function pageModel(main) {
         d.loops_analysed < d.loops ? h("span", { class: "muted small" }, `loops analysed for proposals: ${d.loops_analysed} of ${d.loops}`) : null,
         said, redesignAsk(d.redesigns, () => { propSig = null; setTimeout(tick, 600); })].filter(Boolean));
       queueBox.replaceChildren(...(q.length ? q.map((x) => reviewEntry(x, { onDone: () => { propSig = null; allBox.replaceChildren(); setTimeout(tick, 600); } }))
-        : [h("p", { class: "muted" }, "Nothing waiting.")]));
+        : held ? [] : [h("p", { class: "muted" }, "Nothing waiting.")]), ...(held ? [held] : []));
       whyBox.replaceChildren(...(why.length ? [h("h3", {}, "Estimates not proposed"),
         table(["parameter", "why"], why.map(([n, w]) => h("tr", {}, h("td", {}, h("b", {}, n)), h("td", { class: "small" }, w))), "can")] : []),
         ...(d.open_loops?.length ? [h("p", { class: "muted small" }, `Every stock integrated still leaves open ${d.open_said}, since the replay takes what a decision sets as measured.`)] : []));

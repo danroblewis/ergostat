@@ -638,8 +638,10 @@ def queue(live, p, snap: dict) -> dict:
     not_made += [{"title": x["title"], "why": f"{x['state']}: {x['why']}" + (f"; {x['held_back']}" if x["held_back"] else ""),
                   "code": "turned-away", "by": x["by"], "item": x["item"]}
                  for x in mem.turned(p, spec) if x["by"] == "ergostat"][:12]
+    from ..inbox import entries as en
     from ..numbers import redesign as rd
     return {"queue": rv.entries(p, spec, control), "not_made": not_made,
+            "held": sum(1 for e in en.entries(p, spec) if e["kind"] == "request"),     # modelling requests, the owner's
             "redesigns": {"systems": ["model", *sorted(spec.systems)], "asked": rd.asked(p), "last": rd.last(p),
                           "settings": rd.settings(spec), "on": "redesigner" in spec.blocks},
             "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),

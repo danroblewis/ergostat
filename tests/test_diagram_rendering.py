@@ -3808,3 +3808,86 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+FOLD_SYSTEMS = ["api", "billing", "build", "data", "support", "web"]
+FOLD_ROW = '.side .att > [data-fold^="no-unit|"]'
+IN_VIEW = """() => {
+  // every entry of Needs attention inside the side panel's visible box, the panel not scrolled
+  const side = document.querySelector('.side'), box = side.getBoundingClientRect();
+  const bottom = Math.min(innerHeight, box.bottom);
+  return {scrolled: side.scrollTop, out: [...side.querySelectorAll('.att > div')].filter((el) => {
+    const r = el.getBoundingClientRect();
+    return r.height === 0 || r.top < Math.max(0, box.top) || r.bottom > bottom;
+  }).map((el) => el.textContent.slice(0, 60))};
+}"""
+
+
+def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answer(browser, tmp_path, home):
+    """Design review Q50: 24 stocks with no unit, each its own held request with its own Deny, filled the side list and
+    pushed the one real alarm away, while /model said 'Nothing waiting'. Alike requests (one code, one asker) are one
+    entry: the count, the systems, and Deny all; opened, each with its own answer. /model counts them as waiting."""
+    from ergostat import model as mdl
+    from ergostat.actions import gate
+    from ergostat.numbers import requests as rq
+    from ergostat.store import Project
+
+    from .test_inbox import MODEL
+    from .test_modelling_core import MODELLING
+    stocks = "".join(f"  {s}-{i}:\n    system: {s}\n    description: what waits in {s}, part {i}\n    sensor: {{manual: true}}\n"
+                     for s in FOLD_SYSTEMS for i in range(4))
+    systems = "systems:\n" + "".join(f"  {s}:\n    description: the {s} work\n" for s in FOLD_SYSTEMS)
+    (tmp_path / "ergostat.yaml").write_text(MODEL.replace("stocks:\n", systems + "stocks:\n" + stocks, 1) + MODELLING)
+    p = Project(mdl.load(tmp_path))
+    assert not [x for x in p.model.problems if x.level == "error"], [str(x) for x in p.model.problems]
+    gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None})      # the real alarm, held for the owner
+    rq.sync(p)
+    held = [r for r in rq.current(p, ("open",)) if r["code"] == "no-unit"]
+    assert len(held) == 24, sorted(r["about"] for r in held)
+    for r in held:
+        rq.mark(p, r, "held", "no tier has a change for it")
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram")
+        pg.locator(FOLD_ROW).wait_for(timeout=60000)
+        pg.locator('.side .att [data-inbox^="action/"]').wait_for(timeout=20000)
+        assert pg.locator(".side .att > [data-fold]").count() == 1
+        summary = pg.locator(f"{FOLD_ROW} summary").inner_text()
+        assert "24" in summary and "no unit" in summary and "(api, billing, build, data, support, web)" in summary, summary
+        assert pg.locator('.side .att > [data-inbox^="request/"]').count() == 0     # no member left as a row of its own
+        got = pg.evaluate(IN_VIEW)
+        assert got == {"scrolled": 0, "out": []}, got
+        pg.locator(f"{FOLD_ROW} summary").click()
+        members = pg.locator(f'{FOLD_ROW} details [data-inbox^="request/"]')
+        assert members.count() == 24
+        assert all(members.nth(i).locator('button[data-verb="deny"]').count() == 1 for i in range(24))
+        model = browser.new_page(viewport={"width": 1440, "height": 900})
+        model.goto(f"{url}/model")
+        model.wait_for_function("() => /waiting/.test(document.querySelector('#review-queue')?.textContent || '')", timeout=60000)
+        text = model.locator(".page").first.inner_text()
+        assert "Nothing waiting" not in text and "24 modelling requests held" in text, text[:2000]
+        model.close()
+        pg.locator(f"{FOLD_ROW} > .inbox-act input").fill("units are not this model's concern")
+        pg.locator(f'{FOLD_ROW} button[data-verb="deny-all"]').click()
+        pg.wait_for_function(f"() => !document.querySelector('{FOLD_ROW}')", timeout=60000)
+        assert {r["state"] for r in rq.stored(p).values() if r["code"] == "no-unit"} == {"dismissed"}
+        assert pg.locator('.side .att [data-inbox^="action/"]').count() == 1            # the alarm still waits
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)

@@ -162,12 +162,16 @@ def _requests(p, spec, now: float) -> list[dict]:
     on its item's page. Approved, it goes back to the modelling loop; denied (with why), it is dismissed until its part
     changes; and answered of itself when check no longer finds it."""
     from ..numbers import requests as rq
+    from ..spec.ir import Ref
     if MODELLING_REQUEST not in spec.items:
         return []
+    # ``fold``: alike requests (one code, one asker) answered together on the page; ``system``: their part's
     return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now,
              "verbs": ["approve", "deny"] if rq.approvable(spec, r) else ["deny"],
              "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
-             "summary": f"modelling holds {r.get('code')} on {r.get('about')}", "why": _cut(r.get("why") or "", 200)}
+             "summary": f"modelling holds {r.get('code')} on {r.get('about')}", "why": _cut(r.get("why") or "", 200),
+             "fold": f"{r.get('code')}|{r.get('source')}", "about": r.get("about"),
+             "system": spec.owner(ref) if (ref := Ref.parse(r.get("about"))) else None}
             for r in rq.stored(p).values() if r["state"] == "held"]
 
 
