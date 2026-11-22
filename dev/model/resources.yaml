@@ -159,6 +159,11 @@ blocks:
       disk: goal.disk-free-enough.off
     expr: max(fit, cpu, memory, vm, threads, disk)
     out: [block.implement-when, block.review-when]
+  restart-docker:
+    type: external
+    description: the coordinator restarts Docker Desktop while its VM holds too many files open, which drops them (and restarts every container); nothing in the factory does it, and no gate reads the goal
+    in: goal.vm-open-files-within
+    out: auxiliary.vm-open-files
   cleanup-when:
     type: expr
     description: clean up while the factory's folders are past their size or the disk is short

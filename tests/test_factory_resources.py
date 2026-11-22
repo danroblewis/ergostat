@@ -199,8 +199,13 @@ def test_gates_respect_headroom(res):
     assert {r.name for r in spec.blocks["machine-full"].outputs["out"]} == {"implement-when", "review-when"}
     vm = spec.goals["vm-open-files-within"]                             # a leak shown, before the engine fails
     assert (vm.of.name, vm.hold.op, vm.hold.value) == ("vm-open-files", "<=", 150000)
-    assert [s.run for s in spec.auxiliaries["vm-open-files"].sensors.values()] == [
+    assert [s.run for s in spec.auxiliaries["vm-open-files"].sensors.values() if s.run] == [
         "python3 dev/bin/resources.py vm-open-files"]
+    assert spec.loop("vm-open-files-within").actuators == ["restart-docker"]     # its loop closes through the owner,
+    assert spec.blocks["restart-docker"].type == "external"                       # and nothing of the factory's reads it
+    assert [b for b in spec.blocks.values() if b.type != "external"
+            and any(r.kind == "goal" and r.name == "vm-open-files-within" for r in b.reads())] == []
+    assert not [p for p in problems if p.code == "missing-feedback" and p.about == "goal.vm-open-files-within"]
     calm = dict(fit=0, cpu=0, memory=0, vm=0, threads=0, disk=0)
     assert env_of(spec, "machine-full", calm) == 0
     for k in calm:

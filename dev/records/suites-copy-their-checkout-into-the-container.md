@@ -53,5 +53,11 @@ Built (round 1) in a Linux container with no Docker, so nothing here was measure
   goal shows on the model and feeds no gate (`machine-full` does not read it), so a leak is seen and nothing is
   stopped. Tests: `test_the_docker_vms_open_files_are_read_on_macos_only`, and `test_gates_respect_headroom` checks
   the goal and the sensor in the compiled model.
+- **Check finding `missing-feedback goal.vm-open-files-within`, answered.** The goal's loop closes through a new
+  `external` block, `restart-docker` (the coordinator restarts Docker Desktop, as on 2026-11-22 at 10:17). It reads the
+  goal and sets `auxiliary.vm-open-files`. This was chosen over gating sessions in `machine-full` as the more
+  reversible option: it states who acts today and stops nothing. `test_gates_respect_headroom` checks that the loop's
+  actuator is `restart-docker`, that no block other than an external one reads the goal, and that the finding is
+  gone. It failed with the block's `out:` removed.
 - Files outside the list: `dev/bin/resources.py` (the sensor's program is there) and one sentence in
   `dev/README.md`. `dev/bin/fac.py` needed no change. Net lines in `dev/bin` and `dev/model`: +38.
