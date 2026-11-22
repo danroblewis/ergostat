@@ -59,20 +59,13 @@ function wanted(lay, g) {
     if (n.kind === "system" && box[n.id]) {
       const b = box[n.id], mid = b.x + b.width / 2;
       for (const p of n.ports) {
-        const peers = g.edges.flatMap((e) => e.members || [e]).filter((e) => e.sourcePort === p.id || e.targetPort === p.id).map((e) => other(e, p.id)).filter(Boolean);
+        const peers = g.edges.filter((e) => e.sourcePort === p.id || e.targetPort === p.id).map((e) => other(e, p.id)).filter(Boolean);
         if (!peers.length) continue;
         const cx = peers.reduce((a, c) => a + c.x, 0) / peers.length, cy = peers.reduce((a, c) => a + c.y, 0) / peers.length;
         sides[p.id] = cx < mid ? "west" : "east";
         ranks[p.id] = Math.round(cy);
       }
     }
-  }
-  for (const e of g.edges) for (const end of e.members ? ["sourcePort", "targetPort"] : []) {   // (PROTOTYPE: a bundle's
-    const ids = [...new Set(e.members.map((m) => m[end]))].filter((id) => ranks[id] != null);   // member rows together)
-    const mean = ids.reduce((a, id) => a + ranks[id], 0) / (ids.length || 1);
-    const last = new URLSearchParams(location.search).get("rows") === "last" ? 1e6 : 0;
-    ids.forEach((id, i) => { ranks[id] = last + Math.round(mean) + i * 0.01; sides[id] = sides[ids[0]]; });
-    if (ids.length && new URLSearchParams(location.search).has("middle")) e[end] = ids[(ids.length - 1) >> 1];   // the trunk at the middle row
   }
   return { sides, ranks };
 }
@@ -740,7 +733,7 @@ function drawGraph(svg, g, lay) {
     lay.width = Math.max(lay.base.width, ext.x1) - lay.ox; lay.height = Math.max(lay.base.height, ext.y1) - lay.oy;
   }
   const edgesG = s("g");
-  S.sdSigns = []; S.sdBranches = []; S.sdMarks = [];                    // (the polarities placed so far: dynamics.js)
+  S.sdSigns = [];                                         // (the polarities placed so far: dynamics.js)
   const flowLinks = sd ? sdFlowLinks(g) : new Set();      // what Flows only keeps, by the model (dynamics.js)
   const flowEnds = new Set(g.edges.filter((e) => flowLinks.has(e.id)).flatMap((e) => [e.source, e.target]));
   if (sd && !flowLinks.size)                              // (shown with Flows only: a level with nothing it keeps says so)
@@ -1175,7 +1168,7 @@ async function pageDiagram(main, q) {
   }
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
-    S.graph = g = sdBundle(g);                       // (PROTOTYPE, ?bundle=1 only: dynamics.js)
+    S.graph = g;
     proposedBanner(wrap, g, proposal, go);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
       sysSel.dataset.tree = "1";
