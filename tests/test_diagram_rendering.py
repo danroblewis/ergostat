@@ -3819,6 +3819,13 @@ SAYS = """(id) => { const g = document.querySelector(`svg.canvas g.node[data-id=
   g.dispatchEvent(new PointerEvent("pointerleave"));
   return { text: now, pointed, left: said(), label: S.graph.nodes.find((n) => n.id === id)?.label }; }"""
 
+ROWS = """() => [...document.querySelectorAll('svg.canvas g.node[data-id^="system:"]')].flatMap((g) => {
+  const said = (t) => [...t.childNodes].filter((c) => c.nodeType === 3).map((c) => c.textContent).join("").replace("\\u21c4 ", "");
+  return [...g.querySelectorAll("text.t-sub, text[data-part]")].map((t) => {
+    const text = said(t); t.dispatchEvent(new PointerEvent("pointerenter")); const pointed = said(t);
+    t.dispatchEvent(new PointerEvent("pointerleave"));
+    return { box: g.dataset.id.slice(7), text, pointed, left: said(t) }; }); })"""
+
 
 def test_inside_its_own_systems_box_a_part_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
     """Drilled into the use help-queue, its stock reads ``waiting``; pointed at, ``help-queue-waiting`` (in its own
@@ -3837,5 +3844,25 @@ def test_inside_its_own_systems_box_a_part_reads_by_its_short_name_with_its_full
         drawn(pg, url, "around=stock/help-queue-waiting", 3)        # no system drawn around it: its full name
         got = pg.evaluate(SAYS, "stock:help-queue-waiting")
         assert got and "help-queue-waiting" in got["text"].split("|") and got["pointed"] == got["text"], got
+        pg.close()
+        assert not errors, errors
+
+
+def _reads_the_queue(d: Path) -> None:
+    with (d / "ergostat.yaml").open("a") as f:
+        f.write("flows:\n  queue-moved-on: {from: help-queue-waiting, system: work}\n")
+
+
+def test_a_closed_boxs_port_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """A hand-written part in work reads help-queue's stock: the closed help-queue box's port for it reads ``waiting``,
+    pointed at ``help-queue-waiting`` (SPEC §2a, *A part's system*)."""
+    with served("small-requests", tmp_path, edit=_reads_the_queue) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics&system=work&open=", 0)          # (the page's one systems view)
+        rows = [r for r in pg.evaluate(ROWS) if r["box"] == "help-queue"]
+        assert {"box": "help-queue", "text": "waiting", "pointed": "help-queue-waiting", "left": "waiting"} in rows, rows
+        assert not [r for r in rows if "help-queue-waiting" in r["text"]], rows
         pg.close()
         assert not errors, errors

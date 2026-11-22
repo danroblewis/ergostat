@@ -4,7 +4,8 @@ Only the label changes: a node, a box's measure row or a box's port gets ``shown
 it belongs to (``spec/belongs.py``) is drawn around it: the system drilled into, an open system's outline it sits in,
 or the box whose row or port it is. Its ``label`` (its full name, which links and lookups use) is kept. A part whose
 system is not known, or not drawn around it, has no ``shown``: its full name is drawn. A short name that would read
-the same as anything else drawn is dropped, so two parts never read alike."""
+the same as anything else drawn (another part, or an open system's outline title) is dropped, so two parts never read
+alike."""
 
 from __future__ import annotations
 
@@ -35,7 +36,7 @@ def shorten(g: dict, spec) -> dict:
                 mark(x, {n.get("label"), *around(n)})
                 drawn.append(x)
     while True:                                            # never two parts alike: a clash drawn with full names
-        said: dict = {}
+        said: dict = {s: {f"outline:{s}"} for s in g.get("open") or []}   # an open outline's title: its full name
         for x in drawn:                                    # (one part drawn twice, a row and a port, is one part)
             said.setdefault(x.get("shown") or x.get("label"), set()).add(x.get("label"))
         clash = [x for x in drawn if x.get("shown") and len(said[x["shown"]]) > 1]

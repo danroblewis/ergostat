@@ -60,6 +60,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   them, and the `library-untrusted` refusal's folder path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
   without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
   the rebase onto main.
+- **A part knows its system** (done on `parts-belong-to-their-system`; owner, 2026-11-22; SPEC §2a, *A part's
+  system*): a library instance's parts and a remote's record their system and short name where they are made
+  (`spec.belongs`), and the Dynamics view draws a part inside its own system's box by its short name, its full name
+  when pointed at and in every link; full names are unchanged. *Left:* a `once: true` template's own parts, a
+  remote's stand-ins and names a parameter gives whole record no system, so they always read by their full names.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.

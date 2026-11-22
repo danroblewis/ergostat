@@ -92,16 +92,18 @@ def test_a_hand_written_m_a_open_beside_remote_ms_a_open_keeps_distinct_owners(t
     spec, ps = _remote(tmp_path)
     assert spec.belongs["stock.m-a-open"] == Belongs("m", "a-open")
     assert "stock.m-b-open" not in spec.belongs and "flow.m-b-in" not in spec.belongs   # never read from the text
-    # the very name taken by hand: the hand-written part is first and keeps no owner; the remote's is not put over it
+    # the very name taken by hand: the hand-written part stands and keeps no owner; the remote's is not composed
     local = LOCAL.replace("m-b-open", "m-a-open").replace("m-b-in: {to: m-a-open, driven-by: [+stock.m-a-open]}",
                                                           "m-b-in: {to: m-a-open}")
-    from ergostat.spec.load import load
     write(tmp_path / "two" / "support", local)
-    served_into(tmp_path / "two" / "support", tmp_path / "two", remote="m", text=REMOTE)
-    doc = load(tmp_path / "two" / "support" / "ergostat.yaml")
-    hand = doc.defined[("stocks", "m-a-open")]
-    assert getattr(hand, "belongs", None) is None and not hasattr(hand, "remote")
-    assert doc.defined[("flows", "m-a-in")].belongs == Belongs("m", "a-in")
+    served_into(tmp_path / "two" / "support", tmp_path / "two", remote="m", text=REMOTE.replace(
+        "flows:", "auxiliaries:\n  a-rate: {equation: '1'}\nflows:"))
+    spec, ps = sp.read(tmp_path / "two" / "support" / "ergostat.yaml", extremes=False)
+    assert not [p for p in ps if p.level == "error"], ps
+    assert [p for p in ps if p.code == "remote-name-taken" and p.about == "stock.m-a-open"], ps
+    assert "stock.m-a-open" not in spec.belongs and "flow.m-b-in" not in spec.belongs     # the local one: no owner
+    assert spec.stocks["m-a-open"].system != "m"
+    assert spec.belongs["auxiliary.m-a-rate"] == Belongs("m", "a-rate")           # the remote's other parts: m's
 
 
 def _graph(nodes, focus=None):
@@ -132,7 +134,16 @@ def test_inside_a_systems_box_the_short_name_is_shown_with_the_full_name_availab
     shorten(_graph([box]), spec)
     assert box["measures"][0]["shown"] == "waiting" and box["ports"][0]["shown"] == "waiting"   # one part: no clash
     assert "shown" not in box["ports"][1]
-    assert g is not None
+    assert [n.get("shown") for n in g["nodes"]] == ["waiting", None]              # what shorten hands back: the same nodes
+
+
+def test_a_short_name_that_reads_like_an_open_outlines_title_is_drawn_by_its_full_name(tmp_path):
+    spec = _read(USES.replace("work: {}", "work: {}\n  waiting: {within: work}"), tmp_path)
+    n = {"id": "stock:questions-waiting", "kind": "stock", "label": "questions-waiting", "systems": ["questions"]}
+    shorten({**_graph([n]), "open": ["questions"]}, spec)
+    assert n["shown"] == "waiting"                                  # the outline "waiting" not open: no clash
+    shorten({**_graph([n]), "open": ["questions", "waiting"]}, spec)
+    assert "shown" not in n                                         # beside an outline titled "waiting": its full name
 
 
 def test_two_parts_drawn_side_by_side_never_read_the_same(tmp_path):

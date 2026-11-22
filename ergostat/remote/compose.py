@@ -206,7 +206,7 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
     for section, entries in made.items():
         for pname, (got, there) in entries.items():
             pv = own(RemoteVia(via.file, via.line, name, url, [*secs[section][there]["via"], served["instance"]]),
-                     name, there)                     # the remote's part: its system the remote, as the remote names it
+                     name, there)                   # the remote's part: its system the remote, as the remote names it
             info["pending"].append((section, pname, got, pv))      # put by finish, after every file
     info["show"] = _shown(doc, name, info, secs, made, only, shown, entry.at("show") if shown else via)
 

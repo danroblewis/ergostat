@@ -150,16 +150,18 @@ place or drawn alone, in both views, like any system. Templates may use template
 **short name** there; so does a part a remote serves (§4c): `incidents-open` is remote `incidents`'s `open`. The
 compiled model records both for each such part when it is made (`spec.belongs`, keyed `stock.incidents-open`). It
 never reads them back out of the full name: a hand-written `incidents-extra` beside remote `incidents` records
-none, and neither does a name a parameter gives whole, a `once: true` template's part, the instance's own system,
-or a remote's stand-in for a part it does not serve. An inner instance's system belongs to the outer one
-(`INSTANCE-INNER` is `INSTANCE`'s `INNER`), and the inner instance's parts to it. Full names do not change:
-every reference, event and record keeps them. Only the drawing uses the short name: in the Control and Dynamics
-views, a part drawn inside its own system (the system drilled into, an open system's outline, or the closed box
-whose measure row or port it is) reads by its short name; pointed at, it reads by its full name (in its own text,
-since a part has no tooltip), and its panel and every link use the full name. Anywhere else (a terminal at the
-edge, a view of what is around a part, the Blocks and Process views) it reads by its full name, as does a part
-whose system is not recorded. A short name that would read the same as another part drawn in the same view is not
-used, and that part reads by its full name.
+none (nor does a hand-written `incidents-open` that takes the name of remote `incidents`'s `open`: it stands, and
+the remote's is not composed, `remote-name-taken`), and neither does a name a parameter gives whole, a part a
+`once: true` template keeps unprefixed, the instance's own system, or a remote's stand-in for a part it does not
+serve. An inner instance's system belongs to the outer one (`INSTANCE-INNER` is `INSTANCE`'s `INNER`, a `once`
+template's inner use too, since its name is prefixed), and the inner instance's parts to it. Full names do not
+change: every reference, event and record keeps them. Only the drawing uses the short name: in the Dynamics view
+(once called Control), a part drawn inside its own system (the system drilled into, an open system's outline, or
+the closed box whose measure row or port it is) reads by its short name; pointed at, it reads by its full name (in
+its own text, since a part has no tooltip), and its panel and every link use the full name. Anywhere else (a
+terminal at the edge, a view of what is around a part, the Blocks and Process views) it reads by its full name, as
+does a part whose system is not recorded. A short name that would read the same as another part drawn in the same
+view, or as the title of an open system's outline, is not used, and that part reads by its full name.
 
 **Where it points.** Every part a use makes is written at its `use:` line: an error in one, and every finding
 about one, points there (`job/pings.yaml:3 (use review-reminders: re-ping)`). It is changed only through its
