@@ -24,3 +24,13 @@ Acceptance tests: review only: no open TODO on storage, fetch, editing or defaul
 Budget: 250-400 lines of prose, no code.
 
 Milestone: dashboard. Owner items: 18. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Done: docs/proposals/dashboard.md answers 1-9, with worked examples for software-factory and ticket-factory and the
+owner's one question; docs/DECISIONS.md has the override line. Every file:line cited was checked against main.
+Not done here: new timings. The request budget cites the recorded ones (owner item 2; docs/proposals/scale.md,
+The web UI), because the command that copied the examples to /tmp to time them was refused in this session. The
+10-panel target is measured first by dashboard-page-v1, against a factory-size fixture it makes (none is on main).
+Found: goalrow.js, state.goals_off and the server's `word` are not on main, so dashboard-page-v1 waits for the gap
+that lands them (the proposal says so in sections 4 and 9).
