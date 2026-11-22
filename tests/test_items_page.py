@@ -1087,7 +1087,8 @@ def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
     pg.wait_for_timeout(500)                                  # the parts asked for after the first (counts, charts)
     got = pg.evaluate(NAMES)
     assert got["out"] == [], got["out"]
-    assert got["pressed"] == ([view] if view else []), got["pressed"]
+    # The diagram's view buttons also say what each view shows ("Dynamics · what is"): the view's word leads the name.
+    assert [p.split(" · ")[0] for p in got["pressed"]] == ([view] if view else []), got["pressed"]
     assert got["current"] == [nav], got["current"]
     if nav == "/diagram":
         assert got["side"] is True                           # the side panel a landmark, named
