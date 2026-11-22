@@ -139,6 +139,8 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
         ref = fac.git_branch(branch)
     except ValueError as e:
         print(f"intake: {e}: not taken", file=sys.stderr)
+        if gap["fields"].get("unfetched") != "fails the branch rule":     # (raised by the watch, as the others)
+            fac.say("gap.measured", gap["id"], unfetched="fails the branch rule")
         return False
     for other in known.values():
         try:

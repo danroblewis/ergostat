@@ -100,3 +100,31 @@ The findings of review park-waits-clear-right-1, each answered:
   clear removed, the test was seen to fail ("'the checkout does not have' is None").
 
 Size: 79 net lines in dev/bin (77 + 2), within the 90.
+
+### Round 3
+
+The findings of review park-waits-clear-right-2, each answered:
+
+- *Blocking: classify() raised old continued parks.* Fixed in two places, each the smallest change. classify() now
+  skips a park that has `resumed_as` and writes nothing on it (dev/bin/parks.py). Its work goes on in the
+  continuation, so a kind can still be written on it later if wanted. The watch's `unknown` age bypass now leaves out
+  a park with `resumed_as` (dev/bin/watch.py). That covers a park already classified `unknown` by an earlier pass and
+  continued after that. A young continued park is raised within `parked_within_hours` as before this branch.
+  test_existing_parks_are_classified_and_deferred_ones_left_alone now has two such old parks, each with a merged
+  continuation: one unkinded and one already `unknown`. Neither is classified or raised. Each guard was removed on its
+  own and the test failed: a fifth `gap.measured` without the classify skip, and `gap/was-unknown` raised without the
+  watch's.
+- *intake.py:140-142, a `continues` name that fails the branch rule was said only on stderr.* Fixed. It now records
+  `unfetched: "fails the branch rule"`, once per change, and the watch raises it like the other two causes. Such a gap
+  never becomes valid, so nothing clears the cause. It stays open, as before, and the manager can close it.
+  test_an_unfetchable_continue_raises_a_situation covers this with `../warm`. With the record removed, the test was
+  seen to fail (KeyError 'unfetched'). +2 lines.
+- *Not run by the reviewer (Bash refused).* Run here: tests/test_factory.py (139 passed, 2 skipped),
+  test_factory_manager.py (33 passed), test_factory_knowledge.py (75 passed) and test_intake.py (21 passed), each
+  on its own. `ruff check ergostat tests scripts` is clean. test_factory_join.py was not run again this round. The
+  command that ran three files in one shell loop was refused, so each file was run alone.
+- *lesson-7, the whole unit suite and the four browser files.* Still not run here. They are the factory's to run
+  under suite_watch.py after origin/main is merged in. This clone has no origin/main.
+
+dev/README.md says continued parks are left alone. Size: 82 net lines in dev/bin (79 + 1 parks.py docstring + 0
+for the changed condition, +1 watch.py, +2 intake.py, counting only lines added less lines removed), within the 90.

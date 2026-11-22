@@ -613,7 +613,8 @@ is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the par
 continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Each pass
 first classifies, once, the parks from before kinds (`classified_by: park-classify`): `kill-rule` by who parked it,
 `waits_on` the one other gap whose merge its branch carries (main lacking that merge), else `unknown` (the manager's);
-a `deferred` or `cancelled` one, or one the plan review or the manager parked, is left alone. Expect the first
+a `deferred` or `cancelled` one, one the plan review or the manager parked, or one continued already (`resumed_as`:
+its work goes on in the continuation) is left alone, and an `unknown` one continued is not raised past its age. Expect the first
 session after this lands to carry many `parked` triggers, one for each old park classified `unknown` (a reviewer's
 included), once; after that, only new ones. Measures:
 `measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.

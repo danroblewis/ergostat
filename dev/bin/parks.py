@@ -102,7 +102,8 @@ def classify(cfg: dict) -> list[str]:
     """Each park from before kinds (no parked_for) given one once, under the continue lock (the resumer's and a
     continue's): the kill rule's by who parked it; one whose branch carries exactly one other gap's merge, waits_on that
     gap; any other, unknown (the pipeline manager's, raised by the watch whatever its age). A coordinator's park
-    (deferred or cancelled, or parked by the plan review or the pipeline manager) is left alone, with nothing written."""
+    (deferred or cancelled, or parked by the plan review or the pipeline manager) is left alone, with nothing written,
+    and so is one continued already (resumed_as: the original stays parked; its work goes on in the continuation)."""
     import manage
     done = []
     with open(fac.run_dir(cfg) / "continue.lock", "a") as lock:
@@ -111,7 +112,7 @@ def classify(cfg: dict) -> list[str]:
         for g in gaps.values():
             f = g["fields"]
             if (g["state"] != "parked" or f.get("parked_for") or f.get("deferred") or f.get("cancelled")
-                    or f.get("parked_by") in COORDINATORS):
+                    or f.get("resumed_as") or f.get("parked_by") in COORDINATORS):
                 continue
             by = str(f.get("parked_by") or "")
             kind, until = ("kill-rule", None) if by in KILLERS or by.startswith("queue run") else carried(cfg, g, gaps)

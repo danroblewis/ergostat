@@ -3714,21 +3714,25 @@ def test_existing_parks_are_classified_and_deferred_ones_left_alone(tmp_path):
     for name, by, more in (("killed", "implementor", {}), ("triaged", "queue run 4", {}), ("unclear", "review/x-2", {}),
                            ("deferred", "coordinator", {"deferred": True}), ("cancelled", "x", {"cancelled": True}),
                            ("by-manager", "pipeline-manager", {}), ("by-plan", "plan-review", {}),
-                           ("kinded", "implementor", {"parked_for": "defect"})):
+                           ("kinded", "implementor", {"parked_for": "defect"}),
+                           ("continued", "review/y-1", {"resumed_as": "gap/continued-continued"}),
+                           ("was-unknown", "review/z-1", {"parked_for": "unknown", "resumed_as": "gap/was-unknown-2"})):
         f.put(f"gap/{name}", "parked", branch=name, parked_by=by, parked_at=long_ago, **more)
-    assert resumed(f) == ["gap.measured"] * 4                                   # each once, by a program
+    for done in ("gap/continued-continued", "gap/was-unknown-2"):              # their continuations, landed
+        f.put(done, "merged", ago=60, branch=done[4:], continues=done[4:])
+    assert resumed(f) == ["gap.measured"] * 4                                  # each once, by a program
     kinds = {i: (f.item(i)["fields"].get("parked_for"), f.item(i)["fields"].get("parked_until"))
              for i in (gid, "gap/killed", "gap/triaged", "gap/unclear")}
     assert kinds == {gid: ("waits_on", {"gap": "gap/carried"}), "gap/killed": ("kill-rule", None),
                      "gap/triaged": ("kill-rule", None), "gap/unclear": ("unknown", None)}
-    alone = ("gap/deferred", "gap/cancelled", "gap/by-manager", "gap/by-plan")
+    alone = ("gap/deferred", "gap/cancelled", "gap/by-manager", "gap/by-plan", "gap/continued")   # (continued: too)
     assert all("parked_for" not in f.item(i)["fields"] and "classified_by" not in f.item(i)["fields"] for i in alone)
     kinded = f.item("gap/kinded")["fields"]
     assert kinded["parked_for"] == "defect" and "classified_by" not in kinded
     assert resumed(f) == []                                                    # classified once; nothing cleared yet
     raised = {(t["trigger"], t["subject"]) for t in f.watch()["triggers"]}
     assert ("parked", "gap/unclear") in raised                                 # unknown: the manager's, whatever its age
-    assert not {s for _, s in raised} & {*alone, gid, "gap/killed", "gap/triaged", "gap/kinded"}
+    assert not {s for _, s in raised} & {*alone, gid, "gap/killed", "gap/triaged", "gap/kinded", "gap/was-unknown"}
     f.put("gap/carried", "merged", ago=60, branch="carried", main_sha=git(f.checkout, "rev-parse", "origin/main"))
     assert resumed(f) == ["gap.requested", "gap.resumed"]                      # the park that motivated it, resumed
     assert f.item(gid)["fields"]["resumed_as"] == "gap/alpha-thing-continued"
@@ -3738,10 +3742,13 @@ def test_an_unfetchable_continue_raises_a_situation(tmp_path):
     f = pipe(tmp_path)
     gid = continues(f)                                                         # the checkout has no branch warm
     assert f.item(gid)["state"] == "open" and f.item(gid)["fields"]["unfetched"] == "the checkout does not have"
+    bad = continues(f, "../warm", "gap/escape")                                # a name the branch rule refuses
+    assert f.item(bad)["state"] == "open" and f.item(bad)["fields"]["unfetched"] == "fails the branch rule"
     assert "gap.measured" not in f.run("intake.py")[0]                         # said once, as it changes
     s = f.watch()
     assert ("unfetched", gid) in {(t["trigger"], t["subject"]) for t in s["triggers"]}
     assert "which the checkout does not have" in next(t["why"] for t in s["triggers"] if t["subject"] == gid)
+    assert "which fails the branch rule" in next(t["why"] for t in s["triggers"] if t["subject"] == bad)
     f.put("gap/holder", "approved", ago=60, branch="warm")                    # another gap holds the branch first
     f.run("intake.py")
     assert f.item(gid)["state"] == "open" and f.item(gid)["fields"]["unfetched"] is None   # the old cause cleared

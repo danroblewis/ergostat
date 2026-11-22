@@ -166,7 +166,8 @@ def triggers(cfg: dict, gaps: dict, opened: list[dict], now: float) -> list[dict
         elif g["state"] == "open" and f.get("unfetched"):                  # (intake.py: never only on stderr)
             out.append(sit("unfetched", g["id"], f"{g['id']} continues {f.get('continues')!r}, which {f['unfetched']}",
                            f["unfetched"]))
-        elif (g["state"] == "parked" and (now - at < s["parked"] * 3600 or f.get("parked_for") == "unknown")
+        elif (g["state"] == "parked" and (now - at < s["parked"] * 3600 or (f.get("parked_for") == "unknown"
+                                                                 and not f.get("resumed_as")))   # (continued: not)
               and branch(g) not in holders
               and f.get("parked_for") not in (*parks.RESUMED, "deferred", "cancelled")
               and not (f.get("deferred") or f.get("cancelled"))):           # a coordinator's decision, not a stall
