@@ -225,9 +225,10 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
     unknown = [INTERLOCK[w] for w, lim in limits.items() if lim is None]
     probe = approved and cfg.get("load", {}).get("wait", True)      # (the tests' machine is not the factory's)
     over = [w for w, lim in limits.items() if lim is not None and load.reading(w) > lim] if probe else []
-    try:                                       # (no instance or no heartbeat: health's own engine check says so)
-        stopped = live.dispatch_failing(live.heartbeat(cfg), now)
-    except (OSError, ValueError, KeyError, AttributeError):
+    try:                                       # (no instance, no heartbeat or a stale one: a dead engine, not this; health's
+        beat = live.heartbeat(cfg)             # own engine check says so)
+        stopped = live.dispatch_failing(beat, now) if now - float(beat["written"]) <= live.PASS_FRESH else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         stopped = None
     if stopped:
         out["dispatch"] = stopped

@@ -51,6 +51,33 @@ def test_a_child_depending_on_its_split_parent_does_not_raise_and_is_not_taken(t
     assert "gap/c" not in got and "gap/p" not in got and "gap/free" in got
 
 
+def test_a_parent_depending_on_its_child_and_a_grandchild_on_its_grandparent_are_cycles_not_taken(tmp_path):
+    p = project(tmp_path)
+    ev, t = p.events, time.time() - 100
+    # a parent on its own child: the parent's start comes before the child, the child before the parent
+    ev.add("gap.opened", item="gap/p", data={"depends_on": ["gap/c"]}, at=t)
+    ev.add("gap.opened", item="gap/c", data={"parent": "gap/p"}, at=t + 1)
+    # a grandchild on its grandparent, and a grandparent on its grandchild
+    ev.add("gap.opened", item="gap/g", at=t + 2)
+    ev.add("gap.opened", item="gap/m", data={"parent": "gap/g"}, at=t + 3)
+    ev.add("gap.opened", item="gap/k", data={"parent": "gap/m", "depends_on": ["gap/g"]}, at=t + 4)
+    ev.add("gap.opened", item="gap/G", data={"depends_on": ["gap/K"]}, at=t + 5)
+    ev.add("gap.opened", item="gap/M", data={"parent": "gap/G"}, at=t + 6)
+    ev.add("gap.opened", item="gap/K", data={"parent": "gap/M"}, at=t + 7)
+    ev.add("gap.opened", item="gap/free", at=t + 8)
+    spec = p.model.spec
+    g = pr.build(ev, spec, ["gap"], time.time(), t)
+    by = {x["id"]: x for x in g["items"]}
+    for a in ("gap/p", "gap/c", "gap/g", "gap/k", "gap/G", "gap/K"):
+        assert by[a]["cycle"] and "es" not in by[a], a
+    assert ["gap/c", "gap/p"] in g["cycles"]
+    assert by["gap/p"]["waiting"] == ["gap/c"] and by["gap/G"]["waiting"] == ["gap/K"]   # each names what it waits on
+    assert not by["gap/free"]["cycle"] and "es" in by["gap/free"]
+    todo = [i for i in its.project(ev, spec, "gap") if i.state == "open"]
+    got = [i.id for i in pr.order_ready(ev, spec, "gap", todo, time.time())]
+    assert got == ["gap/free"]
+
+
 TWO = """
 name: t
 items:
@@ -126,8 +153,12 @@ def test_a_repeated_dispatcher_error_raises_a_situation(tmp_path, monkeypatch):
     beat = json.loads((tmp_path / "heartbeat.json").read_text())
     assert beat["dispatch_error"]["why"] == "first: KeyError: 'gap/x'"
     f = Pipe(tmp_path / "pipe")
+    stale = {**beat, "written": beat["written"] - 600}                  # an engine that died while failing
     code = ("import time, watch\nwatch.load.reading = lambda w: 0\n"
-            f"watch.live.heartbeat = lambda cfg: {beat!r}\n"
+            f"watch.live.heartbeat = lambda cfg: {stale!r}\n"
+            "dead = watch.conditions(watch.fac.config(), {}, [], time.time())\n"
+            "assert 'dispatch' not in dead, dead\n"
+            f"watch.live.heartbeat = lambda cfg: {{**{beat!r}, 'written': time.time()}}\n"    # (fresh when read)
             "print(json.dumps({'fresh': watch.live.dispatch_failing({'dispatch_error': {'why': 'w', 'since': time.time()}},"
             " time.time()), 'nan': watch.live.dispatch_failing({'dispatch_error': {'why': 'w', 'since': 'nan'}}, 0),"
             " 'sit': watch.raise_one(watch.fac.config())}))")

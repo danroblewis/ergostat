@@ -45,3 +45,24 @@ Choices made alone (the most reversible):
   path already used). `relation_cycles` (the whole-record finding) is left at precedence relations only.
 Not run: the whole unit suite, the four browser files and demo_check (no example touched). origin/main is not in this
 clone and was not fetched (no network); local main is this branch's base.
+
+Round 2 (the fix of review 1):
+- Blocking (precedence.py, a parent depending on its descendant): `build` now seeks cycles over exactly the pairs it
+  passes to `cpm` (a parent's start and end nodes included, mapped back to the items), and repeats until none is
+  found, removing each cycle's items from the projection, so no loop through a parent, either way and at any depth,
+  reaches `cpm`. Precedence-only cycles are still found first over every item, as on main. Test:
+  `tests/test_one_bad_link.py::test_a_parent_depending_on_its_child_and_a_grandchild_on_its_grandparent_are_cycles_not_taken`
+  (a parent on its child, a grandchild on its grandparent, a grandparent on its grandchild: no raise, all marked a
+  cycle, each names what it waits on, none taken). Seen to fail with `KeyError: 'gap/k'` with the repeat disabled.
+  A cycle also takes in the items between (the middle generation), since they lie on the loop.
+- Non-blocking (watch.py, a stale heartbeat): the watch's `dispatch` condition counts only while the heartbeat was
+  written within `live.PASS_FRESH` seconds; an older one (or an unreadable `written`) is a dead engine, not this
+  condition. Tested in `test_a_repeated_dispatcher_error_raises_a_situation` (seen to fail with the check removed).
+- Non-blocking (depth): the new test above covers a grandparent.
+- Non-blocking (size): answered below. Left as is: deps.py refuses a dependency on an ancestor only (DoD 4); a
+  dependency on a descendant is now a cycle in the graph and is never taken, but the intake still writes it.
+Overrun reason: 84 net lines outside tests/ and docs/ (33 in ergostat/: precedence.py 11, dispatch.py 19, watchdog.py 3; 51 in dev/: deps.py 19, live.py 21, watch.py 10, planner.md 1), against 70; outside tests/, docs/ and dev/ (the brief's count) it is 33. Round 2 added 6: the repeat over the critical path's own pairs (5) and the watch's freshness check (1).
+Tests run in round 2, one file at a time: test_one_bad_link.py, test_deps.py, test_precedence_cap.py, test_take_order.py,
+test_relations.py, test_relations_asof.py, test_eta.py, test_numbers.py, test_graph_cli_web.py (all pass); ruff clean
+on ergostat tests scripts. Not run: the whole unit suite, the four browser files, demo_check. Still no origin/main in
+this clone (`git branch -a` lists only main and this branch).
