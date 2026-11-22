@@ -44,12 +44,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
   workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
   blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
   refused at the owner's `use:` line, with a refusal that suggests
-  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). *Still needed:* a gate on **provenance**,
-  so an untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
-  substitution of a `type: command` parameter, the marks kept through nested uses); a library's `example:` and
-  `reading:` marked untrusted wherever an agent reads them (library-untrusted-text); `fetch` by git URL or package,
-  refusing a lock entry without a tree, symlinks hashed explicitly; then running untrusted library scripts through
-  `ergostat.sandbox` and the rebase onto main.
+  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). **Built** (`library-untrusted-text`): an
+  untrusted template's text is marked in the `templates` tool and in three kinds of `check` problem, its names
+  checked, and its parts' schedules, pools, attempts and runs at once bounded at compile and when runs start, a second
+  line behind the allowlist (SPEC §2a, *Untrusted libraries*). *Still needed:* a gate on **provenance**, so an
+  untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
+  substitution of a `type: command` parameter, the marks kept through nested uses); the text an untrusted template
+  makes in the model marked too (its system's and parts' descriptions, prompts, commands, equations and names,
+  wherever `check`, the diagrams and the MCP model views show them, and the `library-untrusted` refusal's folder
+  path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
+  without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
+  the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.

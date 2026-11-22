@@ -497,6 +497,7 @@ class Sensor:
     builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
+    untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
 
     @property
     def window(self) -> float:
@@ -680,6 +681,7 @@ class Block:
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
+    untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
 
     @property
     def builtin(self) -> bool:
