@@ -312,8 +312,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
     else limits the count if the tidier stops. Still to come: **upkeep-watched-loops** (the watchdog, the heartbeat
     goal the outer watcher reads, leases and the worktree pool).
   - **The record's loops** (done on `factory/upkeep-record-loops`, `dev/records/upkeep-record-loops.md`): the stocks
-    `rollup-due`, `events-past-keep` and `measurements-due`, held at 0 by `record-compactor` (`upkeep rollup`) and
-    `measurement-retainer` (`upkeep retain`), each every 1m to 1d; the engine stops rolling up under `use: upkeep`.
+    `rollup-due`, `events-past-keep` and `measurements-due`, held at 0 by `record-compactor` and `record-pruner` (both
+    `upkeep rollup`) and `measurement-retainer` (`upkeep retain`), each every 1m to 1d; the engine stops rolling up under `use: upkeep`.
     Every compactor (the engine, `ergostat compact`, the programs) holds `<state>/compact.lock`, an `flock` taken
     without waiting, and says `busy` when it is held. A store that cannot count gives no reading.
 - **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):

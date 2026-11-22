@@ -938,9 +938,8 @@ class Measurements:
             prev = e
         with self._c() as c:
             c.execute("begin immediate")
-            raw_cut, cuts = self._cuts(now, marks)
-            if raw_cut is not None:
-                cut = raw_cut
+            cut, cuts = self._cuts(now, marks)
+            if cut is not None:
                 top = c.execute("select max(rowid) from samples").fetchone()[0]
                 done["forgot"] += c.execute("delete from samples where time < ?", (cut,)).rowcount
                 if c.execute("select max(rowid) from samples").fetchone()[0] != top:
@@ -970,10 +969,9 @@ class Measurements:
             cuts.append(cut)
         return raw, cuts
 
-    def due(self, now: float | None = None) -> int:
+    def due(self, now: float) -> int:
         """The rows ``roll`` would forget, counted without rolling, at ``roll``'s cuts and the marks its rolling
         would reach. 0 without tiers: ``roll`` then forgets nothing."""
-        now = now if now is not None else time.time()
         if not self.tiers:
             return 0
         n = 0

@@ -245,20 +245,26 @@ drained by `events-forgotten`; and `measurements-due` (`ergostat.upkeep.measurem
 `storage: measurements: raw`, and each tier's buckets past its keep, counted at the cut the roll forgets at: whole
 buckets of the next tier, never what it has not taken; so it is 0 straight after a roll; 0 without tiers, where
 nothing is forgotten), drained by `measurements-forgotten`. The goals `record-rolled-up`,
-`record-within-keep` and `measurements-within-tiers` hold each at 0. Two controllers on the rule rung serve them:
-`record-compactor`, `${lib} upkeep rollup --every ${rollup-every}`, does the roll-up, the pruning past `keep` and the
-archive's forgetting, and prints `{"out": "flow.rolled-up", "moved": ITEMS, "events": ..., "pruned": ...,
-"archive_forgot": ...}`; `measurement-retainer`, `${lib} upkeep retain --every ${retain-every}`, rolls the
-measurements into their tiers and prints `{"out": "flow.measurements-forgotten", "moved": ROWS, "rolled": ...}`.
-Each runs every its `every` (default 1h; 1m to 1d, refused at load and, exit 2, by the program). The
-`record-compactor` is stopped after `rollup-timeout` (default 1h, 1m to 1d); stopped, it has written nothing, so a
-backlog longer than that is never rolled up by the loop: raise it, or run `ergostat compact` once by hand. The
-retainer commits a few hours of readings at a time, so one stopped at its timeout keeps the buckets it rolled. Each holds the
+`record-within-keep` and `measurements-within-tiers` hold each at 0. Three controllers on the rule rung serve them,
+each run while its goal is off: `record-compactor` (for `record-rolled-up`), `${lib} upkeep rollup --every
+${rollup-every}`, does the roll-up, the pruning past `keep` and the archive's forgetting, and prints `{"out":
+"flow.rolled-up", "moved": ITEMS, "events": ..., "pruned": ..., "archive_forgot": ...}`; `record-pruner` (for
+`record-within-keep`) runs the same roll-up with `--out events-forgotten`, its line moving `flow.events-forgotten` by
+the events pruned, so events past `keep` that no roll-up touches (with no item, of an item of no kind, of an idle
+item) are forgotten while nothing is due to roll up; `measurement-retainer`, `${lib} upkeep retain --every
+${retain-every}`, rolls the measurements into their tiers and prints `{"out": "flow.measurements-forgotten", "moved":
+ROWS, "rolled": ...}`. Each runs every its `every` (default 1h; 1m to 1d, refused at load and, exit 2, by the
+program). The two record blocks are stopped after `rollup-timeout` (default 1h, 1m to 1d). A stopped run has
+written none of its pruning and, on all but a very large record, none of its roll-up: `compact` writes the archive
+then replaces the record every million snapshots, so a run stopped past one such step keeps what it wrote, which the
+next run goes on from (the archive reads each event once). A backlog longer than the timeout is never rolled up whole
+by the loop: raise it, or run `ergostat compact` once by hand. The retainer commits a few hours of readings at a
+time, so one stopped at its timeout keeps the buckets it rolled. Each holds the
 compaction lock (section 4b) for all its work; finding it held, it prints `busy: ...`, does nothing and exits 0. A
 store that cannot count what is due (VictoriaMetrics, which keeps its own retention; an events store without the
 count) gives no reading, never 0. **The engine stands down** here too: under `use: upkeep` its hourly pass still
 rotates and trims its logs but no longer rolls up, prunes or retains, and `check` finds `storage: rollup: every`
-unused (`unused-rollup-every`, naming `rollup-every`). **Fail-safe:** if the two blocks stop, the record only grows;
+unused (`unused-rollup-every`, naming `rollup-every`). **Fail-safe:** if the three blocks stop, the record only grows;
 items, the flows counted from them, the item index and the archive all still read right
 (`tests/test_upkeep_record.py`). A block killed at its timeout loses its whole process group (each run is its own),
 so the lock goes with it, and the record stays whole: its one write to the record is `p.events.replace`, as before.
@@ -546,7 +552,7 @@ their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--d
 it would roll up). A roll-up reads only the items the item index says are due (their first event
 since their snapshot older than the horizon, or a transcript's lines), a batch of them at a time.
 **`use: upkeep` changes this:** the engine then only rotates and trims its logs, and the template's
-`record-compactor` and `measurement-retainer` roll up, forget and retain, each every its own `every`
+`record-compactor`, `record-pruner` and `measurement-retainer` roll up, forget and retain, each every its own `every`
 (section 2a, *Upkeep*); `rollup.every` is then unused, and `check` says so.
 
 **The compaction lock.** Whoever rolls up, prunes, forgets archive months or rolls the measurements

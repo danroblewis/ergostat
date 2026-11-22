@@ -265,6 +265,34 @@ def test_with_upkeep_the_engine_rolls_nothing_up_and_without_it_does(tmp_path, m
         assert said and "busy" in said[-1], said
 
 
+def test_events_past_keep_alone_starts_a_pruner_through_its_goal(tmp_path):
+    """Nothing to roll up (rollup-due 0), but events past keep that no roll-up would touch: an item-less event and an
+    item of no kind. The engine's own pass turns on a block serving record-within-keep (its implied onoff), and that
+    block's run forgets them (review round 2: the compactor alone ran only while rollup-due was off)."""
+    from ergostat.spec.engine import Engine
+    p = _project(tmp_path / "w")
+    now = time.time()
+    p.events.add("note", data={"n": 1}, at=now - 40 * DAY)
+    p.events.add("solo.x", item="solo", at=now - 40 * DAY)
+    p.events.add("t.opened", item="t/new", at=now - 60)
+    spec = p.model.spec
+    e = Engine(p, say=lambda s: None)
+    e.machines = []                                      # the pass only: the blocks it turns on are run below
+    for stock in ("rollup-due", "events-past-keep", "measurements-due"):
+        for s in spec.stocks[stock].sensors.values():
+            p.measurements.add(s.series, ms.measure(p, f"ergostat.upkeep.{stock}"), at=now - 1)
+    assert e.signals.get("stock.rollup-due") is None
+    e.evaluate(full=True)
+    assert e.signals["stock.rollup-due"] == 0.0 and e.signals["stock.events-past-keep"] == 2.0, e.signals
+    on = [b for b in spec.blocks.values() if b.type == "program" and b.goal and e.command_of(b)[0]]
+    assert [b.goal for b in on] == ["record-within-keep"], [b.name for b in on]
+    for b in on:
+        e.run_block(b, "test")
+    assert ms.measure(p, "ergostat.upkeep.events-past-keep") == 0
+    assert not p.events.query(n=None, type="note") and not p.events.query(n=None, item="solo")
+    assert p.events.query(n=None, item="t/new"), "what is within keep stays"
+
+
 def test_compaction_stopped_grows_the_record_and_nothing_breaks(tmp_path):
     from ergostat.spec.engine import read_sensor
     p = _project(tmp_path / "s")

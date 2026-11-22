@@ -90,7 +90,7 @@ def test_upkeep_expands_to_the_index_files_loop(tmp_path):
     assert mine(spec.goals) == {"index-files-few", "no-retired-index-files", "record-rolled-up", "record-within-keep",
                                 "measurements-within-tiers"}
     assert mine({n: b for n, b in spec.blocks.items() if not b.implied}) == {"index-tidier", "record-compactor",
-                                                                              "measurement-retainer"}
+                                                                              "record-pruner", "measurement-retainer"}
     assert [s.builtin for s in spec.stocks["index-files"].sensors.values()] == ["ergostat.upkeep.index-files"]
     assert [s.builtin for s in spec.stocks["retired-index-files"].sensors.values()] == ["ergostat.upkeep.retired-index-files"]
     assert spec.stocks["index-files"].unit == "files"

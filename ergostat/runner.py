@@ -559,8 +559,7 @@ class Runner:
 # ---- in the background
 
 def prune_once(p, say) -> None:
-    """One pass of ``Runner._prune``: the logs rotated and trimmed; then, unless the model has ``use: upkeep`` (whose
-    record-compactor and measurement-retainer do it), ``rollup.upkeep`` under the compaction lock, or ``busy``."""
+    """One pass of ``Runner._prune``: the logs; then ``rollup.upkeep`` (or ``busy``), unless ``use: upkeep``'s blocks do it."""
     from .rollup import upkeep
     from .spec.itemindex import upkept
     from .storage import rotate, trim

@@ -1,12 +1,9 @@
 """ergostat's own upkeep, measured (SPEC §2a, *Upkeep*): ``ergostat.upkeep.index-files``, the live item-index files
-under ``<state>/items``, and ``ergostat.upkeep.retired-index-files``, the retired ones (``spec/itemindex.files``); the
-record's: ``ergostat.upkeep.rollup-due``, the items a roll-up would take now (``rollup.compact``'s dry run, the same
-number), ``ergostat.upkeep.events-past-keep``, the events past the model's ``keep`` that pruning would forget, and
-``ergostat.upkeep.measurements-due``, the measurement rows past their raw window or their tier's keep.
+under ``<state>/items``, and ``ergostat.upkeep.retired-index-files``, the retired ones (``spec/itemindex.files``);
+``rollup-due`` (``rollup.compact``'s dry run), ``events-past-keep`` (what pruning would forget) and ``measurements-due``.
 
 A record kept nowhere on disk, an items folder that cannot be listed, or a store that cannot count what is due (an
-events store without ``prunable``, VictoriaMetrics, which keeps its own retention) gives no reading (None, said on
-standard error, the sensor's log), never 0: a goal held at "nothing due" is never met by a store nobody could count."""
+events store without ``prunable``, VictoriaMetrics) gives no reading (None, said on standard error), never 0."""
 
 from __future__ import annotations
 

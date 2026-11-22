@@ -1,9 +1,7 @@
 """Rolling up the record (SPEC §4b): an item's events older than a horizon replaced by one
 ``ergostat.item.snapshot`` event, the originals moved to a compressed archive, and the record kept
 to its ``keep``; the measurements rolled into their tiers. The engine does it every ``storage:
-rollup: every`` (an hour), and ``ergostat compact`` does it now; under ``use: upkeep`` the template's
-``record-compactor`` and ``measurement-retainer`` do instead. Whoever does it holds ``<state>/compact.lock``
-(``compaction``) for all of it.
+rollup: every`` (an hour, or the ``use: upkeep`` blocks instead), and ``ergostat compact`` now, under ``compaction``.
 
 A snapshot is a ``set`` (SPEC §5a: the whole document at once) of the item's document as of the
 last event it replaces, with what else the fold keeps in its ``data.rollup``: the state and when it
@@ -294,9 +292,8 @@ LOCK = "compact.lock"        # <state>/compact.lock: held by whoever rolls up, p
 
 @contextlib.contextmanager
 def compaction(p):
-    """The record's compaction lock: an exclusive ``flock`` on ``<state>/compact.lock``, taken without waiting.
-    Yields True when held (for the whole ``with``), False when another holder has it (then nothing is to be done:
-    the caller says ``busy``). A ``flock`` goes with its holder's process, so a killed compactor leaves it free."""
+    """The record's compaction lock, an exclusive ``flock`` taken without waiting: True while held, False when another
+    has it (the caller does nothing, says ``busy``). It goes with its holder's process, so a killed one leaves it free."""
     Path(p.dir).mkdir(parents=True, exist_ok=True)
     with open(Path(p.dir) / LOCK, "a") as f:
         try:
@@ -325,9 +322,8 @@ def measurements(p, now: float | None = None) -> dict | None:
 
 
 def upkeep(p, now: float | None = None) -> dict:
-    """What the engine does every ``storage: rollup: every`` without ``use: upkeep``, and ``ergostat compact``: the
-    record's part (``record``) then the measurements', all under the compaction lock; ``{"busy": True}``, with nothing
-    done, when another holds it."""
+    """The engine's pass without ``use: upkeep``, and ``ergostat compact``: ``record`` then ``measurements``, under the
+    compaction lock; ``{"busy": True}``, nothing done, when another holds it."""
     with compaction(p) as held:
         if not held:
             return {"busy": True}

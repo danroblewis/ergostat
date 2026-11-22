@@ -145,7 +145,7 @@ Work through these steps in order. Ask the person only what you cannot infer.
    they say rather than proposing the same idea again. Do not hand-write these parts. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    so far its item-index files held at `index-files` (6) by a rule-tier tidier, and the record's roll-up, forgetting
-   past `keep` and measurement retention held at nothing due by `record-compactor` and `measurement-retainer`
+   past `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and `measurement-retainer`
    (`with: {rollup-every: 1h, retain-every: 1h}`, 1m to 1d), each taking over from the engine's own (SPEC §2a,
    *Upkeep*). Add it when the files a model's changing kinds leave behind, or the record's growth, should show on the
    diagram; with it, leave `storage: rollup: every` out (`check` says it is unused).
