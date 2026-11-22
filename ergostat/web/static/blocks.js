@@ -812,13 +812,14 @@ function bdDraw(svg, g, lay) {
   for (const e of g.edges) (nets[e.sourcePort] ||= []).push(e);
   S.edgeById = {};
   for (const f of lay.containers) taken.push({ x: f.x, y: f.y, w: Math.min(f.width, 260), h: 28 });   // the frames' titles
+  const cross = bdCrossings(lay.edges.map((le) => [le.id, bdPts(le)]));       // where lines cross: a hop, never a dot
   for (const e of g.edges) {
     const le = byLe[e.id];
     const pts = le ? bdPts(le) : [];
     if (pts.length < 2) continue;
     const vec = (e.signal?.n || 0) > 1;
     const eg = s("g", { class: `edge bd-edge${vec ? " bd-vec" : ""}`, "data-id": e.id, "data-nodes": `${e.source} ${e.target}`, "data-net": e.sourcePort });
-    const { els, mark } = bdEdgeContent(e, pts);
+    const { els, mark } = bdEdgeContent(e, pts, cross);
     eg.append(...els);
     eg.addEventListener("mouseenter", () => bdTrace(svg, { net: e.sourcePort }));
     eg.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
@@ -826,10 +827,10 @@ function bdDraw(svg, g, lay) {
     if (mark) taken.push(mark);
     edgesG.append(eg);
   }
-  // take-off points: where the lines of one signal part
+  // take-off points: where the lines of one signal part (a line with no port of its own shares it with none)
   const dots = s("g", { class: "bd-dots" });
   for (const [port, es] of Object.entries(nets)) {
-    if (es.length < 2) continue;
+    if (es.length < 2 || port === "undefined") continue;
     const routes = es.map((e) => (byLe[e.id] ? bdPts(byLe[e.id]) : [])).filter((p) => p.length > 1);
     for (const p of bdTakeoffs(routes)) dots.append(s("circle", { cx: p.x, cy: p.y, r: 3.2, class: "bd-dot" }));
   }
@@ -929,19 +930,46 @@ function bdDraw(svg, g, lay) {
 
 /* a signal's line as drawn: its way, its head, its name as a tooltip, and a vector's slash and count (where
    that takes room: mark); drawn again alone while a part it touches is dragged (diagram.js's redrawLine) */
-function bdEdgeContent(e, pts) {
+function bdEdgeContent(e, pts, cross = null) {
   const vec = (e.signal?.n || 0) > 1;
+  // where it crosses others (drawn again alone while dragged: against the others' ways as they are)
+  cross = (cross || bdCrossings([[e.id, pts], ...(S.layout?.edges || []).filter((le) => le.id !== e.id).map((le) => [le.id, bdPts(le)])], e.id))
+    .filter((c) => c.h === e.id || c.v === e.id);
   const d = pts.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
   const tip = pts[pts.length - 1], prev = pts[pts.length - 2];
   const ang = Math.atan2(tip.y - prev.y, tip.x - prev.x), L = vec ? 10 : 8;
   const back = { x: tip.x - Math.cos(ang) * (L - 1), y: tip.y - Math.sin(ang) * (L - 1) };
-  const short = [...pts.slice(0, -1), back].map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join("");
+  // a hop on each level stretch where an upright line crosses it: a small half circle over it (on the upright line,
+  // to the right, where the crossing is under the level one's arrowhead)
+  const wire = [...pts.slice(0, -1), back];
+  let short = `M${wire[0].x},${wire[0].y}`;
+  for (let i = 1; i < wire.length; i++) {
+    const a = wire[i - 1], b = wire[i], lvl = Math.abs(a.y - b.y) < 0.5, [u, w] = lvl ? ["x", "y"] : ["y", "x"];
+    const dir = Math.sign(b[u] - a[u]), pt = (t) => (lvl ? `${t},${a.y}` : `${a.x},${t}`);
+    let at = a[u];
+    for (const t of cross.filter((c) => (lvl ? c.h === e.id && !c.head : c.v === e.id && c.head) && Math.abs(c[w] - a[w]) < 0.5 &&
+                                        (c[u] - a[u]) * dir > 0 && (b[u] - c[u]) * dir > 0).map((c) => c[u]).sort((p, q) => (p - q) * dir)) {
+      const r = Math.min(4, Math.abs(t - at), Math.abs(b[u] - t));
+      if (r < 0.5) continue;
+      short += `L${pt(t - r * dir)}A${r},${r} 0 0 ${dir > 0 ? 1 : 0} ${pt(t + r * dir)}`;   // (over the top; or to the right)
+      at = t + r * dir;
+    }
+    short += `L${b.x},${b.y}`;
+  }
   const els = [s("path", { d, class: "bd-hit" }), s("path", { d: short, class: "bd-wire" }),
                s("path", { class: "bd-head", d: `M${tip.x},${tip.y} L${tip.x - L * Math.cos(ang - 0.38)},${tip.y - L * Math.sin(ang - 0.38)} L${tip.x - L * Math.cos(ang + 0.38)},${tip.y - L * Math.sin(ang + 0.38)} Z` })];
   let mark = null;
-  if (vec) {                                            // a vector: a slash across it, and how many signals
-    const [a, b] = pts.slice(1).map((q, i) => [pts[i], q]).sort((x, y) => (Math.abs(y[0].x - y[1].x) + Math.abs(y[0].y - y[1].y)) - (Math.abs(x[0].x - x[1].x) + Math.abs(x[0].y - x[1].y)))[0];
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, horiz = Math.abs(a.y - b.y) < 1;
+  if (vec) {                                            // a vector: a slash across it, and how many signals, mid-way along
+    let best = null;                                    // its longest stretch with no crossing or bend: clear of both
+    pts.slice(1).forEach((b, i) => {
+      const a = pts[i], len = Math.hypot(b.x - a.x, b.y - a.y);
+      const ts = [0, len, ...cross.filter((c) => Math.abs((c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)) < len &&
+        (c.x - a.x) * (b.x - a.x) + (c.y - a.y) * (b.y - a.y) > 0 && (c.x - b.x) * (a.x - b.x) + (c.y - b.y) * (a.y - b.y) > 0)
+        .map((c) => Math.hypot(c.x - a.x, c.y - a.y))].sort((p, q) => p - q);
+      ts.slice(1).forEach((t, k) => { if (!best || t - ts[k] > best.gap) best = { gap: t - ts[k], t: (t + ts[k]) / 2, a, b, len }; });
+    });
+    const { a, b } = best, f = best.t / (best.len || 1);
+    const mx = a.x + (b.x - a.x) * f, my = a.y + (b.y - a.y) * f, horiz = Math.abs(a.y - b.y) < 1;
     els.push(s("path", { class: "bd-slash", d: horiz ? `M${mx - 4},${my + 6} L${mx + 4},${my - 6}` : `M${mx - 6},${my + 4} L${mx + 6},${my - 4}` }),
              s("text", { class: "bd-count", x: mx + (horiz ? 0 : 9), y: my + (horiz ? 17 : 4), "text-anchor": horiz ? "middle" : "start" }, String(e.signal.n)));
     mark = { x: mx - 8, y: my - 8, w: 16, h: 30 };
@@ -949,20 +977,35 @@ function bdEdgeContent(e, pts) {
   return { els, mark };
 }
 
-function bdTakeoffs(routes) {                         // the points where lines that leave one port together part
-  const on = (p, pts) => pts.slice(1).some((b, i) => { const a = pts[i];
-    return Math.abs(a.x - b.x) < 0.5 ? Math.abs(p.x - a.x) < 0.6 && p.y >= Math.min(a.y, b.y) - 0.6 && p.y <= Math.max(a.y, b.y) + 0.6
-      : Math.abs(p.y - a.y) < 0.6 && p.x >= Math.min(a.x, b.x) - 0.6 && p.x <= Math.max(a.x, b.x) + 0.6; });
-  const walk = (pts, step = 1) => { const out = []; for (let i = 1; i < pts.length; i++) { const a = pts[i - 1], b = pts[i];
-    const n = Math.max(1, Math.round((Math.abs(a.x - b.x) + Math.abs(a.y - b.y)) / step));
-    for (let k = 0; k < n; k++) out.push({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n }); }
-    out.push(pts[pts.length - 1]); return out; };
+/* where lines cross (each stretch level or upright): a level stretch and an upright one each passing through the
+   point, not ending on it (a line ending on another is a take-off). Each { x, y, h: the level line, v: the upright,
+   head: under the level one's arrowhead }; with of, only those of that line */
+function bdCrossings(lines, of = null) {
+  const hs = [], vs = [], out = [];
+  for (const [id, pts] of lines) pts.slice(1).forEach((b, i) => { const a = pts[i];
+    if (Math.abs(a.y - b.y) < 0.5 && Math.abs(a.x - b.x) > 0.5) hs.push([Math.min(a.x, b.x), Math.max(a.x, b.x), a.y, id, i === pts.length - 2 ? b.x : null]);
+    else if (Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) > 0.5) vs.push([Math.min(a.y, b.y), Math.max(a.y, b.y), a.x, id]); });
+  const pairs = (H, V) => { for (const [x0, x1, y, h, tip] of H) for (const [y0, y1, x, v] of V)
+    if (x0 + 0.8 < x && x < x1 - 0.8 && y0 + 0.8 < y && y < y1 - 0.8) out.push({ x, y, h, v, head: tip !== null && Math.abs(tip - x) < 11 }); };
+  pairs(of ? hs.filter((q) => q[3] === of) : hs, vs);
+  if (of) pairs(hs.filter((q) => q[3] !== of), vs.filter((q) => q[3] === of));
+  return out;
+}
+
+/* where the lines of one signal part: a bend of theirs (or the port they leave) that three ways meet at, the port's
+   block one of them; never where two only pass through each other (a crossing: drawn with a hop) */
+function bdTakeoffs(routes) {
+  const near = (p, q) => Math.abs(p.x - q.x) < 0.6 && Math.abs(p.y - q.y) < 0.6;
   const found = [];
-  for (let i = 0; i < routes.length; i++) for (let j = i + 1; j < routes.length; j++) {
-    const a = walk(routes[i]);
-    let last = null;
-    for (const p of a) { if (on(p, routes[j])) last = p; else break; }
-    if (last && !found.some((q) => Math.abs(q.x - last.x) < 2 && Math.abs(q.y - last.y) < 2)) found.push(last);
+  for (const p of routes.flatMap((r) => r.slice(0, -1))) {
+    if (found.some((q) => Math.abs(q.x - p.x) < 2 && Math.abs(q.y - p.y) < 2)) continue;
+    const ways = new Set();
+    for (const r of routes) r.slice(1).forEach((b, i) => { const a = r[i];
+      if (near(a, b) || p.x < Math.min(a.x, b.x) - 0.6 || p.x > Math.max(a.x, b.x) + 0.6 || p.y < Math.min(a.y, b.y) - 0.6 || p.y > Math.max(a.y, b.y) + 0.6) return;
+      const ux = Math.sign(Math.round(b.x - a.x)), uy = Math.sign(Math.round(b.y - a.y));
+      if (!near(p, b)) ways.add(`${ux},${uy}`);
+      if (!near(p, a)) ways.add(`${-ux},${-uy}`); });
+    if (ways.size + (routes.some((r) => near(p, r[0])) ? 1 : 0) >= 3) found.push(p);
   }
   return found;
 }

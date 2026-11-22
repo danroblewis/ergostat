@@ -25,7 +25,7 @@
     if (!e || !s0) continue;
     edges.push({
       id: le.id, kind: e.kind || "", source: e.source, target: e.target,
-      sourcePort: e.sourcePort || null, targetPort: e.targetPort || null,
+      sourcePort: e.sourcePort || null, targetPort: e.targetPort || null, net: e.sourcePort || le.id,
       pts: [s0.startPoint, ...(s0.bendPoints || []), s0.endPoint].map((p) => [r2(p.x), r2(p.y)]),
       labels: (le.labels || []).map((l) => [r2(l.x), r2(l.y), r2(l.width), r2(l.height)]),
     });
@@ -50,6 +50,21 @@
     const c = m.querySelector("path.marker-arc") || m.querySelector("circle.marker-hit");
     if (c) markers.push({ loop: m.dataset.loop, box: box(c) });
   }
-  return { view: g.kind, nodes, edges, frames, texts, markers, canvas: [Math.round(cv.left || 0), Math.round(cv.top || 0), Math.round(cv.width), Math.round(cv.height)],
+  // Blocks: the take-off dots, each wire's hops (an arc in its path: the middle of the arc's two ends), each vector's slash
+  const dots = [...document.querySelectorAll("svg.canvas #viewport .bd-dots circle.bd-dot")].map((c) => [r2(+c.getAttribute("cx")), r2(+c.getAttribute("cy"))]);
+  const hops = [], slashes = [];
+  for (const w of document.querySelectorAll("svg.canvas #viewport g.edge path.bd-wire")) {
+    let cur = [0, 0];
+    for (const [, op, args] of (w.getAttribute("d") || "").matchAll(/([MLA])([^MLA]*)/g)) {
+      const end = args.split(/[ ,]+/).filter(Boolean).map(Number).slice(-2);
+      if (op === "A") hops.push({ edge: w.closest("g.edge").dataset.id, at: [r2((cur[0] + end[0]) / 2), r2((cur[1] + end[1]) / 2)] });
+      cur = end;
+    }
+  }
+  for (const p of document.querySelectorAll("svg.canvas #viewport g.edge path.bd-slash")) {
+    const q = (p.getAttribute("d") || "").match(/-?[\d.]+/g).map(Number);
+    slashes.push({ edge: p.closest("g.edge").dataset.id, at: [r2((q[0] + q[2]) / 2), r2((q[1] + q[3]) / 2)] });
+  }
+  return { view: g.kind, nodes, edges, frames, texts, markers, dots, hops, slashes, canvas: [Math.round(cv.left || 0), Math.round(cv.top || 0), Math.round(cv.width), Math.round(cv.height)],
            zoom: [v.k, v.x, v.y], routed: !lay.routing, invalid: (typeof AV !== "undefined" && AV.invalid) || 0 };
 })()

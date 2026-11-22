@@ -1566,6 +1566,16 @@ BLOCKS_DETOUR = """() => {
 }"""
 
 
+CROSSING_RULES = ["crossing-without-hop", "dot-not-at-takeoff", "slash-on-crossing"]
+
+
+def crossing_rules(geo) -> list:
+    """The Blocks view's crossings, dots and slashes (docs/layout-rules.md): a hop at every crossing and no dot there, a
+    dot only at a take-off, no vector's slash within 12px of a crossing."""
+    from tests import layout_rules as rules
+    return rules.check(geo, CROSSING_RULES) if geo else []
+
+
 def blocks_views(tree: dict) -> list[str]:
     return ["view=blocks", "view=blocks&open=*", *(f"view=blocks&open={s}" for s in tree), *(f"view=blocks&system={s}" for s in tree)]
 
@@ -1583,6 +1593,7 @@ def test_the_control_view_draws_every_example_cleanly_as_a_block_diagram(browser
         problems += [f"[{v}] {k}: {x}" for k in ("through", "overlap", "netCrossings", "partOverlap") for x in r[k]]
         problems += [f"[{v}] {x}" for x in pg.evaluate(BLOCKS_DOM)]
         problems += [f"[{v}] detour: {x}" for x in pg.evaluate(BLOCKS_DETOUR)]
+        problems += [f"[{v}] {x['rule']}: {x['what']}" for x in crossing_rules(pg.evaluate(GEOMETRY))]
         if max(r["size"]["aspect"], 1 / r["size"]["aspect"]) > MAX_ASPECT + 1 and r["size"]["fit"] < MIN_FIT:
             problems.append(f"[{v}] {r['size']}")
     pg.close()
@@ -1754,6 +1765,38 @@ def test_a_block_dragged_in_the_blocks_view_stays_pinned_its_lines_end_on_it_and
                              f"Math.abs(S.layout.children.find((c) => c.id === '{nid}').y - {before[1]}) < 2", timeout=20000)
         assert pg.evaluate(BD_AT, nid) == pytest.approx(before, abs=2)
         assert pg.locator("svg.canvas g.pins .pin").count() == 0
+        assert not errors, errors
+        pg.close()
+
+
+def test_blocks_crossings_hop_dots_only_at_takeoffs_slashes_clear_and_a_drag_and_the_export_keep_them(browser, tmp_path):
+    """Two lines crossing in the Blocks view are told from a connection: the level one hops over the other, with no
+    dot; a dot is drawn only where one signal's lines part; a vector's slash sits 12px or more from any crossing.
+    So after a block is dragged and its lines routed again, and in the exported SVG (its hops kept)."""
+    from tests import layout_rules as rules
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=*", 0)
+        geo = pg.evaluate(GEOMETRY)
+        crossings = rules.wire_crossings(rules.G(geo))
+        assert crossings and geo["hops"] and geo["dots"], (len(crossings), geo["hops"], geo["dots"])   # (something to judge)
+        bad = crossing_rules(geo)
+        assert bad == [], "\n".join([str(bad)] + [f"{e['id']} {e['pts']}" for e in geo["edges"] if any(e["id"] in x["parts"] for x in bad)]
+                                    + [str(h) for h in geo["hops"] if any(h["edge"] in x["parts"] for x in bad)])
+        nid = "blk:product-manager"
+        pg.get_by_role("button", name="fit").click()
+        bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 40, 160)
+        pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
+        pg.wait_for_timeout(300)
+        after = pg.evaluate(GEOMETRY)
+        assert after["edges"] != geo["edges"], "the drag changed no line"
+        assert crossing_rules(after) == []
+        hops = len(after["hops"])
+        assert hops >= len({(round(x), round(y), h) for x, y, h, *_ in rules.wire_crossings(rules.G(after))}) > 0
+        text = pg.evaluate("() => standaloneSvg(document.querySelector('svg.canvas'), null).text")
+        assert len(re.findall(r'<path d="[^"]*A[\d.]+,[\d.]+ 0 0 [01] ', text)) >= len({h["edge"] for h in after["hops"]})
         assert not errors, errors
         pg.close()
 
