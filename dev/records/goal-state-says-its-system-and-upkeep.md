@@ -15,3 +15,20 @@ Acceptance tests: the unit test of points 1-3 on the small spec; a test_graph_cl
 Budget: 50 net lines. For the Coordinator: filed Q14, Q16, Q17 and Q42 are blocked by this gap and must read these fields, not their own test.
 
 Milestone: goals-not-loops. Owner items: Decision: the modelling system's goals come out of the headline (shown beside it). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built in round 1; nothing in the definition is left. Where nobody could be asked, I took the most reversible option each time:
+
+- `upkeep_of(spec, x)` in `spec/ir.py` takes the template's name from `spec.uses[instance]["template"]`, and only for
+  a part that `once_made` already accepts (a once library template, not an owner-folder one).
+- `goals_off` counts `unknown` over every goal, upkeep goals included, so the row's `unknown` list stays as it was.
+  Only upkeep goals that are off or open move to `own`. If the owner wants unknown upkeep goals moved out too, that is a one-line change.
+- `goals_off(snap, names=True)` gives the same keys holding sorted names, so `projects._row` gets its lists from the one
+  function. `system` counts goals that are off and `open` goals that are open (neither includes upkeep goals). The row's `off` is both, as before.
+- The browser headline (util.js:364) is unchanged, because point 5 says no reader-facing change; Q14 is the one to read `goals_off`.
+- Point 3 is tested through `projects.known`, which `/api/projects` serves, not through the HTTP route.
+- Acceptance tests: `tests/test_goal_upkeep.py` covers points 1-3 on a seeded small spec with `use: modelling`, `use: upkeep`
+  and one system goal. The /api/status test is
+  `tests/test_graph_cli_web.py::test_api_status_counts_the_goals_off_with_modellings_own_beside_them`.
+  Both failed when `upkeep_of` was made to return None, and the first also failed with `upkeep` added to `OWN_TEMPLATES`.
