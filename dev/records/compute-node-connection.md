@@ -23,3 +23,13 @@ Traceback (most recent call last):
 RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
 
 ```
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 14:15).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 3: nack a switch drains the runs under way (run/drain.json): taken again after it
+- attempt 4: nack a switch drains the runs under way (run/drain.json): taken again after it
+- attempt 5: nack exited 1
+- attempt 6: nack the run ended with gap/compute-node-connection still parked
