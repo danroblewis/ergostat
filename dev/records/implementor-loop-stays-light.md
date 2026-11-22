@@ -135,3 +135,21 @@ Round 2, answering the review's two findings (both blocking; there were no other
   **Not run:** the whole unit suite and the four browser files (the queue runs them). Refused:
   `timeout 300 uv run python scripts/named_tests.py tests/test_parallel_runs.py 2>&1 | tail -3`, and a `python3 -`
   heredoc that would have edited files (I made those edits with the edit tool).
+
+Round 2, after the fast suites: `unit` failed with one `F` and no test named in the tail.
+
+- **Cause (this branch's own test):** `tests/test_agents.py::test_named_tests_runs_named_files_only` checked that
+  `named_tests.py` runs pytest serially by asserting `PYTEST_XDIST_WORKER` is not in the child's environment. Under the
+  suite's `-n 8` the test itself runs in an xdist worker, and the child inherits that variable, so it failed there and
+  passed when run alone. The script was right; the probe was not.
+- **Fix:** the child test now asks pytest itself, `not request.config.pluginmanager.hasplugin('xdist')`. No bound
+  changed and the script is unchanged.
+- **Break check (lesson-9):** with `-p no:xdist` dropped from `scripts/named_tests.py`, the test fails under `-n 2`;
+  restored, it passes.
+- **Run:** that test under `-n 2`; `tests/test_agents.py` under `-n 4` (11 passed); `tests/test_factory.py` under
+  `-n 4` (141 passed, 2 skipped, Docker-only); `tests/test_factory_knowledge.py` (75 passed) and
+  `tests/test_factory_sessions.py` (5 passed); ruff clean. **Not run:** the whole unit suite and the four browser
+  files. Refused: a `for` loop running four files through `uv run python -m pytest` under `timeout`;
+  `uv run python scripts/named_tests.py tests/test_factory_knowledge.py tests/test_factory_sessions.py
+  tests/test_code_health_simplifier.py` (the live permissions are still main's, which do not name the script); and a
+  shell heredoc appending this section (made with the edit tool instead).

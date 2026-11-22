@@ -103,8 +103,8 @@ def test_named_tests_runs_named_files_only(tmp_path, monkeypatch):
                ["tests/test_items_page.py::"], [f"{page} -n 4"], ["-k", "page"]]
     assert not [a for a in refused if not named.refused(a)]
     (tmp_path / "tests").mkdir()                     # and it runs pytest serially, the ini's addopts (-n 8) cleared
-    (tmp_path / "tests" / "test_one.py").write_text("import os\n\ndef test_one():\n"
-                                                     "    assert 'PYTEST_XDIST_WORKER' not in os.environ\n")
+    (tmp_path / "tests" / "test_one.py").write_text("def test_one(request):\n"      # (not the env: an xdist parent's leaks)
+                                                     "    assert not request.config.pluginmanager.hasplugin('xdist')\n")
     (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\naddopts = "-n 8 -x"\n')
     run = lambda *a: subprocess.run([sys.executable, str(ROOT / "scripts" / "named_tests.py"), *a], cwd=tmp_path,  # noqa: E731
                                     capture_output=True, text=True, timeout=120)
