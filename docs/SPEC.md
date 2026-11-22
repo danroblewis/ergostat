@@ -3775,7 +3775,10 @@ open system comes from a shadow variable `<x>` inside the receiving system, and 
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
 pipe out ends in a cloud with the part beyond named under it. An
 open system is a sector, a light tint with its name at the top left; a closed one is a module, its
-connection points named on its edge. The view's panels use system dynamics' words only. A flow's
+connection points named on its edge. The view's panels use system dynamics' words only. The side
+list's cards are said in those words too, but only a sentence's own words: a code, an id or a part
+name (`queue-goal-tolerance`, `goal.ci-upgrade-planned`) and the tier a request names are kept as
+they are, the same as in Blocks. A flow's
 valve (the bowtie) opens as the **valve**: the rate of the flow, its inputs (the connectors into it,
 each with its sign) and its equation: written (section 7b), drawn in MathML with each parameter's
 value and provenance (its calibrations side by side beneath: each one's estimate ± its standard error,
