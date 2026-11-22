@@ -7,11 +7,10 @@ and ``ergostat.upkeep.restarts``, the ``ergostat.engine.restarted`` ones over th
 
 A record kept nowhere on disk (for the files or the heartbeat), an items folder that cannot be listed, a heartbeat
 missing, unreadable or stamped in the future, an event log that cannot be read, or a store that cannot count what is
-due (an events store without ``prunable``, VictoriaMetrics) gives no reading (None, said on standard error, the
-sensor's log), never 0: a goal held at "few files", "fresh" or "no stalls" is never met by something nobody could
-look at. The heartbeat's age is a drawing, not a protection: a frozen engine reads nothing, and the outer watcher
-acts. The two event counts read a log kept only in memory too: it holds the events it counts, unlike a folder or
-file not there."""
+due (an events store without ``prunable``, VictoriaMetrics) gives no reading (None, said on standard error), never
+0: a goal held at "few files", "fresh" or "no stalls" is never met by something nobody could look at. The
+heartbeat's age is a drawing, not a protection: a frozen engine reads nothing, and the outer watcher acts. The two
+event counts read a log kept only in memory too: it holds the events it counts, unlike a folder or file not there."""
 
 from __future__ import annotations
 

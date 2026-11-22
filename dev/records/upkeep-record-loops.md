@@ -147,3 +147,13 @@ Built, round 1: every item of the definition, by its acceptance tests. 281 net l
 **Run, round 4, one file at a time:** test_gaps_doc (4), test_upkeep_record (14), test_upkeep_template (13), test_rollup (48), test_storage (7), test_item_index (55), test_templates (35): all passed. ruff: clean. *Not run:* the whole unit suite, the four browser files, test_store_conformance and `demo_check` (no example touched, no store code changed this round).
 
 *Refused this round:* `sed -n 379,380p docs/GAPS.md && sed -i '367,380d' docs/GAPS.md && ...` (done with the edit tool instead).
+
+### Round 5: the merge of main (4a1bcd10), which brought in upkeep-watched-loops
+
+- **Blocking: conflicts with main** in eight files. They are resolved in b1f26766 by keeping both sides. `UPKEEP`, `UPKEEP_MEASURES`, the `bad-measure` message and `numbers/measures.py`'s docstring now list the watched measures and the record's three. `upkeep_measures.measure` sends `heartbeat-age`, `stalls` and `restarts` to main's readers before the record's. The template holds both sets of params, stocks, flows, goals and blocks, and both paragraphs of its `reading:`. In SPEC §2a *Upkeep*, *The record's loops* comes before main's *The watched loops*, and neither one's "still to come" sentence is left. The agent guide's sentence names both sets of loops. `test_upkeep_expands_to_the_index_files_loop` now pins the index, watched and record part sets together.
+- **lesson-7, checked:** the merge applied cleanly to docs/GAPS.md but spliced it again. It left two stale "Still to come" clauses: one naming upkeep-watched-loops, which main has now landed, and one, cut off mid-sentence, naming this gap. Both are removed. The item-index bullet now ends at "if the tidier stops", followed by *The record's loops* and main's *The watched loops*. Grepping docs/ and ergostat/ found no other "still to come" for these loops.
+- **Size:** the merge made it 301, because the `UPKEEP` regex now spans two lines. `upkeep_measures.py`'s docstring was rewrapped (it no longer says "the sensor's log") to bring it back to **300 net lines** outside `tests/`, `docs/` and `dev/` (358 added, 58 removed, against 4a1bcd10).
+
+**Run, round 5, one file at a time:** test_upkeep_template, test_upkeep_record and test_upkeep_watched (51), test_rollup, test_storage and test_item_index (110), test_templates and test_gaps_doc (39): all passed. ruff: clean. *Not run:* the whole unit suite, the four browser files, test_store_conformance and `demo_check` (no example touched, no store code changed this round). They are left to the factory's runs.
+
+*Refused this round:* `git status --short | grep ...; for f in ...` and `git -C /work add ...` (the same `git add` was then run without `-C`).
