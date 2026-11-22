@@ -7,6 +7,7 @@ and the request. Anything else stays held for the person; a person's denial stay
 from __future__ import annotations
 
 import contextlib
+import difflib
 import fcntl
 import json
 from pathlib import Path
@@ -33,6 +34,11 @@ def held(p, name: str):
 def judge(p, prompt: str, a) -> dict:
     """The AI's answer (the step a test puts a competing write after)."""
     return fx.ask(p, prompt, SYSTEM, a)
+
+
+def shown(path: str, old: str, new: str) -> str:
+    """The diff the AI is shown, made from the same two texts the guard judged (never the recorded git diff)."""
+    return "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), f"a/{path}", f"b/{path}"))
 
 
 def requested_seq(p, aid: str) -> int | None:
@@ -62,7 +68,7 @@ def review(p, a, fid: str, name: str, path: str, old: str, new: str, beside: lis
     guard = allow.escalate(path, old, new, beside, tests=d.get("tests"), risk=d.get("risk"))
     verdict, reasons = "escalate", list(guard)
     if not guard:
-        asked = {"program": path, "diff": d.get("diff"), "test": "passed"}
+        asked = {"program": path, "diff": shown(path, old, new), "test": "passed"}   # what the guard read, no other
         try:
             got = judge(p, PROMPT.read_text() + "\n" + json.dumps(asked), a)
         except Exception as e:                               # capped, unreadable ledger, no answer in time: a person

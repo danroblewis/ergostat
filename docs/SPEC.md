@@ -6296,7 +6296,10 @@ reason.
   decorated, nested-in-a-class, generator or passed-on function, or a binding in a class body (reached as `C.x`). An
   operation that meets an object of the group (`obj == d`, `x in obj`, `obj[d]`, `obj + d`, `sep.join(d)`, a form (a)
   to (d) call given it) must itself be shaped, or the group is not: the other part's code would be given the object.
-  So a list the program fills in place, even with shaped values, is not shaped, and a fix reading it goes to the person.
+  A name the module binds, reached as an attribute (`__main__.paths`, or `m.paths` of any namespace), is read as that
+  name, a function returning a member is not followed when named as an attribute (`m.mk()`), and `import __main__` is
+  refused. So a list the program fills in place, even with shaped values, is not shaped, and a fix reading it goes to
+  the person, except through a call that is given the name only as a string (residual 5).
   No other attribute reads, no lambda, await, yield or walrus; a call of a function the module defines is not a form
   (it goes to the person).
 - **G2.** Each changed statement is one of: an assignment or augmented assignment of a shaped value to names (never an
@@ -6336,14 +6339,16 @@ C extension). (4) **Time and memory**: `"x" * 10**9` and `range(10**12)` pass; t
 **The program's own unchanged code**: forms (a) to (c) trust that a listed builtin, `print` and `json` mean what Python
 gives them. The text's own bindings of them are refused (above), but an unchanged call whose effect the guard does not
 read can rebind one at run time (`operator.setitem` on a module's namespace reached by `operator.attrgetter`, or code
-run from a string by `timeit.timeit`), and a changed `len(x)` then runs whatever it was bound to. That trust is placed
+run from a string by `timeit.timeit`), and a changed `len(x)` then runs whatever it was bound to. The same calls can
+fill a shaped list or dict whose name appears only as a string (`operator.attrgetter('modules')(sys)['__main__']`, then
+`operator.attrgetter('paths')` of it), and a changed (d) method then runs what was put in it. That trust is placed
 in the owner's committed code, never in the fix: changed and removed statements may call nothing but forms (a) to (d),
 and a listed exception, so a fix cannot add such a call, and G3 and G4 hold any unchanged statement its values reach or steer to G2.
 
 **The AI approver** (`ergostat/repair/approve.py`) runs once a fix's `apply-fix` was just requested, in the fix's own
 run. When the guard gives no reason, the AI (the template's `model`, haiku by default, no tools, the prompt
 `ergostat/repair/approver.md`, inside the loop's ledger and daily cap and a quarter of the timeout, its cost the run's)
-is shown only the program's path, the diff and "passed", never the fixer's explanation or the test's output, and
+is shown only the program's path, the diff (made from the two texts the guard read) and "passed", never the fixer's explanation or the test's output, and
 answers `{"approve": true or false, "reasons": [...]}`. What it judges is stamped `{action, requested_seq, fix,
 passed_seq}`: seqs and the commit, never times. Under the failure's lock (`repair/<name>.lock`, which the fix also
 holds around recording `passed` and requesting `apply-fix`) it re-reads, and writes `approved` (by `ai approver

@@ -251,6 +251,28 @@ def test_refuses_the_reviews_container_traces():
         assert (why == []) is ok, (fill, why)
 
 
+FILLED = "paths = []\n{mk}def fill(m):\n    for f in os.listdir('.'):\n        {fill}\nfill(m)\nfor p in paths:\n"
+
+
+@pytest.mark.parametrize("head, mk, fill, twin", [
+    ("import __main__\n", "", "__main__.paths.append(Path(f))", "print(f)"),     # review 6's trace: __main__
+    ("", "", "m.paths.append(Path(f))", "m.other.append(Path(f))"),              # the name read through a namespace
+    ("", "", "m.paths = [Path(f)]", "m.other = [Path(f)]"),                      # rebound through a namespace
+    ("", "def mk():\n    return paths\n", "m.mk().append(Path(f))", "m.other().append(Path(f))"),  # returned to m.mk()
+])
+def test_refuses_container_filled_through_a_namespace(head, mk, fill, twin):
+    """A module's own name reached as an attribute (``__main__.paths``, or ``m.paths`` of a namespace the guard cannot
+    name) is read as that name, and ``import __main__`` is refused (review round 6). A name given only as a string to
+    code the guard does not read (``operator.attrgetter('paths')``) is residual 5."""
+    def fixed(f, h):
+        prog = HEAD + h + FILLED.format(mk=mk, fill=f)
+        return esc(prog + "    q = p\n", prog + "    q = p.replace('../../victim')\n")
+
+    assert fixed(twin, "") == [], "the twin: the same fix, the container filled by nothing"
+    why = fixed(fill, head)
+    assert refused(why, "imports __main__" if head else "changed, line")
+
+
 @pytest.mark.parametrize("deco", ["", "import functools\n@functools.cache\n"])
 def test_refuses_module_function_call(deco):
     f = deco + "def parse(x):\n    return x\n"

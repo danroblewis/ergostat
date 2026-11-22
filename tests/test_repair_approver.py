@@ -98,6 +98,8 @@ def test_ai_approves_guarded_fix_and_sweep_applies(tmp_path, monkeypatch):
     (asked,) = reviews(tmp_path)
     got = json.loads(asked["prompt"].rsplit("\n", 1)[1])
     assert set(got) == {"program", "diff", "test"} and got["test"] == "passed" and got["program"] == "collect.py"
+    assert got["diff"] == approve.shown("collect.py", BROKEN, FIXED), "the diff of the texts the guard judged"
+    assert '-for issue in answer["issues"]:' in got["diff"] and "+" in got["diff"]
     assert "TEST-OUTPUT" not in asked["prompt"] and "the tracker answers in v3" not in asked["prompt"]
     assert asked["argv"] == ["--model", "haiku"], "the template's model (the stand-in is given no claude flags)"
     assert gate.sweep(p, p.model.spec) == 1

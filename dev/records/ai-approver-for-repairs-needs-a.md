@@ -578,3 +578,46 @@ Refused in this round: `sed -i` on the test file (the edit tool was used instead
 (`git branch -a; git rev-parse main; git merge-base ...`), which was then run as separate commands.
 
 Overrun reason: 768 net lines against 450 (allow.py 658, +140 this round for the escape and alias analysis the park asked for; approve.py 83; approver.md 14; fix.py +6; stats.py +8; template +2; compile.py -3); every line beyond the plan's ~280 for allow.py is a fail-closed branch asked for at the plan review, review rounds 1 to 5 and this park, kept rather than cut as the review asked.
+
+### Continued, round 3: review 6's findings (a container filled through a namespace; size; the diff shown)
+
+Each finding of review 6 is answered here, blocking and not (lesson-12):
+- **Blocking: the escape analysis followed only Name loads.** `import __main__` and then `__main__.paths.append(...)`
+  filled a shaped list without naming it, and the guard returned `[]`. What changed in `allow.py`, each part
+  fail-closed:
+  - `Shapes.escapes()` reads an attribute whose name the module binds anywhere (`__main__.paths`, or `m.paths` of
+    any namespace, a parameter included) as a read of that name. Its value is followed by the same `flows()`, so
+    `m.paths.append(x)` makes the group escape. A store or delete through one (`m.paths = [...]`) makes it escape too.
+  - `returns()` no longer follows a function that is named anywhere as an attribute (`m.mk()`), since its calls
+    through a namespace are not in `self.calls`.
+  - `__main__` joins `MODULES`, so `import __main__` and `from __main__ import ...` are refused.
+  - Not closed: a call that is given the name only as a string. The reviewer's example is
+    `operator.attrgetter('modules')(sys)['__main__']`, then `operator.attrgetter('paths')`. Closing it is the
+    every-call rule that round 1 of this continuation declined. So residual 5 now says that such a call can also fill
+    a list or dict, in SPEC §12r (the S paragraph and residual 5), SECURITY, GAPS and AGENT-GUIDE.
+- **Not blocking: size.** It is answered by the overrun reason below. Nothing was cut, since each branch is
+  fail-closed.
+- **Not blocking: the diff shown was not tied to what the guard judged.** `approve.review` now shows the AI
+  `approve.shown(path, old, new)`, a unified diff made from the same two texts the guard read, and never the
+  recorded `git diff`. The commit that is applied is still the one `fix.propose` made by writing `new` over `old`,
+  adding only `path`. `test_ai_approves_guarded_fix_and_sweep_applies` asserts that the prompt's diff equals
+  `shown(BROKEN, FIXED)`.
+
+**Test.** `test_refuses_container_filled_through_a_namespace` has 4 cases: the reviewer's `__main__` trace,
+`m.paths.append`, `m.paths = [...]`, and `m.mk().append` of a returned `paths`. Each has an accepted twin, the same
+fix with the container filled by nothing (`m.other`, or `print(f)`). The fix is `q = p` → `q = p.replace(...)`, not
+a `print`, because any attribute store already makes `print` untrusted, and that would hide the rule under test.
+
+**Seen to fail with the code broken** (each mutation applied, then restored):
+- `__main__` dropped from `MODULES`: the `__main__` case fails. The attribute rule alone still refuses it, but the
+  import reason is gone.
+- The attribute rule off: the `m.paths.append` and `m.paths =` cases fail.
+- The attribute check in `returns()` off: the `m.mk()` case fails.
+- `approve.review` showing `passed.data['diff']` again: `test_ai_approves_guarded_fix_and_sweep_applies` fails.
+
+Run: `tests/test_repair_allow.py` (97 passed), `tests/test_repair_approver.py` (16 passed, 1 skipped: sandbox) and
+`tests/test_gaps_doc.py` (4 passed). Ruff is clean. Not run here: the unit suite, the four browser files, and
+`test_repair2` (bwrap cannot make its namespaces in this container). The factory runs them. This clone has only
+`main`, which is an ancestor of the branch, so there was nothing to merge.
+
+Overrun reason: 778 net lines against 450 (allow.py 662, +4 this round for reading a module's names through attributes and refusing import __main__; approve.py 89, +6 for the diff made from the texts the guard judged; approver.md 14; fix.py +6; stats.py +8; template +2; compile.py -3); every line beyond the plan's ~280 for allow.py is a fail-closed branch asked for at the plan review, review rounds 1 to 6 and the park, kept rather than cut as the review asked.

@@ -26,7 +26,7 @@ TRUSTED = CALLS | RAISES | {"print", "json", "load", "loads", "dumps"}     # nam
 DYNAMIC = frozenset("globals locals vars setattr delattr getattr exec eval compile __import__ __builtins__ "
                     "breakpoint".split())             # common ways to rebind a name out of sight: a list (residual 5)
 FRAMES = frozenset({"modules", "f_globals", "f_locals", "f_builtins"})
-MODULES = frozenset({"builtins", "importlib", "ctypes", "gc", "inspect"})
+MODULES = frozenset({"builtins", "importlib", "ctypes", "gc", "inspect", "__main__"})   # __main__: its own names
 LISTS = ("body", "orelse", "handlers", "finalbody", "cases")
 LOOPS, FUNCS = (ast.For, ast.AsyncFor, ast.While), (ast.FunctionDef, ast.AsyncFunctionDef)
 GUARDED = (ast.Try, ast.TryStar, ast.With, ast.AsyncWith)
@@ -173,16 +173,20 @@ class Shapes:
                 self.calls.setdefault(c.func.id, []).append(c)
         self.loose = {n.id for n in ast.walk(t) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
                       and id(n) not in callees}
+        self.attrs = {n.attr for n in ast.walk(t) if isinstance(n, ast.Attribute)}
         out, needs = set(), {}
         for n in ast.walk(t):
-            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
-                got = self.flows(n, parent, frozenset())
+            # m.paths, the module's own name reached through a namespace (a module, a parameter): read as paths
+            own = isinstance(n, ast.Attribute) and n.attr in self.binds
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) or own:
+                k = n.attr if own else n.id
+                got = self.flows(n, parent, frozenset()) if isinstance(n.ctx, ast.Load) else None
                 if got is None:
-                    out.add(n.id)
+                    out.add(k)
                     continue
-                for k in got[0]:
-                    up[root(k)] = root(n.id)
-                needs.setdefault(n.id, []).extend(got[1])
+                for x in got[0]:
+                    up[root(x)] = root(k)
+                needs.setdefault(k, []).extend(got[1])
             elif isinstance(n, ast.Name) and isinstance(scope(n, parent), ast.ClassDef):
                 out.add(n.id)                                # a class attribute, reached as C.x
         keys = set(self.binds) | set(up) | set(needs) | out
@@ -253,11 +257,11 @@ class Shapes:
 
     def returns(self, r, parent, names, needs, seen):
         """A value returned flows on from each call of its function, which must be a plain, undecorated module function
-        named only as a callee, holding no yield."""
+        named only as a callee (never as an attribute, ``m.mk()``), holding no yield."""
         f = scope(r, parent)
         if not isinstance(f, ast.FunctionDef) or f.name in seen:
             return (names, needs) if isinstance(f, ast.FunctionDef) else None
-        if f.decorator_list or isinstance(scope(f, parent), ast.ClassDef) or f.name in self.loose or any(
+        if f.decorator_list or isinstance(scope(f, parent), ast.ClassDef) or f.name in self.loose | self.attrs or any(
                 isinstance(x, (ast.Yield, ast.YieldFrom)) for x in ast.walk(f)):
             return None
         for call in self.calls.get(f.name, []):

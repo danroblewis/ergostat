@@ -33,7 +33,8 @@ what the AI may be asked about; the AI can still approve a wrong fix within that
 - **The program's own code.** The guard trusts that `len`, `print`, `json.loads` and the like mean what Python gives
   them. It refuses a program that rebinds them in ways it can read, but your program's unchanged code could still
   rebind one through a call the guard does not follow (`operator.setitem` on a module's namespace, code run from a
-  string). A fix cannot add such a call; the trust is in your committed code, not in the fix.
+  string), and the same kind of call could fill a list or dict it names only as a string. A fix cannot add such a
+  call; the trust is in your committed code, not in the fix.
 
 ## What it stops
 
