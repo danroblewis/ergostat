@@ -113,7 +113,10 @@ class Dispatcher:
                     self.due = float("inf")
                     if mono - last >= EVERY:
                         last = mono
-                        budget.recover(self.p, self.spec)    # (at most once a minute: SPEC §9.9)
+                        try:                                 # (on its own: a failed recovery skips no watch, no tick)
+                            budget.recover(self.p, self.spec)    # (at most once a minute: SPEC §9.9)
+                        except Exception as e:
+                            self.e.say(f"budget: recovery: {type(e).__name__}: {e}")
                         if self.blocks or self.holding:      # (a model with no block that takes: nothing to watch)
                             self.watch()
                     self.tick()
@@ -273,7 +276,8 @@ class Dispatcher:
         self.going.setdefault(b.name, {})[it.id] = {"run": run, "fence": fence, "block": b}
         if self.e.stop.is_set():                                  # it raced the stop: given back, not counted, not run
             self.give_back(b.name, it.id)
-            budget.OPEN.discard(run)                              # (no end: recovery closes it, at its reserve)
+            if run in budget.OPEN:                                # (nothing ran: its reserve given back)
+                budget.close(self.p, b.name, run, 0.0, "taken as ergostat stopped: not run")
             with self.e.lock:
                 self.e.running.discard(key)
             return None
@@ -299,6 +303,8 @@ class Dispatcher:
                 spec, version = lease.pop("model", (None, None))
                 if self.e.stop.is_set():                       # taken just as ergostat stopped: not started
                     out["stopped"] = True
+                    if run in budget.OPEN:             # (nothing ran: its reserve given back)
+                        budget.close(self.p, b.name, run, 0.0, "taken as ergostat stopped: not run")
                     return moved
                 moved = self.e.run_block(b, why, extra={"item": item, "lease": lease}, spec=spec, version=version,
                                          item=item["id"], fence=lease["fence"],

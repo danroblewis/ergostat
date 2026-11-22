@@ -2313,7 +2313,7 @@ blocks:
 - **Gated** like any machine block: while what commands it (`goal:`, `in: block.x`) is off, its events wait.
 - **Alone, and on what blocks say.** A block started by events has no `every:`, `cron:` or `takes:`, and neither its
   `on:` nor its `emits:` names a type of ergostat's own record (`agent.*`, `block.*`, `person.*`, `trigger.*`,
-  `loop.*`, `ergostat.*`, ...: which no block may say) (`check`: `bad-trigger`); a block that works items one by one,
+  `budget.*`, `loop.*`, `ergostat.*`, ...: which no block may say) (`check`: `bad-trigger`); a block that works items one by one,
   each needing doing until done, takes them (section 9.5) instead.
 
 **How a commanded block runs.** While its command is nonzero it runs, once per fresh reading:
@@ -2898,8 +2898,10 @@ spends more is charged what it spent, and nothing stops it as it runs (that is T
   dispatcher's clock, at most once a minute, and reads the open runs without taking the engine's or dispatcher's
   locks. It copies the open runs before it reads the record, so a run that ends between the two is seen as ended.
   A run is listed as open under the lock, before its event is written. A run that `run_block` raises out of
-  after its `agent.started` is closed there, cost null. A take the item fold refused (another holder won) is closed
-  with `cost_usd: 0`: nothing ran.
+  after its `agent.started` is closed there, cost null. A take the item fold refused (another holder won), or one
+  that won its lease as ergostat stopped and so never ran, is closed with `cost_usd: 0`: nothing ran.
+- **Only ergostat writes them.** `budget.*` is among ergostat's own types: no run's output, `ergostat event --add`
+  (whatever its `--as`), push, MCP call or trigger may record one, so no run can close itself, or another, at 0.
 - **`ergostat.budget.left`** is daily − spent − reserved. With no `budget:`, or a record that cannot be read, it is
   an error (`MeasureError`), never `daily` or 0: the measures list shows none and the error.
 - **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take`, and only

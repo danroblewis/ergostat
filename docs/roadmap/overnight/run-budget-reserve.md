@@ -244,3 +244,37 @@ I saw the test fail before the line was added. Tests run: `tests/test_library_tr
 `tests/test_run_budget.py` (30 passed). ruff is clean. The whole unit suite and the four browser files were not run
 here. The factory runs them. A shell heredoc that appended this section was refused (Bash, "don't ask" mode). The
 section was written with the editor instead.
+
+Round 5: review 4's findings, each answered.
+
+- Blocking (lesson-3, security): the fold trusted any `budget.closed` with source `ergostat`, and both
+  `ergostat event --add … --as ergostat` and an intake push could write one. `budget.` is now in
+  `runner.OWN_TYPES`. Every outside write path checks that tuple: `event --add` (`cli/record.py`), pushes
+  (`intake/envelope.py`), MCP (`mcp.py`), a YAML run's own lines (`spec/engine.py`), an `ergostat.toml` agent's
+  lines (`runner.py`) and triggers (`spec/triggers.py`). With this, no run can close itself, or another run, at 0. SPEC
+  §9.3 and §9.9 and DESIGN's list of own types say so. Test: `test_budget_events_written_only_by_ergostat`, three
+  cases (`event-add`, `push`, `run-line`). Each one tries `budget.closed` and `budget.refused` against a run still in
+  flight and asserts that nothing is recorded and the run is still reserved. With `budget.` taken out of
+  `OWN_TYPES`, all three cases fail.
+- `docs/AGENT-GUIDE.md`: "a hard stop that no wiring mistake can get round" is narrowed. It now says `budget:` is a
+  check at each start, not a cap on spending: a run can spend more than it reserved, and the judge and ergostat's
+  own AI calls are outside it.
+- `dispatch.py` (a take that raced the stop): the run is now closed with `cost_usd: 0`, because nothing ran, like the
+  lost take. The same holds for a taken item whose `_work` sees the stop before it calls `run_block`. This changes my
+  round-1 choice. Tests: `test_take_raced_by_the_stop_releases_reserve` and
+  `test_taken_then_stopped_before_its_run_releases_reserve`. Each fails with its close removed.
+- `dispatch.py` (recovery inside the watch's `try`): `budget.recover` now has its own `try` in `Dispatcher.run`, so a
+  failed recovery is reported and that minute's watch and tick still run. Test: `test_recovery_failure_skips_no_watch`.
+  It fails with the old placement, where watch and tick never run. The test waits at most 5 s, a bound that is only
+  reached when the code is broken.
+
+Net lines outside `tests/`, `docs/` and `dev/`: 354 of the 380. Local `main` (7c46bc6d) is already in this branch,
+and the clone has no `origin/main`, so there was nothing to merge. Tests run, one batch at a time:
+`tests/test_run_budget.py` (36 passed), `test_calls.py` with `test_intake.py` and `test_library_trust.py`
+(86 passed), `test_runner_and_state.py` with `test_triggers2.py` and `test_triggers3.py` (66 passed),
+`test_improve.py` with `test_spec_mcp_explain.py` and `test_repair2.py` (32 passed, 32 skipped: bwrap cannot make
+namespaces in this container), and `test_leases.py` with `test_resilience.py` and `test_daemons.py` (111 passed).
+ruff is clean. The whole unit suite and the four browser files were not run here. The factory runs them. Refused
+(Bash, "don't ask" mode), and done with the editor or the test runner instead: a Python heredoc that made the
+edits; a `python -I -c` script that would have tried the push and run-line paths by hand; and a shell
+`git diff | awk` line-width check.

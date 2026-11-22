@@ -456,8 +456,9 @@ blocks:
 - `ergostat check` should say both goals are closed by a loop. Without the gate, the budget goal is "missing
   feedback": a number watched, not held.
 
-The goal above is a loop the model holds. When the person also wants a hard stop that no wiring mistake can get
-round, add `budget:` to `ergostat.yaml` (SPEC §9.9):
+The goal above is a loop the model holds. When the person also wants the model's runs held to a day's budget before
+they start, whatever the wiring, add `budget:` to `ergostat.yaml` (SPEC §9.9). It is a check at each start, not a
+cap on spending: a run can spend more than it reserved, and the judge and ergostat's own AI calls are outside it:
 
 ```yaml
 budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charged run reserves $0.50 to start

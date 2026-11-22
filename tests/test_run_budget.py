@@ -510,6 +510,89 @@ def test_lost_take_releases_reserve(tmp_path):
     assert budget.fold(p, spec) == (0.0, 0.0)
 
 
+def test_take_raced_by_the_stop_releases_reserve(tmp_path, monkeypatch):
+    """dispatch.take: a lease won as ergostat stops is given back, never run, and closed at 0 (nothing ran)."""
+    p = project(tmp_path)
+    spec, e = p.model.spec, engine(p)
+    p.events.add("ticket.opened", item="ticket/0", source="t")
+    monkeypatch.setattr(e.dispatch, "resources", lambda ev: e.stop.set())   # (after the lease is won, before the run)
+    assert e.dispatch.take(spec.blocks["worker"], item(p, "ticket/0"), inline=True) is None
+    run = reserving(p)[0]["data"]["run"]
+    closed = evs(p, "budget.closed")
+    assert [(x["data"]["run"], x["data"]["cost_usd"]) for x in closed] == [(run, 0.0)] and run not in budget.OPEN
+    assert budget.fold(p, spec) == (0.0, 0.0) and not evs(p, "agent.started")
+
+
+def test_taken_then_stopped_before_its_run_releases_reserve(tmp_path):
+    """Dispatcher._work: a taken item whose run sees the stop before it starts is closed at 0 (nothing ran)."""
+    p = project(tmp_path)
+    spec, e = p.model.spec, engine(p)
+    p.events.add("ticket.opened", item="ticket/0", source="t")
+    got = e.dispatch.take(spec.blocks["worker"], item(p, "ticket/0"), inline=True)
+    e.stop.set()
+    e.dispatch._work(*got)
+    closed = evs(p, "budget.closed")
+    assert [(x["data"]["run"], x["data"]["cost_usd"]) for x in closed] == [(got[3], 0.0)] and got[3] not in budget.OPEN
+    assert budget.fold(p, spec) == (0.0, 0.0) and not evs(p, "agent.started")
+
+
+def test_recovery_failure_skips_no_watch(tmp_path, monkeypatch):
+    """Dispatcher.run: a recovery that raises leaves that minute's lease watch and tick to run."""
+    p = project(tmp_path)
+    e = engine(p)
+    seen = []
+
+    def broken(*a, **k):
+        raise OSError("the lock file cannot be opened")
+
+    def tick():
+        seen.append("tick")
+        e.stop.set()
+    monkeypatch.setattr(budget, "recover", broken)
+    monkeypatch.setattr(e.dispatch, "watch", lambda: seen.append("watch"))
+    monkeypatch.setattr(e.dispatch, "tick", tick)
+    t = threading.Thread(target=e.dispatch.run, daemon=True)
+    t.start()
+    t.join(5)                                         # (the loop's first pass; it ends at once when tick runs)
+    e.stop.set()
+    t.join(5)
+    assert seen[:2] == ["watch", "tick"]
+
+
+@pytest.mark.parametrize("path", ["event-add", "push", "run-line"])
+def test_budget_events_written_only_by_ergostat(tmp_path, capsys, path):
+    """runner.OWN_TYPES: no outside write path records budget.*, whatever source it names, so no run closes itself
+    (or another run still in flight) at 0."""
+    from ergostat.intake import envelope
+    (tmp_path / "ergostat.yaml").write_text(MODEL.format(budget="budget: {daily: 10, max-cost: 1}") + """
+  liar:
+    type: program
+    run: >-
+      echo '{"event": "budget.closed", "data": {"run": "r", "cost_usd": 0}}'
+""")
+    p = Project(mdl.load(tmp_path))
+    spec = p.model.spec
+    started(p, "r")
+    budget.OPEN.add("r")
+    try:
+        for t in ("budget.closed", "budget.refused"):
+            if path == "event-add":
+                data = '{"run": "r", "cost_usd": 0}'
+                assert main(["-C", str(tmp_path), "event", "--add", t, "--as", "ergostat", "--data", data]) == 2
+                assert "not ergostat's own" in capsys.readouterr().err
+            elif path == "push":
+                with pytest.raises(envelope.Refused):
+                    envelope.record(p, [{"event": t, "source": "ergostat", "causedby": "r",
+                                         "data": {"run": "r", "cost_usd": 0}}])
+        if path == "run-line":
+            engine(p).run_block(spec.blocks["liar"], "test")
+        assert not evs(p, "budget.closed") and not evs(p, "budget.refused")
+        want = (1.0, 1.0) if path == "run-line" else (0.0, 1.0)      # (the liar's own run: charged its reserve)
+        assert budget.fold(p, spec) == want, "r still reserved: not closed at 0"
+    finally:
+        budget.OPEN.discard("r")
+
+
 def test_retaken_item_keeps_old_reserve(tmp_path):
     p = project(tmp_path, bud="budget: {daily: 10, max-cost: 1}")
     spec, e = p.model.spec, engine(p)
