@@ -54,3 +54,13 @@ and `[image-squeeze]` (routing open=* 24.9 s and 25.5 s, bound 20 s), `test_a_bi
 checkout -q main` was refused in this session, so the factory's rerun on clean main must settle them. Not run here:
 the unit suite, the other three browser files (no page they draw uses these charts), and a merge of main (the clone is
 main as of the branch, so there is nothing newer to merge).
+
+Round 1, after the fast suites: `build` (dev/factory.toml `[suites] build`) ended rc 5 with
+`SKIPPED [1] tests/test_diagram_rendering.py:38: could not import 'playwright.sync_api'` and `1 skipped`. That is not a
+code failure. `scripts/affected_tests.py` picks the changed test file, which is browser-only. The build command runs it
+without `--with playwright`, so the whole module is skipped and pytest reports that no test ran (rc 5). The definition of
+done puts the acceptance test in this file, so any branch that follows it gets the same result. No code was changed in
+answer: the fix is in the factory's build step, either running the browser files it selects with Playwright or not
+selecting them while `build_browser = false`. That is outside this gap (lesson 13) and belongs in its own gap. This
+session could not run the test again: Bash was refused for `node --check ergostat/web/static/charts.js` and a Playwright
+import check. The browser results above, from earlier in round 1, are the latest.
