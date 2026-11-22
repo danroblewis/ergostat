@@ -447,6 +447,21 @@ def test_backfill_replace(me):
     assert me.backfill("s", [(now - 7170, 5.0)])["count"] == 0       # outside the span: the old backfill's still
 
 
+def test_backfill_replace_keeps_a_late_reading_outside_the_span(me):
+    """A late reading in a coarse bucket the span overlaps, but in a finest bucket it does not, reaches every tier."""
+    now = (T + 10 * 86400) // 3600 * 3600
+    me.add_many([("s", now - 7200 + i * 60, 1.0) for i in range(60)])
+    me.roll(now)
+    me.add("s", 5.0, at=now - 7130)                      # late: the 1m bucket at now-7140, the 10m one at now-7200
+    got = me.backfill("s", [(now - 6700, 9.0), (now - 6650, 9.0)], "redefined", replace=True)
+    n = 1 if me.kind == "sqlite" else 2                  # (now-6660; with tiers, also now-6720: its bucket's raw is gone)
+    assert got["replaced"] == n
+    me.roll(now)
+    assert [m for _, m, _, _ in me.bucketed("s", now - 7140, now - 7081, 1)] == pytest.approx([3.0])
+    want = ((10 - n) * 1.0 + 5.0 + 2 * 9.0) / (10 - n + 3)
+    assert [m for _, m, _, _ in me.bucketed("s", now - 7200, now - 6601, 1)] == pytest.approx([want])
+
+
 def test_times_are_the_events_time_type_and_seq(ev):
     for i in range(20):
         ev.add("loop.off" if i % 3 else "loop.holding", item=f"l{i % 2}", at=T + i)

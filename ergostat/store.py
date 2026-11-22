@@ -702,14 +702,14 @@ class Measurements:
                   "from samples where series = ? and time >= ? and time <= ?", (time.time(), why, *span))
         n = c.execute("delete from samples where series = ? and time >= ? and time <= ?", span).rowcount
         self._deleted(c)
-        prev, a, b = 0.0, lo, hi                       # (a, b): what the dropped buckets cover, widened tier by tier
+        prev, a, b = 0.0, lo, hi                       # (a, b): the span and the finest dropped buckets, made from raw
         over = "from tiers where series = ? and every = ? and t <= ? and t + ? > ?"
         for e, _ in self.tiers:
             got = dict(c.execute("select t, n " + over, (series, e, hi, e, lo)).fetchall())
             c.execute("delete " + over, (series, e, hi, e, lo))
             for t in got:
-                a, b = min(a, t), max(b, t + e)
-                if prev == 0:
+                if prev == 0:                          # its late readings are in it now; a coarser one's are not
+                    a, b = min(a, t), max(b, t + e)
                     self._roll_raw(c, e, t, t + e, series)
                 else:
                     self._roll_tier(c, e, prev, t, t + e, series)

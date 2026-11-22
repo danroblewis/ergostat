@@ -1979,7 +1979,9 @@ aside as `forget` sets them (kept in the `forgotten` table, or `measurements.for
 when and why: the `--from` text), and so are readings waiting to be merged late there. Every
 tier's buckets that overlap the span are made again from what is left (the finest from the raw
 readings, each coarser from the next finer), or dropped where that is gone; the new readings reach
-them at the next roll. Readings outside the span are untouched, though a bucket that overlaps the
+them at the next roll. A late reading outside the span is dropped from the waiting list only where
+the finest bucket it falls in was made again from the raw readings (it is in that bucket, and so in
+the coarser ones made from it); every other waits for the next roll as before. Readings outside the span are untouched, though a bucket that overlaps the
 span's edge and whose raw readings are gone loses that bucket's readings outside the span too. The
 ledger's entries in the span become this call's, and each earlier backfill reaching into the span
 is marked `replaced`, with when (also when it was replaced only in part). On `sqlite` this is one
