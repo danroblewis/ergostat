@@ -604,8 +604,10 @@ The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, 
 `gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the
 gaps that left the state, ended the loop or passed the gate in the window, not only the merged ones; 0 with none.
 A median the pipeline manager can act on has a goal (`hold:`), read by the pipeline watch: off past its tolerance, it is
-a trigger of the manager's next session, and each goal's reading is on the situation (`times`; None when no gap is in
-its window or its measure cannot be read, never on target, though the measure's own sensor still reads 0 then). The
+a trigger of the manager's next session, and each goal's reading is on the situation (`times`). With no gap in its
+window the reading is None there and raises nothing (an empty window is no fault; the measure's own sensor still
+reads 0 then). One that cannot be read (a malformed or non-finite value, a measure times.py does not know) is None
+and a trigger naming the goal and the error. The
 p90s and the rest are plain measures, the file's header says which and why. The shipped holds are first guesses, and
 `python3 dev/bin/times.py setpoints` in the instance's folder sets each to today's reading (one with nothing in the
 window keeps its own). `status.py` prints them

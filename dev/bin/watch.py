@@ -5,7 +5,8 @@ a gap dead or parked (for a kind no program resumes: a defect, the kill rule, or
 classified unknown whatever its age; never a deferred or cancelled park), a waits_on / needs park not cleared in
 [manager] park_wait_hours (parks.py), a continuing gap whose branch intake could not fetch, a gap stuck in its state,
 an aging defect, a time-in-state goal (dev/model/times.yaml) off past its tolerance (each goal's reading is on the
-situation, `times`: None when unknown, never on target). It raises one:
+situation, `times`: None when unknown; an empty window raises nothing, a reading that fails is a trigger). It raises
+one:
 
   broken     before the schedule, when the merge pipeline has been broken past [manager] broken_minutes (the queue
              blocked, a push pending, no merge while approved gaps wait, the same test failing on two main commits,
@@ -158,17 +159,27 @@ TIME_GOAL = re.compile(r'^  ([a-z0-9-]+): \{auxiliary: ([a-z0-9-]+), hold: "<= (
 
 def time_goals(gaps: dict, now: float) -> tuple[list[dict], dict]:
     """The time-in-state goals (dev/model/times.yaml) off past their tolerance, as triggers (raised again only when
-    further off by a whole tolerance), and every goal's reading: one with no gap in its window, or that cannot be read,
-    is unknown (None), never on target; a goal in the file the watch cannot parse (or none at all) is a trigger."""
+    further off by a whole tolerance), and every goal's reading. One with no gap in its window is unknown (None on the
+    situation) and raises nothing: an empty window is no fault. One that cannot be read (a value malformed or not
+    finite, a measure times.py does not know) is None too, and a trigger naming the goal and the error, as is a goal in
+    the file the watch cannot parse (or none at all)."""
     out, read, rows, since, text = [], {}, list(gaps.values()), now - measure.WINDOW, times.GOALS.read_text()
     for name, aux, ceiling, tol in TIME_GOAL.findall(text):
+        read[name] = None
         try:
-            v = times.reading(aux, rows, since) if times.values(aux.removesuffix("-p90"), rows, since) else None
-        except (SystemExit, ValueError, TypeError, KeyError, AttributeError):
-            v = None
-        read[name] = v if v is not None and math.isfinite(v) else None
-        over, step = (read[name] or 0) - float(ceiling), max(float(tol), 1e-6)
-        if read[name] is not None and over > float(tol):
+            if aux.removesuffix("-p90") not in times.measures():       # (in-nowhere-hours would read as empty)
+                raise ValueError("no such measure in times.py")
+            vs = times.values(aux.removesuffix("-p90"), rows, since)
+            if not all(math.isfinite(x) for x in vs):
+                raise ValueError(f"{sum(not math.isfinite(x) for x in vs)} of its values not finite")
+        except (SystemExit, ValueError, TypeError, KeyError, AttributeError) as e:
+            out.append(sit("time", f"goal.{name}", f"goal {name} cannot be read: {aux}: {e}", "unreadable", str(e)))
+            continue
+        if not vs:
+            continue
+        v = read[name] = times.pct(vs, 0.9 if aux.endswith("-p90") else 0.5)
+        over, step = v - float(ceiling), max(float(tol), 1e-6)
+        if over > float(tol):
             out.append(sit("time", f"goal.{name}", f"goal {name} is off: {aux} reads {v:g} against <= {ceiling} "
                                                    f"(tolerance {tol}) over the last 14 days", math.floor(over / step)))
     lost = [n for n in re.findall(r"(?m)^  ([a-z0-9-]+): \{auxiliary:", text) if n not in read]

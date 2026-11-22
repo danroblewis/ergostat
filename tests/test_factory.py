@@ -3809,7 +3809,8 @@ def test_the_time_goals_have_no_check_findings(tmp_path):
 def test_a_time_goal_off_reaches_the_managers_session(tmp_path):
     """state-times-in-the-loop: a time goal off past its tolerance is a trigger of the watch's next session and is in
     the pipeline manager's brief; one on target is read and not raised; one with no gap in its window is unknown (None
-    on the situation), never on target and never 0; answered, the same reading is not raised again, a worse one is."""
+    on the situation), never on target and never 0; answered, the same reading is not raised again, a worse one is.
+    One that cannot be read (a malformed or NaN time_in, a measure times.py does not know) is None and a trigger."""
     f = pipe(tmp_path)
     left = f.now - 3600
 
@@ -3846,6 +3847,35 @@ def test_a_time_goal_off_reaches_the_managers_session(tmp_path):
     slow(4, 20.0)                                                              # median 6h: further off
     (t2,) = again()
     assert t2["subject"] == "goal.ready-short" and t2["print"] != t["print"]
+    # (lesson-3) a reading that fails is a trigger naming the goal and the error; an empty window stays silent
+    code = ("import sys, json, pathlib; sys.path[:0] = [sys.argv[1]]; import watch, times; p = pathlib.Path(sys.argv[2])"
+            "; arg = json.loads(sys.argv[3]); p.write_text(times.GOALS.read_text().replace(*arg['swap']) "
+            "if arg['swap'] else times.GOALS.read_text()); times.GOALS = p; "
+            "print(json.dumps(watch.time_goals(arg['gaps'], arg['now'])))")
+
+    def goals(gaps: dict, swap: list | None = None) -> tuple[dict, dict]:
+        arg = json.dumps({"gaps": gaps, "now": f.now, "swap": swap})
+        r = subprocess.run([sys.executable, "-c", code, str(BIN), str(tmp_path / "times.yaml"), arg],
+                           capture_output=True, text=True, check=False)
+        assert r.returncode == 0, r.stderr
+        off, got = json.loads(r.stdout)
+        return {x["subject"]: x["why"] for x in off}, got
+
+    def gap(time_in) -> dict:
+        return {"g": {"id": "gap/g", "state": "merged", "fields": {"time_in": time_in}}}
+    assert goals({}) == ({}, goals({})[1]) and set(goals({})[1].values()) == {None}   # nothing in a window: silent
+    off, got = goals(gap({"ready": {"hours": "soon", "visits": 1, "left": left}}))  # a malformed time_in
+    assert got["ready-short"] is None and "goal ready-short cannot be read" in off["goal.ready-short"]
+    off, got = goals(gap({"ready": {"hours": 1.0, "visits": 1}}))                   # its `left` missing
+    assert got["ready-short"] is None and "cannot be read" in off["goal.ready-short"]
+    off, got = goals(gap({"ready": {"hours": float("nan"), "visits": 1, "left": left},
+                          "queued": {"hours": 0.25, "visits": 1, "left": left}}))   # one NaN among them
+    assert got["ready-short"] is None and "not finite" in off["goal.ready-short"]
+    assert got["queued-short"] == 0.25 and "goal.queued-short" not in off          # (the others still read)
+    off, got = goals({}, ["auxiliary: in-ready-hours,", "auxiliary: in-nowhere-hours,"])   # a measure none knows
+    assert got["ready-short"] is None and "in-nowhere-hours" in off["goal.ready-short"]
+    off, got = goals({}, ["auxiliary: in-ready-hours,", "auxiliary: nowhere,"])     # one values() refuses
+    assert got["ready-short"] is None and "nowhere" in off["goal.ready-short"]
 
 
 def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
