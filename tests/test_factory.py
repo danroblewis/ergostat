@@ -153,7 +153,7 @@ class Factory:
             [pools]
             implementor_max = 4
             reviewer_max = 2
-            streak = 3
+            probation = 3
             batch_max = 4
             [instance]
             port = 0
@@ -262,6 +262,9 @@ def test_the_factory_model_loads():
     assert {"machine-full", "disk-cleanup"} <= set(spec.blocks)
     assert spec.blocks["implementor"].takes.at == ["fix", "ready"] and spec.blocks["implementor"].pool == 9
     assert {"implementor-pool", "reviewer-pool"} <= set(spec.stocks) and "raise-pool" in spec.actions
+    assert {"factory-interventions", "escapes"} <= set(spec.stocks) and "risk-tolerance" in spec.parameters
+    assert {"pool-risk", "pool-risk-bound", "pool-target"} <= set(spec.auxiliaries)        # the pools' loop
+    assert [str(p) for p in problems if "pools.yaml" in str(p.where)] == []
     assert spec.blocks["merge-queue"].pool == 1
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
 
@@ -472,39 +475,163 @@ def test_triage_waiting_on_load_does_not_block_the_queue(tmp_path, monkeypatch, 
 
 
 def pools_module():
-    sys.modules.setdefault("fac", module("fac"))       # (pools.py imports fac from beside it)
+    sys.modules.setdefault("fac", module("fac"))       # (pools.py imports fac and risk from beside it)
+    sys.modules.setdefault("risk", module("risk"))
     return module("pools")
 
 
-def gap(n: int, state: str = "approved", fixes: int = 0, at: float = 100.0, **f) -> dict:
+def gap(n: int, state: str = "approved", at: float = 100.0, **f) -> dict:
+    """A gap: approved or merged (approved first), parked, or with no verdict yet (ready, fix)."""
+    times = {"approved": ["approved_at"], "merged": ["approved_at", "merged_at"], "parked": ["parked_at"]}
     return {"id": f"gap/g{n}", "state": state, "last": at + n,
-            "fields": {"approved_at": at + n, "fix_rounds": fixes, **f}}
+            "fields": {**{k: at + n for k in times.get(state, [])}, **f}}
 
 
-def test_pools_raise_only_after_the_streak():
+def intervention(n: int, at: float = 100.0, **f) -> dict:
+    return {"id": f"intervention/i{n}", "state": "open", "fields": {"recorded_at": at + n, **f}}
+
+
+def clean(n: int, at: float = 100.0) -> list[dict]:
+    """n gaps merged with nothing wrong, the first at ``at``."""
+    return [gap(i, "merged", at=at) for i in range(n)]
+
+
+def test_risk_counts_factory_caused_interventions_and_escapes_not_review_findings():
+    risk = module("risk")
+    gaps = [gap(1), gap(2, "parked", parked_by="review"), gap(3, "merged", reverted=True),
+            gap(4, "merged", broke_main=True), gap(5, "merged"), gap(6, "merged"), gap(7, "merged"),
+            gap(8, "fix", findings=["a blocking finding"]),                  # sent back: no verdict yet, not processed
+            gap(9, "ready", caused_by="gap/g6")]                             # a later gap names g6 as its cause
+    ivs = [intervention(1, **{"class": "environment-defect"}), intervention(2, factory=True),
+           intervention(3, **{"class": "queue-interleaving"}), intervention(4, **{"class": "review-finding"}),
+           intervention(5, **{"class": "park"}), intervention(6, **{"class": "worktree"}, caused_by="gap/g5")]
+    upgrades = [{"state": "reverted", "fields": {"gap": "gap/g7"}}]
+    ev = risk.evidence(gaps, ivs, upgrades, [])
+    assert ev == {1: [3, 7, 5, 5]}       # 3 factory-caused of 7 processed; escapes g3, g4, g5, g6, g7 of 5 merged
+    assert risk.evidence(gaps, ivs[3:], [], [])[1][0] == 0                  # findings and parks are no harm
+    quiet = risk.evidence([*clean(7), gaps[1]], [], [], [])
+    assert quiet == {1: [0, 8, 0, 7]}
+    hurt, calm = risk.table(ev, 2, 6)[1], risk.table(quiet, 2, 6)[1]
+    assert hurt["risk"] > calm["risk"] and hurt["bound"] > calm["bound"]
+    assert hurt["per_day"] == 4 and hurt["risk"] == round(sum(r[0] for r in hurt["rates"].values()) * 4, 3)
+    assert ivs[0]["fields"]["class"] in risk.FACTORY and not risk.factory_caused(ivs[3])
+    own = [intervention(7, **{"class": "queue"}), intervention(8, **{"class": "switch"})]   # the factory's own records
+    assert risk.evidence(gaps, [*ivs, *own], upgrades, [])[1][0] == 5
+    assert risk.table(risk.evidence(gaps, [*ivs, *own], upgrades, []), 2, 6)[1]["bound"] > hurt["bound"]
+    # main failing its suites after a merge (onmain.py's main-broken intervention, `main` its commit): an escape of
+    # the gap(s) whose merge made that commit, counted once each, at the pool size of their merge, not as factory harm
+    merged = [gap(1, "merged", main_sha="aaaa1111bbbb2222"), gap(2, "merged", main_sha="cccc3333dddd4444"),
+              gap(3, "merged", at=1000, main_sha="cccc3333dddd4444")]          # g2 and g3 landed in one batch
+    broke = intervention(9, at=2000, main="cccc3333dddd", gaps=["gap/g8"], **{"class": "main-broken"})
+    assert risk.evidence(merged, [], [], [[500, 2]]) == {1: [0, 2, 0, 2], 2: [0, 1, 0, 1]}
+    assert risk.evidence(merged, [broke], [], [[500, 2]]) == {1: [0, 2, 1, 2], 2: [0, 1, 1, 1]}
+    assert risk.evidence(merged, [broke, {**broke, "id": "intervention/i10"}], [], [[500, 2]])[1][2] == 1
+    unknown = intervention(9, at=2000, main="eeee5555", **{"class": "main-broken"})   # no merge found: still counted
+    assert risk.evidence(merged, [unknown], [], [[500, 2]]) == {1: [0, 2, 0, 2], 2: [0, 1, 1, 1]}
+
+
+def test_an_untried_pool_size_has_a_wide_bound_and_is_not_jumped_to():
+    risk = module("risk")
+    ev = risk.evidence(clean(40), [], [], [])                  # 40 clean gaps, all at a pool of 1
+    tab = risk.table(ev, 4, 24)
+    per_gap = {n: sum(r[1] for r in tab[n]["rates"].values()) for n in tab}
+    assert per_gap[1] < per_gap[2] < per_gap[3]               # each size above the largest tried: a wider bound
+    assert risk.target(tab, 100, 10) == 4
+    assert risk.step(1, tab, 100, 10, 99, 3)[:2] == ("raise", 2)            # one step, never straight to the target
+    tried = risk.evidence([*clean(40), *clean(40, at=1000)], [], [], [[500, 2]])   # 40 more, run at 2
+    assert sum(r[1] for r in risk.table(tried, 4, 24)[2]["rates"].values()) < per_gap[2] / 2   # evidence narrows it
+    assert risk.size_at([[500, 2], [900, 3]], 700) == 2 and risk.size_at([[500, 2]], 10) == 1
+
+
+def test_target_is_the_largest_pool_within_tolerance_and_demand():
+    risk = module("risk")
+    tab = {n: {"bound": b} for n, b in {1: 0.5, 2: 1.5, 3: 1.9, 4: 2.5}.items()}
+    assert risk.target(tab, 2, 10) == 3
+    assert risk.target(tab, 2, 2) == 2 and risk.target(tab, 2, 0) == 1    # not above the ready and fix gaps
+    assert risk.target(tab, 0.1, 10) == 1                                   # at least 1
+    assert risk.target({**tab, 2: {"bound": 9}}, 2, 10) == 1                # every step on the way within it
+    real = risk.table(risk.evidence(clean(60), [], [], []), 4, 2)
+    within = [n for n in real if real[n]["bound"] <= 2]
+    assert risk.target(real, 2, 10) == max(within) and real[max(within) + 1]["bound"] > 2
+
+
+def test_raising_the_tolerance_raises_the_target(tmp_path):
+    risk = module("risk")
+    assert risk.tolerance() == 2                                             # the model's, the owner's default
+    model = tmp_path / "pools.yaml"
+    model.write_text("parameters:\n  risk-tolerance:\n    value: 6\n    unit: interventions/day\n")
+    assert risk.tolerance(model) == 6
+    assert risk.tolerance(tmp_path / "missing.yaml") == 0                    # not read: the pools go down to 1
+    tab = risk.table(risk.evidence(clean(60), [], [], []), 4, 2)          # a gap every 2 hours
+    assert risk.target(tab, risk.tolerance(), 10) < risk.target(tab, risk.tolerance(model), 10)
+
+
+def test_risk_over_tolerance_lowers_the_pool_at_once(tmp_path):
+    risk = module("risk")
+    tab = {n: {"bound": b} for n, b in {1: 0.5, 2: 1.5, 3: 2.1}.items()}
+    assert risk.step(3, tab, 2, 10, 0, 3)[:2] == ("lower", 2)               # at once: no probation for a drop
+    assert risk.step(3, tab, 2.2, 10, 0, 3)[0] is None                      # within it: held
+    assert risk.step(3, tab, 2.2, 1, 0, 3)[:2] == (None, 3)                 # demand alone never lowers it
+    f = Factory(tmp_path)
+    t0 = time.time() - 1000                         # 40 clean gaps at a pool of 1, 4 hours each from ready to merged
+    f.fold([{"event": "gap.merged", "item": f"gap/c{i}", "data": {"ready_at": t0 + i - 4 * 3600, "approved_at": t0 + i,
+                                                                    "merged_at": t0 + i}} for i in range(40)], None)
+    for role in ("implementor", "reviewer"):
+        subprocess.run([sys.executable, str(BIN / "pools.py"), "set", role, "2", "test"], cwd=f.model, env=f.env,
+                       check=True, capture_output=True)
+    said, lines = f.run("pools.py", argv=("tune",))                        # nothing ready: target 1, but held
+    held = next(x["data"] for x in lines if x.get("event") == "pool.measured")
+    assert "pool.lowered" not in said and held["demand"] == 0 and held["target"] == 1 and held["risk_bound"] <= 2
+    code = ("import sys; sys.path[:0] = [sys.argv[1]]; import fac, queue; "
+            "queue.block(fac.config(), {}, 'a push failed')")                # the queue's own intervention
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    f.fold([json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")], None)
+    said, lines = f.run("pools.py", argv=("tune",))
+    assert said[0] == "pool.lowered" and f.item("pool/implementor")["fields"]["pool"] == 1
+    got = json.loads((f.model / "run" / "pools.json").read_text())
+    assert (got["implementor"], got["reviewer"]) == (1, 1)                  # the reviewer follows it down
+    low = [x["data"] for x in lines if x.get("event") == "pool.lowered"]
+    assert [x["pool"] for x in low] == [1, 1] and f.item("pool/reviewer")["fields"]["pool"] == 1   # each its event
+    assert low[0]["risk_bound"] > low[0]["tolerance"] == 2 and {"rates", "demand", "target"} <= set(low[0])
+    assert "acts" not in f.db()                                              # a drop asks no one
+    r = subprocess.run([sys.executable, str(BIN / "pools.py"), "raise", "implementor", "2", "3", "stale"],
+                       cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 1 and json.loads((f.model / "run" / "pools.json").read_text())["implementor"] == 1
+
+
+def test_probation_after_a_raise():
+    risk = module("risk")
+    tab = {n: {"bound": 0.1} for n in (1, 2, 3, 4)}
+    assert risk.step(2, tab, 2, 10, 2, 3) == (None, 2, "on probation: 2 of 3 gaps since the last raise")
+    assert risk.step(2, tab, 2, 10, 3, 3)[:2] == ("raise", 3)
+    assert risk.processed_since([gap(1), gap(5, "parked"), gap(9, "fix")], 103) == 1   # verdicts since the raise
+
+
+def test_an_approved_raise_is_decided_again_under_the_lock(tmp_path, monkeypatch):
     pools = pools_module()
-    cfg = {"pools": {"implementor_max": 4, "reviewer_max": 2, "streak": 3}}
-    one = {"since": 0, "implementor": 1, "reviewer": 1}
-    two_good = pools.outcomes([gap(1), gap(2, fixes=1)], [])
-    assert pools.decide(two_good, 0, one, cfg)[0] is None                       # two in a row: not yet
-    three = pools.outcomes([gap(1), gap(2, fixes=1), gap(3)], [])
-    assert pools.decide(three, 0, one, cfg)[:1] == ("raise",)
-    assert pools.decide(three, 102.5, one, cfg)[0] is None                      # only what came since the last change
-    broken = pools.outcomes([gap(1), gap(2, state="parked", parked_at=101.5), gap(3), gap(4)], [])
-    assert pools.decide(broken, 0, one, cfg)[0] is None                         # a park at 1: the streak starts again
-    reverted = pools.outcomes([gap(1), gap(2), gap(3)], [{"state": "reverted", "fields": {"gap": "gap/g2"}}])
-    assert pools.decide(reverted, 0, one, cfg)[0] is None                       # a merge reverted is not good
-    full = {"since": 0, "implementor": 4, "reviewer": 2}
-    assert pools.decide(three, 0, full, cfg)[0] is None                         # the cap
+    cfg = {"paths": {"run": str(tmp_path)}, "pools": {"implementor_max": 4, "reviewer_max": 2, "probation": 3}}
+    m = {"table": {2: {"bound": 1.0}, 3: {"bound": 1.0}}, "tolerance": 2, "since_raise": 3}
+    monkeypatch.setattr(pools.fac, "items", lambda kind: [])
+    monkeypatch.setattr(pools, "measured", lambda cfg, st, gaps: m)     # what the record says when it is approved
+    assert pools.raise_pool(cfg, "implementor", 1, 2, "approved") == 0
+    got = pools.state(cfg)
+    assert (got["implementor"], got["reviewer"]) == (2, 2)              # the reviewer pool comes up with it
+    assert got["raised_at"] > 0 and got["history"][-1][1] == 2          # the probation starts
+    assert pools.raise_pool(cfg, "implementor", 2, 4, "a jump") == 1     # one step at a time
+    m["table"][3]["bound"] = 2.5                                         # the bound crossed since it was asked
+    assert pools.raise_pool(cfg, "implementor", 2, 3, "late") == 1 and pools.state(cfg)["implementor"] == 2
+    m["table"][3]["bound"], m["since_raise"] = 1.0, 2                   # the probation not over
+    assert pools.raise_pool(cfg, "implementor", 2, 3, "early") == 1 and pools.state(cfg)["implementor"] == 2
+    m["since_raise"] = 3
+    assert pools.raise_pool(cfg, "implementor", 2, 3, "due") == 0
+    assert (pools.state(cfg)["implementor"], pools.state(cfg)["reviewer"]) == (3, 2)   # the reviewer at its most
+    assert pools.raise_pool(cfg, "reviewer", 2, 3, "past its most") == 1
 
 
-def test_pools_drop_on_a_park_and_keep_the_cap(tmp_path):
+def test_pools_set_by_hand_keeps_the_cap(tmp_path):
     pools = pools_module()
-    cfg = {"pools": {"implementor_max": 4, "reviewer_max": 2, "streak": 3}}
-    two = {"since": 0, "implementor": 2, "reviewer": 1}
-    bad = pools.outcomes([gap(1), gap(2, state="parked", parked_at=101.5)], [])
-    assert pools.decide(bad, 0, two, cfg)[0] == "lower"
-    assert pools.decide(pools.outcomes([gap(1, fixes=2)], []), 0, two, cfg)[0] == "lower"   # a second fix round
+    assert pools.most({"pools": {"implementor_max": 5000}}, "implementor") == pools.HARD
     f = Factory(tmp_path)
     for want, asked in ((4, "9"), (1, "0"), (2, "2")):
         r = subprocess.run([sys.executable, str(BIN / "pools.py"), "set", "implementor", asked, "test"],
@@ -3122,16 +3249,24 @@ def test_the_queue_merges_onto_main_as_pushed_and_waits_on_unpushed_commits(tmp_
 
 
 def test_the_pool_tuner_is_paused_and_never_lowers_the_owners_pools(tmp_path):
+    import tomllib
+    assert tomllib.loads((BIN.parent / "factory.toml").read_text())["pools"]["hold"] is True     # the operator's pause
     f = Factory(tmp_path)
     (f.model / "run").mkdir(exist_ok=True)
+    pool = lambda: json.loads((f.model / "run" / "pools.json").read_text())                      # noqa: E731
+    tune = lambda: subprocess.run([sys.executable, str(BIN / "pools.py"), "tune"], cwd=f.model, env=f.env,  # noqa: E731
+                                  capture_output=True, text=True)
     (f.model / "run" / "pools.json").write_text(json.dumps({"implementor": 3, "reviewer": 2, "since": 0}))
     f.fold([{"event": "gap.parked", "item": "gap/hurt-by-main", "data": {"parked_at": time.time()}}], None)
-    r = subprocess.run([sys.executable, str(BIN / "pools.py"), "tune"], cwd=f.model, env=f.env, capture_output=True,
-                       text=True)
+    f.config.write_text(f.config.read_text().replace("probation = 3\n", "probation = 3\nhold = true\n"))
+    r = tune()
     assert r.returncode == 0, r.stderr
-    got = json.loads((f.model / "run" / "pools.json").read_text())
-    assert got["implementor"] == 3 and got["reviewer"] == 2 and "pool.lowered" not in r.stdout
+    assert pool()["implementor"] == 3 and pool()["reviewer"] == 2 and "pool.lowered" not in r.stdout
     assert not [a for a in f.db().get("acts", []) if "role=implementor" in a or "role=reviewer" in a]
+    said = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{") and "pool.measured" in x]
+    assert {x["data"]["held"] for x in said if x["item"] == "pool/implementor"} == {"lower"}   # said, not done
+    f.config.write_text(f.config.read_text().replace("hold = true\n", ""))
+    assert tune().returncode == 0 and pool()["implementor"] == 2      # unheld: 3 was never run, its bound is too wide
 
 
 def test_a_dead_letter_on_main_broken_tests_says_so(monkeypatch):
