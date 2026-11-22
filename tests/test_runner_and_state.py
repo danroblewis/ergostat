@@ -573,6 +573,21 @@ def test_an_answer_counts_only_an_opening_while_off_and_a_spell_begun_in_the_win
     assert lp["answers_in"] is None and lp["back_in"] == 100
 
 
+def test_a_loop_off_now_says_since_when_and_whether_the_spell_began_before_the_window(project):
+    t = time.time() - 3000
+    project.events.add("ergostat.started", source="ergostat", at=t - 2000)
+    project.measurements.add("sensor/disk-usage", 90, at=t)
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 2000, data={})
+    lp = state.snapshot(project, window=3600)["loops"]["disk-under-80"]
+    assert abs(lp["off_since"] - (t + 2000)) < 1 and lp["off_before_window"] is False
+    project.events.add("loop.holding", item="disk-under-80", source="ergostat", at=t + 2100, data={})
+    lp = state.snapshot(project, window=3600)["loops"]["disk-under-80"]
+    assert lp["off_since"] is None and lp["off_before_window"] is False
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 2200, data={})
+    lp = state.snapshot(project, window=600)["loops"]["disk-under-80"]          # the spell began before this window
+    assert lp["off_before_window"] is True and lp["off_since"] <= time.time() - 599
+
+
 def test_parse_leaves_json_lines_to_json_and_a_failed_run_takes_nothing(repo):
     from ergostat import model
     from ergostat.store import Project

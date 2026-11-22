@@ -44,3 +44,9 @@ failures earlier reviews found on main (coordinator and image-squeeze routing ti
 'Nothing waiting.' equation test). The fifth, test_a_valve_turns_upright_when_its_pipe_runs_up, draws a Dynamics valve
 this change does not touch, and it passed when rerun alone. The other three browser files and the unit suite were
 not run here.
+
+Build step, round 1: `[suites] build` ran only tests/test_diagram_rendering.py (state.py has no tests/test_state.py).
+Without Playwright that file skips, so the run ended rc 5 with nothing run. The state.py change had no unit test of its
+own. tests/test_runner_and_state.py::test_a_loop_off_now_says_since_when_and_whether_the_spell_began_before_the_window
+now covers `off_since` and `off_before_window`, and it was seen to fail when `<=` was broken to `<`. That file passes:
+44 tests.
