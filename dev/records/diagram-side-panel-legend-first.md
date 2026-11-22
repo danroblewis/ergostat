@@ -104,3 +104,13 @@ Traceback (most recent call last):
 RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
 
 ```
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 13:29).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 15: nack a switch drains the runs under way (run/drain.json): taken again after it
+- attempt 16: nack a switch drains the runs under way (run/drain.json): taken again after it
+- attempt 17: nack a switch drains the runs under way (run/drain.json): taken again after it
+- attempt 18: nack the run ended with gap/diagram-side-panel-legend-first still parked
