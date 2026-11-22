@@ -192,8 +192,12 @@ function rateText(r, unit = "", flow = null) {
   const tail = (unit || "") + RATE_SUFFIX[u];
   return r == null ? "?" + tail : `${fmt(rateIn(r, u))}${unit ? " " : ""}${tail}`;
 }
-/* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠ */
-const op = (x) => x == null ? "" : String(x).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
+/* the record, when shorter than the page's window: how long it is (else null); a share "of the time" is over
+   that much (state.py's shares are over the time recorded), so it is said so */
+const recordedShort = () => { const st = S.status; return st?.window && st.first && st.recorded != null && st.recorded < st.window * 0.95 ? st.recorded : null; };
+const ofRecorded = (x) => { const r = recordedShort(); return r == null ? x : String(x).replaceAll("of the time", `of the ${dur(r)} recorded`); };
+/* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠; a share of the time, of what is recorded */
+const op = (x) => x == null ? "" : ofRecorded(String(x)).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
   .replace(/(^|[\s(=:])-(?=\.?\d)/g, "$1\u2212");                // and a negative number's real minus
 /* raw data, shown: every float to the precision that means something (the event's panel keeps it whole) */
 const tidy = (v) => typeof v === "number" && !Number.isInteger(v) ? +v.toPrecision(6)
@@ -374,6 +378,7 @@ async function refreshHeader() {
       : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
+    if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
   } catch (e) { /* the server may be restarting */ }
 }
 

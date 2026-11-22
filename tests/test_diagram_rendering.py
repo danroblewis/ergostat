@@ -2273,6 +2273,63 @@ def charted(tmp_path: Path, monkeypatch) -> Path:
     return d
 
 
+def test_the_window_in_the_header_never_claims_more_than_the_record(browser, tmp_path, monkeypatch):
+    """Acceptance (ui-the-window-in-the-header-never-claims-more-than): on a project whose record began 33 minutes
+    ago, the header's window control says the window and how much of it is recorded ('Last 1h (33m recorded)'),
+    and a suggestion giving a share '% of the time' says it is of the 33m recorded; on the 10m window, all recorded,
+    the control says the window only. The Loops page's footnote says the same span."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "charted"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CHARTED)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    for i in range(198):                                   # 33 minutes of readings, the valve opening now and then
+        t = now - 1980 + i * 10
+        p.measurements.add("sensor/backlog.main", 8 + math.sin(i / 30), at=t)
+        if i % 6 == 0:
+            p.events.add("valve.opened", item="worker", data={"amount": 1, "flow": "finishing"}, at=t)
+    p.events.add("loop.off", item="short-backlog", data={"value": 8}, at=now - 1900)   # off since, most of the record
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        when = "() => document.querySelector('#when .menu-btn')?.textContent || ''"
+        pg.wait_for_function(f"() => ({when})().includes('recorded')", timeout=10000)
+        label = pg.evaluate(when)
+        assert re.fullmatch(r"Last 1h \(3[234]m recorded\)", label), label
+        hints = pg.evaluate("() => [...document.querySelectorAll('.side .suggest .hint')].map((x) => x.textContent)")
+        timed = [x for x in hints if "% of the" in x]
+        assert timed, hints
+        for x in timed:                                     # every share of the time says of what record
+            assert "% of the time" not in x and re.search(r"% of the 3[234]m recorded", x), x
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelector('.page p.note')?.textContent.includes('recorded')", timeout=10000)
+        assert re.search(r"over the 3[234]m recorded", pg.locator(".page p.note").first.inner_text())
+        assert re.fullmatch(r"Last 1h \(3[234]m recorded\)", pg.evaluate(when))
+        pg.locator("#when .menu-btn").click()                # a window the record fills: the window alone
+        pg.locator("#when .menu-pop").get_by_text("Last 10 minutes").click()
+        pg.wait_for_function(f"() => ({when})() === 'Last 10m'", timeout=10000)
+        assert not errors, errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser, tmp_path, monkeypatch):
     """Clicking a stock draws its causes strip (it, its inflow and its outflow), a flow and an auxiliary
     theirs; parts chosen chart in the side panel; a loop's comparator and the Loops page's sparkline
