@@ -27,3 +27,12 @@ dev/factory.toml, tests/test_factory.py.
 0 net lines of code (configuration and tests).
 
 Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Round 2: the queue's finding was tests/test_agents.py::test_implementor_environment_has_a_browser, which still
+asserted the old ` -rs ` flag on browser and rerun. It now asserts ` -rfEs ` there (skips printed, and the FAILED and
+ERROR lines fac.failed_tests reads). tests/test_agents.py is outside the definition's file list; changing it was the
+only way to make the change the definition asks for without leaving a suite red. The other `-rs` uses
+(scripts/named_tests.py, a permission string and a fake rerun output in test_agents.py) are not read by
+fac.failed_tests and are left as they are.
