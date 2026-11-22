@@ -66,14 +66,14 @@ Some of these guarantees already have a part of the model behind them. Most have
 |---|---|---|
 | F1 main green | `gaps-queue-failed` held at 0 by `queue-failures-triaged`, served by flake triage (dev/model/landing.yaml:15-18, dev/model/landing.yaml:268-272, dev/model/landing.yaml:339-356). The pipeline manager's `merge-pipeline-flowing` counts an unremedied test that fails on two main commits (dev/model/manager.yaml:22-26, dev/model/manager.yaml:88-92) | No stock of **tests failing on main**: a goal of "main is green", in tests, read from main itself |
 | Escapes (any F) | The stock `escapes`, counting merged gaps that were reverted, broke main, or were named as a later gap's cause (dev/model/pools.yaml:28-32, dev/bin/risk.py:8-11, dev/bin/risk.py:74-97). It feeds only the pools' risk (dev/model/pools.yaml:39-43) | **No goal** on escapes. Its inflow `escapes-found` has no sensor (dev/model/pools.yaml:66-69). A reverted merge or a broken main is entered by hand (dev/README.md:353-358), except for the `main-broken` interventions found by the implementor's triage |
-| F4, F9 flakes | `flake-rate`, held by `flakes-rare` at ≤ 0.1 (dev/model/measures.yaml:53-57, dev/model/measures.yaml:115-119), which feeds `factory-off` and from there asks the coordinator (dev/model/measures.yaml:132-154) | `flake-rate` reads only the gaps' `retries` over their queue attempts (dev/bin/measure.py:167-169). Only triage writes `retries` (dev/bin/triage.py:72). The queue's own excused flakes write `flake.seen` (dev/bin/queue.py:206-208) and no `retries` (none appear in queue.py), so they are left out. The `flake` items themselves are counted by no sensor. Nothing emits `flake.fixed`: it appears only in the kind's declaration (ergostat.yaml:199), so no flake ever leaves `seen` |
+| F4, F9 flakes | `flake-rate`, held by `flakes-rare` at ≤ 0.1 (dev/model/measures.yaml:53-57, dev/model/measures.yaml:115-119), which feeds `factory-off` and from there asks the coordinator (dev/model/measures.yaml:132-154) | `flake-rate` reads only the gaps' `retries` over their queue attempts (dev/bin/measure.py:167-169). Only triage writes `retries` (dev/bin/triage.py:72). The queue's own excused flakes write `flake.seen` (dev/bin/queue.py:206-208) and no `retries` (none appear in queue.py), so they are left out. The `flake` items themselves are counted by no sensor. Nothing emits `flake.fixed`: it appears only in the kind's declaration (ergostat.yaml:199), so no flake ever leaves `seen`. Nor does any event take an item out of `main-broken` when main is fixed: the kind's only other events are `seen` and `fixed` (ergostat.yaml:195-199), the only writer of `main-broken` is dev/bin/onmain.py:94, and the only way out is a later `flake.seen` (written at dev/bin/onmain.py:74, dev/bin/queue.py:207, dev/bin/triage.py:71, dev/bin/manage.py:231), which moves a test still failing on main into the flakes |
 | F6 quarantine | Nothing. The list says it is "added and released by hand" (tests/quarantine.txt:1-3). The results of quarantined tests are written as `flake.measured` on flake items (dev/bin/fac.py:607-609) | A stock of quarantined tests, how long each has been held, and a goal that the quarantine drains |
 | F7, F8 gates | `failed_gates` summed on each gap (ergostat.yaml:124). The kill rule's parks flow out of triage (dev/model/landing.yaml:117-122) | A gate that fails is a finding, not a measure. Nothing counts how often each gate catches something, so nobody can see a gate that never catches anything |
 | F10 stalls | `stalls` summed on each gap (ergostat.yaml:127) | No measure |
 | F11 upgrades | `revert-share` is a parameter (dev/model/landing.yaml:255-260), and `upgrades-reverted` is a flow with a sensor (dev/model/landing.yaml:175-180) | No goal |
 | F12 lessons | Lesson items fold `times` (ergostat.yaml:277). `first-pass-with-lessons` compares the yield of gaps whose briefs carried lessons with the yield of all gaps (dev/model/knowledge.yaml:74-79) | No measure of **a lesson's class found again after it was carried**. That event is the lesson failing as a guarantee |
 | Time to repair | Interventions of class `main-broken`, one per main commit (dev/bin/onmain.py:10-12), in `interventions-open` (dev/model/interventions.yaml:9-12) together with every other class | No measure of how long main stays broken, or a flake stays unfixed |
-| U3 repair | The template has `regressed-fixes` and the flows `fixes-regressed` and `fixes-reverted` (ergostat/library/templates/repair/template.yaml:49, ergostat/library/templates/repair/template.yaml:63-64) | No goal on `regressed-fixes`: the template's goals are `no-open-failures` and `fixes-answered` (ergostat/library/templates/repair/template.yaml:66-68). SPEC's parts table leaves the stock out (docs/SPEC.md:6312) |
+| U3 repair | The template has `regressed-fixes` and the flows `fixes-regressed` and `fixes-reverted` (ergostat/library/templates/repair/template.yaml:49, ergostat/library/templates/repair/template.yaml:63-64) | No goal on regressions: the template's goals are `no-open-failures` and `fixes-answered` (ergostat/library/templates/repair/template.yaml:66-68). SPEC's parts table leaves the stock out (docs/SPEC.md:6312). A goal on the stock itself could never recover: a denied `revert-fix` leaves the failure `regressed` for good (docs/SPEC.md:6293), and the failure records no denial (only `revert_key`, ergostat/repair/apply.py:121) |
 | U1, U2 claims | Trust measures that any model can read as builtins (docs/SPEC.md:5021-5024); a contradicted claim is a finding that needs attention (docs/SPEC.md:5026-5028) | None is wired to a regression goal by default. That is correct under invariant 12; section 6 offers one opt-in |
 
 So this already exists: one cumulative stock (`escapes`) with no goal, one measure of flakes that undercounts, and
@@ -87,12 +87,12 @@ table above shows are needed (the quarantine, and the gates' catches). The names
 | Measure (part) | Kind, unit | Read from | Goal | Loop that acts when off |
 |---|---|---|---|---|
 | `tests-passing` | auxiliary, tests | the last green queue run's pytest summary on main (passed, failed, skipped, deselected) | `tests-not-falling`: its change over main's last 10 merges, by seq, `>= 0` (the shape of dev/model/code-health.yaml:120-124) | the reviewer and the coordinator: off asks for the gap that removed tests to justify it, through `factory-off` |
-| `main-failing-tests` | stock, tests: `flake` items in `main-broken` | `items: flake, state: main-broken` | `main-green`: `<= 0`, `tolerance: 0`, `critical: true` (docs/SPEC.md:2046), `on-stale: off` (docs/SPEC.md:2050) | the pipeline manager (already started by a broken pipeline: dev/model/manager.yaml:22-26) and the `remedy` block; while it is off, the queue lands nothing new that touches nothing failing (milestone gap 5) |
+| `main-failing-tests` | stock, tests: `flake` items in `main-broken` | `items: flake, state: main-broken`. This is a true count only once milestone gap 2 gives the state its ways out (`flake.main-fixed`, and a `flake.seen` that no longer takes an item out of `main-broken`); until then it only rises, so gap 5 waits on gap 2 | `main-green`: `<= 0`, `tolerance: 0`, `critical: true` (docs/SPEC.md:2046), `on-stale: off` (docs/SPEC.md:2050) | the pipeline manager (already started by a broken pipeline: dev/model/manager.yaml:22-26) and the `remedy` block; whether the queue should also hold while it is off is a separate question to the owner (milestone gap 5) |
 | `escapes` | the existing stock (dev/model/pools.yaml:28-32), plus a 14-day rate `escape-rate` (escapes per merged gap) | dev/bin/risk.py's evidence, unchanged | `escapes-rare`: `escape-rate <= 0.05` | the pool tuner already lowers the pool (dev/model/pools.yaml:113-121); in addition, the librarian asks for a lesson from each escape's cause, and the coordinator gets a gap that adds the test that would have caught it |
 | `flakes-open` | stock, tests: `flake` items `seen` | `items: flake, state: seen` | `flakes-few`: `<= 3`, with `per: item` on their age (docs/SPEC.md:2066-2070) so the oldest is named | the coordinator asks for a gap that fixes the oldest flake (a race in ergostat or a fixed sleep in the test, lesson 10) |
 | `flake-rate` | the existing auxiliary, corrected to count the queue's excused flakes as well as triage retries | dev/bin/measure.py | `flakes-rare`, unchanged (dev/model/measures.yaml:115-119) | unchanged: `factory-off` |
 | `quarantined` | stock, tests | `tests/quarantine.txt` on main, cross-checked with the `flake` items marked `quarantined` | `quarantine-small`: `<= 3`; and `quarantine-fresh`: the oldest held `<= 7d`, `per: item` | the coordinator, asked to release a test that passes again (fac.beside already records every run: dev/bin/fac.py:607-609) or to fix it |
-| `main-repair-hours` | auxiliary, hours: median from a `main-broken` intervention opened to remedied, over 14 days | intervention items of class `main-broken` (ergostat.yaml:203-211) | `main-repaired-fast`: `<= 24` | `remedy` (dev/model/interventions.yaml:52-66) |
+| `main-repair-hours` | auxiliary, hours: median, over 14 days, from a test's `flake.main-broken` to its `flake.main-fixed` (gap 2). Not from the intervention's `remedied`: that means the missing loop was built (dev/model/interventions.yaml:26-28), and it is marked by hand (dev/bin/manage.py:264) | flake items, by the `seq` of the two events | `main-repaired-fast`: `<= 24` | `remedy` (dev/model/interventions.yaml:52-66) |
 | `flake-fix-hours` | auxiliary, hours: median from `flake.seen` to `flake.fixed` | flake items | none until `flake.fixed` is emitted (milestone gap 2) | |
 | `gate-catches` | auxiliary per gate (queue red, triage red, size, definition, strays, review fix), a 14-day count | gap fields that already exist (`failed_gates`, `sent_back_by`, `reviews`) | none: a gate that is never off is not a regression. This one is **evidence** for removing or strengthening a gate (the refactor path, CLAUDE.md:35-37) | read by the simplifier and the coordinator |
 | `lessons-recurring` | auxiliary, findings: review findings in the last 14 days of a class the brief carried | lesson items' `findings` (ergostat.yaml:277) | `lessons-hold`: `<= 2` | the librarian: rewrite the lesson's **Check**, or turn it into a test or a lint, which moves it down the ladder |
@@ -143,7 +143,8 @@ All of this is model work and sensor work in `dev/`, which is the factory's own 
    `pools.yaml`, and the new file only puts a goal on it, so the pools' risk is unchanged.
 2. **Sensors in `dev/bin/measure.py`** for the auxiliaries (`tests-passing`, `main-repair-hours`, `gate-catches`,
    `lessons-recurring`). The stocks of items are plain `items:` sensors and need no code.
-3. **The record's missing events.** `flake.fixed` must be emitted (milestone gap 2), and the queue must write the
+3. **The record's missing events.** `flake.fixed` and a new `flake.main-fixed` must be emitted, and `flake.seen`
+   must no longer take an item out of `main-broken` (milestone gap 2). The queue must also write the
    pytest summary of its green run (today it keeps only `rc` and `seconds`: dev/bin/queue.py:104-105).
 4. **Wiring the loops.** `main-green` and `quarantine-*` feed `factory-off` (dev/model/measures.yaml:132-147), so
    the coordinator still has one commander (the pattern of dev/model/code-health.yaml:163-172). `escapes-rare` also
@@ -165,8 +166,10 @@ already has:
   runs it on a schedule and reads the counts. A run that cannot be read gives no value.
 - **Escapes** as contradicted claims: `builtin: ergostat.trust.contradicted@BLOCK` (docs/SPEC.md:5018-5024). A block
   that said "tests pass" when they did not has let a regression through.
-- **Regressed fixes** from the repair template's `regressed-fixes` (ergostat/library/templates/repair/template.yaml:49),
-  with the goal it lacks today (`<= 0`). The same template change should add that stock to SPEC's parts table
+- **Regressed fixes** from the repair template's flow `fixes-regressed`
+  (ergostat/library/templates/repair/template.yaml:63), with a goal that none regressed in the last 14 days (gap 7).
+  The goal is not on the stock `regressed-fixes` (ergostat/library/templates/repair/template.yaml:49), which a denied
+  revert keeps up for good (docs/SPEC.md:6293). The same template change should add that stock to SPEC's parts table
   (docs/SPEC.md:6312-6314).
 - **Regressed model changes** from `ergostat.model.regressed` (docs/SPEC.md:4900).
 - **Flakes and quarantine** only when the user declares an item kind for them. The template gives the shape (kinds,
@@ -194,12 +197,31 @@ the goals, then the loops, then the users.
    `counts: unknown`. Acceptance: a test that a run with 3 failed and 1 skipped records exactly those counts, and that
    a truncated log records unknown, never zero. Size: small, `dev/bin/` only.
 
-2. **flake-lifecycle.** A flake leaves `seen`. `flake.fixed` is emitted when a test that was seen as a flake passes in
-   N consecutive green queue runs on main (N in `[gates]`, with a ceiling), counted by `seq`. `manage.py` gets a
-   `flake-fixed` command, recorded as an intervention. The quarantine's release (fac.beside's `quarantined: false`,
-   dev/bin/fac.py:594-596) is one event, `flake.released`. The same-id remake is tested: a flake seen again after
-   `fixed` starts a new count, and its old `times` is not merged in (lesson 5). Acceptance: tests for fixed after N,
-   not fixed after N−1 with one fail between, and the remake.
+2. **flake-lifecycle.** Each of the flake kind's states gets a way out that means what it says.
+   - **Out of `seen`.** `flake.fixed` is emitted when a test that was seen as a flake passes in N consecutive green
+     queue runs on main (N in `[gates]`, with a ceiling), counted by `seq`.
+   - **Out of `main-broken`.** A new event, `flake.main-fixed`, is declared on the kind (ergostat.yaml:195-199) and
+     moves the item to `fixed`. After each landing, the queue runs each test in `main-broken` alone, twice, on the new
+     main, the way it already runs a test alone (dev/bin/onmain.py:46), at most M tests a pass (M with a ceiling, lesson 4).
+     A test that passes both runs gets `flake.main-fixed` with the main sha it passed on. A test that is skipped, not
+     collected, or quarantined, or whose run cannot be read, is unknown and stays `main-broken`, the way quarantine
+     scoring already counts it (dev/bin/fac.py:580-586; lesson 3). The event is written only if, re-read under the
+     item's lock, the sha it passed on is the item's `main` or a descendant of it, so a newer break written in
+     between is not cleared (lessons 1 and 2).
+   - **`seen` no longer clears `main-broken`.** Each writer of `flake.seen` (dev/bin/onmain.py:74, dev/bin/queue.py:207,
+     dev/bin/triage.py:71, dev/bin/manage.py:231) checks the item's state first, and for an item in `main-broken`
+     writes `flake.measured` instead, which counts `times` and moves no state. A test still failing on main therefore
+     never moves into the flake count.
+   - **A person's way out.** `manage.py` gets a `flake-fixed TEST --why W` command that writes `flake.fixed` from
+     either state, recorded as an intervention. This covers a test that was deleted or renamed, which no run can
+     clear, so the goal stays off until someone has looked: it fails closed.
+   - **Release and remake.** The quarantine's release (fac.beside's `quarantined: false`, dev/bin/fac.py:594-596)
+     becomes one event, `flake.released`. The same-id remake is tested: a flake seen or broken again after `fixed`
+     starts a new count and a new `main_broken_at`, with its old `times` and `main_fixed_at` cleared (lesson 5).
+
+   Acceptance: tests for fixed after N, and not fixed after N−1 with one failure between; `main-fixed` after main
+   is fixed; still `main-broken` when the alone run is skipped or unreadable; a `main-broken` written between the
+   check and the write is kept; a `flake.seen` on a `main-broken` item leaves it `main-broken`; and the remake.
 
 3. **flake-rate-counts-excused.** `flake-rate` counts the queue's excused flakes (dev/bin/queue.py:206-208) as well as
    triage's retries (dev/bin/measure.py:167-169), over all queue runs. A window with no runs gives no value, not 0.0.
@@ -214,11 +236,14 @@ the goals, then the loops, then the users.
 
 5. **guarantees-model.** `dev/model/guarantees.yaml`: the `guarantees` system and the stocks, auxiliaries and goals of
    section 4, the sensors in `dev/bin/measure.py`, every goal `on-stale: off`, and the named loops. `ergostat check`
-   is clean: no unsigned link, no missing feedback, every named loop balancing. Wiring into `factory-off`. The
-   `main-green` goal also holds the queue for any batch while main has a failing test that the batch does not touch
-   (`queue-when`, dev/model/landing.yaml:309-319). That last part goes to the owner as its own question in the
-   definition, since it slows landing. Acceptance: `ergostat check` on the factory, and a test per sensor of its
-   fail-closed reading.
+   is clean: no unsigned link, no missing feedback, every named loop balancing. Wiring into `factory-off`. It
+   depends on gap 2: without `flake.main-fixed`, `main-failing-tests` never falls, so `main-green` would stay off
+   after the first time main breaks. One part goes to the owner as its own question in the definition, because it
+   slows landing: should `main-green` also hold the queue for any batch while main has a failing test that the batch
+   does not touch (`queue-when`, dev/model/landing.yaml:309-319)? Such a hold lifts as soon as `main-fixed`, or a
+   person's `flake-fixed`, empties the stock. Acceptance: `ergostat check` on the factory; a test per sensor of its
+   fail-closed reading; and a test that a `flake.main-broken` followed by its `flake.main-fixed` sets `main-green`
+   off and then holding again.
 
 6. **escape-learning-loop.** On each escape, the librarian is given the escape's cause and asked for a lesson or a
    new test. `lessons-recurring` and its goal `lessons-hold` are read from the lesson items. Acceptance: a recorded
@@ -226,8 +251,13 @@ the goals, then the loops, then the users.
    measure.
 
 7. **regressions-template.** `ergostat/library/templates/regressions/`: the user's version of section 6b. Its passing
-   counts come from the declared `claims: tests`, its escapes from trust, its regressed fixes from repair. It adds the
-   goal on `regressed-fixes` to the repair template, and SPEC §12r's parts table catches up. SPEC gains a section on
+   counts come from the declared `claims: tests`, its escapes from trust, its regressed fixes from repair. It adds a
+   goal to the repair template, `fixes-hold`: no fix regressed in the last 14 days, read from the flow
+   `fixes-regressed` (ergostat/library/templates/repair/template.yaml:63) over that window, `<= 0`. The goal is not
+   put on the stock `regressed-fixes`, because a denied revert leaves a failure `regressed` for good
+   (docs/SPEC.md:6293), so a goal there could never recover. The goal recovers when a window passes with no new
+   regression. Each regressed fix already has its revert asked in the inbox as a gated action (docs/SPEC.md:6278-6280).
+   SPEC §12r's parts table catches up. SPEC gains a section on
    regression guarantees, and the agent guide a paragraph on when to offer the template. Acceptance: a demo model
    using it passes `demo_check`, a run with a failing test sets its goal off, and an unreadable test command leaves
    the goal stale and off, never holding.
@@ -249,6 +279,11 @@ No one was available to ask. Each choice below is the most reversible option:
 - **People close the loops.** Every new loop ends in the coordinator, the librarian, or a gated action. No guarantee
   breaking acts on the world by itself. Holding the queue while main is red (gap 5) is asked as a separate question,
   because it slows landing.
+- **Every regression goal can recover.** A goal whose stock has no way out stays off for good and stops saying
+  anything. `main-failing-tests` therefore gets `flake.main-fixed` (gap 2) rather than being read from the counts of
+  main's latest queue run. A green run has no failures by definition, so it could not name which test was fixed.
+  `fixes-hold` reads a window of the flow `fixes-regressed`, not the stock `regressed-fixes` (gap 7). Where no run
+  can clear an item (a deleted test), a person's `flake-fixed` does, so the goal stays off until someone has looked.
 - **Opt-in for users.** Users get a template, never a default, under invariant 12.
 - **The setpoints are placeholders** (`<= 3`, `<= 24` h, `<= 0.05`). Each is a parameter that the owner sets, as
   `risk-tolerance` is (dev/model/pools.yaml:87-90).

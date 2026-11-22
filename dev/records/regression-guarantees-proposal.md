@@ -23,3 +23,12 @@ this definition. Choices taken without the owner, each the most reversible (the 
 built; one new model file (`dev/model/guarantees.yaml`) in the milestone rather than edits across the existing ones;
 every new loop closed by a person or an existing program; holding the queue while main is red left as a separate
 question to the owner; users get an opt-in template, never a default; the setpoints are placeholders for the owner.
+
+Round 2 (fix): the one blocking finding of round 1 is answered in the proposal. A `main-broken` flake now has a way
+out: gap 2 adds `flake.main-fixed`, written after a landing when the test passes alone twice on the new main (checked
+under the item's lock against the sha it broke on; a skipped or unreadable run leaves it broken), and stops
+`flake.seen` from moving a `main-broken` item into the flakes. A person's `manage.py flake-fixed` clears what no run
+can, such as a deleted test. Gap 5 now depends on gap 2, and its queue hold lifts when the stock empties.
+`main-repair-hours` runs from `main-broken` to `main-fixed`, not to the intervention's hand-marked `remedied`. Gap 7's
+goal is now `fixes-hold`, a 14-day window on the flow `fixes-regressed`, because a denied revert keeps the stock
+`regressed-fixes` up for good (docs/SPEC.md:6293). Sections 3, 4, 6a, 6b, 7 and 8 changed; still no code.
