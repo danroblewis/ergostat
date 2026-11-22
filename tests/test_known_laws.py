@@ -108,7 +108,8 @@ def test_each_refusal_is_bad_law_at_its_key(tmp_path):
         vals[i] = huge
         cases.append((hpa.format(*vals), 3 + i, said))
     cases += [("law:\n  kind: alert-rule\n  threshold: -" + huge + "\n  side: above\n  for: 1m\n", 3, "threshold: a number"),
-              ("law:\n  kind: alert-rule\n  threshold: 1\n  side: above\n  for: " + huge + "\n", 5, "for: a duration")]
+              ("law:\n  kind: alert-rule\n  threshold: 1\n  side: above\n  for: " + huge + "\n", 5, "for: a duration"),
+              (hpa.format(1, 1, 5, 0.1, huge + "s"), 7, "every: a duration from")]   # a string: float() gives inf
     for law, line, said in cases:
         _, problems = read(model(tmp_path, law))
         bad = [p for p in problems if p.code == "bad-law"]

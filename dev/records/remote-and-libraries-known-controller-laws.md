@@ -43,5 +43,6 @@ and is bad-law at its key. A duration whose conversion overflows is read as infi
 check. durations.py (on main) is not changed. test_each_refusal_is_bad_law_at_its_key gains seven 400-digit cases
 (target, min, max, tolerance, every, threshold, for). Before the fix it failed with OverflowError at laws.py:54; after
 it, it passes. A duration written as a long digit string (`999…9s`) does not crash, because `float()` of a string
-gives inf, which the bounds refuse. Not checked here: an integer over Python's 4,300-digit string-conversion limit
+gives inf, which the bounds refuse (an eighth case in the same test). `stabilize-down` and `stabilize-up` go through
+the same duration path as `every` but have no case of their own. Not checked here: an integer over Python's 4,300-digit string-conversion limit
 fails in PyYAML's own loader, before any law is read. Net lines outside tests and docs: 153 (within 160).
