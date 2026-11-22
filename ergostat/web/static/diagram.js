@@ -163,9 +163,9 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   // a closed system linked to nothing, beside an open one: left out of ELK's layout, which would give it a row of its
   // own, and put where there is room after (places.js packLoose)
   const linked = new Set(g.edges.flatMap((e) => [e.source, e.target]));
-  const loose = open.size ? roots.filter((c) => byIdNodes[c.id]?.kind === "system" && !byIdNodes[c.id].upkeep && !linked.has(c.id)) : [];
-  // the model's own upkeep, linked to nothing: read last, put bottom right, apart from the system (places.js packLoose)
-  const upkeep = roots.filter((c) => byIdNodes[c.id]?.kind === "system" && byIdNodes[c.id].upkeep && !linked.has(c.id));
+  const loose = open.size ? roots.filter((c) => byIdNodes[c.id]?.kind === "system" && !linked.has(c.id)) : [];
+  // at the top level, the model's own upkeep linked to nothing: read last, bottom right, apart (places.js packLoose)
+  const upkeep = open.size ? [] : roots.filter((c) => byIdNodes[c.id]?.kind === "system" && byIdNodes[c.id].upkeep && !linked.has(c.id));
   if (loose.length + upkeep.length && loose.length + upkeep.length < roots.length) roots = roots.filter((c) => !loose.includes(c) && !upkeep.includes(c));
   const roomy = g.nodes.some((n) => n.kind === "system" || (n.systems || []).length);
   const graph = {

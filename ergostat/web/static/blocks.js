@@ -67,8 +67,8 @@ function bdSize(n) {
 const BD_TIER = { person: "person", ai: "AI agent", "narrow-ai": "narrow AI", decision: "decision", program: "program", rule: "rule" };
 function bdFrameTitle(f) { return 30; }
 const BD_UPKEEP = 16;
-function bdUpkeep(g) {                                 // the modelling system closed, at the top, linked to nothing
-  const n = g.nodes.find((x) => x.upkeep && !x.parent);
+function bdUpkeep(g) {                                 // the modelling system closed, at the top level, linked to nothing
+  const n = !(g.open || []).length && g.nodes.find((x) => x.upkeep && !x.parent);
   return n && g.nodes.length > 1 && !(n.ins || []).length && !(n.outs || []).length &&
     !g.edges.some((e) => e.source === n.id || e.target === n.id) ? n : null;
 }
