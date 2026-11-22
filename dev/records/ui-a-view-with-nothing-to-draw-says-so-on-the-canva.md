@@ -103,3 +103,15 @@ Built, 8 net lines outside tests (diagram.js +3, style.css +3 net of the two cha
   to the merge queue, as the rules say).
 - Refused here: a `cat >> <record> <<'EOF' ... EOF && git add && git commit` command, used to append this section
   in one step. It was written with the editor instead.
+
+## Where it stopped (round 2, build-step failure)
+
+- The same rc 5 as rounds 1 and 2: `affected_tests.py` selected only tests/test_diagram_rendering.py, ran it without
+  Playwright, and its module-level `importorskip` (line 38) skipped it whole ("1 skipped", nothing collected). No
+  test ran or failed; the branch's code is unchanged since round 2.
+- There is no code fault in the gap to fix, and the step cannot go green from inside the gap: it needs Playwright in
+  `[suites] build` or `affected_tests.py` treating a browser-only selection (rc 5) differently, both factory changes
+  (lesson 13), or a unit test added only to give the step something to run (lesson 9). None was made; left as it is,
+  the reversible choice. This gap waits on a factory gap that fixes the build step for browser-only branches.
+- Refused here: a `python3 - <<'EOF' ... EOF && git add ... && git commit ...` command used to append this section
+  and commit it. It was written with the editor instead.
