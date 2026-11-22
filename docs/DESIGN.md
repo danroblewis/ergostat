@@ -61,7 +61,8 @@ connections from many threads deadlocked inside SQLite's file locking).
 
 ergostat's own event types (agents may not publish them): `agent.started`, `agent.ran`,
 `agent.failed`, `agent.refused`, `valve.opened`, `controller.decided`, `loop.off`,
-`loop.holding`, `model.changed`, `ergostat.started`, `ergostat.stopped`. `ergostat item` lists
+`loop.holding`, `model.changed`, `ergostat.started`, `ergostat.stopped`, `budget.closed`,
+`budget.refused`. `ergostat item` lists
 only items that other events are about (the user's things); `--all` adds the parts.
 
 ## 4. Running agents
