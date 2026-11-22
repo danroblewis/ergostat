@@ -509,7 +509,8 @@ class Compiler:
                              f"with @POOL, or ergostat.cost.usd (or tokens, cpu, memory, runs), over the last day or with "
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
                              f"oldest, asked), or ergostat.interventions.waiting (or per-day, trend, standing, chattering, "
-                             f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files)",
+                             f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files, rollup-due, "
+                             f"events-past-keep, measurements-due)",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":

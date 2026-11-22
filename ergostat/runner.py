@@ -463,21 +463,10 @@ class Runner:
     def _prune(self) -> None:
         """Every ``storage: rollup: every`` (an hour): roll items' old events up into snapshots, forget
         what is older than the model's ``keep`` (default 30 days), and roll the measurements into their
-        tiers (``rollup.upkeep``)."""
-        from .rollup import upkeep
-        from .storage import rotate, trim
+        tiers (``rollup.upkeep``, under the compaction lock). Under ``use: upkeep`` only the logs: the template's
+        record-compactor and measurement-retainer do the rest (SPEC §4b)."""
         while not self.stop.wait(60):                      # not at once: a start is busy enough
-            rotate(self.p.dir / "run.log", self.p.storage.logs["run"])         # (storage: logs:)
-            trim(self.p.dir / "threads.txt", self.p.storage.logs["threads"])
-            try:
-                got = upkeep(self.p)
-                ro, me = got["rollup"], got.get("measurements") or {}
-                if ro["items"] or got["pruned"] or me.get("forgot"):
-                    self.say(f"rolled up {ro['events']} events of {ro['items']} items; kept {self.p.model.keep / 86400:g} days: "
-                             f"forgot {got['pruned']} events; measurements: {me.get('rolled', 0)} buckets made, "
-                             f"{me.get('forgot', 0)} rows forgotten")
-            except Exception as e:
-                self.say(f"rolling up: {type(e).__name__}: {e}")
+            prune_once(self.p, self.say)          # (a module function: the spec engine runs _prune as its own)
             if self.stop.wait(getattr(self.p, "storage", None).every if getattr(self.p, "storage", None) else 3600):
                 return
 
@@ -568,6 +557,31 @@ class Runner:
 
 
 # ---- in the background
+
+def prune_once(p, say) -> None:
+    """One pass of ``Runner._prune``: the logs rotated and trimmed; then, unless the model has ``use: upkeep`` (whose
+    record-compactor and measurement-retainer do it), ``rollup.upkeep`` under the compaction lock, or ``busy``."""
+    from .rollup import upkeep
+    from .spec.itemindex import upkept
+    from .storage import rotate, trim
+    rotate(p.dir / "run.log", p.storage.logs["run"])         # (storage: logs:)
+    trim(p.dir / "threads.txt", p.storage.logs["threads"])
+    if upkept(getattr(p.model, "spec", None)):
+        return
+    try:
+        got = upkeep(p)
+    except Exception as e:
+        say(f"rolling up: {type(e).__name__}: {e}")
+        return
+    if got.get("busy"):
+        say("rolling up: busy (another process holds the compaction lock); nothing done")
+        return
+    ro, me = got["rollup"], got.get("measurements") or {}
+    if ro["items"] or got["pruned"] or me.get("forgot"):
+        say(f"rolled up {ro['events']} events of {ro['items']} items; kept {p.model.keep / 86400:g} days: "
+            f"forgot {got['pruned']} events; measurements: {me.get('rolled', 0)} buckets made, "
+            f"{me.get('forgot', 0)} rows forgotten")
+
 
 def pid_file(project) -> Path:
     return project.dir / "run.pid"

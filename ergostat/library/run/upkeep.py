@@ -36,8 +36,50 @@ def tidy(argv: list[str]) -> int:
     return 0
 
 
+EVERY = (60.0, 86400.0)        # rollup-every and retain-every: 1m to 1d (the template holds them there too)
+
+
+def _compactor(argv: list[str], what: str) -> int:
+    """``upkeep rollup`` (the record: roll-up, prune past keep, the archive's forgetting) and ``upkeep retain`` (the
+    measurements into their tiers): the project opened from its folder, all the work under the compaction lock.
+    One line on standard output: what it did (``{"out": "flow.rolled-up", "moved": ITEMS, ...}`` or
+    ``{"out": "flow.measurements-forgotten", "moved": ROWS, ...}``; the other flows are measured by their stocks'
+    falls), or the words ``busy: ...`` (exit 0, nothing done) when another holds the lock."""
+    from ...durations import DurationError, parse_duration
+    from ...store import Project
+    ap = argparse.ArgumentParser(prog=f"upkeep {what}")
+    ap.add_argument("--every", required=True)
+    a = ap.parse_args(argv)
+    try:
+        every = parse_duration(a.every, "--every")
+    except DurationError as e:
+        print(f"upkeep {what}: {e}", file=sys.stderr)
+        return 2
+    if not EVERY[0] <= every <= EVERY[1]:
+        print(f"upkeep {what}: --every is 1m to 1d (not {a.every})", file=sys.stderr)
+        return 2
+    from ... import model as mdl
+    from ... import rollup
+    p = Project(mdl.load(common.root()), common.state_dir(), note=False)
+    with rollup.compaction(p) as held:
+        if not held:                                 # (words, not JSON: the engine logs them, moves nothing)
+            print(f"busy: another process holds {p.dir / rollup.LOCK}; nothing done", flush=True)
+            return 0
+        if what == "rollup":
+            got = rollup.record(p)
+            common.say({"out": "flow.rolled-up", "moved": got["rollup"]["items"], "events": got["rollup"]["events"],
+                        "pruned": got["pruned"], "archive_forgot": got["archive_forgot"]})
+        else:
+            got = rollup.measurements(p) or {"rolled": 0, "forgot": 0}
+            common.say({"out": "flow.measurements-forgotten", "moved": got["forgot"], "rolled": got["rolled"]})
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv and argv[0] in ("rollup", "retain"):
+        return _compactor(argv[1:], argv[0])
     if not argv or argv[0] != "tidy":
-        print("usage: python -m ergostat.library.run upkeep tidy --keep N", file=sys.stderr)
+        print("usage: python -m ergostat.library.run upkeep tidy --keep N | rollup --every D | retain --every D",
+              file=sys.stderr)
         return 2
     return tidy(argv[1:])

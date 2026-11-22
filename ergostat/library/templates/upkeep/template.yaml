@@ -1,6 +1,6 @@
 template: upkeep
 once: true
-description: ergostat's own upkeep as loops of the model (SPEC §2a, Upkeep) - its item-index files a stock held under a goal, tidied by a program on the rule rung instead of by the engine on its own; the delete interlock stays in ergostat's code.
+description: ergostat's own upkeep as loops of the model (SPEC §2a, Upkeep) - its item-index files, the record's roll-up and forgetting, and the measurements' retention, each a stock held under a goal and done by a program on the rule rung instead of by the engine on its own; the interlocks stay in ergostat's code.
 reading: |
   System dynamics: the item-index files (each an on-disk fold of the record for one shape of the model's item kinds)
   are a stock (index-files, read by ergostat's built-in measure ergostat.upkeep.index-files: the live
@@ -16,8 +16,19 @@ reading: |
   lock without waiting and leaves any live one changed within the last hour, checked again under the lock, and no goal or
   parameter changes that. If the tidier stops, files only pile up: every index still opens and folds right.
   With this use the engine no longer tidies the index files itself when it makes one.
-  It is used once a model, and its parts keep the names written here (index-files, index-files-few, index-tidier),
-  in a system named for the use (upkeep, by convention).
+  The record: the items with events past their roll-up horizon outside a snapshot are a stock (rollup-due, read by
+  ergostat.upkeep.rollup-due: what a roll-up would take now), and so are the events past the model's keep
+  (events-past-keep) and the measurement rows past their raw window or their tier's keep (measurements-due). Each
+  drains by its falls (rolled-up, events-forgotten, measurements-forgotten). The goals record-rolled-up,
+  record-within-keep and measurements-within-tiers hold each at 0; the controllers record-compactor (every
+  `rollup-every`: roll-up, pruning past keep, the archive's old months) and measurement-retainer (every
+  `retain-every`: the measurements into their tiers) are programs, ergostat's own. Both hold the record's compaction
+  lock for all their work, so no two compactors (these, the engine's, ergostat compact) overlap: one that finds it
+  held does nothing and says busy. With this use the engine no longer rolls up or retains itself (it still rotates
+  its logs). If they stop, the record only grows: items, flows and the archive still read right. A store that cannot
+  count what is due (VictoriaMetrics keeps its own retention) gives no reading, never 0.
+  It is used once a model, and its parts keep the names written here (index-files, index-files-few, index-tidier,
+  record-compactor), in a system named for the use (upkeep, by convention).
 example: |
   uses:
     upkeep:
@@ -41,6 +52,22 @@ params:
     type: duration
     default: 1h
     description: the window the files made and tidied are measured over
+  rollup-every:
+    type: duration
+    default: 1h
+    min: 1m
+    max: 1d
+    description: the least time between the record-compactor's runs while anything is due, from 1m to 1d
+  retain-every:
+    type: duration
+    default: 1h
+    min: 1m
+    max: 1d
+    description: the least time between the measurement-retainer's runs while anything is due, from 1m to 1d
+  due-every:
+    type: duration
+    default: 10m
+    description: how often what is due in the record and the measurements is counted
 stocks:
   index-files:
     unit: files
@@ -54,6 +81,24 @@ stocks:
     sensor:
       builtin: ergostat.upkeep.retired-index-files
       every: ${count-every}
+  rollup-due:
+    unit: items
+    description: items with events past their roll-up horizon outside a snapshot, what a roll-up would take now
+    sensor:
+      builtin: ergostat.upkeep.rollup-due
+      every: ${due-every}
+  events-past-keep:
+    unit: events
+    description: events older than the model's keep that pruning would forget, now
+    sensor:
+      builtin: ergostat.upkeep.events-past-keep
+      every: ${due-every}
+  measurements-due:
+    unit: rows
+    description: measurement rows past the raw window (storage measurements raw) or their tier's keep, now
+    sensor:
+      builtin: ergostat.upkeep.measurements-due
+      every: ${due-every}
 flows:
   index-files-made:
     to: index-files
@@ -78,6 +123,30 @@ flows:
       changes: falls
       over: ${over}
       every: ${count-every}
+  rolled-up:
+    from: rollup-due
+    driven-by: +stock.rollup-due
+    description: items rolled up into their snapshots by the record-compactor
+    sensor:
+      changes: falls
+      over: ${over}
+      every: ${due-every}
+  events-forgotten:
+    from: events-past-keep
+    driven-by: +stock.events-past-keep
+    description: events past keep forgotten by the record-compactor
+    sensor:
+      changes: falls
+      over: ${over}
+      every: ${due-every}
+  measurements-forgotten:
+    from: measurements-due
+    driven-by: +stock.measurements-due
+    description: measurement rows rolled into their tiers and forgotten by the measurement-retainer
+    sensor:
+      changes: falls
+      over: ${over}
+      every: ${due-every}
 goals:
   index-files-few:
     stock: index-files
@@ -88,6 +157,21 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: no retired index file left waiting
+  record-rolled-up:
+    stock: rollup-due
+    hold: "<= 0"
+    tolerance: 0
+    description: no item with events past its roll-up horizon left outside a snapshot
+  record-within-keep:
+    stock: events-past-keep
+    hold: "<= 0"
+    tolerance: 0
+    description: no event older than the model's keep left to forget
+  measurements-within-tiers:
+    stock: measurements-due
+    hold: "<= 0"
+    tolerance: 0
+    description: no measurement row kept past its raw window or its tier's keep
 blocks:
   index-tidier:
     type: program
@@ -96,3 +180,17 @@ blocks:
     run: ${lib} upkeep tidy --keep ${index-files}
     every: ${tidy-every}
     out: [flow.index-files-tidied, flow.retired-index-files-removed]
+  record-compactor:
+    type: program
+    goal: record-rolled-up
+    in: [+stock.rollup-due, +stock.events-past-keep]
+    run: ${lib} upkeep rollup --every ${rollup-every}
+    every: ${rollup-every}
+    out: [flow.rolled-up, flow.events-forgotten]
+  measurement-retainer:
+    type: program
+    goal: measurements-within-tiers
+    in: [+stock.measurements-due]
+    run: ${lib} upkeep retain --every ${retain-every}
+    every: ${retain-every}
+    out: [flow.measurements-forgotten]

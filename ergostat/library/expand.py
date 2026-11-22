@@ -305,7 +305,11 @@ def coerce(p: Param, v):
             raise ExpandError(f"{p.name}: at most {p.max} (max: {p.max}; not {raw!r})")
         return int(n) if t == "integer" else _num(n)
     if t == "duration":
-        hours(raw)
+        h = hours(raw)
+        if p.min is not None and not h >= p.min:
+            raise ExpandError(f"{p.name}: at least {p.min * 3600:g}s (not {raw!r})")
+        if p.max is not None and not h <= p.max:
+            raise ExpandError(f"{p.name}: at most {p.max * 3600:g}s (not {raw!r})")
         return raw
     if t == "setpoint":
         if not SETPOINT.match(str(raw)):

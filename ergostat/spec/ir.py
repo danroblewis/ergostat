@@ -233,10 +233,13 @@ LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or 
 }
 
 
-UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files)$")
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|rollup-due|events-past-keep|measurements-due)$")
 UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
     "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
     "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
+    "ergostat.upkeep.rollup-due": "items with events past their roll-up horizon outside a snapshot: what compact would roll",
+    "ergostat.upkeep.events-past-keep": "events older than the model's keep that pruning would forget, now",
+    "ergostat.upkeep.measurements-due": "measurement rows past storage: measurements: raw, or past their tier's keep, now",
 }
 
 

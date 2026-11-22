@@ -1,7 +1,9 @@
 """Rolling up the record (SPEC §4b): an item's events older than a horizon replaced by one
 ``ergostat.item.snapshot`` event, the originals moved to a compressed archive, and the record kept
 to its ``keep``; the measurements rolled into their tiers. The engine does it every ``storage:
-rollup: every`` (an hour), and ``ergostat compact`` does it now.
+rollup: every`` (an hour), and ``ergostat compact`` does it now; under ``use: upkeep`` the template's
+``record-compactor`` and ``measurement-retainer`` do instead. Whoever does it holds ``<state>/compact.lock``
+(``compaction``) for all of it.
 
 A snapshot is a ``set`` (SPEC §5a: the whole document at once) of the item's document as of the
 last event it replaces, with what else the fold keeps in its ``data.rollup``: the state and when it
@@ -19,6 +21,8 @@ first and last time). The item page's full history reads it (``archived``)."""
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import gzip
 import json
 import os
@@ -285,17 +289,51 @@ def archived(p, id: str, offset: int = 0, n: int = 200) -> dict | None:
     return {"item": id, "total": len(every), "archived": len(old), "offset": offset, "events": every[offset:offset + n]}
 
 
-def upkeep(p, now: float | None = None) -> dict:
-    """What the engine does every ``storage: rollup: every``: roll items up (never keeping more than
-    ``keep`` outside a snapshot), forget what is older than ``keep``, and roll the measurements into
-    their tiers."""
+LOCK = "compact.lock"        # <state>/compact.lock: held by whoever rolls up, prunes, forgets or rolls the measurements
+
+
+@contextlib.contextmanager
+def compaction(p):
+    """The record's compaction lock: an exclusive ``flock`` on ``<state>/compact.lock``, taken without waiting.
+    Yields True when held (for the whole ``with``), False when another holder has it (then nothing is to be done:
+    the caller says ``busy``). A ``flock`` goes with its holder's process, so a killed compactor leaves it free."""
+    Path(p.dir).mkdir(parents=True, exist_ok=True)
+    with open(Path(p.dir) / LOCK, "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def record(p, now: float | None = None) -> dict:
+    """The record's part of ``upkeep`` (the caller holds ``compaction``): roll items up (never keeping more than
+    ``keep`` outside a snapshot), forget what is older than ``keep``, and the archive's months past it."""
     now = now if now is not None else time.time()
     keep = p.model.keep
-    out = {"rollup": compact(p, now, cap=keep), "pruned": p.events.prune(now - keep),
-           "archive_forgot": Archive(p.dir).forget(now - keep)}
-    if hasattr(p.measurements, "roll"):
-        out["measurements"] = p.measurements.roll(now)
-    return out
+    return {"rollup": compact(p, now, cap=keep), "pruned": p.events.prune(now - keep),
+            "archive_forgot": Archive(p.dir).forget(now - keep)}
+
+
+def measurements(p, now: float | None = None) -> dict | None:
+    """The measurements rolled into their tiers (the caller holds ``compaction``); None for a store without tiers to roll."""
+    return p.measurements.roll(now if now is not None else time.time()) if hasattr(p.measurements, "roll") else None
+
+
+def upkeep(p, now: float | None = None) -> dict:
+    """What the engine does every ``storage: rollup: every`` without ``use: upkeep``, and ``ergostat compact``: the
+    record's part (``record``) then the measurements', all under the compaction lock; ``{"busy": True}``, with nothing
+    done, when another holds it."""
+    with compaction(p) as held:
+        if not held:
+            return {"busy": True}
+        out = record(p, now)
+        me = measurements(p, now)
+        return {**out, **({"measurements": me} if me is not None else {})}
 
 
 def vacuum(p) -> int:

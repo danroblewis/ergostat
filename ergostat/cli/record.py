@@ -333,7 +333,12 @@ def cmd_compact(args) -> int:
     if args.dry_run:
         got = {"rollup": compact(p, cap=p.model.keep, dry=True)}
     else:
-        got = upkeep(p)
+        got = upkeep(p)                                 # (under the compaction lock: busy when another holds it)
+        if got.get("busy"):
+            if args.json:
+                return out_json(got)
+            print(f"busy: another process holds {p.dir / 'compact.lock'} (rolling up now); nothing done")
+            return 0
         got["vacuumed"] = vacuum(p)
     got["archive_bytes"] = Archive(p.dir).size()
     if args.json:

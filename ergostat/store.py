@@ -448,6 +448,17 @@ class Events:
         with self._c() as c:
             return c.execute("select min(time) from events").fetchone()[0]
 
+    _LOOSE = ("time < ? and type != 'model.changed' and item not like '%/%' and seq not in "
+              "(select max(seq) from events where type like 'loop.%' group by item)")
+    _WHOLE = ("(item is null and time < ? and type != 'model.changed') or item in "
+              "(select item from events where item like '%/%' group by item having max(time) < ?)")
+
+    def prunable(self, before: float) -> int:
+        """How many events ``prune(before)`` would forget, counted without forgetting any."""
+        with self._c() as c:
+            return (c.execute(f"select count(*) from events where {self._LOOSE}", (before,)).fetchone()[0]
+                    + c.execute(f"select count(*) from events where {self._WHOLE}", (before, before)).fetchone()[0])
+
     def prune(self, before: float) -> int:
         """Forget events older than ``before``, except the model's history, which is kept whole, and
         each loop's last crossing (whether it was off is what its hysteresis needs). An item is
@@ -455,11 +466,8 @@ class Events:
         snapshot's (``rollup.py`` folds them in first)."""
         with self._c() as c:
             c.execute("begin immediate")
-            n = c.execute("delete from events where time < ? and type != 'model.changed' and item not like '%/%' and seq not in "
-                          "(select max(seq) from events where type like 'loop.%' group by item)", (before,)).rowcount
-            n += c.execute("delete from events where (item is null and time < ? and type != 'model.changed') or item in "
-                           "(select item from events where item like '%/%' group by item having max(time) < ?)",
-                           (before, before)).rowcount
+            n = c.execute(f"delete from events where {self._LOOSE}", (before,)).rowcount
+            n += c.execute(f"delete from events where {self._WHOLE}", (before, before)).rowcount
             if n:
                 self._bump(c)
             c.execute("commit")
@@ -950,6 +958,21 @@ class Measurements:
                 c.execute("pragma incremental_vacuum")
                 c.execute("pragma wal_checkpoint(truncate)")   # and the write-ahead log, which grew with it
         return done
+
+    def due(self, now: float | None = None) -> int:
+        """The rows ``roll`` would forget, counted without rolling: raw readings past ``raw`` (in whole buckets of
+        the finest tier) and each tier's buckets past its keep. 0 without tiers: ``roll`` then forgets nothing."""
+        now = now if now is not None else time.time()
+        if not self.tiers:
+            return 0
+        n = 0
+        with self._c() as c:
+            if self.raw is not None:
+                e0 = self.tiers[0][0]
+                n += c.execute("select count(*) from samples where time < ?", ((now - self.raw) // e0 * e0,)).fetchone()[0]
+            for e, keep in self.tiers:
+                n += c.execute("select count(*) from tiers where every = ? and t + ? <= ?", (e, e, now - keep)).fetchone()[0]
+        return n
 
     def prune(self, before: float) -> int:
         with self._c() as c:

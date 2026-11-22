@@ -969,10 +969,26 @@ class Segments:
             self._edit(rows, lambda e: e["seq"] not in gone, put)
             self._bump()
 
+    def prunable(self, before: float) -> int:
+        """How many events ``prune(before)`` would forget, counted from the columns without forgetting any."""
+        rows, old = self._prunable(before)
+        segs, head = self._state()
+        return sum(len(rows(s)) for s in segs) + sum(1 for e in head if e["time"] < before
+                                                    and old(e.get("item"), e["type"], e["seq"]))
+
     def prune(self, before: float) -> int:
         """As ``store.Events.prune``: older than ``before``, but the model's history, each loop's last
         crossing, and every item that has anything newer. Only the segments that lose something are
         rewritten, read by their columns."""
+        rows, old = self._prunable(before)
+        with self._writing():
+            gone = self._edit(rows, lambda e: e["time"] >= before or not old(e.get("item"), e["type"], e["seq"]))
+            if gone:
+                self._bump()
+        return gone
+
+    def _prunable(self, before: float):
+        """What ``prune`` forgets: a segment's rows (``rows``) and whether one event goes (``old``)."""
         alive = {it for it, t in self.last_times().items() if t >= before}
         last_loop: dict[str | None, int] = {}            # each loop's last crossing, of all time, from the columns
         segs, head = self._state()
@@ -1002,11 +1018,7 @@ class Segments:
             c = self._cols(s)
             return {r for r in range(s.count) if c["time"][r] < before
                     and old(s.items[c["item"][r]], s.types[c["type"][r]], c["seq"][r])}
-        with self._writing():
-            gone = self._edit(rows, lambda e: e["time"] >= before or not old(e.get("item"), e["type"], e["seq"]))
-            if gone:
-                self._bump()
-        return gone
+        return rows, old
 
     def size(self) -> int:
         return sum(f.stat().st_size for f in self.dir.glob("*") if f.is_file())
