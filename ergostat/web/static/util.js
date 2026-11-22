@@ -508,7 +508,7 @@ async function route() {
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
-  if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)));
+  if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
   return (pages[path] || pageDiagram)(main, q);
 }
 

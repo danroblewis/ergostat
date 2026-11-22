@@ -124,8 +124,24 @@ def _grouped(cmd: list[str], prompt: str, timeout: float) -> subprocess.Complete
     return subprocess.CompletedProcess(cmd, pr.returncode, out, err)
 
 
-def call(prompt: str, model: str | None, budget: float | None, spent: Spent, timeout: float = 600,
-         system: str | None = None, group: bool = False, seen: dict | None = None, capped: bool = False) -> str:
+def call(prompt: str, model: str | None, budget: float | None, spent: Spent, *a, permit: dict | None = None,
+         **k) -> str:
+    """One call (``_once``). ``permit``, from ``costs.budget.ask`` (SPEC §9.9): the call is capped at its reserve
+    (``--max-budget-usd``, whatever ``$ERGOSTAT_AI`` is) and its permit closed at its end, however it ends, with the
+    cost it reported (none, or one that is not a finite number of at least 0: charged its reserve)."""
+    if permit is None:
+        return _once(prompt, model, budget, spent, *a, **k)
+    from ..costs import budget as bg
+    k["seen"] = seen = k["seen"] if k.get("seen") is not None else {}
+    k["capped"] = True
+    try:
+        return _once(prompt, model, permit["reserve"], spent, *a, **k)
+    finally:
+        bg.done(permit, seen.get("cost"))
+
+
+def _once(prompt: str, model: str | None, budget: float | None, spent: Spent, timeout: float = 600,
+          system: str | None = None, group: bool = False, seen: dict | None = None, capped: bool = False) -> str:
     """One call: what it answered, and its cost added to ``spent`` (``system``: its system prompt, else the extractor's;
     the intent judge's is its own, SPEC §12i). ``group``: run in a session of its own, the group killed at the
     timeout. ``capped``: ``--max-budget-usd`` given whatever ``$ERGOSTAT_AI`` is. ``seen``, when given, is filled with
@@ -209,8 +225,10 @@ def verified(kind: str, d: dict, batch, spent: Spent) -> dict | None:
 
 
 def extract(exs: list[tuple[Turn, str, str]], model: str | None, cap: float | None, instructions: str | None = None,
-            earlier: dict | None = None, on_found=None) -> Spent:
-    """Run over the exchanges a batch at a time; each finding, checked, goes to ``on_found(kind, data)``."""
+            earlier: dict | None = None, on_found=None, p=None, spec=None) -> Spent:
+    """Run over the exchanges a batch at a time; each finding, checked, goes to ``on_found(kind, data)``. With
+    ``budget:`` in ``spec``, each call first asks the day's budget for its cap (none: ``max-cost``), SPEC §9.9."""
+    from ..costs import budget as bg
     spent = Spent()
     head = (instructions or PROMPT.read_text(encoding="utf-8")).rstrip()
     earlier = earlier if earlier is not None else {"decision": [], "correction": []}
@@ -221,7 +239,12 @@ def extract(exs: list[tuple[Turn, str, str]], model: str | None, cap: float | No
                 spent.stopped = f"the cost cap (${cap:.2f}) would be passed: stopped at line {batch[0][0].line}"
                 break
         left = None if cap is None else max(0.05, min(2.0, cap - spent.cost_usd))
-        text = call(head + "\n\n" + render(batch, earlier) + ANSWER, model, left, spent)
+        prompt = head + "\n\n" + render(batch, earlier) + ANSWER
+        permit, no = bg.ask(p, spec, "decisions-extract", left or getattr(getattr(spec, "budget", None), "max_cost", 0))
+        if no:
+            spent.stopped = f"budget: {no}: stopped at line {batch[0][0].line}"
+            break
+        text = call(prompt, model, left, spent, permit=permit)
         for kind, d in answers(text):
             got = verified(kind, d, batch, spent)
             if got is None:

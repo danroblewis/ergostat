@@ -49,8 +49,13 @@ when nothing in the window to measure, but for the nine named at the end, which 
                       XL > 400. The window is on the latest merge (merged_at). A gap whose latest merge has no
                       merged_lines is left out of the share, never a hit, and named on stderr.
   size-accuracy-high  the same, of the gaps sized with high confidence only
+  planning-cost-share planning dollars (planning_cost_usd: the planner's and the plan review's sessions, the whole
+                      reservation of one that failed; 0 for an S gap and a sub-gap) over all AI dollars (ai_cost_usd),
+                      summed over the gaps merged in the window that carry planning_cost_usd. A gap without it is left
+                      out, never counted as 0; one whose planning cost is negative, not a number or above its total is
+                      left out too, and named on stderr. It says where the money went, not that less planning is safe.
 First-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
-split-overhead and the two size measures have no value with nothing to measure.
+split-overhead, the two size measures and planning-cost-share have no value with nothing to measure.
 
   coverage-below-floor  the modules whose share of statements the unit suite on main ran is under [code_health]
                       coverage_floor, from the latest coverage report (scripts/coverage_report.py, under run/coverage/)
@@ -126,6 +131,8 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         return knowledge_reading(name, since)
     if name in ("size-accuracy", "size-accuracy-high"):
         return size_accuracy(name, since)
+    if name == "planning-cost-share":
+        return planning_cost_share(since)
     gaps = fac.items("gap")
     if name in SPLITS:
         return split_reading(name, gaps, since)
@@ -193,6 +200,23 @@ def size_accuracy(name: str, since: float) -> float:
         print(f"{name}: left out, no merged_lines: {', '.join(left)}", file=sys.stderr)
     return share([size_class(g["fields"]["merged_lines"]) == g["fields"]["planned_size"] for g in sized
                   if counted(g["fields"])], name)
+
+
+def planning_cost_share(since: float) -> float:
+    """Planning dollars over AI dollars, of merged gaps that carry planning_cost_usd (the field present, a number from 0
+    to the gap's ai_cost_usd); no value with none, or with a total of 0."""
+    num = lambda v: type(v) in (int, float) and v == v  # noqa: E731
+    carried = [g for g in recent(fac.items("gap"), "merged_at", since) if g["state"] == "merged"
+               and "planning_cost_usd" in g["fields"]]
+    fit = lambda f: num(p := f["planning_cost_usd"]) and num(t := f.get("ai_cost_usd", 0)) and 0 <= p <= t  # noqa: E731
+    ok = [g["fields"] for g in carried if fit(g["fields"])]
+    if left := [g["id"] for g in carried if not fit(g["fields"])]:
+        print(f"planning-cost-share: left out, planning cost not within 0 and its total: {', '.join(left)}",
+              file=sys.stderr)
+    total = sum(f.get("ai_cost_usd", 0) for f in ok)
+    if not total:
+        raise SystemExit("planning-cost-share: no value yet (no merged gap with a planning cost and AI money)")
+    return round(sum(f["planning_cost_usd"] for f in ok) / total, 3)
 
 
 SPLITS = ("splits-covered", "split-budgets-held", "split-joins", "split-overhead")

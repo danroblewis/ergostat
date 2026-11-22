@@ -109,9 +109,15 @@ def read(path: Path, builtin: bool, trust: str = "untrusted") -> Template:
         if ty not in TYPES:
             raise TemplateError(f"template {t.name}: param {n}: type {ty!r} (known: {', '.join(TYPES)})")
         for k in ("min", "max"):
-            if k in spec and (ty not in ("number", "integer") or isinstance(spec[k], bool)
-                              or not isinstance(spec[k], int | float)):
-                raise TemplateError(f"template {t.name}: param {n}: {k}: a number, on a number or integer param")
+            if k in spec and ty == "duration":           # a duration's bounds: durations (1m, 1d), kept in hours
+                from .expand import ExpandError, hours
+                try:
+                    spec = {**spec, k: hours(spec[k])}
+                except ExpandError as e:
+                    raise TemplateError(f"template {t.name}: param {n}: {k}: {e}") from None
+            elif k in spec and (ty not in ("number", "integer") or isinstance(spec[k], bool)
+                                or not isinstance(spec[k], int | float)):
+                raise TemplateError(f"template {t.name}: param {n}: {k}: a number, on a number, integer or duration param")
         t.params[str(n)] = Param(str(n), ty, str(spec.get("description") or "").strip(), spec.get("default"),
                                  spec.get("stand-in"), bool(spec.get("required")), "default" in spec,
                                  spec.get("choices"), spec.get("min"), spec.get("max"))

@@ -83,8 +83,8 @@ async function pageAgents(main) {
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const cols = [...RUNG_NAMES, "retired"];
     const of = (i) => Object.entries(agents).filter(([, a]) => a.rung === i);
-    patch(ladder, ...cols.flatMap((k, i) => [i ? h("span", { class: "arrow" }, "→") : null,
-      h("span", { class: "step", title: RUNG_HINT[i] }, of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)]).filter(Boolean));
+    patch(ladder, ...cols.map((k, i) => h("span", { class: "step", "data-kind": k, title: RUNG_HINT[i] },
+      of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)), h("span", { class: "muted" }, "most general → most specific"));
     const last = (a) => a.runs_itself ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
@@ -96,7 +96,8 @@ async function pageAgents(main) {
         h("th", { class: "num", title: "CPU time of its runs' processes in the window, user and system" }, "CPU"),
         h("th", { class: "num", title: "The most memory one of its runs held (its processes together)" }, "peak memory")),
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
-        h("tr", {}, h("th", { colspan: 9 }, `${i} ${k}`, h("span", { class: "muted" }, `  ${RUNG_HINT[i]}`))),
+        h("tr", {}, h("th", { colspan: 9, "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
+          h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
         xs.map(([name, a]) => h("tr", { class: "click", key: name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
           h("td", {}, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || h("span", { class: "muted" }, "no roles"),
@@ -136,14 +137,25 @@ async function pageRecord(main, q) {
   const box = h("div");
   // one machine's events (its instances too), in the page's window: a sensor's observations link here
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
-  const scope = machine || inWindow || item ? h("span", { class: "muted" }, [item ? `about ${item}` : "", machine ? `from ${machine}` : "", inWindow ? "in the window" : ""].filter(Boolean).join(", "),
+  const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's
+  const scope = machine || inWindow || item || remote ? h("span", { class: "muted" }, [item ? `about ${item}` : "", machine ? `from ${machine}` : "", remote ? `of remote ${remote}` : "", inWindow ? "in the window" : ""].filter(Boolean).join(", "),
     " ", h("a", { href: "/record" + (filt.value ? "?type=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
-  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "Filter"), scope,
+  const remotes = h("span", { class: "remote-links" });
+  if (!SNAP) api("items", { n: 1 }).then((d) => patch(remotes, ...(d.remotes || []).map((r) => h("a", { key: r.name, class: r.name === remote ? "on" : "",
+    href: `/record?remote=${encodeURIComponent(r.name)}`, title: `${r.url}: its events, read there` }, `remote ${r.name}`)))).catch(() => {});
+  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "Filter"), scope, remotes,
                 h("label", { class: "check" }, runs, "Show runs", h("span", { class: "muted" }, "(agent.started, agent.ran)"))), box);
   runs.addEventListener("change", () => tick());
   filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
   const ans = answers();
   async function tick(force = true) {
+    if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
+      const d = await remoteApi("events", { remote, n: 80, ...(filt.value ? { type: filt.value } : {}) });
+      if (!p.isConnected) return;
+      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
+      patch(box, ...[remoteSaid(remote, d), list].filter(Boolean));
+      return;
+    }
     let evs;
     ans.begin();
     try {
@@ -168,8 +180,10 @@ function formatOf(path, declared) {                      // how a file is shown:
   return IMAGE.test(path) ? "image" : ext === "md" ? "markdown" : ext === "json" ? "json" : CODE[ext] ? "code" : "text";
 }
 const LIST_SHOWN = 40;      // a long list (a session's messages) shows its latest; the API and the CLI give all of it
-function fieldView(v, small = false, depth = 0, declared = null) {
+function fieldView(v, small = false, depth = 0, declared = null, there = "") {
   if (v == null || v === "") return h("span", { class: "muted" }, "–");
+  // a remote's file: is a file in its own project, never ours: text, never fetched from our /file/ (SPEC §4c)
+  if (there && typeof v === "string" && v.startsWith("file:")) return h("span", { class: "mono remote-file", title: `a file at remote ${there}, not read here` }, v);
   if (typeof v === "string" && v.startsWith("file:")) {
     const path = v.slice(5), name = path.split("/").pop(), fmt = formatOf(path, declared);
     if (SNAP) return h("span", { class: "mono muted", title: path }, name);
@@ -187,11 +201,11 @@ function fieldView(v, small = false, depth = 0, declared = null) {
       const shown = v.slice(-LIST_SHOWN), cols = [...new Set(shown.flatMap((x) => Object.keys(x)))];
       return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
         h("table", { class: "sub" }, h("tr", {}, cols.map((c) => h("th", {}, c))),
-          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1)))))));
+          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1, null, there)))))));
     }
-    return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1)]) : h("span", { class: "muted" }, "none");
+    return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1, null, there)]) : h("span", { class: "muted" }, "none");
   }
-  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1)))));
+  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1, null, there)))));
 }
 
 /* a file's contents, shown as what they are: one view of each file, kept across refreshes and asked for again
@@ -502,6 +516,39 @@ function setSpan(params) {
   return a != null && b != null ? `, ${when(a)} to ${when(b)}` : "";
 }
 
+/* a remote's items and events, read there (SPEC §4c): an answer, or what failed (never taken as nothing) */
+async function remoteApi(path, params) {
+  if (SNAP) return { failed: true, why: "a remote is not in a snapshot" };
+  try {
+    const r = await fetch(`/api/${path}?${new URLSearchParams(params)}`);
+    const b = await r.json().catch(() => ({}));
+    return r.ok ? b : { failed: true, code: r.status, why: b.error || `${r.status}` };
+  } catch (err) { return { failed: true, why: String(err.message || err) }; }
+}
+/* how a remote answered: not at all, or with what it said before, and how old that is */
+function remoteSaid(name, d) {
+  const old = d.read != null ? `; these were read ${dur(d.age)} ago` : "";
+  if (d.failed || !d.ok) return h("p", { class: "note remote-says bad" }, d.code === 503 ? `${name}: ${d.why}` : `${name} does not answer (${d.why})${old}`);
+  return d.why ? h("p", { class: "note remote-says" }, `${d.why}${old}`) : null;
+}
+/* the ids that may be opened here: as remote/items.py's openable, an allowlist (/-separated segments, no "..") */
+const REMOTE_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*(\/[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*)*$/;
+function remoteItemLink(id, name) {
+  return typeof id === "string" && id.length <= 200 && REMOTE_ID.test(id) && !id.includes("..") ? h("a", { href: `/item/${encodeURIComponent(id)}?remote=${encodeURIComponent(name)}` }, id)
+    : h("span", { title: "its id cannot be opened here: on its own page only" }, id);
+}
+/* a remote's section of the Items page, framed and marked remote: its counts by kind and state, its newest items */
+function remoteSection(r, d) {
+  const head = h("h2", { class: "sys-head" }, `remote ${r.name}`, h("span", { class: "muted" }, ` · ${r.url}`));
+  const counts = d.failed ? null : h("div", { class: "kind-flows" }, Object.entries(d.counts).map(([k, st]) => h("div", { class: "kind-flow", key: k },
+    h("span", { class: "kname" }, k), h("div", { class: "states" }, Object.entries(st).map(([s, n]) =>
+      h("span", { class: `stbox${n ? " some" : ""}` }, h("span", { class: "n" }, String(n)), s || "items"))))));
+  const rows = d.failed ? null : table(["item", "kind", "state", "there"], d.items.map((i) => h("tr", { key: i.id },
+    h("td", { class: "nowrap" }, remoteItemLink(i.id, r.name)), h("td", {}, i.kind || ""), h("td", {}, stateWord(i.state)),
+    h("td", {}, h("a", { href: `${r.url}/item/${encodeURIComponent(i.id)}`, target: "_blank", rel: "noopener" }, "its own page")))), "items");
+  return h("section", { class: "sys-group remote", "data-remote": r.name, key: `remote:${r.name}` }, head, remoteSaid(r.name, d), counts, rows);
+}
+
 async function pageItems(main, q) {
   const p = page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" });
@@ -531,7 +578,17 @@ async function pageItems(main, q) {
   const dropSet = () => { where = []; moved = movedSince = movedUntil = null; pm = { by: null, through: null, followed: null, caused: [] }; };
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
-  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), compose, box, more);
+  const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
+  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), compose, box, rbox, more);
+  let rbusy = false;
+  const remoteTick = async (rs) => {
+    if (rbusy || SNAP || !rs.length) return;
+    rbusy = true;
+    try {
+      const got = await Promise.all(rs.map(async (r) => [r, await remoteApi("items", { remote: r.name, n: 25 })]));
+      if (p.isConnected) patch(rbox, ...got.map(([r, d]) => remoteSection(r, d)));
+    } finally { rbusy = false; }
+  };
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   let used = new Set();
   const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
@@ -591,6 +648,7 @@ async function pageItems(main, q) {
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
       return;
     }
+    remoteTick(d.remotes || []);                        // (not waited on)
     const flowsWere = JSON.stringify(flows);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
@@ -826,7 +884,33 @@ function relationsView(r, k) {
     graph ? h("p", { class: "note" }, "All of them in ", graph, ".") : null];
 }
 
-async function pageItem(main, id) {
+/* a remote's item, read there (SPEC §4c): its fields, its moves and its events, read only: no message box, no actions */
+async function pageRemoteItem(main, id, name) {
+  const p = page(main, id);
+  p.querySelector("h1").append(h("span", { class: "muted remote-mark" }, ` remote ${name}`));
+  const body = h("div");
+  p.append(body);
+  async function tick() {
+    const d = await remoteApi(`items/${encodeURIComponent(id)}`, { remote: name });
+    if (!p.isConnected) return;
+    if (d.failed) { patch(body, d.code === 404 ? h("p", { class: "muted" }, d.why) : remoteSaid(name, d)); return; }
+    const it = d.item, f = it.fields || {};
+    const pair = (label, value) => h("span", {}, h("span", {}, label), value);
+    const evs = (it.record || []).map((e) => ({ ...e, remote: name }));
+    patch(body, remoteSaid(name, d), h("div", { class: "meta" }, pair("Remote", name), pair("Kind", it.kind_of?.name || it.kind || "–"),
+      pair("State", stateWord(it.state)), pair("Events", String(it.events ?? evs.length))),
+      h("h2", {}, "Fields"), Object.keys(f).length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, Object.keys(f).sort().map((k) =>
+        h("tr", { key: k }, h("th", {}, k), h("td", {}, fieldView(f[k], false, 0, null, name)))))) : h("p", { class: "muted" }, "No fields."),
+      h("h2", {}, "How it moved"), (it.moves || []).length ? table(["when", "from", "to", "by event"], it.moves.map((m) => h("tr", { key: `${m.time}|${m.to}` },
+        h("td", { class: "nowrap" }, when(m.time)), h("td", {}, m.from || "arrived"), h("td", {}, m.to), h("td", { class: "muted" }, m.type)))) : h("p", { class: "muted" }, "No moves."),
+      h("h2", {}, "Events"), eventsTable(evs, true));
+  }
+  await tick();
+  S.timer = poll(() => tick(), 4000, p);
+}
+
+async function pageItem(main, id, q) {
+  if (q?.get("remote")) return pageRemoteItem(main, id, q.get("remote"));
   const p = page(main, id);
   const body = h("div");
   p.append(body);
