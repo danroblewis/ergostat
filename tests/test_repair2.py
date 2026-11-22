@@ -227,7 +227,9 @@ def test_use_repair_is_a_system_in_all_three_views(tmp_path, monkeypatch):
     p, e = project(tmp_path, monkeypatch)
     e.close()
     spec = p.model.spec
-    assert all(spec.stocks[n].system == "repair" for n in ("open-failures", "fixing", "awaiting-approval", "applied-fixes"))
+    assert all(spec.stocks[n].system == "repair" for n in ("open-failures", "fixing", "awaiting-approval", "applied-fixes",
+                                                           "regressed-fixes"))
+    assert not spec.stocks["applied-fixes"].cumulative, "fixes being verified: drained by fixes-verified, -regressed"
     for g in ("no-open-failures", "fixes-answered"):
         assert spec.loop(g).actuators or spec.loop(g).through, f"{g}: a loop closes it"
     b = spec.blocks["repair-fix"]
