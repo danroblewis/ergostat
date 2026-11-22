@@ -73,3 +73,11 @@ serially under the watchdog: rc 1, 198 passed, 3 failed, none skipped.
 did not run `tests/test_agents_page.py`. Its `pg.click("text=Last 1h")` matches on a substring, so it should
 still match 'Last 1h (… recorded)'. No example was touched, so `demo_check` does not apply. Main has had no
 commits since this branch was cut from it in the clone, so there was nothing to merge.
+
+**Build fix.** The factory's `build` step failed with rc 5. It selected only `tests/test_diagram_rendering.py`, and
+without Playwright that file's one test was skipped, so no test ran. Nothing in the code failed. The one server
+change (`recorded` in `/api/status`) now has a unit check in
+`tests/test_graph_cli_web.py::test_the_web_api_serves_what_the_cli_shows`, so the build step runs a real test.
+Renaming the key in `server.py` makes the check fail (KeyError); with the key restored, the file passes (31
+passed). Ruff is clean. I could not run the build command itself (`suite_watch.py -- affected_tests.py -- pytest
+...`): it was refused here.
