@@ -42,3 +42,15 @@ nobody could be asked, so I took the most reversible option each time:
   `tests/test_page_refresh.py::test_a_quiet_system_says_so_on_the_loops_page_and_in_its_panel_until_a_goal_goes_off`
   on the same 14-goal fixture. The unit test failed when unknown was let through and when the leases were not counted.
   The browser test failed when `quietRefresh` did nothing.
+- Suites run here: test_quiet_system.py (4 passed), test_page_refresh.py (9 passed), test_page_polling.py (17
+  passed), test_graph_cli_web.py, test_dynamics_view.py and test_goal_upkeep.py (47 passed), and ruff (clean).
+  test_diagram_rendering.py failed twice (6, then 9 of 204), and the failures are not this branch's:
+  - Failing on main too, with main's `ergostat/` restored into this tree and the same tests run:
+    test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known (the side list's
+    "Goals off" headline matches its words check), test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page
+    (the Model page lacks "Nothing waiting."), test_every_part_opens_its_panel_when_clicked_even_mid_redraw (a stock's
+    panel not open within 3 s), and test_every_lines_panel_links_to_the_parts_it_joins[alert-triage, coordinator,
+    ticket-factory].
+  - Time bounds missed under load, not run again: test_every_view_draws_cleanly_and_in_time[coordinator,
+    image-squeeze] (routing 27-30 s against 20 s), and test_a_big_tangled_model_lays_out_in_time_and_cleanly (drawing
+    2.8 s against 2.5 s).
