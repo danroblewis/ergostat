@@ -83,11 +83,12 @@ function sdCloud(n, w, hgt) {                           // (a cloud a flow leave
 /* a system closed: a module (Stella) or a view (Vensim): its name, and its ports, what crosses its edge */
 function sdSystem(n, w, hgt) {
   const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
-  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote ? { "stroke-dasharray": "9 5" } : {}) }));
+  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote || n.upkeep ? { "stroke-dasharray": n.upkeep ? "6 4" : "9 5" } : {}) }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
   // under its name, what it is (its description, in at most two lines; its loops are counted on its panel)
   const said = n.remote ? [n.remote.says] : sdWrap(n.description || "a module: open it to see its structure", Math.floor((w - 32) / CH), 2);
   said.forEach((t, i) => g.append(s("text", { x: 16, y: 42 + i * 14, class: "t-sub sys-desc" + (n.remote ? " live" : "") }, t)));
+  if (n.upkeep) g.append(s("text", { x: 16, y: 44 + said.length * 14, class: "t-sub sys-upkeep" }, UPKEEP));   // apart from the system it models
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
     s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
   const into = "Into", open = "Open";

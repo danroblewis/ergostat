@@ -470,6 +470,8 @@ svg.dragging-part .edge { opacity: .25; }
 svg.bd { color: var(--ink); }
 .bd text { pointer-events: none; fill: var(--ink); font-family: var(--font); }
 .bd .bd-line { fill: none; stroke: var(--ink); stroke-width: 1.3; }
+.bd .bd-upkeep-rule { fill: none; stroke: var(--line); stroke-width: 1; }
+.sys-upkeep { font-style: italic; }
 .bd .bd-fill { fill: transparent; pointer-events: all; }
 .bd .bd-bar { fill: var(--ink); stroke: none; }
 .bd .bd-ghost { fill: transparent; stroke: none; }

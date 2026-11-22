@@ -164,7 +164,9 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   // own, and put where there is room after (places.js packLoose)
   const linked = new Set(g.edges.flatMap((e) => [e.source, e.target]));
   const loose = open.size ? roots.filter((c) => byIdNodes[c.id]?.kind === "system" && !linked.has(c.id)) : [];
-  if (loose.length && loose.length < roots.length) roots = roots.filter((c) => !loose.includes(c));
+  // at the top level, the model's own upkeep linked to nothing: read last, bottom right, apart (places.js packLoose)
+  const upkeep = open.size ? [] : roots.filter((c) => byIdNodes[c.id]?.kind === "system" && byIdNodes[c.id].upkeep && !linked.has(c.id));
+  if (loose.length + upkeep.length && loose.length + upkeep.length < roots.length) roots = roots.filter((c) => !loose.includes(c) && !upkeep.includes(c));
   const roomy = g.nodes.some((n) => n.kind === "system" || (n.systems || []).length);
   const graph = {
     id: "root", children: roots, edges: elkEdges,
@@ -187,6 +189,7 @@ async function layoutGraph(g, aspect, cut = false, again = 0, opts = {}) {
   if (open.size || lay.children.some((c) => c.children?.length)) flatten(lay);   // (or blocks laid out together: layouts.js)
   placeSatellites(lay, sat);                             // the satellites put back in the room kept (satellites.js)
   if (loose.length && !roots.some((c) => loose.includes(c))) packLoose(lay, loose);
+  if (upkeep.length && !roots.some((c) => upkeep.includes(c))) packLoose(lay, upkeep, true);
   if (again < 2) {                      // ports facing away from what they join, valves facing away: turn them, lay out again
     const w = wanted(lay, g);
     const ports = g.nodes.flatMap((n) => n.ports || []);
@@ -494,12 +497,13 @@ function sysTwin(n, p) {
 /* a system drawn as one part: its name, how its loops are doing, and its ports (what crosses its edge) */
 const SYS_TOP = 70, SYS_ROW = 20, MEAS_ROW = 24;
 const sysTop = (n) => SYS_TOP + (n.measures?.length || 0) * MEAS_ROW;     // its ports start below its measures
+const UPKEEP = "ergostat's upkeep of this model, not the system";      // the modelling system's box says what it is
 function systemSize(n) {
   const side = (d) => n.ports.filter((p) => (p.at || (p.side === "in" ? "west" : "east")) === (d === "in" ? "west" : "east"));
   const lw = (ps) => Math.max(0, ...ps.map((p) => textWidth(p.label + (p.value ? "  " + p.value : ""))));
   const mw = Math.max(0, ...(n.measures || []).map((m) => textWidth(m.label) + textWidth(`${m.value} ${m.unit}`) + textWidth(m.setpoint || "") + 150));
   const w = Math.max(240, textWidth(n.label) * 1.25 + 150, lw(side("in")) + lw(side("out")) + 60, mw,
-                    n.remote ? textWidth(n.remote.says) + 40 : 0);
+                    n.remote ? textWidth(n.remote.says) + 40 : 0, n.upkeep ? textWidth(UPKEEP) + 40 : 0);
   return [w, Math.max(96, sysTop(n) + Math.max(side("in").length, side("out").length) * SYS_ROW + 6 + (n.inner?.length ? 16 : 0))];
 }
 function loopsText(n) {
