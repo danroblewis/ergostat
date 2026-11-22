@@ -580,9 +580,22 @@ found on that prefix, a run that never started) runs every suite instead. A fail
 (order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a
 killed run) are bisected with every suite, as before. A green on the named tests alone never lands anything: the
 merges before the failing one are merged again with those after it, and the lot lands only on a full green run of
-that very tree; the failing gap's `pre` is then main's head before them, so its triage runs it on main alone. Each
-failing merge costs at most `2 + 2 ceil(log2 m)` runs (the red run, the rerun on its tree, and each step, two when a
-named run cannot tell), most of them its failing tests rather than the suites. A
+that very tree; the failing gap's `pre` is then main's head before them, so its triage runs it on main alone. When
+the named tests fail alone on the red tree (or ruff failed), the bisect is made in **parallel rounds** instead of
+steps: the named tests (or ruff) run on every prefix of the batch at once (`dev/bin/prefixes.py`, each in a worktree
+and container of its own, `[suites] prefix_most` at a time). The first failing prefix's last merge is the failing one;
+it goes to triage (its stacked descendants given back with it), the others are merged again without it, and another
+round runs at once only if a later prefix failed a test the failing one did not (a second failing merge); then the
+full suites run once on the survivors: green lands them, red starts again. A prefix that cannot tell (unknown) is
+never a pass: that round goes back to the serial steps, from the prefixes that passed up to the first that failed.
+The allowance is checked before each round, and the prefixes a round passed land only on a full green run. Each run
+says `batch_rounds` and `prefix_runs` in its gaps' `suites_queue`. A test that fails only when two merges are both in
+blames the later one, as the serial steps do; a later merge failing the same test as the one found is caught by the
+full run. **Cost per failing merge:** in rounds, one round (minutes: a few tests on each prefix) and a share of the
+one full run on the survivors, so a batch of 8 with one failing merge is the red run, its tests on its tree, the
+check on main, one round and one full run; with k independent ones, k rounds and one full run. Serially, at most
+`2 + 2 ceil(log2 m)` runs (the red run, the rerun on its tree, and each step, two when a named run cannot tell), most
+of them its failing tests rather than the suites. A
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
 

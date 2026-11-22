@@ -2664,12 +2664,13 @@ def test_bisect_reruns_only_the_failing_tests(tmp_path):
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
     assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3
-    # all four red, naming test_b; test_b alone on all four (failed), on main (passed); then on p, q (passed) and on
-    # p, q, r (failed): r. Then p, q, s merged again and run in full: green
-    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 4 and suite_runs(f) == 2
+    # all four red, naming test_b; test_b alone on all four (failed), on main (passed); then one round of test_b on p;
+    # p, q; p, q, r; p..s at once: r first fails. Then p, q, s merged again and run in full: green
+    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 6 and suite_runs(f) == 2
     r = f.item("gap/r")["fields"]
     assert r["failed_suite"] == "unit" and r["failed_tests"] == ["tests/test_b.py::test_b"]
-    assert r["suites_queue"]["named"]["tests"] == 1                            # found by the named run
+    assert r["suites_queue"]["round"] == {"round": 1, "prefixes": 4}           # found by the round
+    assert (r["suites_queue"]["batch_rounds"], r["suites_queue"]["prefix_runs"]) == (1, 4)
     assert merges(f) == ["p", "q", "s"] and not (f.checkout / "bad.txt").exists()
     # p, q never landed as that commit: r's pre is main's head before the batch, which main still holds
     assert subprocess.run(["git", "merge-base", "--is-ancestor", r["pre"], "main"], cwd=f.checkout).returncode == 0
@@ -2730,9 +2731,9 @@ def test_a_test_that_fails_alone_on_either_rerun_still_bisects(tmp_path):
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
     assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
-    assert len(reruns(f)) == 5 and suite_runs(f) == 2               # twice on p..s, on main, on p, q and on p, q, r
+    assert len(reruns(f)) == 8 and suite_runs(f) == 2               # twice on p..s, on main, a round of 4 prefixes
     r = f.item("gap/r")["fields"]
-    assert r["failed_tests"] == [t] and r["suites_queue"]["named"]["tests"] == 1
+    assert r["failed_tests"] == [t] and r["suites_queue"]["round"]["prefixes"] == 4
     assert "flake/tests-test-b-py-test-b" not in f.db()["items"]
     (tmp_path / "g").mkdir()
     (tmp_path / "mute.sh").write_text(f'echo "$*" >> {tmp_path / "g"}/reruns\n')      # rc 0, says nothing
@@ -2901,7 +2902,7 @@ def test_a_batch_failing_on_a_test_that_passes_on_main_bisects_as_today(tmp_path
     assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3 and merges(f) == ["p", "q", "s"]
     assert "intervention.recorded" not in said and "main_red" not in queue_json(f)
     t = "tests/test_b.py::test_b"
-    assert reruns(f) == [f"{t} -rA"] * 4 and suite_runs(f) == 2               # one more: on main, passed
+    assert reruns(f) == [f"{t} -rA"] * 6 and suite_runs(f) == 2               # on main, passed; a round of 4
     assert f.item("gap/r")["state"] == "queue-failed" and f.item("gap/r")["fields"]["failed_tests"] == [t]
     assert not [i for i in f.db()["items"] if i.startswith("flake/")]
     assert git(f.checkout, "rev-parse", "main~3") == start                     # (main as it was, then the three)
@@ -2962,14 +2963,14 @@ import sys, time
 sys.path[:0] = [sys.argv[1]]
 import queue
 now, cost = [time.time()], float(sys.argv[2]) * 60
-time.time = lambda: now[0]                         # a clock each suite run (and each named run) moves by `cost`
+time.time = lambda: now[0]                         # a clock each suite run (each named run, each round) moves by `cost`
 def costs(fn):
     def call(*a, **k):
         got = fn(*a, **k)
         now[0] += cost
         return got
     return call
-queue.suites, queue.named = costs(queue.suites), costs(queue.named)
+queue.suites, queue.named, queue.prefixed = costs(queue.suites), costs(queue.named), costs(queue.prefixed)
 sys.exit(queue.main())
 """
 
@@ -3055,16 +3056,24 @@ def test_a_run_past_its_allowance_lands_only_what_is_proven_and_gives_back_the_r
     assert settle(f)[1] is None
     said, _ = f.run("queue.py", "gap/e")                                       # the next run takes them
     assert merges(f) == list("abcdefh") and f.item("gap/g")["state"] == "queue-failed"
-    # a prefix green on the named tests only is not proven: out of time there, nothing lands. All 8 red (25); test_b
-    # alone on them, red (50); on main, green (75); test_b alone on a..d, green (100); a..f never runs
+    # prefixes green on the named tests only are not proven: out of time there, nothing lands. All 8 red (25); test_b
+    # alone on them, red (50); on main, green (75); a round on the 8 prefixes (100) finds g, a..f passing; the full run
+    # on the 7 never starts
     (tmp_path / "named").mkdir()
     g = bisect_stand_ins(tmp_path / "named")
     g.config.write_text(g.config.read_text().replace("batch_max = 4", "batch_max = 8\nbatch_minutes = 85"))
     approved_gaps(g, EIGHT, bad="g", batch=8)
     said, _ = clocked(g, "gap/a", 25)
-    assert reruns(g) == ["tests/test_b.py::test_b -rA"] * 3 and suite_runs(g) == 1
+    assert reruns(g) == ["tests/test_b.py::test_b -rA"] * 11 and suite_runs(g) == 1
     assert merges(g) == [] and "gap.merged" not in said and not g.db().get("acts")
-    assert counts(g, "gap/a") == (8, 0, 8)
+    assert g.item("gap/g")["state"] == "queue-failed" and counts(g, "gap/a") == (8, 0, 7)
+    # a round past the allowance never starts: 70 allowed, the round's turn comes at 75
+    (tmp_path / "late").mkdir()
+    h = bisect_stand_ins(tmp_path / "late")
+    h.config.write_text(h.config.read_text().replace("batch_max = 4", "batch_max = 8\nbatch_minutes = 70"))
+    approved_gaps(h, EIGHT, bad="g", batch=8)
+    said, _ = clocked(h, "gap/a", 25)
+    assert len(reruns(h)) == 2 and "gap.queue-failed" not in said and counts(h, "gap/a") == (8, 0, 8)
 
 
 def test_a_batch_of_8_every_merge_failing_stays_inside_the_block_s_timeout(tmp_path):
@@ -3095,6 +3104,94 @@ def test_a_run_out_of_time_before_its_first_finding_halves_the_next_batch(tmp_pa
     queue_json.write_text(json.dumps({**save, "cap": "x"}))                     # a cap that is not a count: 1
     said, _ = f.run("queue.py", "gap/b")
     assert said.count("gap.merged") == 1 and merges(f) == ["b"] and counts(f, "gap/b") == (1, 1, 0)
+
+
+# ---- a red batch bisected in parallel rounds (dev/records/merge-pipeline-bisect-in-parallel-rounds.md)
+
+def eight_named(tmp: Path, rerun: str = "", **gaps) -> Factory:
+    """bisect_stand_ins (test_b fails while bad.txt is there, test_c while badc.txt is) for eight gaps a..h, batch 8."""
+    tmp.mkdir(exist_ok=True)
+    f = bisect_stand_ins(tmp, rerun=rerun)
+    f.config.write_text(f.config.read_text().replace("batch_max = 4", "batch_max = 8"))
+    approved_gaps(f, EIGHT, batch=8, **gaps)
+    return f
+
+
+def rounds_of(f: Factory, gid: str) -> tuple:
+    q = f.item(gid)["fields"]["suites_queue"]
+    return q["batch_rounds"], q["prefix_runs"]
+
+
+def test_one_failing_merge_of_eight_costs_one_parallel_round_and_one_full_run(tmp_path):
+    f = eight_named(tmp_path, bad="e")
+    said, _ = f.run("queue.py", "gap/a")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 7 and merges(f) == list("abcdfgh")
+    # the full run (red), test_b on its tree, on main, one round on the 8 prefixes at once, the full run on the 7
+    assert suite_runs(f) == 2 and reruns(f) == ["tests/test_b.py::test_b -rA"] * (1 + 1 + 8)
+    assert f.item("gap/a")["fields"]["batch_runs"] == 4                       # red, its tree, main, the 7: no step
+    e = f.item("gap/e")["fields"]
+    assert e["failed_tests"] == ["tests/test_b.py::test_b"] and e["suites_queue"]["round"] == {"round": 1, "prefixes": 8}
+    assert "parallel round 1" in e["findings"][-1]
+    assert all(rounds_of(f, f"gap/{g}") == (1, 8) for g in "abcdefgh")
+    assert git(f.checkout, "rev-parse", "main^{tree}") in (tmp_path / "greens").read_text().split()   # proven in full
+    assert counts(f, "gap/a") == (8, 7, 0)
+    assert not list((f.model / "run" / "queue-prefix").iterdir())              # every prefix's worktree gone
+
+
+def every_failure(tmp: Path) -> None:
+    """The unit stand-in names every test that fails (no -x): test_b for bad.txt, test_c for badc.txt."""
+    (tmp / "unit.sh").write_text(f"echo run >> {tmp}/runs\nrc=0\n"
+                                 "if [ -e bad.txt ]; then echo 'FAILED tests/test_b.py::test_b - boom'; rc=1; fi\n"
+                                 "if [ -e badc.txt ]; then echo 'FAILED tests/test_c.py::test_c - boom'; rc=1; fi\n"
+                                 f"[ $rc = 0 ] && git rev-parse 'HEAD^{{tree}}' >> {tmp}/greens\nexit $rc\n")
+
+
+def test_two_failing_merges_take_two_rounds_and_one_full_run(tmp_path):
+    f = eight_named(tmp_path, bad="c", edits={"f": "badc.txt"})               # c breaks test_b; f, test_c
+    every_failure(tmp_path)
+    said, _ = f.run("queue.py", "gap/a")
+    assert said.count("gap.queue-failed") == 2 and merges(f) == list("abdegh")
+    # round 1 on the 8: c first fails (test_b), and a..f fails test_c too: another round, on the 5 prefixes past a, b
+    # (without c): f. Then one full run, on the 6
+    assert suite_runs(f) == 2 and len(reruns(f)) == 1 + 1 + 8 + 5
+    assert f.item("gap/c")["fields"]["failed_tests"] == ["tests/test_b.py::test_b"]
+    assert f.item("gap/f")["fields"]["failed_tests"] == ["tests/test_c.py::test_c"]
+    assert f.item("gap/f")["fields"]["suites_queue"]["round"] == {"round": 2, "prefixes": 5}
+    assert rounds_of(f, "gap/a") == (2, 13) and counts(f, "gap/a") == (8, 6, 0)
+    assert git(f.checkout, "rev-parse", "main^{tree}") in (tmp_path / "greens").read_text().split()
+
+
+def test_a_ruff_failure_is_found_in_one_round(tmp_path):
+    f = eight(tmp_path, edits={"e": "lint.txt"})                               # merge 5 of 8 fails ruff
+    (tmp_path / "ruff.sh").write_text(f"echo ruff >> {tmp_path}/ruffs\n"
+                                      "if [ -e lint.txt ]; then echo 'lint.txt:1:1: E501 Line too long'; exit 1; fi\n"
+                                      "echo 'All checks passed!'\n")      # (as ruff: an empty log is unknown)
+    f.config.write_text(f.config.read_text().replace('ruff = "true"', f'ruff = "sh {tmp_path / "ruff.sh"}"'))
+    said, _ = f.run("queue.py", "gap/a")
+    assert said.count("gap.queue-failed") == 1 and merges(f) == list("abcdfgh")
+    e = f.item("gap/e")["fields"]
+    assert e["failed_suite"] == "ruff" and e["suites_queue"]["round"] == {"round": 1, "prefixes": 8}
+    # ruff on the red tree, ruff on the 8 prefixes at once, then the full run on the 7 (its unit suite the only one)
+    assert len((tmp_path / "ruffs").read_text().splitlines()) == 1 + 8 + 1 and suite_runs(f) == 1
+    assert rounds_of(f, "gap/a") == (1, 8)
+
+
+def test_an_unknown_prefix_result_falls_back_to_serial(tmp_path):
+    # test_b cannot be told on a..e exactly (its run exits 4, "not found"): the round goes on to a..f, red. Were the
+    # unknown read as a pass, f would be blamed; the serial step runs a..e, test_b unknown there so every suite: red, e
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "blind.sh").write_text(f'if [ -e e.txt ] && [ ! -e f.txt ]; then echo "$*" >> {tmp_path}/reruns; '
+                                       f'echo "ERROR: not found: $1"; exit 4; fi\nexec sh {tmp_path}/rerun.sh "$@"\n')
+    f = eight_named(tmp_path, rerun=f"sh {tmp_path / 'blind.sh'}", bad="e")
+    said, _ = f.run("queue.py", "gap/a")
+    assert said.count("gap.queue-failed") == 1 and merges(f) == list("abcdfgh")
+    e = f.item("gap/e")["fields"]
+    assert e["failed_tests"] == ["tests/test_b.py::test_b"] and "round" not in e["suites_queue"]   # found serially
+    assert e["suites_queue"]["unit"]["rc"] == 1                                # in full, on a..e
+    # the red run, the serial step's full run on a..e, the full run on the 7; test_b: the red tree, main, the round,
+    # a..e (unknown)
+    assert suite_runs(f) == 3 and len(reruns(f)) == 1 + 1 + 8 + 1
+    assert rounds_of(f, "gap/a") == (1, 8) and counts(f, "gap/a") == (8, 7, 0)
 
 
 UNREADABLE_AFTER_CHECKS = """\
