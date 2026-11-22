@@ -425,6 +425,18 @@ while a simplification is in flight. Any goal off asks the coordinator (`code-he
 evidence run, no coverage report, an unreadable history line, or fewer than two of main's commits measured within
 10 merges: no value (exit 1), never 0.
 
+## Complexity: measured once per commit
+
+`dev/bin/complexity.py` measures a commit of the checkout (by default main) from git, never from the working files.
+Each family of measures is a module `dev/bin/cx_<family>.py`. The first is size: per file lines, net lines, bytes and
+Python tokens. Its series are the code scope's tokens (`complexity-tokens`, a stock in `dev/model/complexity.yaml`),
+net lines and files (cache only). Vendored libraries are marked and left out of every sum. Everything is cached under
+`run/complexity/`: `commits/<sha>.json` (one per commit), `blobs/` (each blob measured once per family version and
+env) and `locks/`. `complexity.py measure [SHA]` computes what is missing. `value NAME [SHA]` reads the newest
+measured first parent and never computes (no value: exit 1). `history` reads the commit files; `rows` and `report`
+measure the files, from the blob cache where it has them. `complexity.py list` names every series. No sensor runs it;
+the readings are recorded per commit of main, at the commit's time.
+
 ## The machine's resources: a cap on the pools
 
 The machine is measured every 30 s (`dev/bin/resources.py`, `dev/model/resources.yaml`): the host's CPU, memory,
@@ -548,7 +560,21 @@ When the red run named its failing tests (`FAILED`/`ERROR` lines), those are fir
 `tests/test_page_polling.py`, and its failed suite skipped none, they are run alone there twice; each passing both
 times (a PASSED line, rc 0), the suites the red run did not finish (stopped by its failure, or never reached) run, and
 green there the batch lands with no bisect, each test a flake seen (`flake.seen` on `flake/<test>`: the run, the suite,
-`passed_alone`, the log; `excused` in each gap's `suites_queue`). Only if one fails alone does each bisecting step run only those:
+`passed_alone`, the log; `excused` in each gap's `suites_queue`). **A failure that is main's blames no gap:** before
+any gap is blamed or sent back, the named tests (only those: seconds, not a suite) run alone on main as the batch
+found it (`pre`), in the same container and settings. Failing there and again on a re-run (or a re-run that cannot
+tell), the failure is main's: the batch is undone, no gap is sent back (they all stay `approved`; the run's own gap's
+lease is given back uncounted), each test is `flake.main-broken`, run/queue.json holds `main_red` (main, the suite, the
+tests), and an intervention of class `queue` naming main and the tests is recorded, which pipeline-watch raises as a
+situation. Each later run first runs those tests alone on main's head, less any quarantined there and any main's head
+lacks (its file gone, or no `def` of its name in it: a test removed or renamed on main holds nothing), and takes no
+batch until they pass or none is left; it then records the intervention remedied. The coordinator may also remedy the
+intervention themself (`manage.py remedy`): the next run clears `main_red` without checking. A check that cannot tell,
+or whose container does not start, keeps the hold. If any one named test fails on main twice the whole batch is
+held, so a test a gap really broke beside it is found only once main is fixed. A test that fails on main and
+passes on its re-run is a flake seen (`failed_on_main`), not main's, and the batch bisects. The check is made once per
+run, before its first finding; a failure the red run did not name (a sibling suite stopped by the first failure) is
+not checked on main. Only if one fails alone does each bisecting step run only those:
 red when one of them fails, green only when the run passes and each says PASSED; a step that cannot tell (a test not
 found on that prefix, a run that never started) runs every suite instead. A failure that shows only in the full run
 (order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a
@@ -725,6 +751,9 @@ else its moves), unless it waits on main, its dependencies, a full pool or a hel
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
+While approved gaps wait and nothing merged for 20 minutes, it also carries what holds the merge queue: each lease the
+merge-queue block holds (item, run, taken, renewed, expires, the item's state, whether the run's process is alive, from
+the engine's run record) and queue-when's inputs read now (`queue_holder()`).
 It answers per trigger what it did or why it left it; a trigger it did not answer comes back in the next session.
 Situations of the earlier one-trigger watch (a `print`, no `prints`) count as looked at once handled or failed; one
 still `raised` is closed `superseded`, never run, and its trigger, if it still stands, goes to the next session. Each
