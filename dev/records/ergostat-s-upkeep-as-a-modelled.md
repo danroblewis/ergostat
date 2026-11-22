@@ -37,3 +37,26 @@ The template `use: upkeep` and its index-file, record, watched, lease and pool l
 ## Size budget
 40 net lines
 size: S (confidence: medium)
+
+## Where it stopped
+Built, round 1: 29 net lines outside tests and docs (watchdog.py +12, template.yaml +17, running.py 0).
+- The carry-over is `heartbeat(..., start=True)` in `spec/watchdog.py`. It reads `stale` from the file the call is about
+  to replace, so a shard's start write reads `heartbeat.SHARD.json` and never `heartbeat.json`. No code on main writes a
+  start heartbeat for a shard engine today (only `cli/running.py` writes one, for the main file), so the shard rule is
+  covered at `heartbeat()` itself (`test_shard_start_heartbeat_reads_its_own_file`). Adding a shard start write would
+  be outside this gap.
+- Two guards drop a bad `stale`: `_last_stale` checks `stale_ok`, and so does the write itself. So
+  `test_start_heartbeat_drops_bad_stale` fails when the exception handling is cut (it was seen to fail on the
+  invalid-JSON, non-object and 100,000-deep `[` cases, a RecursionError) but stays green when only `_last_stale`'s
+  `stale_ok` check is removed. `test_start_heartbeat_keeps_previous_stale` runs the real `cmd_run --foreground` start
+  path, stopped at `startup`. It was seen to fail (KeyError on `stale`) with `start=True` removed from `running.py`.
+- A choice made without anyone to ask: a person block must have an output, and `restarts-made` already has
+  `outer-watcher` as its one setter (`two-actuators`). So `restarts-keeper` is drawn as `out: block.outer-watcher`:
+  the owner's one real hold on restarts is the watcher, which obeys `ergostat run --stop` and `--service --uninstall`.
+  This is a drawn command only. No goal and no code changes the watcher or the watchdog, and nothing runs. If that edge
+  reads wrongly, the other choice is a flow of the owner's own.
+- `tests/test_upkeep_template.py` lists the template's parts exactly, so it now includes `few-restarts` and
+  `restarts-keeper`. docs/AGENT-GUIDE.md's line on `use: upkeep` now names the goal.
+- "`check` clean, no warning beyond main": checked by `test_few_restarts_goal_compiles`. It allows no finding except
+  `no-modelling-loop` and no check message about restarts. A side-by-side run of `ergostat check` against main's
+  template was not run, because the sandbox refused the ad-hoc command.

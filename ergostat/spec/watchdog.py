@@ -283,13 +283,15 @@ def startup(state: Path, say, restart, deadline: float | None = None) -> threadi
 
 
 def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None = None,
-              failing: tuple[str, float] | None = None, shard: str | None = None) -> None:
+              failing: tuple[str, float] | None = None, shard: str | None = None, start: bool = False) -> None:
     """``heartbeat.json`` (a shard engine's: ``heartbeat.SHARD.json``, SPEC §9.8): when the last pass finished (wall
     clock), and this pid. Written at start too, so a watcher never reads a slow start by the last process's heartbeat.
     ``stale``: the limit of ``use: upkeep``'s ``heartbeat-fresh`` (``ir.heartbeat_stale``), for the outer watcher; the
     file is written whole each time, so a model without the template leaves no ``stale`` in it. With ``failing``, the
-    dispatcher's error while every look meets one, and since when (``dispatch_error``)."""
+    dispatcher's error while every look meets one, and since when (``dispatch_error``). With ``start`` (the write as
+    the run starts, before the model is read): the previous file's ``stale`` when it passes ``stale_ok``, else none."""
     path = state / ("heartbeat.json" if shard is None else f"heartbeat.{shard}.json")
+    stale = _last_stale(path) if start and stale is None else stale
     tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     err = {"dispatch_error": {"why": failing[0], "since": round(failing[1], 3)}} if failing else {}
     try:
@@ -298,3 +300,13 @@ def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None =
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+def _last_stale(path: Path) -> float | None:
+    """The ``stale`` of the heartbeat file at ``path`` when it passes ``stale_ok``; None for anything else (no file,
+    one unreadable, not JSON or not an object, a ``stale`` missing, a bool, NaN, out of range or not a number)."""
+    try:
+        got = json.loads(path.read_text()).get("stale")
+    except (OSError, ValueError, AttributeError, RecursionError):
+        return None
+    return got if stale_ok(got) else None

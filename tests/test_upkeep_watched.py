@@ -252,6 +252,94 @@ def test_stale_is_dropped_when_the_template_is(tmp_path):
     assert "stale" not in json.loads((tmp_path / "heartbeat.json").read_text())
 
 
+# ---- the heartbeat the run writes as it starts keeps the last model's limit
+
+class _Started(Exception):
+    pass
+
+
+def _start(tmp_path, monkeypatch, previous: str | None) -> Path:
+    """Runs ``ergostat run --foreground``'s real start path up to the start-up watchdog (stopped there), over a state
+    folder whose ``heartbeat.json`` is ``previous`` (None: none); gives the state folder."""
+    from ergostat.cli import running
+    root = _model(tmp_path / "u")
+    d = Project(mdl.load(root.parent)).dir
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "heartbeat.json").unlink(missing_ok=True)
+    if previous is not None:
+        (d / "heartbeat.json").write_text(previous)
+    monkeypatch.setattr(runner, "take_lock", lambda p: True)
+    monkeypatch.setattr(runner, "running_pid", lambda *a, **k: None)
+    monkeypatch.setattr(running.signal, "signal", lambda *a: None)
+
+    def stop(*a, **k):
+        raise _Started
+    monkeypatch.setattr(wd, "startup", stop)
+    args = SimpleNamespace(C=str(root.parent), foreground=True, stop=False, service=False, install=False,
+                           uninstall=False, no_web=True, port=None)
+    with pytest.raises(_Started):
+        running.cmd_run(args)
+    return d
+
+
+def test_start_heartbeat_keeps_previous_stale(tmp_path, monkeypatch):
+    d = _start(tmp_path, monkeypatch, json.dumps({"pass": 1.0, "pid": 1, "stale": 900}))
+    got = json.loads((d / "heartbeat.json").read_text())
+    assert got["stale"] == 900 and got["pid"] == os.getpid() and got["pass"] > 1.0
+    assert watcher.limit(d, watcher.beat(d)) == 900
+
+
+@pytest.mark.parametrize("previous", [None, "{not json", "[900]", '{"pid": 1}', '{"stale": true}', '{"stale": NaN}',
+                                      '{"stale": 30}', '{"stale": 99999}', '{"stale": "600"}', '{"stale": 1e999}',
+                                      "[" * 100_000])
+def test_start_heartbeat_drops_bad_stale(tmp_path, monkeypatch, previous):
+    d = _start(tmp_path, monkeypatch, previous)
+    got = json.loads((d / "heartbeat.json").read_text())
+    assert "stale" not in got and got["pid"] == os.getpid()
+    monkeypatch.setattr(watcher, "_SAID", set())
+    assert watcher.limit(d, watcher.beat(d)) == watcher.STALE == 180
+
+
+def test_shard_start_heartbeat_reads_its_own_file(tmp_path):
+    (tmp_path / "heartbeat.json").write_text(json.dumps({"pass": 1.0, "pid": 1, "stale": 900}))
+    wd.heartbeat(tmp_path, time.time(), shard="a", start=True)
+    assert "stale" not in json.loads((tmp_path / "heartbeat.a.json").read_text())    # never the main file's
+    (tmp_path / "heartbeat.a.json").write_text(json.dumps({"pass": 1.0, "pid": 1, "stale": 600}))
+    wd.heartbeat(tmp_path, time.time(), shard="a", start=True)
+    assert json.loads((tmp_path / "heartbeat.a.json").read_text())["stale"] == 600
+    assert json.loads((tmp_path / "heartbeat.json").read_text())["stale"] == 900     # the main file untouched
+    (tmp_path / "heartbeat.a.json").write_text('{"stale": true}')
+    wd.heartbeat(tmp_path, time.time(), shard="a", start=True)
+    assert "stale" not in json.loads((tmp_path / "heartbeat.a.json").read_text())
+
+
+# ---- restarts have a goal, served by the owner
+
+def test_few_restarts_goal_compiles(tmp_path):
+    path = _model(tmp_path / "u")
+    spec, ps = read(path)
+    assert not _errors(ps), _errors(ps)
+    g = spec.goals["few-restarts"]
+    assert (g.of.name, g.hold.op, g.hold.value, g.system) == ("restarts", "<=", 3, "upkeep")
+    keepers = [b for b in spec.blocks.values() if b.type == "person" and b.goal == "few-restarts"]
+    assert [b.name for b in keepers] == ["restarts-keeper"] and keepers[0].system == "upkeep"
+    found = [f"{p.code}: {p.message}" for p in ps if p.level == "finding" and p.code != "no-modelling-loop"]
+    assert not found, "\n".join(found)
+    said = [f"{lv}: {msg}" for lv, msg in mdl.check(mdl.load(path.parent)) if lv != "info"]
+    assert not [s for s in said if "restart" in s], said
+    spec, ps = read(_model(tmp_path / "s", "restarts-most: 0"))
+    assert not _errors(ps) and spec.goals["few-restarts"].hold.value == 0
+
+
+@pytest.mark.parametrize("bad", [101, -1, '"x"'])
+def test_restarts_most_bounded(tmp_path, bad):
+    _, ps = read(_model(tmp_path / "u", f"restarts-most: {bad}"))
+    errs = _errors(ps)
+    assert errs and all("restarts-most" in e for e in errs), errs
+    with pytest.raises(mdl.ModelError, match="restarts-most"):           # what ergostat check says, refusing it
+        mdl.load(tmp_path / "u")
+
+
 # ---- the protection stays in the code
 
 WATCHED = """
