@@ -430,8 +430,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
     180, 60 to 3600) and `no-stalls`, and the engine's watchdog and the outer watcher as `type: external` blocks;
     with `leases: true` lease expiry, with `pool: NAME` that pool's quarantined slots held at 0 by the owner. The
     engine writes `stale` into `heartbeat.json`; the watcher uses it within 60 to 3600 s, else 180. Left: the loops
-    are drawn, not closed by ergostat (their controllers are its code); the heartbeat the run writes as it starts has
-    no `stale`, so the watcher uses 180 until the watchdog's first beat (5 s); `restarts` has no goal.
+    are drawn, not closed by ergostat (their controllers are its code).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per
