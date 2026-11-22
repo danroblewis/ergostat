@@ -93,3 +93,36 @@ Round 2: the review's one finding (blocking), answered. 38 net lines outside tes
 - **Runs:** the acceptance test (passed, and failed without the fix, as above), `tests/test_inbox_page.py` (passed),
   `tests/test_inbox.py` (31 passed), ruff clean. Not run: the rest of `tests/test_diagram_rendering.py`, the other
   browser files, the unit suite. No merge of main: main is the clone's base.
+
+Round 3: the queue's finding (conflicts with main in `state.py`, `diagram.js`, `tests/test_diagram_rendering.py`),
+answered by finishing the factory's merge of main (73d266e7).
+
+- **How it was resolved:** main had split the side list into three headed groups (Waiting for you, Goals off, Model
+  housekeeping, cd71c13e, 642e158e) and dropped the old MAX cut. Held modelling requests now sit under Model
+  housekeeping, which is closed unless there's a fault. The branch's `folded`/`foldRow` now run inside main's `list`, so
+  alike requests are one entry within whichever group holds them. Main's per-entry word goes on each row and on the
+  fold's summary ("request · "), and the modelling rule (`hr`) reads the first member of a fold. `state.py` keeps main's
+  `kind` and the branch's `fold`/`about`/`system`. The test file keeps both tests whole.
+- **Choice taken (nobody to ask):** because the requests are housekeeping now, the acceptance test opens Model
+  housekeeping first if it is closed. It then checks the one fold entry, that every entry is in view unscrolled at
+  1440x900, the 24 members, /model, and Deny all across a refresh, as before. Leaving the requests where main put them
+  is the most reversible option; moving them back to Waiting for you would undo main's decision.
+- **Runs:** ruff clean. The acceptance test and main's `test_needs_attention_is_three_headed_groups_in_a_fixed_order`:
+  2 passed. The acceptance test failed again, as expected, with folding broken by hand (60 s timeout waiting for the
+  fold), then was put back. `tests/test_inbox_page.py`: passed. `tests/test_inbox.py`: 32 passed.
+  All of `tests/test_diagram_rendering.py` under the watchdog: 200 passed, 9 failed, rc 1. None of the 9 depends on
+  this branch:
+  - `test_every_view_draws_cleanly_and_in_time[coordinator]`, `[image-squeeze]`,
+    `test_a_big_tangled_model_lays_out_in_time_and_cleanly`,
+    `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`: the same four as in round 1,
+    for the reasons given there.
+  - `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`: its SD-words check
+    matches "Goals" in main's own "Goals off" heading (cd71c13e), text this branch doesn't write.
+  - `test_every_lines_panel_links_to_the_parts_it_joins[alert-triage]`, `[coordinator]`, `[ticket-factory]` ("link
+    ... opened nothing"): with `folded` made a pass-through by hand, so the side list was main's, `[coordinator]` and
+    `[ticket-factory]` still failed. `[alert-triage]` passed on its own rerun.
+  - `test_every_part_opens_its_panel_when_clicked_even_mid_redraw`: a different part fails each run. On its own it
+    passed both with folding off and with folding on.
+  - Not shown on main itself: running main's code was refused in round 1, so these are shown by the experiments above,
+    not by a run on main.
+- **Not run:** the other browser files, the unit suite.
