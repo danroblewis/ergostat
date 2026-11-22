@@ -483,6 +483,15 @@ function actionsAbout(as, done) {
     h("pre", { class: "mono small" }, a.command || ""),
     actionAnswer(a, done))));
 }
+/* the Items page's line per class (record.asked): "push: 5 asked, 3 approved (by the gate), 1 denied, 1 waiting this
+   week · held for approval"; each action counted once, by where it ended */
+function actionClasses(by, shown) {
+  const who = (c) => (!c.approved ? "" : c.by_gate === c.approved ? " (by the gate)" : !c.by_gate ? " (by a person)" : ` (${c.by_gate} by the gate)`);
+  const gate = { approve: "held for approval", auto: "let through", deny: "never run" };
+  return h("ul", { class: "action-classes" }, Object.entries(by).filter(([c, x]) => shown(c, x)).map(([c, x]) => h("li", { "data-class": c },
+    h("b", {}, c), `: ${x.asked} asked, ${x.approved} approved${who(x)}, ${x.denied} denied, ${x.waiting} waiting this week · `,
+    h("span", { class: x.gate === "approve" ? "s-open" : "muted" }, gate[x.gate] || `gate ${x.gate || "unknown"}`))));
+}
 function actionView(d, refresh) {
   const f = d.fields;
   const by = f.approved_by ? `approved by ${f.approved_by}` : f.denied_by ? `denied by ${f.denied_by}` : "";
@@ -666,6 +675,8 @@ async function pageItems(main, q) {
     }));
     // how far each block's claims held, under the ergostat.claim table
     const trust = d.items.some((i) => i.kind === CLAIM_KIND) && (!kind || kind === CLAIM_KIND) ? await ans.api("trust").catch(() => null) : null;
+    // above the gated actions' rows, a line per class: asked this week, and how each ended
+    const classes = d.items.some((i) => i.kind === ACTION_KIND) && (!kind || kind === ACTION_KIND) ? (await ans.api("actions", { classes: 1 }).catch(() => null))?.asked : null;
     // the Graph's and the Timeline's answers (relations.js), asked on every refresh: a relation can change on an item
     // the list does not show. Of the kinds with relations (or named by one) in each open system; the chosen kind alone
     const relKinds = new Set();
@@ -750,6 +761,7 @@ async function pageItems(main, q) {
         const title = kindOf[name]?.title;
         parts.push(h("h3", { class: "kind-head", key: `head:${name}` }, title || name || "No kind",
           title ? h("span", { class: "muted small mono" }, ` ${name}`) : null, h("span", { class: "muted" }, ` ${many}`)));
+        if (name === ACTION_KIND && classes) parts.push(keyed(actionClasses(classes, (c, x) => !needle || c.toLowerCase().includes(needle) || its.some((i) => x.actions.includes(i.fields.action))), "action-classes"));
         parts.push(keyed(tableOf(its, kindOf[name]?.show || [], limit), `table:${name}`));
         if (name === CLAIM_KIND && trust) parts.push(keyed(trustView(trust), "trust"));   // how far each block's claims held
         const fl = flows[name];                            // under its table: how long its finished items took

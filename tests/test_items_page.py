@@ -10,6 +10,7 @@ It needs Playwright and a Chromium, so the usual run skips it:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -350,6 +351,91 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     pg.wait_for_function("""() => ![...document.querySelectorAll('section.sys-group table tr td:first-child')]
         .some((td) => td.textContent === 'hypothesis/3')""", timeout=20000)
     assert leased() == ["hypothesis/1"] and pg.evaluate("() => window.__same")
+    assert not errors, errors
+    pg.close()
+
+
+ACTIONS = """
+actions:
+  jira-transition: {run: "echo moved {key}", gate: auto, args: {key: the issue}}
+  git-push: {run: "echo pushed", gate: approve, class: outward}
+"""
+
+
+@pytest.fixture(scope="module")
+def acted(tmp_path_factory):
+    """The example with two gated actions declared (the Actions kind is there only then), and their record: five
+    jira-transitions (three let through by the gate and ran, one denied, one waiting) and one push held."""
+    d = tmp_path_factory.mktemp(EXAMPLE) / EXAMPLE
+    shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    with open(d / "ergostat.yaml", "a") as f:
+        f.write(ACTIONS)
+    home = d.parent / "home"
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+from ergostat.actions import record as rec
+p = Project(mdl.load(Path({str(d)!r})))
+for i, end in enumerate(["ran", "ran", "ran", "denied", None]):
+    rec.step(p, f"jira{{i}}", "requested", {{"action": "jira-transition", "class": "jira-transition", "gate": "auto",
+                                           "command": f"echo moved PROJ-{{i}}"}})
+    if end == "ran":
+        rec.step(p, f"jira{{i}}", "approved", {{"approved_by": "gate"}})
+        rec.step(p, f"jira{{i}}", "ran", {{"exit": 0, "output": "moved"}})
+    elif end:
+        rec.step(p, f"jira{{i}}", "denied", {{"denied_by": "owner"}})
+rec.step(p, "push1", "requested", {{"action": "git-push", "class": "outward", "gate": "approve", "command": "echo pushed"}})
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def test_actions_say_per_class_asked_approved_denied_and_whether_held(browser, acted):
+    """Above the Actions rows, a line per class: asked this week, approved (and by whom), denied and waiting, each
+    action counted once so asked is their sum, and whether its gate holds it for approval or lets it through; the
+    search narrows the rows by class and by command."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{acted}/items")
+    line = pg.locator('.action-classes li[data-class="jira-transition"]')
+    line.wait_for(timeout=20000)
+    got = re.fullmatch(r"jira-transition: (\d+) asked, (\d+) approved \(by the gate\), (\d+) denied, (\d+) waiting this week"
+                       r" · let through", line.inner_text().strip())
+    assert got, line.inner_text()
+    asked, approved, denied, waiting = map(int, got.groups())
+    assert (asked, approved, denied, waiting) == (5, 3, 1, 1) and asked == approved + denied + waiting
+    held = pg.locator('.action-classes li[data-class="outward"]').inner_text().strip()
+    assert held == "outward: 1 asked, 0 approved, 0 denied, 1 waiting this week · held for approval", held
+    rows = lambda: sorted(pg.locator('section.sys-group table tr td:first-child').all_inner_texts())   # noqa: E731
+    assert len([r for r in rows() if r.startswith("ergostat.action/")]) == 6
+    pg.fill('input[type="search"]', "jira-transition")                 # by its class: only its rows, and its line
+    pg.wait_for_function("""() => ![...document.querySelectorAll('section.sys-group table tr td:first-child')]
+        .some((td) => td.textContent === 'ergostat.action/push1')""", timeout=20000)
+    assert rows() == [f"ergostat.action/jira{i}" for i in range(5)]
+    assert pg.locator(".action-classes li").evaluate_all("els => els.map((e) => e.dataset.class)") == ["jira-transition"]
+    pg.fill('input[type="search"]', "echo pushed")                     # by its command
+    pg.wait_for_function("""() => ![...document.querySelectorAll('section.sys-group table tr td:first-child')]
+        .some((td) => td.textContent.startsWith('ergostat.action/jira'))""", timeout=20000)
+    assert rows() == ["ergostat.action/push1"]
+    assert pg.locator(".action-classes li").evaluate_all("els => els.map((e) => e.dataset.class)") == ["outward"]
     assert not errors, errors
     pg.close()
 

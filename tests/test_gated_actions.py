@@ -209,6 +209,27 @@ def test_the_session_is_started_with_claudes_permission_flags_and_sandbox(tmp_pa
     assert sandbox.flags({"read": ["/docs"], "tools": None, "actions": []}) == ["--add-dir", "/docs"]
 
 
+def test_each_class_says_asked_approved_denied_waiting_and_its_gate(tmp_path):
+    """record.asked: each action asked this week counted once, by where it ended, so asked is the sum; an approval
+    later denied at the act counts as denied; the gate is the model's for the class."""
+    p = project(tmp_path)
+    spec = p.model.spec
+    gate.request(p, spec, "note", {"text": "a"}, ctx(tmp_path))
+    gate.request(p, spec, "nuke", {}, ctx(tmp_path))
+    held = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gone = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gate.approve(p, spec, gone["id"])
+    gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gate.deny(p, held["id"])
+    got = actions_api.listing(p, classes=True)["asked"]
+    assert got["note"] == {"asked": 1, "approved": 1, "by_gate": 1, "denied": 0, "waiting": 0, "gate": "auto", "actions": ["note"]}
+    assert got["nuke"] == {"asked": 1, "approved": 0, "by_gate": 0, "denied": 1, "waiting": 0, "gate": "deny", "actions": ["nuke"]}
+    assert got["outward"] == {"asked": 3, "approved": 1, "by_gate": 0, "denied": 1, "waiting": 1, "gate": "approve",
+                              "actions": ["push"]}
+    assert all(c["asked"] == c["approved"] + c["denied"] + c["waiting"] for c in got.values())
+    assert record.asked(p, spec, now=time.time() + 8 * 86400) == {}          # a week on: none asked this week
+
+
 def test_the_cli_and_the_page_answer_a_held_action(tmp_path, capsys):
     p = project(tmp_path)
     spec = p.model.spec
