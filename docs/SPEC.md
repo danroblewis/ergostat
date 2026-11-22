@@ -1315,6 +1315,21 @@ messages:
 | `precedence` | true or false | true for `blocked_by`, `after`, `depends_on` | Its targets come first: the item is **ready** only once each item it names is finished |
 | `inverse` | a name | `blocks`, `before`, `dependents`, `children`, `duplicated_by`, `related_from`; else `NAME_of` | The other direction's name. Never written: ergostat derives it |
 | `group` | true or false | true for `parent` | A parent: the Graph view hangs its children off it, and the critical path treats it as their summary |
+| `starts_at` | a list of states | none | Precedence only: the target's states, besides finished, in which it no longer blocks (start-to-start: `depends_on: {kind: gap, starts_at: [approved]}`) |
+
+**Starting before a target finishes.** A precedence relation's `starts_at` names states of the kinds it names: a
+target in one of them does not block, so the item's status is *unblocked* (not *blocked*), it is not waited on, and
+`takes: {unblocked: true}` (section 9.5) may take it. Only the state the target is in now counts: one that moves on
+to a state not named, and not finished, blocks again, so name each state from which on the dependent may start. A
+target held under a lease (state `leased`) counts by the state it was taken from (the lease's `back`): one taken
+from `approved` still counts as approved, one taken from its first state still blocks. It changes nothing else: the critical path, slack, the projected schedule and the completion estimates stay
+finish-to-start (conservative: the dependent is projected to start once its target ends). `check` refuses a state
+none of the kinds named has (`starts-at-unknown-state`), `starts_at` on a relation that is not precedence (a group,
+`precedence: false`, a remote's kind: `starts-at-not-precedence`), a finished or paused state (`messages: done:`,
+else the kind's last declared state, not counting the `leased` and `dead` a taken kind gains; `messages: paused:`;
+or `dead`: `starts-at-finished`, a finished target never blocks), and `leased` (`starts-at-leased`: name the state
+it is taken from). The
+Items API and the item page give each relation with its `starts_at`.
 
 A relation is a field like any other: events add and take away links as they change fields (`"data": {"blocked_by":
 "ticket/12"}`, `{"blocked_by": {"remove": "ticket/12"}}`, a JSON Patch), and every change is in its history. The
@@ -2851,7 +2866,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -2874,8 +2889,10 @@ now are held; nothing running is stopped). The lock is this engine's: a lease an
 counted at the next look; on the same item the fold refuses the second lease, on another item both stand, as for a
 `pool:` number. The pool's stock is not one of the block's reads, so its `on-stale` (section 9.6) does not watch it.
 `ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says
-waits on an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
-slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
+waits on an unfinished item is not taken (one in a cycle never is; a target in a state the relation's `starts_at`
+names is not waited on), and the rest are taken the critical first: the least
+slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The slack is read from the
+finish-to-start projection even for a `starts_at` link: it says nothing about starting early. The kind must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
 it), then the states of `at` in order, then the order above (the critical first, or the oldest): `takes: {kind: gap,
@@ -6812,6 +6829,97 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 | flows | `failures-found`, `fixes-started`, `fixes-proposed`, `fixes-failed` (rework), `fixes-applied`, `fixes-dismissed` |
 | goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver: the person, or the AI) |
 | action | `apply-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
+
+## 12s. Compute systems: machines that run what this engine decides
+
+A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
+and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
+the protocol: the worker, its frame, `hello`, `beat` and `ping`. Nothing in the engine speaks to it yet, and no
+model says `compute:` or `runs-on:` yet; a model is unchanged by any of this.
+
+**The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
+modules import each other by bare name and nothing from ergostat (a test reads every import of every module), so a
+node needs Python 3.12 and no install of ergostat. It runs three ways, each the same `main`:
+
+- `python3 -I PATH/worker --stdio [--root DIR]`, the folder run as a directory (Python puts the folder first on
+  the path even in isolated mode; `__main__.py` puts it there itself when it is not, which is how the CLI loads it);
+- `python3 -I worker.pyz --stdio`, a zipapp of the same folder, which `ergostat worker --pack FILE` writes for
+  copying to a node;
+- `ergostat worker --stdio [--root DIR]`.
+
+Its folder is its **root**, `~/.local/state/ergostat-worker/` by default (`--root DIR` to change it). It writes nothing outside the root,
+with one exception Python makes: the directory run, without `-B`, gets Python's own cache of `__main__.py` in the
+folder's `__pycache__/`, written before any line of the worker runs. The worker's own modules are never cached (it
+sets `sys.dont_write_bytecode` first), and the zipapp writes nothing beside itself; so the form to copy to a node is
+the zipapp. Its diagnostics go to standard error.
+
+**The frame** (`frames.py`). One JSON object a line each way, each with `v` (the protocol, 1), `seq` (per
+direction, from 1, rising by one a line, so either side sees a gap) and `type`, at most 1 MiB a line (the newline
+not counted). Requests carry an `id` (a string or an integer) that their answer repeats. The worker ends, after one
+`error` (its `id` the request's when it could be read, its `why` the reason), on a line that is not a frame: over 1
+MiB, not JSON, not an object, a `v` other than 1 (a missing one too), a `seq` other than the next, or no `type`.
+A frame with an unknown `type` is answered `error` and the worker goes on, as it does for a request with no `id`.
+
+**The loop** (`serve.py`). The worker's first line is `hello`:
+
+| Field | What |
+|---|---|
+| `worker` | the worker's version, `"1"` |
+| `node` | a random 32-hex id made once and kept in the root's `node` file (never a host name, an address or a user), linked into place so it never replaces one already there; a `node` file that can't be read or is not 32 hex digits is said in an `error` and the worker ends (never a new id over it) |
+| `cpus` | the CPUs it may use (its affinity, else `os.cpu_count`), or null |
+| `memory` | bytes (`/proc/meminfo`, or `sysctl hw.memsize` on macOS), or null when it can't be read |
+| `disk` | `{"root": free bytes of the root's file system}`, or null |
+| `arch`, `os` | `platform.machine()`, `platform.system()` in lower case |
+| `backends`, `images`, `runs` | `[]` (the process and Docker backends and the runs it holds come with sections 12s.3, 12s.6 and 12s.9) |
+| `labels` | the root's `labels.json`, an object of strings (what the owner says the node has); missing, `{}`; unreadable or of another shape, `{}`, said on standard error |
+| `slots` | the most runs it takes at once: its CPUs, at most 64; CPUs unknown, 0 |
+
+Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs` (`{}` until runs exist).
+`ping` is answered `pong` with its `id`. Every other type is a table, `serve.HANDLERS`, of message type to handler:
+each later part of the protocol is one module of the folder and one line registering it there. Standard input
+closed, the worker ends (0).
+
+### 12s.1 The runner interface
+
+(To be filled by the gap that builds it: `ergostat/compute/runner.py`, the local backend behind it.)
+
+### 12s.2 The run as data
+
+(To be filled: the run spec built by `_ran` and passed to the backend.)
+
+### 12s.3 A run on a node: start, limits, output and its keeper
+
+(To be filled: `start`, `started`, `refused`, the process backend and its limits, `out` by offset, `ended`, the
+run folders and the per-run keeper.)
+
+### 12s.4 Pools in the model, and the engine's connection
+
+(To be filled: `compute:` and `runs-on:`, their `check` findings and ceilings, `ssh` or `connect:`, the
+`ergostat.compute.*` measures.)
+
+### 12s.5 The lease on a node
+
+(To be filled: the lease in `start`, `renew`, the keeper's kill at the expiry, a node lost after three beats missed.)
+
+### 12s.6 Runs that outlive the connection
+
+(To be filled: `attach`, the runs listed in `hello`, unknown never read as gone.)
+
+### 12s.7 The work in and out
+
+(To be filled: `need`, bundles in, `result` out, their caps.)
+
+### 12s.8 Secrets
+
+(To be filled: `secrets:` from files, sent at start, never written.)
+
+### 12s.9 The Docker backend
+
+(To be filled: its limits, the container named for the run, `images` in `hello`.)
+
+### 12s.10 Calls from a node
+
+(To be filled: `ergostat act`, `event --add`, `lease` and `item` from a run on a node, forwarded to the engine.)
 
 ## 13. Examples
 

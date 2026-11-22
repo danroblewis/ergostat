@@ -11,6 +11,7 @@ import fcntl
 import importlib.util
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -4999,6 +5000,99 @@ def test_finish_refuses_a_head_that_no_longer_holds_a_base(tmp_path):
     assert r.returncode == 0, r.stderr[-800:]
     said = json.loads(r.stdout.strip().splitlines()[-1])
     assert said.startswith(f"the branch no longer holds main or a base, merged in before it {sha[:12]}: refused"), said
+
+
+# ---- the suites' -r: pytest's -r replaces its default fE, so a -r without f and E prints no FAILED or ERROR line
+#      and fac.failed_tests finds none (lesson-3: a red run that names no test is never excused, bisected whole, and
+#      triaged as naming no test)
+
+READ_BY_FAILED_TESTS = ("unit", "host", "build", "browser", "rerun", "alone")
+
+
+def pytest_args(cmd: str) -> list[str]:
+    """The arguments after ``-m pytest`` in a suite's command (none found: the test fails, never passes empty)."""
+    words = shlex.split(cmd)
+    at = [i for i in range(len(words) - 1) if words[i:i + 2] == ["-m", "pytest"]]
+    assert len(at) == 1, f"no single `-m pytest` in {cmd!r}"
+    return words[at[0] + 2:]
+
+
+def report_chars(args: list[str]) -> str | None:
+    """The last -r's characters (pytest keeps the last), or None where there is no -r (pytest's default fE)."""
+    got = None
+    for i, w in enumerate(args):
+        if w == "-r" or w.startswith("--report-chars"):
+            got = args[i + 1] if "=" not in w else w.split("=", 1)[1]
+        elif w.startswith("-r"):
+            got = w[2:]
+    return got
+
+
+def prints_failed_lines(args: list[str]) -> bool:
+    chars = report_chars(args)
+    return chars is None or (("f" in chars and "E" in chars) or bool({"a", "A"} & set(chars))) and "N" not in chars
+
+
+def test_every_suite_fac_reads_prints_failed_lines():
+    suites = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
+    for name in READ_BY_FAILED_TESTS:
+        assert suites.get(name), f"[suites] {name} is gone: name the suites fac.failed_tests reads again"
+        assert prints_failed_lines(pytest_args(suites[name])), f"[suites] {name}: its -r drops f or E"
+    for bad in (["-q", "-rs"], ["-rfs"], ["-rEs"], ["-r", "s"], ["--report-chars=sE"], ["-rfEs", "-rs"], ["-rfEN"]):
+        assert not prints_failed_lines(bad), bad                               # (the check itself can fail)
+    for good in ([], ["-q"], ["-rfEs"], ["-rs", "-rfE"], ["-ra"], ["-r", "fE"]):
+        assert prints_failed_lines(good), good
+
+
+def test_a_failing_browser_test_is_named(tmp_path):
+    """The browser suite's own pytest options, on a failing, an erroring, a skipped and a passing test: the failures
+    are named by fac.failed_tests, and queue.suites's skip count and nowhere() read the same skip as under the old -rs."""
+    sys.path.insert(0, str(BIN))
+    try:
+        spec = importlib.util.spec_from_file_location("factory_queue", BIN / "queue.py")   # (not the stdlib's queue)
+        q = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(q)
+    finally:
+        sys.path.remove(str(BIN))
+    suites = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
+    (tmp_path / "test_b.py").write_text(textwrap.dedent("""\
+        import pytest
+
+        @pytest.fixture
+        def broken():
+            raise RuntimeError("no page")
+
+        def test_ok():
+            pass
+
+        def test_bad():
+            assert False
+
+        def test_broken(broken):
+            pass
+
+        def test_skipped():
+            pytest.skip("needs a thing")
+    """))
+    env = {k: v for k, v in os.environ.items() if k not in QUEUE_ENV}
+
+    def run(args: list[str]) -> str:
+        args = [a for a in args if not a.endswith(".py")]                       # the browser files: ours instead
+        r = subprocess.run([sys.executable, "-m", "pytest", *args, "-p", "no:cacheprovider", "test_b.py"],
+                           cwd=tmp_path, capture_output=True, text=True, env=env, timeout=120)
+        assert r.returncode == 1, r.stdout + r.stderr
+        return r.stdout
+
+    fac = module("fac")
+    now = run(pytest_args(suites["browser"]))
+    assert fac.failed_tests(now) == ["test_b.py::test_bad", "test_b.py::test_broken"]
+    old = run([("-rs" if a.startswith("-r") else a) for a in pytest_args(suites["browser"])])
+    assert fac.failed_tests(old) == []                                          # what -rs gave: no test named
+    unit = tmp_path / "unit.txt"
+    unit.write_text(now)
+    for text in (now, old):
+        assert len(re.findall(r"^SKIPPED", text, re.M)) == 1                   # queue.suites's browser skip count
+        assert q.nowhere(text, unit) == ["test_b.py:17: needs a thing"]
 
 
 # ---- one check on every prefix of a batch at once (dev/bin/prefixes.py)
