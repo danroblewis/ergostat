@@ -61,3 +61,11 @@ code, because nothing in it failed. Making a browser-only selection pass in the 
 selected file skips for want of Playwright, or install Playwright in the build command) would change
 `scripts/affected_tests.py` or `dev/factory.toml`. Both are outside this gap (lesson-13), so that fix belongs in its
 own gap, and this one waits for it or for the merge queue's browser run.
+
+Round 1, second fast-suite fix: `build` failed again with the same rc 5. This time I fixed it inside the gap's own
+files, the more reversible option: `tests/test_guide.py` (the Guide's unit file) gets a test that needs no browser,
+`test_the_guides_drawings_hide_the_rings_and_its_last_frame_says_it_is_drawing`. It checks that the ring-hiding rule
+covers `svg.g-canvas` (ring and halo, `display: none; fill: none`) and that guide.js puts up and removes the waiting
+line. The build now selects that file as well, so pytest collects tests and the browser file's import skip no longer
+leaves an empty run. I saw it fail with the halo selector taken out of the rule (1 failed), and pass again once the
+rule was restored (7 passed). No ergostat code changed. Ruff is clean.
