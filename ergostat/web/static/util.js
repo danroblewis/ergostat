@@ -389,10 +389,11 @@ function refreshProjects(sel) {
     for (const p of ps.running || []) {
       if (p.name === name) continue;
       const bits = [p.off?.length ? `${p.off.length} off` : "", p.unknown?.length ? `${p.unknown.length} unknown` : "",
-                    p.web ? "" : "no page"].filter(Boolean);
-      opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
+                    p.error ? "cannot load" : p.web ? "" : "no page"].filter(Boolean);
+      opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "", title: p.error || null }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
     }
     if (ps.stopped) opts.push(h("option", { value: "", disabled: "" }, `${ps.stopped} stopped (ergostat projects)`));
+    if (ps.age > 180) opts.push(h("option", { value: "", disabled: "" }, `listed ${Math.round(ps.age / 60)} min ago`));   // the lister has stopped updating
     if (document.activeElement !== sel) sel.replaceChildren(...opts);
   }).catch(() => { /* kept as it was */ });
 }

@@ -39,3 +39,32 @@ tests/test_page_refresh.py::test_the_header_menu_lists_running_projects_then_cou
 when its code was broken: an answer worked out inside the request, stopped projects loaded, the 'N off' dropped.
 Not run here: the owner-machine check (/api/projects under 0.5 s cold), the full unit suite, and the other three
 browser files.
+
+Round 2, answering each finding of review 1:
+- (blocking, lesson-6) The lister can be stopped. It runs while any page server of the process needs it:
+  `start_lister(server)` notes the server, and `PooledServer.shutdown`/`server_close` call `stop_lister(server)`.
+  When no server needs it any more, the lister's event is set and the thread is joined (10 s). A pass that ends after
+  the stop is not kept (`list_once(stop)`). tests/test_projects_header.py has an autouse fixture that stops any
+  lister already running in the worker, before each test and after it. The 2,000-folder test turns off the lister
+  for its own server and makes its passes with `list_once()`, so nothing else runs a pass inside its counts. New
+  tests: `test_the_lister_stops_with_the_last_page_server` (two servers, one lister, gone after the last shuts down)
+  and `test_a_pass_that_ends_after_the_stop_is_not_kept`.
+- `running()` now uses `known()`'s per-folder cache (`_cached`, under the same lock, off the request path). A row is
+  worked out again only when its files or pid change or after `RUNNING_FRESH`. A running project's model is kept
+  while its files are unchanged, so after the first pass a pass takes only that project's snapshot again (the
+  2,000-folder test: 2 loads in the first pass, 0 loads and 2 snapshots in the next). Not changed: a pass still runs
+  every 60 s when nobody is looking, as the definition asks. It costs one snapshot per running project (1 on the
+  owner's machine).
+- (lesson-3) A failed pass is logged (`ergostat` logger, with its traceback). The answer carries `age` (seconds since
+  the list was made, worked out by the server, so the browser's clock does not matter). When the list is older than
+  3 minutes, the menu ends with a disabled line, 'listed N min ago'.
+- A running project whose model cannot load is listed with `running: true` and its error. The menu shows it,
+  disabled, as 'name (cannot load)', with the error as the option's title. `known()`'s error rows (the CLI's) are
+  unchanged.
+Each new test was seen to fail when its code was broken: the stop event not set, the kept model dropped,
+`running: true` dropped, a pass kept after the stop, the log line made debug, and the 'listed N min ago' line
+dropped (browser).
+Run here: tests/test_projects_header.py (6 passed), tests/test_page_refresh.py (9 passed, under suite_watch, rc 0),
+tests/test_projects_listing.py, tests/test_web_access.py and tests/test_graph_cli_web.py (all passed). ruff is clean.
+Not run here: the owner-machine check, the full unit suite and the other three browser files.
+Overrun reason: 96 net lines outside tests against the definition's 90. The extra 6 make the lister stoppable (start/stop by server, joined), which review 1 required.
