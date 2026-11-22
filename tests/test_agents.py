@@ -173,9 +173,11 @@ def test_a_sessions_container_gets_its_cpus_and_a_suite_container_keeps_four():
         cfg["agents"].pop("session_cpus") if not unset else None
         assert cpus(agents.run_args(cfg, "implementor", Path("/w"), "n")) == ["4"]
     for bad in (0, -1, 4.5, 64, "lots", "nan"):                                              # (a ceiling: lesson-4)
+        cfg = {**factory, "agents": {**factory["agents"], "session_cpus": bad}}
         with pytest.raises(agents.Refused, match="session_cpus"):
-            agents.run_args({**factory, "agents": {**factory["agents"], "session_cpus": bad}}, "implementor",
-                            Path("/w"), "n")
+            agents.run_args(cfg, "implementor", Path("/w"), "n")
+        assert cpus(shlex.split(agents.contained(cfg, "true", Path("/w"))[1])) == ["4"]      # suites: not refused
+        assert cpus(agents.limits(cfg, "queue", 8)) == ["8"]
 
 
 def no_session(lines: list[dict]) -> bool:

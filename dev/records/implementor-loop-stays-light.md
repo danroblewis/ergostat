@@ -153,3 +153,30 @@ Round 2, after the fast suites: `unit` failed with one `F` and no test named in 
   `uv run python scripts/named_tests.py tests/test_factory_knowledge.py tests/test_factory_sessions.py
   tests/test_code_health_simplifier.py` (the live permissions are still main's, which do not name the script); and a
   shell heredoc appending this section (made with the edit tool instead).
+
+Round 3: main (e5d8c220) merged in, and the round-2 review's four non-blocking findings answered.
+
+- **The merge (5148df27).** Main's `merge-queue-in-docker` added `agents.limits(cfg, kind)`, which already sets a
+  session's `--cpus` from `[agents] session_cpus` and pins each kind to its own `*_cpuset`. I kept main's `limits` and
+  `run_args`, and dropped the branch's own `--cpus` splice. The branch's range check (`session_cpus()`: (0, 4], or
+  `Refused`) now runs inside `limits(…, "session")`, so a bad value refuses it there and nowhere else. Main has no
+  such check. In `onmain.py` I kept main's `step()` and `AGAIN`, and made `fast()` `("ruff", step(cfg))` plus
+  `browser` only with `build_browser is True`. Main's `FAST` tuple was not used by any code, so it is removed. In
+  `factory.toml` I kept main's three cpusets and gave `session_cpus` the branch's comment. In `tests/test_agents.py`
+  both imports (`fnmatch`, `json`) are kept.
+- **Finding: dev/README.md stale.** It now says the round runs ruff and `build`, and the browser files and
+  `browser_ready` only with `build_browser`. It says the session runs tests only through `scripts/named_tests.py`
+  (and the browser form under `suite_watch`), never a whole suite, and gives `session_cpus`. The `gates` line
+  (`fast`) is updated too.
+- **Finding: named_tests.py can be rewritten by the session.** Both its docstring and the README now say that it
+  holds against habit, not against a session that edits it, and that such an edit shows in the diff for the review.
+  No check against main was added (the most reversible choice; that would be a gap of its own).
+- **Finding: the prompt left out `build_browser = true`.** `dev/prompts/implementor.md` now says the round adds the
+  four browser files only if `[suites] build_browser = true`.
+- **Finding: a bad session_cpus refused the suites too.** `settings()` no longer reads it. Only `limits(…, "session")`
+  does, which covers the sessions and their git-only `finish`, as the factory.toml comment now says. The CPU test now
+  checks that with each bad value, `contained` (a suite) still gets `--cpus 4` and a queue container gets its 8.
+  Break check (lesson-9): putting `session_cpus(a)` back in `settings()` failed that test; restored, it passes.
+- **Run:** `tests/test_agents.py` (16 passed, after the merge and again after the fixes), `tests/test_factory.py`
+  (152 passed, 2 skipped, Docker-only), and ruff (clean). **Not run:** the whole unit suite and the four browser
+  files (the queue runs them). Refused: a `python3 -` heredoc to resolve the conflicts (done with the edit tool).

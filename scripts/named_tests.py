@@ -4,7 +4,9 @@
 
 An allowlist, not a denylist: each argument must be an existing tests/test_*.py file, or one of its tests (::name),
 so no directory, glob that matched more than MOST files, option (-n, -k, -p ...) or whole suite gets through. pytest
-runs serially (no xdist, the ini's addopts cleared), with -q -rs (a page test skipped is printed). Exits 2 if refused."""
+runs serially (no xdist, the ini's addopts cleared), with -q -rs (a page test skipped is printed). Exits 2 if refused.
+It holds against habit, not against a session that rewrites it (the implementor has Edit on its clone): such an edit
+shows in the branch's diff, for the review."""
 import os
 import re
 import sys

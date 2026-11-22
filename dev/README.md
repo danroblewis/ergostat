@@ -121,20 +121,25 @@ read is taken, the other waits). Each run fetches its session's work to a side r
 (`refs/incoming/<run>/factory/NAME`). Before each implementor run on a branch behind main, implement.py merges main in
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
 (it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
-`uv run python scripts/suite_watch.py`; its refused calls are kept as `tool_denials`, and a session with no result or
+`scripts/named_tests.py`, below; its refused calls are kept as `tool_denials`, and a session with no result or
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
 `tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after: ruff, `[suites] build` and the four browser files, each under the watchdog in a suite container of the agent
-image and the suite slot; a browser test skipped fails them, as in the queue. `build` is the small set
+after: ruff and `[suites] build`, each under the watchdog in a suite container of the agent image and the suite slot.
+The four browser files run there too only with `[suites] build_browser = true` (default false: minutes of 4 CPUs a
+round, plus a Chromium launch); then a browser test skipped fails them, as in the queue. `build` is the small set
 (`scripts/affected_tests.py`: the test files the branch changed since main and `tests/test_<module>.py` of each
 `ergostat/**/<module>.py` it changed; only collection when there are none; the full suite when the diff cannot be
 read). With `build` commented out or empty, the full `unit` suite runs there instead. The merge queue never reads
-`build`: it runs `unit`, `browser` and `demo` in full. **No browser stops the round:** before the
-session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
+`build`: it runs `unit`, `browser` and `demo` in full. **No browser stops the round** (with `build_browser` only):
+before the session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
 missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
-starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with
-`uv run --with playwright==1.63.0` (inside its own container's limits: the host's slot is not reachable from there).
+starts. The session itself runs tests only through `scripts/named_tests.py`: 1 to 3 named `tests/test_*.py` files
+or test ids, no options, pytest run serially (no xdist, the ini's addopts cleared); a browser file the same way under
+`scripts/suite_watch.py` with `uv run --with playwright==1.63.0`. Never a whole suite: those run in the merge queue.
+Each session's container has `[agents] session_cpus` CPUs (1.5; empty: the suites' 4), its suites' containers 4.
+The script holds against habit, not against a session that edits it (it has Edit on its clone): such an edit shows in
+the branch's diff, for the review.
 The unit suite's tests/test_agents.py::test_implementor_environment_has_a_browser really launches Chromium that way, so
 every unit run (the queue's on the host, a developer's, an implementor's offline container) needs Playwright 1.63.0
 cached for `uv run --with` and its Chromium installed, or it fails: on purpose, a missing browser is a failure, not a
@@ -547,7 +552,7 @@ or unreadable bookmark makes it read every gap again (and write only a changed t
   it ends at the approval after it, or at a park or close straight from fix. While it still goes round, `loop_ended` is
   empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
-  `build_hours`), `fast` (its fast suites: ruff, unit and browser, every try in a round, `fast_seconds`; a build recorded before it
+  `build_hours`), `fast` (its fast suites: ruff, build or unit, and browser with `build_browser`, every try in a round, `fast_seconds`; a build recorded before it
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
