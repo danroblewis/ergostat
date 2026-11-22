@@ -44,3 +44,17 @@ Choices made alone, the most reversible way:
 - A descendant given back in land() that is the run's own gap is nacked after 1m, as the time-allowance give-back is.
   Its base is in triage by then, so the next run gives it back for 10m in picks().
 - Nothing writes `stacked_on` yet. The implementor writing it is outside this gap.
+
+Round 2: the one finding (blocking) is fixed. In land()'s merge loop, a merge whose base's merge was sent back is now
+skipped. This holds on the first pass and on any merge again after a blame. reaches() finds the base at any depth.
+The skipped merge is given back to approved uncounted with "its base ... could not be merged in the queue". The
+module and land() docstrings say so. New test:
+tests/test_factory.py::test_a_base_whose_merge_again_conflicts_takes_its_descendants_out (x fails, then a's merge
+again conflicts: b is never merged and nothing lands). It patches queue.merge in-process to make a's second merge
+conflict. I did not use a real git conflict because a merge that went in cleanly with the blamed gap also goes in
+cleanly without it. The test was seen to fail with the skip disabled (b merged as the 4th try). dev/bin: +129 / -44,
+85 net.
+Not run: the whole of tests/test_factory.py. The command that runs it in the background under suite_watch was
+refused. Run: the four acceptance tests, the new test, and the batch tests test_a_red_batch_is_bisected_to_the_failing_merge,
+test_a_green_batch_lands_every_gap and test_the_tree_tested_is_the_tree_dry_merged. All passed. Main is already
+merged (main is an ancestor of HEAD).

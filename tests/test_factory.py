@@ -2524,6 +2524,38 @@ def test_a_failing_base_gives_its_descendants_back(tmp_path):
     assert "p.txt" in tree and not {"a.txt", "b.txt", "bad.txt"} & set(tree)   # the pushed tree
 
 
+def test_a_base_whose_merge_again_conflicts_takes_its_descendants_out(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"x": 0}, bad="x")
+    stacked_gaps(f, {"a": 1, "b": 2}, batch=3)
+    code = ("import sys, json, time; sys.path[:0] = [sys.argv[1]]; import fac, queue; cfg = fac.config(); "
+            "repo = fac.path(cfg, 'checkout'); pre = fac.git(repo, 'rev-parse', 'HEAD'); "
+            "own = next(g for g in fac.items('gap', 'approved') if g['id'] == 'gap/x'); "
+            "batch, dried, _ = queue.picks(cfg, repo, own, 3, pre); real, tries = queue.merge, []\n"
+            "def merge(cfg, repo, g, sha, began):\n"
+            " tries.append(g['id'])\n"
+            " if tries.count('gap/a') > 1:\n"                 # a's merge again onto the green prefix conflicts
+            "  queue.refuse(cfg, g, ['a.txt'], began); return False\n"
+            " return real(cfg, repo, g, sha, began)\n"
+            "queue.merge = merge\n"
+            "landed, head, back = queue.land(cfg, repo, batch, pre, time.time(), 0, dried)\n"
+            "print(json.dumps({'batch': [g['id'] for g, _ in batch], 'landed': [g['id'] for g, _ in landed], "
+            "'back': [[g['id'], why] for g, why in back], 'tries': tries, 'pre': head == pre, "
+            "'tree': fac.git(repo, 'ls-tree', '--name-only', head).split()}))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    said = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    out = said[-1]
+    assert out["batch"] == ["gap/x", "gap/a", "gap/b"]
+    assert out["tries"] == ["gap/x", "gap/a", "gap/b", "gap/a"]          # b is never merged again without a
+    assert out["landed"] == [] and out["pre"] is True
+    assert out["back"] == [["gap/b", "its base gap/a could not be merged in the queue"]]
+    assert not {"a.txt", "b.txt", "bad.txt"} & set(out["tree"])
+    sent = [(x["event"], x.get("item")) for x in said if "event" in x]
+    assert ("gap.sent-back", "gap/a") in sent and ("gap.queue-failed", "gap/x") in sent
+    assert not any(e[1] == "gap/b" for e in sent)                       # b: back to approved, uncounted
+
+
 def test_a_stack_deeper_than_the_cap_gives_the_own_gap_back(tmp_path):
     f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
     stacked_gaps(f, {"a": 0, "b": 1, "c": 2}, batch=2)

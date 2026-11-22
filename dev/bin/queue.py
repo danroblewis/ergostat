@@ -41,8 +41,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    each is a flake seen. Else (they pass on main, a test main lacks, a run that cannot tell, a failure naming no
    test) it is bisected to the first failing merge (land(), on the failing tests alone when
    the run named any), which goes on to flake triage with what failed (`queue-failed`) and the rest lands, each merge
-   only on a full green run; a later merge whose `stacked_on` reaches the failing one (at any depth) is given back to
-   `approved` uncounted, never merged again (it holds the failing commit). Past its time allowance (allowance()) a
+   only on a full green run; a later merge whose `stacked_on` reaches the failing one (at any depth), or one whose
+   merge (again) was sent back, is given back to `approved` uncounted, never merged without it (it holds its
+   commits). Past its time allowance (allowance()) a
    run starts no suite run: the proven prefix lands, the rest back uncounted; a run that settled none of its batch
    halves the next run's batch (run/queue.json `cap`, cleared once one is). On any error or stop, main is undone with
    `git reset --keep`. The push is asked under the run's own gap's lease, and is not fenced by it (`fenced: false`:
@@ -725,8 +726,9 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
     run, the named tests on its tree, and each step, two when a named run cannot tell). No suite run starts past
     ``until`` (began + allowance() unset): the bisecting stops there, the prefix a full green run proved lands, and the
     gaps not settled yet are given back, never landed (the third of what it returns), as are the merges after a failing
-    one whose `stacked_on` reaches it (reaches()). Returns (each gap landing with its timing, main's head, the gaps
-    given back, each with why), the checkout's main left at that head. Gaps sent on are said so
+    one whose `stacked_on` reaches it, or reaches a merge (again) sent back (reaches()). Returns (each gap landing
+    with its timing, main's head, the gaps given back, each with why), the checkout's main left at that head. Gaps
+    sent on are said so
     here; those landing and those given back, by the caller, once main is settled. A red run whose failed tests may be
     flakes (excusable()) and each pass alone on its tree twice is green once the suites it did not finish pass too: it
     lands with no bisect, each test a flake seen."""
@@ -752,17 +754,23 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         return dict(queue_wait_hours=waited_hours(g, began), queue_minutes=round((time.time() - began) / 60, 1),
                     lock_and_load_wait_s=round(waited), suites_queue=got, batch_size=len(batch), batch_id=tag,
                     batch_runs=runs[0])
-    counted, back, blamed = {}, [], []                     # each gap's own merge: main before it to it (its last try)
+    counted, back, blamed, out = {}, [], [], []     # counted: each gap's own merge, main before it to it (its last
+    #                                                  try); out: the gaps whose merge was sent back (merge())
     try:
         while todo:
             fac.git(repo, "reset", "-q", "--keep", base)
             kept, heads, lo, green = [], [], 0, {}         # heads[i]: main with the first i + 1 merges
             for g, sha in todo:
+                if lost := next((x for x in out if reaches(g, x, batch)), None):    # its base was not merged: never
+                    back.append((g, f"its base {lost} could not be merged in the queue"))   # merged without it
+                    continue
                 before = fac.git(repo, "rev-parse", "HEAD")
                 if merge(cfg, repo, g, sha, began):
                     kept.append((g, sha))
                     heads.append(fac.git(repo, "rev-parse", "HEAD"))
                     counted[g["id"]] = lines(repo, before, heads[-1])
+                else:
+                    out.append(g["id"])
             tree = lambda c: fac.git(repo, "rev-parse", f"{c}^{{tree}}")          # noqa: E731
             if dried and kept == batch and tree("HEAD") != tree(dried):         # the tree tested is the one dry-merged
                 raise RuntimeError(f"the batch's merges differ from its dry merge ({dried[:12]})")
