@@ -296,7 +296,7 @@ provenance, its calibrations side by side, and any proposal for it, with Accept 
 typed over: a what-if, drawn on every chart until put back, its fit shown beside it, saved only by
 Propose these and then Accept), a feedback loop's panel how much of the behaviour it drives over the
 window at each stock it runs through, beside the loops competing there (loop dominance), parts chosen with
-Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
+Shift chart in the side panel (with none chosen, no chart); a loop's panel, its
 comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
 scope (y with r, u, e), and under it how the loop is doing (Harris index or, for a ceiling or a floor,
 how often and how far past it, oscillation, settling and overshoot, saturation, step tests and starts

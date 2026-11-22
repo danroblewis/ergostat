@@ -1304,12 +1304,13 @@ function withValues(base, v) {
   return g;
 }
 
-/* the legend: open the first time, then as the reader left it (remembered in this browser) */
+/* the legend, named by the diagram's type: open unless the reader closed it in this browser (it then stays closed) */
 function legendOpen() { try { return localStorage.getItem("ergostat.legend") !== "closed"; } catch (e) { return true; } }
+const DIAGRAM_TYPE = { dynamics: "stock and flow diagram", blocks: "block diagram", process: "process map" };
 function legendBox(view) {
-  const d = h("details", { class: "legend-box", open: legendOpen() ? "" : null }, h("summary", {}, "How to read it"), legend(view));
-  d.addEventListener("toggle", () => { try { localStorage.setItem("ergostat.legend", d.open ? "open" : "closed"); } catch (e) { /* not remembered */ } });
-  try { if (!localStorage.getItem("ergostat.legend")) localStorage.setItem("ergostat.legend", "closed"); } catch (e) { /* not remembered */ }
+  const d = h("details", { class: "legend-box", key: "legend", open: legendOpen() ? "" : null },
+    h("summary", {}, "How to read it", h("span", { class: "muted" }, ` · the ${DIAGRAM_TYPE[view] || "control diagram"}`)), legend(view));
+  d.addEventListener("toggle", () => { if (d.isConnected) try { localStorage.setItem("ergostat.legend", d.open ? "open" : "closed"); } catch (e) { /* not remembered */ } });
   return d;
 }
 
@@ -1332,7 +1333,8 @@ function inboxAnswer(a) {
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
-  const problems = all.filter((a) => a.level !== "hint"), hints = all.filter((a) => a.level === "hint");
+  const asks = all.filter((a) => a.answer), hints = all.filter((a) => a.level === "hint");
+  const problems = all.filter((a) => a.level !== "hint" && !a.answer);
   // built aside and patched in: a refresh touches only what changed, and what is open or scrolled stays so
   const out = side, panel = h("div");
   side = panel;
@@ -1342,31 +1344,37 @@ function renderSide(side, g, view) {
     side.append(h("div", { class: "att" }, h("div", {}, h("b", { class: "lvl-warn" }, "Not running. "),
       last ? `These are the last readings, from ${ago(last)}.` : "Nothing has been measured.")));
   }
-  const charts = view === "dynamics" ? sideCharts(out) : null;      // charts.js: the parts chosen, at the top
-  if (charts && S.sel?.size) side.append(live(charts));
-  side.append(h("h3", {}, "Needs attention", problems.length ? h("span", { class: "muted" }, ` ${problems.length}`) : null));
-  const att = h("div", { class: "att" });
-  if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
+  // charts.js: the parts chosen, at the top; with none chosen, no chart
+  if (view === "dynamics" && S.sel?.size) side.append(live(sideCharts(out)));
+  const count = (n) => h("span", { class: "muted" }, ` ${n}`);
   const MAX = 6;
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
-  for (const a of problems.slice(0, MAX)) {
+  const entry = (a) => {
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
     const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
-    att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
-      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
+    return h("div", a.answer ? { "data-inbox": a.what, key: `inbox:${a.what}` } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
+      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null);
+  };
+  // what waits for the owner first (the one thing a person does here), only when something waits; more than 3: one line
+  if (asks.length) {
+    side.append(h("h3", { key: "waiting-h" }, "Waiting for you", count(asks.length)));
+    const rows = h("div", { class: "att waiting", key: "waiting-rows" }, ...asks.map(entry));
+    side.append(asks.length > 3 ? h("details", { class: "waiting", key: "waiting" }, h("summary", {}, `${asks.length} wait for you`), rows) : rows);
   }
+  side.append(legendBox(view));
+  side.append(h("h3", {}, "Needs attention", problems.length ? count(problems.length) : null));
+  const att = h("div", { class: "att" });
+  if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
+  for (const a of problems.slice(0, MAX)) att.append(entry(a));
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
   side.append(att);
   if (hints.length) {
-    // open when a loop is off: then the suggestions are the diagnosis, not an aside
-    // (the moment drawn, not now; and once the reader opens or closes them, as they left them)
-    const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");
-    const open = S.suggestOpen ?? anyOff;
-    const d = h("details", { class: "suggest", open: open ? "" : null },
+    // closed, its count in the summary; once the reader opens or closes it, as they left it
+    const d = h("details", { class: "suggest", key: "suggest", open: S.suggestOpen ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.says)?.[1];
@@ -1375,15 +1383,15 @@ function renderSide(side, g, view) {
     }
     side.append(d);
   }
-  if (charts && !S.sel?.size) side.append(live(charts));               // or the ones charted last
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {
-    side.append(h("h3", {}, "Loops", h("span", { class: "muted" }, ` ${loops.length}`)));
-    if (!loops.length) side.append(h("div", { class: "muted" }, "No loops in view."));
+    const d = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Loops", count(loops.length)));
+    side.append(d);
+    if (!loops.length) d.append(h("div", { class: "muted" }, "No loops in view."));
     const rank = { off: 0, open: 1, unknown: 2, holding: 3 };       // the ones that need someone first
     for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {
-      side.append(h("div", { class: "looprow", "data-loop": name,
+      d.append(h("div", { class: "looprow", "data-loop": name,
                               onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
                               onclick: () => { choose(g.corr?.loops?.[name] || []); openLoop(name); } },
         h("b", {}, name), exceptional(lp.status) ? statusEl(lp.status) : h("span"),
@@ -1393,15 +1401,15 @@ function renderSide(side, g, view) {
   if (st.changes?.length) {
     const last = st.changes[st.changes.length - 1];
     const n = (c) => c.added.length + c.removed.length + c.changed.length;
-    const d = h("details", { class: "changes" }, h("summary", {}, `Edited ${ago(last.time)}`,
-      h("span", { class: "muted" }, `, ${n(last)} part${n(last) === 1 ? "" : "s"}${st.changes.length > 1 ? `, ${st.changes.length} edits` : ""}`)));
+    const k = st.changes.length;
+    const d = h("details", { class: "changes", key: "changes" }, h("summary", {}, "The model",
+      h("span", { class: "muted" }, ` ${k} edit${k === 1 ? "" : "s"}, the last ${ago(last.time)}, ${n(last)} part${n(last) === 1 ? "" : "s"}`)));
     for (const c of st.changes.slice().reverse()) {
       const what = [...c.added.map((x) => "+" + x), ...c.removed.map((x) => "\u2212" + x), ...c.changed.map((x) => "~" + x)];
       d.append(h("div", { class: "change" }, h("span", { class: "muted" }, ago(c.time)), " ", h("span", { class: "what" }, what.join("  "))));
     }
-    side.append(h("h3", {}, "The model"), d);
+    side.append(d);
   }
-  side.append(legendBox(view));
   patch(out, [...panel.childNodes]);
 }
 

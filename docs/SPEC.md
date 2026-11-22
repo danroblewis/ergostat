@@ -6197,9 +6197,17 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   `--stats` (below).
 - The MCP tools `inbox` and `answer`, so the owner's Claude session can answer on their behalf when told to; its
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
-- The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
-  each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own.
+- The page: the entries are listed under *Waiting for you*, at the top of the Diagram's side panel (only when one
+  waits; more than 3 fold into one line, "N wait for you", that opens them), each with Approve / Deny, or a number and
+  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. The item pages keep
+  their own buttons. No page or panel of its own.
+
+**The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
+you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
+map), listing only the symbols drawn, open unless the reader closed it in this browser (then it stays closed, until
+they open it again); then *Needs attention*, what is off; then Suggestions, the loop list (the Process view's kinds)
+and The model's edits, each folded with its count in its summary. No chart is shown until parts are chosen; a chosen
+part's panel is as before.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 

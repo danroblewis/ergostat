@@ -213,7 +213,8 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .more, .att .none { color: var(--muted); }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
 .att .inbox-act input { width: 6em; }
-details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }
+details.suggest, details.changes, details.legend-box, details.loops { margin-top: var(--sp-3); }
+details.waiting > .att { margin-top: var(--sp-3); }
 details > summary { cursor: pointer; color: var(--ink-2); }
 details > summary:hover { color: var(--ink); }
 details.suggest .hint { margin-top: var(--sp-3); }
