@@ -89,3 +89,8 @@ Round 3, the review's findings:
 - SPEC §9.8 lines past the wrap width after the `ShardError` edits are reflowed. The close paragraph now says it waits
   at most `lock_wait`.
 - `client.owner` and the short folder: kept as the written choice above (non-blocking). Nothing changed.
+
+Round 4: main (5617e225) is merged in. Both conflicts keep both sides. In `spec/engine.py`, `ergostat.started` keeps
+`data.shard`, and main's `budget.recover` at start runs in every engine, as main has it. In `spec/watchdog.py`,
+`heartbeat(state, passed, stalls, stale, failing=None, shard=None)` writes main's `dispatch_error` into the shard's
+own file. The watchdog passes the dispatcher's `failing` and the shard.
