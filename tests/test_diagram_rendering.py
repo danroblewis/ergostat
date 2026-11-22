@@ -3959,25 +3959,25 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
 
 
 # the header's link: its text, its box, and whether it is the header's first element
-WAITS = """() => { const a = [...document.querySelectorAll('header a')].find((x) => /wait/.test(x.textContent));
+WAITS_LINK = """() => { const a = [...document.querySelectorAll('header a')].find((x) => /wait/.test(x.textContent));
   if (!a || a.hidden) return null;
   const r = a.getBoundingClientRect(), box = (x) => x.getBoundingClientRect();
   const first = [...document.querySelectorAll('header *')].filter((x) => !x.children.length && box(x).width > 0)
     .sort((p, q) => box(p).top - box(q).top || box(p).left - box(q).left)[0];
   return { text: a.textContent.trim(), bottom: r.bottom + scrollY, first: first === a }; }"""
-WHERE = """() => { const hd = document.getElementById('waiting'); if (!hd) return null;
+WAITING_HEAD = """() => { const hd = document.getElementById('waiting'); if (!hd) return null;
   const r = hd.getBoundingClientRect();
   return { text: hd.textContent, top: r.top, bottom: r.bottom, height: r.height, inner: innerHeight,
            focused: document.activeElement === hd, active: document.activeElement?.outerHTML.slice(0, 80) }; }"""
-SEEN = f"""() => {{ const w = ({WHERE})();
+WAITING_SHOWN = f"""() => {{ const w = ({WAITING_HEAD})();
   return !!w && /^Waiting for you/.test(w.text) && w.top >= 0 && w.bottom <= w.inner && w.height > 0 && w.focused; }}"""
 
 
-def seen(pg, what) -> None:
+def waiting_shown(pg, what) -> None:
     try:
-        pg.wait_for_function(SEEN, timeout=60000)
+        pg.wait_for_function(WAITING_SHOWN, timeout=60000)
     except Exception:
-        raise AssertionError((what, pg.url, pg.evaluate(WHERE))) from None
+        raise AssertionError((what, pg.url, pg.evaluate(WAITING_HEAD))) from None
 
 
 def test_what_waits_for_you_is_one_step_from_every_page(browser, tmp_path, monkeypatch):
@@ -4019,24 +4019,24 @@ def test_what_waits_for_you_is_one_step_from_every_page(browser, tmp_path, monke
             pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
             for path in ("items", "agents", "loops", "record"):
                 pg.goto(f"{url}/{path}")
-                pg.wait_for_function(WAITS, timeout=30000)
-                got = pg.evaluate(WAITS)
+                pg.wait_for_function(WAITS_LINK, timeout=30000)
+                got = pg.evaluate(WAITS_LINK)
                 assert got["text"] == "2 wait for you", (width, path, got)
                 assert got["bottom"] <= 200, (width, path, got)
                 if width < 700:
                     assert got["first"], (width, path, got)            # on a phone, the header's first thing
                 pg.locator("header a", has_text="wait for you").click()
-                seen(pg, (width, path))
+                waiting_shown(pg, (width, path))
                 assert pg.evaluate("location.pathname") == "/diagram", path
                 head = pg.locator("#waiting").inner_text()
                 assert re.sub(r"\s+", " ", head).strip() == "Waiting for you 2", head   # the side list's own count
             pg.goto("about:blank")
             pg.goto(f"{url}/diagram#waiting")                          # the address itself, loaded afresh
-            seen(pg, (width, "loaded"))
+            waiting_shown(pg, (width, "loaded"))
             pg.evaluate("() => { document.activeElement.blur(); document.querySelector('main').scrollTop = 0; scrollTo(0, 0); "
                         "history.replaceState(null, '', '/diagram'); }")
             pg.evaluate("() => { location.hash = 'waiting'; }")         # and asked for on the Diagram itself
-            seen(pg, (width, "hash"))
+            waiting_shown(pg, (width, "hash"))
             pg.close()
             assert not errors, errors
     finally:
