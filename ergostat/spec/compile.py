@@ -1479,7 +1479,7 @@ class Compiler:
                 known, bad = None, [*bad, (None, "a law is declared of what it reads and sets: write identify: with it")]
             for key, why in bad:
                 at = raw.at(key) if key is not None and isinstance(raw, Map) else m.at("law")
-                self.err(f"{what}.law{'.' + key if key else ''}: {why}", at, "bad-law")
+                self.err(f"{what}.law{'' if key is None else f'.{key}'}: {why}", at, "bad-law")
         if m.get("until") is not None:
             sp = Setpoint.parse(m["until"])
             if sp is None:

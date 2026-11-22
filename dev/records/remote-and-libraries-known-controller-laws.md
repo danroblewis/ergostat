@@ -46,3 +46,12 @@ it, it passes. A duration written as a long digit string (`999…9s`) does not c
 gives inf, which the bounds refuse (an eighth case in the same test). `stabilize-down` and `stabilize-up` go through
 the same duration path as `every` but have no case of their own. Not checked here: an integer over Python's 4,300-digit string-conversion limit
 fails in PyYAML's own loader, before any law is read. Net lines outside tests and docs: 153 (within 160).
+
+Round 4: the review's one finding is fixed. A parameter name that YAML types as something other than a string (`2:`,
+`1.5:`, `true:`) passed laws.check as an unknown parameter and then raised TypeError at `'.' + key` in compile.py's
+message. The message now formats the key (`f'.{key}'`) and leaves it out only when the key is None, so a key `0` is
+not dropped from the message either; the line still comes from `raw.at(key)`. test_each_refusal_is_bad_law_at_its_key
+gains four cases (keys 2, 0, 1.5, true), each bad-law at its own line. Before the fix the test failed with that
+TypeError at compile.py:1482; after it, it passes. laws.py itself only formats such a key with an f-string and tests it
+with `in`, so it does not crash on one. A boolean key is named the way Python writes it (`True`). The fix changes one
+line; the total is still 153 net lines.

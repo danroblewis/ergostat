@@ -100,6 +100,9 @@ def test_each_refusal_is_bad_law_at_its_key(tmp_path):
         ("law:\n  kind: alert-rule\n  threshold: 1\n  side: sideways\n  for: 1m\n", 4, "side: above or below"),
         ("law: kubernetes-hpa\n", 1, "a map"),
     ]
+    alert = "law:\n  kind: alert-rule\n  threshold: 1\n  side: above\n  for: 1m\n  {}: x\n"
+    cases += [(alert.format(k), 6, f"law.{s}: alert-rule takes no {s}")     # keys YAML types: int, 0, float, bool
+              for k, s in (("2", "2"), ("0", "0"), ("1.5", "1.5"), ("true", "True"))]
     huge = "9" * 400                            # PyYAML reads it as an unbounded int; float() of it overflows
     hpa = "law:\n  kind: kubernetes-hpa\n  target: {}\n  min: {}\n  max: {}\n  tolerance: {}\n  every: {}\n"
     for i, said in enumerate(["target: a number above", "min: a number from", "max: a number from",
