@@ -211,6 +211,33 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
+    """A controller's and a process's panel start with loopTable (control.js): rows law, process, held-out fit, time
+    off, settling, saturation, the fit naming its measure. The image-squeeze tuner's loop answer holds every field
+    those rows read, and a fit is a signed share, never clamped at 0 (the browser half of this check is
+    tests/test_diagram_rendering.py::test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_inside)."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.control import loop
+    from ergostat.store import Project
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "ergostat" / "web" / "static" / "control.js").read_text()
+    table = js[js.index("function loopTable"):js.index("/* ---- what is known of the process")]
+    assert re.findall(r'\["([a-z -]+)", ', table) == ["law", "process", "held-out fit", "time off", "settling", "saturation"]
+    assert 'const FIT = "NRMSE fit, 100% is perfect, below 0 is worse than the mean"' in js and "(${FIT})" in table
+    rows = js[js.index("function identRows"):]
+    assert "not identified: needs a step of u" in table and "Math.max(0" not in rows[:rows.index("\n}\n")]
+    shutil.copytree(root / "examples" / "image-squeeze", tmp_path / "x", ignore=shutil.ignore_patterns("run", "__pycache__"))
+    d = loop.analyse(Project(model.load(tmp_path / "x")), "quality-held")
+    assert d and not d.get("why"), d
+    assert {"says", "law", "block"} <= set(d["controller"]) and d["controller"]["block"] == "tuner", d["controller"]
+    assert "found" in d["identified"] and {"excursions", "saturation"} <= set(d["performance"]), d["performance"]
+    assert {"count", "settling"} <= set(d["performance"]["excursions"]) and d["how"] in ("setting", "valve")
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""

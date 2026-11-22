@@ -64,3 +64,14 @@ Round 1, after the second `build` failure (the same rc 5, "1 skipped"):
 - Same cause as before. I read `scripts/affected_tests.py` again: it hands pytest only the changed test files, and here that is `tests/test_diagram_rendering.py`. That file skips at import without Playwright, so every branch whose only changed test file is a browser file gets rc 5. No page code can change that, so I changed no code.
 - What is left is outside this gap, in its own gap. Either `affected_tests.py` adds `--with playwright` or treats rc 5 as a pass when it picks only browser files, or `[suites] build` runs with Playwright.
 - `git log`/`git diff` ran this round. A later command (`uv run ruff check …` and the named page test with `--offline`) was refused, so neither ruff nor the test was run again.
+
+Round 2:
+- What changed: `tests/test_graph_cli_web.py::test_the_loop_answer_carries_what_the_panels_first_table_shows`, a unit test the build can run without Playwright. This follows main's precedent (ab17bb6e, the agents gap with the same rc 5). The build's affected set now has a file pytest collects, so it no longer finds nothing (rc 5). It pins this change's contract rather than something unrelated:
+  - `loopTable`'s six row names, in order.
+  - The NRMSE measure on the fit row, and "not identified: needs a step of u".
+  - The fit in `identRows` is no longer clamped at 0.
+  - The image-squeeze `quality-held` answer from `loop.analyse` has every field the rows read: the controller's says/law/block (the tuner), identified, and performance with excursions (count, settling) and saturation.
+- Seen to fail under two breaks of `control.js`: the "time off" row renamed, and `Math.max(0, …)` put back on the `identRows` fit. Both were restored, and there is no diff under `ergostat/` this round.
+- I first had the clamp check cover all of control.js from `identRows` on. That failed on a `Math.max(0, …)` held-out figure further down (the other form's fit, a line this gap did not write), so the check now covers only `identRows`. That other clamp is left as it is, outside the gap.
+- No code outside tests changed this round. The net lines outside tests and docs are still about 40.
+- Run: `tests/test_graph_cli_web.py`, whole file, 33 passed. The browser acceptance test, with Playwright under the watchdog, 1 passed (rc 0). Ruff is clean. Not run: the unit suite and the four browser files (left to the merge queue, as the brief says). The earlier `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` failure, reported in round 1, was not run again.
