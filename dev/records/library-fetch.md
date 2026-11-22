@@ -162,3 +162,70 @@ All in `tests/test_library_fetch.py`.
 - git archive writes to a pipe, so neither RLIMIT_FSIZE nor the folder poll covers it. State that the 120 s timeout and the process-group kill also apply to git archive, and that a tarfile refusal kills the archive process group.
 - The 120 s clone timeout has no test. Add one with the timeout patched small against a stalled source (e.g. a wrapper that blocks), asserting the process group is gone and TMP removed, or explain why it cannot be tested.
 - test_missing_unlocked_and_treeless_refused says 'three cases' but lists four; fix the wording so each case is asserted.
+
+## Where it stopped
+
+Built, round 1. Every acceptance test above is in `tests/test_library_fetch.py`, with three more: 
+`test_failed_lock_write_keeps_old_copy_and_entry` (review note 1), `test_stalled_git_is_killed_by_the_timeout` (note 7)
+and `test_sources_are_whole_matches`. All 18 pass. `tests/test_cli_fallback.py`, `tests/test_templates.py`,
+`tests/test_modelling_template.py`, the four `tests/test_library_*.py` files, `tests/test_spec_schema.py` and
+`tests/test_spec_structure.py` pass unchanged. Ruff is clean. Local `main` has nothing this branch lacks (`git merge
+main`: already up to date), so there was nothing new to merge or run again. Not run here: the whole unit suite, the
+four browser files (no page changed) and `demo_check` (no example touched).
+
+**Tests seen to fail with their guard removed (lesson 9).** Each mutant was applied, run, and reverted:
+- flock removed: `test_fetch_holds_lock_across_write` fails because the marker never appears (`queue.Empty` after
+  30 s). With the marker wait also taken out of the test, it fails on `{'a'} == {'a', 'b'}`: b's entry is lost.
+- templates parsed from disk (`text=None`): `test_load_parses_the_bytes_it_hashed` fails.
+- the lock matched without `git`: `test_changed_git_alone_is_unlocked` fails.
+- the exec bit not hashed: `test_altered_copy_refused` fails.
+- the written-bytes check removed: `test_caps_refuse_large` fails.
+- `trees` not kept: both fallback tests fail (keep's read-back refuses the snapshot).
+- the FIFO kind check and `O_NONBLOCK` removed: `test_fifo_in_copy_refused_without_hanging` times out at 20 s.
+  With only the lstat kind check removed, `O_NONBLOCK` plus the `fstat` check still refuse it without hanging.
+- `MAX = 17`, or NAME through `re.match(...$)`: `test_caps_refuse_large` or `test_bad_name_and_scheme_refused` fails.
+- the link-escape check removed: `test_symlink_hashed_not_followed` fails.
+- the leader killed but not its group: `test_stalled_git_is_killed_by_the_timeout` fails.
+- no rollback of the old copy: `test_failed_lock_write_keeps_old_copy_and_entry` fails.
+- the new copy written over the old folder: `test_update_remake_drops_deleted_files` fails.
+
+**The plan review's notes, each answered.**
+1. Swap rollback: if the lock write fails, the new copy goes back to `TMP/copy` and `TMP/old` comes back to
+   `.libraries/NAME` before `TMP` is removed. Tested by `test_failed_lock_write_keeps_old_copy_and_entry`.
+2. Every allowlist uses `re.fullmatch`. `a\n` and `main\n` are in the bad list, and so are `https://h/r\n`,
+   `h:path`, `#f`, `file:///a/../b` and a float version.
+3. One walker and one hash: `tree.read` wraps `files.tree`, and `tree.digest` hashes the result. Paths are sorted.
+   Each entry is its kind, a NUL, then an 8-byte length and the path, then an 8-byte length and the bytes or link
+   target.
+4. The exec bit is hashed: the kind is `file` or `exec`. `chmod +x` is a case in `test_altered_copy_refused`.
+5. `.libraries` is checked with lstat (a link is refused) before `.flock` is created or opened. `.flock` is opened
+   with `O_NOFOLLOW`.
+6. `git archive` gets a 120 s timer that kills its process group. Any refusal while reading its tar stream also kills
+   the group. SPEC and SECURITY say so.
+7. The timeout is tested. `fetch.argv` is patched so that the `fetch` call, then the `archive` call, runs
+   `sh -c 'sleep 60 & sleep 60'` through the real `_start`. The test asserts every group is gone and no `.tmp-`
+   folder, copy or lock is left.
+8. The test's docstring names five cases (copy deleted, lock deleted, entry removed, entry without tree, invalid
+   JSON), and each is asserted. The invalid-JSON case also checks that `fetch` stops with rc 2, runs no git and leaves
+   the lock as it was.
+
+**Choices taken where the definition was silent (each easy to reverse).**
+- `libraries.lock` is `{"libraries": {NAME: {git, version, path, commit, tree}}}`. `path` is `""` when none is given.
+- A refused library is an error, so the model does not run, and the error carries the refusal's code. A use is
+  refused separately (`unknown-template` or `library-untrusted`).
+- With `path:`, the archive's `PATH/` prefix is stripped, so `.libraries/NAME` holds that folder's contents.
+- `git check-ref-format` and `git archive` take no `--end-of-options`. The ref has already passed the Python check
+  (it cannot start with `-`), and the archive's commit is a sha that `rev-parse --verify` returned. I could not check
+  whether `check-ref-format` accepts `--end-of-options`: the session refused running git directly. `fetch`,
+  `rev-parse` and the URL do use it.
+- A locked commit that is not 40 or 64 hex never reaches git. The entry is resolved again instead.
+- Every git process ends with a kill of its whole group. If the leader exits on its own (for example by
+  `RLIMIT_FSIZE`), it is waited for with `WNOWAIT`, so it is not reaped and its group id cannot be reused. Then the
+  group is killed and the leader reaped, so any child it left dies too. The test waits up to 10 s for an init-reaped
+  zombie to leave the group. That is a wait for a condition, not a fixed sleep.
+- Outside the Files list, each small: `check` prints `use NAME: template T from library L (PATH)`
+  (`cli/spec_cmds.py`, 3 lines). The authoring tools' `library` lists fetched templates (`library/author.py`, 1 line).
+  `schema/ergostat.schema.json` gains `libraries` (the schema forbids unknown top-level keys). The agent guide says
+  never to add `trust: owner` to a fetched library or edit the lock to make one load.
+
+Overrun reason: 719 net lines against 560. The plan review added work the budget did not include: the swap rollback, the `git archive` timer and group kill, killing each group without reaping its leader (a group left alive was a real flake while building), the locked-commit check, the `files.tree` replay table with its noting, and the schema entry (19 lines). `fetch.py` is 266 lines against 170; everything else is close to its share.
