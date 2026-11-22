@@ -50,8 +50,9 @@ async function pageLoops(main) {
       }).catch(() => {});
     }
     // on a phone each goal is a card (style.css): its name and status, then its value against its bound, how long off
+    // (up to the moment the answer is as of: the past moment chosen, else now)
     const offFor = (lp) => lp.status !== "off" ? null : lp.off_since == null ? "off since ?"
-      : `off ${lp.off_before_window ? "over " : ""}${dur(nowS() - lp.off_since)}`;
+      : `off ${lp.off_before_window ? "over " : ""}${dur((S.at || nowS()) - lp.off_since)}`;
     const card = (n, lp) => h("td", { class: "card" }, h("div", {}, h("b", {}, n), " · ", statusEl(lp.status)),
       h("div", { class: "muted" }, [`${fmt(lp.value)} against ${op(lp.setpoint)}`, offFor(lp),
         lp.back_in != null ? `usually back in ${dur(lp.back_in)}` : null].filter(Boolean).join(" · ")));

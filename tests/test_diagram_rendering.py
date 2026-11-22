@@ -2461,6 +2461,16 @@ def test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long
             assert all(sw == cw for sw, cw in widths), (scheme, widths)
             pg.close()
             assert not errors, errors
+        # at a past moment, half an hour ago (as the time slider sets it): off 6 minutes then, not to the clock now
+        pg = browser.new_page(viewport={"width": 390, "height": 844})
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelectorAll('table.loops td.card').length === 2", timeout=20000)
+        pg.evaluate(f"() => {{ S.at = {now - 1800}; route(); }}")
+        pg.wait_for_function("() => / off 6m /.test(document.querySelector('table.loops td.card')?.innerText || '')",
+                             timeout=20000)
+        assert pg.locator("table.loops td.card").first.inner_text().split("\n")[1] == \
+            "36 against ≤ 0 · off 6m · usually back in 30s"
+        pg.close()
         pg = browser.new_page(viewport={"width": 1200, "height": 844})       # wider: the table as it was, no cards
         pg.goto(url + "/loops")
         pg.wait_for_function("() => document.querySelectorAll('table.loops tr.click').length === 2", timeout=20000)
