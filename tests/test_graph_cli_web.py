@@ -125,6 +125,31 @@ def test_the_record_page_filters_by_machine_and_type(repo):
     assert [e["type"] for e in p.events.query(n=None, type="invoice.sent,mail.*")] == ["invoice.sent", "mail.sent"]
 
 
+def test_the_record_narrows_to_a_goal_and_its_window_and_the_filter_matches_item_and_source(repo):
+    """A crossing's link (/record?about=<goal>&from=&to=) asks for the goal's events, its controller's, valves' and
+    their agents', within the window; the filter box (match=) takes a type, an item or a source."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    server, url = serve(p, free_port())
+    try:
+        def types(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [e["type"] for e in json.loads(r.read())]
+        assert types("about=disk-under-80") == ["loop.off", "cleanup.done", "cleanup.done"]   # the goal, its agents
+        assert types(f"about=disk-under-80&from={now - 595}&to={now - 200}") == ["cleanup.done"]   # its window
+        assert types("about=disk-under-80&match=loop.*") == ["loop.off"]                    # both: the goal's that match
+        assert types("about=no-such-goal") == []                                              # never everything
+        assert types("match=mailer") == ["mail.sent"]                                         # a source
+        assert types("match=invoice/7") == ["invoice.sent", "mail.sent"]                      # an item
+        assert types("match=invoice.*") == ["invoice.sent"]                                   # a type, as before
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def run_cli(repo, *args, capsys=None):
     rc = main(["-C", str(repo.path), *args])
     out = capsys.readouterr().out if capsys else ""

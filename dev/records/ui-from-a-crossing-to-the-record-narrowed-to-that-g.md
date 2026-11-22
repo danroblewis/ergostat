@@ -58,3 +58,11 @@ run of test_page_polling.py with test_graph_cli_web.py together had 1 failure th
 second combined run printed no FAILED line, and each file passes alone. Not run: the whole unit suite,
 test_diagram_rendering.py in full, demo_check (no example touched), and a merge of main (main is the clone's base,
 unchanged since).
+
+Round 1, after the build step: `build` failed with rc 5, not on a test. Its affected-tests selection named only
+tests/test_items_page.py, which skips as a whole without Playwright, so pytest collected nothing. No page code changed.
+Added `tests/test_graph_cli_web.py::test_the_record_narrows_to_a_goal_and_its_window_and_the_filter_matches_item_and_source`,
+a test that needs no browser, of the server's narrowing (`about=` with the goal's controller, valve and agents; `from`/`to`;
+`match=` as type, item or source; an unknown goal gives nothing). The build step now selects that file too. The test
+failed when the controller's, valves' and agents' names were dropped from `_record_rows` (reverted). Run:
+tests/test_graph_cli_web.py (32 passed); ruff clean.
