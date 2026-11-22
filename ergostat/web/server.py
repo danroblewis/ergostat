@@ -353,10 +353,13 @@ def _sizes(p, fields: dict, most: int = 200) -> dict:
     state, out = Path(p.dir).resolve(), {}
     for rel in found:
         for root in roots:
-            f = (root / rel).resolve()
-            if (root == f or root in f.parents) and f != state and state not in f.parents and f.is_file():
-                out[rel] = f.stat().st_size
-                break
+            try:                                      # unreadable (no permission, a loop of links): left out, unsized
+                f = (root / rel).resolve()
+                if (root == f or root in f.parents) and f != state and state not in f.parents and f.is_file():
+                    out[rel] = f.stat().st_size
+                    break
+            except (OSError, RuntimeError, ValueError):
+                continue
     return out
 
 

@@ -1264,9 +1264,20 @@ and MCP's `record_event` say at once when a patch they recorded changed nothing.
 the operation (with its rule, or `patch` or `set`), the path, and the value before and after. A
 change deeper in a field (`/comments/3`) is that field's. The item's `fields` is the folded
 document as it stands, so whatever reads fields reads them as before; its history is beside it
-(`ergostat item ID --history [FIELD]`; the item's page, where each field shows its value and a
-history disclosure, each change linked to its event; `/api/items/ID`, each field's latest 100
-changes and how many there were, all with `history=all`). An item can be read as it stood at any
+(`ergostat item ID --history [FIELD]`; the item's page, in one collapsed *Changes* section at
+its end, each field's changes latest first, each linked to its event; a field with more than one
+change shows `N changes` beside its name, which opens the section narrowed to that field; a
+snapshot does not hold the changes and says so). `/api/items/ID` always sends how many changes
+each field had (`changes`) and sends `history` only when asked: `history=FIELD` that field's
+changes, `history=all` every field's (a field named `all` is read with `all`); the page asks only
+while the section is open. Its `file_sizes` gives the size of each file a field names (not one in
+the state folder). On the page, a short field (a number, a boolean, a string of 60 characters or
+fewer, not `file:`) sits in a flowing grid, its name above its value; every other field is a
+full-width block headed by its name. A list of records is a list of cards, newest first, three
+shown and the rest under `N earlier`; a file a card names is a closed disclosure named by its key
+and size, read only when opened, its Markdown headings below the page's. A list whose records
+share at most 6 scalar keys (held by more than half of them) stays a table, its cells small: a
+file in a cell is a link, never a table in a cell. An item can be read as it stood at any
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
 

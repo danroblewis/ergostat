@@ -674,6 +674,19 @@ def test_a_snapshot_lists_a_parts_items_and_opens_its_set(browser, tmp_path):
     pg.close()
 
 
+def test_a_snapshots_item_page_says_its_changes_are_not_held(browser, tmp_path):
+    """A snapshot holds each item's answer without its history: the Changes section opens and says so."""
+    pg, errors = snapshot_page(browser, tmp_path)
+    pg.goto(pg.url.split("#")[0] + "#/item/ticket%2F1")
+    pg.wait_for_selector("details.changes summary", timeout=20000)
+    pg.locator("details.changes summary").click()
+    pg.wait_for_function("() => /not held in this snapshot/.test(document.querySelector('details.changes')?.textContent || '')",
+                         timeout=10000)
+    assert pg.locator("[data-field]").count() > 0 and "Nothing is recorded" not in pg.locator(".page").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
 def test_a_set_left_out_of_a_snapshot_says_so(browser, tmp_path, monkeypatch):
     """A set past the maximum is not held: its panel says so, as before, and nothing breaks."""
     from ergostat.web import snapshot_sets
