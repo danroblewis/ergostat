@@ -1345,22 +1345,33 @@ function renderSide(side, g, view) {
   const charts = view === "dynamics" ? sideCharts(out) : null;      // charts.js: the parts chosen, at the top
   if (charts && S.sel?.size) side.append(live(charts));
   side.append(h("h3", {}, "Needs attention", problems.length ? h("span", { class: "muted" }, ` ${problems.length}`) : null));
-  const att = h("div", { class: "att" });
+  const att = h("div", { class: "att needs" });
   if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
-  const MAX = 6;
+  const MAX = 6;                                       // (and every request: never pushed out by what came after it)
+  let others = 0;
+  const shown = problems.filter((a) => a.answer || others++ < MAX);
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
-  for (const a of problems.slice(0, MAX)) {
+  for (const a of shown) {
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
     const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
-    att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
+    att.append(h("div", { "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) }, href ? h("a", { href, class: "plain" }, what) : what, " ",
       linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
   }
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
-  side.append(att);
+  if (problems.length > shown.length) att.append(h("div", { class: "more" }, `${problems.length - shown.length} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
+  // the reader in the list: it holds still, and a request gone meanwhile says so in its row, until they leave
+  const held = out.querySelector(":scope > .needs");
+  if (heldStill(held)) {
+    holdStill(held, att, () => { held.__persist = false; S.redrawSide(); });
+    for (const r of held.querySelectorAll("[data-inbox]")) {
+      const said = r.querySelector(".inbox-act .note");
+      if (said && !said.textContent && !problems.some((a) => a.what === r.dataset.inbox)) said.textContent = " no longer waiting: answered or withdrawn";
+    }
+    side.append(live(held));
+  } else side.append(att);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside
     // (the moment drawn, not now; and once the reader opens or closes them, as they left them)
