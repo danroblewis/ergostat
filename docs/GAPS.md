@@ -81,8 +81,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
-  program). *Left*: verifying a fix by the runs after it and offering its revert; log events; the
-  swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
+  program). Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
+  regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
+  fails). *Left*: log events; the swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
   failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text.
 - **AI approver for repairs: needs a positive allowlist of the AST changes a fix may make** (SPEC §12r). One was built
   on `repair2` (the AI shown only the diff and pass or fail, behind a guard that escalated new imports, processes,
