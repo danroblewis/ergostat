@@ -76,3 +76,11 @@ Built (round 1), in `ergostat/web/static/diagram.js` (`openPlan`, `openLevelNote
   `--with playwright==1.63.0`) is outside this gap (lesson 13), so it is left for its own gap or the owner. The
   most reversible choice was to change nothing. The code and tests are as committed in a4da382b; the browser
   acceptance tests passed there under Playwright (see above).
+- Build step, round 2 (rc 5 again, same cause). Answered inside the gap: tests/test_style_tokens.py gains
+  `test_the_first_level_note_sits_on_the_canvas_and_stacks_with_the_toolbar_on_a_narrow_screen`, a static check
+  (no browser) of the gap's own style.css change: diagram.js draws the note as .open-level, the rule is absolute in
+  --text-sm, and the narrow-screen rule makes it static with .toolbar and .zoom. Now the build step selects a file
+  that collects without Playwright. Seen to fail: with .open-level dropped from the narrow-screen rule (1 failed, 5
+  passed). It is a test file outside the Files list and adds no code lines. Not run here: the build command itself
+  (suite_watch over affected_tests over pytest -n 8) was refused in this shell; tests/test_style_tokens.py run by
+  name passes (6) and ruff is clean.
