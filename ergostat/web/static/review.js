@@ -283,7 +283,7 @@ function proposableView(d) {
     table(["change", "found by"], (d.can || []).map((c) => h("tr", {}, h("td", {}, c.what), h("td", { class: "small" }, c.how))), "can"),
     h("h3", {}, "Not yet"),
     h("ul", { class: "plain" }, ...(d.cannot || []).map((x) => h("li", {}, x))),
-    h("p", { class: "muted small" }, "The residual-pattern structure finder, for missing stocks, flows and delays and for replacements, is the next piece of work."),
+    h("p", { class: "muted small" }, "From the residuals ergostat finds one kind of missing structure: a delay on a measured stock's inflow (as DELAY3, or as a stock in transit). Not a missing outflow or cause, a delay on an outflow, or a part replaced by another form."),
     ...((d.not_made || []).length ? [h("h3", {}, "Found, and not proposed"),
       table(["change", "why not"], d.not_made.map((x) => h("tr", {}, h("td", {}, x.title), h("td", { class: "small" }, x.why))), "can")] : []));
 }
