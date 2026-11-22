@@ -383,6 +383,56 @@ of 5m or more, and built-in templates whose own timers are faster (collect's 30 
 re-ping's 10 s sensors and 30 s pinger) pass the gate but not those limits; collect compiles in a held chain with
 `into:` a stock the chain made and the owner's `poll:` of 5m or more.
 
+**Libraries fetched by git URL.** The main file (only the main file: elsewhere **libraries-in-include**) may name up
+to 16 libraries (more is **too-many-libraries**), each a git repository fetched into `.libraries/NAME/` beside it:
+
+```yaml
+libraries:
+  team:
+    git: https://git.example.org/team/templates.git    # or file:///ABSOLUTE/PATH
+    version: v1.2                                       # a tag, a branch, or a 40 or 64 hex commit
+    path: ergostat                                      # optional: a folder of the repository
+    trust: owner                                        # optional, only owner: its templates may be used
+```
+
+Every rule is an allowlist matched whole (`ergostat/library/sources.py`); anything else is **bad-library-source**,
+naming the field. NAME is `[a-z][a-z0-9-]{0,63}`. `git:` is `https://HOST[:PORT]/PATH` (HOST letters, digits, `.` and
+`-`, starting with a letter or digit) or `file:///PATH`, PATH only `[A-Za-z0-9._~/-]` with no `..` part, with no user,
+query or fragment: `ssh`, `http`, `ext::` and `host:path` are refused. `version:` is a commit, or a ref name of
+`[A-Za-z0-9._/-]`, at most 200, not starting with `-`, without `..`, `//` or `@{`, not starting or ending with `/` or
+`.`, not ending `.lock` (`fetch` also asks `git check-ref-format`). `path:` is relative, `[A-Za-z0-9._/-]`, with no
+`..` or empty part.
+
+`ergostat library fetch [NAME...] [--update]` reads the main file's `libraries:` live (never the last good model:
+a main file that does not read stops it with rc 2, before any git process) and, holding an exclusive lock on
+`.libraries/.flock` across the whole read, clone, swap and write (a second fetch says `waiting for the libraries
+lock` and waits), fetches each: nothing when its `libraries.lock` entry has the same `git`, `version` and `path` and
+the copy's tree hash is the lock's; the locked commit again when the copy is missing or altered (a commit or tree that
+is not the lock's is refused); `version` resolved from scratch when the entry changed, is new, or with `--update`.
+Git runs with ergostat's own git environment, `https` and `file` only, no redirects, no credential helper, no ssh, the
+URL and ref after `--end-of-options`, one process at a time, each in its own process group with a 100 MB cap on any
+file it writes (`RLIMIT_FSIZE`). The clone's folder is summed every 0.25 s and the group killed past 100 MB (it can
+overshoot by what arrives in one poll) or 120 s; `git archive` has the same 120 s and group kill. The archive is
+extracted into a new folder: folders, regular files (their exec bit kept) and links whose target stays inside, at most
+2,000 entries and 20 MB (by the headers' sizes before a member is read, and by the bytes written); hard links,
+devices, FIFOs, absolute names, `..` and anything under a link are refused. The old copy is moved aside, the new one
+put in its place, and `libraries.lock` (JSON: `{"libraries": {NAME: {git, version, path, commit, tree}}}`, `tree`
+`sha256:` of the copy) rewritten whole with only NAME's entry changed; on any failure the old copy and its entry stay.
+Fetch refuses when `.libraries` or `.libraries/NAME` is a link, and deletes only the temporary folder it made.
+
+Every time the model loads, each library is checked, in order, and the first failure refuses it (an error naming the
+library and why): **library-unlocked** (no `libraries.lock`, no entry, an entry without `commit` or `tree`, or whose
+`git`, `version` or `path` is not the config's), **library-lock-unreadable** (the lock is not JSON of that shape:
+every library refused), **library-missing** (no copy), **library-altered** (an entry not a folder, regular file or
+link, a cap passed, or a tree hash not the lock's). The copy is walked without following links, its files read under
+the same caps, and hashed: each entry in sorted path order, its kind (`dir`, `file`, `exec`, `link`), its path and its
+bytes or link target, each length-prefixed. Templates (`*.yaml`, `*.yml`, `*/template.yaml`, never a link) are parsed
+from the bytes hashed. They are found after the owner's folders and `$ERGOSTAT_LIBRARY`, before ergostat's own, in
+the order written. A use of one from a library without `trust: owner` is **library-untrusted**: it is listed, never
+expanded. A use naming a template that is not there names every refused library and why. `check` says which uses come
+from a library. The copy is checked when the model loads; a script a template runs from `${here}` is read again when it
+runs, and nothing here says that what runs is what was locked.
+
 ### Upkeep
 
 `use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own
@@ -581,6 +631,8 @@ web:                            # optional, main file only (or ergostat.local.ya
   ...
 library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
   - ...                         # a folder (trusted), {folder: PATH, trust: owner}, or {folder: PATH, untrusted: true|false}
+libraries:                      # optional, main file only, at most 16: fetched by git URL, pinned in libraries.lock (2a)
+  NAME: {git: URL, version: REF}
 ```
 
 ## 4a. Systems: parts made of parts
@@ -3489,6 +3541,12 @@ where the error is 0.
 - **bad-library**: a `library:` entry that is neither a path nor `{folder: PATH}` with an optional `trust: owner` or
   `trust: untrusted`, or `untrusted: true|false` (a YAML bool, agreeing with any `trust:`) (its folder is not read;
   section 2a);
+- **bad-library-source**, **too-many-libraries**, **libraries-in-include**: a `libraries:` entry refused by its
+  allowlist (naming the field), more than 16, or `libraries:` outside the main file (section 2a, *Libraries fetched by
+  git URL*);
+- **library-unlocked**, **library-lock-unreadable**, **library-missing**, **library-altered**: a fetched library
+  refused at load, its templates not there (section 2a); **library-untrusted** also marks a use of a template from a
+  library without `trust: owner`;
 - **untrusted-limit**: a part an untrusted instance made whose schedule, pool, attempts or runs at once pass the
   limits of section 2a, *Untrusted libraries*, at its `use:` line;
 - **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
