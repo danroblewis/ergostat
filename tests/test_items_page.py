@@ -326,6 +326,55 @@ def test_the_model_changes_are_found_by_heading_search_and_panel(browser, site):
     pg.close()
 
 
+def test_a_search_says_its_count_beside_the_box_and_draws_only_the_kinds_it_matched(browser, site):
+    """The search's count is beside its box, and 'nothing matches' there when it finds none; while it is active a
+    kind (with its charts) or a system that matched nothing is not drawn."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/items")
+    pg.wait_for_selector('section.sys-group[data-system="lab"] .kind-flow .uplot')
+    box, said = pg.locator('input[aria-label="Search"]'), pg.locator(".search-hits")
+    assert said.inner_text() == ""
+    box.fill("zzqx")
+    pg.wait_for_function("() => document.querySelector('.search-hits').textContent === 'nothing matches'")
+    pg.wait_for_function("() => !document.querySelector('section.sys-group')")
+    a, b = box.bounding_box(), said.bounding_box()
+    gap = max(b["x"] - (a["x"] + a["width"]), a["x"] - (b["x"] + b["width"]),
+              b["y"] - (a["y"] + a["height"]), a["y"] - (b["y"] + b["height"]), 0)
+    assert gap < 100, (a, b)
+    assert pg.locator(".kind-flow, .uplot").count() == 0
+    box.fill("hypothesis/2")
+    pg.wait_for_function("() => document.querySelector('.search-hits').textContent === '1'")
+    pg.wait_for_selector("section.sys-group table tr.click")
+    assert pg.locator("section.sys-group table tr.click td:first-child").all_inner_texts() == ["hypothesis/2"]
+    assert systems(pg) == ["lab"]
+    assert pg.locator(".kind-flow").count() == 1                                 # the one kind matched, its chart alone
+    assert "1 item matches" in pg.locator("section.sys-group .sys-head").inner_text()
+    box.fill("")
+    pg.wait_for_function("() => document.querySelectorAll('section.sys-group').length === 4")
+    assert said.inner_text() == ""
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_record_filter_that_matches_nothing_says_so_and_clears(browser, site):
+    """The Record answers a filter that matches nothing with 'Nothing matches', and a control that empties it."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/record?type=zzz")
+    pg.wait_for_selector("text=Nothing matches")
+    body = pg.inner_text("body")
+    assert "Nothing matches “zzz”" in body and "Nothing recorded yet." not in body
+    pg.click("a.clear-filter")
+    pg.wait_for_function("() => !document.body.innerText.includes('Nothing matches')")
+    assert pg.input_value('input[aria-label="Event type"]') == ""
+    pg.wait_for_selector("table tr td")                                           # the record's events, unfiltered
+    assert not errors, errors
+    pg.close()
+
+
 def test_a_valves_leased_items_are_listed_live(browser, site):
     """A valve moved by a block that takes items: its panel names the kind, how many are leased now and to whom, and
     links to exactly those items; the list follows leases taken and given back without a reload."""

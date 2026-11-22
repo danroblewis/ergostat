@@ -25,3 +25,30 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built. All of it is in `ergostat/web/static/pages.js`, +10 net lines; no style or template change was needed.
+
+- Record: when a type filter is set and no events come back (locally or from a remote), the page says
+  `Nothing matches “x” · clear`, and the `clear` link (`a.clear-filter`) empties the filter and reads the record again.
+  With no filter set it still says "Nothing recorded yet.".
+- Items: a `.search-hits` span sits right after the search box and shows the match count, or "nothing matches". The
+  count comes from the server's `matched`, or from the snapshot's own rows when the page is a snapshot. While a search
+  is active, a kind with no match (and its card and charts) is not drawn, and neither is a system none of whose kinds
+  matched. Each system's heading then counts its matches ("N items match"), not all of its items.
+- The most reversible choices, taken because nobody was here to ask: the old "Nothing matches." under the lists is
+  kept (when nothing matches, everything above it is now hidden, so it sits near the top). The kinds counted in a
+  heading are still all of the system's kinds. No count is shown while there is no search.
+- Tests, in tests/test_items_page.py on its image-squeeze site (the test fixture), not the :8791 ticket-factory demo:
+  `test_a_search_says_its_count_beside_the_box_and_draws_only_the_kinds_it_matched`. It types 'zzqx' and checks
+  'nothing matches' is less than 100 px from the box with no chart or kind card on the page. It types 'hypothesis/2',
+  this site's stand-in for SCRUM-2, and checks '1', one item row and one kind card.
+  `test_a_record_filter_that_matches_nothing_says_so_and_clears` checks the Record's answer to 'zzz' and the clear
+  control.
+- Breaks seen to fail (lesson 9): drawing every kind's card during a search failed the first test (6 cards, not 1).
+  Putting back "Nothing recorded yet." for a filter failed the second.
+- Run: tests/test_items_page.py (23 passed) and tests/test_page_refresh.py (8 passed), both in Playwright under the
+  watchdog with rc 0 and nothing skipped; ruff is clean. `git merge main` was already up to date. Not run here: the
+  unit suite, test_diagram_rendering.py and test_page_polling.py; the snapshot path of the count (no test covers it);
+  demo_check (no example was touched).

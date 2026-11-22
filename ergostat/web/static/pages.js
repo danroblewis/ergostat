@@ -147,11 +147,14 @@ async function pageRecord(main, q) {
   runs.addEventListener("change", () => tick());
   filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
   const ans = answers();
+  const empty = () => (filt.value ? h("p", { class: "muted" }, `Nothing matches “${filt.value}” · `,     // a filter's miss, said as one
+    h("a", { href: "#", class: "clear-filter", onclick: (ev) => { ev.preventDefault(); filt.value = ""; tick(); } }, "clear"))
+    : h("p", { class: "muted" }, "Nothing recorded yet."));
   async function tick(force = true) {
     if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
       const d = await remoteApi("events", { remote, n: 80, ...(filt.value ? { type: filt.value } : {}) });
       if (!p.isConnected) return;
-      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
+      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false) : d.ok ? empty() : null;
       patch(box, ...[remoteSaid(remote, d), list].filter(Boolean));
       return;
     }
@@ -162,7 +165,7 @@ async function pageRecord(main, q) {
                                   ...(machine ? { machine } : {}), ...(item ? { item } : {}), ...(inWindow ? { window: 1 } : {}) });
     } catch (err) { patch(box, h("p", { class: "muted" }, String(err.message || err))); return; }
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
-    patch(box, evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
+    patch(box, evs.length ? eventsTable(evs, false) : empty());
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -578,7 +581,8 @@ async function pageItems(main, q) {
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
-  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), compose, box, rbox, more);
+  const hitsSaid = h("span", { class: "muted search-hits", "aria-live": "polite" });   // the search's count, beside it
+  p.append(notes, h("div", { class: "filters" }, search, hitsSaid, viewBar, chip), compose, box, rbox, more);
   let rbusy = false;
   const remoteTick = async (rs) => {
     if (rbusy || SNAP || !rs.length) return;
@@ -712,6 +716,11 @@ async function pageItems(main, q) {
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
+    // a search: how many each kind matched (the server's count, a snapshot's own), its kinds without one not drawn
+    const hits = !needle ? null : !SNAP && d.matched ? d.matched : rows.reduce((a, i) => ({ ...a, [i.kind || ""]: (a[i.kind || ""] || 0) + 1 }), {});
+    const hitsN = hits && Object.values(hits).reduce((a, b) => a + b, 0);
+    setText(hitsSaid, hits ? (hitsN ? String(hitsN) : "nothing matches") : "");
+    const hit = (k) => !hits || hits[k] > 0;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
     const isNum = (its, f) => its.some((i) => typeof i.fields[f] === "number") && its.every((i) => i.fields[f] == null || typeof i.fields[f] === "number");
     const tableOf = (its, show, limit) => {
@@ -777,14 +786,15 @@ async function pageItems(main, q) {
     for (const g of systems) {
       if (d.set && !g.kinds.includes(kind)) continue;     // a set: the page is about its kind alone, until its chip goes
       const names = [...g.kinds, ...(g.name === "other" && d.unkinded ? [""] : [])];
-      const n = g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
+      if (!names.some(hit)) continue;                    // a search: a system none of whose kinds matched, not drawn
+      const n = hits ? names.reduce((a, k) => a + (hits[k] || 0), 0) : g.kinds.reduce((a, k) => a + Object.values(kindOf[k]?.counts || {}).reduce((x, y) => x + y, 0), 0) + (names.includes("") ? d.unkinded : 0);
       const open = isOpen(g.name);
       const head = h("h2", { class: "sys-head" },
         h("button", { class: "ghost disclose", "aria-expanded": String(!!open), title: open ? "Fold away this system's lists of items" : "Show this system's lists of items",
                       onclick: () => toggle(g.name) }, h("span", { class: "tri", "aria-hidden": "true" }, open ? "▾" : "▸"), g.name),
-        h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
+        h("span", { class: "muted" }, ` ${n} item${n === 1 ? "" : "s"}${hits ? (n === 1 ? " matches" : " match") : ""}, ${g.kinds.length} kind${g.kinds.length === 1 ? "" : "s"}`),
         g.description ? h("span", { class: "muted sys-desc" }, g.description) : null);
-      const charts = h("div", { class: "kind-flows" }, g.kinds.filter((k) => !d.set || k === kind).map((k) => kindOf[k]).filter(Boolean).map(card));
+      const charts = h("div", { class: "kind-flows" }, g.kinds.filter((k) => (!d.set || k === kind) && hit(k)).map((k) => kindOf[k]).filter(Boolean).map(card));
       if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head, charts)); continue; }   // the charts, not the lists
       const t = view === "list" ? await tables(names) : await relPart(g);
       anyRows ||= t.length > 0;
