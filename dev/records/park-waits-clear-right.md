@@ -142,3 +142,14 @@ of this branch's tests takes about 2 s. Refused: a shell reading the container's
 `git worktree add -q /tmp/mainwt main` (to time those two tests on main). So whether this container is slow or short of
 memory on main too was not checked. The whole unit suite still needs a run that finishes under suite_watch.py. A test
 it names would be this branch's to fix.
+
+### After the fast suites (round 3, second run)
+
+The factory's `unit` run stopped again after 22 dots, before its first progress mark. It named no test and wrote no
+suite_watch exit line. No code was changed, because there is no failure to fix. By reading only: the code this branch
+adds starts no thread or process beyond short git calls, its continuation walk is bounded (HOPS = 20), and classify()
+takes continue.lock once, without calling anything that takes it again. Refused this round: the first shell command,
+`git log --oneline -4 --stat | head -40 && sed -n '/### Round 3/,$p' dev/records/park-waits-clear-right.md`. Every
+shell command was refused after that, so no test, ruff or commit was run, and this section is left uncommitted in the
+working tree. It needs a commit and a whole unit run under suite_watch.py. A test that run names would be this branch's
+to fix.
