@@ -534,3 +534,21 @@ Round 15 (the fix round for review operating-states-12). Each finding:
    the full unit suite and the four browser files. No demo is touched, so `demo_check` is not needed.
 
 Overrun reason: 455 net lines, 5 over the 450 budget: 3 for the try/except in `Dispatcher.trip` that review operating-states-4 asked for (a trip write that raises holds dispatch at pool 0), 1 for classifying `operating` as refused in `library/trust.py` that main's allowlist test required after its merge, and 1 for moving `take()`'s post-TAKEN re-check inside the `try` that review operating-states-9 asked for; nothing else in the gap could go without dropping a part of the definition.
+
+Round 16 (the merge of main 5617e225, which conflicted in `ergostat/leases/dispatch.py`). Merge commit 3bcba00e.
+Both sides were kept:
+
+- `Dispatcher` fields: main's `failing` and the branch's `hold`.
+- `run`: the lead's trips first (the branch), then main's `budget.recover` in its own `try`, then the watch.
+- `tick`: main split each block's look into `tick_block` (one block's error stops no other). The cap is still read
+  once a look in `tick`, and it is passed to `tick_block`. There the room is `min(pool_now(b), cap) − in flight`, as
+  before.
+- `once`: refused under pool 0 (the branch), with main's budget `outcome`.
+- `take`: the give-back after the post-`TAKEN` re-read now also returns main's budget reserve
+  (`budget.close(..., 0.0, ...)`), as main's lost take does, since no run starts on either path.
+
+By my count this merge leaves the gap's own lines unchanged (455; the reason above still holds). Tests run after the
+merge: `tests/test_operating.py` (36 passed); `tests/test_leases.py`, `tests/test_cli_fallback.py` and
+`tests/test_pool_now.py` (80 passed); main's `tests/test_one_bad_link.py` and `tests/test_run_budget.py` (40 passed);
+ruff clean. Not run by the implementor: the full unit suite and the four browser files. No demo is touched, so
+`demo_check` is not needed.
