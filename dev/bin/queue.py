@@ -62,6 +62,7 @@ import time
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
+import flakes  # noqa: E402
 import pools  # noqa: E402
 import review  # noqa: E402
 
@@ -238,8 +239,8 @@ def excused(red: dict, more: dict, tag: str, gaps: list[str]) -> dict:
     if more.get("failed"):
         return more
     for t in red["tests"]:
-        fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=gaps, times=1, seen_at=time.time(), run=tag,
-                suite=red["failed"], passed_alone=2, log=red["log"])
+        flakes.say("flake.seen", t, gaps=gaps, times=1, seen_at=time.time(), run=tag, suite=red["failed"],
+                   passed_alone=2, log=red["log"])
     keep = {k: v for k, v in red.items() if k not in ("failed", "tests", "tail", "log", "named")}
     return keep | more | {"excused": {"suite": red["failed"], "tests": red["tests"], "log": red["log"]}}
 
