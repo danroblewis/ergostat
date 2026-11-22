@@ -85,3 +85,9 @@ Round 1 stopped before any code: the gap this one depends on is not in the clone
   put the per-call permit in `costs/budget.py` where `modeller-calls-ask-the-budget` and `toml-models-budget` (which
   already depends on this gap) can reuse it.
 - No code was changed, so no tests were run.
+
+## Where it stopped
+
+Parked by the factory (review/ai-calls-ask-the-budget-1, 2026-11-22 00:02).
+
+Done: only the definition of done and a 'Where it stopped' note (dev/records/ai-calls-ask-the-budget.md). Left: all of it, points 1-5 and the eight acceptance tests in tests/test_ai_calls_budget.py. It stops because it depends on run-budget-reserve's P3 permit (costs/budget.py: flock, fold, refused, recover), and the plan review says to build on its merged form. That gap's branch exists (origin/factory/run-budget-reserve 8e4f2923), but this branch's base does not contain it. The record's claim that the ref is absent from the clone is wrong and should be corrected when work resumes.
