@@ -361,7 +361,11 @@ async function refreshHeader() {
       sel.addEventListener("focus", fresh);
       refreshProjects(sel);
     }
-    const off = Object.values(st.loops).filter((l) => l.status === "off").length;
+    // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
+    // the server's one count (state.goals_off); a status without it counts every goal off, as before
+    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => l.status === "off").length, own: {} };
+    const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
+    setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
     const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
     const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
@@ -371,7 +375,7 @@ async function refreshHeader() {
     if (run.title !== tip) run.title = tip;
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
-      : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
+      : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
   } catch (e) { /* the server may be restarting */ }
@@ -386,7 +390,8 @@ function refreshProjects(sel) {
     const opts = [h("option", { value: "" }, name)];
     for (const p of ps) {
       if (p.name === name) continue;
-      const bits = [p.off?.length ? `${p.off.length} off` : "", p.unknown?.length ? `${p.unknown.length} unknown` : "",
+      const [off, unknown, upkeep] = [p.goals_off, p.unknown, p.upkeep_off].map((x) => (x || []).length);   // as its header
+      const bits = [off || upkeep ? `${off} off` : "", unknown ? `${unknown} unknown` : "", upkeep ? `model upkeep ${upkeep}` : "",
                     p.web ? "" : "stopped"].filter(Boolean);
       opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));
     }
