@@ -84,3 +84,20 @@ code was changed. Ruff is clean. With Playwright under the watchdog:
   subsystem letter, the frame title and `blocksLegend` in `blocks.js`, and none of these reach the side list. I tried to
   run that test on a clean main checkout (`git worktree add --detach /tmp/mainwt main -q && cd /tmp/mainwt && ...`),
   but the command was refused. Comparing with main is left to the factory's rerun on clean main (lesson 13).
+
+After the third `build` failure (rc 5, the browser file skipped for want of Playwright): the merge of main
+(c32deef1) was already committed, with no conflict markers left. The branch now pins the legend's 'p×m: outputs ×
+inputs (disturbances counted)' with a unit test,
+`tests/test_blockdiagram.py::test_a_subsystems_m_counts_every_input_from_outside_it_a_disturbance_included`. For each
+closed top-level subsystem in every example, it checks that m equals the number of distinct signals crossing into the
+system's frame once the system is opened, and that in some example a disturbance from outside is one of them. That
+claim had no non-browser test (lesson 8), and the build step's selection now includes a file that runs without
+Playwright. No code outside `tests/` changed. To show it can fail: with disturbance wires into subsystem boxes skipped
+for a moment in `blockdiagram.fold`, it failed (coordinator's observer: m 2, not 3). The edit was then undone.
+- p is not pinned this way. In image-squeeze, rollout reads 5×3, but 4 distinct signals leave it: p counts each
+  wire's width, so a signal sent to two subsystems in two vectors is counted twice. "outputs" in the legend holds as
+  the wires drawn, not as the distinct signals. Changing how p is counted is outside this gap, so it is left as it
+  is and noted here.
+- Tests run: `tests/test_blockdiagram.py` (68 passed) and ruff (clean). Refused: `uv run python scripts/affected_tests.py
+  -- uv run python -m pytest -q` (run to check the build's selection gives rc 0 without Playwright), and a scratch probe
+  written under /tmp. The browser file was not run again this round: the change since round 1 is this unit test alone.
