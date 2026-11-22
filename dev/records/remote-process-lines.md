@@ -176,3 +176,58 @@ An overrun needs a written reason in "Where it stopped".
 - Say what an unreachable remote does with `bad-id` links: are they counted `bad-id` or `unreachable`? The unreachable test expects only `{unreachable: n}`; pick one rule (ids checked first, so `bad-id` wins, seems right) and state it in the definition of done and in the test.
 - Only one reply at a time: the `other-kind` check compares against the relation's `there`. If several local relations name different kinds at the same remote and share a target id, say how they are aggregated, and make sure `at` is asked once per id and the reply checked per link.
 - Give `test_a_local_kind_of_the_same_name_is_not_taken_for_a_remote_line` a fixture where the remote does serve `incident`, so the test fails if the local-first rule is skipped rather than passing because nothing resolved.
+
+## Where it stopped
+
+Built, round 1. Every item of the definition of done is in place. The net code outside tests, docs and dev is 159
+lines (budget 260). Nobody was there to ask, so where the text left a choice, the more reversible option was
+taken:
+
+- **Where the errors are made.** `compile_relations` makes the `bad-relation` and `remote-relation-precedence`
+  errors and sets `precedence = group = False`, since only it sees whether `precedence:` or `group:` was written.
+  It resolves the remote from the document's remotes and its local item kinds, so the rule is still local first and
+  the longest name wins. `check_relations` makes the `remote-reference-unresolved` finding and skips `unknown-ref`
+  for a remote relation. `parent: incidents-incident` without `group:` compiles as a plain, non-group relation;
+  only an explicit `group: true` is an error.
+- **The plan review's notes, each answered:**
+  - *Cached map when ids change.* `fetched` keeps two entries: one by the ids sent (its hash in the key), and one by
+    the remote alone, holding the last good map in the same window. When the remote does not answer, the last good
+    map is drawn, with `cached: true` and `ok: false`. Its `at` is used only when it was for exactly the ids sent
+    now; otherwise `at` is dropped and every link counts `not-answered`. `_kept` is cleared past 30 entries and
+    gets two writes a call, so it never holds more than 32. Tested by
+    `test_an_unreachable_remote_with_a_changed_id_set_still_draws_its_map_as_cached`.
+  - *One reason pinned.* The no-longer-served test asserts exactly `{"not-answered": 1}`.
+  - *Byte cap.* Tested by `test_the_byte_cap_applies_before_the_count_and_the_remote_server_takes_such_a_query`.
+    It uses 150 ids of 128 characters, each `:` sent as `%3A`. Fewer than 150 are taken, the query stays within
+    32,000 bytes (and over 31,000), and one more id would pass the cap. The rest count as `capped`. The real page
+    server takes that query over HTTP and answers it (200, with `at`). Python's `http.server` refuses a request
+    line only past 65,536 bytes.
+  - *Bad ids when the remote is unreachable.* `bad-id` and `capped` are decided before the request, so they win
+    over `unreachable`. SPEC §4c says so, and `test_an_unreachable_remote_is_ok_false_with_no_lines` asserts
+    `{"unreachable": 2, "bad-id": 1}`.
+  - *Several relations, one id.* Each id is asked once (the ids are made distinct before sending). The answer is
+    checked against each link's own `there`. Lines are aggregated by relation, our kind and step, and their step.
+    Tested by `test_two_relations_sharing_an_id_ask_it_once_and_are_checked_each`: `blocked_by` is drawn, and
+    `relates_to: incidents-page` counts `other-kind`.
+  - *Local-first fixture.* The remote does serve `incident`, and the test asserts it.
+- **Other choices:**
+  - The remote's reply drops its own `remote_links`, since a remote of a remote is not composed.
+  - Every edge with `remote` (the remote's own lines too) gets the class `pm-remote`. Only the related line to a
+    remote is restyled, to a 9/5 dash like the remote's frame.
+  - The ids-by-id test also stamps the items in forward id order. With reverse order alone, a "newest first" order
+    gives the same ids and passes.
+- **Breaks, each seen to fail:**
+  - The remote check in `check_relations` dropped: 17 tests failed.
+  - The precedence default kept: the relation test and the never-gates test failed.
+  - The `other-kind` check skipped: the malformed-reply case and the two-relations test failed.
+  - `at` split on `,`: the ids test failed.
+  - Ids sorted by time, oldest first and newest first: the ids test failed both times.
+  - The unlinked counting dropped: 12 tests failed.
+  - The local-first rule skipped: the local-kind test failed.
+  - The page: without the `pm-remote` class, or without the "not drawn" text, the page test failed.
+- **Not done here:**
+  - This clone has no `origin` remote, and `git fetch` was refused (network). `main` is already an ancestor of the
+    branch, so there was nothing to merge.
+  - The full unit suite and the four browser files were not run here; the house process leaves them to the
+    factory and the merge queue.
+  - `examples/remote-pair/` was not touched, so `demo_check` was not run.
