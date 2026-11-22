@@ -478,3 +478,60 @@ def test_the_load_survives_another_process_s_sweep(tmp_path, monkeypatch):
         listing[0] = made_ago(name, runs.WALL / 3600 + 1)
         assert agents.sweep(cfg) == [name]          # past WALL and its slack: a leftover, swept
     assert gone(busy.pid)
+
+
+def flake_rate(f) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(BIN / "measure.py"), "flake-rate"], cwd=f.model, env=f.env,
+                          capture_output=True, text=True)
+
+
+def a_green_run_lands(f, name: str) -> None:
+    """A gap merged by a queue run of its own that excused nothing (gap.merged as queue.py says it)."""
+    now = time.time()
+    f.fold([{"event": "gap.merged", "item": f"gap/{name}", "data": {
+        "merged_at": now, "queued_at": now, "queue_attempts": 1, "batch_id": f"{name}-run", "suites_queue": {
+            "unit": {"rc": 0, "seconds": 60}}, "queue_runs": [{"run": f"{name}-run", "minutes": 5, "at": now}]}}], None)
+
+
+def test_a_run_excused_in_the_queue_moves_flake_rate(tmp_path):
+    from tests.test_factory import approved_gaps, flaky_stand_ins
+    f = flaky_stand_ins(tmp_path, ["tests/test_b.py::test_b"])
+    approved_gaps(f, {"a": 1}, bad="a")
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "flake.seen", "gap.merged", "gap.push-asked"]       # red, excused, landed
+    assert f.item("gap/a")["fields"]["suites_queue"]["excused"]
+    r = flake_rate(f)
+    assert r.returncode == 0 and float(r.stdout) == 1.0, r.stderr                     # one run, one flake
+    a_green_run_lands(f, "b")
+    r = flake_rate(f)
+    assert r.returncode == 0 and float(r.stdout) == 0.5, r.stderr                     # two runs, one flake
+
+
+def test_an_excused_batch_counts_once(tmp_path):
+    from tests.test_factory import approved_gaps, flaky_stand_ins
+    f = flaky_stand_ins(tmp_path, ["tests/test_b.py::test_b"])
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3}, bad="q", batch=3)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.merged") == 3 and said.count("flake.seen") == 1
+    landed = [f.item(f"gap/{g}")["fields"] for g in "pqr"]
+    assert all(g["suites_queue"].get("excused") for g in landed)                    # each of the three carries it
+    assert len({g["batch_id"] for g in landed}) == 1
+    r = flake_rate(f)
+    assert r.returncode == 0 and float(r.stdout) == 1.0, r.stderr                     # one run excused, never three
+    a_green_run_lands(f, "s")
+    assert float(flake_rate(f).stdout) == 0.5
+
+
+def test_flake_rate_with_no_runs_has_no_value(tmp_path):
+    from tests.test_factory import Factory
+    f = Factory(tmp_path)
+    old = time.time() - 30 * 86400                                                    # a run before the window
+    f.fold([{"event": "gap.queued", "item": "gap/t", "data": {"queued_at": time.time(), "queue_attempts": 1}},
+            {"event": "gap.retried", "item": "gap/t", "data": {"approved_by": "flake-retry", "retries": 1}},
+            {"event": "gap.merged", "item": "gap/old", "data": {"merged_at": old, "queue_runs": [
+                {"run": "old-run", "minutes": 5, "at": old}]}}], None)
+    r = flake_rate(f)
+    assert r.returncode == 1 and r.stdout.strip() == "" and "no value" in r.stderr    # never 0.0
+    a_green_run_lands(f, "u")                                                         # triage's retry counts as before
+    r = flake_rate(f)
+    assert r.returncode == 0 and float(r.stdout) == 1.0, r.stderr
