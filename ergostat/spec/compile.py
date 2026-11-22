@@ -134,6 +134,7 @@ class Compiler:
         self.doc = doc
         self.problems: list[Problem] = list(doc.problems)
         self.old: dict[tuple, list] = {}                 # (what was renamed, file) → [first place, how many]
+        self.endless: list[tuple] = []                   # flows with neither from: nor to: (an error unless a delay takes them)
 
     def err(self, msg: str, where: Where | None, code: str = "", about: str = "") -> None:
         self.problems.append(Problem("error", msg, where, code, about))
@@ -979,8 +980,7 @@ class Compiler:
         for name, m, what in self.named("flows"):
             self.keys(m, FLOW_KEYS, what)
             if m.get("from") is None and m.get("to") is None:
-                self.err(f"{what}: give it from:, to:, or both (the stocks it drains and fills; leaving one out means "
-                         f"outside the system)", m.where, "flow-without-ends")
+                self.endless.append((name, what, m.where))
             f = Flow(name, m.get("from") and str(m["from"]), m.get("to") and str(m["to"]), self.text(m, "unit"),
                      self.number(m, "rate", what), self.system("flows", name, m), self.text(m, "description"),
                      two_way=self.flag(m, "two-way", what), inferred=self.inferred(m, what), where=m.where)
@@ -1141,6 +1141,7 @@ class Compiler:
         check_joins(self, spec)
         self.references(spec)
         self.equations(spec)
+        self.ends(spec)
         self.watched(spec)
         self.renamed()
         for x in (*spec.stocks.values(), *spec.flows.values(), *spec.goals.values(), *spec.blocks.values()):
@@ -1229,6 +1230,16 @@ class Compiler:
             self.err(bad, m.at(key), "bad-range")
             return None
         return out[0], out[1]
+
+    def ends(self, spec: Spec) -> None:
+        """A flow with neither from: nor to: is an error, unless another flow's material delay (DELAY1, DELAY3) takes it
+        in: what it moves goes into the delay's own stages, which are its end."""
+        from .equation import delayed_refs
+        fed = {r for f in spec.flows.values() if f.equation for r in delayed_refs(f.equation.tree, material=True)}
+        for name, what, where in self.endless:
+            if f"flow.{name}" not in fed:
+                self.err(f"{what}: give it from:, to:, or both (the stocks it drains and fills; leaving one out means "
+                         f"outside the system)", where, "flow-without-ends")
 
     def equations(self, spec: Spec) -> None:
         """Each ``equation:`` read, its names resolved (a bare name a parameter, a reference a part),

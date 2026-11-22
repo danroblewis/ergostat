@@ -78,7 +78,8 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
         x["made_by"] = "ergostat"
     seen = pr.stored(p)                               # outside the lock, only to spare the fits of what is made already
     fits = {x["id"]: _fitted(p, spec, data, base, x) for x in found
-            if x["id"] not in seen or (seen[x["id"]]["state"] in pr.OPEN and seen[x["id"]].get("version") != v)}
+            if x["id"] not in seen or (seen[x["id"]]["state"] in pr.OPEN and seen[x["id"]].get("version") != v)
+            or _again(x, seen[x["id"]])}
     with pr.locked(p):                                # carried, let go, admitted and recorded as one, on the files found on
         if not pr.current_now(p, spec):
             return not_made                           # the files moved on since: the next pass redoes it
@@ -88,13 +89,19 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
         for k in [k for k, x in props.items() if x.get("kind") == "structure" and x["status"] == "pending" and
                   not pr.candidate(x) and k not in mine]:
             del props[k]                              # superseded: no longer found
-        fresh = [fits[x["id"]] for x in found if x["id"] not in props and x["id"] in fits]   # dismissed (or accepted,
+        fresh = [fits[x["id"]] for x in found if (x["id"] not in props or _again(x, props[x["id"]])) and x["id"] in fits]
         pr.admit(p, spec, props, fresh, now, data.grid.until - data.grid.since)              # or pending) already: not
         pr.save(p, props)                                                                    # made again
         tmp = f.with_suffix(".tmp")
         tmp.write_text(json.dumps({"version": v, "at": now, "not_made": not_made}, indent=1))
         tmp.replace(f)
     return not_made
+
+
+def _again(x: dict, was: dict) -> bool:
+    """A residual finder's change still waiting, found again with other numbers (a new τ as the record grew): revised
+    in place under its id (``pr.admit``), not left saying what it said before."""
+    return str(x.get("code") or "").startswith("residual-") and was.get("state") == "checked" and pr._said(x) != pr._said(was)
 
 
 def _fitted(p, spec: Spec, data, base: dict, x: dict) -> dict:
