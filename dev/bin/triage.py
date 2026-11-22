@@ -17,8 +17,10 @@ import review  # noqa: E402
 RETRIES = 2
 
 
-def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) -> tuple[int, dict]:
-    """The failed tests again, alone, on ``pre`` with the reviewed commit merged; each test id shell-quoted."""
+def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int,
+          suite: str = "") -> tuple[int, dict]:
+    """The failed tests again, alone, on ``pre`` with the reviewed commit merged; each test id shell-quoted. Those
+    the ``suite`` host failed run on the Mac, as the queue ran them."""
     repo = fac.path(cfg, "checkout")
     wt = fac.path(cfg, "worktrees") / ".triage"
     if not (wt / ".git").exists():
@@ -35,7 +37,7 @@ def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) 
         tests = [t for t in tests if t not in held]       # main's list, not the branch's: they never block
         if not tests:
             return 0, {"why": "only quarantined tests failed", "quarantined": held}
-        rc, secs = fac.suite(cfg, "rerun", wt, log, box="triage", tests=tests)
+        rc, secs = fac.suite(cfg, "rerun", wt, log, box="" if suite == "host" else "triage", tests=tests)
         return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text()),
                     "quarantined": held}
     finally:
@@ -55,7 +57,8 @@ def main() -> int:
         got = {"why": f"retried {RETRIES} times as flaky already: the failure is the branch's"}
     elif tests:
         fac.wait_quiet(cfg)                             # (a suite slot, in fac.suite: never the queue's lock)
-        rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
+        rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n,
+                         str(f.get("failed_suite") or ""))
     if rc == 0:                                  # (only quarantined tests failed: no flake seen, no retry spent)
         tests = [t for t in tests if t not in got.get("quarantined", [])]
         for t in tests:

@@ -464,6 +464,18 @@ pending push carries as stuck at once.
 its pages drew nothing). The first of them to fail is the one reported, and it stops the rest: a unit failure kills
 the browser run still going (and the other way round), which is recorded `stopped_by` it, its own result not judged.
 
+**Which tests run where.** With `[suites] queue_container`, ruff, unit, browser and demo run in containers, where
+bwrap cannot make its namespaces and there is no kqueue: `tests/test_repair2.py` and `tests/test_sandbox_attacks.py`
+(the AI repair sandbox's tests) and `tests/test_notify.py`'s kqueue test skip there. `[suites] host` runs those three
+files on the Mac, outside any container, after unit and browser and before demo, under the queue's lock: a required
+step like the others (its log `run/queue/<run>-host.txt`, its result `host` in the gap's `suites_queue`; red fails the
+batch and bisects, and flake triage reruns its tests on the Mac too). `host = ""` turns the step off. Exit 126 or 127
+(a command not found or not runnable) is a step that did not start: the run fails and is undone, no gap blamed, never
+read as a pass. A test the host step skips that the same run's unit suite skipped too (by `path:line` in their `-rs`
+summaries) ran nowhere, and fails the step, unless its reason states a need outside the machine (a URL, money,
+Chromium or playwright, Docker, free ports). When the unit log is missing, or counts skips without naming them, every
+host skip counts as one that ran nowhere.
+
 **The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
 triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
 queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a branch that adds

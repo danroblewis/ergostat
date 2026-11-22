@@ -18,7 +18,10 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
    recorded and never blocking (fac.beside()). With `[suites] queue_container` (the default) each suite runs in a
    container of the agent image on `[agents] queue_cpuset` with no network (agents.queued); one that does not start
-   fails the run (agents.NotStarted: undone, no gap blamed), and a stopped run kills its containers by name;
+   fails the run (agents.NotStarted: undone, no gap blamed), and a stopped run kills its containers by name. After
+   unit and browser, `[suites] host` (the sandbox's tests, which skip in the container) runs on the Mac, never boxed,
+   as a suite like the others (its log `<tag>-host.txt`; red bisects); empty, the step is off. Exit 126 or 127 is a
+   step that did not start (NotStarted), and a test it skips that the unit run skipped too fails it (nowhere());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    when its 1 to 3 named tests each pass alone on the red tree twice and the suites it did not finish pass, it lands as
@@ -83,9 +86,9 @@ def up_to_date(cfg: dict, repo) -> str | None:
 
 
 def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | None = None) -> dict:
-    """ruff; then unit and browser at once; then demo (under the other two's load its pages drew nothing). The first
-    to fail is the one reported; it stops its sibling (killed, `stopped_by` it, its own failure unsaid) and the later
-    steps. With `[suites] queue_coverage`, the
+    """ruff; then unit and browser at once; then host (when set); then demo (under the other two's load its pages drew
+    nothing). The first to fail is the one reported; it stops its sibling (killed, `stopped_by` it, its own failure
+    unsaid) and the later steps. With `[suites] queue_coverage`, the
     unit run is traced into run/coverage/<tag> and scored with ``pre``'s script (coverage_kept). The quarantine is
     main's (``pre``), never the batch's: a branch's own line in tests/quarantine.txt holds nothing back in its run.
     ``only``: just those suites (the rest of a run whose failures were excused, excused())."""
@@ -97,14 +100,20 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
             if name == "unit" and cfg["suites"].get("queue_coverage") is True else None
         cmd = fac.deselected(name, f"ERGOSTAT_COVERAGE={shlex.quote(str(cov))} {cfg['suites']['unit']}", held) \
             if cov else None
-        rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held, box="queue")  # (lock: slot)
+        rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held,
+                             box="" if name == "host" else "queue")  # (lock: slot; host: on the Mac, never boxed)
         text = log.read_text()
+        if name == "host" and rc in (126, 127):      # (lesson-3: a step that could not start is never its result)
+            raise agents.NotStarted(f"the host suite did not start (exit {rc}): {text[-400:].strip()}")
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
-        got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {})}
+        lost = nowhere(text, logs / f"{tag}-unit.txt") if name == "host" else []
+        got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {}),
+               **({"nowhere": lost} if lost else {})}
         if cov:
             got["coverage"] = coverage_kept(cfg, repo, cov, rc, pre)
-        if rc or skipped:
-            got["failure"] = {"failed": name, "tests": fac.failed_tests(text), "tail": text[-2000:], "log": str(log)}
+        if rc or skipped or lost:
+            got["failure"] = {"failed": name, "tests": fac.failed_tests(text), "log": str(log),
+                              "tail": text[-2000:] + "".join(f"\nran nowhere: {x}" for x in lost)}
         return got
 
     def together(names: tuple) -> dict:
@@ -141,8 +150,8 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
         fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, box="queue", tests=tests)
 
     out = {}
-    for step in (("ruff",), ("unit", "browser"), ("demo",)):
-        if not (step := tuple(n for n in step if only is None or n in only)):
+    for step in (("ruff",), ("unit", "browser"), ("host",), ("demo",)):
+        if not (step := tuple(n for n in step if (only is None or n in only) and (n != "host" or host_on(cfg)))):
             continue
         got = together(step)
         if step[0] == "unit":                          # the quarantined tests after them, whatever they said
@@ -175,7 +184,30 @@ def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
 
 EXCUSE_MOST = 3                                         # more failed tests than this in one run is not a flake
 NEVER_EXCUSED = ("tests/test_page_polling.py",)         # (dynamics-open-dom-growth: is it a leak?)
-SUITES = ("ruff", "unit", "browser", "demo")
+SUITES = ("ruff", "unit", "browser", "host", "demo")
+SKIP = re.compile(r"^SKIPPED \[\d+\] (\S+:\d+): (.*)$", re.M)     # pytest -rs: one line a skip's place and reason
+EXTERNAL = re.compile(r"URL|money|Chromium|playwright|Docker|free ports", re.I)   # a need outside the machine, stated
+COUNTED = re.compile(r"\b\d+ skipped\b")
+
+
+def host_on(cfg: dict) -> bool:
+    """`[suites] host`, the tests the queue's container cannot run (the sandbox's), on the Mac: empty or absent, off."""
+    return bool(str(cfg["suites"].get("host") or "").strip())
+
+
+def nowhere(host: str, unit_log) -> list[str]:
+    """The host step's skips (`path:line: reason`) the container's unit run skipped too, but those of a stated
+    external need (EXTERNAL): tests that ran in neither place. A unit log that is missing, or that counts skips
+    without naming them (no `-rs`), cannot tell, so each host skip counts; so does a host log that does the same."""
+    try:
+        unit = unit_log.read_text()
+    except OSError:
+        unit = ""
+    theirs = {w for w, _ in SKIP.findall(unit)}
+    blind = not unit or (COUNTED.search(unit) and not theirs)
+    out = sorted(f"{w}: {r}" for w, r in SKIP.findall(host) if not EXTERNAL.search(r) and (blind or w in theirs))
+    return out + (["skips counted but not named: run the host step with -rs"]
+                  if COUNTED.search(host) and not SKIP.search(host) else [])
 
 
 def excusable(red: dict) -> bool:
