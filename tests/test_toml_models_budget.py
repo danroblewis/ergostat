@@ -81,18 +81,19 @@ def test_toml_permit_holds_the_lock(tmp_path, monkeypatch):
 
     def hook():                                               # under the first's flock: the second asks in the gap
         if waited:
-            return
+            return                                            # (the second, if it got this far: no third)
         t = threading.Thread(target=competitor, daemon=True)
+        waited.append(t)
         t.start()
         t.join(1.0)
-        waited.append(t)
+        waited.append(t.is_alive())                           # it waits for the flock
     monkeypatch.setattr(budget, "_between", hook)
     first = run(p)
-    (t,) = waited
+    t, blocked = waited
     t.join(10)
     assert first["exit"] == 0 and "budget_refused" not in first
-    assert len(second) == 1 and second[0]["budget_refused"]
-    assert len(evs(p, "agent.started")) == 1
+    assert len(second) == 1 and second[0].get("budget_refused"), second
+    assert len(evs(p, "agent.started")) == 1 and blocked
 
 
 @pytest.mark.parametrize("kind", ["program", "decision", "rule", "ai", "narrow-ai"])
