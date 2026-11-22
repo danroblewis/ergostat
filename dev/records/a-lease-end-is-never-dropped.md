@@ -134,8 +134,9 @@ Run here: `tests/test_lease_end_turns.py` (6, passing), `tests/test_lease_kill.p
 `tests/test_queue.py`, `tests/test_resilience.py`, `tests/test_lease_refused_cost.py`,
 `tests/test_leased_workspaces.py`, `tests/test_run_budget.py` (each passing); ruff clean; local `main` merged
 (already up to date). `tests/test_leases.py` failed in all three of its whole-file runs here (36 or 35 of 37 passing):
-`test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (history `['expired', 'ack']`, two runs passing out of
-three alone) and once `test_renewed_by_events_and_expired_when_silent_then_retried` (`['expired', 'expired', 'ack']`). Both
+`test_the_watchdog_renews_from_what_the_holder_does_elsewhere` each time (history `['expired', 'ack']`; it passed both
+times it was run alone or in a pair) and once `test_renewed_by_events_and_expired_when_silent_then_retried`
+(`['expired', 'expired', 'ack']`; it also failed once run as a pair with the other). Both
 are 1 s-TTL tests whose run keeps its lease by spawning `$ERGOSTAT_CMD event` every 0.4 s. They lose the lease
 *while the run is still going*, before its `finish` is called. The branch changes the watchdog only for a run in
 `ending`, which only `finish` sets, so I read them as load-dependent (a slow CLI start missing a 1 s TTL), not
