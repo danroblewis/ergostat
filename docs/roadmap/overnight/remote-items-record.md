@@ -397,3 +397,26 @@ scripts` is clean.
 
 **Not run here:** the other three browser files, the whole unit suite and `demo_check` (`examples/remote-pair` is not
 touched).
+
+## Where it stopped (round 9)
+
+**The finding: the round-8 merge spliced GAPS.md's *Remote systems* entry again (blocking).** Fixed. The entry
+now has one *Done* and one *Left*. *Done* is main's text, including the box-measures sentence once and mutual TLS
+(done on `remote-mtls`), followed by this slice's sentence. *Left* holds only the process-map lines, the IR beside
+`ergostat-model/1` and a remote of remotes. It no longer lists mutual TLS or "the remote's events in the Items
+and Record pages". The dangling `(remote-proposals-text; …)` fragment and the repeated "`examples/remote-pair/`
+and its two-instance test" are gone. Main's own copy of this entry already had both of those defects (its
+*Done* resumes mid-sentence after "Proposals for its owner")."). They were also removed here, since this entry is
+the one point 12 covers. This was the only finding listed, and it is answered (lesson-12).
+
+**The other doc diffs against main, read again after the merge:** AGENT-GUIDE §3 has step 5 (this branch), then
+step 6 (main's). The proposal's two sentences are updated, and SPEC §4c has *Its items and events in the pages*
+before main's *Over mutual TLS*. None is spliced, and the tree has no conflict markers. Main (48b1481a) is an
+ancestor of HEAD.
+
+**Reported, not fixed (lesson-13).** On main, and so here too, the GAPS.md entries *Shared libraries* and
+*External event logs* carry spliced text: a second, older *Still needed* paragraph and a second *External
+event logs* bullet. This branch does not touch them, so they belong to their own gaps.
+
+**Run here:** only docs changed this round. `ruff check ergostat tests scripts` is clean. No suite was run
+again, because no code has changed since round 8.
