@@ -75,3 +75,13 @@ as the four browser files do in the merge queue.
 - **The other option was to move the acceptance test out of the browser file.** The definition of done asks for it in
   the existing browser files, so I did not take it.
 - **Reversibility:** this way no code or test changes. With Playwright, the test passes, as noted above.
+
+Round 1, after the build step failed a second time with the same rc 5: the build step's set is made from the diff,
+and the only test file there was the browser file, so this round adds a unit test the build can run without a
+browser. `test_each_section_is_one_run_of_frames_so_its_name_links_to_one_first_frame` in `tests/test_guide.py`
+checks what the section links and the 'Step n of 13' names rely on: each section's frames come together, in PARTS
+order, and 'Control: what we control' starts at frame 7. Now the build step also selects `tests/test_guide.py`
+(7 passed), so it no longer collects nothing. The browser acceptance test stays where it was, and no ergostat code
+changed. To undo this, delete the one test. I did not break the code to watch the new test fail (lesson 9). The
+`uv run python -c` I tried, to print the frame order, was refused, so frame 7 comes from reading
+`ergostat/guide.py:120-231`. Runs: `tests/test_guide.py` 7 passed; ruff clean.
