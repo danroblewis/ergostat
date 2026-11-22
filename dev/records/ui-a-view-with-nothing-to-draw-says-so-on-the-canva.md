@@ -76,3 +76,14 @@ Built, 8 net lines outside tests (diagram.js +3, style.css +3 net of the two cha
   belong in their own gap. The reversible choice: leave the code as it is.
 - The two acceptance tests were run with Playwright in round 1 and passed (above); the browser files run in full in
   the merge queue.
+
+## Where it stopped (round 1, second build-step failure)
+
+- The same rc 5 again: `affected_tests.py` ran tests/test_diagram_rendering.py without Playwright, the file's
+  module-level `importorskip` skipped it whole ("1 skipped"), and pytest returned 5 (nothing collected). No test ran
+  or failed. The branch's code has not changed since the round-1 build.
+- There is no code fault to fix. Turning the step green needs a change outside this gap: Playwright in
+  `[suites] build`, or `affected_tests.py` handling a browser-only selection (or rc 5) differently. A dummy unit test
+  added only to give the step something to run would be a test that can't fail (lesson 9), so none was added. Left
+  as it is (the reversible choice). The factory fix belongs in its own gap, and the browser file runs in full in the
+  merge queue.
