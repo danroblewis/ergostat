@@ -18,10 +18,15 @@ is not what the box means.
 
 **Rule.** A system is classified only by the wires that cross its border at the level it is drawn, never by what
 is inside it. It is read from the folded signal graph, never declared, and always says it was inferred (invariant 11).
-A wire is a **u wire** when its signal is set by a controller inside the source system (a block's output, or a flow
-that a block drives) and it enters a flow or stock of the target system. Every other wire is a **y wire** (a stock
-or auxiliary of the source, read by the target). A block that reads nothing and is commanded by nothing (the world,
-`WORLD_NOTE`) is a disturbance source d, not a controller, so its wires are never u wires.
+A wire is a **u wire** when two things hold. (a) Its signal is set by a controller inside the source system (a
+block's output, or a flow that a block drives). (b) The part of the target it enters (a flow or stock) reaches,
+along the target's own causal edges, a stock that carries a goal of the target. Every other wire is a **y wire**: a
+stock or auxiliary of the source that the target reads, or a controller's output that only feeds the target's
+bookkeeping (a count or a cost that reaches no goal). A block that reads nothing and is commanded by nothing (the
+world, `WORLD_NOTE`) is a disturbance source d, not a controller, so its wires are never u wires. Condition (b) is
+what makes a wire a manipulated input: a u that moves no controlled variable is a measurement of the controller's
+activity, not a control action (Skogestad & Postlethwaite §10.2, where inputs are chosen by their effect on the
+controlled outputs).
 
 - **C** (it controls): at least one u wire leaves it, and no u wire enters it.
 - **P** (it is acted on): at least one u wire enters it, and no u wire leaves it.
@@ -36,7 +41,11 @@ The three cases are exclusive and cover every system, so each system gets exactl
 closed inside it do not enter the rule.** They are inside C (or P) as a cascade's inner loop is inside its outer
 controller. So software-factory's `factory` holds backlog-clear, reviews-done and all-live closed, and it is still
 **C**: `deployed` is a u wire into `product`, and nothing enters `factory` except product's measurements (y wires).
-`product` is **P**. In ticket-factory, `factory` → `oversight` carries only y wires, so both are named (neither).
+`product` is **P** (`deployed` drives the flows into `bugs-live` and `missing-ops`, which carry goals). In
+ticket-factory, `factory` → `oversight` carries only y wires, so both are named (neither). Its stocks are read by
+`prs-awaiting-review`, `cycle-hours` and `repinging`, and `flow.work`, `flow.address` and `flow.fix-ci` drive
+`ai-spending` (oversight.yaml:99-109), which fills `ai-spend`. `ai-spend` has no goal and feeds nothing in
+`oversight`, so by (b) those three are y wires: they count what the factory's sessions cost.
 Each of big's six systems and every `modelling` system is named (neither).
 
 **The same letter and p × m at both levels.** The box carries `C_name` or `P_name` with p × m, where p counts its
@@ -54,6 +63,12 @@ When the top level has a C acting on a P, it is drawn as the textbook loop: Ogat
 
 - **r** is the vector of P's goals that C serves: the goals on P's stocks that no controller inside P holds. It is
   drawn as the reference and sum nodes already drawn at the leaf, ahead of C.
+- **When r is empty** (every goal C's u reaches is also held by a controller inside P), no loop closes at this
+  level: no reference, no Σ and no H are drawn. C and P keep their letters and are joined by their labelled wires
+  only, as a one-way row of §3, and P's west port reads "r: none, held inside P (goal names)". C is then a
+  feedforward or load on P's inner loops, which is how a measured disturbance entering a loop is drawn (Seborg et
+  al., ch. 15). If ticket-factory later puts a goal on `ai-spend` (a budget held inside `oversight`), this is the case
+  it falls into.
 - **Σ** computes e = r − y_m and feeds C's input port. C's blocks may read y_m itself rather than a goal's error
   (`support` reads `bugs-live`). Their port says so ("reads y_m: bugs-live, …"), as the leaf already does for a
   controller given r beside it. The junction stays ahead of C, because a two-degree-of-freedom drawing (r beside C,
@@ -125,8 +140,8 @@ The table assumes, from the YAML, that `modelling` exchanges no signal with the 
 pins the count the rule gives, not this table's.
 
 Systems that are coupled one way only, with no loop closing between them, are one row joined by the labelled wire
-(ticket-factory: `factory` → y_factory (pr-open, review-asked, changes-asked, sailed) → `oversight`, both named
-blocks by §1). In ticket-factory the
+(ticket-factory: `factory` → y_factory (pr-open, review-asked, changes-asked, sailed; work, address, fix-ci) →
+`oversight`, both named blocks by §1). In ticket-factory the
 owner's approvals do not flow back into any factory flow. That is a modelling finding for the owner. It is not
 drawn, because the drawing shows only what the model says.
 
@@ -178,8 +193,12 @@ of its loops. On a classified block:
 
 - **Named block**: r is its input port on the west side (a vector of its loops' setpoints, its tooltip listing each
   `≤ 20`). y is its output port on the east side (the measured values). d enters on the north side. The status is
-  the box's outline (holding, off, unknown), worst first, as a loop's status is drawn at the leaf.
-- **C**: no r of its own at the top. Its input port is e, or y_m with the note from §2. Its inner loops' status is
+  the box's outline: the worst of its loops' statuses, in the one order **unknown, off, stale, open, holding**
+  (worst first). A loop with no status, or missing from the snapshot, counts as unknown, so a block holds only when
+  every loop is read and holding: what cannot be read counts as the worst case. This puts unknown ahead
+  of `off`, unlike `WORST` in `ergostat/fold.py:18` (off, stale, open, unknown, holding), which the system boxes use.
+  The Blocks outline follows this order; aligning `fold.py` is for the owner and not part of these gaps.
+- **C**: no r of its own at the top. Its input port is e, or y_m with the note from §2. Its inner loops' worst status, in the same order, is
   the outline, and the "inside" row of its panel lists them.
 - **P**: y is its output port. Its status is that of the goals on its stocks, which are the top loop's r, so it is
   shown again on the reference node's value, as at the leaf.
@@ -197,14 +216,19 @@ the closed block's r/y/status gap waits on the first.
    on software-factory at the top level, `sys:factory` has `fn.sym == "C"` (although it holds loops closed inside)
    and `sys:product` has `"P"`. On big, `sys:api` is a named block with no letter, and so are ticket-factory's
    `sys:factory` and `sys:oversight` and every `sys:modelling`. A fixture with three systems a → b → c, each joined
-   by a u wire, makes `b` a named block (mixed). For every example and every top-level system, the class equals the
+   by a u wire, makes `b` a named block (mixed). A fixture where a block's flow in `a` drives a flow of `b` makes `a`
+   C and `b` P when that flow fills a stock of `b` with a goal, and leaves both named when the stock has none (rule
+   (b)). On ticket-factory, the edges from `flow.work`, `flow.address` and `flow.fix-ci` into `oversight` are marked
+   y, and the factory → oversight label lists them. For every example and every top-level system, the class equals the
    one §1's rule gives from the edges' u/y marks, computed in the test, so each system has exactly one class. For every example and every system, the letter and p × m of the closed
    box equal those of its frame when it is opened (`focus=` the system), with disturbances counted. No node's `fn`,
    math text or `says` contains `Q`, across all examples. Each of these fails on main today.
 2. **blocks-top-level-loop** (§2). `tests/test_blocks_top_loop.py`: software-factory at the top level has one
    reference node per goal of P that C serves, a sum node whose edge goes into `sys:factory`, an H node on the
    return from `sys:product` to the sum, and a non-empty `signal.sym` on every edge between systems. `sys:modelling`
-   is drawn, and it is not on that loop: no edge joins it to the sum, H, `sys:factory` or `sys:product`. The Blocks
+   is drawn, and it is not on that loop: no edge joins it to the sum, H, `sys:factory` or `sys:product`. A fixture
+   C → P whose every reached goal is held inside P has no reference, sum or H node, keeps `C` and `P`, and P's port
+   reads "r: none". The Blocks
    browser file must show, on software-factory: the sum to the left of C, H below the forward path, and each label
    drawn on its wire.
 3. **blocks-uncoupled-rows** (§3, after 2). Unit: for every example, the top level's rows are exactly the
@@ -220,7 +244,9 @@ the closed block's r/y/status gap waits on the first.
    out of the r → y order.
 5. **blocks-closed-block-r-y-and-status** (§5, amended to follow 1). Unit: a named block's input ports include r
    (a vector of its loops' setpoints) and its output ports y. Its status is the worst of its loops' statuses in a
-   given snapshot (off over holding over unknown). Browser: the outline's class follows a change of the snapshot.
+   given snapshot, in §5's order: holding + unknown gives unknown, off + unknown gives unknown, off + holding gives
+   off, all holding gives holding, and a loop absent from the snapshot gives unknown. Browser: the outline's class
+   follows a change of the snapshot.
 
 Each new test is to be seen failing against main first (review lesson 9). The report says which ones were.
 
@@ -232,5 +258,9 @@ Each new test is to be seen failing against main first (review lesson 9). The re
   the junction is kept ahead of C rather than using the two-degree-of-freedom drawing.
 - §1 reads "mixed" as controlling one system and being controlled by another, and classifies by border wires only,
   so inner loops never change the class. `modelling` is counted as an ordinary system in every example.
+- A controller's output counts as u only when it reaches a goal of the target (rule (b)), rather than ticket-factory
+  being reclassified as C → P with an empty r. Dropping (b) gives that reclassification, and the empty-r case in
+  §2 already draws it.
+- Unknown is ranked worst in the Blocks outline. `fold.py`'s order for the system boxes is left as it is.
 - The widths in the sketches come from reading the YAML. A script that prints `diagram()` could not be run in this
   session. The build gaps' tests pin the real widths.

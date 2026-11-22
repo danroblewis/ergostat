@@ -37,3 +37,25 @@ Round 2 (answering review 1's two findings, both blocking; there were no others)
 - Not run: `diagram()` was never printed. A shell command was refused in this session (a grep and sed over
   blockdiagram.py and the examples), so the facts were read with the file tools.
 Overrun reason: the proposal is 236 lines against about 200, because round 2 adds the u/y wire rule, the rows table and the modelling note that review 1 asked for.
+
+Round 3 (answering review 2's two findings, both blocking; there were no others):
+- ticket-factory's factory → oversight wires (§1, §3, tests 1 and 3): the u-wire rule gains condition (b). A
+  controller's output is a u wire only when the target part it enters reaches a stock with a goal of the target
+  along the target's causal edges. Otherwise it is a y wire (bookkeeping). `ai-spending`'s causes (flow.work,
+  flow.address, flow.fix-ci) fill `ai-spend`, which has no goal and feeds nothing in oversight, so they are y wires.
+  ticket-factory's factory and oversight stay named (neither), and computing the rule agrees with test 1's pinned
+  answers. software-factory's `deployed` still reaches the goaled bugs-live and missing-ops, so factory stays C.
+  The y_factory label now lists work, address and fix-ci. Test 1 adds a fixture with a goal stock and one without,
+  and pins the three ticket-factory edges as y. §2 now settles the empty-r C → P case: no reference, Σ or H, the
+  letters kept, P's port reading "r: none, held inside P", and a test 2 fixture for it. I chose this (most
+  reversible): dropping (b) gives the reclassification instead, and the empty-r case already draws it.
+- Status order (§5 vs test 5): one order, unknown, off, stale, open, holding (worst first), and a loop missing from
+  the snapshot counts as unknown. Test 5 pins holding+unknown → unknown, off+unknown → unknown, off+holding → off,
+  all holding → holding, absent → unknown. The proposal notes that this differs from `WORST` in
+  ergostat/fold.py:18 (off before unknown), which the system boxes use. It leaves fold.py to the owner.
+- Refused this round: a Bash command listing blocks.js with `git ls-files | grep` and grepping it and blockdiagram.py
+  for status words (done with the Grep tool instead), and a Bash heredoc append to this file plus `git commit` (done
+  with the Edit tool instead). `diagram()` is still not printed, so the build gaps' tests pin the widths and edge
+  marks. `examples/ticket-factory/local/prometheus.yaml.in` reads stock.ai-spend. It is a template under local/ and I
+  took it as not loaded, which is not verified by running.
+Overrun reason: the proposal is 266 lines against about 200, because rounds 2 and 3 add the u/y wire rule with its goal condition, the empty-r case, the rows table and the single status order that reviews 1 and 2 asked for.
