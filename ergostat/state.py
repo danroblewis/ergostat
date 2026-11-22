@@ -313,6 +313,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         if held:
             loops[lp.name].update(per=g.per, breaking=held[1], breaking_n=held[2],
                                   **({"setpoint": f"{g.hold.op} {r:g}"} if r is not None else {}))
+        loops[lp.name]["off_by_words"] = off_by_words(loops[lp.name]["setpoint"], error, c.tolerance,
+                                                      getattr(m.stocks.get(c.holds), "unit", ""))
 
     contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
@@ -608,6 +610,23 @@ LEVELS = {"bad": 0, "warn": 1, "hint": 2}
 UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
 
 
+def off_by_words(setpoint: str, error, tolerance: float = 0.0, unit: str = "") -> str | None:
+    """How far a goal is from its bound, the one phrase every surface outside Blocks prints (Blocks says
+    e = r − y with its sign): ``off by 36 tickets`` past a <= or >= bound, ``28 short of 180`` below a
+    setpoint and ``12 over 80%`` above it, ``within its band`` inside its tolerance; None when not known."""
+    import re
+    got = re.match(r"\s*(<=|>=|==|[<>=≤≥])\s*(-?[\d.]+(?:e[-+]?\d+)?)", setpoint or "")
+    if error is None or not got:
+        return None
+    d, at = abs(error), float(got.group(2))
+    say = (lambda x: f"{fmt(x)}%") if unit == "%" else (lambda x: f"{fmt(x)} {unit}" if unit else fmt(x))
+    if d and d <= tolerance:
+        return "within its band"
+    if got.group(1) not in ("==", "="):
+        return f"off by {say(d)}" if d else "within its bound"
+    return f"{fmt(d)} {'short of' if error > 0 else 'over'} {say(at)}" if d else "on its setpoint"
+
+
 def setpoint_text(lp: dict) -> str:
     return lp["setpoint"] + lp.get("band", "")
 
@@ -637,7 +656,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                         "once each is back within the setpoint"})
         elif lp["status"] == "off":
             out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
-                        f"setpoint {setpoint_text(lp)} (off by {fmt(abs(lp['error']))})"})
+                        f"setpoint {setpoint_text(lp)} ({lp.get('off_by_words')})"})
         elif lp["status"] == "stale":
             does = {"act": "its controllers act on it as it was", "hold": "what it commands is held",
                     "off": "it counts as off"}[lp["on_stale"]]

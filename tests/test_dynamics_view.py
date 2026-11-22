@@ -145,14 +145,15 @@ def test_lines_out_of_and_into_a_closed_module_end_in_a_shadow_and_a_stub_inside
 
 def test_the_attention_cards_speak_system_dynamics():
     from ergostat.dynamics import attention
-    snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0}}}
+    snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0,
+                                       "off_by_words": "off by 4"}}}
     att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
            {"level": "hint", "what": "controller backlog-clear", "says": "loop backlog-clear was off 60% of the time; why (a valve "
             "too small, or acting too seldom) is said after 10m of record"},
            {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill controller x"},
            {"level": "hint", "what": "controller a", "says": "loop a keeps feeding x: Hold a back (its controller can read x)"}]
     out = attention(att, snap)
-    assert out[0]["says"] == "backlog is 4, desired backlog = 0: excess 4"
+    assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"
     import re
     for a in out:
         text = a["what"] + " " + a["says"]
