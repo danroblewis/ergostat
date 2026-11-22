@@ -6,32 +6,42 @@ from __future__ import annotations
 
 import json
 import os
+import signal
+import subprocess
 import sys
 import textwrap
 import time
+import tomllib
 from pathlib import Path
 
 import pytest
 
-from tests.test_factory import git, ready
+from tests.test_factory import BIN, ROOT, git, ready
 from tests.test_factory_manager import Pipe
 
 pytestmark = pytest.mark.slow                                     # (each about 20 s, the fixture's build: started first)
 
 STAND = textwrap.dedent("""\
-    import json, subprocess, sys
+    import json, os, subprocess, sys, time
     from pathlib import Path
     plan, heads, drop = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
     step, *rest = plan.read_text().split()
     plan.write_text(" ".join(rest))
     sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     with heads.open("a") as f:
-        f.write(json.dumps({"head": sha, "argv": sys.argv[4:]}) + "\\n")
+        f.write(json.dumps({"head": sha, "argv": sys.argv[4:], "pid": os.getpid()}) + "\\n")
     watch = {"rc": 0, "wall_s": 1.0, "killed": None, "workers_killed": 0, "left_behind": 0}
     if step == "move":                     # (another writer moves the branch while the runs run)
         main = subprocess.run(["git", "-C", drop, "rev-parse", "main"], capture_output=True, text=True).stdout.strip()
         subprocess.run(["git", "-C", drop, "update-ref", "refs/heads/factory/alpha-thing", main], check=True)
-    if step in ("pass", "move"):
+    if step == "resume":                   # (the park is continued while the runs run)
+        rec = heads.parent / "record.json"
+        db = json.loads(rec.read_text())
+        db["items"]["gap/alpha-thing"]["fields"]["resumed_as"] = "gap/alpha-thing-continued"
+        rec.write_text(json.dumps(db))
+    if step in ("wait", "hang"):
+        time.sleep(1 if step == "wait" else 60)
+    if step in ("pass", "move", "resume", "wait"):
         print("1 passed"); print(json.dumps(watch)); sys.exit(0)
     if step == "fail":
         print("    def test_a():\\n>       assert 1 == 2\\nE       assert 1 == 2\\nFAILED tests/test_x.py::test_a")
@@ -41,7 +51,20 @@ STAND = textwrap.dedent("""\
         print(json.dumps({**watch, "rc": -9, "killed": "1600 threads, 300 MB"})); sys.exit(3)
     print("1 passed")                      # silent: exit 0, but no watchdog line to read
     """)
-BURN = "import os, sys, time\nopen(sys.argv[1], 'w').write(f'{os.getpid()} {sys.argv[2]}')\ntime.sleep(120)\n"
+BURN = textwrap.dedent("""\
+    import os, sys, time
+    open(sys.argv[1], "w").write(f"{os.getpid()} {sys.argv[2]}")
+    beat, stale = sys.argv[3], float(sys.argv[4])
+    seen, at = None, time.monotonic()
+    while time.monotonic() - at < stale:   # (as the real load: ends once its beat is gone or stale, but sleeping)
+        time.sleep(0.1)
+        try:
+            m = os.stat(beat).st_mtime_ns
+        except OSError:
+            break
+        if m != seen:
+            seen, at = m, time.monotonic()
+    """)
 
 
 class Measured(Pipe):
@@ -52,7 +75,8 @@ class Measured(Pipe):
         self.plan, self.heads, self.pid = tmp / "plan", tmp / "heads", tmp / "load.pid"
         self.config.write_text(self.config.read_text().replace("[suites]\n", (
             f"[suites]\nmeasure = \"{sys.executable} {tmp / 'stand.py'} {self.plan} {self.heads} "
-            f"{tmp / 'live' / 'drop.git'} {{tests}}\"\nload = \"{sys.executable} {tmp / 'burn.py'} {self.pid} {{procs}}\"\n")))
+            f"{tmp / 'live' / 'drop.git'} {{tests}}\"\nload = \"{sys.executable} {tmp / 'burn.py'} {self.pid} {{procs}} "
+            "{beat} {stale}\"\nload_stale_s = 3\n")))
         self.gid = ready(self)
         self.run("implement.py", self.gid)
         assert self.item(self.gid)["state"] == "built"
@@ -67,15 +91,16 @@ class Measured(Pipe):
     def ran(self) -> list[dict]:
         return [json.loads(x) for x in self.heads.read_text().splitlines()] if self.heads.exists() else []
 
-    def set_state(self, state: str) -> None:
+    def set_state(self, state: str, **fields) -> None:
         db = self.db()
         db["items"][self.gid]["state"] = state
+        db["items"][self.gid]["fields"].update(fields)
         self.record.write_text(json.dumps(db))
 
 
-def gone(pid: int) -> bool:
-    """The process is gone (or only a zombie waiting to be reaped), within a few seconds."""
-    for _ in range(50):
+def gone(pid: int, seconds: float = 5) -> bool:
+    """The process is gone (or only a zombie waiting to be reaped), within ``seconds``."""
+    for _ in range(int(seconds * 10)):
         try:
             os.kill(pid, 0)
             stat = Path(f"/proc/{pid}/stat")
@@ -105,7 +130,7 @@ def test_counts_recorded_and_sent_to_review_when_all_pass(tmp_path):
     assert procs == "2" and gone(int(pid))                                            # the load stopped with the runs
     (i,) = f.interventions()
     assert i["fields"]["action"] == "measure-runs" and (i["fields"]["passed"], i["fields"]["failed"]) == (3, 0)
-    f.set_state("parked")                                                             # a parked gap too
+    f.set_state("parked", parked_for="defect")                                        # a parked gap too
     assert "back to built" in f.measure("pass", "--runs", "1", "--tests", "tests/test_leases.py")
     assert f.item(f.gid)["state"] == "built" and len(f.item(f.gid)["fields"]["measured_runs"]) == 2
 
@@ -170,6 +195,12 @@ def test_a_killed_or_unreadable_run_counts_as_failed(tmp_path):
                          ('{"rc": 1, "killed": null}\n', False), ('{"rc": 0, "killed": nu', False)):
         log.write_text("1 passed\n" + text)
         assert m.outcome(0, log)["passed"] is passed, text
+    f.set_state("built")                                                              # a load that ended: not loaded
+    f.config.write_text(f.config.read_text().replace(f"{f.tmp / 'burn.py'} {f.pid}", "-c pass"))
+    said = f.measure("wait", "--runs", "1", "--tests", "tests/test_leases.py", "--load", "1")
+    assert "back to fix" in said and "0 of 1 runs passed" in said
+    (r,) = f.item(f.gid)["fields"]["measured_runs"][-1]["runs"]
+    assert r["rc"] == 0 and not r["passed"] and r["why"] == "the load had ended (exit 0)"
 
 
 def test_a_branch_moved_during_the_runs_keeps_the_gap_where_it_is(tmp_path):
@@ -180,3 +211,69 @@ def test_a_branch_moved_during_the_runs_keeps_the_gap_where_it_is(tmp_path):
     g = f.item(f.gid)
     assert g["state"] == "built" and g["fields"]["measured_runs"][0]["head"] == head != f.tip()
     assert not any("measure-runs" in x for x in g["fields"].get("findings") or []) and f.interventions() == []
+
+
+def test_a_park_a_measurement_cannot_clear_is_refused(tmp_path):
+    f = Measured(tmp_path)
+    for fields, why in (({"parked_for": "deferred"}, "parked for deferred"), ({"parked_for": "kill-rule"}, "kill-rule"),
+                        ({"parked_for": "cancelled"}, "cancelled"), ({}, "no kind said"),
+                        ({"parked_for": "defect", "deferred": True}, "parked for defect"),
+                        ({"parked_for": "defect", "resumed_as": "gap/alpha-thing-continued"}, "resumed already")):
+        f.set_state("parked", **{"parked_for": None, "deferred": None, "resumed_as": None, **fields})
+        assert why in f.measure("pass", "--runs", "1", "--tests", "tests/test_leases.py", ok=False), fields
+    f.set_state("parked", resumed_as=None, deferred=None)
+    f.put("gap/alpha-thing-continued", "building", continues="factory/alpha-thing")    # its branch held by another
+    assert "held by gap/alpha-thing-continued" in f.measure("pass", "--runs", "1", "--tests", "tests/test_x.py", ok=False)
+    assert f.ran() == [] and f.item(f.gid)["state"] == "parked" and f.interventions() == []
+    db = f.db()
+    db["items"].pop("gap/alpha-thing-continued")
+    f.record.write_text(json.dumps(db))
+    said = f.measure("resume", "--runs", "1", "--tests", "tests/test_x.py", ok=False)  # continued while the runs ran
+    assert "recorded alone" in said and "resumed already" in said and len(f.ran()) == 1
+    assert f.item(f.gid)["state"] == "parked" and f.interventions() == []
+    f.set_state("parked", parked_for="needs", resumed_as=None)
+    assert "back to built" in f.measure("pass", "--runs", "1", "--tests", "tests/test_x.py")
+
+
+def test_the_load_ends_on_its_own_when_its_caller_is_killed(tmp_path):
+    f = Measured(tmp_path)
+    f.plan.write_text("hang")
+    p = subprocess.Popen([sys.executable, str(BIN / "manage.py"), "measure-runs", f.gid, "--runs", "1", "--tests",
+                          "tests/test_x.py", "--load", "1"], cwd=f.model, env=f.env, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(600):
+            if f.pid.exists() and f.pid.read_text() and f.ran():
+                break
+            time.sleep(0.1)
+        load = int(f.pid.read_text().split()[0])
+        assert not gone(load)                       # 5 s, past its 3 s stale: the beat keeps it while the caller lives
+        p.kill()                                    # SIGKILL: no finally runs
+        p.wait(timeout=10)
+        assert gone(load, 10)                       # its beat stopped: it ended on its own
+    finally:
+        p.kill()
+        for r in f.ran():
+            try:
+                os.kill(r["pid"], signal.SIGKILL)   # (the hanging stand-in suite this test started)
+            except ProcessLookupError:
+                pass
+
+
+def test_the_real_load_ends_without_its_beat(tmp_path):
+    cmd = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]["load"]
+    beat = tmp_path / "beat"
+    for touched in (False, True):                   # gone; then there but never touched again
+        if touched:
+            beat.touch()
+        began = time.monotonic()
+        p = subprocess.Popen(cmd.format(procs=2, beat=beat, stale=1), shell=True, cwd=ROOT, start_new_session=True,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            out, _ = p.communicate(timeout=20)
+        finally:
+            if p.poll() is None:
+                os.killpg(p.pid, signal.SIGKILL)
+        took = time.monotonic() - began
+        assert p.returncode == 0 and '"rc": 0' in out, out
+        assert took < 10 and (took >= 1 or not touched), took

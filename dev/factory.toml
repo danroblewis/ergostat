@@ -129,8 +129,21 @@ alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p n
 rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -p no:randomly {tests}"
 measure = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"  # one run of
                                      # a definition's named measurement (manage.py measure-runs, dev/bin/runs.py)
-load = '''python3 scripts/suite_watch.py -- python3 -c 'import os,sys;any(os.fork()==0 for _ in range(int(sys.argv[1])-1));exec("while 1: pass")' {procs}'''
-                                     # its CPU load: {procs} (1-8) busy processes, under the watchdog
+load = '''python3 scripts/suite_watch.py -- python3 -c '
+import os, sys, time
+k, beat, stale = int(sys.argv[1]), sys.argv[2], float(sys.argv[3])
+any(os.fork() == 0 for _ in range(k - 1))
+seen, at = None, time.monotonic()
+while time.monotonic() - at < stale:
+    t = time.monotonic()
+    while time.monotonic() - t < 0.5: pass
+    try: m = os.stat(beat).st_mtime_ns
+    except OSError: break
+    if m != seen: seen, at = m, time.monotonic()
+' {procs} {beat} {stale}'''
+                                     # its CPU load: {procs} (1-8) busy processes, under the watchdog, each ending
+                                     # once {beat} is gone or unchanged for {stale} s (runs.loaded touches it)
+load_stale_s = 30                    # 1-300
 check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
 queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the
                                      # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under

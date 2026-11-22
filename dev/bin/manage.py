@@ -36,6 +36,7 @@ SITUATION = [""]
 CLASSES = {"continue": "parked-continued", "reapprove": "environment-defect", "flake": "flake", "file-gap": "missing-gap",
            "remedy": "remedied", "measure-runs": "operator-decision", "close": "groom", "park": "stuck", "pool": "operator-decision",
            "change": "factory-change", "propose": "velocity", "ask": "velocity-research"}
+MEASURED_PARKS = ("needs", "defect")      # the park kinds a measurement may clear (manage.measurable)
 GATED = {"close": "manager-close", "park": "manager-park", "pool": "manager-pool", "change": "manager-change"}
 
 
@@ -74,20 +75,30 @@ def do_continue(cfg: dict, a) -> str:
     return f"{gid} requested, continuing {branch}"
 
 
+def continue_lock(cfg: dict):
+    lock = open(fac.run_dir(cfg) / "continue.lock", "a")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    return lock
+
+
+def holders(g: dict, gaps: dict) -> list[str]:
+    """The other live gaps on ``g``'s branch: its own, or continuing it."""
+    branch = fac.branch_of(g)
+    return [x["id"] for x in gaps.values() if x["id"] != g["id"] and x["state"] not in ("parked", "merged", "closed")
+            and (x["fields"].get("branch") == branch
+                 or str(x["fields"].get("continues") or "").removeprefix("factory/") == branch)]
+
+
 def continue_gap(cfg: dict, gap: str, depends_on: str = "", cleared: str = "", once: bool = False) -> tuple[str, str]:
     """A new gap continuing a parked (or dead) gap's branch: (its id, the branch). The parked gap's `gap.resumed` says
     as what and what cleared. Read, checked and written under the continue lock, so the coordinator's continue and the
     park resumer's never both take one park; ``once`` (the resumer's): refused when it was resumed already."""
-    with open(fac.run_dir(cfg) / "continue.lock", "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with continue_lock(cfg):
         g, gaps = item(gap), {x["id"]: x for x in fac.items("gap")}
         if g["state"] not in ("parked", "dead"):
             raise Refused(f"{gap} is {g['state']}: only a parked or dead gap is continued")
         branch = fac.branch_of(g)
-        held = [x["id"] for x in gaps.values() if x["id"] != g["id"] and x["state"] not in ("parked", "merged", "closed")
-                and (x["fields"].get("branch") == branch
-                     or str(x["fields"].get("continues") or "").removeprefix("factory/") == branch)]
-        if held:
+        if held := holders(g, gaps):
             raise Refused(f"{branch} is held by {', '.join(held)}")
         if once and g["fields"].get("resumed_as"):
             raise Refused(f"{gap} was resumed already, as {g['fields']['resumed_as']}")
@@ -154,16 +165,46 @@ def do_reapprove(cfg: dict, a) -> str:
 def do_measure_runs(cfg: dict, a) -> str:
     """The runs (runs.measure), their counts appended to the gap's `measured_runs` and said in its `findings`, which
     the reviewer's and implementor's briefs carry. All passed: gap.built at the head measured (review, unchanged); any
-    failed: gap.sent-back, the first failing run's tail its input. The gap and its branch are read again first: one
-    that left parked or built, or whose branch moved, while the runs ran keeps its state, the counts recorded alone."""
+    failed: gap.sent-back, the first failing run's tail its input. A parked gap only as `measurable` allows, checked
+    before the runs and again after, under the continue lock with the move (lesson-1). The gap and its branch are read
+    again there: one that left parked or built, whose branch moved, or that is no longer measurable keeps its state,
+    the counts recorded alone."""
+    measurable(item(a.gap))
     got = runs.measure(cfg, item(a.gap), a.runs, runs.selection(a.tests), a.load)
     head, bad = got["head"], [r for r in got["runs"] if not r["passed"]]
     said = (f"measure-runs at {head[:12]}: {got['passed']} of {got['n']} runs passed, {got['failed']} failed, of "
             f"`{' '.join(got['tests'])}`" + (f", the CPU loaded by {got['load']} busy processes" if got["load"] else ""))
-    g = item(a.gap)
-    if g["state"] not in ("parked", "built") or runs.tip(cfg, fac.branch_of(g)) != head:
+    with continue_lock(cfg):
+        moved(cfg, a, got, said, bad)
+    intervene("measure-runs", a.gap, a.why or said, a.cls, head=head, passed=got["passed"], failed=got["failed"])
+    return f"{a.gap} back to {'fix' if bad else 'built'}: {said}"
+
+
+def measurable(g: dict) -> None:
+    """Raises Refused for a parked gap a measurement may not move: one resumed already (its continuation holds the
+    branch), one whose branch another live gap holds, or one parked for a kind not in MEASURED_PARKS (an allowlist:
+    deferred and cancelled are the coordinator's, the kill rule is past its rounds)."""
+    f = g["fields"]
+    if g["state"] != "parked":
+        return
+    if f.get("resumed_as"):
+        raise Refused(f"{g['id']} was resumed already, as {f['resumed_as']}")
+    if f.get("parked_for") not in MEASURED_PARKS or f.get("deferred") or f.get("cancelled"):
+        raise Refused(f"{g['id']} is parked for {f.get('parked_for') or 'no kind said'}: a measurement clears only "
+                      f"{' or '.join(MEASURED_PARKS)}")
+    if held := holders(g, {x["id"]: x for x in fac.items("gap")}):
+        raise Refused(f"{fac.branch_of(g)} is held by {', '.join(held)}")
+
+
+def moved(cfg: dict, a, got: dict, said: str, bad: list[dict]) -> None:
+    head, g = got["head"], item(a.gap)
+    try:
+        if g["state"] not in ("parked", "built") or runs.tip(cfg, fac.branch_of(g)) != head:
+            raise Refused(f"{a.gap} is {g['state']} now, or its branch moved since {head[:12]}")
+        measurable(g)
+    except Refused as e:
         record("gap.measured", a.gap, measured_runs=got)
-        raise Refused(f"{said}; recorded alone: {a.gap} is {g['state']} now, or its branch moved since {head[:12]}")
+        raise Refused(f"{said}; recorded alone: {e}") from None
     if bad:
         first = bad[0]
         record("gap.sent-back", a.gap, sent_back_by="measure-runs", measured_runs=got, failed_gates=1, fix_rounds=1,
@@ -171,8 +212,6 @@ def do_measure_runs(cfg: dict, a) -> str:
     else:
         record("gap.built", a.gap, built_at=time.time(), head=head, measured_runs=got,
                findings=[*list(g["fields"].get("findings") or []), said])
-    intervene("measure-runs", a.gap, a.why or said, a.cls, head=head, passed=got["passed"], failed=got["failed"])
-    return f"{a.gap} back to {'fix' if bad else 'built'}: {said}"
 
 
 def do_flake(cfg: dict, a) -> str:
@@ -330,6 +369,7 @@ def run(cfg: dict, argv: list[str]) -> dict:
 def main(argv: list[str]) -> int:
     cfg = fac.config()
     fac.cli(cfg)
+    fac.stop_on_term()                                # (a SIGTERM runs the finallies: a measurement's load stopped)
     if argv[:1] in ([], ["-h"], ["--help"]) or argv[0] in ("closed", "parked", "approved"):
         print(approved(cfg, argv) if argv[:1] and argv[0] in ("closed", "parked", "approved") else __doc__)
         return 0

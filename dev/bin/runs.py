@@ -2,7 +2,9 @@
 manager*): N runs of a pytest selection on a gap's branch head, each `[suites] measure` (under
 scripts/suite_watch.py) in the shared suite slot, optionally with the CPU loaded by `[suites] load`: K busy processes
 under a watchdog of their own (killed past 1,500 threads or 6 GB), stopped, their whole process group, when the runs end
-however they end. Each in a suite container like the fast suites' (the load in one of its own), but with the stand-in AI.
+(normally, on an error or a SIGTERM), and ending on their own within [suites] load_stale_s of this program's death
+(a heartbeat it stops touching). A run during which the load had ended is a failure. Each in a suite container like
+the fast suites' (the load in one of its own), but with the stand-in AI.
 
 Hard maximums, at parse time (manage.py) and again here: N 1-50, K 1-8, the selection's `-n` 1-8. A run passes only on
 exit 0 with the watchdog's own last line saying pytest's rc 0 and nothing killed: a run killed, or one whose log or
@@ -17,6 +19,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,6 +30,7 @@ import fac
 MOST_RUNS, MOST_LOAD, MOST_WORKERS = 50, 8, 8
 TEST = re.compile(r"tests/[\w/.-]+\.py(::[\w\[\].-]+)*")
 TAIL = 1500                 # characters of a failing run's log kept: its traceback's tail
+BEAT = ".git/measure-beat"  # the load's heartbeat, relative to the clone (loaded)
 
 
 def bounded(n, most: int, what: str) -> int:
@@ -88,18 +92,29 @@ def outcome(rc: int, log: Path) -> dict:
 
 @contextmanager
 def loaded(cfg: dict, work: Path, k: int, log: Path):
-    """``k`` busy processes (`[suites] load`) while the body runs; their process group (and container) stopped after."""
+    """``k`` busy processes (`[suites] load`) while the body runs, yielding its process (None for no load); their
+    process group (and container) stopped after. The load also ends on its own: `{beat}` (BEAT, in the clone's .git,
+    seen at /work in a container) is touched here every stale/6 s, and the load stops once it is gone or unchanged for
+    `{stale}` s ([suites] load_stale_s, 1-300), so a caller killed past this finally (SIGKILL) leaves nothing busy."""
     if not k:
-        yield
+        yield None
         return
-    cmd, name = cfg["suites"]["load"].format(procs=bounded(k, MOST_LOAD, "--load")), None
+    stale, beat, stop = bounded(cfg["suites"].get("load_stale_s", 30), 300, "load_stale_s"), work / BEAT, threading.Event()
+    beat.touch()
+
+    def beating():
+        while not stop.wait(stale / 6):
+            beat.touch()
+    threading.Thread(target=beating, daemon=True).start()
+    cmd, name = cfg["suites"]["load"].format(procs=bounded(k, MOST_LOAD, "--load"), beat=BEAT, stale=stale), None
     if cfg["ai"]["mode"] != "standin":
         name, cmd = agents.contained(cfg, cmd, work)
     with log.open("w") as out:
         p = subprocess.Popen(cmd, shell=True, cwd=work, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
     try:
-        yield
+        yield p
     finally:
+        stop.set()
         for sig in (signal.SIGTERM, signal.SIGKILL):        # (the watchdog stops what it watches on SIGTERM)
             if sig == signal.SIGKILL and p.returncode is not None:   # its leader reaped by the wait: the group id
                 break                                                 # may be another's now
@@ -133,7 +148,7 @@ def measure(cfg: dict, gap: dict, n: int, tests: list[str], load: int = 0) -> di
     logs, tag, runs = fac.run_dir(cfg, "measure"), fac.run_tag(branch, time.time()), []
     try:
         fac.wait_quiet(cfg)
-        with loaded(cfg, work, load, logs / f"{tag}-load.txt"):
+        with loaded(cfg, work, load, logs / f"{tag}-load.txt") as busy:
             for i in range(1, min(n, MOST_RUNS) + 1):
                 log, c, name = logs / f"{tag}-{i}.txt", cmd, None
                 if cfg["ai"]["mode"] != "standin":
@@ -143,7 +158,10 @@ def measure(cfg: dict, gap: dict, n: int, tests: list[str], load: int = 0) -> di
                 finally:
                     if name:
                         agents.killed(name)
-                runs.append({"run": i, **outcome(rc, log), "log": fac.rel(log)})
+                got = outcome(rc, log)
+                if busy is not None and busy.poll() is not None:     # the load ended: this run was not loaded
+                    got = {**got, "passed": False, "why": f"the load had ended (exit {busy.returncode})"}
+                runs.append({"run": i, **got, "log": fac.rel(log)})
     finally:
         shutil.rmtree(home, ignore_errors=True)
     passed = sum(r["passed"] for r in runs)

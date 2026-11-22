@@ -562,16 +562,22 @@ built with "Where it stopped" saying the measurement was not run here. The first
 head, in a clone of the drop at it. T is test files or ids under `tests/` and at most one `-n` of 1-8. Each run is
 `[suites] measure`, under `scripts/suite_watch.py`, in the shared suite slot and a suite container. With `--load`, K
 busy processes (1-8) of `[suites] load` run beside the runs under a watchdog of their own. Their process group, and
-their container, are stopped when the runs end, however they end. Each cap is checked when the call is parsed and again
-when it runs. A run passes only on exit 0 with the watchdog's last line saying pytest's rc 0 and nothing killed. A
-killed run counts as a failure, and so does one whose log or watchdog line cannot be read. The counts (passed and
+their container, are stopped when the runs end normally, on an error or on a SIGTERM. The load also ends on its own:
+manage.py touches a heartbeat file in the clone every few seconds, and each busy process stops once that file is gone
+or has not changed for `[suites] load_stale_s` (30 s, at most 300). So if manage.py is SIGKILLed, the load is gone
+within about that time. A run during which the load had ended counts as a failure. Each cap is checked when the call
+is parsed and again when it runs. A run passes only on exit 0 with the watchdog's last line saying pytest's rc 0 and
+nothing killed. A killed run counts as a failure, and so does one whose log or watchdog line cannot be read. A parked
+gap is measured only if it was parked for `defect` or `needs`, was not resumed, and no other live gap holds its
+branch: a deferred, cancelled or kill-rule park is refused. The counts (passed and
 failed of N, the head, each run's rc, and the log tail of each failed run) are appended to the gap's `measured_runs`.
 They are also said in its `findings`, which both briefs carry. If every run passed, the gap goes to `built` at the same
 head, for review. If any failed, it goes to `fix`, with the first failing run's tail as its input (one failed gate).
-Before the gap is moved, its state and its branch are read again. If the gap left parked or built while the runs ran,
-or its branch moved, it keeps its state, the counts are recorded alone (`gap.measured`) and the call is refused. That
-check takes no lock (the engine's takes have none to share). A reviewer that takes a built gap between the second
-read and the write is not seen: that window is one record read wide.
+Before the gap is moved, its state, its branch and the park checks are read again, under the continue lock that
+`continue` and the park resumer take. If the gap left parked or built while the runs ran, its branch moved, or it is no
+longer one a measurement may move (resumed meanwhile, say), it keeps its state, the counts are recorded alone
+(`gap.measured`) and the call is refused. The engine's takes share no lock, so a reviewer that takes a built gap
+between the second read and the write is not seen: that window is one record read wide.
 
 **Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
 records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in

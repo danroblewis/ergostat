@@ -74,3 +74,50 @@ Round 1, built. One thing is not run here: the first real use, the 30 loaded run
   could by then belong to another process (lesson-6). It is fixed: SIGKILL now goes only to a group whose leader is
   still unreaped. I could not show that this defect caused the cut-off, because the watched parallel run of the new
   file was refused here. The factory's next unit run is the check.
+
+### Round 2
+
+Main (e1e778c1) is merged in. The conflict in dev/bin/manage.py was the `CLASSES` table and the dispatch table:
+main's `propose` and `ask` and this branch's `measure-runs` are all kept. Both blocking findings are answered. The
+review listed no non-blocking ones.
+
+- **Finding 1: parked gaps moved without continue_gap's checks.** `manage.measurable` now refuses three kinds of
+  parked gap. The first is one already resumed (`resumed_as` set). The second is one whose branch another live gap
+  holds; this uses `holders`, which is now shared with `continue_gap`. The third is one whose `parked_for` is not in
+  the allowlist `MEASURED_PARKS = ("needs", "defect")`, or that is marked `deferred` or `cancelled`. So deferred,
+  cancelled, kill-rule, waits_on and split parks are refused, and so is a park with no kind said. The check runs
+  before the runs. It runs again after them, under the continue lock that `continue` and the park resumer take,
+  together with the state and branch re-read and the write. A park continued while the runs ran is caught there:
+  its counts are recorded alone and the gap stays parked. New test: `test_a_park_a_measurement_cannot_clear_is_refused`.
+  It covers each refused kind, a held branch, and a resume that lands mid-run (the stand-in suite writes `resumed_as`
+  into the record), then shows that a `needs` park is accepted. Decision taken alone (reversible): the allowlist is the
+  review's own example, `needs` and `defect`. A coordinator who wants another kind measured can widen the tuple.
+- **Finding 2: the load had no end of its own.** `runs.loaded` now touches a heartbeat file, `.git/measure-beat` in the
+  clone (`/work/...` in a container, through the mount), every stale/6 s from a thread. The `[suites] load` program
+  stops each busy process once that file is gone or has not changed for `{stale}` s. That is `[suites] load_stale_s`,
+  default 30, bounded to 1-300. The load measures staleness by its own monotonic clock, not against the host's mtime,
+  so clock skew between host and Docker VM does not matter. With this, a SIGKILL to manage.py or manager.py stops the
+  touching, and the load ends within about `load_stale_s`. A removed clone ends it at once. manage.py now calls
+  `fac.stop_on_term()`, so a SIGTERM by hand runs the finally. A run during which the load had ended counts as failed
+  ("the load had ended"), so an unloaded run never passes as a loaded one (lesson-3). New tests:
+  - `test_the_load_ends_on_its_own_when_its_caller_is_killed`: a stand-in load that honours the beat stays alive past
+    its stale time while manage.py lives, then ends after manage.py is SIGKILLed.
+  - `test_the_real_load_ends_without_its_beat`: the real `[suites] load` command from dev/factory.toml, 2 processes,
+    stale 1 s, ends with rc 0 both with its beat file missing and with it never touched.
+  - An added case in `test_a_killed_or_unreadable_run_counts_as_failed`: a load that exits at once makes its run fail.
+
+  dev/README.md now says exactly which ends stop the load (normal end, error, SIGTERM, and on its own within
+  `load_stale_s` otherwise), and which parks are measured.
+- **Breaks (lesson-9).** I broke each new guard and watched its test fail:
+  - park-kind allowlist removed: the park test failed;
+  - re-check under the lock removed: the park test's mid-run resume failed;
+  - branch-held check removed: the park test failed;
+  - beat not touched: the caller-killed test failed (the load died while its caller lived);
+  - real load loop made endless: the real-load test timed out;
+  - the load-ended check removed: the killed-or-unreadable test failed.
+- **Size.** This round adds 71 net lines in dev/: manage.py +40, runs.py +18, factory.toml +13 (the load program is
+  now multi-line). That brings the code in dev/ to about 261 lines. By the factory's own count, which leaves out dev/,
+  it is still 4. The overrun past 180 is the two review fixes: the park checks and the heartbeat with its load program.
+- **Run here.** `tests/test_factory_measure_runs.py`: 8 passed, alone, serially. `tests/test_factory_manager.py`:
+  32 passed, since `continue_gap` now shares `holders` and the lock helper. ruff is clean. **Not run here:** the unit
+  suite, the four browser files and any real 30-run load. The factory runs those.
