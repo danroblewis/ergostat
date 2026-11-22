@@ -67,3 +67,12 @@ browser: an off goal's attention entry is `loop NAME`, its loop names its stock,
 `showGoal`/`goalButton`. It is a stand-in that pins the data contract and the spelling, not the button's behaviour;
 the browser test stays the acceptance check. It was seen to fail with the Needs-attention name made plain again.
 Run: tests/test_graph_cli_web.py (32 passed); ruff clean.
+
+Round 2: the queue found one problem, a conflict with main in `ergostat/web/static/diagram.js`, and it is resolved.
+Main changed Needs attention into three headed groups (`list(xs, none)`, with a state word on each entry). The merge
+keeps main's groups and puts the branch's one change into main's entry: an entry `loop NAME` with no link becomes
+`goalButton(NAME, ...)`. Nothing else changed. Merge commit 41b0fc0e (main 720426bd).
+Run after the merge: test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction and
+test_needs_attention_is_three_headed_groups_in_a_fixed_order (3 passed, with Playwright, under the watchdog);
+tests/test_graph_cli_web.py (35 passed); ruff clean. Not run: the rest of the browser files and the unit suite. The
+merge queue runs those.
