@@ -93,3 +93,18 @@ The fast suites' `build` failed again, the same way (rc 5, "2 skipped", read on 
   in this change (lesson 9).
 - What needs to happen: the factory runs this gap's two browser files with Playwright (`build_browser = true`, or the
   merge queue). They passed with rc 0 in the first session (above).
+
+## Where it stopped (round 2)
+
+No review findings came to this round, and no code changed. The branch is the round-1 build, with main (2468c59b) as
+its base. main has not moved in the clone, so there was nothing to merge. Run again on 2026-11-22, each under
+`scripts/suite_watch.py` with Playwright 1.63.0 through `scripts/named_tests.py`:
+- `tests/test_inbox_page.py`: rc 0, 2 passed (116.9 s).
+- `tests/test_agents_page.py`: rc 0, 4 passed (42.4 s).
+- `uv run ruff check ergostat tests scripts`: clean.
+
+The build without Playwright still selects only these two browser files. Both skip at import, so it returns rc 5, as
+said above. That is factory tooling, so it was left alone (lesson 13). The gap needs its browser files run with
+Playwright (`build_browser = true`, or the merge queue). The unit suite and the four browser files were not run here,
+as the house rules say. Refused this round: a `cat >> … <<'EOF'` append to this file followed by the commit. The text
+was added with the editor instead.
