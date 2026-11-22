@@ -393,14 +393,14 @@ function availableView(d, box) {
     ];
     patch(box,
       h("h3", {}, "Loops"),
-      goals.length ? table(["loop", "u \u2192 y, process", "what would identify or tune it", "panels"], loopRows(one), "avail") : h("p", { class: "muted" }, "No goal: no loop to identify."),
+      goals.length ? table(["loop", "u \u2192 y, process", "what would identify or tune it", "panels"], loopRows(one), "avail", "Loops") : h("p", { class: "muted" }, "No goal: no loop to identify."),
       queues.length ? h("p", { class: "small muted" }, "Closing through queues, with no one process to identify: ",
         ...linkList(queues.map((g) => toolLink(g, { view: "blocks", find: isComparator(g) }, "its scope and how it is doing"))), ".") : null,
       h("h3", {}, "Parameters to estimate"),
-      (d.to_estimate || []).length ? table(["parameter", "in", "record", "estimate"], paramRows(d), "avail")
+      (d.to_estimate || []).length ? table(["parameter", "in", "record", "estimate"], paramRows(d), "avail", "Parameters to estimate")
         : h("p", { class: "muted small" }, "None is marked estimate: true: nothing to calibrate."),
       h("h3", {}, "Tools"),
-      table(["tool", "where"], tools.map(([k, v]) => h("tr", {}, h("td", {}, k), h("td", { class: "small" }, v))), "avail"));
+      table(["tool", "where"], tools.map(([k, v]) => h("tr", {}, h("td", {}, k), h("td", { class: "small" }, v))), "avail", "Tools"));
   };
   draw();
   availLoops(goals, draw);

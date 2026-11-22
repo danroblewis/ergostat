@@ -200,39 +200,8 @@ NAMES = r"""() => {
            side: document.querySelector(".diagram > .side")?.matches("aside[aria-label]") ?? null };
 }"""
 DIAGRAM_READY = "() => typeof S !== 'undefined' && S.graphSig && !document.querySelector('#main .loading')"
-
-
-@pytest.mark.parametrize("route, nav, view", [
-    ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
-    ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
-    ("/items", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"), ("/record", "/record", None),
-    ("/model", "/model", None)])
-def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
-    """Acceptance (ui-the-current-page-view-and-mode-are-announced-tab): on each page, no button or link without a
-    name, no ARIA attribute where its role does not allow it, each data table's header row in a thead, scoped and
-    captioned, the 24 px targets at least that; one nav link is the current page, one view button pressed."""
-    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
-    errors: list[str] = []
-    pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(site + route)
-    if nav == "/diagram":
-        pg.wait_for_function(DIAGRAM_READY, timeout=60000)
-    else:
-        pg.wait_for_selector("#main table", timeout=20000)
-    pg.wait_for_timeout(500)                                  # the parts asked for after the first (counts, charts)
-    got = pg.evaluate(NAMES)
-    assert got["out"] == [], got["out"]
-    assert got["current"] == [nav], got["current"]
-    assert got["pressed"] == ([view] if view else []), got["pressed"]
-    if nav == "/diagram":
-        assert got["side"] is True                           # the side panel a landmark, named
-        assert pg.locator(".zoom button.z").evaluate_all("bs => bs.map((b) => b.getAttribute('aria-label'))") == ["Zoom out", "Zoom in"]
-        assert pg.locator(".toolbar .menu-btn.dots").get_attribute("aria-label") == "More diagram options"
-    if route == "/record":
-        pg.locator(".filters label.check").click()            # the 24 px checkbox, checked by its label
-        assert pg.locator(".filters label.check input").is_checked()
-    assert not errors, errors
-    pg.close()
+# (the test that uses them is the file's last: opening /model makes a model change in the shared site's record,
+# and test_the_model_changes_are_found_by_heading_search_and_panel counts exactly three)
 
 
 def test_a_field_named_by_sorts_by_author(browser, site):
@@ -1024,3 +993,37 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+@pytest.mark.parametrize("route, nav, view", [
+    ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
+    ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
+    ("/items", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"), ("/record", "/record", None),
+    ("/model", "/model", None)])
+def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
+    """Acceptance (ui-the-current-page-view-and-mode-are-announced-tab): on each page, no button or link without a
+    name, no ARIA attribute where its role does not allow it, each data table's header row in a thead, scoped and
+    captioned, the 24 px targets at least that; one nav link is the current page, one view button pressed.
+    (Last in the file: see DIAGRAM_READY.)"""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(site + route)
+    if nav == "/diagram":
+        pg.wait_for_function(DIAGRAM_READY, timeout=60000)
+    else:
+        pg.wait_for_selector("#main table", timeout=20000)
+    pg.wait_for_timeout(500)                                  # the parts asked for after the first (counts, charts)
+    got = pg.evaluate(NAMES)
+    assert got["out"] == [], got["out"]
+    assert got["pressed"] == ([view] if view else []), got["pressed"]
+    assert got["current"] == [nav], got["current"]
+    if nav == "/diagram":
+        assert got["side"] is True                           # the side panel a landmark, named
+        assert pg.locator(".zoom button.z").evaluate_all("bs => bs.map((b) => b.getAttribute('aria-label'))") == ["Zoom out", "Zoom in"]
+        assert pg.locator(".toolbar .menu-btn.dots").get_attribute("aria-label") == "More diagram options"
+    if route == "/record":
+        pg.locator(".filters label.check").click()            # the 24 px checkbox, checked by its label
+        assert pg.locator(".filters label.check input").is_checked()
+    assert not errors, errors
+    pg.close()

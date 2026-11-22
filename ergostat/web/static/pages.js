@@ -1054,18 +1054,18 @@ async function pageModel(main) {
       ...(d.modelling?.says ? [h("p", { class: "muted" }, h("b", {}, "Modelling: "), d.modelling.says)] : []),
       ...(d.invalid?.length ? [h("p", { class: "s-off" }, `The replay is not valid: ${d.invalid.join("; ")}.`)] : []),
       h("h3", {}, "Model fit", h("span", { class: "muted" }, ` the stocks an equation moves, over the last ${span} of record`)),
-      d.stocks.length ? table(fitHead(d.words, "stock"), fitRows(d.stocks, d.total), "fit")
+      d.stocks.length ? table(fitHead(d.words, "stock"), fitRows(d.stocks, d.total), "fit", "Model fit")
         : h("p", { class: "muted" }, "No stock is moved by an equation: nothing here tests the model's equations yet."));
     const judged = Object.entries(d.judged_by_stock || {});
     patch(eqBox, ...(d.partial.length || d.equations.length || judged.length ? [
       h("h3", {}, "Equations, inputs as measured", h("span", { class: "muted" }, " the partial-model test")),
-      d.partial.length ? table(fitHead(d.words, "worked out"), fitRows(d.partial, null), "fit") : h("p", { class: "muted" }, "No equation's part is measured."),
+      d.partial.length ? table(fitHead(d.words, "worked out"), fitRows(d.partial, null), "fit", "Equations, inputs as measured") : h("p", { class: "muted" }, "No equation's part is measured."),
       ...(d.equations.length ? [h("h3", {}, "Equations, replayed", h("span", { class: "muted" }, " every stock integrated")),
-        table(fitHead(d.words, "worked out"), fitRows(d.equations, null), "fit")] : []),
+        table(fitHead(d.words, "worked out"), fitRows(d.equations, null), "fit", "Equations, replayed")] : []),
       ...judged.map(([r, st]) => h("p", { class: "muted small" }, `${r.split(".").slice(1).join(".")} is measured from its stock's changes: judged by ${st ? st.split(".").slice(1).join(".") : "its stock"}'s replay, above.`)),
     ] : []));
     patch(accBox, ...(d.accounting.length ? [h("h3", {}, "Accounting", h("span", { class: "muted" }, " stocks moved only by measured flows")),
-      table(fitHead(d.words, "stock"), fitRows(d.accounting, null), "fit")] : []));
+      table(fitHead(d.words, "stock"), fitRows(d.accounting, null), "fit", "Accounting")] : []));
     patch(notes, ...d.notes.map((n) => h("p", { class: "muted small" }, n)));
     const why = Object.entries(d.not_proposed || {});
     const q = d.queue || [];
