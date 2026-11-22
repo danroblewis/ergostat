@@ -170,7 +170,9 @@ build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_
                                      # of the modules it changed (affected_tests.py). Comment it out or leave it ""
                                      # and the step runs the full unit suite, as before. The merge queue never reads
                                      # it: it always runs unit, browser and demo in full
-browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rfEs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+                                     # (-rfEs, as unit: the SKIPPED lines queue.suites counts, and the FAILED and
+                                     # ERROR lines fac.failed_tests reads; -rs alone printed neither of those)
 browser_ready = "uv run --with playwright==1.63.0 python -c 'from playwright.sync_api import sync_playwright as s; p = s().start(); p.chromium.launch().close(); p.stop()'"
                                      # before an implementor round with build_browser (agents.browser_ready): no
                                      # browser stops it
@@ -180,7 +182,8 @@ build_browser = false                # true: each implementor round also runs th
 demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
-rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -p no:randomly {tests}"
+rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rfEs -p no:randomly {tests}"
+                                     # (-rfEs, as browser: the FAILED and ERROR lines fac.failed_tests reads)
 measure = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"  # one run of
                                      # a definition's named measurement (manage.py measure-runs, dev/bin/runs.py)
 load = '''python3 scripts/suite_watch.py -- python3 -c '
