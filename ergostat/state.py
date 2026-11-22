@@ -314,7 +314,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             loops[lp.name].update(per=g.per, breaking=held[1], breaking_n=held[2],
                                   **({"setpoint": f"{g.hold.op} {r:g}"} if r is not None else {}))
         loops[lp.name]["off_by_words"] = off_by_words(loops[lp.name]["setpoint"], error, c.tolerance,
-                                                      getattr(m.stocks.get(c.holds), "unit", ""))
+                                                      getattr(m.stocks.get(c.holds), "unit", ""), status == "off")
 
     contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
@@ -610,17 +610,21 @@ LEVELS = {"bad": 0, "warn": 1, "hint": 2}
 UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
 
 
-def off_by_words(setpoint: str, error, tolerance: float = 0.0, unit: str = "") -> str | None:
+def off_by_words(setpoint: str, error, tolerance: float = 0.0, unit: str = "", off: bool = False) -> str | None:
     """How far a goal is from its bound, the one phrase every surface outside Blocks prints (Blocks says
     e = r − y with its sign): ``off by 36 tickets`` past a <= or >= bound, ``28 short of 180`` below a
-    setpoint and ``12 over 80%`` above it, ``within its band`` inside its tolerance; None when not known."""
+    setpoint and ``12 over 80%`` above it, ``within its band`` inside its tolerance; None when not known.
+    ``off`` is the loop's status (Controller.status, with its hysteresis): an off loop is never worded as
+    inside, so it gets its distance even within its tolerance, and ``at its bound`` on a strict bound at e = 0."""
     import re
     got = re.match(r"\s*(<=|>=|==|[<>=≤≥])\s*(-?[\d.]+(?:e[-+]?\d+)?)", setpoint or "")
     if error is None or not got:
         return None
     d, at = abs(error), float(got.group(2))
     say = (lambda x: f"{fmt(x)}%") if unit == "%" else (lambda x: f"{fmt(x)} {unit}" if unit else fmt(x))
-    if d and d <= tolerance:
+    if off and not d:
+        return "at its bound"
+    if d and d <= tolerance and not off:
         return "within its band"
     if got.group(1) not in ("==", "="):
         return f"off by {say(d)}" if d else "within its bound"

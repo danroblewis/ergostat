@@ -4,9 +4,10 @@ from ergostat.model import Controller
 from ergostat.state import off_by_words
 
 
-def words(setpoint, value, tolerance=0.0, unit=""):
+def words(setpoint, value, tolerance=0.0, unit="", was_off=False):
+    """The phrase as the state words it: from the error and the loop's own status (with its hysteresis)."""
     c = Controller(name="g", holds="s", setpoint=setpoint, tolerance=tolerance)
-    return off_by_words(setpoint, c.error(value), tolerance, unit)
+    return off_by_words(setpoint, c.error(value), tolerance, unit, c.status(value, was_off) == "off")
 
 
 def test_past_a_ceiling_or_a_floor_it_is_off_by_the_distance_in_its_unit():
@@ -23,6 +24,31 @@ def test_a_setpoint_with_a_band_says_short_over_or_within():
     assert words("== 80", 83, tolerance=5, unit="%") == "within its band"
     assert words("<= 5", 6, tolerance=1, unit="tickets") == "within its band"   # past a ceiling, inside its tolerance
     assert words("== 80", 80, unit="%") == "on its setpoint"
+
+
+def test_a_loop_that_is_off_is_never_worded_as_inside():
+    # off, then back inside the tolerance but not the setpoint: the status keeps it off (hysteresis)
+    assert words("<= 5", 6, tolerance=1, was_off=True) == "off by 1"
+    assert words("<= 5", 7, tolerance=3, unit="tickets", was_off=True) == "off by 2 tickets"
+    assert words("== 80", 83, tolerance=4, unit="%", was_off=True) == "3 over 80%"
+    # a strict bound is off at the bound itself, where e = 0
+    assert words("< 5", 5, unit="tickets") == "at its bound"
+    assert words("> 5", 5) == "at its bound"
+    assert words("< 5", 4, unit="tickets") == "within its bound"
+
+
+def test_the_states_loop_words_its_distance_from_its_own_status(project):
+    from ergostat import runner, state
+    project.measurements.add("sensor/disk-usage", 83)        # past 80 by more than the tolerance of 2: off
+    runner.edges(project)
+    project.measurements.add("sensor/disk-usage", 81)        # inside the tolerance, still off until back within 80
+    lp = state.snapshot(project)["loops"]["disk-under-80"]
+    assert (lp["status"], lp["off_by_words"]) == ("off", "off by 1%")
+    assert "(off by 1%)" in [a["says"] for a in state.attention(state.snapshot(project), running=False)
+                              if a["what"] == "loop disk-under-80"][0]
+    project.measurements.add("sensor/disk-usage", 80)
+    lp = state.snapshot(project)["loops"]["disk-under-80"]
+    assert (lp["status"], lp["off_by_words"]) == ("holding", "within its bound")
 
 
 def test_a_goal_with_no_unit_says_the_bare_number_and_an_unknown_one_says_nothing():
