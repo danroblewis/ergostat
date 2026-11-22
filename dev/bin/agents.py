@@ -429,13 +429,13 @@ class NotStarted(RuntimeError):
     """A queue suite's container that did not start: an infrastructure failure, never a red suite or a gap's fault."""
 
 
-def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str) -> tuple[str, str]:
+def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str, env: tuple = ()) -> tuple[str, str]:
     """(a container's name, the shell command that runs ``cmd`` in it): one of the merge queue's (``box`` "queue") or
     flake triage's ("triage") suites, in the agent image on ``work`` at /work, with no network (a demo's servers and
     ports in its own namespace), pinned to [agents] queue_cpuset. The Mac's checkout is kept as the Mac left it: the
     image's own environment (/opt/venv), with an empty tmpfs over the checkout's .venv; bytecode and ruff's cache under
     /tmp; the git directory read-only (a worktree's at its own path). run/coverage/ at its own path, as the unit run's
-    ERGOSTAT_COVERAGE names it."""
+    ERGOSTAT_COVERAGE names it. ``env``: more NAME=value settings for it (fac.suite's PYTEST_ADDOPTS)."""
     name, work = container(f"suite-{box}"), work.resolve()
     common = Path(fac.git(work, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
     cov = fac.run_dir(cfg, "coverage").resolve()
@@ -444,7 +444,7 @@ def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str) -> tuple[str, 
             *limits(cfg, "queue", QUEUE_CPUS.get(suite, 4)), *SHOTS, "-v", f"{work}:/work", "-v", f"{cov}:{cov}",
             "-v", f"{common}:{inside}:ro", *(["--tmpfs", "/work/.venv"] if (work / ".venv").is_dir() else []),
             "-e", "UV_PROJECT_ENVIRONMENT=/opt/venv", "-e", "PYTHONPYCACHEPREFIX=/tmp/pycache",
-            "-e", "RUFF_CACHE_DIR=/tmp/ruff", "-w", "/work", settings(cfg)["image"], "sh", "-c", cmd]
+            "-e", "RUFF_CACHE_DIR=/tmp/ruff", *[x for e in env for x in ("-e", e)], "-w", "/work", settings(cfg)["image"], "sh", "-c", cmd]
     return name, shlex.join(args)
 
 
