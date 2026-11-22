@@ -126,3 +126,26 @@ Built, 8 net lines outside tests (diagram.js +3, style.css +3 net of the two cha
   without Playwright. No code was changed, the reversible choice. This gap waits on a factory gap that makes the build
   step run browser-only selections with Playwright, or not count their rc 5 as a failure (lesson 13). The merge queue
   runs the browser files in full.
+
+## Where it stopped (round 3)
+
+- No review findings to answer (none recorded). main is still 277a9c6c, already merged in; nothing new to merge.
+- The build step's rc 5: main has since shown the way out (ab17bb6e, for the Agents page's gap, which had the same
+  problem): a real unit test, in tests/test_graph_cli_web.py, that the build can run without Playwright. This round
+  does the same, so the factory is not changed (lesson 13). The test is not there only to give the step something to
+  run (lesson 9). It checks what the change rests on:
+  `test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas` serves a copy of big
+  and checks three things. Big's `/api/graph?view=process` has no nodes and no kinds, so the page takes its empty
+  branch. The served diagram.js holds the new wording and its Dynamics link. The served style.css lays
+  `.canvas-wrap > .empty` over the canvas (absolute, inset 0, centred). The browser half (the text's box is inside the
+  canvas) is still the two browser tests named in round 1.
+- Seen to fail when the change was broken (made with the editor, then put back): with `position: absolute; inset: 0`
+  taken out of the overlay rule it failed at the rule assertion; with the old wording ("the process map draws how
+  items moved") it failed at the wording assertion.
+- Code unchanged: `git diff main -- ergostat/` is the same 8 lines (diagram.js +5 −2, style.css +3).
+- Runs: the new test passes, and all of tests/test_graph_cli_web.py passes (33 passed, 8.4 s). The two browser
+  acceptance tests pass with Playwright under the watchdog (2 passed, rc 0, 10.2 s). `uv run ruff check ergostat tests
+  scripts` is clean. Not run: the factory's build command itself, the unit suite, the rest of
+  tests/test_diagram_rendering.py and the other browser files (left to the factory and the merge queue).
+- Refused here: a compound command that broke style.css and diagram.js with `sed -i`, ran the test after each break
+  and restored them from /tmp copies. The breaks were made and undone with the editor instead.
