@@ -523,3 +523,9 @@ skipped, because bwrap cannot make its namespaces here. Ruff is clean. The unit 
 not run here: the factory runs them.
 
 Refused in this round: an `awk` command that printed the conflict hunks. The search and read tools were used instead.
+
+## Where it stopped
+
+Parked by the factory (review/ai-approver-for-repairs-needs-a-5, 2026-11-22 01:36).
+
+Done: approver: ai is wired through check, fix.run (passed and the request under held()), approve.py's stamped, locked, re-read approval, inbox stats, the docs, and the G0-G5 guard with 79 unit tests. Left: the guard's shaped-value premise is unsound under mutation and aliasing. A list or dict bound to a literal or json.loads can be filled with any object by the program's unchanged append, update, setdefault, subscript store, or a call that receives it, and a changed (d) method (`p.replace`, `x.get`) then runs that object's code: a file rename, a network call, an environment read printed out. What would end it: an escape and alias analysis (a container, and everything aliased with it or taken from it, is not shaped once anything stores into it by subscript, calls a method on it outside the read-only list, or passes it to a call outside forms (a) to (d)), or dropping trust in mutable containers. Each needs refusal tests for append, subscript store, a call that receives it, an alias and an element alias, each with an accepted twin. This is the sixth round to find a way past the same assumption (that unchanged code does not change what the guard relies on), so it needs a redesign before another fix round.
