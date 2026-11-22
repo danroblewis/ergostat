@@ -367,6 +367,18 @@ cannot read means no pick; the run says why. On each merged simplification, `sim
 the gap's own merge (found by its subject in the batch's range), never a batch-mate's commits. To see what it
 would pick: `python3 dev/bin/simplify.py pick`.
 
+**The code measures** (`dev/model/code-health.yaml`, hourly): `measure.py code-net-lines`, `code-long-functions`,
+`code-duplicates` and `code-dead-candidates` are sums over `code_evidence.py`'s rows on the checkout's main;
+`code-coverage` is the latest coverage report's covered statements over its statements. Each reading is appended to
+`run/code-measures.jsonl` with the seq and sha it measured. `measure.py NAME-change` is the change over main's last 10
+merges, by seq. A sha counts once (its last reading), and a sha no longer on main is not read. The goals
+`code-net-lines-not-rising`, `code-long-functions-not-rising`, `code-duplicates-not-rising`,
+`code-dead-candidates-not-rising` and `code-coverage-not-falling` each hold one measure, so net lines alone never
+say the code got simpler. A size goal off sets `simplify-when`'s `drift` input (`code-drift`), which still waits
+while a simplification is in flight. Any goal off asks the coordinator (`code-health-off`). No checkout, a failing
+evidence run, no coverage report, an unreadable history line, or fewer than two of main's commits measured within
+10 merges: no value (exit 1), never 0.
+
 ## The machine's resources: a cap on the pools
 
 The machine is measured every 30 s (`dev/bin/resources.py`, `dev/model/resources.yaml`): the host's CPU, memory,
