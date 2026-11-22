@@ -108,3 +108,17 @@ said above. That is factory tooling, so it was left alone (lesson 13). The gap n
 Playwright (`build_browser = true`, or the merge queue). The unit suite and the four browser files were not run here,
 as the house rules say. Refused this round: a `cat >> … <<'EOF'` append to this file followed by the commit. The text
 was added with the editor instead.
+
+## Where it stopped (third build rc 5)
+
+The build failed a third time, and the same way. `affected_tests.py` picked `tests/test_agents_page.py` and
+`tests/test_inbox_page.py`. Both skipped at import because the build has no Playwright, and pytest returned 5 with
+nothing run. No test failed. No code changed this time, for the reasons given above: no change to the page code can
+make a browser file run without Playwright, and the fix belongs to the factory's tooling (lesson 13). Every later build
+of this branch will fail the same way until one of these happens:
+- the build treats a selection of only browser files as `--collect-only`, or counts rc 5 as a pass;
+- `build_browser = true` is set for this gap;
+- the gap goes to the merge queue.
+
+The browser files passed with Playwright in rounds 1 and 2 (rc 0, above). Refused this time: a `cat >> … <<'EOF'`
+append to this file followed by `git add dev/records && git commit …`. The text was added with the editor.
