@@ -102,6 +102,26 @@ def test_the_fixer_proposes_a_unit_it_can_infer_from_the_sensor(tmp_path, monkey
     assert "stock.backlog" not in [r["about"] for r in ru.unitless(p)]         # its change waits: not made again
 
 
+def test_a_change_adding_a_unitless_stock_is_judged_as_before_a_craft_note_not_a_new_finding(tmp_path):
+    from ergostat.numbers import improve as im
+    from ergostat.numbers import scorecard as sc
+    p = project(tmp_path)               # tickets-open has no flow: a change gives it one, into a new stock with no unit
+    add = "    sensor: {manual: true}\nflows:\n"
+    r = im.trial(p, {"kind": "structure", "parts": ["stock.tickets-open", "stock.closed"], "title": "tickets close",
+                     "edit": {"file": "ergostat.yaml", "replace": add,
+                              "with": "    sensor: {manual: true}\n  closed:\n    description: tickets closed so far\n"
+                                      "    cumulative: true\n    sensor: {manual: true}\nflows:\n  closing:\n"
+                                      "    from: tickets-open\n    to: closed\n    description: tickets closed\n"
+                                      "    driven-by: +stock.tickets-open\n"},
+                     "reasons": [{"says": "tickets are closed", "evidence": "finding:stock-without-flows@stock.tickets-open"}]})
+    assert r["would"] == "be proposed", r
+    f = r["findings"]
+    assert "stock-without-flows@stock.tickets-open" in f["answered"]
+    assert "no-unit@stock.closed" in f["notes_new"] and not [x for x in f["new"] if x.startswith("no-unit")], f
+    assert sc.findings(p.model.problems) & {"no-unit@stock.backlog"} == set()     # the scorecard: a note, as before
+    assert "no-unit@stock.backlog" in sc.notes(p.model.problems)
+
+
 def test_ergostat_check_warns_naming_the_file_and_line(tmp_path):
     project(tmp_path)
     got = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "check"], capture_output=True, text=True,

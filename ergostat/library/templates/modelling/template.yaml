@@ -1,6 +1,6 @@
 template: modelling
 once: true
-description: The model improved as a loop of its own (SPEC §12e) - its fit a stock held by a goal, everything check finds held as requests, tiers that answer them (the fixer, a program of mechanical fixes, then an AI agent when asked), an improver for the fit, and ergostat's judge that tests each change and writes what the policy allows.
+description: The model improved as a loop of its own (SPEC §12e) - its fit a stock held by a goal, what check finds held as requests (a stock with no unit is a check finding, not a request), tiers that answer them (the fixer, a program of mechanical fixes, then an AI agent when asked), an improver for the fit, and ergostat's judge that tests each change and writes what the policy allows.
 reading: |
   System dynamics: the model's error is a stock (model-error, read by ergostat's built-in measure
   ergostat.model.fit, the Fit page's total), drained as changes are written (model-mended) and moved either way by

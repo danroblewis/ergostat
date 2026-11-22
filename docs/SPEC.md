@@ -3549,7 +3549,8 @@ them for someone new to system dynamics):
   model cannot say why it changes. Name its causes, or mark it `exogenous: true`;
 - **no-unit**: a stock with no unit (a template's parts left out), with its file and line. A property of the model,
   not a request: the modelling loop raises none for it (§12e), so `requests-handled` never counts it; its fixer, when
-  it runs, reads it from check and proposes the unit it can infer, as a change. The Dynamics view writes `unit ?`,
+  it runs, reads it from check and proposes the unit it can infer, as a change. The judge and the redesign scorecard
+  count it as a craft note (`requests.as_note`): a change that adds a stock with no unit makes no new finding. The Dynamics view writes `unit ?`,
   muted, after the stock's value, with a legend row; the Model page's Tools table names each such stock.
 - **extreme-conditions**: the behaviour test of extreme conditions (section 12c): the equations run
   with the stocks empty, with nothing coming in, with each input alone at 0 and at a hundred times its

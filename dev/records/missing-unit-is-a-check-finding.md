@@ -57,3 +57,20 @@ Not run here: the :8797 check by eye (no server or screen in this session); `dem
 suites (left to the factory and the merge queue); a scan of the examples for unitless stocks (the shell refused the
 scratch script and the loop over `ergostat check`). An example with a unitless stock now shows a `no-unit` warning on
 Check and `unit ?` on its diagram, and one fewer request.
+
+Round 2 (answering review/missing-unit-is-a-check-finding-1):
+- Blocking (the judge and scorecard counted `no-unit` as a new finding): fixed. `requests.as_note` counts a note or a
+  `CHECK_ONLY` finding as a craft note, and the change's findings (improve.py), the scorecard's findings and notes, and
+  the redesigner's "check still finds" list use it. The judge and the redesign verdict read `no-unit` as they did on
+  main: a change that adds a unitless stock makes no new finding (it is among `notes_new`), and a unit change answers a
+  note. So the round 1 line above, that `no-unit` counts among a change's new or answered findings, is no longer
+  true. It still counts in `ergostat.model.open-findings`, which the review left alone.
+  Test: tests/test_missing_unit.py::test_a_change_adding_a_unitless_stock_is_judged_as_before_a_craft_note_not_a_new_finding
+  (fails with `as_note` reduced to the note level: `new` reads ['no-unit@stock.closed']). test_redesign.py's scorecard
+  assertion is back to main's (no-unit among craft closed).
+- Non-blocking (template.yaml:3 said "everything check finds held as requests"): the description now says a stock with
+  no unit is a check finding, not a request.
+- Non-blocking (the new files are justified): nothing to change.
+Run: tests/test_missing_unit.py (5 passed), tests/test_redesign.py (22 passed), tests/test_self_improve.py (passed
+with test_redesign.py before its fix; its one failure was test_redesign's), ruff clean.
+Not run: the browser file (this round touches no page), demo_check, the full suites.

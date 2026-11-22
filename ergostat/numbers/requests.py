@@ -46,7 +46,15 @@ NOT_MODELLING = {              # said by check, but no change to the model answe
     "schedule-removed",        # a goal: with every: is also a meant pace (SPEC §9.1): only its author can say which
 }
 CHECK_ONLY = {"no-unit"}       # a property of the model check reports, no request: the rule tier reads check (rules.py)
-OPEN = ("open", "proposed", "held")
+
+
+def as_note(x) -> bool:
+    """Counted as a craft note by the judge and the scorecard: a note, or a check-only finding (a modeller adds a stock,
+    the fixer gives it its unit), so neither is among a change's new or answered findings."""
+    return x.level == "note" or x.code in CHECK_ONLY
+
+
+OPEN =("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
 ENDED = ("refused", "failed", "dismissed", "inconclusive")
 DISMISSAL = ("note", "dismissed_by", "dismissed", "part", "approved_by")   # cleared when it is raised again
