@@ -227,6 +227,29 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
+    """Each page's header carries 'N wait for you' (#waits) before its nav, a link to /diagram#waiting, and the
+    Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""
+    import re
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.web.server import STATIC, handler
+    diagram = (STATIC / "diagram.js").read_text()
+    assert re.search(r'h\("h3", \{[^}]*id: "waiting"[^}]*\}, "Waiting for you"', diagram), "the heading lost its id"
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        for path in ("/items", "/agents", "/loops", "/record"):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                header = r.read().decode().split("<header", 1)[1].split("</header>", 1)[0]
+            link = re.search(r'<a id="waits"[^>]*href="/diagram#waiting"', header)
+            assert link and link.start() < header.index("<nav"), path
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
