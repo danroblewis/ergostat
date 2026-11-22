@@ -68,3 +68,13 @@ Tests:
   was refused. The unit suite and the other browser files were not run either: they are left to the factory and the
   merge queue.
 - No merge of main: local `main` is this branch's base.
+
+Round 1, build fix: the factory's `build` step (`scripts/affected_tests.py`) picked only
+`tests/test_diagram_rendering.py`. There is no `tests/test_state.py` for the `state.py` change. The build has no
+Playwright, so that file skipped as a whole and pytest returned rc 5 (no tests ran). No code was at fault. This round
+adds the missing unit test for the `state.py` change, so the build now also runs `tests/test_inbox.py`:
+`tests/test_inbox.py::test_each_loop_line_carries_its_state_and_whether_the_goal_is_modellings`. It checks three
+things: each loop entry's `state` is its status; only the `use: modelling` goal is marked `modelling`; the
+reports-upstream line is marked `waiting`. It passes, and so does the whole of `tests/test_inbox.py` (31 passed).
+Checked that it can fail: with the modelling match broken in `state.py`, it failed (KeyError 'modelling'). No code
+outside tests changed.
