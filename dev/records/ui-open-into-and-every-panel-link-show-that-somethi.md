@@ -25,3 +25,36 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built (net +30 lines in `ergostat/`, inside the budget).
+
+- **Into, Open and every other move between diagrams** (`util.js` route, `diagram.js` pageDiagram): the diagram
+  being left is kept: its canvas, dimmed and not clickable (`g.was`), with "Opening api…" in the middle of the canvas
+  (or "Loading…" for a move that opens nothing, e.g. a view switch), and its side list, dimmed, until the new answer
+  is drawn over both. While it is there `S.layout` is null, so nothing waits on or redraws the old layout. A first load
+  (no diagram before) shows the "Loading…" it always showed.
+- **A panel opening** (`details.js` `panelLoading`; used by openNode, openLoop, openAgent and openEdge's flow, and
+  `dynamics.js` openNodeSD and openEdgeSD's flow): its kind, title and "Loading…" at once, then the panel as it was.
+  Where the read fails, the note says "Could not be read." rather than staying "Loading…". Panels that read nothing
+  first (a system, a process node) were already instant and are untouched.
+- **Loops and Items**: "Loading…" under the heading, replaced by the first answer (Items: also removed when its
+  first answer is a bad filter, said in the chip as before).
+
+Choices made alone (the most reversible): the acceptance names the `:8797` demo, its `api` system and a `fixer` link;
+neither the demo nor `fixer` is in the clone, so the test uses `examples/big` (it has a system `api` with goals) and
+the agent link `api-q0-drain` in the goal `api-q0-low`'s panel (the loop's parts table, where a goal's agents are
+linked). The server is made slow on purpose (an init script holds back the named API answers 2.5 s), so "300 ms
+after" falls inside a slow answer on any machine.
+
+Tests (tests/test_diagram_rendering.py):
+`test_into_open_and_a_panel_link_show_at_once_that_something_is_happening` and
+`test_loops_and_items_say_loading_under_their_heading_until_their_answer[loops|items]`: pass. Each was seen to fail
+on a break: the diagram left not kept (no canvas text), the side list not carried (side blank), openAgent without
+its loading panel (h2 is the loop's), and Loops/Items without "Loading…" (both params fail).
+tests/test_items_page.py: 21 passed, rc 0. ruff clean. The whole of tests/test_diagram_rendering.py was started
+under the watchdog but stopped unfinished at the session's 20-minute limit for a background command, so its result is
+not known; of it, the three nearest the change pass (rc 0): every part opens its panel even mid-redraw, opening and
+closing a system keeps it on the screen, pages are ordinary links walked back. Not run by me: the unit suite and the other browser files
+(left to the factory and the merge queue, as the brief says); no origin/main ref in the clone (main is the base).
