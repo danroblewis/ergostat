@@ -652,6 +652,9 @@ Add `use: repair` (once a model, like `modelling`; SPEC §12r) when the owner wa
 failed run becomes an `ergostat.failure` item, one per signature, counted; one whose block runs a program of the
 project's is fixed by an AI (haiku by default, with no tools: ergostat gives it the program and the files beside it) in
 a clone of the repository, tested in the sandbox, and proposed as the gated action `apply-fix` with its impact report.
+Once applied, the fix is verified by the runs of its block begun after it (`verify` of them finished well: not a claim
+the failure is fixed); one that fails again regresses it, and the gated action `revert-fix` offers one `git revert` of
+the fix. A regressed fix whose revert is denied stays regressed, for the owner.
 Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
 is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
 swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
@@ -664,6 +667,8 @@ What you set:
   untested, and only a person may approve it.
 - **`approver:`** `person`, the only one for now: the owner reads each fix in the inbox. `ai` is refused by `check`
   until a sound guard exists (GAPS).
+- **`verify:`** how many good runs after a fix verify it (default 3; 1 to 50, `check` refuses others). A block that
+  runs rarely takes that long to verify.
 - **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs
   committed.
 

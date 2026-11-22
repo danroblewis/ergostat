@@ -5746,8 +5746,8 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
-is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (verifying
-a fix by the runs after it, offering its revert, the ladder's other rungs) is in `docs/GAPS.md`.
+is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (the
+ladder's other rungs) is in `docs/GAPS.md`.
 
 ```yaml
 uses:
@@ -5760,6 +5760,7 @@ uses:
       daily: 2                # dollars, every AI call of the loop in a day
       test: pytest -q         # the project's tests, for a program that is not read-only
       tries: 3                # fixes tried for one failure before it is a dead letter
+      verify: 3               # good runs of the block, begun after a fix, before it counts as verified (1 to 50)
 ```
 
 **Triage.** In a model that uses repair, every failed run of a `program` or `ai` block is recorded as
@@ -5796,15 +5797,20 @@ note `could not start: its run log: ...`), so its failure stays `noted`. A failu
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
 timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
 (SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that
-exits with such a code on purpose is noted too. One that fails again after its fix was applied is opened again. Triage
-writes `ergostat.failure.opened` whenever the run's own facts allow it, and the **fold decides** whether it moves the
-item, by the item's state at that event's place in the record (`moves_from`, section 5a): `opened` moves a failure only
-from `noted`, `applied` or `superseded`, so a failure leased, awaiting approval, dismissed or dead stays where it is,
-the refusal listed, whatever triage read before it wrote. What triage still decides from a read (whether the item is
-new, when its run of failures `began`, which old item it supersedes) is read, decided and written while it holds
-`repair/capture.lock` in the state directory. The loop's own blocks (`repair-fix`, `repair-settle`) and any run a
+exits with such a code on purpose is noted too. Triage writes `ergostat.failure.opened` whenever the run's own facts
+allow it, and the **fold decides** whether it moves the item, by the item's state at that event's place in the record
+(`moves_from`, section 5a): `opened` moves a failure only from `noted`, `verified` or `superseded`, so a failure leased,
+awaiting approval, dismissed or dead stays where it is, the refusal listed, whatever triage read before it wrote. One
+that fails again while its fix is `applied` is counted on the item and left for `repair-settle` to judge (below), one
+that fails again after it was `verified` is opened again, and a `regressed` or `reverted` one is left to a person. An
+`opened` written when triage read one of the states it moves from clears the last cycle's `verdict`, `revert` and
+`revert_key`; one written when triage read another carries none of them, so a refused `opened` never wipes a regressed
+failure's `revert_key`. What triage still decides from a read (whether the item is new, when its run of failures
+`began`, which old item it supersedes, whether `opened` clears the cycle's fields) is read, decided and written while it
+holds `repair/capture.lock` in the state directory. The loop's own blocks (`repair-fix`, `repair-settle`) and any run a
 failure's events caused (six steps up the cause chain) record no failure. States: `noted`, `open`, `leased` (being
-fixed), `awaiting-approval`, `applied`, `superseded`, `dismissed`, `dead` (its fixes failed `tries` times).
+fixed), `awaiting-approval`, `applied`, `superseded`, `dismissed`, `dead` (its fixes failed `tries` times),
+`verified`, `regressed`, `reverted`.
 
 **Swallowed errors.** A run of a `program` or `ai` block that ended well (exit 0, no note), whose block runs a program
 of the project's, has its tail read the same way. When its last trace has a project frame, one
@@ -5883,8 +5889,51 @@ awaiting approval with a tested fix; the approved action's `key` must name that 
 the owner's `HEAD` must still be the commit the fix was made on (else refused: fixed again on the new one). Then the
 tested commit is fetched from the clone and fast-forwarded (`git merge --ff-only`, which refuses atomically when the
 branch moved or a local change would be overwritten), and the clone removed. Refused, the failure goes back to open
-(`apply-failed`, with why). **`repair-settle`** (every 30 s) dismisses a failure whose `apply-fix` was denied, and
-removes the clones of failures applied, dismissed or dead.
+(`apply-failed`, with why). **`repair-settle`** (every 30 s) dismisses a failure whose `apply-fix` was denied, judges
+the applied fixes (below), and removes the clones of failures no longer awaiting approval.
+
+**Verifying** (`repair-settle`, `python -m ergostat.repair settle --verify N`). Each applied failure is judged on its own,
+under its lock (`<state>/repair/locks/<name>.lock`, an `fcntl.flock` the kernel frees when the process dies), and read
+again inside it: one no longer `applied` is left alone. The runs counted are the failing block's `agent.started` events
+whose `seq` is after the newest `ergostat.failure.applied` about the failure (never compared by time), oldest first,
+each with its end event (by `causedby`). A run not yet ended stops the count there; one that ended by a timeout, a kill,
+a signal or failing to start (triage's rule) counts neither way; any other `agent.failed` **regresses** the fix; each
+`agent.ran` is one good run, and at `verify` of them the fix is **verified**. Verified means only that `verify` runs
+of its block begun after it finished well, not that the failure is fixed. A regression is any failed run of the block
+the code may be to blame for, whatever its failure's signature: the `verdict` says which run it was, its note, and
+whether triage recorded it on this same failure (`same`). The `verdict` field holds the runs counted, the seq they
+were counted after and `verify: {used, asked, clamped}`. With an input missing (no `applied` event, the block no longer
+in the model, a commit that cannot be read) the fix is not verified: it stays `applied` and settle says why. It can
+also stay `applied` for good, said each pass: a run that never ends, or a first ten times `verify` runs begun since
+the fix that all ended by a timeout, a kill, a signal or failing to start; a person looks. **`verify`** is a whole
+number from 1 to 50: `check` refuses any other in `repair-settle`'s `run:`, and settle clamps again (below 1 is 1,
+above 50 is 50, one that cannot be read is 50) and records the clamp. It reads the oldest ten times `verify` runs begun
+since the fix, by seq, however many began after them, so a first run that failed regresses the fix even when many
+more followed before settle's pass.
+
+**Reverting.** A regressed failure gets `revert_key` (`<name>-<commit>`), and settle asks for the gated action
+**`revert-fix`** in the same locked step, and on every later pass while it is regressed, unless an action about the
+failure already has that key, so a request lost to a crash is asked next pass and none is asked twice. The inbox says:
+"Approving reverts the applied fix COMMIT in your repository with one new commit (git revert); the program goes back to
+what it was before the fix." (never "merges"). The approved action runs `python -m ergostat.repair revert` (`timeout:
+5m`), every step under the failure's lock: the failure must be `regressed` (`reverted` already: said, nothing done,
+exit 0) and the action's key its `revert_key`, so an earlier cycle's approval reverts nothing; the commit must be 40
+hex characters and an ancestor of the owner's `HEAD`. A revert commit of it already there (`This reverts commit ...`,
+from a run whose event was never written) is recorded as the revert. Otherwise the owner's tree must be clean (tracked
+files) and no revert, merge or cherry-pick in progress, else `revert-failed` with why and nothing touched; then `git
+revert --no-edit` through `ergostat.sandbox.git` (no hooks, editor, filters or gc; each git call stopped after 120 s).
+When git fails or times out, `git revert --abort` is run and checked: `aborted: true` means no revert in progress, `HEAD`
+where it was and a clean tree; otherwise the owner is told the repository is left mid-revert. `revert-failed` writes the
+`revert` field and moves nothing, so it never undoes a `reverted`; the failure stays `regressed`. A gated action past its
+`timeout` has its whole session killed (section 12k's `run_once`: the shell, its command and theirs). A **denied**
+`revert-fix` leaves the failure `regressed` for good: nothing reopens or moves it; a person reverts or fixes it by hand.
+
+| state | entered by | left by |
+|---|---|---|
+| `applied` | the approved `apply-fix` | `verified`, `regressed` (settle) |
+| `verified` | `verify` good runs after the fix | `opened`, when it fails again |
+| `regressed` | a failed run after the fix | `reverted` (the approved `revert-fix`); else stays |
+| `reverted` | the revert commit | nothing: a person looks |
 
 **Costs and the cap.** Each AI call's Claude Code result message is passed on without its text (so its cost is the
 run's, section 9.1, and nothing the AI wrote is read as one of the run's lines). Before every call the loop's ledger
