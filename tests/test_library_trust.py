@@ -417,5 +417,5 @@ def test_security_lists_what_trust_allows():
         item = re.search(rf"^- \*\*{label}:\*\*.*?(?=^\S|\Z)", text, re.S | re.M).group(0)   # with its wrapped lines
         return set(re.findall(r"`([a-z-]+)`", item))
     assert listed("Sections") == set(trust.ALLOWED)
-    assert listed("Block types") == set(trust.BLOCK_TYPES)
+    assert listed("Block types") == set(trust.BLOCK_TYPES) | set(trust.MACHINE_TYPES)
     assert listed("Sensor keys") == {k for k, v in trust.SENSOR.items() if v[0] != trust.NO}

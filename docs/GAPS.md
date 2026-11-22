@@ -52,10 +52,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
   *Untrusted libraries*). **Built** (`library-provenance-marks`): values carry their writer through expansion and
   nested uses, so a held chain may run the owner's own `type: command` values (whole, or quoted into a built-in's
   run) and pass only narrow, fully matched, bounded library values after data flags of ergostat's own programs
-  (`LIB_DATA_FLAGS`, `--every` at the same 5-minute floor); an owner folder's run takes no library value.
+  (`LIB_DATA_FLAGS`, `--every` at the same 5-minute floor). An owner folder's run takes no library value, not even a
+  quoted one (`sh -c ${x:quote}` runs whatever lands in it), which replaces the parent plan's "quoted library literal
+  accepted in trusted text". **Built** (`library-provenance-join-1`, R3): a held chain's `ask`, `prompt`, sensor
+  `query` and `sources` entries stand only when no piece of them is the library's (a piece whose writer can't be told
+  counts as the library's), else the use is refused as `untrusted-text`; `ai` and `person` blocks may say only that
+  text, `goal`, `until`, `every` and `cron`, every other key refused by name (SPEC §2a, R3).
   *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
   descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
-  them, and the `library-untrusted` refusal's folder path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
+  them, and the `library-untrusted` refusal's folder path); `fetch` by git URL or package, refusing a lock entry
   without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
   the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
