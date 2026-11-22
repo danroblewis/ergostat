@@ -59,16 +59,30 @@ def note(project, extra: dict | None = None) -> dict | None:
     v = version(project.model)
     last = project.events.query(n=1, type="model.changed")
     before = last[-1]["data"].get("parts", {}) if last else {}
-    if now == before and (not last or last[-1]["data"].get("version", v) == v):
+    same = now == before and (not last or last[-1]["data"].get("version", v) == v)
+    more: dict = {}
+    if getattr(project.model, "spec", None) is not None:      # a YAML model: each system's interface, as a signature
+        from .interface_history import recorded, signatures
+        more["interfaces"] = ifs = signatures(project.model.spec)
+        prev = last[-1]["data"].get("interfaces") if last else None
+        if recorded(prev):
+            diff = sorted(k for k in set(ifs) | set(prev) if ifs.get(k) != prev.get(k))
+            more.update({"interfaces_changed": diff} if diff else {})
+            same = same and not diff
+        elif last and same:                                    # a record from before interfaces were kept: a start
+            more["baseline"], same = True, False
+    if same:
         return None
     added = sorted(set(now) - set(before))
     removed = sorted(set(before) - set(now))
     changed = sorted(k for k in set(now) & set(before) if now[k] != before[k])
     return project.events.add("model.changed", item=project.model.name, source="ergostat",
                               data={"added": added, "removed": removed, "changed": changed, "parts": now,
-                                    "version": v, "first": not last, **(extra or {})})
+                                    "version": v, "first": not last, **more, **(extra or {})})
 
 
 def changes(project, since: float) -> list[dict]:
-    """The model's changes since then, oldest first (the first recording of a model is not a change)."""
-    return [e for e in project.events.query(n=None, type="model.changed", since=since) if not e["data"].get("first")]
+    """The model's changes since then, oldest first (the first recording of a model, and the first recording of its
+    interfaces, ``baseline``, are not changes)."""
+    return [e for e in project.events.query(n=None, type="model.changed", since=since)
+            if not e["data"].get("first") and not e["data"].get("baseline")]

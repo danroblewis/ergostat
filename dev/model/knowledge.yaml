@@ -118,12 +118,18 @@ auxiliaries:
     description: of sub-gaps merged, the share approved on their first review
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py splits-clean, every: 10m, timeout: 1m, description: the factory's measures}
-  split-quality:
+  splits-covered:
     system: intake
     unit: share
     description: of split parents whose first join verdict is in 14 days, the share whose first verdict (in record order) was covered; short then covered counts as not covered
     driven-by: [+flow.gaps-split-off]
-    sensor: {run: python3 dev/bin/measure.py split-quality, every: 10m, timeout: 1m, description: the factory's measures}
+    sensor: {run: python3 dev/bin/measure.py splits-covered, every: 10m, timeout: 1m, description: the factory's measures}
+  split-budgets-held:
+    system: intake
+    unit: share
+    description: of sub-gaps merged in 14 days, the share whose net lines are at or under their own definition's size budget; a definition, budget or net lines it cannot read is not held
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py split-budgets-held, every: 10m, timeout: 1m, description: the factory's measures}
   split-joins:
     system: intake
     unit: parents
@@ -133,7 +139,7 @@ auxiliaries:
   split-overhead:
     system: intake
     unit: ratio
-    description: of split parents merged in 14 days, the median of the parent's own AI cost plus its children's (join sub-gaps and continuations too, a parked sub-gap's cost but not its lines) over the median cost of merged unsplit gaps of the children's summed size class; a parent that cannot be priced is left out
+    description: of split parents judged covered in 14 days (judged_at), the median of the parent's own AI cost plus its children's (join sub-gaps and continuations too, a parked sub-gap's cost but not its lines) over the median cost of merged unsplit gaps of the children's summed size class; a parent that cannot be priced is left out
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py split-overhead, every: 10m, timeout: 1m, description: the factory's measures}
 
@@ -476,7 +482,7 @@ blocks:
     type: ai
     system: intake
     agent: opus
-    description: a session per joined gap in a read-only clone of main - its entry, its coverage, each sub-gap's definition and last review against the code; covered merges it, short requests a sub-gap for what is missing and splits it again (the third short parks it); it waits while the day's money is spent
+    description: a session per joined gap in a read-only clone of main - its entry, its coverage, each sub-gap's definition and last review against the code (a sub-gap it cannot read is short, with no session); covered merges it (no merged_at), short requests a sub-gap for what is missing and splits it again (the second short parks it); it waits while the day's money is spent
     run: python3 dev/bin/plan.py join
     prompt: dev/prompts/join_judge.md
     takes: {kind: gap, at: [joined], to: [merged, split, parked]}

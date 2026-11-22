@@ -10,7 +10,7 @@ import hashlib
 from pathlib import Path
 
 from ..spec import runrecord
-from . import BLOCKS, FAILURE, traces
+from . import BLOCKS, FAILURE, FROM, traces
 
 TAIL = 8000
 NOT_THE_CODE = ("stopped", "killed", "could not start", "signal")    # how a run ended that a change to its code is not for
@@ -69,6 +69,13 @@ def program_of(spec, b) -> str | None:
     return None
 
 
+def ended(data: dict) -> str:
+    """How a run ended, from its end event's data: ``signal``, else its note's first words; begins with one of
+    ``NOT_THE_CODE`` when a change to the code is not for it."""
+    code, note = data.get("exit"), str(data.get("note") or "")
+    return "signal" if runrecord.by_signal(code) else note.split(":")[0].split(" after")[0] or f"exited {code}"
+
+
 def guarded(p, b, cause: str | None) -> bool:
     """The repair loop's own runs, and runs a failure's events caused (a few steps up the cause chain), are never kept."""
     if b.name in BLOCKS:
@@ -110,8 +117,7 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
         return None
     tb = traces.last(stderr, spec.root)
     program = program_of(spec, b) if b.type in ("program", "ai") else None
-    code, note = data.get("exit"), str(data.get("note") or "")
-    how = "signal" if runrecord.by_signal(code) else note.split(":")[0].split(" after")[0] or f"exited {code}"
+    how = ended(data)
     sig = signature(b.name, program, tb, how)
     name = f"{b.name}-{sig}"
     fid = f"{FAILURE}/{name}"
@@ -120,11 +126,15 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
     with held(p) as keep:
         (keep / f"{name}.input").write_text(scrub(p, stdin), encoding="utf-8")   # the latest input that failed
         it = current(p, spec, fid)
-        if it is not None and it.state != "applied":
+        if it is not None and it.state != "verified":
             d.pop("began")                                   # (when this run of failures began: the impact report's)
         rows = [_row("ergostat.run.failed", fid, begun, d)]
-        if opens:
-            rows.append(_row(f"{FAILURE}.opened", fid, begun, {"reopened": it is not None}))
+        if opens:   # the fold moves it only from noted, verified or superseded (FROM): an applied fix failing again
+            # is settle's to judge (regressed), a regressed or reverted one a person's. A new cycle clears the last
+            # one's verdict and revert; an opened the fold will refuse carries none, so a regressed one keeps its key
+            new = it is None or it.state in FROM["opened"]
+            rows.append(_row(f"{FAILURE}.opened", fid, begun, {"reopened": it is not None, **(
+                {"verdict": None, "revert": None, "revert_key": None} if new else {})}))
         if tb and tb.get("language") in OTHER:               # its old item, signed by how it ended, if the same bug
             old = f"{FAILURE}/{b.name}-{signature(b.name, program, None, how)}"
             was = current(p, spec, old)

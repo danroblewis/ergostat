@@ -489,28 +489,22 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     for pid in pr.supersede(p, spec):
         out["verdicts"].append({"id": pid, "verdict": "superseded", "why": "the model changed since it was made"})
     judged = 0
+    from . import redesign_record as rr
+    blind = None                                            # the record's mark could not be read: nothing written
     with pr.locked(p):
         now_spec = pr.files_now(p)                    # judged only on the files as they are: else nothing, until reloaded
         if now_spec is None or ver.version(now_spec) != ver.version(spec):
             out["deferred"] = ("the model's files do not compile" if now_spec is None else
                                "the model's files have changed since it was loaded")
             return out
-        for x in sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0):
+        xs = sorted(pr.pending(p, spec), key=lambda x: x.get("created") or 0)
+        for x in xs:
             if x.get("kind") == REDESIGN:                    # a change set: judged as a whole, by its scorecard on the record
                 if x["state"] == "checked":
-                    from . import redesign as rd
                     try:
-                        verdict, why, card = rd.judged(p, x, now)
-                    except tr.TrialError as e:
-                        pr.event(p, x["id"], "superseded", {"why": f"its edit no longer applies ({e})"})
-                        out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": str(e)})
-                        continue
-                    pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
-                    out["testing"] += 1
-                    pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by},
-                                                   "rescoring": False, **({"scorecard": card} if card else {})})
-                    out[verdict] += 1
-                    out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
+                        judge_redesign(p, x, now, by, out, first=True)
+                    except rr.Unreadable as e:              # left checked, for a pass that can read it
+                        blind = str(e)
                 continue
             if x["state"] != "passed" and x.get("kind") in WORDING:
                 verdict, why = wording(x)
@@ -594,6 +588,17 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                                                       "needs": nd["needs"], "scored": nd["stocks"]}})
             out[state] += 1
             out["verdicts"].append({"id": x["id"], "verdict": state, "why": why})
+        waiting = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN and y["state"] == "passed"] \
+            if any(y.get("kind") == REDESIGN for y in xs) else []     # (no redesign pending: the record not folded again)
+        try:                                                 # a redesign waiting for the owner, scored again as the
+            if blind:                                        # record it was judged on moves (redesign_record)
+                raise rr.Unreadable(blind)
+            for y in rr.due_for_rescore({y["id"]: y for y in waiting}, rr.read(p, spec), now) if waiting else []:
+                judge_redesign(p, y, now, by, out)
+        except rr.Unreadable as e:
+            blind = unreadable(p, waiting, e)
+    if blind:                                                # fails closed: nothing written on a record not read
+        return out
     words = 0
     sets = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN]     # a redesign waiting: nothing written over it
     from . import redesign as rd
@@ -618,8 +623,16 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             continue
         snap = {"at": now, "window": ob.reference(p, now).until - ob.reference(p, now).since}
         try:
-            pr.accept(p, x["id"], snap, by=by, why=f"the judge passed it: {(x.get('verdict') or {}).get('why')}",
-                      policy=f"judge {by}: accept {x['kind']}: auto")
+            if x.get("kind") == REDESIGN:
+                wrote = write_redesign(p, x, snap, by, now, out)
+                if wrote is None:                    # its record's mark unreadable: nothing written this pass
+                    return out
+                if not wrote:                        # no longer better on the record as it is: the pass goes on
+                    held = [y for y in held if y["id"] != x["id"]]
+                    continue
+            else:
+                pr.accept(p, x["id"], snap, by=by, why=f"the judge passed it: {(x.get('verdict') or {}).get('why')}",
+                          policy=f"judge {by}: accept {x['kind']}: auto")
         except pr.ProposalError as e:
             if x.get("kind") == REDESIGN:            # a promoted redesign that cannot be written never blocks the rest
                 pr.event(p, x["id"], "superseded", {"why": f"it could not be written: {e}"})
@@ -635,6 +648,74 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
             continue
         break
     return out
+
+
+def judge_redesign(p, x: dict, now: float, by: str, out: dict, first: bool = False) -> str | None:
+    """A redesign judged by its scorecard on the record as it is (under the proposals' lock): its first judging
+    (``first``) or a rescore. The verdict says what it read (``scored``) and clears ``rescoring`` and
+    ``rescore_error``, so one made again under the same id, or carried, keeps neither, nor an old ``scored``. A rescore
+    still passed keeps the reviewer's reading of the change as it stood (its edits are the same), stamped to the new
+    verdict; a first judging or a failed rescore keeps none. The verdict, or None when its edit no longer applies
+    (superseded); ``Unreadable`` when the mark cannot be read."""
+    from . import redesign as rd
+    from . import reviewer as rv
+    try:
+        verdict, why, card, scored = rd.judged(p, x, now)
+    except tr.TrialError as e:
+        pr.event(p, x["id"], "superseded", {"why": f"its edit no longer applies ({e})"})
+        out["verdicts"].append({"id": x["id"], "verdict": "superseded", "why": str(e)})
+        return None
+    if first:
+        pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
+        out["testing"] += 1
+    elif verdict == "failed":
+        why = f"no longer better on the record as it is now: {why}"
+    v = {"verdict": verdict, "why": why, "at": now, "by": by}
+    r = rv.review_of(x) if not first and verdict == "passed" else None    # a rescore still passed keeps the review
+    kept = {"review": {**r, "read": rv.seen({**x, "verdict": v}), "kept": now}} if r else {}
+    pr.event(p, x["id"], verdict, {"verdict": v, "scored": scored, "rescoring": False, "rescore_error": None,
+                                   **({"scorecard": card} if card else {}), **kept})
+    out[verdict] += 1
+    out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why, **({} if first else {"rescored": True})})
+    return verdict
+
+
+def unreadable(p, xs: list[dict], e: Exception) -> str:
+    """Each passed redesign said ``rescoring``, with why, when the record's mark cannot be read (written only when the
+    item does not say so already, so a broken store does not write an event every pass)."""
+    why = str(e)
+    for y in xs:
+        if not (y.get("rescoring") and y.get("rescore_error") == why):
+            pr.event(p, y["id"], y["state"], {"rescoring": True, "rescore_error": why})
+    return why
+
+
+def write_redesign(p, x: dict, snap: dict, by: str, now: float, out: dict) -> bool | None:
+    """A promoted, passed redesign written only on a scorecard of the record as it is, all in one hold of the lock:
+    re-read, its mark held against the record's, scored again when they differ (or it is ``rescoring``), and written
+    when still better and, for a reviewed kind, passed by the reviewer as it stands then. True when written; False when
+    not (no longer passed, no longer better, or not passed by the reviewer); None when the mark cannot be read.
+    ``ProposalError`` from the write, as ``pr.accept``."""
+    from . import redesign_record as rr
+    from . import reviewer as rv
+    with pr.locked(p):
+        y = pr.stored(p).get(x["id"])
+        spec = p.model.spec                      # the reviewer's verdict as it is now, not as read before the lock
+        if y is None or y["state"] != "passed" or owners(y) or rv.awaiting(spec, y) or rv.read_for_owner(spec, y):
+            return False
+        try:
+            if y.get("rescoring") or (y.get("scored") or {}).get("mark") != rr.read(p, spec):
+                if judge_redesign(p, y, now, by, out) != "passed":
+                    return False
+                y = pr.stored(p)[x["id"]]
+                if rv.awaiting(spec, y):         # its review kept by the rescore (judge_redesign), or back to the reviewer
+                    return False
+        except rr.Unreadable as e:
+            unreadable(p, [y], e)
+            return None
+        pr._accept(p, x["id"], snap, by=by, why=f"the judge passed it: {(y.get('verdict') or {}).get('why')}",
+                   policy=f"judge {by}: accept {x['kind']}: auto")
+        return True
 
 
 def recorded(p, spec: Spec, stocks: list[str], now: float) -> float | None:
