@@ -16,3 +16,15 @@ Acceptance tests: test_precedence.py::test_forward_pass_levelled_by_capacity, ::
 Budget: 110 net lines.
 
 Milestone: timeline-real-schedule. Owner items: 17. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1: every acceptance test is written and passes, and so does a timing test (`test_levelling_600_items_is_quick`, marked serial). Net 109 lines outside tests and docs, against a budget of 110. Choices made without anyone to ask, each the most reversible one:
+
+- eta.py itself is unchanged. The simulation gets its capacity through `etamodel.read`, which builds each `BlockIn` from `capacities()` (`BlockIn.lanes`, which `capacity()` returns unless a what-if pool is set). `test_capacity_comes_from_one_function` checks that a change made in `capacities` reaches `eta.simulate`'s `limit` and the levelled pass. `read` passes its own `{"at": at}` as the snapshot (the backtest reads past moments). The Timeline passes the server's snapshot (`relations_api.graph`), which keeps the table as `snapshot["capacities"]`. `relations_api.py` is not in the Files list, but it is where the snapshot reaches `precedence.build` (5 lines).
+- Which block a state belongs to: a state a block takes from is that block's, a working state belongs to the block that took it from the queue before it, and a hold belongs to its holder. Each block is levelled on its own capacity. Agent seats and daemon runs shared between blocks are not counted together (the simulation does count them). SPEC says so.
+- `es` and `ef` in the answer are now the levelled start and end. `ls`, `lf`, `slack` and `critical` stay the unlevelled CPM's, and so does the dispatcher's `order_ready`: it calls `build` without `lanes`, so its order is unchanged.
+- With the estimates present, the legend's p50 still never reads before `end`, which is now the levelled end. This keeps the existing test's floor.
+- The legend says "the simulation replaces it when worked out" only while the estimates are pending (now, not a snapshot file). At a moment travelled to it says the levelled sentence without that clause, because no simulation comes for a past moment.
+- "Q34's formatter": no filed Q34 is in this clone. The Timeline's own `rgClock` (date when not today) gained the zone when not today, and the legend, bar titles and whiskers now use it. The axis ticks keep their short labels (said in SPEC).
+- The page test holds the estimates back by asking each `items-graph` with a what-if that names no block. That answer carries no estimates, so the bars are the levelled pass every time. The test marks the answer as pending. Breaking the levelling (99 lanes for every block) made all three unit acceptance tests and the page test fail; restored.

@@ -34,13 +34,16 @@ def graph(p, m, snap: dict, q: dict) -> dict:
     seq = ev.last_seq() if hasattr(ev, "last_seq") else None
     gen = ev.generation() if hasattr(ev, "generation") else None
     live = abs(time.time() - snap["at"]) < 5                    # now, not a moment travelled to
-    key = (id(spec), tuple(kinds), seq, gen, snap["window"], live or snap["at"])
+    from ..numbers.etamodel import capacities
+    lanes = capacities(p, snap)                                 # (kept with the snapshot: worked out once for it)
+    key = (id(spec), tuple(kinds), seq, gen, snap["window"], live or snap["at"], tuple((b, c["lanes"]) for b, c in lanes.items()))
     with _LOCK:
         got = _CACHE.get(key)
         if got is not None and time.time() - got[0] < KEPT:
             return got[1]
     now = snap["at"]
-    ans = precedence.build(ev, spec, kinds, now, now - snap["window"], until=None if live else now)   # as it stood then
+    ans = precedence.build(ev, spec, kinds, now, now - snap["window"], until=None if live else now,   # as it stood then
+                           lanes=lanes)
     ans["asked"] = kinds
     with _LOCK:
         for k in [k for k in _CACHE if k[:2] == key[:2] or time.time() - _CACHE[k][0] > KEPT]:

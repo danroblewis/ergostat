@@ -9,6 +9,7 @@ It needs Playwright and a Chromium, so the usual run skips it:
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
@@ -583,10 +584,13 @@ def test_the_timeline_levels_lanes_per_block(browser, roadmap):
     pg.close()
 
 
+CLOCK = r"(\w{3} \d+ \d\d:\d\d \S+|\d\d:\d\d)"      # the Timeline's clock: its date and zone when not today
+
+
 def shown_clock(said: str, now: float) -> float:
-    """A clock time the legend says ("04:02", or "Nov 23 04:02" on another day) as seconds since the epoch."""
+    """A clock time the legend says ("04:02", or "Nov 23 04:02 UTC" on another day) as seconds since the epoch."""
     import datetime as dt
-    *day, hm = said.split()
+    *day, hm = said.split()[:3]
     today = dt.datetime.fromtimestamp(now)
     d = dt.datetime.strptime(f"{' '.join(day)} {today.year}", "%b %d %Y").date() if day else today.date()
     t = dt.datetime.combine(d, dt.datetime.strptime(hm, "%H:%M").time())
@@ -594,9 +598,9 @@ def shown_clock(said: str, now: float) -> float:
 
 
 def test_the_finish_is_a_clock_time_no_earlier_than_the_critical_paths_end(browser, roadmap):
-    """The legend says when the last open item is done in one sentence, on first paint ("being worked out" until the
-    estimates are): a clock time expected and one 'at worst', the expected no earlier than now plus the critical
-    path's remaining duration (the answer's ``end``), the worst no earlier than the expected."""
+    """The legend says when the last open item is done in one sentence, on first paint (the levelled finish until the
+    estimates are): a clock time expected and one 'at worst', the expected no earlier than the levelled projection's
+    end (the answer's ``end``), the worst no earlier than the expected."""
     import re
     answers: list[dict] = []
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
@@ -607,11 +611,11 @@ def test_the_finish_is_a_clock_time_no_earlier_than_the_critical_paths_end(brows
     pg.goto(f"{roadmap}/items?view=graph")
     pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
     first = pg.locator(".rg-legend .rg-eta").all_inner_texts()                   # on first paint, one sentence
-    assert len(first) == 1 and ("being worked out" in first[0] or "at worst" in first[0]), first
+    assert len(first) == 1 and ("levelled by each block's capacity" in first[0] or "at worst" in first[0]), first
     assert "done in about" not in pg.locator(".rg-legend").first.inner_text()       # no duration beside it
     pg.wait_for_function("() => document.querySelector('.rg-legend .rg-eta')?.textContent.includes('at worst')", timeout=30000)
     said = pg.locator(".rg-legend .rg-eta").first.inner_text()
-    m = re.fullmatch(r"last (\w+) \((\S+)\) expected ((?:\w{3} \d+ )?\d\d:\d\d), by ((?:\w{3} \d+ )?\d\d:\d\d) at worst \(9 in 10\)", said)
+    m = re.fullmatch(rf"last (\w+) \((\S+)\) expected {CLOCK}, by {CLOCK} at worst \(9 in 10\)", said)
     assert m, said
     d = next(a.json() for a in reversed(answers) if a.ok and (a.json().get("eta") or {}).get("kinds"))
     expected, worst = shown_clock(m[3], d["now"]), shown_clock(m[4], d["now"])
@@ -624,15 +628,60 @@ def test_the_finish_is_a_clock_time_no_earlier_than_the_critical_paths_end(brows
       const d = { now, end, critical: ['epic/e100'], eta_pending: false, eta: { runs: 50, kinds: { epic: e } },
                   items: [{ id: 'epic/e100', kind: 'epic', status: 'active', eta: e }] };
       return [rgFinish(d).textContent, now, end]; }""")
-    m = re.fullmatch(r"last epic \(e100\) expected ((?:\w{3} \d+ )?\d\d:\d\d), by ((?:\w{3} \d+ )?\d\d:\d\d) at worst \(9 in 10\)", said)
+    m = re.fullmatch(rf"last epic \(e100\) expected {CLOCK}, by {CLOCK} at worst \(9 in 10\)", said)
     assert m and shown_clock(m[1], now) >= end and shown_clock(m[2], now) >= end, said
-    # an estimate not yet worked out (a what-if never asked): the answer says so, and so does the sentence
+    # an estimate not yet worked out (a what-if never asked): the answer says so, and the sentence is the levelled
+    # finish, the last levelled bar's end, until the simulation replaces it
     import json
     with urllib.request.urlopen(f"{roadmap}/api/items-graph?whatif=block.developer.pool:7", timeout=10) as r:
         fresh = json.load(r)
     assert fresh["eta"] is None and fresh["eta_pending"] is True, fresh.get("eta_pending")
     said = pg.evaluate("(d) => rgFinish(d).textContent", fresh)
-    assert said == "the last item's finish: being worked out", said
+    m = re.fullmatch(rf"done about {CLOCK}, levelled by each block's capacity, median times; the simulation replaces it "
+                     "when worked out", said)
+    last = max(s[2] for x in fresh["items"] for s in x.get("projected") or [])
+    assert m and last == fresh["end"] and shown_clock(m[1], fresh["now"]) == math.ceil(last / 60) * 60, (said, last)
+    assert not errors, errors
+    pg.close()
+
+
+def test_timeline_first_paint_is_levelled(browser, roadmap):
+    """Before the estimates arrive (held back here: each answer asked with a what-if that is no block's, so it carries
+    none, and marked as waiting for them), the Timeline's bars are the levelled forward pass: never more of the
+    developer block's bars at once than its pool (2); the chain is said to ignore capacity; the finish said is the last
+    bar's end."""
+    import json
+    import re
+    answers: list[dict] = []
+
+    def held(route):
+        url = re.sub(r"([?&])whatif=[^&]*&?", r"\1", route.request.url)
+        r = route.fetch(url=url + ("&" if "?" in url else "?") + "whatif=block.no-such-block.pool:2")
+        d = r.json()
+        assert d["eta"] is None, "the estimates were not held back"
+        answers.append({**d, "eta_pending": True})
+        route.fulfill(response=r, body=json.dumps(answers[-1]))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 4;")
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/api/items-graph*", held)
+    pg.goto(f"{roadmap}/items?view=timeline&collapse=0&frontier=0")
+    pg.wait_for_selector(".rg-timeline[data-drawn] .rg-proj[data-block]", timeout=20000)
+    dev = sorted(pg.locator(".rg-timeline .rg-proj[data-block='developer']").evaluate_all(
+        "els => els.map((e) => [+e.getAttribute('x'), +e.getAttribute('x') + +e.getAttribute('width')])"))
+    assert len(dev) >= 4, dev                                     # the e3 tickets, e2's left, the chain v1 -> v3
+    most = max(sum(1 for a, b in dev if a + 0.5 < t < b - 0.5) for t in [x + 1 for x, _ in dev])
+    assert most <= 2, dev
+    legend = pg.locator(".rg-legend").first.inner_text()
+    assert "ignoring capacity" in legend, legend
+    said = pg.locator(".rg-legend .rg-eta").first.inner_text()
+    m = re.fullmatch(rf"done about {CLOCK}, levelled by each block's capacity, median times; the simulation replaces it "
+                     "when worked out", said)
+    d = answers[-1]
+    last = max(s[2] for x in d["items"] for s in x.get("projected") or [])
+    assert m and last == d["end"] and shown_clock(m[1], d["now"]) == math.ceil(last / 60) * 60, (said, last - d["now"])
+    assert "levelled by each block's capacity" in pg.locator(".rg-timeline .rg-note").inner_text()
     assert not errors, errors
     pg.close()
 

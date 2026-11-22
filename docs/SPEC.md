@@ -1378,9 +1378,22 @@ for:
   from the last expected end, and each item's **slack**, how long it may slip without moving that end; the
   critical items have none. A parent with unfinished children is their summary: what comes before it comes before
   its children, what comes after it waits for all of them. The critical path itself is not levelled (a block's
-  `pool` is not in it); the completion estimates are (below).
-- **The projected schedule**: each unfinished item's states ahead, from its earliest start, state by state; once the
-  completion estimates are worked out, from a levelled run of their simulation instead (below).
+  capacity is not in it): it is marked, and labelled for what it is, "the longest chain of waits, ignoring
+  capacity", never with a clock time.
+- **The levelled projection**: the forward pass again, each block at most its capacity at once (the serial
+  schedule-generation scheme of resource-constrained scheduling). In precedence order, the least slack first, then the
+  longest path ahead (the dispatcher's tie-break), each item is placed at the earliest time what it waits on is done
+  and the block that takes it from its state has a lane free: a state a block takes from is that block's, a working
+  state the block that took it from the queue before it, a hold its holder's; each state its kind's median time.
+  A block's capacity (its pool, or its pool now from its stock, its agent's seats, its daemon's runs at once, whichever
+  binds) is decided in one place, `etamodel.capacities`, worked out once per snapshot and kept with it; the completion
+  estimates' simulation reads the same table, so the two change together. Its bars and its end are what the Timeline
+  draws and the legend says ("done about 14:20, levelled by each block's capacity, median times; the simulation
+  replaces it when worked out") before the estimates are worked out, whenever they fail, and at a moment travelled to
+  (the estimates are of now only). Not in it: an agent's seats or a daemon's runs shared between blocks (each block's
+  own capacity only).
+- **The projected schedule**: each unfinished item's states ahead, from the levelled projection, state by state; once
+  the completion estimates are worked out, from a levelled run of their simulation instead (below).
 - **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
   (`ergostat`, the page's side panel), and is left out of the projection.
 
@@ -1551,8 +1564,8 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 | View | What it shows |
 |---|---|
 | **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
-`status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the critical path's end, rounded up to the minute ("being worked out" until the completion estimates are; at a moment travelled to, when the critical path ends); a click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the forward pass), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
+`status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the levelled projection's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled projection's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
