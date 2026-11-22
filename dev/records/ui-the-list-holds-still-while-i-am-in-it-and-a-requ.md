@@ -122,3 +122,15 @@ of this branch will fail the same way until one of these happens:
 
 The browser files passed with Playwright in rounds 1 and 2 (rc 0, above). Refused this time: a `cat >> … <<'EOF'`
 append to this file followed by `git add dev/records && git commit …`. The text was added with the editor.
+
+## Where it stopped (fourth build rc 5)
+
+The fourth build failed the same way as the first three: the two browser files skipped at import ("No module named
+'playwright'"), nothing ran, and pytest returned 5. No test failed, and again no code changed, for the reasons above
+(lesson 13 and lesson 9). One new point: `dev/factory.toml` has `build_failures = 6`, so this is the fourth of six
+failed builds that park the gap. Two more builds that fail this way will park a branch whose own tests pass. The way
+out has to come from outside this gap. Any one of these is enough, and each is small and easy to undo: set
+`build_browser = true` for this gap, or have `scripts/affected_tests.py` treat a browser-only selection as
+`--collect-only` when Playwright is missing, or send the gap to the merge queue as it stands. Refused this time: a
+`cat >> … <<'EOF'` append to this file chained with `git add dev/records && git commit …`. The text was added with the
+editor.
