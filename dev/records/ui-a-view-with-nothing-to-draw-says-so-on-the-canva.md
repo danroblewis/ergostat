@@ -115,3 +115,14 @@ Built, 8 net lines outside tests (diagram.js +3, style.css +3 net of the two cha
   the reversible choice. This gap waits on a factory gap that fixes the build step for browser-only branches.
 - Refused here: a `python3 - <<'EOF' ... EOF && git add ... && git commit ...` command used to append this section
   and commit it. It was written with the editor instead.
+
+## Where it stopped (round 2, second build-step failure)
+
+- Same rc 5, same cause, fourth time: `affected_tests.py` selected only tests/test_diagram_rendering.py and ran it
+  without Playwright. The module-level `importorskip` (line 38) skipped the whole file ("1 skipped in 1.51s"), so
+  nothing was collected and no test ran or failed. The branch's code has not changed since round 2. `[suites] build`
+  in dev/factory.toml and scripts/affected_tests.py are as they are on main (checked again).
+- Moving the tests would not help. The definition puts them in a browser file, and every browser file skips whole
+  without Playwright. No code was changed, the reversible choice. This gap waits on a factory gap that makes the build
+  step run browser-only selections with Playwright, or not count their rc 5 as a failure (lesson 13). The merge queue
+  runs the browser files in full.
