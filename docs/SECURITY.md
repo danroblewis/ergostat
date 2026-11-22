@@ -126,16 +126,17 @@ one from your folders), or the library. Only two kinds of `run` (a sensor's, or 
   for a parameter typed `name`, `duration`, `number`, `integer` or `bool`, and only when both the value and the text
   that lands fully match its type's pattern (no space or newline): name `[a-z][a-z0-9-]{0,63}`, duration
   `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`, number or integer `-?[0-9]{1,15}(\.[0-9]{1,9})?`, bool `true` or
-  `false` (or the bare flag). `--every` is at least 60 s, `--limit` at most 100, `--stand-in` at most 3600 an hour
-  (`LIB_BOUNDS`). A library's value of any other type never reaches a run, nor does any value of one in the run of
+  `false` (or the bare flag). `--every` is at least 300 s (the floor every untrusted part has), `--limit` at most
+  100, `--stand-in` at most 3600 an hour (`LIB_BOUNDS`). A library's value of any other type never reaches a run, nor does any value of one in the run of
   a template from your own folders (no test can vouch for `sh -c ${x:quote}`), nor a run holding an element's or a
   list's field (`${it.run}`, whose writer can't be told).
 
 A sensor's or a program block's `every`, `cron`, `timeout` and `averages` stand only as you or a trusted template wrote
-them; a library's (its own `poll: 1m`) is refused. A program block may say nothing else but `goal`, `in`, `out`, `role`
-and its words: `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused,
-and so do `prompt` and `ask` (no `ai` or `person` block). Marks are made only by ergostat as it expands a template; a
-template or a value that holds a mark's control characters is refused whole.
+them; a library's (its own `poll: 1m`) is refused. Whoever wrote it, the period of a part made under an untrusted
+template is still at least 5 minutes (SPEC §2a, *Untrusted libraries*). A program block may say nothing else but
+`goal`, `in`, `out`, `role` and its words: `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network`
+and the rest stay refused, and so do `prompt` and `ask` (no `ai` or `person` block). Marks are made only by ergostat
+as it expands a template; a template or a value that holds a mark's control characters is refused whole.
 
 A block's `out:` commands the block it names, and sets the goal it names. So a held chain's blocks may name in `out:`
 only parts the chain made itself: an `out:` to one of your blocks (a `program` block that deploys, run on the

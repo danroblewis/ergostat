@@ -176,3 +176,50 @@ within the 320 budget.
 - the forgery check off: `test_forged_owner_mark_refused` failed (the forged mark passed as an owner command).
 
 **Not run here:** the full unit suite and the four browser files (left to the factory's watched run).
+
+## Where it stopped
+
+Round 2 of the continuation: main (`4a1bcd10`) merged in (`709257bb`). It brought library-untrusted-text
+(`bounds.py`, `untrusted.py`), which this record's round 1 said was absent.
+
+**The merge.** `uses.py` conflicted in two places: main's import of `untrusted.mark` beside the branch's `author`,
+and the `plan` signature, where the branch's `writers` argument now sits under main's docstring. Both sides were kept.
+
+**One rule for how often (lesson-7).** main's `bounds.py` gives every part made under an untrusted template a floor
+of `UNTRUSTED_EVERY` (300 s), whoever wrote it. That is now also the only number for a library's `--every`
+argument: `LIB_BOUNDS["--every"]` reads `bounds.UNTRUSTED_EVERY` instead of its own 60 s. R1's rule (a library may
+not write `every` at all) is kept beside it, because the two answer different questions: who may write the timer,
+and how fast any timer under an untrusted chain may be.
+
+**What that changes in the acceptance tests.** Built-in collect hard-codes a 30 s count of what it collected, and
+its `poll` defaults to 1m. re-ping has 10 s sensors and a 30 s pinger. So neither compiles under a held chain on
+main, whatever this gate allows. The tests now say this instead of claiming a compile:
+- `test_owner_command_through_builtin_allowed` checks two cases. With collect's default `poll`, the gate lets the
+  chain through, and the only errors are bounds.py's `untrusted-limit` (`gate_allows`). With the owner's `poll: 10m`
+  passed wholly through L, and `into:` a stock L made, it compiles whole. In both, the run holds the quoted command
+  and `--kind tickets`.
+- `test_owner_command_whole_slot_allowed` gives the block the owner's `every: 10m` passed wholly, since bounds.py
+  refuses an untrusted program block with no timer.
+- The allowed cases of `test_narrow_value_patterns` use `gate_allows`. Its refused cases now also require an error
+  that is not `untrusted-limit`, so bounds.py's floor alone cannot make them pass.
+- The bound test checks 300 allowed and 299 refused.
+
+SPEC §2a and SECURITY say what these tests show, and nothing wider.
+
+**New run flags from main.** `test_every_lib_flag_classified` reported three: collect's `--mirror` and `--position`
+(data) and modelling's `--review` (an AI model that spends money, so `LIB_EXEC_FLAGS`, beside `--model`).
+
+**GAPS.** The merge left the *Shared libraries* entry spliced: two *Still needed* clauses, a dangling "no copy
+into `with:`" line, and an orphan fragment of the old entry inside *External event logs*. That orphan is on main too.
+The entry is now one text, the orphan removed. The duplicated *External event logs (open)* heading is main's and
+another gap's, so it was left alone.
+
+**lesson-9, after the merge:**
+- `--every`'s floor put back to 60: `test_library_values_are_bounded_after_rate_and_count_flags` failed;
+- `fullmatch` turned into `match`: 5 failed.
+- The name pattern widened to `[A-Za-z]...` did not fail `Tickets`. The `name` parameter's own type check refuses it
+  first, so it never reaches R2. This was noted; no change.
+
+**Run here:** tests/test_library_provenance.py (33 passed); test_library_trust, test_library_untrusted and
+test_library_untrusted_runs (78 passed); test_templates and test_remote (47 passed); test_gaps_doc (4 passed); ruff
+clean. 206 net lines of code against main. **Not run here:** the full unit suite and the four browser files.

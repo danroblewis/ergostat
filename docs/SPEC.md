@@ -349,11 +349,17 @@ of `LIB_EXEC_FLAGS`), for a parameter typed `name`, `duration`, `number`, `integ
 own text and the text that lands (after `:seconds`, `:hours`) fully match its type's pattern, with no space or
 newline: name `[a-z][a-z0-9-]{0,63}`; duration `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`; number or integer
 `-?[0-9]{1,15}(\.[0-9]{1,9})?`; bool the bare flag (`:arg`), or `true`/`false`. A rate or count flag is also bounded
-(`LIB_BOUNDS`): `--every` 60 s or more, `--limit` 100 or less, `--stand-in` 3600 an hour or less, `--window` 60 s to
-a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any) reaches a run, and no value
+(`LIB_BOUNDS`): `--every` `UNTRUSTED_EVERY` (300 s) or more, `--limit` 100 or less, `--stand-in` 3600 an hour or
+less, `--window` 60 s to a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any) reaches a run, and no value
 not ergostat's own reaches the run of a template from the owner's folders (such as `sh -c ${x:quote}`), even though
 that template is trusted: no test can vouch for one. Every option of every program is in exactly one of the two
 lists, and every built-in run slot is scanned against these rules (`tests/test_library_provenance.py`).
+
+What R1 and R2 let through is still an untrusted part, under the limits of *Untrusted libraries* above: one floor on
+how often, `UNTRUSTED_EVERY`, whoever wrote the `every`. So a held chain's program block needs the owner's `every:`
+of 5m or more, and built-in templates whose own timers are faster (collect's 30 s count of what it has collected,
+re-ping's 10 s sensors and 30 s pinger) pass the gate but not those limits; collect compiles in a held chain with
+`into:` a stock the chain made and the owner's `poll:` of 5m or more.
 
 ### Upkeep
 

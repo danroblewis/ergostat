@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 
 from ..spec.ir import Ref
+from .bounds import UNTRUSTED_EVERY
 from .expand import COMMAND, ERGOSTAT, LIB, LIBRARY, MARK, F, Given, H, hours, strip
 from .expand import A as MA
 from .expand import B as MB
@@ -42,14 +43,15 @@ LIB_DATA_FLAGS = frozenset({
     "--name", "--kind", "--state", "--done", "--failed", "--stuck", "--flow", "--pinged-flow", "--gave-up-flow",
     "--every", "--limit", "--stand-in", "--answer-after", "--window", "--id-field", "--event", "--event-field",
     "--cursor-field", "--path", "--field", "--changes", "--title", "--cron", "--fail", "--say", "--rise", "--cut",
-    "--no-coherence", "--no-extremes"})
+    "--no-coherence", "--no-extremes", "--mirror", "--position"})
 # Never: what is run (a command, a renderer), read from outside (a URL, headers naming the environment), where files
 # are written or removed, and the limits on processes, calls, money and time.
 LIB_EXEC_FLAGS = frozenset({
     "--run", "--render", "--command", "--url", "--header", "--folder", "--keep", "--timeout", "--max", "--tries",
-    "--most", "--daily", "--budget", "--rounds", "--model", "--when"})
-# A rate or a count a library may set is bounded (lesson-4): seconds for times, else the number.
-LIB_BOUNDS = {"--every": (60, 31_536_000), "--limit": (0, 100), "--stand-in": (0, 3600), "--window": (60, 604_800),
+    "--most", "--daily", "--budget", "--rounds", "--model", "--review", "--when"})
+# A rate or a count a library may set is bounded (lesson-4): seconds for times, else the number. ``--every``'s floor
+# is the one every untrusted part has (bounds.py), so there is one rule for how often a library's text is read.
+LIB_BOUNDS = {"--every": (UNTRUSTED_EVERY, 31_536_000), "--limit": (0, 100), "--stand-in": (0, 3600), "--window": (60, 604_800),
               "--answer-after": (0, 31_536_000), "--fail": (0, 1), "--rise": (0, 1), "--cut": (0, 1)}
 CLAIMS = ("inferred", "formerly")       # invariant 11: a library never claims ergostat inferred a part
 

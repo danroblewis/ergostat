@@ -43,35 +43,22 @@ review into *Done recently*). Newest decisions from the owner first within each 
   structure on an allowlist (`ergostat/library/trust.py`: no command, query, daemon, timer, machine block, agent,
   workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
   blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
-  refused at the owner's `use:` line, with a refusal that suggests
-  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). **Built** (`library-provenance-marks`):
-  values carry their writer through expansion and nested uses, so a held chain may run the owner's own `type:
-  command` values (whole, or quoted into a built-in's run) and pass only narrow, fully matched, bounded library
-  values after data flags of ergostat's own programs (`LIB_DATA_FLAGS`); an owner folder's run takes no library
-  value. *Still needed:* a library's `example:` and
-  `reading:` marked untrusted wherever an agent reads them (library-untrusted-text); `fetch` by git URL or package,
-  refusing a lock entry without a tree, symlinks hashed explicitly; then running untrusted library scripts through
-  `ergostat.sandbox` and the rebase onto main.
-  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). **Built** (`library-untrusted-text`): an
-  untrusted template's text is marked in the `templates` tool and in three kinds of `check` problem, its names
-  checked, and its parts' schedules, pools, attempts and runs at once bounded at compile and when runs start, a second
-  line behind the allowlist (SPEC §2a, *Untrusted libraries*). *Still needed:* a gate on **provenance**, so an
-  untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
-  substitution of a `type: command` parameter, the marks kept through nested uses); the text an untrusted template
-  makes in the model marked too (its system's and parts' descriptions, prompts, commands, equations and names,
-  wherever `check`, the diagrams and the MCP model views show them, and the `library-untrusted` refusal's folder
-  path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
+  refused at the owner's `use:` line, with a refusal that suggests no copy into `with:` (SPEC §2a, SECURITY
+  *Libraries you did not write*). **Built** (`library-untrusted-text`): an untrusted template's text is marked in the
+  `templates` tool and in three kinds of `check` problem, its names checked, and its parts' schedules, pools,
+  attempts and runs at once bounded at compile and when runs start, a second line behind the allowlist (SPEC §2a,
+  *Untrusted libraries*). **Built** (`library-provenance-marks`): values carry their writer through expansion and
+  nested uses, so a held chain may run the owner's own `type: command` values (whole, or quoted into a built-in's
+  run) and pass only narrow, fully matched, bounded library values after data flags of ergostat's own programs
+  (`LIB_DATA_FLAGS`, `--every` at the same 5-minute floor); an owner folder's run takes no library value.
+  *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
+  descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
+  them, and the `library-untrusted` refusal's folder path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
   without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
   the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
-  only to hosts the owner lists. *Still needed:* the trust gate rebuilt on **provenance** (a value counts as the
-  owner's only if it arrived by substitution of a `type: command` parameter, the marks kept through nested uses;
-  equality to an owner's literal is not enough); the refusal not telling agents to copy commands into `with:`; a
-  library's `example:` and `reading:` marked untrusted wherever an agent reads them; `ask:`, `query`/`source` gated and
-  a minimum `every` for untrusted libraries; `fetch` refusing a lock entry without a tree, symlinks hashed explicitly;
-  then running untrusted library scripts through `ergostat.sandbox` and the rebase onto main.
 - **External event logs** (mirroring done on `external-event-logs`; reading in place open): systems that keep their
   own event log (Kafka, a ticket history, an incident log): copy in (works through collectors), read in place, or
   mirror with a cursor that cites the original.

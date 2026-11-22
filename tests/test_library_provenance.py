@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from ergostat.library import bounds, trust
 from ergostat.library import templates as tp
-from ergostat.library import trust
 from ergostat.library.expand import LIB, PY, VAR, F, mark
 from ergostat.library.run import __main__ as run_main
 from ergostat.spec import read
@@ -54,6 +54,15 @@ def compiles(path: Path):
     return spec
 
 
+def gate_allows(path: Path):
+    """The trust gate put the chain in: its parts are in the spec, and the only errors are bounds.py's floor on the
+    built-in's own fixed timers (collect's 30s count, re-ping's 10s sensors), which applies to every untrusted part."""
+    spec, ps = read(path)
+    assert [p.code for p in ps if p.level == "error"] == [bounds.CODE] * len([p for p in ps if p.level == "error"]), ps
+    assert spec.flows, ps
+    return spec
+
+
 def L(params: str = "cmd: {type: command}", body: str = "") -> str:
     return f"template: l\nparams:\n  {params}\n{body}"
 
@@ -68,15 +77,22 @@ def test_owner_command_whole_slot_allowed(tmp_path):
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body="blocks:\n  b: {type: program, run: '${cmd}', every: 1m}\n")})
     # every: 1m is the library's own word: refused, though the run is the owner's
     assert "blocks.u-b.every" in refused_once(path)
-    path = write(tmp_path, {"cmd": CMD}, {"l": L(body="blocks:\n  b: {type: program, run: '${cmd}'}\n")})
+    # bounds.py: an untrusted block needs a timer, at least 5m; the owner's every, passed wholly, is the owner's
+    path = write(tmp_path, {"cmd": CMD, "p": "10m"}, {"l": L("{cmd: {type: command}, p: {type: duration}}",
+                                                            "blocks:\n  b: {type: program, run: '${cmd}', every: '${p}'}\n")})
     assert compiles(path).blocks["u-b"].params["run"] == CMD
 
 
 def test_owner_command_through_builtin_allowed(tmp_path):
+    # collect's default poll (1m) and its 30s count: the gate allows them (trusted words), bounds.py's floor does not
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body=COLLECT.format(more=", kind: tickets"))})
-    run = compiles(path).flows["u-c-arriving"].sensors
-    run = next(iter(run.values())).run
+    run = next(iter(gate_allows(path).flows["u-c-arriving"].sensors.values())).run
     assert run.startswith(LIB + " collect ") and f"--command '{CMD}'" in run and "--kind tickets " in run, run
+    # with the owner's poll and the arrivals into the library's own stock (no 30s count), it compiles whole
+    body = "stocks:\n  s: {unit: items}\n" + COLLECT.format(more=", kind: tickets, into: u-s, poll: '${p}'")
+    path = write(tmp_path, {"cmd": CMD, "p": "10m"}, {"l": L("{cmd: {type: command}, p: {type: duration}}", body)})
+    run = next(iter(compiles(path).flows["u-c-arriving"].sensors.values())).run
+    assert f"--command '{CMD}'" in run and "--kind tickets " in run, run
 
 
 def test_library_every_refused(tmp_path):
@@ -154,10 +170,11 @@ def test_narrow_value_patterns(tmp_path, template, key, value, ok):
     body = (COLLECT_KV if template == "collect" else REPING).format(k=key, v=json.dumps(value))
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body=body)})
     if ok:
-        spec = compiles(path)
-        assert spec.flows and spec.flows[next(f for f in spec.flows if f.endswith("-asked") or f.endswith("-arriving"))]
+        spec = gate_allows(path)
+        assert spec.flows[next(f for f in spec.flows if f.endswith("-asked") or f.endswith("-arriving"))]
         return
     errs = errors(path)                    # refused by the gate, or by the parameter's own type: either way at the use
+    assert {e.code for e in errs} - {bounds.CODE}, errs            # not only bounds.py's floor
     assert errs and {(e.where.line, e.where.file.name) for e in errs} == {(5, "ergostat.yaml")}, errs
     spec, _ = read(path)
     assert not spec.flows and not spec.blocks, (spec.flows, spec.blocks)
@@ -168,7 +185,8 @@ def test_library_values_are_bounded_after_rate_and_count_flags():
     def slot(flag, how, text, ty="integer"):
         return f"{LIB} ping --kind k {flag} " + mark(("l", ty, "1"), how, text)
     assert trust.run_ok(slot("--limit", "", "100"), "e") and not trust.run_ok(slot("--limit", "", "101"), "e")
-    assert trust.run_ok(slot("--every", "seconds", "60", "duration"), "e")
+    assert trust.run_ok(slot("--every", "seconds", "300", "duration"), "e")             # bounds.py's floor, the one rule
+    assert not trust.run_ok(slot("--every", "seconds", "299", "duration"), "e")
     assert not trust.run_ok(slot("--every", "seconds", "0", "duration"), "e")
     assert not trust.run_ok(slot("--every", "", "0ms", "duration"), "e")
     assert not trust.run_ok(slot("--limit", "", "100\n"), "e")          # fullmatch, not match
