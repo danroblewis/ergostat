@@ -407,4 +407,4 @@ def test_a_failed_simulation_is_said(tmp_path, monkeypatch):
     assert got["eta"] is None and got["eta_error"] == "KeyError: 'how'"
     assert eta_api.merge({"items": []}, None)["eta_error"] is None
     js = (Path(eta_api.__file__).parent / "static" / "relations.js").read_text()
-    assert "the simulation failed: ${d.eta_error}" in js and "the simulation is being worked out" in js
+    assert "the simulation failed: ${d.eta_error}" in js and "Working out the schedule: a simulation of" in js

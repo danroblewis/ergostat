@@ -42,3 +42,15 @@ Not done: the live check (GET on :8798/items?kind=gap&view=timeline) - the comma
 "%{http_code}\n" --max-time 3 "http://127.0.0.1:8798/items?kind=gap&view=timeline"` was refused in this session.
 Noted, not fixed (outside the gap): on a record where items have moved from the block's state to a paused one, the
 simulation sends that share of items to it after their runs, so they become never-finishing in some runs.
+
+Round 2: main (73d266e7, with eta-works-out-on-the-factory-record) merged in and the review's finding answered.
+`eta.unscheduled()` is gone; main's flag (`etamodel._unscheduled`, items left out of the runs) is used, and its
+reasons ("paused in parked", "waits on gap/p1, which is parked"). The merged `_work` folds that reason into a longer
+`why` ("not scheduled: ...; <reasons' words>"), so it now also keeps the bare reason as the estimate's `said`. The
+Timeline row and the item page read `said`, never `unscheduled` (now `True`), so neither prints "not scheduled: true".
+The 'Working out the schedule' note is folded into main's note after main's 'simulation failed' text (eta_error).
+Main's test_eta check of its old pending wording now checks 'Working out the schedule: a simulation of'. SPEC §5a
+Timeline row now points to main's rule. 43 net lines in ergostat/ against main (budget 90). Ran: ruff (clean),
+tests/test_eta.py (20 passed), tests/test_items_page.py under Playwright and the watchdog (26 passed, rc 0).
+Not run: the break-to-fail check (the acceptance test run with the row reading `why` instead of `said`); the command
+using `sed -i` to make the break was refused. The live check on :8798 was not tried again.
