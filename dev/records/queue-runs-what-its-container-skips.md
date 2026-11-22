@@ -125,6 +125,8 @@ Round 6:
 - Not changed here (lesson-13): `[suites] browser` and `rerun` carry `-rs` from main (not this branch), so the same
   loss of FAILED lines applies to browser failures on main. tests/test_agents.py:36 holds them to the substring
   ` -rs `, so the fix there also needs that test changed. It belongs to its own gap on main.
-- Round-5 "not run by this reviewer": the run that was asked for is the one above.
+- Round-5 "not run by this reviewer": the run that was asked for is the one above. This round ran
+  tests/test_queue_host.py (12 passed, 242 s), the build-setting test and test_implementor_environment_has_a_browser
+  (2 passed); ruff is clean on ergostat, tests, scripts and the three dev/bin files changed.
 - Round-5 test_agents finding (main's PYTEST_ADDOPTS): unchanged, as in round 5. Round-5 README wording: answered in
   round 5.
