@@ -361,10 +361,10 @@ async function refreshHeader() {
       sel.addEventListener("focus", fresh);
       refreshProjects(sel);
     }
-    // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red
-    const up = new Set(st.upkeep || []);
-    const offs = Object.keys(st.loops).filter((n) => st.loops[n].status === "off");
-    const off = offs.filter((n) => !up.has(n)).length, upkeep = offs.length - off;
+    // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
+    // the server's one count (state.goals_off); a status without it counts every goal off, as before
+    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => l.status === "off").length, own: {} };
+    const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
     setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
     const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
@@ -390,7 +390,7 @@ function refreshProjects(sel) {
     const opts = [h("option", { value: "" }, name)];
     for (const p of ps) {
       if (p.name === name) continue;
-      const [off, unknown, upkeep] = [p.goals_off, p.goals_unknown, p.upkeep_off].map((x) => (x || []).length);   // as its header
+      const [off, unknown, upkeep] = [p.goals_off, p.unknown, p.upkeep_off].map((x) => (x || []).length);   // as its header
       const bits = [off || upkeep ? `${off} off` : "", unknown ? `${unknown} unknown` : "", upkeep ? `model upkeep ${upkeep}` : "",
                     p.web ? "" : "stopped"].filter(Boolean);
       opts.push(h("option", { value: p.web || "", disabled: p.web ? null : "" }, `${p.name}${bits.length ? " (" + bits.join(", ") + ")" : ""}`));

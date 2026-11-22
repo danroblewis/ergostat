@@ -41,16 +41,12 @@ def _row(d: Path, note: dict, pid: int | None) -> tuple[dict, list]:
         return {"name": d.name, "repo": None, "error": f"{type(e).__name__}: {e}"}, []
     p = Project(m, d, note=False)                # read only: another project's note is its own to write
     snap = st.snapshot(p)
-    loops = {n: lp["status"] for n, lp in snap["loops"].items()}
-    up = st.upkeep(m)
+    g = st.goals_off(snap, names=True)
     files = list(getattr(m, "files", None) or ([m.path] if m.path else []))
     return {"name": m.name, "repo": note["repo"], "running": bool(pid), "web": web_url(p) if pid else None,
-            "loops": len(loops), "off": sorted(n for n, s in loops.items() if s in ("off", "open")),
-            "unknown": sorted(n for n, s in loops.items() if s == "unknown"),
-            # as the page's header counts them: the system's goals off or unknown, and the model's upkeep off, apart
-            **{k: sorted(n for n, s in loops.items() if s == want and (n in up) == mine)
-               for k, want, mine in (("goals_off", "off", False), ("goals_unknown", "unknown", False),
-                                     ("upkeep_off", "off", True))},
+            "loops": len(snap["loops"]), "off": sorted(g["system"] + g["open"]), "unknown": g["unknown"],
+            "upkeep_off": sorted(n for v in g["own"].values() for n in v),
+            "goals_off": g["system"],            # the header's first figure: the system's goals off, upkeep apart
             "attention": len([a for a in st.attention(snap, bool(pid), m) if a["level"] != "hint"])}, files
 
 
