@@ -26,7 +26,12 @@ knowledge in a read-only clone of main, and writes its definition of done (accep
 the review-lessons risks that apply, the files to touch, `depends-on:`) to `run/plans/<branch>.md`: the gap goes to
 `planned`. A gap too large for one branch is split into sub-gaps (at most 6, each its own definition, `depends-on`
 among them, `parent:` the gap), which go to `planned` themselves while the parent waits in `split` until every child is
-merged (a join). It may open research questions (at most 3) first, and waits for their answers. **A plan review** (the
+merged (a join). At the join a judge says whether the parent is covered: that is the planner's coverage mapping (each
+point of the parent named to the sub-gaps that build it) plus an AI judgment against main, not a proof. A sub-gap it
+cannot read is never covered, and the second `short` parks the parent. Two measures say how well splits work:
+`splits-covered` (the share of parents covered on their first judgment) and `split-budgets-held` (the share of merged
+sub-gaps within their own size budget). gap/plan-by-size gates XL auto-split on `splits-covered ≥ 0.7` over at least
+5 joins. It may open research questions (at most 3) first, and waits for their answers. **A plan review** (the
 reviewer in plan mode: a cheap session given the definition and the lessons only) approves the plan, which is copied as
 reviewed into `run/defs/` and the gap made `ready`, or sends it back to the planner with its findings; a second
 failure parks it.
