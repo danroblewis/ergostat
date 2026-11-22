@@ -262,6 +262,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .side h3 .muted { font-weight: 400; }
 .looprow { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); margin: 0 calc(-1 * var(--sp-2));
   border-radius: var(--radius); cursor: pointer; }
+button.looprow { width: calc(100% + 2 * var(--sp-2)); min-height: 0; border: 0; background: none; text-align: left; }   /* a row, by keyboard too */
 .looprow:hover, .looprow.hl { background: var(--fill); }
 .looprow .sub { grid-column: 1 / -1; color: var(--muted); font-size: var(--text-sm); }
 .change { font-size: var(--text-sm); padding: var(--sp-0) 0; overflow-wrap: anywhere; }

@@ -316,7 +316,7 @@ def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_pa
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         silent = []
         ids = pg.evaluate("() => S.graph.nodes.filter((n) => n.kind !== 'cloud').map((n) => n.id)")
         for i, nid in enumerate(ids):
@@ -557,7 +557,7 @@ def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(bro
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=product", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         side = "() => document.querySelector('.diagram').classList.contains('side-hidden')"
         empty = pg.evaluate("""() => { const r = document.querySelector('svg.canvas').getBoundingClientRect();
             for (let y = r.top + 80; y < r.bottom - 80; y += 17) for (let x = r.left + 40; x < r.right - 40; x += 23) {
@@ -619,7 +619,7 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
                        .includes('product')).map((c) => [c.id, [c.x, c.y]]))"""
         before = pg.evaluate(places)
@@ -678,7 +678,7 @@ def test_parts_chosen_with_a_box_move_together_pinned_and_with_no_new_layout(bro
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "system=product", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["stock:users", "flow:signups"]
         boxes = [pg.locator(f'g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 6, min(b["y"] for b in boxes) - 6
@@ -742,7 +742,7 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=-", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         # the product box put somewhere by hand
         box = pg.locator('g.node.k-system:has(text:text-is("product")) .hit').first.bounding_box()
         k = pg.evaluate("() => S.view.k")
@@ -1124,8 +1124,8 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         for _ in range(60):
             r = pg.evaluate(WHEEL, [0, -500, {"ctrlKey": True}])
         assert r["after"]["k"] <= 4
-        pg.get_by_role("button", name="+").click()
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="+", exact=True).click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.close()
 
 
@@ -1279,7 +1279,7 @@ def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_o
         assert busy["id"] in ids and rare["id"] not in ids and "paths=50" in pg.url
         drawn = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.edge')].map((g) => g.dataset.id)")
         assert sorted(drawn) == sorted(ids)
-        pg.get_by_role("button", name="Times").click()
+        pg.get_by_role("button", name="Times", exact=True).click()
         pg.wait_for_function("() => S.pmShow === 'times' && document.querySelector('svg.canvas g.edge .elabel')")
         assert "show=times" in pg.url
         pg.close()
@@ -1367,7 +1367,7 @@ def test_a_process_node_dragged_stays_pinned_through_a_reload_a_refresh_and_stat
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pm_served(pg, url, 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         nid = "p:pr:pr.merged"                         # lines in and out within pr, and one back (rework)
         caused = pg.evaluate("() => S.graph.edges.find((e) => e.kind === 'caused' && e.target === 'p:pr:pr.opened')?.id")
         assert caused, "a dashed line from ticket into pr"
@@ -1443,7 +1443,7 @@ def test_a_kinds_frame_dragged_in_the_process_view_takes_its_map_and_nodes_chose
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pm_served(pg, url, 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         frame = "(name) => { const c = S.layout.containers.find((c) => c.name === name); return [c.bx ?? c.x, c.by ?? c.y]; }"
         ways = """(kind) => Object.fromEntries(S.layout.edges.filter((le) => S.graph.edges.find((e) => e.id === le.id &&
           e.kind === 'follows' && e.itemKind === kind)).map((le) => [le.id, [le.sections[0].startPoint,
@@ -1473,7 +1473,7 @@ def test_a_kinds_frame_dragged_in_the_process_view_takes_its_map_and_nodes_chose
         again = pg.evaluate(PM_KIND, "release")
         assert all(again[i] == pytest.approx(after[i], abs=2) for i in after)
         # two nodes chosen with Shift and a box, dragged together
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["p:ticket:ticket.started", "p:ticket:ticket.submitted"]
         boxes = [pg.locator(f'svg.canvas g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 4, min(b["y"] for b in boxes) - 4
@@ -1720,7 +1720,7 @@ def test_a_block_dragged_in_the_blocks_view_stays_pinned_its_lines_end_on_it_and
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         nid = "blk:product-manager"
         before = pg.evaluate(BD_AT, nid)
         layouts = pg.evaluate("() => S.layouts")
@@ -1766,7 +1766,7 @@ def test_blocks_chosen_with_a_box_move_together_in_the_blocks_view(browser, tmp_
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["sum:all-live", "blk:keep-all-live"]
         boxes = [pg.locator(f'svg.canvas g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 4, min(b["y"] for b in boxes) - 4
@@ -1807,7 +1807,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
                        .includes('frame:product')).map((c) => [c.id, [c.x, c.y]]))"""
         frame = "(id) => { const c = S.layout.containers.find((c) => c.id === id); return c && [c.bx ?? c.x, c.by ?? c.y]; }"
@@ -1843,7 +1843,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         assert set(again) == set(after) and all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
         # a block put by hand inside intake: its place in intake's frame kept through closing and opening it
         nid = "blk:support"
-        pg.get_by_role("button", name="fit").click()                 # (wider with its sensors: all of it on the screen)
+        pg.get_by_role("button", name="Fit", exact=True).click()                 # (wider with its sensors: all of it on the screen)
         bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 0, 110)
         pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
         offset = ("(id) => { const c = S.layout.children.find((c) => c.id === id), "
@@ -1927,7 +1927,7 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.locator('.loop-marker[data-loop="backlog-clear"]').dispatch_event("click")
         pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
         assert pg.locator("#detail h2").inner_text().startswith("B")           # its label, R1 or B2, as Sterman numbers them
@@ -1936,6 +1936,66 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
         lit = pg.evaluate("""() => [...document.querySelectorAll('svg.canvas .node.in-loop')].map((n) => n.dataset.id).sort()""")
         assert lit == ["flow:submitted", "gap:backlog-clear", "stock:backlog"], lit
         assert pg.evaluate("() => document.querySelectorAll('svg.canvas .edge.in-loop').length") >= 3
+        pg.close()
+
+
+FOCUSED = ("() => { const a = document.activeElement; "
+           "return a && [a.tagName, a.getAttribute('aria-label') || '', a.dataset.key || '', a.getAttribute('role') || '']; }")
+# every element the svg points at as clickable, and whether a keyboard button (tabindex 0) is it or holds it
+UNREACHED = """() => [...document.querySelectorAll('svg.canvas *')].filter((el) => getComputedStyle(el).cursor === 'pointer'
+  && !el.closest('svg.canvas [tabindex="0"][role="button"][aria-label]')).map((el) => el.getAttribute('class') || el.tagName)"""
+
+
+def tab_to(pg, want, most=600) -> list:
+    """Tab (and only Tab) until the focus is on what ``want`` (a JS predicate on the focused element) accepts."""
+    seen = []
+    for _ in range(most):
+        pg.keyboard.press("Tab")
+        if pg.evaluate(f"() => {{ const a = document.activeElement; return !!a && ({want})(a); }}"):
+            return pg.evaluate(FOCUSED)
+        seen.append(pg.evaluate(FOCUSED))
+    raise AssertionError(f"Tab never reached {want}; it went {seen[:40]} ... {seen[-10:]}")
+
+
+def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard(browser, tmp_path):
+    """Only Tab, Enter and Escape: Open on factory reached and pressed opens it; a stock reached and pressed opens
+    its panel with the focus on its heading, and Escape gives the focus back to the stock. In every view, everything
+    the svg shows as clickable is a named keyboard button, and the side panel's loop rows are buttons."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=-", 0)
+        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open factory'")
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => (S.graph?.open || []).includes('factory') && document.querySelector('svg.canvas g.node')",
+                             timeout=30000)
+        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open intake'")   # (factory holds systems; intake, the backlog)
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => (S.graph?.open || []).includes('intake') && document.querySelector('svg.canvas g.node.k-stock')",
+                             timeout=30000)
+        stock = tab_to(pg, "(a) => a.matches('svg.canvas g.node.k-stock')")
+        assert stock[3] == "button" and stock[1].startswith("stock "), stock
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail h2')", timeout=10000)
+        pg.wait_for_function("() => document.activeElement?.matches('#detail h2, #detail h3')", timeout=5000)
+        pg.keyboard.press("Escape")
+        pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)
+        back = pg.evaluate(FOCUSED)
+        assert back[2] == stock[2] and back[1].startswith("stock "), (stock, back)
+        from ergostat import model as mdl
+        from ergostat.store import Project
+        seed_workflows(Project(mdl.load(tmp_path / "software-factory")), time.time())   # (the Process view's maps)
+        for i, view in enumerate(("view=dynamics&open=*", "view=blocks&open=*", "view=dynamics&open=-", "process")):
+            if view == "process":
+                pm_served(pg, url, 9)
+            else:
+                drawn(pg, url, view, i + 1)
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [tabindex=\"0\"]').length") > 0, view
+            assert not pg.evaluate(UNREACHED), (view, pg.evaluate(UNREACHED)[:10])
+            rows = pg.evaluate("() => [...document.querySelectorAll('.looprow[data-loop], .looprow.sd-inside')].map((r) => r.tagName)")
+            assert (rows or "open=*" not in view) and set(rows) <= {"BUTTON"}, (view, rows)   # the side panel's loop rows
+        assert not errors, errors
         pg.close()
 
 
@@ -2012,7 +2072,7 @@ def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser,
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.wait_for_timeout(300)
         where = ("(n) => { const r = document.querySelector(`.loop-marker[data-loop=\"${n}\"]`).getBoundingClientRect(); "
                  "return [r.x, r.y]; }")
@@ -2163,7 +2223,7 @@ def test_a_loop_lit_from_its_marker_lets_go_the_way_everything_else_does(browser
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="Fit").or_(pg.get_by_role("button", name="fit")).first.click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.wait_for_timeout(300)
         lit = "() => [S.hlCausal, document.querySelector('svg.canvas').classList.contains('loop-hl'), " \
               "document.querySelectorAll('svg.canvas .loop-marker.on, svg.canvas .node.dim').length]"
@@ -2689,7 +2749,7 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         box = pg.locator('g.node[data-id="flow:regressions"] .hit').first.bounding_box()
         pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve'", timeout=5000)
