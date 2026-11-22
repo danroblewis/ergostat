@@ -30,3 +30,17 @@ dev/bin/queue.py, tests/test_factory.py.
 90 net lines in dev/bin.
 
 Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: all four acceptance tests pass, and each was seen to fail when stack() ignored stacked_on or land()
+kept the descendants. Item 5 rests on the existing batch tests: they pass unchanged and none had to change. dev/bin:
++120 / -43, 77 net.
+Choices made alone, the most reversible way:
+- `stacked_on[].gap` may be `gap/a` or `a`. A sha that is not a full commit id counts as not merged, so the base is
+  brought in. A stacked_on that cannot be read gives the gap back (lesson-3).
+- If the own gap's base is sent back during the walk (not the reviewed commit, or it conflicts with main), the run
+  lands nothing and gives the own gap back uncounted with the reason. It does not land the others under its lease.
+- A descendant given back in land() that is the run's own gap is nacked after 1m, as the time-allowance give-back is.
+  Its base is in triage by then, so the next run gives it back for 10m in picks().
+- Nothing writes `stacked_on` yet. The implementor writing it is outside this gap.
