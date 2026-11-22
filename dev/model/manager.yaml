@@ -97,6 +97,14 @@ goals:
     description: every situation raised looked at by the pipeline manager
 
 actions:
+  manager-measure:
+    run: python3 dev/bin/manage.py measure-runs {gap} --detach --runs {runs} --tests={tests} --load {load} --why {why}
+    in: .
+    gate: approve
+    class: measure
+    args: {gap: the parked or built gap, runs: "N, 1-50", tests: the pytest selection, load: "K busy processes, 0-8", why: what the definition names}
+    timeout: 2m                      # it only starts the measurement, detached (its own session, up to runs.WALL, 12 h)
+    description: A definition's named measurement (asked by the pipeline manager) - the coordinator approves; the approval starts it detached, outside the block and the approver, and it records its own counts
   manager-close:
     run: python3 dev/bin/manage.py closed {gap} {why}
     in: .
@@ -165,6 +173,6 @@ blocks:
     pool: 1
     lease: {ttl: 60m, attempts: 2}
     timeout: 1h
-    actions: [manager-close, manager-park, manager-pool, manager-change]
+    actions: [manager-close, manager-park, manager-pool, manager-change, manager-measure]
     in: block.manage-when
     out: [flow.situations-handled, flow.situations-failed]
