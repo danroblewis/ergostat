@@ -59,3 +59,14 @@ pytest collected nothing. That is not a fault in the change: run again here with
 (`suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_items_page.py`) the file
 gives 23 passed, rc 0, nothing skipped. No code was changed for it; the most reversible choice was to leave the build
 step and the tests as they are and say so here.
+
+Round 1, after the build step again: the same rc 5 ("1 skipped", tests/test_items_page.py:24, no module named
+'playwright'). The cause is the build step, not the page code. `scripts/affected_tests.py` picks only
+tests/test_items_page.py for a branch that changes only `ergostat/web/static/pages.js` and that browser file. The
+`[suites] build` command in dev/factory.toml runs without Playwright, so the file skips at import and pytest returns 5.
+Any gap whose test must go in a browser file, as this definition asks, hits this. Run again here under the watchdog
+with Playwright, the file gives 23 passed, rc 0, nothing skipped. No code was changed. The fix is outside this gap
+(lesson 13) and belongs in a factory gap of its own: for example, affected_tests leaves the four browser files out of
+the build's selection, or falls back to --collect-only when only browser files are picked. Adding a test that does
+not use a browser only to get past the build step would test nothing the change does, so none was added. The most
+reversible choice was to leave the code, the tests and the build step as they are and say so here.
