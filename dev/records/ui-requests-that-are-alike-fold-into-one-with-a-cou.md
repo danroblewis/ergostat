@@ -67,3 +67,11 @@ Round 1: built, 37 net lines outside tests and docs (budget 60).
     failure on main is shown by reading the code, not by a run.
 - **Not run:** the other browser files (`test_page_polling.py`, `test_items_page.py`, `test_page_refresh.py`), the
   whole unit suite, and a merge of main (main is the clone's base, so there is nothing newer to merge).
+
+Round 1, after the build step: `build` failed with rc 5. It ran only `tests/test_diagram_rendering.py` (the one test
+file changed; no `tests/test_<module>.py` exists for `entries.py`, `state.py` or `numbers_api.py`), and that file
+skips whole without Playwright, so nothing was collected. No page code changed. Added a unit test of the server side,
+`tests/test_inbox.py::test_a_held_request_carries_its_fold_part_and_system_to_the_side_list` (the entry's
+`fold`/`about`/`system`, and the attention row carrying them), so the build step now runs `tests/test_inbox.py` too. It
+was seen to fail (KeyError) with `state.py`'s pass-through line removed, then put back. `tests/test_inbox.py`: 31
+passed. ruff clean.
