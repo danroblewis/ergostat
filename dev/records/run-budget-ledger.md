@@ -194,3 +194,10 @@ Round 8 (the round-7 review's findings):
   outside this gap, so it is left for a follow-up on main (as in round 7).
 - Run here in round 8: `tests/test_run_budget.py` (39 passed). Ruff is clean. The unit suite and the four browser
   files were not run here (left to the factory and the merge queue).
+
+## Where it stopped
+
+Parked by the factory (review/run-budget-ledger-8, 2026-11-22 00:25).
+
+Failed its gates 8 times (the kill rule). Blocking findings:
+- dev/records/run-budget-ledger.md:186-188 (lesson-8; definition item 5): the round-8 bullet says 'Git printed `unknown revision` for the name `origin/main`, so the commit checks above stand in for it'. In this clone origin/main resolves (refs/remotes/origin/main at 5617e225, one of 174 refs), and `git log HEAD..origin/main` is empty. Item 5 says origin/main is present here, so no sentence may claim it is missing. This is the same partial-view claim raised in rounds 7 and 8. Fix: a round-9 entry that withdraws that sentence and says only what this clone shows: origin/main at 5617e225, `git log HEAD..origin/main` empty, b0fbc839's second parent 5617e225.
