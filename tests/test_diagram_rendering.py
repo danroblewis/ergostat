@@ -783,6 +783,32 @@ TRANSCRIPT = [
 ]
 
 
+BOX_TEXTS = """() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node.k-system')].map((g) =>
+  [g.querySelector('.sys-title')?.textContent, [...g.querySelectorAll('text')].map((t) => t.textContent)]))"""
+
+
+@pytest.mark.parametrize("example,box,description", [("the-job", "job", "what I am expected to do, and what I am judged on"),
+                                                    ("software-factory", "product", "textkit and its customers")])
+def test_each_closed_system_box_says_what_the_system_is(browser, tmp_path, example, box, description):
+    """A closed system's box in Dynamics prints its description under its name, and no longer counts its
+    feedback loops (the count is on its panel)."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=-", 0)
+        boxes = pg.evaluate(BOX_TEXTS)
+        assert box in boxes, f"no closed box {box!r} drawn: {sorted(boxes)}"
+        said = " ".join(pg.evaluate("""(name) => [...[...document.querySelectorAll('svg.canvas g.node.k-system')]
+          .find((g) => g.querySelector('.sys-title')?.textContent === name).querySelectorAll('text.sys-desc')]
+          .map((t) => t.textContent)""", box))
+        assert said == description, f"{box}'s box says {said!r}, not its description"
+        counted = {n: [t for t in ts if re.search(r"feedback loops? inside", t)] for n, ts in boxes.items()}
+        assert not any(counted.values()), f"a closed box still counts its loops: {counted}"
+        assert not errors, errors
+        pg.close()
+
+
 # item ids as the Items page links them: a / (as %2F), and the characters a path or a query would take for its own
 ADDRESSED = ["ticket/7", "ticket/a b?c#d%e&f+g", "ticket/ünï(1)!'*~"]
 
@@ -1989,13 +2015,13 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         pg.close()
 
 
-def test_a_module_says_as_many_loops_inside_as_the_side_list_and_draws_no_port_squares(browser, tmp_path):
+def test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_and_draws_no_port_squares(browser, tmp_path):
     with served("image-squeeze", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=-", 0)
         r = pg.evaluate("""() => {
           const caps = Object.fromEntries([...document.querySelectorAll('svg.canvas .node[data-id^="system:"]')].map((n) =>
-            [n.dataset.id.slice(7), (n.querySelector('text.t-sub')?.textContent.match(/^(\\d+)/) || [])[1]]));
+            [n.dataset.id.slice(7), [...n.querySelectorAll('text')].some((t) => /feedback loops? inside/.test(t.textContent))]));
           const rows = Object.fromEntries([...document.querySelectorAll('.looprow.sd-inside')].map((r) =>
             [r.querySelector('b').textContent, (r.textContent.match(/: (\\d+) feedback/) || [])[1]]));
           const dup = [...document.querySelectorAll('svg.canvas .node[data-id^="system:"]')].some((n) => {
@@ -2003,7 +2029,9 @@ def test_a_module_says_as_many_loops_inside_as_the_side_list_and_draws_no_port_s
             return new Set(names).size !== names.length; });
           return { caps, rows, squares: document.querySelectorAll('svg.canvas .sd-port').length, dup };
         }""")
-        assert r["caps"] and r["caps"] == r["rows"], r
+        # (its box says what it is; the side list counts each module's loops: as many rows as boxes with loops)
+        assert r["caps"] and not any(r["caps"].values()), r
+        assert r["rows"] and set(r["rows"]) <= set(r["caps"]) and all(v and v.isdigit() for v in r["rows"].values()), r
         assert r["squares"] == 0 and not r["dup"]
         pg.close()
 
