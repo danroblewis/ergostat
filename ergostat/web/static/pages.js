@@ -9,8 +9,8 @@ function page(main, title) {
 }
 const RANK = { off: 0, open: 1, unknown: 2, holding: 3 };   // the loops that need someone first
 const windowNote = () => {
-  const st = S.status, recorded = st?.first ? st.at - st.first : null;
-  return st?.window ? (recorded != null && recorded < st.window * 0.95 ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
+  const st = S.status, recorded = recordedShort();       // the header's own measure of it
+  return st?.window ? (recorded != null ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
 };
 const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("table", { class: cls },
   h("tr", {}, head.map((x) => (Array.isArray(x) ? h("th", { class: x[1] }, x[0]) : h("th", {}, x)))), rows));
