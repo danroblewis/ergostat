@@ -283,3 +283,15 @@ All 19 tests in `tests/test_library_fetch.py` pass. `tests/test_cli_fallback.py`
 `tests/test_modelling_template.py` pass unchanged (59). Ruff is clean. `git merge main`: already up to date.
 
 Overrun reason: about 754 net lines against 560. The reasons from rounds 1 and 2 stand. Round 3 adds about 11 lines in `tree.py`: the case-insensitive name key, and the realpath check after the links are made.
+
+### Round 4: the merge of main
+
+The factory's merge of main (b71c54f8) conflicted in `ergostat/cli/__init__.py`, and only in the help text: main
+added a `worker` line in the same place where this branch added `library`. Both lines are kept, and both topics are
+still registered. No other code changed in this round. After the merge, these pass: `tests/test_library_fetch.py`
+(19); `tests/test_cli_fallback.py`, `tests/test_templates.py` and `tests/test_modelling_template.py`, unchanged (59);
+`tests/test_spec_schema.py` and `tests/test_spec_structure.py` (42); the other four `tests/test_library_*.py` files
+plus main's new `tests/test_compute_worker_protocol.py` (141). Ruff is clean. Not run here: the whole unit suite, the
+four browser files (no page changed) and `demo_check` (no example touched).
+
+Overrun reason: about 754 net lines against 560, as in round 3 (737 under `ergostat/` and 19 in the schema). Round 4 adds none, and the reasons from rounds 1 to 3 stand.
