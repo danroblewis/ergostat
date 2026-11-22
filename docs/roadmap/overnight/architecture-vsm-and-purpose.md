@@ -187,3 +187,34 @@ check removed (the try then records it as unreviewed, so the `reviewed` assertio
 `KeyError` (the ZeroDivisionError escapes). Both breaks were reverted. Net lines outside `tests/` and `docs/`: 512
 of 550. A correction to round 1's count: `tests/test_vsm_review.py` has 14 tests in all, and
 `test_only_kept_evidence_answers_a_request` is one of them.
+
+Round 4. A correction to round 3: "the review's one finding" was wrong. The round-2 and round-3 reviews also raised
+the three findings below, and rounds 2 and 3 left them unanswered. This round answers all four findings of the
+round-3 review:
+- **Subsystems' goals in purpose coverage (lesson-5).** `vsm_review._goals` now keeps only the goals whose `system`
+  is the reviewed system. A subsystem's goals were judged at any depth before. This covers the answer's goal
+  entries and the `words` hash, as S1 already did. So a review of `ops` drops an entry naming `goal.shallow` (whose
+  system is `inner`). It cannot raise, answer or reopen `goal-off-purpose@goal.shallow`. New test:
+  `test_a_system_and_its_subsystem_do_not_answer_each_other_s_goal_requests`. A review of `inner` holds the request.
+  A review of `ops` that says the goal serves the purpose drops that entry, and the request stays held. A second
+  review of `inner` answers it. A later `ops` review that says the goal is off purpose does not reopen it. Changing
+  `shallow`'s description changes `inner`'s `words` and leaves `ops`'s alone.
+  `test_purpose_quotes_must_be_the_owner_s_words` used to expect the cross-system request. It now expects
+  `dropped: 5` and no request about `goal.shallow`. Lesson-9: with `_goals` back to any depth, both tests fail.
+- **Checklist paths no test reached (lesson-9).** `test_the_computed_checklist_names_each_function_s_candidates`
+  now loads a second model as well. That model is the main one plus three parts: a measured inflow from a cloud
+  (`arrive`), an unmeasured one (`landed`), and a goal `cap` of `ops` whose setpoint is set by `boss`, a controller of
+  `goal.short`. It asserts S4 is exactly `[flow.arrive]` and S3 is `{goal.cap, goal.shallow}`, with `cap`'s reason
+  naming `boss`. In the main model S4 stays empty. Broken by hand, the test failed each time: the "commanded by
+  another goal's block" mapping disabled, the S4 mapping disabled, and the S4 sensor condition removed (`landed`
+  then appears). All three breaks were reverted.
+- **`os.killpg` with no try in `_grouped`'s `except BaseException`.** Wrapped in `except OSError: pass`, as in the
+  timeout branch. New test: `test_an_interrupt_survives_a_group_already_gone`. Its `communicate` reaps the group and
+  then raises KeyboardInterrupt, and the test asserts that KeyboardInterrupt is what comes out. With the wrap
+  removed, it fails with ProcessLookupError.
+- **This section listing only one finding.** Corrected here.
+
+SPEC §12 now says a goal must be the system's own, and that a subsystem's goal is judged by the subsystem's review.
+Net lines outside `tests/` and `docs/`: 513 of 550. Run: `tests/test_vsm_review.py` (16 passed),
+`tests/test_cli_fallback.py`, and `ruff` (clean). I did not run the whole unit suite or the four browser files;
+the factory runs those.

@@ -43,7 +43,9 @@ def systems(spec: Spec) -> list[str]:
 
 
 def _goals(spec: Spec, system: str) -> list[str]:
-    return sorted(p.split(".", 1)[1] for p in vsm.parts(spec, system) if p.startswith("goal."))
+    """The goals directly in the system: a subsystem's are its own review's (their requests are about the goal)."""
+    mine = vsm.parts(spec, system)
+    return sorted(g for g, x in spec.goals.items() if x.system == system and f"goal.{g}" in mine)
 
 
 def words(spec: Spec, system: str) -> str:

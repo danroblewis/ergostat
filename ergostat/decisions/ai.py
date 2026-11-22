@@ -116,7 +116,10 @@ def _grouped(cmd: list[str], prompt: str, timeout: float) -> subprocess.Complete
             pr.communicate()
             raise
         except BaseException:
-            os.killpg(pr.pid, signal.SIGKILL)
+            try:
+                os.killpg(pr.pid, signal.SIGKILL)
+            except OSError:
+                pass
             raise
     return subprocess.CompletedProcess(cmd, pr.returncode, out, err)
 

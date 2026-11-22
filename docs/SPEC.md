@@ -3000,7 +3000,8 @@ blocks and blocks with a `claims` param; S4 its measured flows in from a cloud, 
 is given a brief of the system (its words, parts, subsystems, interface, its architecture notes and the checklist,
 at most 30,000 characters) and answers with one JSON line. The answer is checked, not trusted: a function said
 present must name at least one of the system's own parts (for S5, its description or the purpose), or it is dropped
-as unsupported and counted; a goal must be the system's; a goal said to serve the purpose, and each part of the
+as unsupported and counted; a goal must be the system's own (a subsystem's goal is judged by the subsystem's
+review); a goal said to serve the purpose, and each part of the
 purpose said uncovered (two words or more), must quote the owner's words, found in the description (or the purpose)
 after whitespace and curly quotes are made plain, or it is dropped. A system with no description gets no purpose
 coverage. The review is recorded (`ergostat.architecture.reviewed`: the system's `signature` and a hash of its words,

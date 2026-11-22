@@ -128,6 +128,16 @@ def test_the_computed_checklist_names_each_function_s_candidates(proj, tmp_path)
     _write(tmp_path / "np", MODEL.replace("purpose: keep the plant's work moving\n", ""))
     bare = vsm.checklist(mdl.load(tmp_path / "np").spec, "bare")
     assert bare == {"S1": [], "S2": [], "S3": [], "S3*": [], "S4": [], "S5": []}
+    more = MODEL.replace("flows:\n", "flows:\n  arrive: {to: queue, system: ops, sensor: {manual: true}}\n"
+                         "  landed: {to: queue, system: ops}\n")          # measured from a cloud; unmeasured
+    more = more.replace("goals:\n", "goals:\n  cap: {stock: queue, hold: '<= 8', system: ops}\n")
+    more = more.replace("blocks:\n", "blocks:\n  boss: {type: expr, in: {q: stock.queue}, expr: 3, out: goal.cap, "
+                        "system: ops}\n")                                # short's controller sets cap's setpoint
+    _write(tmp_path / "more", more)
+    cl = vsm.checklist(mdl.load(tmp_path / "more").spec, "ops")
+    assert [x["part"] for x in cl["S4"]] == ["flow.arrive"]
+    s3 = {x["part"]: x["why"] for x in cl["S3"]}
+    assert set(s3) == {"goal.cap", "goal.shallow"} and "commanded by boss" in s3["goal.cap"]
 
 
 def test_a_review_raises_a_held_request_for_each_missing_function_and_records_its_cost(proj):
@@ -168,12 +178,33 @@ def test_purpose_quotes_must_be_the_owner_s_words(proj):
             uncovered=[{"quote": "happy owners forever", "why": "x"}, {"quote": "customers   don’t wait", "why": "y"},
                        {"quote": "short", "why": "one word"}])
     r = vr.review(proj, spec, "ops")
-    assert r["dropped"] == 4
+    assert r["dropped"] == 5                          # (shallow is inner's goal: inner's review judges it)
     x = _req(proj, "purpose-uncovered")
     assert x["state"] == "held" and "\"customers don't wait\"" in x["says"] and "happy" not in x["says"]
     assert _req(proj, "goal-off-purpose", "goal.low") is None
     assert _req(proj, "goal-off-purpose", "goal.short") is None
+    assert _req(proj, "goal-off-purpose", "goal.shallow") is None
+
+
+def test_a_system_and_its_subsystem_do_not_answer_each_other_s_goal_requests(proj):
+    spec = proj.model.spec
+    assert vr._goals(spec, "ops") == ["short"] and vr._goals(spec, "inner") == ["shallow"]
+    _answer(proj, goals=[{"goal": "shallow", "serves": False}])
+    vr.review(proj, spec, "inner")
     assert _req(proj, "goal-off-purpose", "goal.shallow")["state"] == "held"
+    _answer(proj, goals=[{"goal": "shallow", "serves": True, "quote": DESC}])
+    r = vr.review(proj, spec, "ops")                  # ops's review cannot answer inner's goal
+    assert r["dropped"] == 1 and _req(proj, "goal-off-purpose", "goal.shallow")["state"] == "held"
+    _answer(proj, goals=[{"goal": "shallow", "serves": True, "quote": "the inner loop"}])
+    vr.review(proj, spec, "inner")
+    assert _req(proj, "goal-off-purpose", "goal.shallow")["state"] == "answered"
+    _answer(proj, goals=[{"goal": "shallow", "serves": False}])
+    vr.review(proj, spec, "ops")                      # nor reopen it
+    assert _req(proj, "goal-off-purpose", "goal.shallow")["state"] == "answered"
+    sp2 = proj.model.spec
+    before = vr.words(sp2, "ops"), vr.words(sp2, "inner")
+    sp2.goals["shallow"].description = "changed"      # a subsystem's goal's words are not the system's
+    assert vr.words(sp2, "ops") == before[0] and vr.words(sp2, "inner") != before[1]
 
 
 def test_a_failed_answer_reviews_nothing_and_answers_nothing(proj, monkeypatch):
@@ -327,6 +358,18 @@ def test_a_hung_ai_is_killed_at_its_timeout(proj, monkeypatch):
     pids = [int((proj.fake / f).read_text()) for f in ("pid", "child")]
     assert not any(_alive(x) for x in pids)
     assert took < 45                                 # (the child's 60 s sleep would hold the pipes open to the end)
+
+
+def test_an_interrupt_survives_a_group_already_gone(monkeypatch):
+    from ergostat.decisions import ai
+
+    def gone(self, *a, **k):                         # the group exits, then the call is interrupted
+        os.killpg(self.pid, 9)
+        self.wait()
+        raise KeyboardInterrupt
+    monkeypatch.setattr(subprocess.Popen, "communicate", gone)
+    with pytest.raises(KeyboardInterrupt):           # not ProcessLookupError from the second killpg
+        ai._grouped(["sleep", "30"], "", 5)
 
 
 def test_the_template_s_own_system_is_never_reviewed(proj, tmp_path, capsys):
