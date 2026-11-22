@@ -136,6 +136,66 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
+NAV = ["/diagram", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
+
+
+@pytest.fixture(scope="module")
+def nav_site(tmp_path_factory):
+    """A site of its own: opening every page records ergostat's first offered changes, which `site`'s tests count."""
+    d = tmp_path_factory.mktemp("nav") / EXAMPLE
+    shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("size", [(390, 844), (720, 450)], ids=["phone", "zoom-200"])
+def test_the_navigation_shows_every_page_at_phone_width_and_at_200_percent_zoom(browser, nav_site, size):
+    """Below 760 px the tabs wrap onto rows of their own: all eight inside the viewport on every page, nothing
+    scrolled sideways, and the current page still underlined."""
+    site = nav_site
+    w, h = size
+    pg = browser.new_page(viewport={"width": w, "height": h})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    for route in NAV:
+        pg.goto(f"{site}{route}")
+        pg.wait_for_selector(f'#nav a.on[href="{route}"]')
+        pg.wait_for_timeout(300)
+        seen = pg.evaluate("""() => ({
+            links: [...document.querySelectorAll("#nav a")].map((a) => {
+                const r = a.getBoundingClientRect();
+                return { href: a.getAttribute("href"), left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+            }),
+            scroll: document.scrollingElement.scrollWidth, client: document.scrollingElement.clientWidth,
+            rows: new Set([...document.querySelectorAll("#nav a")].map((a) => Math.round(a.getBoundingClientRect().top))).size,
+            under: getComputedStyle(document.querySelector("#nav a.on")).borderBottomColor,
+            plain: getComputedStyle(document.querySelector("#nav a:not(.on)")).borderBottomColor,
+        })""")
+        assert [a["href"] for a in seen["links"]] == NAV, (route, seen)
+        out = [a for a in seen["links"] if a["left"] < 0 or a["top"] < 0 or a["right"] > w or a["bottom"] > h]
+        assert not out, (route, size, out)
+        assert seen["scroll"] == seen["client"], (route, size, seen)
+        assert seen["rows"] <= 2, (route, size, seen)                          # two rows at most
+        assert seen["under"] != seen["plain"], (route, seen)                    # the current page underlined
+    assert not errors, errors
+    pg.close()
+
+
 def test_items_list_sorts_by_a_column(browser, site):
     """A column's header sorts the list by its field (up, down, off), kept in the address (sort=FIELD, -FIELD)."""
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
@@ -551,12 +611,12 @@ def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap
     pg.locator(".rg-timeline .rg-tools button", has_text="+").click()
     pg.locator(".rg-timeline .rg-tools button", has_text="+").click()
     assert ticks() != before
-    pg.locator(".rg-check", has_text="Collapse done").locator("input").check()     # the finished rows go
-    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length < {len(rows)}")
-    assert not pg.locator(".rg-timeline .rg-row.rg-done").count()
-    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()        # every item in the window
-    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()
+    assert not pg.locator(".rg-timeline .rg-row.rg-done").count()                 # the finished collapsed, by default
+    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()   # the finished rows come back
     pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length > {len(rows)}")
+    kept = pg.locator(".rg-timeline .rg-row").count()
+    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()        # every item in the window
+    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length > {kept}")
     assert not errors, errors
     pg.close()
 
@@ -580,6 +640,77 @@ def test_the_timeline_levels_lanes_per_block(browser, roadmap):
     pg.wait_for_selector(".rg-timeline .rg-row .rg-whisker", timeout=20000)
     assert pg.locator(".rg-timeline .rg-p50").count() >= 5
     assert not errors, errors
+    pg.close()
+
+
+def shown_clock(said: str, now: float) -> float:
+    """A clock time the legend says ("04:02", or "Nov 23 04:02" on another day) as seconds since the epoch."""
+    import datetime as dt
+    *day, hm = said.split()
+    today = dt.datetime.fromtimestamp(now)
+    d = dt.datetime.strptime(f"{' '.join(day)} {today.year}", "%b %d %Y").date() if day else today.date()
+    t = dt.datetime.combine(d, dt.datetime.strptime(hm, "%H:%M").time())
+    return t.timestamp()
+
+
+def test_the_finish_is_a_clock_time_no_earlier_than_the_critical_paths_end(browser, roadmap):
+    """The legend says when the last open item is done in one sentence, on first paint ("being worked out" until the
+    estimates are): a clock time expected and one 'at worst', the expected no earlier than now plus the critical
+    path's remaining duration (the answer's ``end``), the worst no earlier than the expected."""
+    import re
+    answers: list[dict] = []
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 4;")
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("response", lambda r: answers.append(r) if "/api/items-graph" in r.url else None)
+    pg.goto(f"{roadmap}/items?view=graph")
+    pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
+    first = pg.locator(".rg-legend .rg-eta").all_inner_texts()                   # on first paint, one sentence
+    assert len(first) == 1 and ("being worked out" in first[0] or "at worst" in first[0]), first
+    assert "done in about" not in pg.locator(".rg-legend").first.inner_text()       # no duration beside it
+    pg.wait_for_function("() => document.querySelector('.rg-legend .rg-eta')?.textContent.includes('at worst')", timeout=30000)
+    said = pg.locator(".rg-legend .rg-eta").first.inner_text()
+    m = re.fullmatch(r"last (\w+) \((\S+)\) expected ((?:\w{3} \d+ )?\d\d:\d\d), by ((?:\w{3} \d+ )?\d\d:\d\d) at worst \(9 in 10\)", said)
+    assert m, said
+    d = next(a.json() for a in reversed(answers) if a.ok and (a.json().get("eta") or {}).get("kinds"))
+    expected, worst = shown_clock(m[3], d["now"]), shown_clock(m[4], d["now"])
+    assert d["critical"] and d["end"] > d["now"], d["end"] - d["now"]
+    assert expected >= d["end"], (said, d["end"] - d["now"])                       # not before the critical path's end
+    assert worst >= expected, said
+    # a simulation that ends before the critical path does: the sentence still says no earlier than its end
+    said, now, end = pg.evaluate("""() => { const now = Math.floor(Date.now() / 1000), end = now + 3600;
+      const e = { p50: now + 60, p90: now + 120, visits: {} };
+      const d = { now, end, critical: ['epic/e100'], eta_pending: false, eta: { runs: 50, kinds: { epic: e } },
+                  items: [{ id: 'epic/e100', kind: 'epic', status: 'active', eta: e }] };
+      return [rgFinish(d).textContent, now, end]; }""")
+    m = re.fullmatch(r"last epic \(e100\) expected ((?:\w{3} \d+ )?\d\d:\d\d), by ((?:\w{3} \d+ )?\d\d:\d\d) at worst \(9 in 10\)", said)
+    assert m and shown_clock(m[1], now) >= end and shown_clock(m[2], now) >= end, said
+    # an estimate not yet worked out (a what-if never asked): the answer says so, and so does the sentence
+    import json
+    with urllib.request.urlopen(f"{roadmap}/api/items-graph?whatif=block.developer.pool:7", timeout=10) as r:
+        fresh = json.load(r)
+    assert fresh["eta"] is None and fresh["eta_pending"] is True, fresh.get("eta_pending")
+    said = pg.evaluate("(d) => rgFinish(d).textContent", fresh)
+    assert said == "the last item's finish: being worked out", said
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_timeline_opens_at_now(browser, roadmap):
+    """A short window: the Timeline opens with its now line in view, at the first unfinished row."""
+    pg = browser.new_page(viewport={"width": 1200, "height": 420})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 4;")
+    pg.goto(f"{roadmap}/items?view=timeline")
+    pg.wait_for_selector(".rg-timeline[data-drawn] .rg-now line", state="attached", timeout=20000)
+    pg.wait_for_timeout(500)
+    at = pg.evaluate("""() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+      return { now: box(document.querySelector('.rg-timeline .rg-now line')),
+               row: box(document.querySelector('.rg-timeline .rg-row:not(.rg-done)')), w: innerWidth, h: innerHeight,
+               y: scrollY }; }""")
+    (x, t, _, b), (_, rt, _, rb) = at["now"], at["row"]
+    assert 0 <= x <= at["w"] and t < at["h"] and b > 0, at                     # the now line, inside the viewport
+    assert 0 <= rt and rb <= at["h"], at                                          # and the first unfinished row
     pg.close()
 
 
