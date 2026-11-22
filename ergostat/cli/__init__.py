@@ -82,6 +82,7 @@ run it
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
   remote         Remote systems this model reads (status); token NAME lets another ergostat read this one
+  worker         Be a compute node's worker for an engine (--stdio), or write it to copy to a node (--pack FILE)
   report         Reports about ergostat itself, scrubbed, for you to read and submit by hand (--draft TEXT)
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
@@ -372,6 +373,8 @@ def build() -> argparse.ArgumentParser:
     remote_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
+    from .worker import register as worker_topic
+    worker_topic(sub, common)
     return ap
 
 

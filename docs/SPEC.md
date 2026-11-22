@@ -6830,6 +6830,97 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 | goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver: the person, or the AI) |
 | action | `apply-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
 
+## 12s. Compute systems: machines that run what this engine decides
+
+A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
+and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
+the protocol: the worker, its frame, `hello`, `beat` and `ping`. Nothing in the engine speaks to it yet, and no
+model says `compute:` or `runs-on:` yet; a model is unchanged by any of this.
+
+**The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
+modules import each other by bare name and nothing from ergostat (a test reads every import of every module), so a
+node needs Python 3.12 and no install of ergostat. It runs three ways, each the same `main`:
+
+- `python3 -I PATH/worker --stdio [--root DIR]`, the folder run as a directory (Python puts the folder first on
+  the path even in isolated mode; `__main__.py` puts it there itself when it is not, which is how the CLI loads it);
+- `python3 -I worker.pyz --stdio`, a zipapp of the same folder, which `ergostat worker --pack FILE` writes for
+  copying to a node;
+- `ergostat worker --stdio [--root DIR]`.
+
+Its folder is its **root**, `~/.local/state/ergostat-worker/` by default (`--root DIR` to change it). It writes nothing outside the root,
+with one exception Python makes: the directory run, without `-B`, gets Python's own cache of `__main__.py` in the
+folder's `__pycache__/`, written before any line of the worker runs. The worker's own modules are never cached (it
+sets `sys.dont_write_bytecode` first), and the zipapp writes nothing beside itself; so the form to copy to a node is
+the zipapp. Its diagnostics go to standard error.
+
+**The frame** (`frames.py`). One JSON object a line each way, each with `v` (the protocol, 1), `seq` (per
+direction, from 1, rising by one a line, so either side sees a gap) and `type`, at most 1 MiB a line (the newline
+not counted). Requests carry an `id` (a string or an integer) that their answer repeats. The worker ends, after one
+`error` (its `id` the request's when it could be read, its `why` the reason), on a line that is not a frame: over 1
+MiB, not JSON, not an object, a `v` other than 1 (a missing one too), a `seq` other than the next, or no `type`.
+A frame with an unknown `type` is answered `error` and the worker goes on, as it does for a request with no `id`.
+
+**The loop** (`serve.py`). The worker's first line is `hello`:
+
+| Field | What |
+|---|---|
+| `worker` | the worker's version, `"1"` |
+| `node` | a random 32-hex id made once and kept in the root's `node` file (never a host name, an address or a user), linked into place so it never replaces one already there; a `node` file that can't be read or is not 32 hex digits is said in an `error` and the worker ends (never a new id over it) |
+| `cpus` | the CPUs it may use (its affinity, else `os.cpu_count`), or null |
+| `memory` | bytes (`/proc/meminfo`, or `sysctl hw.memsize` on macOS), or null when it can't be read |
+| `disk` | `{"root": free bytes of the root's file system}`, or null |
+| `arch`, `os` | `platform.machine()`, `platform.system()` in lower case |
+| `backends`, `images`, `runs` | `[]` (the process and Docker backends and the runs it holds come with sections 12s.3, 12s.6 and 12s.9) |
+| `labels` | the root's `labels.json`, an object of strings (what the owner says the node has); missing, `{}`; unreadable or of another shape, `{}`, said on standard error |
+| `slots` | the most runs it takes at once: its CPUs, at most 64; CPUs unknown, 0 |
+
+Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs` (`{}` until runs exist).
+`ping` is answered `pong` with its `id`. Every other type is a table, `serve.HANDLERS`, of message type to handler:
+each later part of the protocol is one module of the folder and one line registering it there. Standard input
+closed, the worker ends (0).
+
+### 12s.1 The runner interface
+
+(To be filled by the gap that builds it: `ergostat/compute/runner.py`, the local backend behind it.)
+
+### 12s.2 The run as data
+
+(To be filled: the run spec built by `_ran` and passed to the backend.)
+
+### 12s.3 A run on a node: start, limits, output and its keeper
+
+(To be filled: `start`, `started`, `refused`, the process backend and its limits, `out` by offset, `ended`, the
+run folders and the per-run keeper.)
+
+### 12s.4 Pools in the model, and the engine's connection
+
+(To be filled: `compute:` and `runs-on:`, their `check` findings and ceilings, `ssh` or `connect:`, the
+`ergostat.compute.*` measures.)
+
+### 12s.5 The lease on a node
+
+(To be filled: the lease in `start`, `renew`, the keeper's kill at the expiry, a node lost after three beats missed.)
+
+### 12s.6 Runs that outlive the connection
+
+(To be filled: `attach`, the runs listed in `hello`, unknown never read as gone.)
+
+### 12s.7 The work in and out
+
+(To be filled: `need`, bundles in, `result` out, their caps.)
+
+### 12s.8 Secrets
+
+(To be filled: `secrets:` from files, sent at start, never written.)
+
+### 12s.9 The Docker backend
+
+(To be filled: its limits, the container named for the run, `images` in `hello`.)
+
+### 12s.10 Calls from a node
+
+(To be filled: `ergostat act`, `event --add`, `lease` and `item` from a run on a node, forwarded to the engine.)
+
 ## 13. Examples
 
 ### First loop: an inbox kept short (ergostat closes the loop)
