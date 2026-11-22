@@ -81,6 +81,23 @@ def test_the_gate_catches_what_it_should():
         assert hit == caught, decl
 
 
+def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():
+    """The narrow-width half of tests/test_items_page.py's phone/200% check, readable without a browser: below 760 px
+    the nav wraps onto its own rows, nothing in the sheet makes it scroll sideways, and the current page keeps its
+    underline."""
+    text = re.sub(r"/\*.*?\*/", "", CSS.read_text(), flags=re.S)
+    narrow = re.search(r"@media \(max-width: 759px\) \{(.*?)\n\}", text, flags=re.S)
+    assert narrow, "no @media (max-width: 759px) block"
+    nav = dict(declarations(re.search(r"\.bar nav \{[^{}]*\}", narrow.group(1)).group(0)))
+    assert nav.get("flex-wrap") == "wrap" and nav.get("overflow-x") == "visible", nav
+    for block in re.findall(r"@media \(max-width: (\d+)px\) \{(.*?)\n\}", text, flags=re.S):
+        if int(block[0]) < 760:
+            for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block[1]):
+                if sel.strip().startswith(".bar nav") and "a" not in sel.split():
+                    assert dict(declarations("{" + body + "}")).get("overflow-x", "visible") == "visible", sel
+    assert "border-bottom-color: var(--ink)" in re.search(r"\.bar nav a\.on \{[^{}]*\}", text).group(0)
+
+
 def _oklab(hexc: str) -> list[float]:
     def lin(c):
         return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4

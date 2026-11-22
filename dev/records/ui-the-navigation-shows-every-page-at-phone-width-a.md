@@ -51,3 +51,14 @@ pytest gives rc 5 because no test ran. With Playwright, under the watchdog, the 
 23 passed, none skipped, rc 0. The code is unchanged. Changing `affected_tests.py` (for example, to treat a selection
 that is all skipped browser files as collection only) or setting `build_browser = true` is outside this gap (lesson-13).
 It belongs in a gap of its own. Until then, a branch that touches only page styles and a browser test fails this step.
+
+Round 1, the second build failure (rc 5, same cause). The branch now also tests the narrow-width rule in the style
+sheet's own unit file, which runs without a browser:
+`tests/test_style_tokens.py::test_below_760_px_the_tabs_wrap_and_never_scroll_sideways`. It checks that the 759 px
+block wraps the nav with `overflow-x: visible`, that no narrower block gives the nav a sideways scroll again, and that
+`a.on` keeps its underline. It is a static check of the sheet, not a stand-in for the browser acceptance test. The
+build step now selects this file as well as `tests/test_items_page.py`. Run without Playwright, the pair gives
+6 passed, 1 skipped, rc 0. I could not run `scripts/affected_tests.py` itself because the command was refused. I saw the
+new test fail on two breaks: `flex-wrap: nowrap` in the 759 px block, and `.bar nav { overflow-x: auto; }` added to the
+700 px block. Both breaks were then reverted, and `style.css` is unchanged in this commit. ruff is clean. No code
+outside `tests/` changed, so the net code lines are still 3.
