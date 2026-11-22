@@ -3808,3 +3808,69 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+def open_all(pg) -> str:
+    """The ⋯ menu's Open all, clicked: its label as it read."""
+    pg.get_by_title("More: wrap, open or close every system, unpin").click()
+    item = pg.locator(".menu-pop .menu-item", has_text="Open all")
+    label = item.inner_text()
+    item.click()
+    return label
+
+
+OPENED = """(want) => typeof S !== 'undefined' && S.graph && [...(S.graph.open || [])].sort().join(',') === want &&
+  S.layout && S.graphSig && !S.layout.routing && document.querySelectorAll('svg.canvas g.node').length > 0"""
+LEVEL_SAID = "() => document.querySelector('.canvas-wrap .open-level')?.textContent || ''"
+
+
+@pytest.mark.serial
+def test_open_all_on_a_model_that_will_not_fit_opens_the_first_level_and_says_into_for_the_rest(browser, tmp_path):
+    """the-job (about 200 parts open) at 1600x1000: 'Open all (first level)' opens job and modelling, the ten systems
+    within job stay closed boxes with their Into, the canvas says so, the lines come within 3s, Blocks draws (never a
+    blank canvas), and the address lists what was opened, so a reload shows the same."""
+    with served("the-job", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        first = sorted(s for s, t in tree.items() if not t["within"])
+        nested = sorted(set(tree) - set(first))
+        assert first == ["job", "modelling"] and len(nested) == 10, (first, nested)
+        said = f"Opened to the first level: {len(nested)} systems stay closed. Use Into to open one."
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, (view, box, ctl) in enumerate([("view=dynamics", "system:", ".sys-btn"), ("view=blocks", "sys:", ".bd-toggle")]):
+            drawn(pg, url, view, i)
+            assert pg.evaluate(LEVEL_SAID) == ""
+            t0 = time.monotonic()
+            assert open_all(pg).startswith("Open all (first level)")
+            pg.wait_for_function(OPENED, arg=",".join(first), timeout=DRAWN_S * 1000)
+            took = time.monotonic() - t0
+            if view == "view=dynamics":
+                assert took < 3, f"the first level open, its lines routed, took {took:.1f}s"
+            assert f"open={','.join(first)}" in pg.url.replace("%2C", ","), pg.url
+            for _ in range(2):                                       # as opened, then as reloaded from the address
+                got = pg.evaluate("""([box, ctl, nested]) => nested.map((x) => {
+                  const el = document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(box + x)}"]`);
+                  return [x, !!el, !!el?.querySelector(ctl)]; }).filter(([, drawn, has]) => !drawn || !has)""", [box, ctl, nested])
+                assert not got, f"[{view}] not drawn as a closed box with its control: {got}"
+                assert pg.evaluate("() => document.querySelectorAll('svg.canvas g.node').length") > len(nested)
+                assert pg.evaluate(LEVEL_SAID) == (said if view == "view=dynamics" else said.replace("Into", "a block's +"))
+                pg.reload()
+                pg.wait_for_function(OPENED, arg=",".join(first), timeout=DRAWN_S * 1000)
+        pg.close()
+        assert not errors, errors
+
+
+def test_open_all_on_a_model_that_fits_opens_every_system_as_before(browser, tmp_path):
+    """software-factory (about 65 parts open, a system within another) fits: Open all opens every system (open=*)."""
+    with served("software-factory", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        assert any(t["within"] for t in tree.values()), tree
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        for i, view in enumerate(["view=dynamics", "view=blocks"]):
+            drawn(pg, url, view, i)
+            assert open_all(pg) == "Open all systems"
+            pg.wait_for_function(OPENED, arg=",".join(sorted(tree)), timeout=DRAWN_S * 1000)
+            assert "open=*" in pg.url.replace("%2A", "*"), pg.url
+            assert pg.evaluate(LEVEL_SAID) == ""
+        pg.close()

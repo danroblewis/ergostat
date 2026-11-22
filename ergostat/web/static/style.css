@@ -239,6 +239,8 @@ body:has(#detail:not([hidden])) .diagram > .side { display: none; }
   background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius-menu); padding: var(--sp-1); }
 .toolbar { top: var(--sp-3); left: var(--sp-3); right: var(--sp-3); width: max-content; max-width: calc(100% - var(--sp-5)); }
 .zoom { bottom: var(--sp-3); right: var(--sp-3); }
+.open-level { position: absolute; z-index: 2; bottom: var(--sp-3); left: var(--sp-3); max-width: 40%; background: var(--bg);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-menu); padding: var(--sp-1) var(--sp-2); font-size: var(--text-sm); }
 .toolbar button, .zoom button { border-color: transparent; background: transparent; }
 .toolbar button:hover, .zoom button:hover { background: var(--fill); }
 .toolbar select { border-color: transparent; background: transparent; }
@@ -670,7 +672,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
   .canvas-wrap { display: flex; flex-direction: column; }
-  .toolbar, .zoom { position: static; margin: var(--sp-2) var(--sp-2) 0; width: auto; max-width: none; }
+  .toolbar, .zoom, .open-level { position: static; margin: var(--sp-2) var(--sp-2) 0; width: auto; max-width: none; }
   .toolbar { order: -1; gap: 0; }
   .toolbar button { padding: var(--sp-1) var(--sp-2); }
   .toolbar select { max-width: 8em; }

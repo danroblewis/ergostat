@@ -1014,6 +1014,33 @@ function legend(view) {
     h("span", { class: "sym" }, "H A P"), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, `${RUNG_LETTER[i]} ${k}`))));
 }
 
+/* 'Open all' on a model too big to read once open: the first level opened, the systems within it kept closed. The open
+   drawing is estimated from the parts every box holds (about PART_AREA px² each, laid out at full size; the examples
+   measured 30,000 to 110,000), against what the canvas shows with its 12px text at an 11px floor: past FIT_OVER times
+   that, or past LINES_MAX lines (about LINES_EACH a part), it would not fit */
+const PART_AREA = 60000, FIT_FLOOR = 11 / 12, FIT_OVER = 4, LINES_EACH = 1.3, LINES_MAX = 600;
+function openPlan(g, system, svg) {
+  if (SNAP) return null;                                  // a snapshot holds everything open (open=*), not the first level
+  const tree = g?.tree || {}, names = Object.keys(tree);
+  const inside = (x) => { for (let p = tree[x]?.within; p; p = tree[p]?.within) if (p === system) return true; return !system; };
+  const first = names.filter((x) => (tree[x].within || "") === system).sort();
+  const nested = names.filter((x) => x !== system && !first.includes(x) && inside(x));
+  const parts = (g?.nodes || []).reduce((t, n) => t + (n.kind === "system" || n.role === "subsystem" ? n.parts || 0
+                                                     : n.kind === "terminal" || n.kind === "port" ? 0 : 1), 0);
+  const r = svg.getBoundingClientRect(), room = Math.max(r.width * r.height, 1) / FIT_FLOOR ** 2;
+  const big = parts * PART_AREA > FIT_OVER * room || parts * LINES_EACH > LINES_MAX;
+  return big && nested.length ? { first, nested } : null;
+}
+function openLevelNote(wrap, g, system, svg, view) {   // said while what is open is that first level (a reload too)
+  const plan = openPlan(g, system, svg), open = [...(g.open || [])].sort().join(",");
+  const say = plan && open === plan.first.join(",") ? `Opened to the first level: ${plan.nested.length} system${plan.nested.length === 1 ? "" : "s"} ` +
+    `stay${plan.nested.length === 1 ? "s" : ""} closed. Use ${view === "blocks" ? "a block's +" : "Into"} to open one.` : "";
+  const el = wrap.querySelector(".open-level");
+  if (!say) el?.remove();
+  else if (el) el.textContent = say;
+  else wrap.append(h("div", { class: "open-level", role: "status" }, say));
+}
+
 async function pageDiagram(main, q) {
   // the system dynamics view is the first; "control", its old name, still reaches it
   if (q.get("view") === "wiring") {                             // the wiring the process map replaced: its address reaches it
@@ -1069,7 +1096,9 @@ async function pageDiagram(main, q) {
     view !== "process" ? { label: "Colour by correspondence", checked: CORR.on, hint: "or hold C",
       onclick: () => corrSet(!CORR.on) } : null,
     ...(view === "process" ? [...pmKindItems(), { sep: true }, unpinAll] : [
-      { label: "Open all systems", onclick: () => { S.graphSig = ""; go({ open: "*" }); } },
+      ((plan) => plan ? { label: "Open all (first level)", hint: `${plan.nested.length} within stay closed`,
+                          onclick: () => { S.graphSig = ""; go({ open: plan.first.join(",") }); } }
+        : { label: "Open all systems", onclick: () => { S.graphSig = ""; go({ open: "*" }); } })(openPlan(S.graph, system, svg)),
       { label: "Close all systems", onclick: () => { S.graphSig = ""; go({ open: "-" }); } },
       { sep: true },
       unpinAll]),
@@ -1170,6 +1199,7 @@ async function pageDiagram(main, q) {
     wrap.querySelector(".loading")?.remove();
     S.graph = g;
     proposedBanner(wrap, g, proposal, go);
+    if (view !== "process") openLevelNote(wrap, g, system, svg, view);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
       sysSel.dataset.tree = "1";
       const kids = (p) => Object.keys(g.tree).filter((x) => (g.tree[x].within || null) === p).sort();
