@@ -118,3 +118,37 @@ the item page's sub-table for a list of objects (pages.js fieldView), now in hea
 fail (lesson-9): with the Zoom out label removed, 1 of 8 failed; before the fieldView fix, the thead test failed.
 Tests run: tests/test_page_names_source.py (8 passed), tests/test_items_page.py with Playwright under the watchdog
 (33 passed, rc 0). Ruff clean.
+
+Round 3 (the review's one finding: seven data tables with a thead and no caption, untested). Answered:
+- A caption on each: `tableCaption(text)` in util.js (a visually hidden `<caption>`, as the pages' own tables have) on
+  the loop's parts ('The parts along loop NAME'), an agent's recent runs ('Recent runs of NAME, newest first'), the
+  parameter and calibration tables ('Parameters', 'Calibrations'), a stock's items (its count line, as shown above
+  it), a flow's openings or observations, and the item page's list-of-objects sub-table (its column names, as
+  pages.js `table()` already does). +2 net lines (the helper); the branch is 20 net lines against main
+  (70 added, 50 removed under `ergostat/`).
+- The browser acceptance now opens those tables: `tests/test_items_page.py::test_the_side_panels_and_item_tables_are_captioned`
+  opens a loop's panel, the agent filling its first part, the first flow in `around=flow/quality-turnover` whose panel
+  shows a parameter table, the stock ideas' items, and an item page with `fieldView` given a list of objects (that
+  example has no item with such a field, so the test hands the page's own function one). The same NAMES rules
+  run after each; it asserts that a parts, a 'Recent runs', a params, an item-list and a sub table were each seen,
+  so it cannot pass by opening nothing. The calibration table appears only after an estimate and was not opened by
+  this test; it shares the helper, and the source test checks its call.
+- `tests/test_page_names_source.py::test_each_table_with_a_header_row_has_a_caption`: each headRow call's table
+  carries tableCaption or a caption (11 tables, all of them), and the helper builds a caption.
+Seen to fail (lesson-9): with tableCaption returning nothing, the browser test failed at 'a loop' ('no caption'
+on table.parts); with only the item sub-table's caption removed, the browser test failed at "an item's list of
+objects" and the source test failed naming pages.js. The source test did not fail on the first break until the
+helper's body was pinned too (now it is).
+Tests run (Playwright, under the watchdog): tests/test_items_page.py (34 passed, rc 0); tests/test_agents_page.py and
+tests/test_view_switch_words.py (6 passed); tests/test_page_names_source.py (9 passed); from
+tests/test_diagram_rendering.py, the tests that read these tables: the process lines panel and snapshot item
+lists, and the valve's equation panel (3 passed). Ruff clean. Two failed:
+- test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page: at 'Nothing waiting.' on /model,
+  the same failure as rounds 1 and 2. Its table.params and table.calibrations reads come before that and passed.
+- test_every_part_opens_its_panel_when_clicked_even_mid_redraw: a different stock each run ('unanswered-requests'
+  and 'changes-made', then 'pending-changes' alone), with no page error. A stock's panel renders only after
+  `api("part/...")` answers (details.js openNode, dynamics.js openNodeSD), and the test waits a fixed 3 s for it.
+  This round changes nothing on that path, since the captions are on tables built after the panel shows. Not
+  compared on clean main: `git checkout main -- ergostat/web/static` (to run it there and restore) was refused in this
+  session, as was a background run of the full test_diagram_rendering.py (about 50 minutes, longer than a foreground
+  call may run). Left to the queue's full browser run.
