@@ -621,15 +621,22 @@ last `gap.timed` and the roll-up (only if the timer was stopped that long) are n
 The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, `loop-hours`, `loop-rounds` and
 `gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the
 gaps that left the state, ended the loop or passed the gate in the window, not only the merged ones; 0 with none.
-Each has a goal (`hold:`) to set; the shipped ones are first guesses, and `python3 dev/bin/times.py setpoints` in the
-instance's folder sets each to today's reading (one with nothing in the window keeps its own). `status.py` prints them
-as a table, the waiting states first (time spent waiting on someone else, the cheapest to remove: open and replan for
-the planner, planned for the plan review, split for its sub-gaps, ready and fix for the implementor, built for the
-reviewer, approved for the queue, queue-failed for triage, dead for a park), then the working ones, where a run holds
-the gap (leased: the planner's, the plan review's and triage's whole run and the others' start, the queue's wait for
-its lock with it; building; in-review; queued: the queue's run from its `gap.queued`, said once it holds its lock, the
-merge and the suites), the loop and the gates, with how
-many gaps are in each state now and the oldest of them.
+A median the pipeline manager can act on has a goal (`hold:`), read by the pipeline watch: off past its tolerance, it is
+a trigger of the manager's next session, and each goal's reading is on the situation (`times`). With no gap in its
+window the reading is None there and raises nothing (an empty window is no fault; the measure's own sensor still reads
+0 then). One that cannot be read (a malformed or non-finite value, a measure times.py does not know) is None and a
+trigger naming the goal and the error. Answered, a goal's trigger is raised again when it is a whole tolerance further
+off, when its error changes, or when it goes off (or unreadable) again after a reading on target, unknown or unreadable
+in between: when each such episode began is kept in `run/manager.json` (`episodes`), and is part of the fingerprint.
+The p90s and the rest are plain measures, the file's header says which and why. The shipped holds are first guesses,
+and `python3 dev/bin/times.py setpoints` in the instance's folder sets each to today's reading (one with nothing in the
+window keeps its own). `status.py` prints them as a table, the waiting states first (time spent waiting on someone
+else, the cheapest to remove: open and replan for the planner, planned for the plan review, split for its sub-gaps,
+ready and fix for the implementor, built for the reviewer, approved for the queue, queue-failed for triage, dead for a
+park), then the working ones, where a run holds the gap (leased: the planner's, the plan review's and triage's whole
+run and the others' start, the queue's wait for its lock with it; building; in-review; queued: the queue's run from its
+`gap.queued`, said once it holds its lock, the merge and the suites), the loop and the gates, with how many gaps are in
+each state now and the oldest of them.
 
 ## Record an intervention
 

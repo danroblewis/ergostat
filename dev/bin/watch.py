@@ -4,7 +4,9 @@ manager*). Every few minutes, while managing is open and no session is raised or
 a gap dead or parked (for a kind no program resumes: a defect, the kill rule, or a kind not said; an old park parks.py
 classified unknown whatever its age; never a deferred or cancelled park), a waits_on / needs park not cleared in
 [manager] park_wait_hours (parks.py), a continuing gap whose branch intake could not fetch, a gap stuck in its state,
-an aging defect. It raises one:
+an aging defect, a time-in-state goal (dev/model/times.yaml) off past its tolerance (each goal's reading is on the
+situation, `times`: None when unknown; an empty window raises nothing, a reading that fails is a trigger). It raises
+one:
 
   broken     before the schedule, when the merge pipeline has been broken past [manager] broken_minutes (the queue
              blocked, a push pending, no merge while approved gaps wait, the same test failing on two main commits,
@@ -23,6 +25,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -33,8 +36,10 @@ sys.dont_write_bytecode = True
 import fac  # noqa: E402
 import live  # noqa: E402
 import load  # noqa: E402
+import measure  # noqa: E402
 import parks  # noqa: E402
 import pools  # noqa: E402
+import times  # noqa: E402
 
 BY = "pipeline-manager"
 ENDED = ("merged", "parked", "closed")
@@ -149,6 +154,50 @@ def stuck(cfg: dict, gaps: dict, now: float) -> list[dict]:
     return sorted(out, key=lambda x: -x["hours"])
 
 
+TIME_GOAL = re.compile(r'^  ([a-z0-9-]+): \{auxiliary: ([a-z0-9-]+), hold: "<= ([\d.]+)", tolerance: ([\d.]+)', re.M)
+
+
+def time_goals(gaps: dict, now: float, was: dict | None = None, began: dict | None = None) -> tuple[list[dict], dict]:
+    """The time-in-state goals (dev/model/times.yaml) off past their tolerance, as triggers, and every goal's reading.
+    A trigger's fingerprint holds when its episode began (``was``, by goal and off or unreadable; one not in it begins
+    now, and ``began`` gets those standing), so it is raised again when further off by a whole tolerance, with another
+    error, or off again after a reading on target, unknown or unreadable. One with no gap in its window is unknown (None on the
+    situation) and raises nothing: an empty window is no fault. One that cannot be read (a value malformed or not
+    finite, a measure times.py does not know) is None too, and a trigger naming the goal and the error, as is a goal in
+    the file the watch cannot parse (or none at all)."""
+    out, read, rows, since, text = [], {}, list(gaps.values()), now - measure.WINDOW, times.GOALS.read_text()
+    was, began = was or {}, {} if began is None else began
+
+    def episode(key: str) -> float:
+        began[key] = float(was.get(key, now))
+        return began[key]
+    for name, aux, ceiling, tol in TIME_GOAL.findall(text):
+        read[name] = None
+        try:
+            if aux.removesuffix("-p90") not in times.measures():       # (in-nowhere-hours would read as empty)
+                raise ValueError("no such measure in times.py")
+            vs = times.values(aux.removesuffix("-p90"), rows, since)
+            if not all(math.isfinite(x) for x in vs):
+                raise ValueError(f"{sum(not math.isfinite(x) for x in vs)} of its values not finite")
+        except (SystemExit, ValueError, TypeError, KeyError, AttributeError) as e:
+            out.append(sit("time", f"goal.{name}", f"goal {name} cannot be read: {aux}: {e}", "unreadable", str(e),
+                           episode(f"{name}/unreadable")))
+            continue
+        if not vs:
+            continue
+        v = read[name] = times.pct(vs, 0.9 if aux.endswith("-p90") else 0.5)
+        over, step = v - float(ceiling), max(float(tol), 1e-6)
+        if over > float(tol):
+            out.append(sit("time", f"goal.{name}", f"goal {name} is off: {aux} reads {v:g} against <= {ceiling} "
+                                                   f"(tolerance {tol}) over the last 14 days", math.floor(over / step),
+                           episode(f"{name}/off")))
+    lost = [n for n in re.findall(r"(?m)^  ([a-z0-9-]+): \{auxiliary:", text) if n not in read]
+    if lost or not read:                       # (a goal reworded past the pattern: unknown, never on target)
+        out.append(sit("time", "dev/model/times.yaml", "time-in-state goals the watch cannot read in "
+                                                       f"dev/model/times.yaml: {', '.join(lost) or 'all'}", *lost))
+    return out, read
+
+
 def triggers(cfg: dict, gaps: dict, opened: list[dict], now: float) -> list[dict]:
     """Every trigger standing now, the most urgent first."""
     s, out = settings(cfg), []
@@ -239,22 +288,32 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
     return out
 
 
-def broken(cfg: dict, gaps: dict, opened: list[dict], now: float) -> dict[str, dict]:
-    """The conditions broken past [manager] broken_minutes ({name: {why, since}}), with when each began kept in
-    run/manager.json (a condition that clears starts again); `main-twice` counts at once."""
+def kept(cfg: dict, part: str, decide):
+    """One part of run/manager.json read, decided (``decide(was) -> (result, new)``) and written with its lock held
+    across all three (the sensor and the block both keep it); the other parts kept as they were."""
     p = fac.run_dir(cfg) / "manager.json"
-    with open(p.with_name("manager.lock"), "a") as lock:  # (the sensor and the block both keep it: read to write held)
+    with open(p.with_name("manager.lock"), "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            was = json.loads(p.read_text()).get("since", {}) if p.exists() else {}
-            starts: dict = {}
-            now_on = conditions(cfg, gaps, opened, now, starts)
-            since = {k: float(starts.get(k) or was.get(k) or now) for k in now_on}
+            data = json.loads(p.read_text()) if p.exists() else {}
+            got, data[part] = decide(data.get(part, {}))
             tmp = p.with_name(f"manager.{os.getpid()}.new")
-            tmp.write_text(json.dumps({"since": since}))
+            tmp.write_text(json.dumps(data))
             tmp.replace(p)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
+    return got
+
+
+def broken(cfg: dict, gaps: dict, opened: list[dict], now: float) -> dict[str, dict]:
+    """The conditions broken past [manager] broken_minutes ({name: {why, since}}), with when each began kept in
+    run/manager.json (a condition that clears starts again); `main-twice` counts at once."""
+    def decide(was: dict) -> tuple:
+        starts: dict = {}
+        on = conditions(cfg, gaps, opened, now, starts)
+        clocks = {k: float(starts.get(k) or was.get(k) or now) for k in on}
+        return (on, clocks), clocks
+    now_on, since = kept(cfg, "since", decide)
     return {k: {"why": why, "since": since[k]} for k, why in now_on.items()
             if k in AT_ONCE or now - since[k] >= settings(cfg)["broken"] * 60}
 
@@ -262,7 +321,12 @@ def broken(cfg: dict, gaps: dict, opened: list[dict], now: float) -> dict[str, d
 def state_now(cfg: dict, now: float) -> dict:
     gaps = {g["id"]: g for g in fac.items("gap")}
     opened = [i for i in fac.items("intervention", "open") if i["fields"].get("by") != BY]
-    return {"gaps": gaps, "triggers": triggers(cfg, gaps, opened, now), "broken": broken(cfg, gaps, opened, now),
+    def decide(was: dict) -> tuple:                 # (each goal's episode: since when it has been off, or unreadable)
+        began: dict = {}
+        return time_goals(gaps, now, was, began), began
+    off, read = kept(cfg, "episodes", decide)
+    return {"gaps": gaps, "triggers": triggers(cfg, gaps, opened, now) + off, "times": read,
+            "broken": broken(cfg, gaps, opened, now),
             "shape": hashlib.sha1(json.dumps([sorted((g["id"], g["state"]) for g in gaps.values()
                                                      if g["state"] not in ENDED), queue_state(cfg).get("blocked"),
                                               [i["id"] for i in opened]], default=str).encode()).hexdigest()[:12]}
@@ -289,7 +353,8 @@ def raise_one(cfg: dict, now: float | None = None) -> dict | None:
         return None
     sid = f"situation/{why}-{time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))}-{secrets.token_hex(3)}"  # (never reused)
     prints = [t["print"] for t in new] + [f"broken-{k}-{v['since']:.0f}" for k, v in broke.items()]
-    fac.say("situation.raised", sid, reason=why, triggers=new, broken=st["broken"], shape=st["shape"], prints=prints,
+    fac.say("situation.raised", sid, reason=why, triggers=new, broken=st["broken"], times=st["times"], shape=st["shape"],
+            prints=prints,
             raised_at=now, triggers_n=len(new), gap=sorted({t["subject"] for t in new if t["subject"].startswith("gap/")}))
     return {"id": sid, "reason": why, "triggers": new, "broken": st["broken"]}
 
