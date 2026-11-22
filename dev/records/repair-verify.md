@@ -256,3 +256,39 @@ applied seq and gave up when an older one existed. A block that ran faster than 
 `ruff check ergostat tests scripts` is clean. Local `main` (e5d8c220) is already merged into the branch (55b4de67).
 There is no `origin` remote, so nothing newer could be merged. The full unit suite and the four browser files are
 left for the factory's runs.
+
+### Round 2: the merge of main (7c46bc6d)
+
+Main brought repair-traces. With it, the fold decides whether `opened` moves a failure (`ItemKind.moves_from`,
+`FROM`), capture reads, decides and writes under `repair/capture.lock`, and there is a new state, `superseded`. How
+the two were joined:
+- `STATES` and `MOVES` hold both sides' states. `FROM["opened"]` is `noted`, `verified` and `superseded`. `applied`
+  is dropped (this branch: an applied fix failing again is settle's to judge), and main's `superseded` is kept.
+- Capture writes `opened` whenever the run's facts allow it, as main does. The fold refuses it from `applied`,
+  `regressed` and `reverted`. The cycle's fields (`verdict`, `revert`, `revert_key`) are cleared only when capture
+  read, under its lock, a state the fold moves from. A refused `opened` would otherwise still write its data and wipe
+  a regressed failure's `revert_key`, so it now carries no cleared fields. `began` is kept for a new failure and for
+  one read as `verified` (main kept it for `applied`).
+- A race is left, and it is harmless. Capture reads `applied`, `settle` writes `verified` before capture's write, and
+  the `opened` then moves the failure with no cleared fields. The stale `verdict` stays until the next verdict
+  overwrites it. `revert_key` is null in a verified failure anyway. Closing it would mean capture taking the
+  per-failure lock too. I left it, as the most reversible choice.
+- SPEC §12r, the agent guide §3i and the GAPS Repair entry keep main's text and this branch's. The merge had spliced
+  GAPS' entry, leaving two *Left* clauses and a dangling line (lesson-7). That is now one entry with one *Left*.
+- Tests changed by the merge:
+  - `test_repair_traces.py::test_opened_moves_only_from_noted_or_applied` becomes
+    `..._noted_verified_or_superseded`. Its table has the three new states, and `applied` stays `applied`.
+  - In `test_repair_verify.py`, the regress test now asserts the fold's moves and its refusal of `opened`, and that
+    the refused `opened` carries no `revert_key`. Lesson-9: with the clearing always written, it failed.
+  - `test_l1_settle_rereads_inside_the_lock`'s competing writes now go through the fold: a newer `applied`, or a
+    `dismissed`. Before, they wrote an `opened` from `applied`, which the fold now refuses.
+
+Run after the merge, one file at a time:
+- `tests/test_repair_verify.py`: 29 passed.
+- `tests/test_repair_traces.py`: 51 passed.
+- `tests/test_inbox.py`: 30 passed.
+- `tests/test_item_index.py`: 55 passed.
+- `tests/test_gaps_doc.py`: 4 passed.
+- `tests/test_repair2.py`: 32 skipped (no bwrap here).
+
+`ruff` is clean. The full unit suite and the browser files are left for the factory.

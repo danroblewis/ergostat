@@ -106,13 +106,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
-  program). Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
-  regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
-  fails). *Left*: log events; the swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
-  failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text.
   program). Triage reads Python, Node, Java and Go traces and notes an error a good run swallowed (M5) without moving
-  any failure. *Left*: verifying a fix by the runs after it and offering its revert; log events; the ladder's lower
-  rungs (narrow AI, program, rule) and promoting a class automatically; a program with uncommitted changes is fixed
+  any failure. Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
+  regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
+  fails). *Left*: log events; the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically; a program with uncommitted changes is fixed
   from its committed text; a Python traceback more than 8,000 characters before the end of a failed run's output is
   now signed by how the run ended; a daemon's run hands back little or no standard error, so what a daemon swallows is
   not seen; Ruby and other languages are not read.

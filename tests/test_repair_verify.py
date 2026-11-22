@@ -121,7 +121,10 @@ def test_a_failed_run_after_the_fix_regresses_it_and_asks_for_revert_fix_once(ma
     e.run_block(p.model.spec.blocks["collector"], "test")
     it = one(p, fid)
     assert it.state == "applied" and it.fields["count"] == count + 1, "counted, not reopened"
-    assert moves(p, fid) == ["opened", "passed", "applied"]
+    assert [m["to"] for m in it.moves][-1] == "applied" and [m["to"] for m in it.moves].count("open") == 1
+    assert [r["type"] for r in it.refused] == [f"{FAILURE}.opened"], "the fold refused it: moves only from noted, ..."
+    last = p.events.query(n=1, type=f"{FAILURE}.opened", item=fid)[0]
+    assert "revert_key" not in last["data"], "an opened the fold refuses clears nothing"
     rapply.settle("3", p)
     it = one(p, fid)
     name, commit = fid.split("/")[1], it.fields["commit"]
@@ -318,15 +321,15 @@ def test_l1_settle_rereads_inside_the_lock(made, monkeypatch, competing):
 
     @contextlib.contextmanager
     def in_between(p_, name):                               # between settle's listing and its lock
-        p.events.add(f"{FAILURE}.opened", item=fid, source="ergostat",
-                     data={"reopened": True, "verdict": None, "revert": None, "revert_key": None})
-        if competing == "applied-again":
+        if competing == "applied-again":                    # a newer applied (the fold: applied stays applied)
             p.events.add(f"{FAILURE}.applied", item=fid, source="ergostat", data={"commit": commit})
+        else:                                               # moved out of applied (a person dismissing it)
+            p.events.add(f"{FAILURE}.dismissed", item=fid, source="ergostat", data={})
         with real(p_, name):
             yield
     monkeypatch.setattr(rapply, "locked", in_between)
     rapply.settle("3", p)
-    assert one(p, fid).state == ("applied" if competing == "applied-again" else "open")
+    assert one(p, fid).state == ("applied" if competing == "applied-again" else "dismissed")
     assert not {"verified", "regressed"} & set(moves(p, fid)), moves(p, fid)
 
 
