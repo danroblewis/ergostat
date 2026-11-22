@@ -109,3 +109,38 @@ Run here, each passing: `tests/test_lease_end_turns.py` (5), `tests/test_leases.
 `tests/test_lease_kill.py`, `tests/test_lease_refused_cost.py`, `tests/test_leased_workspaces.py`, `tests/test_queue.py`,
 `tests/test_resilience.py`, `tests/test_run_budget.py`; ruff clean; local `main` merged (already up to date). Not
 run: the whole unit suite, the four browser files (no page changed) and demo_check (no example touched).
+
+### Round 3
+
+The one finding of round 2 (dispatch.py:405-419, lesson-1: under the lock the item was re-read only after a
+`lease.*` event, so a non-lease event that moved the item while the end waited went unseen and the end could nack it
+back from `done`): the type filter is dropped. Under `self.ends` one indexed query (`item=`, `after_seq=`, `n=1`) asks
+whether *any* event about the item came after the seq noted before the first read, and the item is read again when
+one did. The ack/nack decision, `state` and `terminal` then come from that read. New test
+`test_a_line_that_moves_the_item_on_while_the_end_waits_its_turn_is_seen_and_the_end_acks`: another end holds the
+lock, this end reads the item and waits, `ticket.done` lands in the gap, the lock is let go, and the end must ack
+with the item left `done`. Seen to fail with the old `type="ergostat.lease.*"` filter put back (`'nack' == 'ack'`).
+The `PREFIX` import it used is gone. SPEC §9.5 *Ends wait their turn* now says "any event about the item".
+
+Consequence, said so a review need not find it: an end that waited and then sees an event about its item (now any
+event, not only a lease event) does its second read under `self.ends`. That read takes as long as a fold, so in that
+case the lock is held for the fold, not milliseconds. An end that did not wait usually finds nothing new and
+does no second read. Correctness (lesson-1) is put first here, and the slow case is only one end at a time, each
+retried as before.
+
+Size: 50 net lines in `ergostat/leases/dispatch.py` (66 added, 16 removed), at the 50 budget.
+
+Run here: `tests/test_lease_end_turns.py` (6, passing), `tests/test_lease_kill.py`, `tests/test_one_bad_link.py`,
+`tests/test_queue.py`, `tests/test_resilience.py`, `tests/test_lease_refused_cost.py`,
+`tests/test_leased_workspaces.py`, `tests/test_run_budget.py` (each passing); ruff clean; local `main` merged
+(already up to date). `tests/test_leases.py` failed in all three of its whole-file runs here (36 or 35 of 37 passing):
+`test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (history `['expired', 'ack']`, two runs passing out of
+three alone) and once `test_renewed_by_events_and_expired_when_silent_then_retried` (`['expired', 'expired', 'ack']`). Both
+are 1 s-TTL tests whose run keeps its lease by spawning `$ERGOSTAT_CMD event` every 0.4 s. They lose the lease
+*while the run is still going*, before its `finish` is called. The branch changes the watchdog only for a run in
+`ending`, which only `finish` sets, so I read them as load-dependent (a slow CLI start missing a 1 s TTL), not
+caused by this branch (lesson-13), and left them alone. Round 2 saw both pass. Not proven: running them on `main`
+for comparison was refused here (`git worktree add --detach /tmp/mainwt main`, and
+`git checkout main -- ergostat/leases/dispatch.py` to swap the file in), so the factory's rerun on clean main
+should decide it. Not run: the whole unit suite, the four browser files (no page changed), demo_check (no example
+touched).
