@@ -1,7 +1,10 @@
 """What a remote ergostat serves of its model (SPEC §4c): the merged document the compiler sees, after includes are
 read and templates expanded, redacted (no commands, prompts, queries, sources, workspaces or actions), with a
-version: the first 16 hex of the SHA-256 of its canonical JSON. Parts this model itself imported from a remote
-are not served: a remote of a remote is not composed."""
+version: the first 16 hex of the SHA-256 of its canonical JSON (its format, this ergostat's instance id and its
+sections). Every part carries ``via``: the instance ids it came through before reaching this ergostat, origin
+first (``[]`` for this model's own; for a part imported from a remote, that remote's ``via`` for it and the
+remote's instance), so a consumer composes a remote of a remote and cuts what comes back to it. A stand-in for a
+part a remote no longer serves is not served."""
 
 from __future__ import annotations
 
@@ -65,39 +68,56 @@ def part(section: str, raw) -> dict:
     return out
 
 
-def imported(entry) -> bool:
-    """A part this model took from one of its own remotes (compose.py marks where it came from)."""
+def via_of(entry) -> list[str] | None:
+    """The chain a part came through before this ergostat (compose.py marks a remote's parts); None: a stand-in,
+    never served."""
     from .compose import RemoteVia
-    return isinstance(getattr(entry, "where", None), RemoteVia)
+    w = getattr(entry, "where", None)
+    if not isinstance(w, RemoteVia):
+        return []
+    return None if w.stand_in else list(w.chain)
 
 
-def document(doc) -> dict:
-    """The served model, from a loaded document (spec.load.Document)."""
+def box(name, entry) -> dict:
+    """A remote's system box is served with the description its owner wrote, else a generic one: never the text
+    naming the remote's url, which is a source (and may carry a user and password)."""
+    from .compose import WHERE_TEXT, RemoteVia
+    w = getattr(entry, "where", None)
+    if not isinstance(w, RemoteVia) or w.chain or str(entry.get("description")) != WHERE_TEXT.format(w.url):
+        return {}
+    return {"description": f"remote: {name}, composed from another ergostat"}
+
+
+def document(doc, instance: str) -> dict:
+    """The served model, from a loaded document (spec.load.Document), as the ergostat ``instance`` serves it."""
     sections = {}
     for section in SERVED:
         got = {}
-        for name, entry in (doc.sections.get(section) or {}).items():
-            if imported(entry):
-                continue
-            got[str(name)] = part(section, entry)
+        named = list((doc.sections.get(section) or {}).items())
         if section == "auxiliaries":                             # the old name, read as the new
-            for name, entry in (doc.sections.get("variables") or {}).items():
-                if not imported(entry):
-                    got[str(name)] = part(section, entry)
+            named += list((doc.sections.get("variables") or {}).items())
+        for name, entry in named:
+            via = via_of(entry)
+            if via is not None:
+                got[str(name)] = {**part(section, entry), "via": via, **(box(name, entry) if section == "systems"
+                                                                           else {})}
         sections[section] = got
-    return {"format": FORMAT, "name": doc.name, "sections": sections}
+    return {"format": FORMAT, "name": doc.name, "instance": instance, "sections": sections}
 
 
 def version_of(served: dict) -> str:
-    body = json.dumps({"format": served.get("format"), "sections": served.get("sections")}, sort_keys=True,
-                      separators=(",", ":"), default=str)
+    body = json.dumps({"format": served.get("format"), "instance": served.get("instance"),
+                       "sections": served.get("sections")}, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(body.encode()).hexdigest()[:16]
 
 
-def model(path: Path) -> dict:
-    """The served model of the project whose main file is ``path``, with its version."""
+def model(path: Path, state: Path | None = None) -> dict:
+    """The served model of the project whose main file is ``path``, with its version. Raises ``InstanceError`` when
+    this ergostat's instance id cannot be read: no model is served then."""
     from ..spec.load import load as load_doc
+    from ..store import state_dir
+    from .instance import own
     doc = load_doc(path)
-    served = document(doc)
+    served = document(doc, own(state or state_dir(doc.name, doc.root)))
     served["version"] = version_of(served)
     return served

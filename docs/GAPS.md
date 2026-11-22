@@ -24,18 +24,20 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
     parts written as text for its owner, in its names, against the version read, never applied or sent
     (`remote-proposals-text`; `ergostat remote proposals`, SPEC §4c "Proposals for its owner"). A remote's
-    measures on its closed box (done on `remote-box-measures`): its top systems' served `show:`, or a `show:` on
-    its `remotes:` entry in its own names (`remote-show-unresolved` for one it does not serve), each marked
-    stale with its age when the remote or the reading is not current. Mutual TLS (done on `remote-mtls`):
-    `web: mtls:` serves the remote API alone on its own listener (16 connections, 10 s handshake and idle, GET
-    of `/remote/v1/` only, the token still needed) to certificates `client-ca` signed; a `remotes:` entry's
-    `tls:` reads it (`mtls-unreadable`). Lines in the process map between our items and theirs (done on
-    `remote-process-lines`): a relation may name a remote's kind (`blocked_by: incidents-incident`, never
-    precedence); the remote says the step each named item was last at (`at=`, at most 200 ids, chosen by id),
-    and a link not drawn is counted by its reason (`unlinked`), never dropped.
+    measures on its closed box (done on `remote-box-measures`): its top systems' served `show:`, or a `show:`
+    on its `remotes:` entry in its own names (`remote-show-unresolved` for one it does not serve), each marked
+    stale with its age when the remote or the reading is not current. A remote composed of remotes (done on
+    `remote-of-remotes`): instance ids, each served part's `via` chain, cycles cut, depth (3), parts (2,000),
+    via length (8) and answer size (16 MB) capped, local names winning, and readings served on with their age
+    at the origin. Mutual TLS (done on `remote-mtls`): `web: mtls:` serves the remote API alone on its own
+    listener (16 connections, 10 s handshake and idle, GET of `/remote/v1/` only, the token still needed) to
+    certificates `client-ca` signed; a `remotes:` entry's `tls:` reads it (`mtls-unreadable`). Lines in the
+    process map between our items and theirs (done on `remote-process-lines`): a relation may name a remote's
+    kind (`blocked_by: incidents-incident`, never precedence); the remote says the step each named item was
+    last at (`at=`, at most 200 ids, chosen by id), and a link not drawn is counted by its reason
+    (`unlinked`), never dropped.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
-    it); serving the IR beside `ergostat-model/1` once it exists; a remote that is itself composed of remotes
-    (its imported parts are not served).
+    it); serving the IR beside `ergostat-model/1` once it exists.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
@@ -290,8 +292,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   covariance between stocks, item-level states (06's x̂1 to x̂10), sampling that rises after a surprise (06 §3.3).
 - **Per-item and per-group goals** (done, 8fb7440 and e46dc45 on `smallgaps`; SPEC §8 `per:`): a goal on a stock counted from
   items, held by each item or each group of them by a field (a relation such as `parent`), naming those that break it.
-- **Finding structure from residuals** (open; porting SD Lab's Kalman-LNA work; `parity/00-modeling-review.md`). It
-  can now build on the observer's innovations (`observer/X/innovation`, `model-disagrees`).
+- **Finding structure from residuals** (done for one kind, `finding-structure-from-residuals`; SPEC §12b): a missing
+  delay on a measured stock's inflow, as `DELAY3` or as a stock in transit never read, proposed when the stock's
+  one-step residuals (worked out from the record) are coloured and the change whitens them and shrinks them by a
+  fifth; a stock never read replays from its `initial:`. *Left*: a missing outflow or cause, a delay on an outflow, a
+  part replaced by another form, the observer's run-time innovations (`observer/X/innovation`) as the trigger, and
+  bench recall, not measured.
 - **Proposals drawn dashed in both diagrams; proposals that state the behaviour they predict** (the dashed drawing in
   progress, `redesign`; the stated behaviour done on `extremes`: each change's effect states the closed-loop projection
   of the stocks it touches in one sentence above the strip, accepting records it as `predicted`, and the judge's pass
@@ -308,9 +314,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   (`Engine.judge`), the decisions extract, the intent verdicts and the redesigner keep their own per-call caps and
   ask no permit, and models in `ergostat.toml` (`runner.run_agent`) have no `budget:`. Their ends count in spent
   when priced, but nothing refuses them when the day's budget is gone.
-- **T1: a run stopped at its spend cap** (open; `run-budget-trip`, depends on `run-budget-reserve`): `max-cost` is
-  only what a run reserves; a run that spends more is charged more and is not stopped. T1 gives each run its reserve
-  as its cap (`ERGOSTAT_MAX_COST`, `--max-budget-usd`) and its sessions take from it under a lock.
+- **T1: a run stopped at its spend cap** (done; `run-budget-trip`, SPEC §9.9, `dev/records/run-budget-trip.md`):
+  each run gets its reserve as its cap (`ERGOSTAT_MAX_COST`; `--max-budget-usd` on an `ai` block's own `claude`),
+  `ergostat session` takes all that is left from a per-run ledger under `flock`, and the engine kills the run's
+  process group once its reported cost (an unknown part counted as the whole reserve) reaches the reserve. Left: a
+  program running `claude` itself is stopped only after its result line, and an `ai` block's own `claude` is not in
+  the ledger, so a run can go up to about twice its reserve before T1 sees it.
 - **Linux: two bugs the dev container found** (done; `linuxfix`, 2026-11-19). (1) The segmented event log
   (`ergostat/segments.py`, `_sync`) noticed new sealed segments by the directory's mtime alone, and Linux timestamps
   are coarse (one jiffy: 50 file creates on tmpfs gave one mtime), so a seal within the same tick was missed and its
@@ -370,8 +379,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `use: upkeep` with the loop `index-files` / `index-files-few` / `index-tidier` (`upkeep tidy --keep N`); the
     engine stands down from tidying under it; the interlock (lock without waiting, age checked again under the lock,
     an allowlist of index names under the resolved folder) stays in `spec/itemindex.py`. Under `use: upkeep` nothing
-    else limits the count if the tidier stops. Still to come: **upkeep-record-loops** (the event log's roll-up
-    and measurement retention).
+    else limits the count if the tidier stops.
+  - **The record's loops** (done on `factory/upkeep-record-loops`, `dev/records/upkeep-record-loops.md`): the stocks
+    `rollup-due`, `events-past-keep` and `measurements-due`, held at 0 by `record-compactor` and `record-pruner` (both
+    `upkeep rollup`) and `measurement-retainer` (`upkeep retain`), each every 1m to 1d; the engine stops rolling up
+    under `use: upkeep`. Every compactor (the engine, `ergostat compact`, the programs) holds `<state>/compact.lock`,
+    an `flock` taken without waiting, and says `busy` when it is held. A store that cannot count gives no reading.
   - **The watched loops** (done on `factory/upkeep-watched-loops`, `dev/records/upkeep-watched-loops.md`): the
     stocks `heartbeat-age`, `stalls` and `restarts` (`ergostat.upkeep.*`), the goals `heartbeat-fresh` (`<= stale`,
     180, 60 to 3600) and `no-stalls`, and the engine's watchdog and the outer watcher as `type: external` blocks;

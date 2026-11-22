@@ -110,7 +110,7 @@ def note(d: Path, ok: bool, why: str = "", version: str | None = None) -> None:
     st = status(d)
     now = time.time()
     if ok:
-        st.update(read=now, read_ok=True, read_why="", **({"seen_version": version} if version else {}))
+        st.update(read=now, read_ok=True, read_why=why, **({"seen_version": version} if version else {}))
     else:
         st.update(read_ok=False, read_why=why, read_failing_since=st.get("read_failing_since") if st.get("read_ok") is False
                   else now)

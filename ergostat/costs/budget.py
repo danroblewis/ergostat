@@ -17,9 +17,13 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import json
 import math
 import os
+import re
 import time
+import uuid
+from pathlib import Path
 
 from ..leases import TAKEN
 from . import record as cr
@@ -202,3 +206,100 @@ def left(p, spec) -> float:
     except Exception as e:
         raise MeasureError(f"the record could not be read: {type(e).__name__}: {e}") from e
     return spec.budget.daily - spent - reserved
+
+
+# ---- T1 (SPEC §9.9): a run's reserve as its cap, its sessions' ledger, and the trip
+
+T1 = "stopped at its spend cap (T1)"
+RUN_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+class Refused(Exception):
+    """A session that may not start: why (no cap given, nothing left, the ledger unreadable)."""
+
+
+def reserve_of(spec, b) -> float:
+    """What a run of ``b`` reserves, as the permit decides it: 0 when free, else ``max-cost``."""
+    return 0.0 if free(spec, b) else float(spec.budget.max_cost)
+
+
+def tripped(parts: list[dict], reserve: float) -> bool:
+    """T1: the run's reported AI parts reach its reserve. A part of unknown cost counts as the whole reserve, so it
+    trips whatever the reserve; with a reserve of 0, any AI use trips."""
+    return bool(parts) and sum(float(x["cost_usd"]) if _known(x.get("cost_usd")) else reserve for x in parts) >= reserve
+
+
+def cap(raw) -> float:
+    """``ERGOSTAT_MAX_COST`` read: a finite number of at least 0 (never NaN, ±inf or negative), else refused."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        raise Refused(f"ERGOSTAT_MAX_COST is not a number: {raw!r}") from None
+    if not _known(v):
+        raise Refused(f"ERGOSTAT_MAX_COST is not a finite amount of at least 0: {raw!r}")
+    return v
+
+
+def ledger(state_dir, run) -> Path:
+    """``<state dir>/budget/<run>.jsonl``, for a run id of 32 hex digits that resolves under ``budget/``."""
+    if not isinstance(run, str) or not RUN_ID.match(run):
+        raise Refused(f"the run id is not 32 hex digits: {run!r}")
+    root = (Path(state_dir) / "budget").resolve()
+    f = (root / f"{run}.jsonl").resolve()
+    if f.parent != root:
+        raise Refused(f"the run's ledger is not under {root}")
+    return f
+
+
+def _ledger_between() -> None:
+    """Called under the ledger's flock, after its read and before the append (a test's hook)."""
+
+
+def take(state_dir, run, most: float) -> tuple[str, float]:
+    """Under ``flock`` on the run's ledger: read it, work out what is left of ``most`` (each entry's cost, or its
+    reserve while unsettled or of unknown cost), and append an entry reserving all of it. Returns (its id, left)."""
+    f = ledger(state_dir, run)
+    f.parent.mkdir(mode=0o700, exist_ok=True)
+    with open(f, "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        fh.seek(0)
+        held_: dict[str, float] = {}
+        cost: dict[str, float | None] = {}
+        try:
+            for line in fh.read().splitlines():
+                e = json.loads(line)
+                if isinstance(e.get("id"), str) and _known(e.get("reserve")):
+                    held_[e["id"]] = float(e["reserve"])
+                elif isinstance(e.get("id"), str) and "cost" in e and (e["cost"] is None or _known(e["cost"])):
+                    cost[e["id"]] = e["cost"]
+                else:
+                    raise ValueError(f"not a reserve or a cost: {line[:80]}")
+        except (ValueError, TypeError, AttributeError) as e:
+            raise Refused(f"the run's ledger could not be read: {e}") from None
+        if set(cost) - set(held_):
+            raise Refused("the run's ledger could not be read: a cost with no reserve")
+        left = most - sum(r if cost.get(i) is None else float(cost[i]) for i, r in held_.items())
+        _ledger_between()
+        if left <= 0:
+            raise Refused(f"nothing is left of the run's cap of {most:g}")
+        i = uuid.uuid4().hex
+        fh.write(json.dumps({"id": i, "reserve": left}) + "\n")
+        fh.flush()
+    return i, left
+
+
+def settle(state_dir, run, i: str, cost) -> None:
+    """A session's real cost (None: unknown) appended under the flock; a ledger already removed is not made again."""
+    try:
+        fd = os.open(ledger(state_dir, run), os.O_WRONLY | os.O_APPEND)
+    except FileNotFoundError:
+        return
+    with os.fdopen(fd, "a", encoding="utf-8") as fh:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        fh.write(json.dumps({"id": i, "cost": float(cost) if _known(cost) else None}) + "\n")
+
+
+def remove(state_dir, run) -> None:
+    """The run's own ledger removed, by its validated name, when the run ends."""
+    with contextlib.suppress(Refused, FileNotFoundError):
+        ledger(state_dir, run).unlink()

@@ -6,6 +6,9 @@ only the work: judge what is in the branch, not what anyone says about it.
 
 - Gap: {gap} ({title}), review round {round}
 - Branch `{branch}`, checked out read-only at `{worktree}`; compare with `origin/{base}` (`git diff origin/{base}...HEAD`)
+- Your clone is not the implementor's: theirs has no remote by design (no `origin/*`, no other gaps' branches; its
+  local `{base}` is the base as of its clone). A ref visible to you does not disprove what the implementor says of its
+  own clone (`origin/{base}` unknown there, a branch absent there), and such a statement is not a finding.
 - Net lines of core code changed: {net_lines} against a budget of {budget}
 - Mechanical gates already checked by the factory: {gates}
 

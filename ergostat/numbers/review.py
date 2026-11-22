@@ -28,6 +28,7 @@ from ..durations import human as dur
 from ..spec.ir import Spec
 from . import estimate as es
 from . import gate as gt
+from . import hidden as hd
 from . import improve as im
 from . import leverage as lv
 from . import observe as ob
@@ -78,7 +79,8 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
         x["made_by"] = "ergostat"
     seen = pr.stored(p)                               # outside the lock, only to spare the fits of what is made already
     fits = {x["id"]: _fitted(p, spec, data, base, x) for x in found
-            if x["id"] not in seen or (seen[x["id"]]["state"] in pr.OPEN and seen[x["id"]].get("version") != v)}
+            if x["id"] not in seen or (seen[x["id"]]["state"] in pr.OPEN and seen[x["id"]].get("version") != v)
+            or _again(x, seen[x["id"]])}
     with pr.locked(p):                                # carried, let go, admitted and recorded as one, on the files found on
         if not pr.current_now(p, spec):
             return not_made                           # the files moved on since: the next pass redoes it
@@ -88,13 +90,27 @@ def refresh(p, spec: Spec, at: float | None = None, force: bool = False) -> list
         for k in [k for k, x in props.items() if x.get("kind") == "structure" and x["status"] == "pending" and
                   not pr.candidate(x) and k not in mine]:
             del props[k]                              # superseded: no longer found
-        fresh = [fits[x["id"]] for x in found if x["id"] not in props and x["id"] in fits]   # dismissed (or accepted,
+        fresh = [fits[x["id"]] for x in found if (x["id"] not in props or _again(x, props[x["id"]])) and x["id"] in fits]
         pr.admit(p, spec, props, fresh, now, data.grid.until - data.grid.since)              # or pending) already: not
         pr.save(p, props)                                                                    # made again
         tmp = f.with_suffix(".tmp")
         tmp.write_text(json.dumps({"version": v, "at": now, "not_made": not_made}, indent=1))
         tmp.replace(f)
     return not_made
+
+
+def _again(x: dict, was: dict) -> bool:
+    """A residual finder's change still waiting, found again on another inflow (the form and the stock are in the id)
+    or with τ moved by more than ``hidden.TAU_MOVES``: revised in place under its id (``pr.admit``). An ``initial:`` that
+    moves as the window slides, or a τ that drifts a little as the young record's buckets widen (the lag k flipping by
+    one bucket with it), is the same finding: left as it is, not fitted and revised again on every pass."""
+    if not (str(x.get("code") or "").startswith("residual-") and was.get("state") == "checked"):
+        return False
+    a, b = x.get("residual") or {}, was.get("residual") or {}
+    if a.get("inflow") != b.get("inflow"):
+        return True
+    ta, tb = a.get("tau"), b.get("tau")
+    return not (isinstance(ta, (int, float)) and isinstance(tb, (int, float)) and tb > 0 and abs(ta / tb - 1) <= hd.TAU_MOVES)
 
 
 def _fitted(p, spec: Spec, data, base: dict, x: dict) -> dict:

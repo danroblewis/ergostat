@@ -264,13 +264,17 @@ class RunBudget:
         return None
 
 
-UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|heartbeat-age|stalls|restarts)$")
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|heartbeat-age|stalls|restarts|rollup-due"
+                    r"|events-past-keep|measurements-due)$")
 UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
     "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
     "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
     "ergostat.upkeep.heartbeat-age": "seconds since the last pass heartbeat.json gives; no reading without one",
     "ergostat.upkeep.stalls": "ergostat.engine.stalled events over the last hour (the engine's watchdog)",
     "ergostat.upkeep.restarts": "ergostat.engine.restarted events over the last day (the outer watcher)",
+    "ergostat.upkeep.rollup-due": "items with events past their roll-up horizon outside a snapshot: what compact would roll",
+    "ergostat.upkeep.events-past-keep": "events older than the model's keep that pruning would forget, now",
+    "ergostat.upkeep.measurements-due": "measurement rows past storage: measurements: raw, or past their tier's keep, now",
 }
 STALE_RANGE = (60, 3600)           # the seconds use: upkeep's heartbeat-fresh may give the outer watcher (SPEC §2a)
 

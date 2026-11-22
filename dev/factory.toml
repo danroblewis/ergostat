@@ -149,8 +149,14 @@ slot = ""                            # a command that holds a machine-wide suite
                                      # queue's (whose lock is its slot): set it in factory.local.toml, e.g. the
                                      # coordinator's suite-slot.sh
 ruff = "uv run ruff check ergostat tests scripts"
-unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal"
-build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_tests.py -- uv run python -m pytest -q -n 8 --dist worksteal"
+unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rfEs -n 8 --dist worksteal"
+                                     # (-rfEs: each skip named, for the host step's check; f and E keep the FAILED
+                                     # and ERROR lines fac.failed_tests reads, since -r replaces pytest's default fE)
+host = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rfEs -n 4 --dist worksteal tests/test_repair2.py tests/test_sandbox_attacks.py tests/test_notify.py"
+                                     # the queue's tests its container skips (bwrap, kqueue): on the Mac, never in a
+                                     # container, after unit and browser, a required step; "" turns it off. A test it
+                                     # skips that the unit run skipped too fails it (queue.nowhere)
+build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_tests.py -- uv run python -m pytest -q -rfEs -n 8 --dist worksteal"
                                      # the implementor's test step (onmain.py): the tests the branch changed and those
                                      # of the modules it changed (affected_tests.py). Comment it out or leave it ""
                                      # and the step runs the full unit suite, as before. The merge queue never reads
