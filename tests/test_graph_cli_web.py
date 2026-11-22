@@ -188,6 +188,23 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_the_loops_row_writes_shares_through_share_text_and_names_flapping_at_twenty():
+    """Without a browser (the build's suite has none): the Loops row's time off goes through shareText, which writes
+    '<1%' for a share that rounds to 0, no literal "0%" remains there, and flapping is named from FLAP_AT = 20 through
+    the hysteresis (steadyWord). The behaviour itself is checked in the browser by
+    tests/test_diagram_rendering.py::test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named."""
+    import re
+
+    from ergostat.web.server import STATIC
+    util, pages = (STATIC / "util.js").read_text(), (STATIC / "pages.js").read_text()
+    assert re.search(r'const shareText = .*x > 0 && x < 0\.005 \? "<1%"', util), "shareText no longer writes '<1%'"
+    assert re.search(r"const FLAP_AT = 20;", util), "the flapping count is not 20"
+    loops = pages[pages.index("async function pageLoops"):]
+    loops = loops[:loops.index("\nasync function ", 1)]
+    assert "shareText(lp.off_share)" in loops and '"0%"' not in loops, "time off is not written through shareText"
+    assert re.search(r"steadyWord\(n, lp\.times_off >= FLAP_AT \? `flapping \(", loops), "flapping not named in the row"
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
