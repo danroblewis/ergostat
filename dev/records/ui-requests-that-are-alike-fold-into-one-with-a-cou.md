@@ -25,3 +25,45 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built, 37 net lines outside tests and docs (budget 60).
+
+- **What:** the inbox's held modelling requests carry `fold` (`code|source`: the code and the asker), `about` and their
+  part's `system` (`ergostat/inbox/entries.py`, passed through to the attention list in `ergostat/state.py`). The side
+  list (`diagram.js`: `folded`, `foldRow`) shows alike ones as one entry where the first stood: a closed `<details>`
+  whose summary reads "24 stocks: no unit (api, billing, build, data, support, web)", with one why and **Deny all**
+  (each member denied in turn through `POST /api/inbox/ID/deny`) below it; opened, each member is the usual row with its
+  own Approve/Deny. A fold of one is shown as a plain row. /model's *Changes to review* counts the held requests
+  (`/api/fit`'s new `held`, read from the request store) and says "N modelling requests held for you: answered in
+  Needs attention" instead of "Nothing waiting". SPEC §12o says so.
+- **Choices taken (nobody to ask; the most reversible):** "asker" read as the request's `source` (check, craft,
+  coherence, fit). The summary is worked out from the code ("no unit"), not a written sentence per code. The CLI and
+  the status text are left as they were: only the page folds. Deny all needs a why, as each deny does; with none,
+  the server's refusal is shown for the members it refused.
+- **Outside "Files to touch":** `ergostat/inbox/entries.py` and `ergostat/state.py` (one line), because the page needs
+  the code, asker and system, and the attention entry didn't carry them. `/items` was not changed: it has no answer rows
+  of its own (only the side list answers the inbox), so there is nothing there to fold.
+- **Acceptance test:** `tests/test_diagram_rendering.py::test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answer`
+  (24 no-unit stocks over 6 systems, held, plus a gated action as the real alarm, at 1440x900): one folded entry with
+  '24' and 'no unit' and the six systems, no member as a row of its own, every entry inside the side panel unscrolled,
+  24 members when opened, each with its own Deny, /model without 'Nothing waiting' and with '24 modelling requests
+  held', and Deny all dismissing all 24 while the alarm stays. It was seen to fail on four breaks, each made by hand
+  and put back: no folding (no fold entry), the fold drawn open (the in-view check), /model's count left out (the
+  'Nothing waiting' check), Deny all skipping a member (a request left held).
+- **Runs:** that test and `tests/test_inbox_page.py`: pass. `tests/test_inbox.py`, `tests/test_modelling_core.py`,
+  `tests/test_runner_and_state.py`: 97 passed. ruff clean. All of `tests/test_diagram_rendering.py`, serially under the
+  watchdog: 197 passed, 4 failed, rc 1, none of them failing on what this branch changed:
+  - `test_every_view_draws_cleanly_and_in_time[coordinator]` (routing 25.5 s against 20 s),
+    `[image-squeeze]` (23.3 s against 20 s), and `test_a_big_tangled_model_lays_out_in_time_and_cleanly` (draw 3.1 s
+    against 2.5 s): time bounds on layout and routing. This branch touches no drawing code. Not run again on a
+    quiet machine.
+  - `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` expects "Nothing waiting." on /model
+    after accepting k. A real change is in the queue there ("A missing delay on an inflow, as DELAY3"), from the
+    residual finder main gained (0466dbff, 4e9e6046). It still fails with this branch's held count read straight from
+    the request store, and the review queue reads nothing this branch changed. My attempts to run it on main's code
+    (`git checkout main -- ergostat`, `git worktree add --detach /work/.git/main-check main`) were refused, so its
+    failure on main is shown by reading the code, not by a run.
+- **Not run:** the other browser files (`test_page_polling.py`, `test_items_page.py`, `test_page_refresh.py`), the
+  whole unit suite, and a merge of main (main is the clone's base, so there is nothing newer to merge).
