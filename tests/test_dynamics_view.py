@@ -68,14 +68,29 @@ def test_a_goal_is_drawn_as_a_desired_level_and_a_gap_feeding_the_flow_that_clos
     assert conn[("desired:backlog-clear", "gap:backlog-clear")] == "-"
     sub = next(e for e in g["edges"] if e.get("from") == "gap:backlog-clear" and e["target"] == "flow:submitted")
     assert sub["polarity"] == "+"                                      # more backlog: more is worked off
-    # a goal nothing acts on is no structure: it is said on its stock, not drawn
+    # a goal with no gap drawn here is no structure: it is said on its stock, with what serves it anywhere in the model
     assert "gap:no-live-bugs" not in ids
-    assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0", "acted": False}]
+    assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0",
+                                                "by": [{"block": "support", "system": "factory"}], "acted": True}]
+    assert ids["stock:users"]["goals"][0]["by"] == [{"block": "product-manager", "system": "factory"}]
     # ≤ and ≥, never <= and >=
     assert not [n for n in g["nodes"] if "<=" in str(n) or ">=" in str(n)]
     # the control view is untouched: the blocks view still reads its controllers from it
     ctl = factory(view="control", open="*")
     assert any(n["kind"] == "controller" for n in ctl["nodes"]) and any(n["kind"] == "sensor" for n in ctl["nodes"])
+
+
+def test_a_goal_with_no_controller_anywhere_is_the_only_one_said_unacted(tmp_path):
+    d = tmp_path / "software-factory"
+    shutil.copytree(ROOT / "examples" / "software-factory", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    intake = d / "factory" / "intake.yaml"                   # support reads users instead: nothing reads bugs-live now
+    intake.write_text(intake.read_text().replace("in: stock.bugs-live", "in: stock.users"))
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    g = api(Live(Project(mdl.load(d))), "graph", {"view": ["dynamics"], "open": ["*"]})
+    ids = {n["id"]: n for n in g["nodes"]}
+    assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0", "by": [],
+                                                "acted": False}]
 
 
 def test_every_loop_is_labelled_and_runs_through_parts_drawn_and_lines_it_is_a_link_of(factory):
