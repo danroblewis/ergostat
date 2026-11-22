@@ -331,3 +331,22 @@ Size: about 12 net lines added outside `tests/` and `docs/`, within 380. These p
 and `test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` (23). Ruff is clean. Not run here:
 the whole unit suite, the four browser files and `demo_check`. This clone has no `origin`, so there is nothing new
 to merge.
+
+### Round 8
+
+The queue's finding was a conflict with main (c1d10970, which brings in `remote-process-lines`) in
+`docs/proposals/remote-systems.md`. It is resolved in the merge commit c03c8907, keeping both sides. Main removed
+"cross-log lines in the process map" from the "Left for later" line, since `remote-process-lines` built them. The
+branch's line had said that proposals text, a remote composed of remotes and mutual TLS are built. The line now
+lists only the event cache and the IR as left, and names those four as built.
+
+The merge also spliced GAPS.md's *Remote systems* entry again (lesson-7), with no conflict marked. It left the
+branch's *Left* clause, then main's repeated box-measures and mutual TLS text with the process-lines sentence, then
+main's second *Left* clause, which still listed this gap as left. The entry now has one Done text, with the
+process-lines sentence after mutual TLS, and one *Left* clause (the Items and Record pages, the IR). That fix is
+in the merge commit.
+
+This round changed docs only, and no code, so the size is as in round 7. After the merge these pass, run in
+groups of at most three files: `test_remote_chain.py` (30); `test_remote.py`, `test_remote_pair.py` and
+`test_remote_lines.py` (33); `test_remote_box_measures.py`, `test_remote_proposals.py` and `test_remote_mtls.py`
+(64). Ruff is clean. Not run here: the whole unit suite, the four browser files and `demo_check`.
