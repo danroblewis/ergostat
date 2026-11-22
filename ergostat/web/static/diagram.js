@@ -1369,7 +1369,7 @@ function renderSide(side, g, view) {
     const d = h("details", { class: "suggest", open: open ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
-      const loop = /^loop (\S+)/.exec(a.says)?.[1];
+      const loop = /^(?:loop|goal) (\S+)/.exec(a.says)?.[1];      // (Dynamics calls a controlled goal a goal)
       d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", op(a.says), " ",
         loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "Evidence") : null));
     }
@@ -1379,8 +1379,8 @@ function renderSide(side, g, view) {
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {
-    side.append(h("h3", {}, "Loops", h("span", { class: "muted" }, ` ${loops.length}`)));
-    if (!loops.length) side.append(h("div", { class: "muted" }, "No loops in view."));
+    side.append(h("h3", {}, "Control loops",h("span", { class: "muted" }, ` ${loops.length}`)));
+    if (!loops.length) side.append(h("div", { class: "muted" }, "No control loops in view."));
     const rank = { off: 0, open: 1, unknown: 2, holding: 3 };       // the ones that need someone first
     for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {
       side.append(h("div", { class: "looprow", "data-loop": name,
