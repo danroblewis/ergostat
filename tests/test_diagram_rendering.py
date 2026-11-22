@@ -175,6 +175,73 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
 
 
+# drawn and routed, or (the Process view of a project with no record yet) saying there is nothing to draw
+DRAWN_OR_EMPTY = f"() => ({READY[6:]}) || !!document.querySelector('.canvas-wrap .empty')"
+
+
+# every part moved by under a pixel to where libavoid, working its width out again from its corners, finds it a hair
+# narrower than it is (a system box's or a block's port on its right edge then lay past it), and routed again
+ROUNDED_ROUTE = """async () => {
+  const spec = () => (S.graph.kind === 'blocks' ? bdAvoidSpec : avoidSpec)(S.layout, S.graph).shapes;
+  const edge = spec().flatMap((s) => s.pins.filter((p) => p.abs && p.x >= s.w - 1e-6)).length;
+  const under = (x, w) => (x + w) - x < w && ((x + w / 2) + w / 2) - ((x + w / 2) - w / 2) < w;
+  let moved = 0;
+  for (const c of S.layout.children) for (let i = 1; i < 400; i++) {
+    const x = c.x + i / 397, w = c.width + i / 389;
+    if (!under(x, w)) continue;
+    for (const p of Object.values(S.layout.ports || {}))   // (a block's ports, on the page: those on its right edge kept there)
+      if (p.node === c.id) p.x += p.x >= c.x + c.width - 0.5 ? x + w - c.x - c.width : x - c.x;
+    c.x = x; c.width = w; moved++;
+    break;
+  }
+  (S.graph.kind === 'blocks' ? bdRoute : avoidStart)(S.layout, S.graph);
+  await S.layout.whenRouted;
+  return [moved, edge];
+}"""
+
+
+@pytest.mark.parametrize("view,example", [("view=dynamics", "software-factory"), ("view=blocks", "first-loop")])
+def test_a_port_on_a_parts_right_edge_is_never_past_it_for_libavoid(browser, tmp_path, view, example):
+    """The pin offset clamped to the shape: a system box's (Dynamics) or a block's (Blocks) port on its right edge,
+    with the box at a sub-pixel place and width, gives libavoid no 'xOffset ... greater than shape width'."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        said: list[str] = []
+        pg.on("console", lambda m: said.append(f"{m.type}: {m.text[:200]}") if m.type in ("error", "warning") else None)
+        drawn(pg, url, view, 0)
+        said.clear()
+        moved, ports = pg.evaluate(ROUNDED_ROUTE)
+        pg.wait_for_timeout(200)                           # (the worker's last word reaches the page a moment later)
+        pg.close()
+    assert moved and ports, (moved, ports)                # (the window opened: parts moved, ports on a right edge)
+    assert not said, said
+
+
+def test_every_view_loads_with_no_console_error_or_warning(browser, page_of):
+    """Dynamics, Blocks and Process, whole and into each system: the page's console (its workers' too) says
+    nothing is wrong: no error, no warning (libavoid's pin past its part's edge, ELK falling back)."""
+    name, url = page_of
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    said: list[str] = []
+    pg.on("pageerror", lambda e: said.append(f"pageerror: {e}"))
+    pg.on("console", lambda m: said.append(f"{m.type}: {m.text[:300]}") if m.type in ("error", "warning") else None)
+    pg.on("worker", lambda w: w.on("console", lambda m: said.append(f"worker {m.type}: {m.text[:300]}")
+                                   if m.type in ("error", "warning") else None))
+    drawn(pg, url, "", 0)
+    tree = pg.evaluate("() => S.graph.tree || {}")
+    problems, n = [], 0
+    for view in ("dynamics", "blocks", "process"):
+        for v in ["", *(f"&system={s}" for s in tree)]:
+            said.clear()
+            n += 1
+            pg.goto(f"{url}/diagram?v={n}&view={view}{v}", timeout=DRAWN_S * 1000)
+            pg.wait_for_function(DRAWN_OR_EMPTY, timeout=DRAWN_S * 1000)
+            pg.wait_for_timeout(200)                       # (a worker's last word reaches the page a moment later)
+            problems += [f"[view={view}{v}] {x}" for x in said]
+    pg.close()
+    assert not problems, f"{name}: " + "\n".join(problems)
+
+
 # the critical layout faults an example's views had when the rules came (docs/layout-rules.md), each by its rule and
 # its parts: known, listed there to fix, and not to grow (RECORD_LAYOUT=1 writes them again)
 KNOWN = ROOT / "tests" / "fixtures" / "layout_known.json"
