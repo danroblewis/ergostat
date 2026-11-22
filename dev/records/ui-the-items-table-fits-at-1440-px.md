@@ -48,3 +48,13 @@ link), no wrapping (191 px over, `events`, `latest`, `last` out), no phone rule 
 columns). Run here: that test, `tests/test_items_page.py` whole (22 passed) and `tests/test_page_refresh.py` (8
 passed), with Playwright under the watchdog; ruff clean. Not run here: the unit suite, the other two browser files,
 demo_check (no example changed). Main was not merged again: local `main` is this branch's base.
+
+Build step, round 1: `[suites] build` failed with rc 5. Its affected-test selection maps only `.py` changes to tests, so
+it picked only `tests/test_items_page.py`, which skips whole without Playwright, and pytest returned "no tests ran". No
+ergostat code changed. Added
+`tests/test_style_tokens.py::test_the_items_lists_wrap_their_fields_and_keep_three_columns_on_a_phone`, a static check
+that needs no browser: the kinds' lists' cells wrap and are not cut, the phone rule keeps `.keep`, and pages.js sets
+the class and `.keep`. It was seen to fail with the wrap rule set back to nowrap/hidden and with `:not(.keep)` dropped
+from the phone rule; it passes as built (6 passed). The browser acceptance test is unchanged.
+`scripts/affected_tests.py` reads a browser-only selection as rc 5. That is a factory matter outside this gap and is
+left alone (lesson 13).
