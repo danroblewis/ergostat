@@ -96,7 +96,8 @@ def cmd_remote(args) -> int:
     if args.what == "refresh":
         from ..remote import cache
         for name, r in remotes.items():
-            st = cache.refresh(Path(r["dir"]), r["url"], r.get("token_file"), spec.root, r["every"], force=True)
+            st = cache.refresh(Path(r["dir"]), r["url"], r.get("token_file"), spec.root, r["every"], force=True,
+                               tls=r.get("tls"))
             print(f"{name}: " + (f"version {st.get('version')}" if st.get("ok") else f"did not answer: {st.get('why')}"))
         return 0
     if args.what == "events":

@@ -1,6 +1,7 @@
 """The split parent judged at the join (docs/roadmap/overnight/split-verified-2.md): the join moves a split gap whose
 sub-gaps all merged to `joined`, and the join judge (plan.py join) merges it (covered), requests a new sub-gap for what
-is not built and splits it again (short, at most plan.MOST_SHORT times), or parks it; never merged when it fails."""
+is not built and splits it again (short, at most plan.MOST_SHORT times), or parks it; never merged when it fails.
+Covered records no merged_at; a sub-gap it cannot read is short with no session."""
 
 from __future__ import annotations
 
@@ -132,11 +133,21 @@ def saved_brief(f: Instance) -> str:
     return max(got, key=lambda p: int(p.stem.rsplit("-", 1)[1])).read_text()
 
 
-def test_a_covered_verdict_merges_the_parent(tmp_path):
+WORK_MEASURES = ("cycle-hours", "cost-per-merged", "fix-rounds")
+
+
+def test_join_moves_parent_to_joined_then_judge_merges(tmp_path):
     f = judged_instance(tmp_path)
+    now = time.time()                                                # sub-gaps of 1 h and 3 h; a parent of 10 h that
+    f.fold([{"event": "gap.measured", "item": f"gap/alpha-{k}", "data": {"ready_at": now - h * 3600}}    # would move
+            for k, h in (("one", 1), ("two", 3))] + [{"event": "gap.measured", "item": GID, "data": {   # each measure
+                "ready_at": now - 10 * 3600, "fix_rounds": 3, "ai_cost_usd": 50}}], None)
+    before = [measure(f, m).stdout for m in WORK_MEASURES]
+    assert before == ["2.0\n", "0.0\n", "0.0\n"], before
     said, _ = judge(f, COVERED)
     gap = f.item(GID)
-    assert said == ["gap.merged"] and gap["state"] == "merged"
+    assert said == ["gap.merged"] and gap["state"] == "merged" and "merged_at" not in gap["fields"]
+    assert [measure(f, m).stdout for m in WORK_MEASURES] == before      # no work merged: none of the three moves
     assert gap["fields"]["join_verdict"] == "covered" and "in app.py" in gap["fields"]["join_reasons"]
     assert gap["fields"]["judged_at"] > 0 and gap["fields"]["join_verdicts"][0]["verdict"] == "covered"
     assert gap["fields"]["sessions"] == 2 and "merged_lines" not in gap["fields"]   # (the planner's and the judge's)
@@ -187,33 +198,99 @@ def test_a_short_verdict_requests_a_sub_gap_before_reopening_the_parent(tmp_path
         .read_text()
 
 
-def test_a_second_short_round_names_a_new_sub_gap(tmp_path):
+def test_join_not_covered_requests_new_gap_then_second_parks(tmp_path):
     f = judged_instance(tmp_path)
-    judge(f, short("it never times out"))
-    merge(f, "alpha-thing-join-1", "the first round's finding")
-    joined(f)
-    said, _ = judge(f, short("it still never times out"))
+    f.fold([{"event": "gap.requested", "item": "gap/alpha-thing-join-1", "data": {"title": "an id taken"}},
+            {"event": "gap.requested", "item": "gap/other", "data": {"branch": "alpha-thing-join-2"}}], None)
+    said, _ = judge(f, short("it never times out"))                  # the name it would give, and the next, are taken
     assert said == ["gap.requested", "gap.split"]
-    one, two = f.item("gap/alpha-thing-join-1"), f.item("gap/alpha-thing-join-2")
-    assert one["state"] == "merged" and two["state"] == "open"
-    assert not set(two["fields"]) & {"reviews", "merged_at", "main_sha"}
-    assert "it still never times out" in two["fields"]["entry"] and "\n- it never times out" not in two["fields"]["entry"]
-    assert f.item(GID)["fields"]["join_short_rounds"] == 2
-    assert "review/alpha-thing-join-1-1: verdict merge" in saved_brief(f)          # the judge saw the new sub-gap too
+    new = f.item("gap/alpha-thing-join-3")
+    assert new["state"] == "open" and new["fields"]["parent"] == [GID] and new["fields"]["branch"] == "alpha-thing-join-3"
+    assert f.item("gap/alpha-thing-join-1")["fields"] == {"title": "an id taken"}
+    assert "(by: alpha-thing-join-3)" in (f.model / "run" / "plans" / "alpha-thing.md").read_text()
+    assert f.run("plan.py", new["id"], FACTORY_STANDIN_PLANNER=PLAN.format(b="alpha-thing-join-3"))[0] == ["gap.defined"]
+    merge(f, "alpha-thing-join-3", "the first round's finding")
+    joined(f)
+    said, _ = judge(f, short("it still never times out", "the doc"))
+    gap = f.item(GID)
+    assert said == ["gap.measured", "gap.parked"] and gap["state"] == "parked"       # the second short parks it
+    assert "Not built:\n- it still never times out\n- the doc\n" in gap["fields"]["where_it_stopped"]
+    assert gap["fields"]["parked_in"] == "joined" and gap["fields"]["join_short_rounds"] == 1
+    assert [k for k in f.db()["items"] if k.startswith("gap/") and "-join-" in k] == ["gap/alpha-thing-join-1", "gap/alpha-thing-join-3"]
+    assert "review/alpha-thing-join-3-1: verdict merge" in saved_brief(f)          # the judge saw the new sub-gap too
     assert "- the first round's finding" in saved_brief(f)
 
 
-def test_the_third_short_verdict_parks_the_parent(tmp_path):
+UNSESSIONED = """import runpy, sys
+sys.path[:0] = [{bin!r}]
+import agents, fac
+def refused(*a, **k):
+    raise SystemExit("a clone or a session was made")
+fac.attempt = agents.clone = refused
+sys.argv = [{plan!r}, "join"]
+runpy.run_path({plan!r}, run_name="__main__")
+"""
+
+
+def judge_unsessioned(f: Instance) -> list[str]:
+    """plan.py join with fac.attempt and agents.clone made to fail if called."""
+    script = f.model / "unsessioned.py"
+    script.write_text(UNSESSIONED.format(bin=str(BIN), plan=str(BIN / "plan.py")))
+    r = subprocess.run([sys.executable, str(script)], input=json.dumps({"trigger": "item", "item": f.item(GID), "lease": {
+        "fence": 1, "back": "joined"}}), cwd=f.model, capture_output=True, text=True, timeout=120,
+        env={**f.env, "ERGOSTAT_ITEM": GID, "ERGOSTAT_LEASE": "1"})
+    assert r.returncode == 0, r.stderr
+    return f.fold([json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")], GID)
+
+
+def test_join_with_missing_sub_gap_definition_is_not_covered(tmp_path):
+    for case, why in (("definition", "its definition could not be read (missing: nothing readable at run/defs/"),
+                      ("review", "its last review could not be read (missing: no review recorded)"),
+                      ("child", "not in the record as a sub-gap of gap/alpha-thing")):
+        f = judged_instance(tmp_path / case)
+        if case == "definition":
+            (f.model / "run" / "defs" / "alpha-two.md").unlink()
+        db = f.db()
+        if case == "review":
+            db["items"]["gap/alpha-two"]["fields"]["reviews"] = []
+        if case == "child":
+            del db["items"]["gap/alpha-two"]
+        f.record.write_text(json.dumps(db))
+        cost, sessions = (f.item(GID)["fields"].get(k) for k in ("ai_cost_usd", "sessions"))
+        assert judge_unsessioned(f) == ["gap.requested", "gap.split"], case
+        g = f.item(GID)["fields"]
+        assert g["join_verdict"] == "short" and g["join_verdicts"][-1]["verdict"] == "short", case
+        assert [p for p in g["join_missing"] if p.startswith("gap/alpha-two: ") and why in p] == g["join_missing"], \
+            (case, g["join_missing"])
+        assert (g.get("ai_cost_usd") or 0, g.get("sessions")) == (cost or 0, sessions), case
+        assert not list((f.model / "run" / "briefs").glob("alpha-thing-join_judge-*.md")), case
+
+
+def test_join_judges_a_stopped_sub_gap_by_its_continuation(tmp_path):
+    """parks.split_again's shape: the stopped alpha-two keeps its place in the parent's children but no longer names
+    it as parent; its continuation does. Judged by a session through the continuation, never short for it."""
     f = judged_instance(tmp_path)
-    for n in (1, 2):
-        assert judge(f, short(f"point {n}"))[0] == ["gap.requested", "gap.split"]
-        merge(f, f"alpha-thing-join-{n}")
-        joined(f)
-    said, _ = judge(f, short("it still never times out", "the doc"))
-    gap = f.item(GID)
-    assert said == ["gap.measured", "gap.parked"] and gap["state"] == "parked"
-    assert "- it still never times out\n- the doc" in gap["fields"]["where_it_stopped"]
-    assert gap["fields"]["parked_in"] == "joined" and "gap/alpha-thing-join-3" not in f.db()["items"]
+    defs = f.model / "run" / "defs"
+    (defs / "alpha-two-continued.md").write_text((defs / "alpha-two.md").read_text())
+    f.fold([{"event": "gap.requested", "item": "gap/alpha-two-continued", "data": {
+        "branch": "alpha-two-continued", "parent": [GID]}}], None)
+    merge(f, "alpha-two-continued", "the continuation's finding")
+    db = f.db()
+    db["items"]["gap/alpha-two"]["fields"].update(parent=[], resumed_as="gap/alpha-two-continued")
+    db["items"]["gap/alpha-two"]["state"] = "parked"
+    db["items"][GID]["state"] = "joined"
+    f.record.write_text(json.dumps(db))
+    said, _ = judge(f, COVERED)
+    assert said == ["gap.merged"] and f.item(GID)["fields"]["join_verdict"] == "covered"
+    text = saved_brief(f)
+    assert "- the continuation's finding" in text and "not in the record as a sub-gap" not in text
+    db = f.db()                                      # a stopped one never continued: still short, with no session
+    db["items"]["gap/alpha-two"]["fields"]["resumed_as"] = "gap/nowhere"
+    db["items"]["gap/alpha-two-continued"]["fields"]["parent"] = []
+    db["items"][GID]["state"] = "joined"
+    f.record.write_text(json.dumps(db))
+    assert judge_unsessioned(f)[-1] == "gap.split"
+    assert f.item(GID)["fields"]["join_missing"] == ["gap/alpha-two: not in the record as a sub-gap of gap/alpha-thing"]
 
 
 UNREADABLE = ["It is all built.", COVERED + "<missing>\n- one\n</missing>", COVERED + COVERED,
@@ -244,18 +321,14 @@ def test_an_unreadable_verdict_or_failed_session_never_merges(tmp_path):
 
 
 def missing_brief(f: Instance) -> None:
-    """A missing coverage file, definition or review: still judged (from the entry and the sub-gaps), each said."""
+    """A missing coverage file: still judged (from the entry and the sub-gaps), and said. (A missing sub-gap
+    definition or review is short with no session: test_join_with_missing_sub_gap_definition_is_not_covered.)"""
     (f.model / "run" / "plans" / "alpha-thing.md").unlink()
-    (f.model / "run" / "defs" / "alpha-two.md").unlink()
-    db = f.db()
-    db["items"]["gap/alpha-one"]["fields"]["reviews"] = []
-    f.record.write_text(json.dumps(db))
     said, _ = judge(f, COVERED)                                      # still judged, from the entry and the sub-gaps
     assert said == ["gap.merged"]
     text = saved_brief(f)
     assert "(missing: run/plans/alpha-thing.md: FileNotFoundError" in text, text
-    assert "(missing: nothing readable at run/defs/alpha-two.md)" in text and "(missing: no review recorded)" in text
-    assert "# alpha-one: a plan" in text
+    assert "# alpha-one: a plan" in text and "# alpha-two: a plan" in text
 
 
 DAY = 86400
@@ -280,25 +353,6 @@ def gap(f: Instance, gid: str, merged: bool = True, **fields) -> None:
              "data": {**({"merged_at": time.time() - DAY} if merged else {}), **fields}}], None)
 
 
-def test_split_quality_counts_each_parent_by_its_first_verdict(tmp_path):
-    f = Instance(tmp_path)
-    now = time.time()
-    parent(f, "gap/p-covered", ("covered", now - DAY))
-    parent(f, "gap/p-short-covered", ("short", now - DAY), ("covered", now - DAY))   # the same `at`: list order decides
-    parent(f, "gap/p-short", ("short", now - 2 * DAY))
-    parent(f, "gap/p-old", ("covered", now - 20 * DAY))                              # judged only before the window
-    r = measure(f, "split-quality")
-    assert r.returncode == 0 and r.stdout.strip() == "0.333", r.stderr
-
-
-def test_split_quality_has_no_value_with_no_parent_judged(tmp_path):
-    f = Instance(tmp_path)
-    parent(f, "gap/p-old", ("covered", time.time() - 20 * DAY))
-    parent(f, "gap/p-unjudged")
-    r = measure(f, "split-quality")
-    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
-
-
 def test_split_joins_counts_judged_parents_over_the_whole_record(tmp_path):
     f = Instance(tmp_path)
     now = time.time()
@@ -313,7 +367,7 @@ def priced_split(f: Instance, gid: str = "gap/p") -> None:
     """A parent costing 2 whose children cost 10 and 8 with 60 and 50 lines (110: M)."""
     for k, cost, lines in (("one", 10, 60), ("two", 8, 50)):
         gap(f, f"{gid}-{k}", parent=[gid], ai_cost_usd=cost, merged_lines=lines)
-    parent(f, gid, ("covered", time.time()), kids=(f"{gid}-one", f"{gid}-two"), merged_at=time.time(), ai_cost_usd=2)
+    parent(f, gid, ("covered", time.time()), kids=(f"{gid}-one", f"{gid}-two"), judged_at=time.time(), ai_cost_usd=2)
 
 
 def unsplit(f: Instance) -> None:
@@ -336,7 +390,7 @@ def unpriceable(f: Instance) -> None:
                                      ("gap/q-open", "gap/q-open-1", False, {"ai_cost_usd": 3, "merged_lines": 80}),
                                      ("gap/q-class", "gap/q-class-1", True, {"ai_cost_usd": 3, "merged_lines": 900})):
         gap(f, kid, merged, parent=[gid], **fields)
-        parent(f, gid, ("covered", now), kids=(kid,), merged_at=now, ai_cost_usd=1)
+        parent(f, gid, ("covered", now), kids=(kid,), judged_at=now, ai_cost_usd=1)
 
 
 def test_split_overhead_leaves_out_a_parent_it_cannot_price(tmp_path):
@@ -369,7 +423,7 @@ def test_split_overhead_prices_a_parked_sub_gap_and_its_continuation(tmp_path):
             {"event": "gap.resumed", "item": "gap/p-two", "data": {"resumed_as": "gap/p-two-continued"}},
             {"event": "gap.measured", "item": "gap/p-two", "data": {"parent": {"set": []}}}], None)
     gap(f, "gap/p-two-continued", parent=["gap/p"], ai_cost_usd=6, merged_lines=50)
-    parent(f, "gap/p", ("covered", now), kids=("gap/p-one", "gap/p-two"), merged_at=now, ai_cost_usd=2)
+    parent(f, "gap/p", ("covered", now), kids=("gap/p-one", "gap/p-two"), judged_at=now, ai_cost_usd=2)
     r = measure(f, "split-overhead")
     assert r.returncode == 0 and r.stdout.strip() == "2.0", r.stderr        # (2 + 10 + 2 + 6) / 10, class M (110)
 
@@ -378,7 +432,7 @@ def test_the_split_measures_are_sensed_in_the_factory_model():
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []
     doc = (BIN / "measure.py").read_text().split('"""')[1]
-    for name in ("split-quality", "split-joins", "split-overhead"):
+    for name in ("splits-covered", "split-budgets-held", "split-joins", "split-overhead"):
         aux = spec.auxiliaries[name]
         assert aux.system == "intake" and [s.run for s in aux.sensors.values()] == [
             f"python3 dev/bin/measure.py {name}"]

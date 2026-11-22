@@ -241,12 +241,15 @@ def load(main: Path) -> Document:
                 for x in lib if isinstance(lib, list) else [lib]:
                     folder = x if isinstance(x, str) else x.get("folder") if isinstance(x, dict) else None
                     trust = "owner" if isinstance(x, str) else x.get("trust", "untrusted") if isinstance(x, dict) else None
+                    if isinstance(x, dict) and "untrusted" in x:       # {folder, untrusted: BOOL}: a bool, agreeing with trust:
+                        said = {True: "untrusted", False: "owner"}[x["untrusted"]] if type(x["untrusted"]) is bool else None
+                        trust = said if x.get("trust", said) == said else None
                     if not isinstance(folder, str) or trust not in ("owner", "untrusted") or \
-                            (isinstance(x, dict) and set(x) - {"folder", "trust"}):   # not loaded at all: never trusted
+                            (isinstance(x, dict) and set(x) - {"folder", "trust", "untrusted"}):   # not loaded: never trusted
                         doc.problems.append(Problem(
                             "error", "library: a folder of templates (the owner's), {folder: PATH} (one not marked trusted), "
-                            "{folder: PATH, trust: owner}, or a list of them", getattr(x, "where", None) or data.at("library"),
-                            "bad-library"))
+                            "{folder: PATH, trust: owner} or {folder: PATH, untrusted: true|false}, or a list of them",
+                            getattr(x, "where", None) or data.at("library"), "bad-library"))
                         continue
                     doc.library.append((path.parent / Path(folder).expanduser()).resolve())
                     if trust != "owner":

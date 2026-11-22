@@ -456,7 +456,8 @@ def test_two_triages_of_one_new_signature_are_serialised_by_the_capture_lock(pro
 
 
 OPENED = {"noted": "open", "open": "open", "leased": "leased", "awaiting-approval": "awaiting-approval",
-          "applied": "open", "superseded": "open", "dismissed": "dismissed", "dead": "dead"}
+          "applied": "applied", "superseded": "open", "dismissed": "dismissed", "dead": "dead",
+          "verified": "open", "regressed": "regressed", "reverted": "reverted"}   # (applied: settle's, repair-verify)
 
 
 def _put(p, fid, state):
@@ -465,21 +466,28 @@ def _put(p, fid, state):
     if state == "noted":
         return
     ev(p, f"{FAILURE}.opened", fid)
-    if state in ("leased", "awaiting-approval", "applied", "dismissed", "dead"):
+    after = ("verified", "regressed", "reverted")
+    if state in ("leased", "awaiting-approval", "applied", "dismissed", "dead", *after):
         take(p, fid, max_=1 if state == "dead" else 3)
     if state == "dead":
         ev(p, "ergostat.lease.ended", fid, run=R, fence=1, how="nack")
-    if state in ("awaiting-approval", "applied", "dismissed"):
+    if state in ("awaiting-approval", "applied", "dismissed", *after):
         ev(p, f"{FAILURE}.passed", fid, causedby=R)
         ev(p, "ergostat.lease.ended", fid, run=R, fence=1, how="ack")
-    if state in ("applied", "dismissed"):
+    if state in ("applied", *after):
+        ev(p, f"{FAILURE}.applied", fid)
+    if state in ("dismissed", "verified", "regressed"):
         ev(p, f"{FAILURE}.{state}", fid)
+    if state == "reverted":
+        ev(p, f"{FAILURE}.regressed", fid)
+        ev(p, f"{FAILURE}.reverted", fid)
     if state == "superseded":
         ev(p, f"{FAILURE}.superseded", fid, by="x")
 
 
-def test_opened_moves_only_from_noted_or_applied(proj):
-    """(And from ``superseded``: the plan review's answer, so an old signature superseded hides no later failure.)"""
+def test_opened_moves_only_from_noted_verified_or_superseded(proj):
+    """``superseded``: so an old signature superseded hides no later failure. ``applied`` no longer (repair-verify):
+    a fix failing again is settle's to judge, ``regressed`` and ``reverted`` a person's."""
     states = spec(proj).items[FAILURE].states
     assert sorted(OPENED) == sorted(states), "every state of the compiled kind has a row"
     for s in states:

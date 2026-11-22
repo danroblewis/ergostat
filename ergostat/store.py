@@ -319,8 +319,9 @@ class Events:
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
               since: float | None = None, after_seq: int | None = None, until: float | None = None,
               skip: tuple[str, ...] = (), unvoided: bool = False, machine: str | None = None,
-              before_seq: int | None = None) -> list[dict]:
-        """Matching events, oldest first; the newest ``n`` when ``n`` is given. ``type`` may end in
+              before_seq: int | None = None, first: int | None = None) -> list[dict]:
+        """Matching events, oldest first; the newest ``n`` when ``n`` is given, the oldest ``first`` (over ``n``)
+        when that is. ``type`` may end in
         ``*``, and may be several, joined by commas; types in ``skip`` are left out. ``machine``: from
         that source or one of its instances (``<machine>/<instance>``)."""
         where, args = [], []
@@ -351,7 +352,9 @@ class Events:
             args.append(until)
         sql = "select * from events" + (" where " + " and ".join(where) if where else "")
         with self._c() as c:
-            if n is None:
+            if first is not None:
+                rows = c.execute(sql + " order by seq limit ?", [*args, max(first, 0)]).fetchall()
+            elif n is None:
                 rows = c.execute(sql + " order by seq", args).fetchall()
             else:
                 rows = c.execute(sql + " order by seq desc limit ?", [*args, n]).fetchall()[::-1]
