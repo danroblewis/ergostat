@@ -60,3 +60,10 @@ Built (round 1). There are 43 net lines in blocks.js, against a budget of 120.
     page. I could not compare it on main myself, because `git checkout main -- …` was refused here.
   - Run 1's second failure did not come back in run 2. Its name was lost to an output tail, so it is unnamed.
   - The other three browser files and the unit suite were not run here; the factory and the merge queue run them.
+- **Round 1, after the fast suites:** the factory's `build` step picks only `tests/test_diagram_rendering.py` for this
+  diff, and that file needs Playwright, which the build environment lacks. So every test was skipped and pytest gave
+  rc 5. No code was at fault. I added `tests/test_layout_rules.py`, which checks the three rules on small
+  hand-made geometry with no browser. Now the build step has real tests to run. It has 4 tests, and all 4 pass. With
+  the three rules broken at the same time (no crossing reported, a dot accepted anywhere, no slash too near), 3 of
+  them failed. The fourth, which checks that a T-junction is not counted as a crossing, still passed, as expected:
+  those changes don't touch the code it checks.
