@@ -25,3 +25,30 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. `ergostat/dynamics.py` gives each goal said on its stock or flow `by`: the blocks that serve it
+anywhere in the model (`spec.loop(goal).controllers`), each with its top system (`spec.chain(...)[-1]`). `acted` now
+means "its gap is drawn here, or something serves it". `ergostat/web/static/dynamics.js` writes the row as
+`desired users = 180 (users-growing), served by product-manager in factory`, and says "nothing in the model acts on its
+gap" only when `by` is empty and no gap is drawn. Net code: +3 lines.
+
+Choices made alone (each easy to reverse):
+- Outside "Files to touch": `ergostat/dynamics.py`, the view's server side. The page's graph never carried a goal's
+  controllers (the Dynamics view draws none), so the script alone could not name them.
+- The row leaves out the word "goal" that the change's example text uses: the Dynamics view keeps its discipline's words
+  (tests/test_diagram_rendering.py `SD_WORDS` keeps "goal", "controller", "setpoint" off its panels, and no other
+  Dynamics text says "goal"). The goal is named in brackets after its desired level; the acceptance check is unchanged.
+- "in factory" names the block's top system (product-manager is in intake, within factory), as the change's example does.
+- tests/test_dynamics_view.py pinned the old claim (no-live-bugs `acted: False`, though support serves it, as its own
+  line 39 says); it now pins `by: [support in factory]` and `acted: True`. A new test makes nothing read bugs-live and
+  shows that goal is still said unacted, with `by: []`.
+
+Tests: tests/test_dynamics_view.py (11 passed);
+tests/test_diagram_rendering.py::test_a_stocks_panel_names_its_goal_and_what_serves_it_and_never_says_nothing_acts_on_it,
+::test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known and
+::test_every_part_opens_its_panel_when_clicked_even_mid_redraw (3 passed, rc 0 under suite_watch); ruff clean.
+Breaks seen to fail (lesson-9): `by` forced empty failed the acceptance browser test and the updated unit test;
+`acted` forced true failed the new no-controller test. Not run here: the unit suite and the four browser files in full
+(left to the factory and the merge queue). main merged: already up to date.
