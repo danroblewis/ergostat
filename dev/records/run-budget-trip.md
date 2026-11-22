@@ -69,3 +69,24 @@ All in `tests/test_run_budget_trip.py`.
 - An ai block's own claude is capped at the full reserve but not written to the ledger, so ergostat sessions started inside it also see the full reserve. Either write the block's spend to the ledger or state the up-to-2x overshoot before T1 in SPEC.
 - If the user's ai command already has --max-budget-usd, the engine's value must win. Test it.
 - A session that settles after the engine has deleted the run's ledger must not create the file again.
+
+## Where it stopped
+
+Nothing of T1 is built. The gap depends on `run-budget-reserve` (`depends-on: [run-budget-reserve]`), and that gap is
+not in this clone. It has no `ergostat/costs/budget.py`, no `budget:` key in the spec loader (`PER_MACHINE` and the
+top-level keys) or the schema, no reserve, no charged/free allowlist, no `permit` and no fold that charges a run's
+reported cost. `git for-each-ref` shows only `refs/heads/main` and `refs/heads/factory/run-budget-trip`, so there is
+no branch to merge it from either. The parent gap `run-budget-permissive` is parked, and both of its sub-gaps were
+deferred by the coordinator.
+
+Every point of the definition (the run's reserve as `ERGOSTAT_MAX_COST`, the ledger capped at the reserve, T1
+comparing the reported cost with the reserve, and `test_trip_cost_charged` reading `ergostat.budget.left`) needs
+the reserve as `run-budget-reserve` defines it. If T1 built its own `budget:` config and reserve, it would be building
+that other gap inside this one, which the house rules forbid. I took the more reversible option and changed no code.
+
+Left: everything in "Definition of done", points 1 to 5, and all ten acceptance tests. Land `run-budget-reserve` on
+main first, then run this gap again from that main. The plan-review notes above still need answers when it is
+built: an unknown cost counted as the whole reserve in charged runs, nan/inf/negative caps rejected, a refusal when
+only one of `ERGOSTAT_RUN` or `ERGOSTAT_MAX_COST` is set, the SPEC sentence on a second concurrent session, the
+up-to-2x overshoot of an `ai` block's own claude, the engine's `--max-budget-usd` winning, and no ledger re-created
+after its removal.
