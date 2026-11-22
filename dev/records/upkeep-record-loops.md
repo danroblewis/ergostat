@@ -157,3 +157,13 @@ Built, round 1: every item of the definition, by its acceptance tests. 281 net l
 **Run, round 5, one file at a time:** test_upkeep_template, test_upkeep_record and test_upkeep_watched (51), test_rollup, test_storage and test_item_index (110), test_templates and test_gaps_doc (39): all passed. ruff: clean. *Not run:* the whole unit suite, the four browser files, test_store_conformance and `demo_check` (no example touched, no store code changed this round). They are left to the factory's runs.
 
 *Refused this round:* `git status --short | grep ...; for f in ...` and `git -C /work add ...` (the same `git add` was then run without `-C`).
+
+### Round 6: the merge of main (5617e225), which brought in run-budget-reserve
+
+- **Blocking: a conflict with main in `ergostat/spec/ir.py`.** Resolved in 96efa5a9 by keeping both sides: main's `BUDGET_MEASURES`, `BUDGET_MOST` and `RunBudget`, followed by the branch's `UPKEEP` regex, which lists the watched measures and the record's three. Nothing else conflicted.
+- **lesson-7, checked:** the branch's diffs of docs/GAPS.md and docs/AGENT-GUIDE.md against 5617e225 are only its own change: the GAPS item-index bullet ends at "if the tidier stops", followed by *The record's loops*. No spliced copy, dangling fragment or second "still to come" was found.
+- **Size:** still **300 net lines** outside `tests/`, `docs/` and `dev/` (358 added, 58 removed, against 5617e225).
+
+**Run, round 6, one file at a time:** test_upkeep_record, test_upkeep_template and test_gaps_doc (31), test_rollup, test_storage and test_item_index (110), test_templates, test_run_budget and test_upkeep_watched (95): all passed. ruff: clean. *Not run:* the whole unit suite, the four browser files, test_store_conformance and `demo_check` (no example touched, no store code changed this round). They are left to the factory's runs.
+
+*Refused this round:* a `python3 - <<'EOF'` heredoc that resolves the conflict in `ir.py` (done with the edit tool instead).
