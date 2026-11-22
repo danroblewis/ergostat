@@ -167,3 +167,16 @@ Built, round 1: every item of the definition, by its acceptance tests. 281 net l
 **Run, round 6, one file at a time:** test_upkeep_record, test_upkeep_template and test_gaps_doc (31), test_rollup, test_storage and test_item_index (110), test_templates, test_run_budget and test_upkeep_watched (95): all passed. ruff: clean. *Not run:* the whole unit suite, the four browser files, test_store_conformance and `demo_check` (no example touched, no store code changed this round). They are left to the factory's runs.
 
 *Refused this round:* a `python3 - <<'EOF'` heredoc that resolves the conflict in `ir.py` (done with the edit tool instead).
+
+### Round 7: the queue's failure, and review 6's non-blocking findings
+
+- **Blocking: `tests/test_library_provenance.py::test_every_lib_flag_classified` failed** (`assert 13 == 14`), alone and in the batch. This is lesson-7: main's test lists every `ergostat.library.run` program's argv by hand (`ARGVS`), and counts `argparse.ArgumentParser(` in the sources. The branch's `upkeep rollup`/`retain` parser was a 14th that no argv reached. Its `--out` flag was also in neither `trust.LIB_DATA_FLAGS` nor `LIB_EXEC_FLAGS`, so the next assert would have failed too. Fixed: `--out` is renamed `--flow`, which is already a data flag with the same meaning (the flow the line moves). That leaves `trust.py` unchanged, and it is the most reversible choice. `ARGVS` gains `["upkeep", "rollup"]`. `rollup` and `retain` share one parser, so one argv covers it. The template's `record-pruner` and SPEC §2a now say `--flow events-forgotten`. *Seen failing:* before the fix, as above. With `["upkeep", "rollup"]` added but `--out` kept, the classification assert would name `upkeep rollup --out`. That is read from the assert, not run.
+- **Review 6, non-blocking (lesson-12), each answered in docs/SPEC.md §2a *Upkeep*, with no code change:**
+  - (a) The overlong line ("...the watched loops below. The stock `index-files` (`ergostat.upkeep.index-files`,") is reflowed to the section's width. So is the `--flow` line.
+  - (b) Archive months past keep are forgotten only when `record-compactor` or `record-pruner` runs. No stock counts them, so while `rollup-due` and `events-past-keep` both read 0, they wait. This is now said, rather than adding a fourth stock (outside the definition and the budget).
+  - (c) `measurement-retainer` has no timeout parameter, so it gets the block default (300 s). SPEC now says so, and says that a large first retention takes several runs, one each `retain-every`, each keeping the chunks it committed. A `retain-timeout` parameter was not added, because the budget is at 300.
+- **Size:** unchanged, **300 net lines** outside `tests/`, `docs/` and `dev/`. The rename is like for like.
+
+**Run, round 7, one file at a time:** test_library_provenance (33), test_upkeep_record, test_upkeep_template and test_templates (62), test_rollup, test_storage and test_item_index (110): all passed. ruff: clean. *Not run:* the whole unit suite, the four browser files, test_store_conformance and `demo_check` (no example touched). They are left to the factory's runs.
+
+*Refused this round:* a `sed -i ...` chain that does the `--out` to `--flow` rename in three files (done with the edit tool instead).

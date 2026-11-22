@@ -273,7 +273,7 @@ blocks:
     type: program
     goal: record-within-keep
     in: [+stock.events-past-keep]
-    run: ${lib} upkeep rollup --every ${rollup-every} --out events-forgotten
+    run: ${lib} upkeep rollup --every ${rollup-every} --flow events-forgotten
     every: ${rollup-every}
     timeout: ${rollup-timeout}
     out: [flow.events-forgotten]

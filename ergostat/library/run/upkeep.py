@@ -41,13 +41,13 @@ EVERY = (60.0, 86400.0)        # rollup-every and retain-every: 1m to 1d (the te
 
 def _compactor(argv: list[str], what: str) -> int:
     """``upkeep rollup`` (roll-up, prune past keep, the archive's forgetting) and ``upkeep retain`` (the measurements
-    into their tiers), under the compaction lock. One line: JSON moving ``flow.rolled-up`` (items; ``--out
+    into their tiers), under the compaction lock. One line: JSON moving ``flow.rolled-up`` (items; ``--flow
     events-forgotten``: events pruned) or ``flow.measurements-forgotten``, or ``busy: ...`` (exit 0) when the lock is held."""
     from ...durations import DurationError, parse_duration
     from ...store import Project
     ap = argparse.ArgumentParser(prog=f"upkeep {what}")
     ap.add_argument("--every", required=True)
-    ap.add_argument("--out", choices=["rolled-up", "events-forgotten"], default="rolled-up")
+    ap.add_argument("--flow", choices=["rolled-up", "events-forgotten"], default="rolled-up")
     a = ap.parse_args(argv)
     try:
         every = parse_duration(a.every, "--every")
@@ -66,8 +66,8 @@ def _compactor(argv: list[str], what: str) -> int:
             return 0
         if what == "rollup":                         # the same work for either block; its line moves the block's flow
             got = rollup.record(p)
-            moved = got["pruned"] if a.out == "events-forgotten" else got["rollup"]["items"]
-            common.say({"out": f"flow.{a.out}", "moved": moved, "items": got["rollup"]["items"], "events": got["rollup"]["events"],
+            moved = got["pruned"] if a.flow == "events-forgotten" else got["rollup"]["items"]
+            common.say({"out": f"flow.{a.flow}", "moved": moved, "items": got["rollup"]["items"], "events": got["rollup"]["events"],
                         "pruned": got["pruned"], "archive_forgot": got["archive_forgot"]})
         else:
             got = rollup.measurements(p) or {"rolled": 0, "forgot": 0}
