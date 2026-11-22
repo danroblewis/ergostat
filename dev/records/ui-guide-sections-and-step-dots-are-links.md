@@ -85,3 +85,14 @@ order, and 'Control: what we control' starts at frame 7. Now the build step also
 changed. To undo this, delete the one test. I did not break the code to watch the new test fail (lesson 9). The
 `uv run python -c` I tried, to print the frame order, was refused, so frame 7 comes from reading
 `ergostat/guide.py:120-231`. Runs: `tests/test_guide.py` 7 passed; ruff clean.
+
+Round 2: the factory merged main (d1bfd1a0) into the branch, and `tests/test_guide.py` conflicted. Main had added
+`test_the_guides_drawings_hide_the_rings_and_its_last_frame_says_it_is_drawing` at the same place where this branch
+added its section-order test. I kept both tests unchanged and committed the merge (eaa25bd9). No other file
+conflicted and no ergostat code changed in this round. Runs after the merge:
+- `tests/test_guide.py`: 8 passed.
+- `ruff check ergostat tests scripts`: clean.
+- With Playwright, under the watchdog: `test_the_guide_draws_every_frame_live_and_in_a_snapshot` (the acceptance
+  test) passed, rc 0. Main's `test_the_guides_last_frame_draws_its_boxes_as_the_live_diagram_does_and_says_it_is_drawing`
+  also passed, rc 0. Main changed `guide.js` and `style.css` too, so these are the Guide's own browser tests.
+- I did not run the rest of `tests/test_diagram_rendering.py` again.
