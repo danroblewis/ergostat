@@ -89,3 +89,47 @@ def test_approve_in_the_side_panel(site):
         shot(pg, "side-panel-answered.png")
         assert not errors, errors
         b.close()
+
+
+def test_approve_and_deny_say_what_they_answer_in_an_order_the_keyboard_can_use(site):
+    """Each answer names its object (seen: 'Approve the push'; heard: with the entry's id, unique in the list); the
+    keyboard reaches the reason before Deny, which waits for the reason; Approve and Deny are drawn alike."""
+    from ergostat.actions import record
+    url, p, a = site
+    short = record.short(a["id"])
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        row = pg.locator(f'[data-inbox="action/{short}"]')
+        row.wait_for(timeout=20000)
+        pg.locator('[data-inbox^="person/reviewer@"] button').wait_for(timeout=20000)
+        names = pg.eval_on_selector_all(".att [data-inbox] button", "bs => bs.map((b) => b.getAttribute('aria-label') "
+                                        "|| b.textContent.trim())")
+        assert len(names) >= 3 and all(len(n.split()) > 1 for n in names), names
+        assert len(set(names)) == len(names), names
+        approve, deny = row.locator('button[data-verb="approve"]'), row.locator('button[data-verb="deny"]')
+        assert approve.inner_text() == "Approve the push" and deny.inner_text() == "Deny the push"
+        style = "b => { const s = getComputedStyle(b); return [s.borderTopStyle, s.borderTopWidth, s.borderTopColor]; }"
+        assert approve.evaluate(style) == deny.evaluate(style) and approve.evaluate(style)[0] != "none"
+        assert deny.is_disabled()
+        # the keyboard path: from the entry's link, Tab reaches the reason, a reason is typed, then Approve, then Deny
+        row.locator("a").first.focus()
+        seen = []
+        for _ in range(3):
+            pg.keyboard.press("Tab")
+            seen.append(pg.evaluate("() => document.activeElement.getAttribute('data-verb') || "
+                                    "document.activeElement.tagName.toLowerCase()"))
+            if seen[-1] == "input":
+                pg.keyboard.type("not today")
+        assert seen == ["input", "approve", "deny"], seen
+        pg.wait_for_timeout(3000)                   # a refresh of the list (every 2.5 s) keeps the reason, and Deny on
+        assert not deny.is_disabled() and pg.evaluate("() => document.activeElement.dataset.verb") == "deny"
+        pg.keyboard.press("Enter")
+        pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="action/{short}"]')""", timeout=20000)
+        got = record.get(p, a["id"])
+        assert got["state"] == "denied" and got.get("note") == "not today", got
+        assert not errors, errors
+        b.close()
