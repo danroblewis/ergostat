@@ -28,3 +28,13 @@ Built: all five points, about 33 net lines of code, inside the 80-line budget. C
   disturbances and their driven-by causes, and its blocks' inputs.
 - The MCP explain tool calls explain(), so it is covered by the same code. No separate MCP test was added.
 Not run here: the unit suite, the browser files (no page changed) and demo_check (no example changed).
+
+Round 2 (the review's one finding, the golden text holding host paths):
+- _every_explanation in tests/test_remote.py now replaces this host's interpreter (library/expand.py PY, the
+  quoted sys.executable) with `<python>` and the templates folder (library/templates.py HERE) with `<templates>`,
+  and the golden file has the same placeholders in its three lines. The golden file has no `/work`, `/opt`,
+  `/Users` or `venv` left in it. No code outside tests changed.
+- Seen failing: with "  Reads: " changed to "  Reads:  " in explain.py, test_explain_without_remotes_unchanged
+  failed (AssertionError); restored, it and all 15 tests of tests/test_remote.py pass; ruff clean.
+- Not shown: a run from a second checkout and venv (a clone under /tmp with its own .venv) was refused in this
+  session, so the host independence rests on the placeholders being taken from the same PY and HERE the output uses.

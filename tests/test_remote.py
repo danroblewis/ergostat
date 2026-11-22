@@ -324,7 +324,10 @@ def _every_explanation(spec):
     for kind, table in (("goal", spec.goals), ("block", spec.blocks), ("stock", spec.stocks), ("flow", spec.flows),
                         ("auxiliary", spec.auxiliaries), ("system", spec.systems)):
         out += [explain(spec, f"{kind}.{n}") for n in sorted(table)]
-    return "\n\n".join(out) + "\n"
+    # this host's interpreter and checkout paths (library/expand.py PY, library/templates.py HERE) become placeholders
+    from ergostat.library.expand import PY
+    from ergostat.library.templates import HERE
+    return "\n\n".join(out).replace(PY, "<python>").replace(str(HERE), "<templates>") + "\n"
 
 
 def test_explain_without_remotes_unchanged():

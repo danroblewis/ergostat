@@ -140,14 +140,14 @@ Block fan-out: a program block, actuator.
 
 Block fixer: a program block, actuator.
   the rule tier, answering the requests a mechanical change answers safely and certainly
-  Runs: `/opt/venv/bin/python -m ergostat.library.run modelling rules`
+  Runs: `<python> -m ergostat.library.run modelling rules`
   Runs while goal requests-handled is off (through keep-requests-handled).
   Reads: stock.unanswered-requests.
   Outputs to: flow.changes-made-by-fixer.
   Serves: goal.requests-handled.
 
 Block improver: an ai block, actuator.
-  Prompt: /work/ergostat/library/templates/modelling/improver.md
+  Prompt: <templates>/modelling/improver.md
   Runs while goal model-fits is off (through keep-model-fits).
   Outputs to: flow.changes-made.
   Serves: goal.model-fits.
@@ -426,7 +426,7 @@ Flow requests-answered: from unanswered-requests to answered-requests.
 
 Flow requests-raised: from outside to unanswered-requests.
   Nothing in the model sets it: a disturbance, estimated from what its stocks do.
-  Measured: flow.requests-raised.main runs `/opt/venv/bin/python -m ergostat.library.run modelling requests --window 600` every 2m (a rate per hour).
+  Measured: flow.requests-raised.main runs `<python> -m ergostat.library.run modelling requests --window 600` every 2m (a rate per hour).
 
 Flow tests-started: from pending-changes to changes-testing.
   Set by block judge (judge).
