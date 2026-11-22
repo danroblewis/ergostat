@@ -46,6 +46,7 @@ from .ir import (
     NamedLoop,
     Parameter,
     Ref,
+    RunBudget,
     Sensor,
     Setpoint,
     Source,
@@ -821,6 +822,32 @@ class Compiler:
                 getattr(got, attr)[str(kind)] = vals[0] if key == "reopen-to" else vals
         spec.messages = got
 
+    def budget(self, spec: Spec) -> None:
+        """``budget:``: the day's AI budget, ``daily`` and ``max-cost``, both required and bounded (SPEC §9.9)."""
+        m, w = self.doc.budget, self.doc.budget_at
+        if m is None:
+            return
+        if not isinstance(m, dict):
+            self.err("budget: a map (daily:, max-cost:)", w, "not-a-map")
+            return
+        self.keys(m, {"daily", "max-cost"}, "budget")
+        got = {}
+        for k in ("daily", "max-cost"):
+            v = m.get(k)
+            if v is None:
+                self.err(f"budget: missing {k}: (dollars{' over the trailing day' if k == 'daily' else ' a run reserves'})",
+                         w, "missing-key")
+            elif isinstance(v, bool) or not isinstance(v, int | float):
+                self.err(f"budget.{k}: a number of dollars, not {v!r}", m.at(k), "bad-number")
+            else:
+                got[k] = float(v)
+        if len(got) == 2:
+            b = RunBudget(got["daily"], got["max-cost"], w)
+            if why := b.problem():
+                self.err(why, w, "out-of-bounds")
+            else:
+                spec.budget = b
+
     def named(self, section: str):
         for name, m in self.doc.sections[section].items():
             what = f"{SINGULAR.get(section, section[:-1])} {name}"
@@ -1108,6 +1135,7 @@ class Compiler:
                     v.sensors["set"] = Sensor("set", Ref("auxiliary", v.name), every=None,
                                               description=f"the value block {b.name} set it to", where=b.where)
         self.messages(spec)
+        self.budget(spec)
         self.counted(spec)
         from .joins import check_joins
         from .relations import check_relations

@@ -107,6 +107,17 @@ def _fits(u0: float, amount: float, limits) -> bool:
     return (lo is None or v >= lo - 1e-9) and (hi is None or v <= hi + 1e-9)
 
 
+def _stamp(spec, goal: str) -> dict | None:
+    """The plant each system enclosing the goal is, innermost first (``rga.plant_signature``), for the relative gain
+    array to know the test was made of the system as it is; None when one cannot be worked out (the test runs anyway)."""
+    try:
+        from ..spec.architecture import _chains
+        from . import rga
+        return {s: rga.plant_signature(spec, s) for s in _chains(spec)[f"goal.{goal}"]}
+    except Exception:
+        return None
+
+
 def run(eng, plan: dict, spec=None) -> None:
     p, spec = eng.p, spec or eng.spec
     tid, goal = plan["id"], plan["goal"]
@@ -123,7 +134,8 @@ def run(eng, plan: dict, spec=None) -> None:
             time.sleep(0.2)                                     # a run already under way finishes first
         u0 = eng.signals.get(plan["u"]) if plan.get("u") else None
         p.events.add("steptest.started", item=goal, source=SOURCE, data={"test": tid, "block": b.name, "held": hold,
-                                                                          "amount": amount, "hold": plan["hold"], "from": u0})
+                                                                          "amount": amount, "hold": plan["hold"], "from": u0,
+                                                                          "plant": _stamp(eng.spec, goal)})
         if plan.get("u") and u0 is None:
             how = f"not run: {plan['u']} has no reading to put it back to"
             return
@@ -157,5 +169,6 @@ def run(eng, plan: dict, spec=None) -> None:
         eng.held.difference_update(hold)
         if hasattr(eng, "poke"):
             eng.poke(*hold, now=False)       # the controllers held look again at once
-        p.events.add("steptest.finished", item=goal, source=SOURCE, data={"test": tid, "how": how, "from": u0})
+        p.events.add("steptest.finished", item=goal, source=SOURCE, data={"test": tid, "how": how, "from": u0,
+                                                                           "plant": _stamp(eng.spec, goal)})
         eng.say(f"step test {tid} on {goal}: {how}")
