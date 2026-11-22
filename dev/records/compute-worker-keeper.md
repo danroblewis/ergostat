@@ -24,3 +24,21 @@ with its five tests, the docs/SPEC.md text). Nothing reached the network.
 Parked by the factory (review/compute-worker-keeper-1, 2026-11-22 12:31).
 
 Done: the definition of done and a Where-it-stopped note in dev/records/compute-worker-keeper.md. Left: all of the work (keeper.py, the start/kill handlers in serve.py, tests/test_compute_keeper.py with its five tests, the docs/SPEC.md text). It stops because the start handler's framing, the node capacity and limits, and the worker itself belong to compute-worker-protocol, which is not in this branch's base; building them here would be outside the gap (lesson-13).
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 14:16).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
