@@ -2731,7 +2731,7 @@ def test_a_test_that_fails_alone_on_either_rerun_still_bisects(tmp_path):
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
     assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
-    assert len(reruns(f)) == 8 and suite_runs(f) == 2               # twice on p..s, on main, a round of 4 prefixes
+    assert len(reruns(f)) == 7 and suite_runs(f) == 2             # twice on p..s, on main, a round of 4 prefixes
     r = f.item("gap/r")["fields"]
     assert r["failed_tests"] == [t] and r["suites_queue"]["round"]["prefixes"] == 4
     assert "flake/tests-test-b-py-test-b" not in f.db()["items"]
@@ -3064,7 +3064,7 @@ def test_a_run_past_its_allowance_lands_only_what_is_proven_and_gives_back_the_r
     g.config.write_text(g.config.read_text().replace("batch_max = 4", "batch_max = 8\nbatch_minutes = 85"))
     approved_gaps(g, EIGHT, bad="g", batch=8)
     said, _ = clocked(g, "gap/a", 25)
-    assert reruns(g) == ["tests/test_b.py::test_b -rA"] * 11 and suite_runs(g) == 1
+    assert reruns(g) == ["tests/test_b.py::test_b -rA"] * 10 and suite_runs(g) == 1
     assert merges(g) == [] and "gap.merged" not in said and not g.db().get("acts")
     assert g.item("gap/g")["state"] == "queue-failed" and counts(g, "gap/a") == (8, 0, 7)
     # a round past the allowance never starts: 70 allowed, the round's turn comes at 75
