@@ -311,3 +311,33 @@ changed in this round.
 'playwright.sync_api': No module named 'playwright'". The two remote browser tests and the page code have still
 never been executed, and they have never been shown failing with their guards broken (lesson-9). By the house
 rules the gap is not done until they pass. The whole unit suite was not run here either; the factory runs it.
+
+## Where it stopped (round 6)
+
+Every finding of review 5, answered (lesson-12):
+
+- **docs/GAPS.md, the Remote systems entry re-spliced by the merge (blocking).** Fixed. The entry is now one
+  *Done* list and one *Left*. The dangling line "or the reading is not current." and the second *Left* clause are
+  gone. *Left* no longer lists "the remote's events in the Items and Record pages", and it no longer lists the
+  proposals text, which `remote-proposals-text` built. It now holds only the process-map lines, the IR beside
+  `ergostat-model/1`, a remote of remotes, and mutual TLS. Main's own text also repeated "`examples/remote-pair/` and its
+  two-instance test" once. Since the entry was being rewritten anyway, the repeat was dropped.
+- **SPEC §4c, an over-long line (wording).** Reflowed.
+- **`events.follow` gives 502 on a lock timeout even with events cached (non-blocking).** Fixed. Under the lock,
+  each read that has read something stores a copy of its view in `events._shown`. A caller whose wait for the lock
+  times out is answered from that copy, with its `age`, `ok: false` and *busy*. With nothing read, it is still
+  502 *busy*. The copy is a separate dict, so `cursor`, `asked`, `ok` and `why` are still never read outside the
+  lock (point 8). SPEC §4c says so. Test: `test_a_busy_events_lock_serves_the_last_read_marked`. It holds
+  `events._lock("r")` itself and shortens the wait by setting `cache.TIMEOUT` to 0.01. With the old behaviour put
+  back (`if True or last is None`), it fails on the cached case. Afterwards it passes again. +10 net lines in
+  `events.py`, about 332 under `ergostat/` (budget 420).
+
+**Run here, one file at a time:** `tests/test_remote_items.py` (22 passed), `tests/test_remote.py` with
+`tests/test_remote_pair.py` (13), `tests/test_graph_cli_web.py` (31), `tests/test_web_access.py` (26),
+`tests/test_spec_items.py` (6). `ruff check ergostat tests scripts` is clean.
+
+**Still not run: the browser files.** `tests/test_items_page.py -k remote` is still skipped: "could not import
+'playwright.sync_api': No module named 'playwright'". The two remote browser tests and the page code have never
+been executed or shown failing (lesson-9), so by the house rules the gap is not done until the factory's browser run
+passes them. No merge of origin/main was made this round; this clone has no `origin/main` ref. The whole unit suite
+was not run here either.

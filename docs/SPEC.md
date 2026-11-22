@@ -699,8 +699,9 @@ framed and marked *remote NAME · URL*: the remote's counts by kind and state an
 to `/item/ID?remote=NAME` (its fields, moves and events read there, marked remote, read only: no message box, no
 actions) and to the remote's own page (`URL/item/ID`). A remote item's `file:PATH` value names a file in the
 remote's project, so it is shown as its text, never read from this ergostat's `/file/` or drawn inline. It is asked
-by its own call, so a slow remote never delays the local listing. The Record page's filter bar links to each remote's events (`/record?remote=NAME`), listed as
-local events are, their items linking to the remote's. Nothing of them reaches the local record or fold.
+by its own call, so a slow remote never delays the local listing. The Record page's filter bar links to each
+remote's events (`/record?remote=NAME`), listed as local events are, their items linking to the remote's. Nothing
+of them reaches the local record or fold.
 
 | Asked of the page | Answers |
 |---|---|
@@ -727,8 +728,9 @@ space, `\`, an empty segment or `..` is refused, and such an item is listed but 
 - **One lock a remote.** Each decision (fresh? failed this period? within the budget?), the request, the write and
   the trim are made under one lock per remote, so many pages polling ask once. Each request is bounded by 3 s; a
   caller waits at most 7 s for an items lock (19 s for the events lock, whose holder may make six requests), then
-  is answered with an error saying the remote is busy (503 for items, 502 for events); a remote that hangs holds
-  only its own callers.
+  is answered with an error saying the remote is busy (503 for items, 502 for events). Events already read are
+  instead shown as they were last read, with their age, `ok: false` and *busy*. A remote that hangs holds only its
+  own callers.
 - **By `seq`.** Only events past the cursor are kept, so a page read twice adds nothing. An answer whose
   `last_seq` is below the cursor means the remote's record was made again: what was kept is dropped and the read
   starts again from `last_seq - 1000` (0 at least). A remote remade whose record has already passed the old cursor

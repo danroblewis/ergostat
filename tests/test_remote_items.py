@@ -100,6 +100,7 @@ def site(tmp_path, monkeypatch):
     monkeypatch.setattr(events, "time", now)
     items._state.clear()
     events._kept.clear()
+    events._shown.clear()
     server, url = web_serve(p, free_port())
     s = types.SimpleNamespace(url=url, fake=fake, clock=clock, dir=d, spec=p.model.spec)
     yield s
@@ -107,6 +108,7 @@ def site(tmp_path, monkeypatch):
     server.server_close()
     items._state.clear()
     events._kept.clear()
+    events._shown.clear()
 
 
 def get(site, path):
@@ -309,6 +311,27 @@ def test_record_shows_cached_events_with_age_when_the_remote_stops(site):
     code, body = get(site, "/api/events?remote=r")
     assert code == 200 and body["ok"] is False and "unreachable" in body["why"] and body["age"] > 0
     assert [e["seq"] for e in body["events"]] == [1, 2, 3]
+
+
+def test_a_busy_events_lock_serves_the_last_read_marked(site, monkeypatch):
+    monkeypatch.setattr(events.cache, "TIMEOUT", 0.01)    # the lock is waited on for 1.06 s, not 19 s
+    lock = events._lock("r")
+    assert lock.acquire(timeout=5)
+    try:                                                  # nothing read yet: an error, never no events
+        code, body = get(site, "/api/events?remote=r")
+        assert code == 502 and "busy" in body["error"] and "events" not in body
+    finally:
+        lock.release()
+    assert [e["seq"] for e in get(site, "/api/events?remote=r")[1]["events"]] == [1, 2, 3]
+    site.clock[0] += 61
+    assert lock.acquire(timeout=5)
+    try:
+        code, body = get(site, "/api/events?remote=r")
+        assert code == 200 and body["ok"] is False and "busy" in body["why"] and body["age"] >= 61
+        assert [e["seq"] for e in body["events"]] == [1, 2, 3]
+    finally:
+        lock.release()
+    assert len(site.fake.asked("events")) == 1
 
 
 @pytest.mark.parametrize("how", ["directory", "missing", "empty"])

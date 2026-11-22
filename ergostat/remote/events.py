@@ -17,6 +17,7 @@ from . import cache, client, items
 PAGE, PAGES = 1000, 5
 WINDOW, MOST = 86400.0, 20000
 _kept: dict[str, dict] = {}
+_shown: dict[str, dict] = {}                                # a copy of the last read view, for a caller that timed out
 _locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
 
@@ -75,17 +76,22 @@ def follow(spec, name: str, force: bool = False) -> tuple[dict | None, str]:
     r = (getattr(spec, "remotes", None) or {}).get(name)
     if r is None:
         return None, f"no remote {name}"
-    lock = _lock(name)
+    lock, key = _lock(name), f"{name}|{r['url']}"
     if not lock.acquire(timeout=(PAGES + 1) * cache.TIMEOUT + 1.0):
-        return None, f"{name} is busy answering another read; again shortly"
+        busy, last = f"{name} is busy answering another read; again shortly", _shown.get(key)
+        if last is None:
+            return None, busy                               # the last view, written under the lock, never the cache
+        return dict(last, events=list(last["events"]), ok=False, why=busy,
+                    age=max(0.0, time.time() - last["read"])), busy
     try:
-        kept = _kept.setdefault(f"{name}|{r['url']}", {"events": [], "cursor": None, "read": None, "asked": None,
-                                                       "ok": None, "why": ""})
+        kept = _kept.setdefault(key, {"events": [], "cursor": None, "read": None, "asked": None, "ok": None, "why": ""})
         now = time.time()
         if force or kept["asked"] is None or now - kept["asked"] >= items.period(r):
             kept["asked"] = now                             # this period's read, answered or not
             _read(spec, r, kept)
         view = _view(kept, time.time())
+        if view["read"] is not None:
+            _shown[key] = _view(kept, view["read"])
     finally:
         lock.release()
     return (view, view["why"]) if view["read"] is not None else (None, view["why"] or "not read yet")
