@@ -25,3 +25,26 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. About 33 net lines of code (interact.js, diagram.js, dynamics.js), within the budget.
+
+- What was found: a stock chosen in Dynamics already lit y_quality (with its ring) in Blocks, and H(s) along with it.
+  The panel was lost because switching view goes through `route()`, which closes it. A flow's label click did choose
+  the flow, but its panel waited for the `part/flow` answer before it showed anything. On a slow or loaded server,
+  that left only the side panel's "Charts of the parts chosen" on screen; this was reproduced, intermittently, in
+  image-squeeze `open=*`.
+- Choices made with nobody to ask (the most reversible ones):
+  - The sensor H(s) stays lit when its stock is chosen. The correspondence rule (correspond.py, DESIGN "One
+    selection, two views") says a sensor H on a stock *is* the stock, and changing that rule is the owner's call.
+    "Map a stock to y" is met by the carried panel opening on y_quality, and y has the selection ring.
+  - The panel is carried only by the Dynamics and Blocks buttons, and only when a panel is open on the current
+    selection. A panel closed before the switch stays closed.
+  - A flow carried to Blocks opens its controller's actuating signal (the `u_<block>` wire), titled
+    'actuating signal u_tuner'. A reference opens its r input, titled 'reference r = 0.93 and its summing junction'.
+- The acceptance test is `test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_its_words`. It
+  serves image-squeeze afresh at `?system=service`, not the demo at :8793. Its 1 s is counted from when the block
+  diagram is drawn, not from the click: a loaded machine can take longer than that to lay the diagram out.
+- `test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves` now waits for the filled panel (its `dl`),
+  because the panel now opens before its numbers arrive.

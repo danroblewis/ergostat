@@ -2692,7 +2692,8 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         pg.get_by_role("button", name="fit").click()
         box = pg.locator('g.node[data-id="flow:regressions"] .hit').first.bounding_box()
         pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve'", timeout=5000)
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve' && "
+                             "document.querySelector('#detail dl')", timeout=5000)   # (filled: it opens at once, then fills)
         text = pg.locator("#detail").inner_text()
         assert "the rate of regressions" in text, text[:600]
         inputs = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')].find((d) => d.textContent === 'inputs');
