@@ -1011,7 +1011,7 @@ class Engine:
                     lf.write(raw if raw.endswith("\n") else raw + "\n")
             lf.flush()
             said.lines(got)
-        lf, back, tail = rl.file if rl else None, None, ""
+        lf, back, tail, unread = rl.file if rl else None, None, "", ""
         try:
             if rl is None:                                       # (no log of its own: not started)
                 pass
@@ -1070,11 +1070,12 @@ class Engine:
                                 else STOPPED_BY_OWNER if asked else f"exited {code}")
         finally:                                                 # its entry in the block's log, whole, as it ends
             if rl is not None:
-                from ..repair.capture import TAIL
+                from ..repair.capture import TAIL, clip
                 try:                                             # (read first, whatever the block log's fate)
-                    tail = rl.tail(TAIL) if note else ""
+                    tail = clip(rl.tail(TAIL + 1)) if note or (code == 0 and "ergostat.failure" in spec.items) else ""
                 except Exception as e:
                     tail = f"(its run log {rl.rel} could not be read: {type(e).__name__}: {e})\n"
+                    unread = f"its run log could not be read: {type(e).__name__}: {e}"
                 try:
                     runlog.finish(rl, begun["time"], why, self.p.storage.logs["block"])
                 except Exception as e:
@@ -1125,6 +1126,14 @@ class Engine:
                     capture.failed(self.p, spec, b, begun, data, stdin, tail)   # (its own file's, only)
                 except Exception as e:
                     self.say(f"{b.name}: its failure: {type(e).__name__}: {e}")
+        elif code == 0 and not note and rl is not None and b.type in ("program", "ai") and spec.items.get("ergostat.failure"):
+            try:                                                 # an error it caught and printed (SPEC §12r)
+                if unread:                                       # (unread: nothing recorded, and said)
+                    raise OSError(unread)
+                from ..repair import capture
+                capture.swallowed(self.p, spec, b, begun, tail, stdin)
+            except Exception as e:
+                self.say(f"{b.name}: its swallowed check: {type(e).__name__}: {e}")
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
         if said.claims:                                          # what it said it did, checked by ergostat (SPEC §12g)
