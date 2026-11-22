@@ -50,3 +50,26 @@ The parked `factory/run-budget-reserve` built all of P3 (`ergostat/costs/budget.
 ## Size budget
 170 net lines
 size: L (confidence: medium)
+
+## Where it stopped
+Built in 87deb72b: items 1 to 4, and the docs of item 5 (SPEC §9.9 and the two measure tables, the agent guide §3b,
+the GAPS entry under *Runtime*, the schema). The net count outside `tests/`, `docs/` and `dev/` is 170 lines,
+including the 20 lines of schema JSON. The seven acceptance tests pass, and so does ruff. Each guard was broken by
+hand and seen to fail its test: a denylist `free`, a malformed cost counted 0, the 24 h test on ends removed, starts
+keyed by item, `left` returning `daily` when the record raises, and expired leases dropped from `reserved`.
+
+What this clone shows about the merge: `git for-each-ref` lists only `refs/heads/main` (c9d3bab5, this branch's base)
+and this branch. `git merge main` says already up to date. `git merge origin/main` says "not something we can merge"
+because this clone has no `origin/main` ref. So no merge of `origin/main` was made here. The unit suite and the four
+browser files were not run here (the factory runs them after the implementor). The touched neighbours were run:
+test_spec_schema, test_spec_structure, test_local_settings, test_run_costs, test_calls, test_bench, test_messages,
+test_engine_shard, test_modelreview, test_runner_and_state and test_upkeep_template.
+
+Choices the definition left open, each the more reversible one and each said in SPEC §9.9:
+- A `ergostat.lease.taken` with no `reserve`, or a malformed one, reserves `max-cost`. No lease carries a reserve
+  until `run-budget-permit`, so every unended leased run holds `max-cost` for now. This fails closed.
+- An `agent.started` with no `reserve` is not a reserving event (as the definition says). So a free run, or any
+  unleased run before the permit, counts only when it ends, and a malformed cost there is charged `max-cost`.
+- An end with no run id (no `causedby`, or a `budget.closed` with no `run`) is not matched and is not charged. A
+  person's answer (`agent.ran` from `inbox/answer.py`) has none. The engine's ends always carry theirs.
+- `budget:` written empty is two errors (both keys missing), not "no budget".
