@@ -105,7 +105,7 @@ def cmd_remote(args) -> int:
             print(f"no remote {args.name!r} (this model's: {', '.join(remotes) or 'none'})", file=sys.stderr)
             return 2
         from ..remote import events
-        got, why = events.newest(spec, args.name, max(1, min(args.n, 1000)))
+        got, why = events.newest(spec, args.name, max(1, min(args.n, 1000)), force=True)
         if got is None:
             print(f"{args.name}: {why}", file=sys.stderr)
             return 1
