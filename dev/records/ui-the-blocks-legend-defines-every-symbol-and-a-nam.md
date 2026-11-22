@@ -45,3 +45,14 @@ Choices made with nobody to ask, the reversible way:
   with (s) or without, and 'p×m: outputs × inputs (disturbances counted)'. The first row no longer mentions Q, since
   the new row covers it. 'Disturbances counted' holds because every wire into a subsystem box becomes one of its input
   ports (`blockdiagram.py`, `box_port`), a disturbance's included.
+
+Tests run: the acceptance test passes, and ruff is clean. The whole of `tests/test_diagram_rendering.py` ran serially
+under the watchdog: 197 passed, 4 failed, rc 1, none skipped. None of the four failures draws the Blocks view:
+- `test_every_view_draws_cleanly_and_in_time[coordinator]` and `[image-squeeze]`: the Dynamics view with `open=*` took
+  longer to route than the time limit allows (44 s and 38 s; the limit is 20 s).
+- `test_a_big_tangled_model_lays_out_in_time_and_cleanly`: `open=*` took 3324 ms to draw (the limit is 2500 ms).
+- `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`: a `view=dynamics` page and /model's
+  list of proposals. An earlier review (ui-open-frames…-1) recorded this one failing too.
+This change touches only the Blocks drawing (`bdBody` for subsystems, frame titles) and `blocksLegend`, which these
+four never reach. I did not run them on clean main to compare: that is left to the factory's rerun on main. I did not
+run the other three browser files or the unit suite: they are left to the merge queue, as the brief says.
