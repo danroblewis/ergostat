@@ -2038,6 +2038,24 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         pg.close()
 
 
+def test_a_stocks_panel_names_its_goal_and_what_serves_it_and_never_says_nothing_acts_on_it(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:users'))")
+        pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
+        pg.wait_for_function("() => document.querySelector('#detail').innerText.includes('desired users')", timeout=10000)
+        text = pg.locator("#detail").inner_text()
+        assert "users-growing" in text and "product-manager" in text, text[:1500]
+        assert "nothing in the model acts" not in text, text[:1500]
+        row = next(ln for ln in text.splitlines() if ln.startswith("desired users"))
+        assert "product-manager in factory" in row and not re.search(SD_WORDS, row, re.I), row   # in the discipline's words
+        assert not errors, errors
+        pg.close()
+
+
 def test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_and_draws_no_port_squares(browser, tmp_path):
     with served("image-squeeze", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
