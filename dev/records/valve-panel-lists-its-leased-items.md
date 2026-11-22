@@ -17,3 +17,40 @@ Acceptance tests: unit: an item taken then moved to a later state by its run is 
 Budget: 100 net lines.
 
 Milestone: kind-and-item-pages. Owner items: 16. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1 (cd8fc84e). 69 net lines outside tests, docs and dev (budget 100). What was built, and the choices made
+alone (each the more reversible one):
+
+- `leased_by` (spec/item_sets.py) answers `taken`, `waiting`, `at` and `set` per block (the old `held` field is gone;
+  nothing else read it). A taken item is one whose lease has a holder of that block (`leases.fold.held`), in any state;
+  acked or given back, it has none. `waiting`: the kind's items in `takes.at`, matching `takes.where`, not taken (the
+  dispatcher's own test, without its busy and not_before checks).
+- The set is a new filter on `ItemSet`, `taken=BLOCK` (`/items?kind=K&taken=BLOCK`), read by `parse`, `asked` and
+  `select`; with `moved` or a process filter it is refused (BadSet), never silently dropped. The Items page carries it
+  in its set address (pages.js: one line; pages.js is not in Files, but without it the line's link would open the
+  whole kind). items-list-hides-finished-by-default has not landed, so its item-set rule is not applied.
+- The line keeps `.leases-line`, its one link, and `N leased now` (test_items_page.py's
+  test_a_valves_leased_items_are_listed_live asserts '1 leased now' and is unchanged), then `; N waiting at STATE` or
+  `; none waiting`. Under it the taken list (itemsets.js `takenList`), in both panels (dynamics.js and details.js
+  both call countsLines, so neither file changed).
+- The run's cell links to `/record?item=ID`: the Record page has no filter by run, so the item's events (the run's
+  among them) is the nearest; its title gives the whole run id.
+- leaseCells' expiry and attempts cells are now `leaseTail(l, nth)` (pages.js), used by both; the Items page's output
+  is unchanged. In the panel the attempt is the one the run is making (`attempt attempts+1 of max`, since a lease's
+  `attempts` counts ended ones).
+- Polling: the Change says 're-read only while the panel is open and taken > 0', but definition-of-done 3 needs a
+  lease taken while the block has taken nothing to appear within 8 s. The list is read every 4 s while the panel is
+  open, whatever the count (one small `items` request; it stops when the panel closes). Reversible by one condition.
+  The waiting count is the part answer's, as of the panel's opening; the taken count and list are live.
+- DoD 5 is checked on the text this change draws (the line and the list): the Dynamics panel's loops paragraph names
+  the model's own goals, one of which is `quality-held`, which is the model's text, not the panel's words.
+
+Tests: tests/test_item_sets.py (11 passed; the new test fails with the holder check removed: 2 taken, not 1) and
+tests/test_items_page.py whole (24 passed, rc 0, none skipped) under the watchdog; ruff clean. Breaks seen to fail
+the browser tests: the unchanged-answer guard removed (the MutationObserver sees a change), the 4 s re-read removed
+(hypothesis/4 never appears within 8 s). On main the three browser tests fail (no `.taken-list`) and the unit test
+fails (no `taken`; the leased-state count is 0). Not run here: the unit suite, test_diagram_rendering.py,
+test_page_polling.py, test_page_refresh.py. Main had no new commits since the branch began, so there was nothing to
+merge.
