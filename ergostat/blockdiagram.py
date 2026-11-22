@@ -18,8 +18,9 @@ What each part of the model becomes:
   where no path inside it leads from the input to the output.
 - A **sensor** read by a loop is a block on the feedback path, beneath it (Franklin, Powell & Emami-Naeini's
   standard loop), labelled with what it reads and how often (``sensing.py``): H(s) when the model gives it
-  dynamics (a rate over a window: a moving average), H = 1 when it gives none, and a delay e^(−sT) (a sampler
-  on the feedback path) when it polls at a period T that matters against the loop's (a tenth of it or more).
+  dynamics (a rate over a window: a moving average), a delay e^(−sT) (a sampler on the feedback path) when it
+  polls every T, drawn muted when T is under a tenth of the loop's period, and H = 1 when it neither polls nor
+  has dynamics.
   A collector, the command or query that turns an outside system into the items a count reads, is drawn
   in front of it, on the same path: the count is only as fresh as the collector.
 - A **discrete controller** C(z) takes one input, sampled (a sampler, T), and drives the continuous
@@ -609,7 +610,8 @@ class _Diagram:
     def need(self, key: str) -> None:
         """A measured signal's sensor, made when first read: a block on the feedback path, labelled with what it
         reads and how often (``sensing.reads``). H(s) when it has dynamics of its own (a rate over a window, a
-        moving average); a delay e^(−sT) when it polls at a period that matters against the loop's; else H = 1.
+        moving average); a delay e^(−sT), a sampler, when it polls (``slight``, drawn muted, when T is under a
+        tenth of the loop's period, which its rows give as a ratio); else H = 1.
         A collector that turns an outside system into the items it counts is drawn in front of it."""
         if not key.startswith("meas.") or key in self.prod:
             return
@@ -627,11 +629,14 @@ class _Diagram:
             period = 0.0 if ex.manual or ex.cron else float(ex.every or 0)
             period += max((float(c.every or 0) for c in cols), default=0.0)
             loop_T = self.loop_period(var)
-            sampled = not dyn and period > 0 and period >= loop_T / 10
+            sampled = not dyn and period > 0                 # it polls: a sampler, whatever its period
+            slight = sampled and period < loop_T / 10        # T small against the loop's: the sampler drawn muted
             Tw = sensing.every_words(period)
             rows = [["measures", name], ["reads", reads], ["command", sensing.command(self.s, ex)],
                     ["sensors", ", ".join(x.name for x in sensors)],
                     ["collected by", ", ".join(sensing.reads(self.s, c) for c in cols)], ["now", self.now(var)]]
+            if sampled:
+                rows.insert(2, ["T / loop", f"{Tw} / {sensing.every_words(loop_T)} = {period / loop_T:.2g}"])
             ym = eq(sym("y", f"m,{name}"), row(sym("H", name, "s" if dyn or sampled else None), sym("y", name)))
             if dyn:
                 tau = (ex.changes or ex.items or {}).get("over") or 3600.0
@@ -644,19 +649,20 @@ class _Diagram:
                 says = (f"the sensor on y_{name}: {how}. A window average lags what it measures by about τ/2 = "
                         f"{_dur(tau / 2)}.")
             elif sampled:
-                fn = {"sym": "H", "sub": name, "arg": "s", "expr": "e^(−sT)", "T": Tw, "sampled": True, "linear": True}
+                fn = {"sym": "H", "sub": name, "arg": "s", "expr": "e^(−sT)", "T": Tw, "sampled": True, "linear": True,
+                      "slight": slight}
                 math = [eq(sym("H", name, "s"), ["msup", mi("e"), row(mo("−"), mi("s"), mi("T"))]), eq(mi("T"), mt(Tw)), ym]
                 says = (f"the sensor on y_{name}: it reads {reads}. It polls every {Tw}"
-                        + (" (with its collector)" if cols else "") + f", a tenth or more of the loop's own period "
-                        f"({sensing.every_words(loop_T)}): a reading is up to T old, T/2 on average, so the feedback path is "
-                        "drawn as a sampler, a delay of up to T.")
+                        + (" (with its collector)" if cols else "") + (
+                            f", short against the loop's own period ({sensing.every_words(loop_T)}): its delay of up to T "
+                            "is slight, near H = 1, so its sampler is drawn muted." if slight else
+                            f", a tenth or more of the loop's own period ({sensing.every_words(loop_T)}): a reading is up "
+                            "to T old, T/2 on average, so the feedback path is drawn as a sampler, a delay of up to T."))
             else:
                 fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True}
                 math = [eq(sym("H", name), mn(1)), eq(sym("y", f"m,{name}"), sym("y", name))]
                 says = (f"the sensor on y_{name}: it reads {reads}. What it reads goes back to the loop as it is (H = 1): "
-                        "the model gives it no dynamics" + (f", and its period ({Tw}"
-                        + (", with its collector's" if cols else "") + f") is short against the loop's "
-                        f"({sensing.every_words(loop_T)})" if period else "") + ".")
+                        "the model gives it no dynamics.")
             fn["reads"] = reads
             self.node(nid, kind="block", role="sensor", system=self._system(var), label=name, fn=fn, math=math,
                       says=says, part=var, rows=rows)

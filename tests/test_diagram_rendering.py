@@ -1613,14 +1613,50 @@ def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browse
                     problems.append(f"[{v}] sensor {s['id']} draws no function: {s['text']}")
                 if not re.search(r"every|by hand|on cron|reading|ergostat", s["text"]):
                     problems.append(f"[{v}] {s['id']} does not say what it reads and how often: {s['text']}")
-    if name == "the-job":                                  # its alerts loop: H = 1, reading the alerts its collector records
+    if name == "the-job":                                  # its alerts loop: polled, reading the alerts its collector records
         drawn(pg, url, "view=blocks&system=incidents", 9)
         got = {s["id"]: s for s in pg.evaluate(SENSORS)}
         sen, col = got.get("sen:stock.alerts-to-draft"), got.get("col:alerts-fired.main")
-        assert sen and "H = 1" in sen["text"] and "items: alert, fired, every" in sen["text"], got
+        assert sen and "H(s) = e" in sen["text"] and "items: alert, fired, every" in sen["text"], got
         assert col and "watch.py alert" in col["text"] and "records alert items" in col["text"], got
     pg.close()
     assert not problems, f"{name}: " + "\n".join(problems)
+
+
+def test_sensors_polled_alike_are_drawn_alike_with_a_sampler(browser, tmp_path):
+    """image-squeeze's service: any two sensors with the same period have the same main label and both a
+    sampler; a sampler whose T is slight against its loop's is drawn in the muted stroke, and its panel gives
+    the ratio."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&system=service", 0)
+        got = pg.evaluate("""() => [...document.querySelectorAll('svg.canvas g.bd-sensor')].map((g) => {
+          const sm = g.querySelector('.bd-sensor-sampler'), t = g.querySelector('text.bd-expr');
+          return { id: g.dataset.id, T: (/every ([^,)]+)/.exec(g.dataset.fn) || [])[1] || null,   // its period, as it reads
+                   head: [...t.childNodes].filter((c) => !c.classList?.contains('bd-note')).map((c) => c.textContent).join(''),
+                   sampler: !!sm, slight: !!sm?.classList.contains('bd-slight'),
+                   stroke: sm ? getComputedStyle(sm.querySelector('.bd-line')).stroke : null };
+        })""")
+        ink, muted = pg.evaluate("""() => ['--ink', '--muted'].map((v) => { const p = document.createElement('div');
+          p.style.color = `var(${v})`; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; })""")
+        by: dict[str, list] = {}
+        for s in got:
+            if s["T"]:
+                by.setdefault(s["T"], []).append(s)
+        assert any(len(v) >= 2 for v in by.values()), got     # two sensors polled alike: the case the check is for
+        for T, ss in by.items():
+            assert len({s["head"] for s in ss}) == 1, (T, ss)
+            assert all(s["sampler"] for s in ss), (T, ss)
+        slight = [s for s in got if s["slight"]]
+        assert slight and all(s["stroke"] == muted for s in slight), (got, muted)
+        assert all(s["stroke"] == ink for s in got if s["sampler"] and not s["slight"]), (got, ink)
+        panel = pg.evaluate(f"""() => {{ openBlock(S.graph.nodes.find((n) => n.id === {json.dumps(slight[0]['id'])}));
+          return document.querySelector('#detail').textContent; }}""")
+        assert re.search(r"T / loop\s*\S+ s / .+ = [0-9.e-]+", panel), panel
+        assert not errors, errors
+        pg.close()
 
 
 def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
