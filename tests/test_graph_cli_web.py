@@ -213,6 +213,45 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_path, monkeypatch):
+    from ergostat.web import serve
+    from tests.test_goal_upkeep import seeded
+    p = seeded(tmp_path, monkeypatch)
+    server, url = serve(p, free_port())
+    try:
+        with urllib.request.urlopen(url + "/api/status", timeout=10) as r:
+            body = json.loads(r.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+    got = body["goals_off"]
+    assert got["own"] == {"modelling": 2} and got["system"] >= 1 and got == state.goals_off(state.snapshot(p))
+    assert body["loops"]["model-fits"]["upkeep"] == "modelling" and "upkeep" not in body["loops"]["queue-short"]
+
+
+def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_it_under(project):
+    """The Agents page's group headings ('program · 1') and its summary line both count agents by their rung, named by
+    RUNG_NAMES in util.js: the answer's rung must be the index of the agent's kind there (the browser half of this
+    check is tests/test_agents_page.py)."""
+    import re
+    from pathlib import Path
+
+    from ergostat.model import KINDS
+    from ergostat.web import serve
+    util = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "util.js").read_text()
+    names = json.loads(re.search(r"const RUNG_NAMES = (\[[^\]]*\]);", util).group(1))
+    assert names == list(KINDS)                                  # the page's columns are the model's rungs, in order
+    server, url = serve(project, free_port())
+    try:
+        with urllib.request.urlopen(url + "/api/agents", timeout=10) as r:
+            agents = json.loads(r.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert agents and all(names[a["rung"]] == a["kind"] for a in agents.values()), agents
+    assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
@@ -677,3 +716,18 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
             "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)
     assert sorted(i["id"] for i in data["items?kind=epic"]["items"]) == ["epic/e1", "epic/e2"]
+
+
+def test_the_items_graph_says_when_its_finish_is_still_being_worked_out(tmp_path, monkeypatch):
+    """The legend's 'being worked out' (SPEC §5a Graph): pending while the estimates of now are not yet there;
+    never at a moment travelled to, which has none to wait for; nor once they are."""
+    import time as t
+
+    from ergostat.web import eta_api, server
+    live = server.Live(related_project(tmp_path))
+    monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: None)
+    assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is True
+    past = server.api(live, "items-graph", {"kinds": ["epic"], "at": [str(t.time() - 600)]})
+    assert past["eta_pending"] is False
+    monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: {"items": {}, "kinds": {}})
+    assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is False
