@@ -65,3 +65,9 @@ code fails. The fault is in how the build step handles a branch whose only test 
 belongs in its own gap. One option is for affected_tests to fall back to `--collect-only` or the unit suite when every
 selected file is a browser file. Another is for the build step to install Playwright. This gap waits for that fix, or
 for the factory to run this file with Playwright, as `[suites] build_browser` does.
+
+The `build` step ran again and failed the same way: rc 5, `1 skipped` (`could not import 'playwright.sync_api'`), no
+test failed. Again no code was changed. Nothing in the branch fails, and getting rc 0 would mean either changing
+`scripts/affected_tests.py` (outside this gap, lesson 13) or adding a unit test only to give the build step something
+to collect, which would test nothing the change touches (lesson 9). Bash was refused in this session (`git -C /work
+status --short`, and a `git log`/`sed` read before it), so this note could not be committed and no test was run.
