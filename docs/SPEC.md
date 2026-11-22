@@ -3331,6 +3331,17 @@ spends more than its reserve is charged what it spent.
   A run is listed as open under the lock, before its event is written. A run that `run_block` raises out of
   after its `agent.started` is closed there, cost null. A take the item fold refused (another holder won), or one
   that won its lease as ergostat stopped and so never ran, is closed with `cost_usd: 0`: nothing ran.
+- **In `ergostat.toml`.** A `[budget]` table takes `daily` and `max-cost`, with the same rules and bounds; each bad
+  value is a model error with its own message (`[budget].daily: out of bounds: …`, `[budget]: missing max-cost`,
+  `[budget]: unknown key …`, `[budget].daily: a number of dollars, not …`). Without `[budget]` nothing changes.
+  `runner.run_agent` asks the same permit before each run: its `agent.started` is the reserving event, with
+  `reserve` and `pid`. An `[[agent]]` is free only when its `kind` is written and is `person`, `decision`,
+  `program` or `rule`; one with no `kind` (read as `program` everywhere else) is charged. A refusal starts no
+  process and writes no `agent.started`, only `budget.refused` (item: the agent); `ergostat agent NAME --now`
+  prints `refused: budget: …` and exits 1, and the runner logs it. A run that raises after its `agent.started`
+  and before its end is closed there, cost null. The toml runner (`ergostat run`) runs recovery when it starts
+  and on its schedule loop, at most once a minute. In a toml project ergostat's own calls (below) read this
+  `[budget]`: a call whose caller gave no reserve reserves `max-cost`, and `ergostat.budget.left` reads it too.
 - **Only ergostat writes them.** `budget.*` is among ergostat's own types: no run's output, `ergostat event --add`
   (whatever its `--as`), push, MCP call or trigger may record one, so no run can close itself, or another, at 0.
 - **`ergostat.budget.left`** is daily − spent − reserved. With no `budget:`, or a record that cannot be read, it is
@@ -3367,9 +3378,9 @@ spends more than its reserve is charged what it spent.
   true`: the `modelling` programs print each call's cost as one of the run's Claude Code result lines, so the run's
   end includes it. The run is charged the larger of its end's charge and the sum of the calls it
   includes, plus the calls it does not include. A call with no enclosing reserving run is charged on its own.
-- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take` and the
-  calls above, and only those. It does not cover models in `ergostat.toml` (`runner.run_agent`), which have no
-  `budget:`; their ends count in spent as ends with no reserving run. "Every AI call asks" is only as wide as a
+- **Limits, stated.** The budget governs the runs started through `Engine.run_block`, `Dispatcher.take` and
+  `runner.run_agent` and the calls above, and only those. The modeller's calls read `p.model.spec`, which a toml
+  model does not have, so none of them can be made in a toml project. "Every AI call asks" is only as wide as a
   structural scan of `ergostat/` (`tests/test_modeller_budget.py::test_only_listed_ai_starts`). It finds each
   function that starts a process (`subprocess`, `os` or `asyncio` spawns) in a module that names an AI command
   (`ERGOSTAT_AI`, `ERGOSTAT_CLAUDE`, `claude` as a command, `AI_COMMAND`, `claude_command`, `decisions.ai.command`).

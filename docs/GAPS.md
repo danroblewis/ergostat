@@ -339,21 +339,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 - **The day's AI budget, P3: runs reserve before they start** (in progress, `factory/run-budget-reserve`; SPEC §9.9,
   `docs/roadmap/overnight/run-budget-reserve.md`): `budget: {daily, max-cost}`; every run started through
-  `Engine.run_block` or `Dispatcher.take` asks a permit under a file lock, and a charged run is refused unless what
+  `Engine.run_block` or `Dispatcher.take` (and, with `[budget]` in `ergostat.toml`, `runner.run_agent`) asks a permit under a file lock, and a charged run is refused unless what
   is left of the day covers `max-cost`; spend is folded by run id, an unknown cost charged as the reserve;
   `ergostat.budget.left`. It covers those start paths only.
-- **ergostat's own AI calls under the budget** (in part; `factory/ai-calls-ask-the-budget`, SPEC §9.9,
-  `dev/records/ai-calls-ask-the-budget.md`). Done: every call through `decisions/ai.call` (decisions extract, the
-  intent verdicts from `Engine.judge` and `ergostat intent judge`, `improve --architecture`) reserves its per-call cap
-  under P3's lock (`costs/budget.ask`), is refused when the day's budget is gone, is closed with its reported cost
-  (unknown: its reserve), and is counted once inside a reserving run. So does every call through
-  `numbers/modeller` (the redesigner, the modelling reviewer, the ai tier, the architecture review:
-  `modeller-calls-ask-the-budget`, `dev/records/modeller-calls-ask-the-budget.md`), at its `unsaid` estimate. A
-  structural scan (`test_only_listed_ai_starts`) finds AI commands started only in `decisions/ai.py`,
-  `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`, `supervisor.chat`, `spec/engine.py`,
-  `repair/fix.py`). Left: models in `ergostat.toml` (`runner.run_agent`), which have no `budget:`
-  (`toml-models-budget`). Their ends count in spent when priced, but nothing refuses them when the day's budget is
-  gone.
 - **T1: a run stopped at its spend cap** (done; `run-budget-trip`, SPEC §9.9, `dev/records/run-budget-trip.md`):
   each run gets its reserve as its cap (`ERGOSTAT_MAX_COST`; `--max-budget-usd` on an `ai` block's own `claude`),
   `ergostat session` takes all that is left from a per-run ledger under `flock`, and the engine kills the run's
@@ -540,6 +528,19 @@ review into *Done recently*). Newest decisions from the owner first within each 
   tree, and gate 1 for this salvage, which the coordinator judges by hand (its first commit is continue-branch.md).
 
 ## Done recently
+
+- **ergostat's own AI calls under the budget** (done; `ai-calls-ask-the-budget`, `modeller-calls-ask-the-budget`
+  and `toml-models-budget`, SPEC §9.9, `dev/records/ai-calls-ask-the-budget.md`,
+  `dev/records/modeller-calls-ask-the-budget.md`, `dev/records/toml-models-budget.md`). Every call through
+  `decisions/ai.call` (decisions extract, the intent verdicts from `Engine.judge` and `ergostat intent judge`,
+  `improve --architecture`) reserves its per-call cap under P3's lock (`costs/budget.ask`), is refused when the day's
+  budget is gone, is closed with its reported cost (unknown: its reserve), and is counted once inside a reserving
+  run. So does every call through `numbers/modeller` (the redesigner, the modelling reviewer, the ai tier, the
+  architecture review), at its `unsaid` estimate. A structural scan (`test_only_listed_ai_starts`) finds AI commands
+  started only in `decisions/ai.py`, `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`,
+  `supervisor.chat`, `spec/engine.py`, `repair/fix.py`). Models in `ergostat.toml` take `[budget]`: each
+  `runner.run_agent` run asks the same permit (an agent with no `kind` written is charged), and decisions extract
+  reads it. The modeller's calls need a YAML model's spec, so they cannot be made in a toml project.
 
 - **From upkeep's fault injection** (done on main; found by upkeep's fault injection,
   `docs/roadmap/overnight-2026-11-19.md` at 01:30, whose proposal was not merged to main): the first four problems
