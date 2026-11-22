@@ -149,6 +149,8 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
         if same and not waiting and other["state"] not in ("parked", "merged"):
             print(f"intake: {gap['id']} continues {name!r}, which {other['id']} still holds ({other['state']}): "
                   "not taken until it is parked or merged", file=sys.stderr)
+            if gap["fields"].get("unfetched"):            # held, not unfetched: an old cause is not raised on
+                fac.say("gap.measured", gap["id"], unfetched=None)
             return False
     d, repo = agents.drop(cfg), fac.path(cfg, "checkout")
     if fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{ref}"):

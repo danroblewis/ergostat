@@ -3742,6 +3742,11 @@ def test_an_unfetchable_continue_raises_a_situation(tmp_path):
     s = f.watch()
     assert ("unfetched", gid) in {(t["trigger"], t["subject"]) for t in s["triggers"]}
     assert "which the checkout does not have" in next(t["why"] for t in s["triggers"] if t["subject"] == gid)
+    f.put("gap/holder", "approved", ago=60, branch="warm")                    # another gap holds the branch first
+    f.run("intake.py")
+    assert f.item(gid)["state"] == "open" and f.item(gid)["fields"]["unfetched"] is None   # the old cause cleared
+    assert ("unfetched", gid) not in {(t["trigger"], t["subject"]) for t in (f.watch() or {}).get("triggers", [])}
+    f.put("gap/holder", "merged", ago=60, branch="warm")
     behind_main(f)                                                             # there now, but the fetch fails
     drop = tmp_path / "live" / "drop.git"                                      # (factory/warm/x holds the name)
     git(drop, "update-ref", "refs/heads/factory/warm/x", git(drop, "rev-parse", "main"))

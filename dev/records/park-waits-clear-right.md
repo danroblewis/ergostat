@@ -80,3 +80,23 @@ it again. Every file that reaches the changed code was run again here, one at a 
 tests/test_factory.py (130 passed, 2 skipped), test_intake.py, test_backlog.py and test_factory_manager.py (72
 passed), and test_factory_knowledge.py and test_factory_join.py (81 passed). No code was changed. The whole unit suite
 was not run here. It needs another run under suite_watch.py, and a test it names would be the thing to fix.
+
+### Round 2
+
+Main (b4639301) was merged in. It conflicted only in tests/test_factory.py, where both sides had added a section at
+the same place: this branch's four acceptance tests and main's pool-full-keeps-its-rank tests. Both were kept whole.
+The findings of review park-waits-clear-right-1, each answered:
+
+- *Not run by the reviewer (Bash refused).* Run here after the merge: tests/test_factory.py (139 passed, 2 skipped),
+  test_factory_knowledge.py, test_factory_manager.py, test_intake.py and test_factory_join.py (142 passed together),
+  and test_intake.py (21 passed) again after the last change. `ruff check ergostat tests scripts` is clean.
+- *lesson-7, the unit run stopped at 54%.* Still not run here: the whole unit suite and the four browser files are the
+  factory's to run under suite_watch.py. A test it names is this branch's to fix.
+- *README: expect many `parked` triggers once.* dev/README.md now says the first session after this lands carries one
+  `parked` trigger per old park classified `unknown`, once.
+- *intake: a stale `unfetched` when another gap holds the branch.* Fixed. When continued() finds the branch held, it now
+  clears `unfetched` before it returns False (dev/bin/intake.py, +2 lines). The gap waits on the holder, and the watch
+  no longer raises the old cause. test_an_unfetchable_continue_raises_a_situation now covers this window. With the
+  clear removed, the test was seen to fail ("'the checkout does not have' is None").
+
+Size: 79 net lines in dev/bin (77 + 2), within the 90.
