@@ -60,3 +60,13 @@ Built, round 1. Nothing left inside the definition.
   that runs, tests/test_dynamics_view.py::test_a_connector_declared_with_driven_by_says_so_and_no_other_does was added.
   It is browser-free and checks the `drivenBy` flag that ergostat/dynamics.py now sets. This round's shell was refused
   for every command, so this test has not been run and has not been seen to fail. The edit is also uncommitted.
+
+Round 2. Built. Nothing left inside the definition.
+
+- Main (720426bd) merged in. The one conflict, in tests/test_diagram_rendering.py, kept both sides: the branch's
+  SIGNS_CHECK and the polarity-sign test, and main's view-switch test. No code outside tests changed this round.
+- The uncommitted test from round 1 had been committed in 7cb5e8f0. It now passes, and it failed when `drivenBy`
+  was forced to False in ergostat/dynamics.py (`assert False is True`). The code was then put back.
+- Run on the merged tree: tests/test_dynamics_view.py (13 pass); the polarity-sign test (21 cases), main's
+  view-switch test and the dynamics-symbols test under suite_watch with Playwright (25 pass, rc 0); ruff (clean).
+- Not run: the unit suite and the four browser files in full (the merge queue runs them).
