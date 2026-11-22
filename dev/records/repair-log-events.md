@@ -51,3 +51,7 @@ available to ask, so these choices took the most reversible option:
 - The level is upper-cased in the signature, so `error` and `ERROR` from one logger are one failure.
 - A new log failure has `traceback: null` and `error` set to the message. No new field was added.
 - docs/AGENT-GUIDE.md got one sentence (not in Files to touch), because of the rule to keep the agent guide current.
+- Each test was seen to fail when the code it guards was broken by hand and then restored (lesson-9). The breaks:
+  the message not kept as `error`, WARNING read as error-level, no 8,000-character line cap, the log line read
+  before the trace, an existing failure given a failure's fields, and the log left out of the signature.
+  `main` is an ancestor of the branch (nothing to merge), and ruff is clean.
