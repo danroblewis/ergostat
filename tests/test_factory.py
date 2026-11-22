@@ -2412,6 +2412,16 @@ def test_a_run_past_its_allowance_lands_only_what_is_proven_and_gives_back_the_r
     assert settle(f)[1] is None
     said, _ = f.run("queue.py", "gap/e")                                       # the next run takes them
     assert merges(f) == list("abcdefh") and f.item("gap/g")["state"] == "queue-failed"
+    # a prefix green on the named tests only is not proven: out of time there, nothing lands. All 8 red (25); test_b
+    # alone on them, red (50); test_b alone on a..d, green (75); a..f never runs
+    (tmp_path / "named").mkdir()
+    g = bisect_stand_ins(tmp_path / "named")
+    g.config.write_text(g.config.read_text().replace("batch_max = 4", "batch_max = 8\nbatch_minutes = 60"))
+    approved_gaps(g, EIGHT, bad="g", batch=8)
+    said, _ = clocked(g, "gap/a", 25)
+    assert reruns(g) == ["tests/test_b.py::test_b -rA"] * 2 and suite_runs(g) == 1
+    assert merges(g) == [] and "gap.merged" not in said and not g.db().get("acts")
+    assert counts(g, "gap/a") == (8, 0, 8)
 
 
 def test_a_batch_of_8_every_merge_failing_stays_inside_the_block_s_timeout(tmp_path):
