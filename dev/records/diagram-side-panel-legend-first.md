@@ -61,3 +61,8 @@ Built, round 1: 22 net lines in ergostat/ (budget 80).
   watchdog: the four acceptance tests (11 cases) and tests/test_inbox_page.py pass (rc 0); ruff is clean. No code was
   changed. The fix (a build step with Playwright, or affected_tests adding a check that runs when only browser files
   are chosen) is in the factory's scripts, outside this gap (lesson-13).
+- Build step, fix round 2: rc 5 again, for the same reason (every file chosen skips without Playwright). Added
+  tests/test_legend_memory.py, which needs no browser. It reads the static scripts and fails if ergostat.legend is
+  written anywhere but the legend's toggle handler, so it now catches the first-visit 'closed' write coming back,
+  which the browser tests could not. Seen to fail with that write put back in legendBox; passes without it. The
+  build step now picks it, so it runs at least one test. ruff is clean. No page code changed.
