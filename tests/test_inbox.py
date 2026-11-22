@@ -238,8 +238,8 @@ def test_a_delivery_passes_through_its_gate_and_a_denied_channel_sends_nothing(t
     p, snap = project(tmp_path, DENIED)
     spec, now = p.model.spec, time.time()
     ran = []
-    real = subprocess.run
-    monkeypatch.setattr(gate.subprocess, "run", lambda cmd, **kw: ran.append(cmd) or real(
+    real = subprocess.Popen                                                        # (run_once's: SPEC §12k)
+    monkeypatch.setattr(gate.subprocess, "Popen", lambda cmd, **kw: ran.append(cmd) or real(
         cmd if "cat >>" in cmd else "true", **kw))                                # nothing leaves the machine
     p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 3}, at=now - 300)
     assert deliver.sweep(p, spec, now) == 3

@@ -395,3 +395,57 @@ def test_a_renamed_part_says_formerly_and_not_inferred(tmp_path):
     at = next(i for i, x in enumerate(lines) if x.strip() == "+   new-alerts:")
     assert "inferred" not in lines[at + 1] and "formerly" in diff
     assert f"inferred: ergostat.model-change/{got['id']}" in diff          # the parameter it adds says so
+
+
+def lab_model(subsystems: bool = False) -> str:
+    """System ``lab``: two chains with no link between them (``system-splits``), read across its boundary by ``other``'s
+    watcher at ten points (``interface`` on both); with ``subsystems``, ``lab`` holds ``left`` (no description:
+    ``purpose``) and ``right``."""
+    from .test_architecture import _chain, _model
+    sys_ = {"lab": "the lab's two queues", "other": "watches the lab"}
+    a, b = _chain("a", 3, "left" if subsystems else "lab"), _chain("b", 3, "right" if subsystems else "lab")
+    reads = ", ".join([f"+stock.a{i}" for i in (1, 2, 3)] + [f"+stock.b{i}" for i in (1, 2, 3)]
+                      + ["+flow.a1-out", "+flow.a2-out", "+flow.b1-out", "+flow.b2-out"])
+    text = _model(sys_, a, b) + ("  watch: {type: program, run: 'echo 1', in: [" + reads + "], out: flow.o-in, system: other}\n")
+    text = text.replace("flows:\n", "flows:\n  o-in: {to: o1, system: other}\n").replace(
+        "stocks:\n", "stocks:\n  o1: {unit: items, system: other, sensor: {manual: true}}\n")
+    if subsystems:
+        text = text.replace("systems:\n", "systems:\n  left: {within: lab}\n  right: {description: the right queue, within: lab}\n")
+    return text
+
+
+def test_a_systems_own_architecture_notes_are_in_its_redesign_prompt(tmp_path):
+    p = project(tmp_path / "m", lab_model())
+    notes = {f"{x.code}@{x.about}" for x in p.model.problems}
+    assert {"system-splits@system.lab", "interface@system.lab", "interface@system.other"} <= notes, notes
+    text = rdr.prompt(p, cs.Scratch(p), "lab", ["asked"])
+    check = text.split("## What check finds", 1)[1].split("\n## ", 1)[0]
+    assert "system-splits@system.lab" in check and "interface@system.lab" in check
+    assert "interface@system.other" not in text                        # another system's note: not this redesign's
+    from ergostat.numbers import redesign_due as due
+    spec = p.model.spec
+    assert all(due._in(spec, "model", r) for r in ("system.lab", "system.nope", "stock.a1", "goal.b1-short"))
+    assert not due._in(spec, "lab", "system.other") and due._in(spec, "lab", "system.lab")
+
+
+def test_a_subsystems_note_is_in_its_parents_redesign_prompt(tmp_path):
+    p = project(tmp_path / "m", lab_model(subsystems=True))
+    assert "purpose@system.left" in {f"{x.code}@{x.about}" for x in p.model.problems}
+    assert "purpose@system.left" in rdr.prompt(p, cs.Scratch(p), "lab", ["asked"])
+    assert "purpose@system.left" not in rdr.prompt(p, cs.Scratch(p), "right", ["asked"])
+
+
+def test_the_prompt_says_the_units_size_interface_and_subsystems(tmp_path):
+    from ergostat.spec import architecture as ar
+    p = project(tmp_path / "m", lab_model(subsystems=True))
+    spec = p.model.spec
+    text = rdr.prompt(p, cs.Scratch(p), "lab", ["asked"])
+    arch = text.split("## Its architecture\n", 1)[1].split("\n## ", 1)[0]
+    assert f"size: {ar.size_said(ar.size(spec, 'lab'))}" in arch
+    assert "- out, signal: stock.a1 (peers: block.watch)" in arch, arch     # lab's ports, not other's
+    assert "- in, signal: block.watch" not in arch
+    assert "its subsystems: left, right" in arch and "nearly decomposable" in arch
+    whole = rdr.prompt(p, cs.Scratch(p), "model", ["asked"]).split("## Its architecture\n", 1)[1].split("\n## ", 1)[0]
+    for s in ("lab", "other"):
+        assert f"- system {s}: {ar.size_said(ar.size(spec, s))}" in whole
+    assert len([x for x in rdr.architecture(spec, "lab") if x.startswith(("- out", "- in"))]) <= rdr.PORTS

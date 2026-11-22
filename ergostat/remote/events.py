@@ -39,7 +39,7 @@ def _read(spec, r: dict, kept: dict) -> None:
         kept["ok"], kept["why"] = False, why
         return
     if kept["cursor"] is None:                              # the first read starts at the window, not the beginning
-        code, st, _, why = client.get(r["url"], "status", token, timeout=cache.TIMEOUT)
+        code, st, _, why = client.get(r["url"], "status", token, timeout=cache.TIMEOUT, tls=r.get("tls"))
         if code == 200 and not (isinstance(st, dict) and isinstance(st.get("last_seq", 0) or 0, int)):
             code, why = -1, "unexpected answer"
         if code != 200:
@@ -48,7 +48,7 @@ def _read(spec, r: dict, kept: dict) -> None:
         kept["cursor"] = max(0, (st.get("last_seq") or 0) - PAGE)
     for _ in range(PAGES):
         code, body, _, why = client.get(r["url"], "events", token, {"after": kept["cursor"], "n": PAGE},
-                                        timeout=cache.TIMEOUT)
+                                        timeout=cache.TIMEOUT, tls=r.get("tls"))
         if code == 200 and not (isinstance(body, dict) and isinstance(body.get("events"), list)
                                 and isinstance(body.get("next"), int)):
             code, why = -1, "unexpected answer"

@@ -50,7 +50,7 @@ class Fake:
         self.hook = None                               # called with (url, path) before answering
         self.lock = threading.Lock()
 
-    def get(self, url, path, token, params=None, etag=None, timeout=5.0):
+    def get(self, url, path, token, params=None, etag=None, timeout=5.0, tls=None):
         if path in ("model", "readings"):              # the model's own refresh and readings: not this gap's asks
             return DOWN
         with self.lock:
