@@ -416,6 +416,9 @@ class Explainer:
                     what = (f"{peers} reads {p['part']}" if p["kind"] == "signal" else
                             f"{p['part']} → {peers} ({p['kind']})")
                 lines.append(f"    {what}")
+        if self.p is not None:                    # with a project: how often the interface changed (SPEC §4a)
+            from ..interface_history import said
+            lines.append("  " + said(self.p, s, name))
         inner = s.inner_loops(name)
         if inner:
             lines.append(f"  Seen from outside, it is an inner loop: it is given a setpoint for {', '.join(inner)} and holds it, "

@@ -436,6 +436,18 @@ A system whose setpoint comes in from outside, and whose goal's measurement goes
 can treat it so. `ergostat explain system.NAME` says what goes in and out, and names it an inner
 loop when it is one.
 
+With a project, it also says how stable the interface has been: "Interface over the model's
+recorded history: unchanged over the last U of V recorded versions (since DATE); C changes."
+It counts the `model.changed` events (section 9.1) in their order in the record, never by time,
+over the latest unbroken run that records this system's interface. An event without interfaces
+(a TOML stretch, a record from before they were kept), one without this system (it was removed and
+made again), or one that cannot be read starts the count over. Two equal records of one version
+count once. Only versions ergostat loaded are seen, so an edit made and undone between loads is
+not. A change can also come from an upgrade that works out interfaces differently, with the model
+unedited. When the interface as it is now is not the last one recorded, it says "the interface as
+it is now is not recorded yet" and gives no counts. Only `explain` says this; the system's box
+and panel do not.
+
 **Drawn as parts.** The control diagram draws each system as one box: its ports on its edges
 (inputs left, outputs right, each named for the part inside it reaches, with that part's
 reading), how the loops inside it are doing, and its measures: each one's value, setpoint, health
@@ -2066,7 +2078,14 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   built-in block written the same keeps its state; one changed takes over the state of the one before it (a
   counter's count, a timer's start, a delay's line) when it is of the same type.
 - `model.changed` records it, with how many runs carried over (`carried`, and which: `runs`), the version before
-  and after, and the blocks still finishing under an old definition (`finishing`: `removed`, `changed`).
+  and after, and the blocks still finishing under an old definition (`finishing`: `removed`, `changed`). A YAML
+  model's `model.changed` also carries each system's interface as a short signature (`interfaces`: system → a hash
+  of its ports' direction, kind, part and peers). An event is recorded when only the interfaces differ, with the
+  systems whose signature differs, appears or disappears (`interfaces_changed`, listed only when the event before
+  has `interfaces` to compare). With the parts and the version unchanged, such a change comes from how ergostat
+  works out interfaces (an upgrade), not from an edit to the model. The first time a model with a record from
+  before interfaces were kept is loaded unchanged, one event with `baseline: true` records them; like `first`, it
+  is not a change (`status --since` leaves both out). A TOML model records no `interfaces`.
 - **Only once the edits settle** (`ergostat/reload.py`): a change is taken once the model's files, and the folders
   holding them, have stayed the same for 1.5 s (`ERGOSTAT_RELOAD_SETTLE`). A burst of writes is one change, and a file
   read half written (truncated, then written in pieces, as an editor or an agent saves it) is never taken.

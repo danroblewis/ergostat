@@ -131,10 +131,13 @@ setpoint, command, action, signal, material, influence; `explain system.NAME` li
 crosses by kind, when one of three is true: material crosses through clouds on both sides (a flow to a cloud on
 one side drives a flow from a cloud on the other, in one unit: what is conserved is lost at the boundary); a block
 outside moves or commands what the system's own goals' loops use (filing work into a queue is not: that is how
-systems hand work on); or ten or more information links cross it (a heuristic, set on the examples).
+systems hand work on); or ten or more information links cross it (a heuristic, set on the examples). Whether the
+interface is stable (an ICD's point is a boundary that changes slowly): each `model.changed` of a YAML model
+carries every system's interface as a signature (`interface_history.py`), and `explain system.NAME` counts how
+often it changed over the recorded versions, starting over at a stretch that does not record it (SPEC §4a).
 
-**Not computed.** Whether a crossing is stable (an ICD's point is a boundary that changes slowly): the model's
-history (`history.py`) has every version, and how often each boundary's crossings changed is a count over it.
+**Not computed.** Changes between the versions ergostat loaded are not seen, and the system's box and panel do not
+show the count.
 
 **Reads.** `system down: what crosses its boundary: 1 command, 1 influence. material crosses through clouds on both
 sides: flow.shipped leaves for a cloud and flow.received arrives from one, driven by it; one flow from shipped's
