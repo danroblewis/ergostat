@@ -3861,6 +3861,51 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+def test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_verdict(browser, tmp_path):
+    """/diagram has exactly one h1, one line under the view switch: the view's diagram type, the model's purpose, its
+    systems and its verdict (Dynamics: goals; Blocks: control loops, the goals a controller holds); the svg is named
+    by it (aria-labelledby), and switching to Blocks changes the type words."""
+    purpose = "keep my work moving and nothing on fire"
+
+    def with_purpose(d):
+        f = d / "ergostat.yaml"
+        f.write_text(f.read_text().replace("name: the-job\n", f"name: the-job\npurpose: {purpose}\n", 1))
+
+    with served("the-job", tmp_path, with_purpose) as url:
+        st = json.loads(urllib.request.urlopen(url + "/api/status", timeout=10).read())
+        assert st["purpose"] == purpose and st["top"] >= 1, st.get("purpose")
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        seen = {}
+        for view, words in [("dynamics", "Stock-and-flow diagram (system dynamics)"), ("blocks", "Block diagram (control)")]:
+            if view == "dynamics":
+                drawn(pg, url, "view=dynamics", 0)
+            else:
+                pg.click(".toolbar .seg[aria-label='View'] button:text-is('Blocks')")
+                pg.wait_for_function("() => /view=blocks/.test(location.href) && S.graph?.kind === 'blocks'",
+                                     timeout=DRAWN_S * 1000)
+            got = pg.evaluate("""() => { const hs = [...document.querySelectorAll('h1')], c = hs[0];
+              const sw = document.querySelector(".toolbar .seg[aria-label='View']").getBoundingClientRect();
+              const r = c && c.getBoundingClientRect(), lh = c ? parseFloat(getComputedStyle(c).lineHeight) || 20 : 20;
+              return { n: hs.length, text: c?.textContent || '', id: c?.id || '', visible: !!(r && r.width && r.height),
+                       under: !!(r && r.top >= sw.bottom - 1), line: !!(r && r.height < 2 * lh),
+                       label: document.querySelector('svg.canvas')?.getAttribute('aria-labelledby') }; }""")
+            assert got["n"] == 1, got
+            assert got["text"].startswith(words + " · the-job: " + purpose), got["text"]
+            assert got["id"] and got["label"] == got["id"], got
+            assert got["visible"] and got["under"] and got["line"], got
+            seen[view] = got["text"]
+        def off(names):
+            return sum(st["loops"][x].get("status") == "off" for x in names)
+        assert seen["dynamics"].endswith(f"{len(st['loops'])} goals, {off(st['loops'])} off"), seen["dynamics"]
+        assert seen["blocks"].endswith(f"{len(st['controlled'])} control loops, {off(st['controlled'])} off"), seen
+        assert f" · {st['top']} system" in seen["blocks"], seen["blocks"]
+        assert "system dynamics" not in seen["blocks"] and "(control)" not in seen["dynamics"], seen
+        pg.close()
+    assert not errors, errors
+
+
 GROUPED = """
 name: grouped
 stocks:
