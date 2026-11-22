@@ -1,0 +1,82 @@
+{
+ "tf-factory before": {
+  "connector_crossings": 26,
+  "sign_collisions": 15,
+  "word_collisions": 0,
+  "line_through_part": 0,
+  "lines_between_closed_modules": 16,
+  "bundles": 0,
+  "by_kind": {
+   "connector-connector": 14,
+   "connector-pipe": 12
+  }
+ },
+ "tf-factory after": {
+  "connector_crossings": 29,
+  "sign_collisions": 15,
+  "word_collisions": 2,
+  "line_through_part": 0,
+  "lines_between_closed_modules": 6,
+  "bundles": 5,
+  "by_kind": {
+   "connector-trunk": 2,
+   "connector-pipe": 11,
+   "branch-connector": 3,
+   "trunk-trunk": 1,
+   "connector-connector": 6,
+   "branch-pipe": 4,
+   "branch-branch": 2
+  }
+ },
+ "sf-top before": {
+  "connector_crossings": 0,
+  "sign_collisions": 3,
+  "word_collisions": 0,
+  "line_through_part": 0,
+  "lines_between_closed_modules": 6,
+  "bundles": 0,
+  "by_kind": {}
+ },
+ "sf-top after": {
+  "connector_crossings": 1,
+  "sign_collisions": 3,
+  "word_collisions": 2,
+  "line_through_part": 0,
+  "lines_between_closed_modules": 2,
+  "bundles": 2,
+  "by_kind": {
+   "trunk-trunk": 1
+  }
+ },
+ "sf-product before": {
+  "connector_crossings": 6,
+  "sign_collisions": 21,
+  "word_collisions": 37,
+  "line_through_part": 0,
+  "lines_between_closed_modules": 0,
+  "bundles": 0,
+  "by_kind": {
+   "connector-pipe": 3,
+   "connector-connector": 3
+  }
+ },
+ "into churn": [
+  "pipe stock:users > flow:churn -",
+  "pipe flow:churn > cloud:churn:out ",
+  "connector stock:bugs-live > flow:churn +",
+  "connector stock:missing-ops > flow:churn +",
+  "connector stock:users > flow:churn +"
+ ],
+ "sf-product after": {
+  "connector_crossings": 6,
+  "sign_collisions": 21,
+  "word_collisions": 37,
+  "line_through_part": 0,
+  "lines_between_closed_modules": 0,
+  "bundles": 0,
+  "by_kind": {
+   "connector-pipe": 3,
+   "connector-connector": 3
+  }
+ }
+}

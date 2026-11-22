@@ -1,0 +1,842 @@
+{
+ "views": 183,
+ "views_with_a_bundle": 29,
+ "before": {
+  "connector_crossings": 2385,
+  "sign_collisions": 875,
+  "word_collisions": 1220,
+  "line_through_part": 0,
+  "lines_between_closed_modules": 288,
+  "bundles": 0
+ },
+ "after": {
+  "connector_crossings": 2195,
+  "sign_collisions": 861,
+  "word_collisions": 1278,
+  "line_through_part": 0,
+  "lines_between_closed_modules": 99,
+  "bundles": 75
+ },
+ "after-plain": {
+  "connector_crossings": 2176,
+  "sign_collisions": 858,
+  "word_collisions": 1277,
+  "line_through_part": 1,
+  "lines_between_closed_modules": 99,
+  "bundles": 75
+ },
+ "rows": [
+  {
+   "model": "alert-triage",
+   "view": "view=dynamics",
+   "before": {
+    "connector_crossings": 2,
+    "sign_collisions": 2,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 5,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 2,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 2,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "alert-triage",
+   "view": "view=dynamics&open=modelling",
+   "before": {
+    "connector_crossings": 15,
+    "sign_collisions": 6,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 5,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 15,
+    "sign_collisions": 7,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 15,
+    "sign_collisions": 7,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "coordinator",
+   "view": "view=dynamics",
+   "before": {
+    "connector_crossings": 6,
+    "sign_collisions": 3,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "coordinator",
+   "view": "view=dynamics&open=plant",
+   "before": {
+    "connector_crossings": 21,
+    "sign_collisions": 7,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 19,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 41,
+    "sign_collisions": 9,
+    "word_collisions": 5,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 12,
+    "bundles": 6
+   },
+   "after-plain": {
+    "connector_crossings": 12,
+    "sign_collisions": 6,
+    "word_collisions": 5,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 12,
+    "bundles": 6
+   }
+  },
+  {
+   "model": "coordinator",
+   "view": "view=dynamics&open=work",
+   "before": {
+    "connector_crossings": 6,
+    "sign_collisions": 3,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "coordinator",
+   "view": "view=dynamics&open=quality",
+   "before": {
+    "connector_crossings": 6,
+    "sign_collisions": 3,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "coordinator",
+   "view": "view=dynamics&open=codebase",
+   "before": {
+    "connector_crossings": 6,
+    "sign_collisions": 3,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "coordinator",
+   "view": "view=dynamics&open=owner",
+   "before": {
+    "connector_crossings": 6,
+    "sign_collisions": 3,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "coordinator",
+   "view": "view=dynamics&open=modelling",
+   "before": {
+    "connector_crossings": 18,
+    "sign_collisions": 6,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 15,
+    "sign_collisions": 6,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 15,
+    "sign_collisions": 6,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "coordinator",
+   "view": "view=dynamics&system=plant",
+   "before": {
+    "connector_crossings": 21,
+    "sign_collisions": 5,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 13,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 19,
+    "sign_collisions": 6,
+    "word_collisions": 3,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 7,
+    "bundles": 5
+   },
+   "after-plain": {
+    "connector_crossings": 13,
+    "sign_collisions": 8,
+    "word_collisions": 3,
+    "line_through_part": 1,
+    "lines_between_closed_modules": 7,
+    "bundles": 5
+   }
+  },
+  {
+   "model": "image-squeeze",
+   "view": "view=dynamics",
+   "before": {
+    "connector_crossings": 38,
+    "sign_collisions": 12,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 24,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 17,
+    "sign_collisions": 17,
+    "word_collisions": 7,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 8,
+    "bundles": 6
+   },
+   "after-plain": {
+    "connector_crossings": 26,
+    "sign_collisions": 14,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 8,
+    "bundles": 6
+   }
+  },
+  {
+   "model": "image-squeeze",
+   "view": "view=dynamics&open=service",
+   "before": {
+    "connector_crossings": 43,
+    "sign_collisions": 17,
+    "word_collisions": 4,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 15,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 24,
+    "sign_collisions": 17,
+    "word_collisions": 6,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 4,
+    "bundles": 3
+   },
+   "after-plain": {
+    "connector_crossings": 23,
+    "sign_collisions": 17,
+    "word_collisions": 7,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 4,
+    "bundles": 3
+   }
+  },
+  {
+   "model": "image-squeeze",
+   "view": "view=dynamics&open=rollout",
+   "before": {
+    "connector_crossings": 36,
+    "sign_collisions": 8,
+    "word_collisions": 7,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 8,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 33,
+    "sign_collisions": 11,
+    "word_collisions": 7,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 4,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 37,
+    "sign_collisions": 11,
+    "word_collisions": 8,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 4,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "image-squeeze",
+   "view": "view=dynamics&open=lab",
+   "before": {
+    "connector_crossings": 32,
+    "sign_collisions": 15,
+    "word_collisions": 11,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 8,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 28,
+    "sign_collisions": 15,
+    "word_collisions": 14,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 3,
+    "bundles": 3
+   },
+   "after-plain": {
+    "connector_crossings": 34,
+    "sign_collisions": 17,
+    "word_collisions": 13,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 3,
+    "bundles": 3
+   }
+  },
+  {
+   "model": "image-squeeze",
+   "view": "view=dynamics&open=benchmark",
+   "before": {
+    "connector_crossings": 106,
+    "sign_collisions": 11,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 17,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 5,
+    "sign_collisions": 8,
+    "word_collisions": 3,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 5,
+    "bundles": 4
+   },
+   "after-plain": {
+    "connector_crossings": 6,
+    "sign_collisions": 8,
+    "word_collisions": 3,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 5,
+    "bundles": 4
+   }
+  },
+  {
+   "model": "image-squeeze",
+   "view": "view=dynamics&open=modelling",
+   "before": {
+    "connector_crossings": 44,
+    "sign_collisions": 16,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 24,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 32,
+    "sign_collisions": 16,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 8,
+    "bundles": 6
+   },
+   "after-plain": {
+    "connector_crossings": 22,
+    "sign_collisions": 16,
+    "word_collisions": 5,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 8,
+    "bundles": 6
+   }
+  },
+  {
+   "model": "software-factory",
+   "view": "view=dynamics",
+   "before": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 1,
+    "sign_collisions": 3,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 1,
+    "sign_collisions": 3,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "software-factory",
+   "view": "view=dynamics&open=factory",
+   "before": {
+    "connector_crossings": 1,
+    "sign_collisions": 5,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 7,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 1,
+    "sign_collisions": 2,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 3,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 1,
+    "sign_collisions": 2,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 3,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "software-factory",
+   "view": "view=dynamics&open=intake",
+   "before": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 1,
+    "sign_collisions": 3,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 1,
+    "sign_collisions": 3,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "software-factory",
+   "view": "view=dynamics&open=delivery",
+   "before": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 1,
+    "sign_collisions": 3,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 1,
+    "sign_collisions": 3,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "software-factory",
+   "view": "view=dynamics&open=modelling",
+   "before": {
+    "connector_crossings": 15,
+    "sign_collisions": 8,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 16,
+    "sign_collisions": 8,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   },
+   "after-plain": {
+    "connector_crossings": 16,
+    "sign_collisions": 8,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 2,
+    "bundles": 2
+   }
+  },
+  {
+   "model": "ticket-factory",
+   "view": "view=dynamics",
+   "before": {
+    "connector_crossings": 4,
+    "sign_collisions": 7,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 9,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   }
+  },
+  {
+   "model": "ticket-factory",
+   "view": "view=dynamics&open=factory",
+   "before": {
+    "connector_crossings": 11,
+    "sign_collisions": 15,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 16,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 14,
+    "sign_collisions": 10,
+    "word_collisions": 2,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 5
+   },
+   "after-plain": {
+    "connector_crossings": 20,
+    "sign_collisions": 11,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 6,
+    "bundles": 5
+   }
+  },
+  {
+   "model": "ticket-factory",
+   "view": "view=dynamics&open=intake",
+   "before": {
+    "connector_crossings": 4,
+    "sign_collisions": 7,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 9,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   }
+  },
+  {
+   "model": "ticket-factory",
+   "view": "view=dynamics&open=making",
+   "before": {
+    "connector_crossings": 4,
+    "sign_collisions": 7,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 9,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   }
+  },
+  {
+   "model": "ticket-factory",
+   "view": "view=dynamics&open=review",
+   "before": {
+    "connector_crossings": 4,
+    "sign_collisions": 7,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 9,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   }
+  },
+  {
+   "model": "ticket-factory",
+   "view": "view=dynamics&open=shipping",
+   "before": {
+    "connector_crossings": 4,
+    "sign_collisions": 7,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 9,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   },
+   "after-plain": {
+    "connector_crossings": 0,
+    "sign_collisions": 3,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   }
+  },
+  {
+   "model": "ticket-factory",
+   "view": "view=dynamics&open=modelling",
+   "before": {
+    "connector_crossings": 19,
+    "sign_collisions": 11,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 9,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 15,
+    "sign_collisions": 8,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   },
+   "after-plain": {
+    "connector_crossings": 15,
+    "sign_collisions": 8,
+    "word_collisions": 1,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 1,
+    "bundles": 1
+   }
+  },
+  {
+   "model": "ticket-factory",
+   "view": "view=dynamics&system=factory",
+   "before": {
+    "connector_crossings": 0,
+    "sign_collisions": 4,
+    "word_collisions": 0,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 7,
+    "bundles": 0
+   },
+   "after": {
+    "connector_crossings": 4,
+    "sign_collisions": 7,
+    "word_collisions": 3,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 3,
+    "bundles": 3
+   },
+   "after-plain": {
+    "connector_crossings": 5,
+    "sign_collisions": 5,
+    "word_collisions": 3,
+    "line_through_part": 0,
+    "lines_between_closed_modules": 3,
+    "bundles": 3
+   }
+  }
+ ]
+}
