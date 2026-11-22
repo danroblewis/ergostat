@@ -332,3 +332,81 @@ takes its own `ERGOSTAT_HOME` (conftest) and closes the locks it takes; `modelli
 `off` outside the template, so no existing test starts a review call. Left: the factory's run with `-rf` (or the
 log's failures section) to name the test. If it is one of this gap's, it is fixed in the next round. If not, it is
 lesson-13's, reported.
+
+Round 2: no review findings to answer. Main (07f9b250) was already merged in (5c74597f). The clone still has no
+`origin`, so origin/main could not be fetched. No code was changed this round. What was run, now that main lets the
+implementor run the suites under `scripts/suite_watch.py`:
+
+- **The whole unit suite** (`suite_watch.py -- uv run python -m pytest -q -n 4 -rf`): rc 1, 2 failed, 2561 passed,
+  69 skipped, 1 xfailed, in 26m52s (peak 412 threads, 1.06 GB). The two failures:
+  - `tests/test_templates.py::test_a_trial_runs_a_copy_and_says_what_moved` ("nor its record": something wrote under
+    the test's `ERGOSTAT_HOME`). This is the failure round 1 saw. It runs a `respond-to` trial with no modelling block,
+    and nothing in this branch is on its path. The trial's child process gets a home of its own (`author.trial`).
+    None of this branch's code starts a thread or a process that could outlive a test and write into a later test's
+    home: the review's call is an injected stand-in in every test. It passes alone.
+  - `tests/test_calls.py::test_the_socket_lists_items_as_the_command_does` (a `wait_for` on the socket ran out of
+    time). It is in the calls socket, which this branch does not touch, and it passes alone.
+  - Both together, and with `test_architecture_review.py` and `test_redesign.py`, under `-n 4` through suite_watch:
+    80 passed, rc 0. Reported, not fixed (lesson-13). The suite was not run on main to compare: a second checkout of
+    main could not be made here.
+- **The four browser files** (the factory's `[suites] browser` command): rc 1, 7 failed, 236 passed, none skipped,
+  in 22m45s (peak 548 threads, 3.99 GB). All 7 are in `test_diagram_rendering.py`:
+  - three time limits: `test_every_view_draws_cleanly_and_in_time[big]` (3527 ms against 2500),
+    `[image-squeeze]` (49900 ms against 20000), and `test_a_big_tangled_model_lays_out_in_time_and_cleanly`;
+  - four click and drag checks: `test_every_part_opens_its_panel_when_clicked_even_mid_redraw`,
+    `test_a_kinds_frame_dragged_in_the_process_view_takes_its_map_and_nodes_chosen_move_together`,
+    `test_a_block_dragged_in_the_blocks_view_stays_pinned_its_lines_end_on_it_and_unpin_all_restores_it`,
+    `test_every_lines_panel_links_to_the_parts_it_joins[coordinator]`.
+
+  The 7 run alone under suite_watch: rc 0. This branch changes nothing in `ergostat/web`, the drawings or what they
+  read (`git diff main...HEAD --stat`: `numbers/`, `library/run/modelling.py`, the modelling template, tests and
+  docs). So they fail under `-n 4` load in this container. Reported, not fixed (lesson-13).
+  - An earlier attempt at each suite was stopped by this session's 20-minute limit on a background command. The unit
+    suite had no failure up to 94%, and the browser files were at 59%. They were run again, as above.
+- **ruff** (`ergostat tests scripts`): clean. `test_spec_compile.py` and `test_demo_check.py`: 29 passed. No example
+  is touched.
+- **Each acceptance test, broken on purpose (lesson-9).** Each break was made by hand, the test was seen failing,
+  and the code was put back (the tree is clean, and both files pass, 38 tests):
+  - `test_a_systems_own_architecture_notes_are_in_its_redesign_prompt`: `_in`'s `system.` branch removed (as on
+    main); also `_in`'s `model` case removed. Fails both times.
+  - `test_a_subsystems_note_is_in_its_parents_redesign_prompt`: the `system.` branch removed. Fails.
+  - `test_the_prompt_says_the_units_size_interface_and_subsystems`: the `## Its architecture` lines dropped; the
+    interface taken from `other` instead of the unit. Fails both times.
+  - `test_the_review_holds_each_finding_as_a_request_and_writes_no_change`: a split held `open`; the review writing
+    an `ergostat.model-change.proposed` event; the review appending to the model file. Fails all three times. (A first
+    try wrote a bare `ergostat.model-change` event, a type nothing writes, and the test passed. That is right: a real
+    change is `ergostat.model-change.<state>`, which `proposals.stored` reads.)
+  - `test_a_review_redesign_makes_its_system_due_first`: `triggers` not reading the request; the review's reason
+    sorted as routine. Fails both times.
+  - `test_a_resting_system_is_not_taken_whatever_the_review_says`: `next_due` skipping `resting` when a review asked.
+    Fails. (Also fails with `triggers` not reading the request.)
+  - `test_sync_does_not_answer_the_reviews_requests`: the requests held under source `review`. Fails.
+  - `test_the_review_runs_once_a_day_and_a_failed_call_counts`: due counting only `reviewed`; a window of 60 s
+    instead of `DAILY`. Fails both times.
+  - `test_the_review_is_not_called_when_its_estimated_most_would_pass_the_cap`: the check as `spent >= daily`; the
+    budget clamp removed (`budget=a.budget`). Fails both times.
+  - `test_a_call_killed_mid_way_leaves_its_estimate_charged`: the estimate charged only after the call; the
+    `started` event not written before it; due counting only `reviewed`. Fails all three times.
+  - `test_the_answer_is_read_by_allowlist`: the allowlist replaced by "any non-empty name"; the 8-finding limit
+    removed. Fails both times.
+  - `test_a_finding_made_again_the_next_day_clears_what_the_last_one_left`: `hold` not writing again when the request
+    is open (`new` dropped); the `change: None` reset dropped. Fails both times.
+  - `test_a_finding_not_said_again_is_let_go_but_one_waiting_on_its_change_is_kept`: nothing let go; a `proposed`
+    request let go too. Fails both times.
+  - `test_a_redesign_does_not_mark_a_request_a_newer_review_re_raised`: the stamp's equality check dropped from
+    `mark`. Fails. (`test_a_redesign_marks_the_request_it_took_up` still passes then, as it should.) Also fails with
+    `hold`'s `new` dropped.
+  - `test_a_second_run_holding_no_lock_skips_the_review`: the `flock` call removed. Fails. A blocking `flock` was
+    not tried: the test would hang, and neither `timeout` nor pytest-timeout could be used here to bound it.
+  - `test_a_mark_under_another_runs_lock_leaves_the_request`: the mark ignoring the held lock; the `flock` removed.
+    Fails both times.
+  - `test_the_review_is_there_only_with_ai_and_off_turns_it_off`: `review: off` not honoured; `when: ask` running
+    the review. Fails both times.
+  - `test_the_reviews_cost_is_printed_as_a_result_line_and_recorded_with_its_model`: no result line
+    (`on_call=None`); the model left out of the event. Fails both times.
+
+Left: the unit suite and the browser files rc 0 on the factory's run. Every failure seen here passes alone and is
+outside the gap.
+- Refused here: `timeout 90 uv run python -m pytest ...`; `ps -A -o command=`; a shell write to `/tmp`; the Write
+  tool outside `/work`.
+- So the breaks were made with Edit on the source and put back by hand. No scratch file was written.
