@@ -610,8 +610,9 @@ on a read-only clone of main, its conversation kept as a session item related to
 **What it is given.** Every standing trigger no earlier session answered (by fingerprint): the queue blocked; a gap dead
 past half an hour, or parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or
 none said), unless another gap carries its branch on or the park is `deferred` or `cancelled` (its kind, or the
-coordinator's `deferred: true` or `cancelled: true`); a `waits_on` or `needs`
-park not cleared in `park_wait_hours` (24, at least 1); a `split` park never (each stopped sub-gap raises its own
+coordinator's `deferred: true` or `cancelled: true`), or an old park classified `unknown` whatever its age; a `waits_on`
+or `needs` park not cleared in `park_wait_hours` (24, at least 1); a continuing gap whose branch intake could not fetch
+(`unfetched`); a `split` park never (each stopped sub-gap raises its own
 trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
 else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
@@ -645,11 +646,21 @@ records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a ga
 the reviewer, the queue, triage, the plan lint, dead letters), `deferred` (the manager's park, once the coordinator
 approved it), `cancelled` (the plan review's), `split` (split-watch: the stopped sub-gaps). The reviewer's park verdict
 gives its kind and condition; one naming nothing checkable is a `defect`. The block `park-resume` (every 5 minutes, no
-AI) resumes `waits_on` once the gap merged or the commits are on main, `needs` once
+AI) resumes `waits_on` once the gap's work is on main as pushed (its merge on the checkout's `origin/main`; a merge not
+pushed has not cleared), through its continuation (`resumed_as`, followed) when it was continued, or once the commits
+are on pushed main; `needs` once
 `ergostat event --add gap.need-met --item gap/NAME --data '{"need_met": "what was done"}'` is recorded, and `split`
 once each stopped sub-gap is resumed or closed (the split gap back to split, the continuations its children). A resume
 is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the parked gap saying what cleared (a
-continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Measures:
+continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Each pass
+first classifies, once, the parks from before kinds (`classified_by: park-classify`): `kill-rule` by who parked it,
+`waits_on` the one other gap whose merge its branch carries (one merge in `base..branch`; whether main already has that
+gap's work is not checked, and if it has, the wait clears on the next pass), else `unknown` (the manager's);
+a `deferred` or `cancelled` one, one the plan review or the manager parked, or one continued already (`resumed_as`:
+its work goes on in the continuation) is left alone, and an `unknown` one continued is not raised past its age. Expect the first
+session after this lands to carry many `parked` triggers, one for each old park classified `unknown` (a reviewer's
+included), once; after that, only new ones. An old park classified `waits_on` keeps its first `parked_at`, so one whose
+gap is not on pushed main raises `waiting` at once too (past `park_wait_hours`). Measures:
 `measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.
 
 ## Upgrade and revert

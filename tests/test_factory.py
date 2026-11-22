@@ -3804,13 +3804,13 @@ def test_a_park_waiting_on_a_gap_is_resumed_when_it_merges(tmp_path):
     f.put("gap/carried", "approved", branch="carried")
     assert resumed(f) == []                                                   # not merged yet: still waits
     assert (f.watch() or {}).get("trigger") != "parked"                       # nor is the manager asked about it
-    f.put("gap/carried", "merged", branch="carried")
+    f.put("gap/carried", "merged", branch="carried", main_sha=git(f.checkout, "rev-parse", "origin/main"))
     assert resumed(f) == ["gap.requested", "gap.resumed"]
     c = f.item("gap/alpha-thing-continued")
     assert c["fields"]["continues"] == "alpha-thing" and c["fields"]["requested_by"] == "park-resume"
     r = f.item(gid)["fields"]
     assert r["resumed_as"] == "gap/alpha-thing-continued" and r["resumed_for"] == "waits_on"
-    assert r["cleared"] == "gap/carried merged"
+    assert r["cleared"] == "gap/carried merged, on origin/main"
     assert [i for i in f.db()["items"].values() if i["kind"] == "intervention"] == []   # a loop, not an intervention
     assert resumed(f) == []                                                   # resumed once
     assert f.py("import measure; print(json.dumps([measure.reading(n, kind='waits_on') for n in "
@@ -3890,13 +3890,128 @@ def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):
     f = pipe(tmp_path)
     f.put("gap/whole", "parked", branch="whole", parked_for="split", parked_until={"gaps": ["gap/part"]},
           parked_at=f.now - 3600)
-    f.put("gap/part", "parked", branch="part", parent=["gap/whole"])
+    f.put("gap/part", "parked", branch="part", parent=["gap/whole"], parked_for="defect")   # (a kind: not classified)
     assert resumed(f) == []
-    f.put("gap/part", "parked", branch="part", parent=["gap/whole"], resumed_as="gap/part-continued")
+    f.put("gap/part", "parked", branch="part", parent=["gap/whole"], parked_for="defect",
+          resumed_as="gap/part-continued")
     f.put("gap/part-continued", "open", continues="part")
     assert resumed(f) == ["gap.measured", "gap.measured", "gap.split", "gap.resumed"]
     assert f.item("gap/whole")["state"] == "split" and f.item("gap/part")["fields"]["parent"] == []
     assert f.item("gap/part-continued")["fields"]["parent"] == ["gap/whole"]
+
+
+# ---- park-waits-clear-right (dev/records/park-waits-clear-right.md): a wait clears when its work is on pushed main
+
+def test_a_wait_on_a_continued_gap_clears_when_the_continuation_lands(tmp_path):
+    f, gid = parked_by_review(tmp_path, parked_for="waits_on", waits_on="gap/carried")
+    pushed = git(f.checkout, "rev-parse", "origin/main")
+    f.put("gap/carried", "parked", ago=60, branch="carried", parked_for="defect", resumed_as="gap/carried-continued")
+    f.put("gap/carried-continued", "parked", ago=60, continues="carried", parked_for="defect",
+          resumed_as="gap/carried-continued-2")                              # continued twice: the original stays parked
+    f.put("gap/carried-continued-2", "approved", ago=60, continues="carried")
+    assert resumed(f) == []                                                   # its last continuation not merged yet
+    f.put("gap/carried-continued-2", "merged", ago=60, continues="carried", main_sha=pushed)
+    assert resumed(f) == ["gap.requested", "gap.resumed"]
+    assert f.item(gid)["fields"]["cleared"] == "gap/carried merged as gap/carried-continued-2, on origin/main"
+    assert f.item("gap/alpha-thing-continued")["fields"]["continues"] == "alpha-thing"
+
+
+def test_a_local_unpushed_merge_does_not_clear_a_wait(tmp_path):
+    f, gid = parked_by_review(tmp_path, parked_for="waits_on", waits_on="gap/carried")
+    (f.checkout / "carried.py").write_text("x = 1\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-qm", "the carried gap's merge, not pushed")
+    local = git(f.checkout, "rev-parse", "HEAD")
+    f.put("gap/other", "parked", ago=60, branch="other", parked_for="waits_on", parked_until={"commits": [local]},
+          parked_at=f.now)
+    f.put("gap/carried", "merged", ago=60, branch="carried")                  # no merge commit said: not cleared
+    assert resumed(f) == []
+    f.put("gap/carried", "merged", ago=60, branch="carried", main_sha=local)
+    assert resumed(f) == []                                                   # on the checkout's main, not origin's
+    git(f.checkout, "push", "-q", "origin", "main")
+    assert resumed(f) == ["gap.requested", "gap.resumed"] * 2
+    assert f.item(gid)["fields"]["cleared"] == "gap/carried merged, on origin/main"
+    assert f.item("gap/other")["fields"]["cleared"] == f"{local[:12]} on origin/main"
+
+
+def carry_a_merge(tmp: Path, into: str, of: str) -> None:
+    """The drop's factory/<into> merges factory/<of>, a branch main lacks: a gap carrying another gap's merge."""
+    drop, work = tmp / "live" / "drop.git", tmp / "carry"
+    git(tmp, "clone", "-q", str(drop), str(work))
+    git(work, "checkout", "-q", "-b", f"factory/{of}", "origin/main")
+    (work / f"{of}.py").write_text("x = 1\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", f"{of}'s work")
+    git(work, "checkout", "-q", "-b", f"factory/{into}", f"origin/factory/{into}")
+    git(work, "merge", "-q", "--no-ff", "--no-edit", f"factory/{of}")
+    git(work, "push", "-q", "origin", f"factory/{into}", f"factory/{of}")
+
+
+def test_existing_parks_are_classified_and_deferred_ones_left_alone(tmp_path):
+    f, gid = parked_by_review(tmp_path)
+    carry_a_merge(tmp_path, "alpha-thing", "carried")
+    old = {k: v for k, v in f.item(gid)["fields"].items() if k not in ("parked_for", "parked_until")}
+    f.put(gid, "parked", **old)                                                # a park from before kinds
+    f.put("gap/carried", "approved", ago=60, branch="carried")
+    long_ago = f.now - 100 * 3600                                               # past parked_within_hours
+    for name, by, more in (("killed", "implementor", {}), ("triaged", "queue run 4", {}), ("unclear", "review/x-2", {}),
+                           ("deferred", "coordinator", {"deferred": True}), ("cancelled", "x", {"cancelled": True}),
+                           ("by-manager", "pipeline-manager", {}), ("by-plan", "plan-review", {}),
+                           ("kinded", "implementor", {"parked_for": "defect"}),
+                           ("continued", "review/y-1", {"resumed_as": "gap/continued-continued"}),
+                           ("was-unknown", "review/z-1", {"parked_for": "unknown", "resumed_as": "gap/was-unknown-2"})):
+        f.put(f"gap/{name}", "parked", branch=name, parked_by=by, parked_at=long_ago, **more)
+    for done in ("gap/continued-continued", "gap/was-unknown-2"):              # their continuations, landed
+        f.put(done, "merged", ago=60, branch=done[4:], continues=done[4:])
+    assert resumed(f) == ["gap.measured"] * 4                                  # each once, by a program
+    kinds = {i: (f.item(i)["fields"].get("parked_for"), f.item(i)["fields"].get("parked_until"))
+             for i in (gid, "gap/killed", "gap/triaged", "gap/unclear")}
+    assert kinds == {gid: ("waits_on", {"gap": "gap/carried"}), "gap/killed": ("kill-rule", None),
+                     "gap/triaged": ("kill-rule", None), "gap/unclear": ("unknown", None)}
+    alone = ("gap/deferred", "gap/cancelled", "gap/by-manager", "gap/by-plan", "gap/continued")   # (continued: too)
+    assert all("parked_for" not in f.item(i)["fields"] and "classified_by" not in f.item(i)["fields"] for i in alone)
+    kinded = f.item("gap/kinded")["fields"]
+    assert kinded["parked_for"] == "defect" and "classified_by" not in kinded
+    assert resumed(f) == []                                                    # classified once; nothing cleared yet
+    raised = {(t["trigger"], t["subject"]) for t in f.watch()["triggers"]}
+    assert ("parked", "gap/unclear") in raised                                 # unknown: the manager's, whatever its age
+    assert not {s for _, s in raised} & {*alone, gid, "gap/killed", "gap/triaged", "gap/kinded", "gap/was-unknown"}
+    f.put("gap/carried", "merged", ago=60, branch="carried", main_sha=git(f.checkout, "rev-parse", "origin/main"))
+    assert resumed(f) == ["gap.requested", "gap.resumed"]                      # the park that motivated it, resumed
+    assert f.item(gid)["fields"]["resumed_as"] == "gap/alpha-thing-continued"
+
+
+def test_an_unfetchable_continue_raises_a_situation(tmp_path):
+    f = pipe(tmp_path)
+    gid = continues(f)                                                         # the checkout has no branch warm
+    assert f.item(gid)["state"] == "open" and f.item(gid)["fields"]["unfetched"] == "the checkout does not have"
+    bad = continues(f, "../warm", "gap/escape")                                # a name the branch rule refuses
+    assert f.item(bad)["state"] == "open" and f.item(bad)["fields"]["unfetched"] == "fails the branch rule"
+    assert "gap.measured" not in f.run("intake.py")[0]                         # said once, as it changes
+    s = f.watch()
+    assert ("unfetched", gid) in {(t["trigger"], t["subject"]) for t in s["triggers"]}
+    assert "which the checkout does not have" in next(t["why"] for t in s["triggers"] if t["subject"] == gid)
+    assert "which fails the branch rule" in next(t["why"] for t in s["triggers"] if t["subject"] == bad)
+    f.put("gap/holder", "approved", ago=60, branch="warm")                    # another gap holds the branch first
+    f.run("intake.py")
+    assert f.item(gid)["state"] == "open" and f.item(gid)["fields"]["unfetched"] is None   # the old cause cleared
+    assert ("unfetched", gid) not in {(t["trigger"], t["subject"]) for t in (f.watch() or {}).get("triggers", [])}
+    f.put("gap/holder", "merged", ago=60, branch="warm")
+    behind_main(f)                                                             # there now, but the fetch fails
+    drop = tmp_path / "live" / "drop.git"                                      # (factory/warm/x holds the name)
+    git(drop, "update-ref", "refs/heads/factory/warm/x", git(drop, "rev-parse", "main"))
+    f.run("intake.py")
+    assert f.item(gid)["state"] == "open"
+    assert f.item(gid)["fields"]["unfetched"] == "could not be fetched into the drop"
+    f.fold([{"event": "situation.handled", "item": s["id"], "data": {"prints": s["prints"]}}], None)
+    db = f.db()
+    db["items"][s["id"]]["fields"]["raised_at"] = f.now - 3 * 3600             # (the schedule due again)
+    f.record.write_text(json.dumps(db))
+    s = f.watch()                                                              # a new cause: raised again
+    assert "could not be fetched" in next(t["why"] for t in s["triggers"] if t["subject"] == gid)
+    git(drop, "update-ref", "-d", "refs/heads/factory/warm/x")
+    f.run("intake.py")
+    assert f.item(gid)["state"] == "ready" and f.item(gid)["fields"]["unfetched"] is None
 
 
 # ---- the implementor's small test set ([suites] build, scripts/affected_tests.py)

@@ -132,7 +132,7 @@ actions:
 blocks:
   park-resume:
     type: program
-    description: resumes each park whose condition cleared, for whoever parked it (no AI) - waits_on once the gap merged or the commits are on main, needs once the action is recorded done, split once its stopped sub-gaps are resumed or closed; never a defect or the kill rule
+    description: classifies once each park from before kinds, then resumes each park whose condition cleared, for whoever parked it (no AI) - waits_on once the gap's work (or its continuation's) or the commits are on pushed main, needs once the action is recorded done, split once its stopped sub-gaps are resumed or closed; never a defect or the kill rule
     run: python3 dev/bin/parks.py resume
     every: 5m
     timeout: 4m
