@@ -81,3 +81,22 @@ Round 2, answering review 1:
   - `fine(NAMED)` empty (refusing owner pieces too): all four cases, on their compiling half.
 - **Size:** code is now 88 net lines (trust.py +104/-24, uses.py +20/-12), within the 90 budget.
 - **Merge:** the clone has only `main` and this branch, with no remote-tracking refs (`git branch -a`). `main` is an ancestor of HEAD, so there was nothing to merge.
+
+Round 3, answering the queue (a batch of 4 failed; bisected to this branch; then failed alone on
+`tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network`):
+
+- **Not reproduced.** In this clone the test passes alone (1 passed, 63 s), and `tests/test_agents.py` as a whole passes
+  (16 passed, 218 s). `tests/test_library_provenance.py` (55 passed), `tests/test_library_trust.py` (48 passed) and ruff
+  are clean too.
+- **Why I think it is unrelated (lesson-13).** This branch changes only `ergostat/library/trust.py` and `uses.py`, tests
+  and docs. The failing test runs `dev/bin/queue.py` (with fac, agents, pools and review) against a stand-in Docker and
+  a stand-in ergostat. None of those modules imports `ergostat.library`. The only path from that test into changed code
+  is `Factory.__init__` reading the repo's `ergostat.yaml`. That file's `uses:` are built-in templates, so no chain is
+  held and R3 never applies, and the read still reports no errors. The test asserts on Docker arguments
+  (`--network`, `--cpuset-cpus`, `-e`, `-v`) and on queue events, which this branch does not produce.
+- **What I could not check.** This clone has no remote-tracking refs, so I cannot see the main the queue merged into.
+  If that main has since gained a held library chain in the factory's own model, or a change to queue.py, the failure
+  could be an interaction (lesson-7) that I cannot reproduce here. I also tried to run the test on a clean `main`
+  checkout (`git worktree add -q /tmp/mainwt main && cd /tmp/mainwt && ... named_tests.py ...`). That command was
+  refused, so the comparison with main was not run. Nothing was changed for this finding. The most reversible step is
+  for the factory to rerun the test on its current main, with and without this branch, and tell flake from cause.
