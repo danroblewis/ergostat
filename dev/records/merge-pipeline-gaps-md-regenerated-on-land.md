@@ -19,3 +19,79 @@ Round 1 stopped before any code: this gap waits on its dependency, merge-pipelin
 Parked by the factory (review/merge-pipeline-gaps-md-regenerated-on-land-1, 2026-11-22 10:53).
 
 Done: the definition of done is committed first and a 'Where it stopped' section was added after it; no code, tests or docs changed. Left: all of (1)-(4) (the gapsdoc split migration commit, the fac.definition_file '## Definition of done' check and the implement.definition_first guard, carry and render inside the queue landing with merged reassigned before done = True, refusing new GAPS.md edits uncounted in implement.py, the house-rules and README wording) and every Done test. Why stop: every step calls dev/bin/gapsdoc.py (split, carry, render) and its record format, which belong to the dependency merge-pipeline-gaps-entries-in-records. That gap is not in this tree; building it here would be outside this gap and over its budget.
+
+## Where it stopped
+
+Built, in the continued gap's round 1. The dependency is on main now (962ccf13) and is merged into the branch (45718e4f). main has not moved since, so
+there was nothing more to merge. All of (1) to (4) is built:
+
+- 39758fc4 has the code, tests and docs. b8334bfc is the split commit: 67 files under dev/records/ (GAPS-head.md,
+  64 new records, and an Entry appended to the two that existed: finding-structure-from-residuals and
+  from-upkeep-s-fault-injection). docs/GAPS.md is unchanged in that commit. c3a03e9c pins that commit in a test.
+- (2) `fac.definition_file` returns the old-folder file when it exists and the new record has no
+  `## Definition of done` (`fac.defines`). A continued gap's `REF:dev/records/X.md` gets the same rule.
+  `implement.definition_first` writes nothing when the old file is named. It gives a record that holds only its
+  Entry the definition.
+- (3) `queue.gaps_md()` runs between land() and `done = True`. It calls `gapsdoc.regenerate()`: carry, then render,
+  then write. It commits only when the files differ, with the message `docs/GAPS.md from the records`, and `merged`
+  is reassigned to that commit. The run says `gaps_md_carried`, `gaps_md_unplaced`, or `gaps_md: why`.
+- (4) `implement.py` refuses a branch whose diff from main changes docs/GAPS.md (`gaps_md_edited`). The refusal is
+  uncounted, comes after the strays check and before the suites, and its brief names `dev/records/<branch>.md`.
+  The next try's brief starts with that same message. The wording is in house-rules.md and dev/README.md.
+
+Choices made alone, each the more reversible one:
+
+- **The split commit was written by hand, not by running the program.** Running `dev/bin/gapsdoc.py` directly was
+  refused in this session, and so was every other way of running Python except `scripts/named_tests.py`. So the 67
+  files were written from GAPS.md by hand. The pinned test
+  (`test_the_split_commit_moves_every_entry_into_the_records_and_every_reader_sees_the_same`) checks them against
+  `split(GAPS.md at b8334bfc^)` line for line. It checks the head, each record (new, or the old text with the Entry
+  appended), that nothing else was made, `render == GAPS.md`, and that intake's `gaps_md`/`twice` and
+  `deps.from_gaps` give the same result. It passes, so the commit is what `gapsdoc.py split` writes. `split` itself
+  (no FILE) now writes, and it refuses to overwrite: tested on the pinned fixture.
+- **Records are named by branch.** split now names each record by the gap id cut to 32 (intake's branch), as the
+  definition says (`dev/records/<branch>.md`). Before, it used the 60-character gap id.
+- **What carry counts as the batch's own edit.** It is an entry block in GAPS.md at the batch's head that neither
+  the records at `pre` rendered (`gapsdoc.rendered_at`) nor the records at head render. GAPS.md at `pre` is not the
+  baseline. This way the first landing after the split also carries GAPS.md edits that main gained after b8334bfc:
+  there is no GAPS-head.md at `pre`, so every block the records do not render is carried. An edit left behind by an
+  earlier failed render is carried at the next landing.
+- **Where carry puts an entry.** The record whose Entry has that title, or else the record its branch names. The
+  block's section and bullet replace that Entry's. Each rendered done line (``  - *Done DATE* (`name`): ...``) goes
+  to the record it names. A named record with no Entry gets `entry-of:` the umbrella. An entry with any part that
+  cannot be placed is placed in no part: it is kept whole in dev/records/GAPS-unplaced.md and named on the run. An
+  entry a batch deletes from GAPS.md is not carried, and the render puts it back. Removing an entry means removing
+  its record's Entry.
+- **What counts as a render failure.** Any render() problem except four that lose no text (`gapsdoc.BENIGN`): two
+  titles on one branch, a slot listed twice, an entry listed under another section, and a section missing from the
+  head. A malformed Entry, a sub-gap with no umbrella, or a slot with no entry fails the render. Then nothing is
+  written, and main stays at the batch's merge. The live tree has one benign problem: the two *External event logs*
+  entries share a branch. `render --check` still exits 1 on it, as it did before.
+- **Where the definition goes in an Entry-only record.** It goes before the Entry, not after it. An Entry runs to the
+  next `## ` heading, so the Entry has to stay the last section for parse() to read it.
+- **Outside the Files list.** First, `dev/bin/intake.py` (2 lines): `intake.definition` skips a record that holds
+  only its Entry (`fac.entry_only`). Without that, every open GAPS.md entry would read as defined by its own Entry
+  after the split, and would be taken as ready. Second, `dev/prompts/definition.md` told sessions to edit
+  docs/GAPS.md as well, which this gap now refuses. Its note now says the queue writes GAPS.md.
+- **A failure while the render commits.** main goes back to the batch's merge (`reset --hard` on the queue's own
+  checkout), and the files it wrote that the merge lacks are removed. recover() is unchanged: the commit is made
+  before `done = True`. A stop or a SIGKILL before that point undoes it with the merges. After that point, the
+  `landing` block names HEAD, which is the render commit.
+
+Tests: tests/test_gapsdoc.py, 28 passed. Of the new tests in tests/test_factory.py, six were run and passed:
+`test_a_definition_in_the_old_folder_resolves_past_a_record_that_is_only_its_entry` (a continued gap's REF too),
+`test_a_record_that_is_only_its_entry_is_given_the_definition_before_it`,
+`test_a_branch_that_edits_gaps_md_is_refused_uncounted_before_the_suites`,
+`test_an_approved_branch_that_edited_gaps_md_lands_with_its_text_in_a_record` (main_sha equals the pushed sha, and
+both equal the head with the render commit),
+`test_no_record_change_makes_no_commit_and_a_malformed_record_lands_without_one`, and the pinned split test. Each
+break below was seen to fail its test: BENIGN made to match everything (the malformed-record test); `merged` not
+reassigned (main_sha differs from the head); intake's Entry-only check removed (the old-folder test reads
+`main:dev/records/warm.md`). The existing old-path, new-path-wins and scratch-refusal tests were run again. Not run
+here: the whole unit suite and the browser files (the factory and the queue run them). ruff is clean on ergostat,
+tests and scripts.
+
+Overrun reason: dev/bin is about 184 net lines against 130. The extra comes from three needs the definition did not
+size: intake's guard against Entry-only records being read as definitions, carrying against the records' render at
+`pre` (rendered_at) so main's GAPS.md edits since the split are not lost at the first landing, and carry placing done
+lines under an umbrella (entry-of) with all-or-nothing placement and GAPS-unplaced.md.
