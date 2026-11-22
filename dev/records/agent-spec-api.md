@@ -1,0 +1,18 @@
+# agent-spec-api: An agent's answer carries what it is: its block's definition, prompt and program files, law, machine and decisions
+
+depends-on: []
+
+Problem: /api/agents/NAME (ergostat/web/server.py:557-575) returns only the mdl.Agent dataclass (model.py:165-186: name, kind, command, schedule), runs, a log tail and use, though it looks the block up at :567. On :8791 the ai block `work` has prompt: prompts/work.md and run: python3 bin/step.py work (demos/ticket-factory/steps/03-work.yaml) but the answer says only the command (spec/legacy.py:53 keeps a prompt only without a run, cut to 60 chars). The rule keep-located-worked carries no law though BlockDiagram.block_fn (blockdiagram.py:1023-1140) computes it for Blocks. The person approve has no ask. fixer's command is an absolute .venv path; improver's prompt is a package file (library/templates/modelling/template.yaml:364-395) the /file/ route (server.py:828-842) cannot serve. Decision tallies (state.decisions, state.py:459-469) are not reachable per agent.
+Change: a new module ergostat/web/agent_spec.py adds `spec` to /api/agents/NAME: type, implied and implied_by, where ({file relative to the model folder, line}), source (the block's YAML as written; null when implied), params as written (prompt, ask, run, daemon, parse, model, tools, actions, read, workspace, emits, on, goal, until, expr, table, takes, pool, lease, ...), prompt_text when inline, law (block_fn: says, math, rows; built once per snapshot), machine (its agents: entry), decisions (state.decisions over the window for the controllers it fills, plus the ladder hint, state.py:592-603), rung_why, own ({module, doc} for `-m ergostat.<module>`, never the interpreter path; default, no owner question: ergostat's own module sources are named with their docstring, not shown), and files: [{name, role: prompt|program|wrapper, format}]. A guarded route GET /api/agents/NAME/files returns each file's text: the prompt resolved as the engine does (spec/engine.py:917-926), run tokens that are existing files (interpreters skipped). Each file must lie under spec.root, the project dir or a library template folder; never the state dir under a public name (as _file does, server.py:834); at most FILE_LIMIT and 8 files; names always relative ('prompts/work.md', 'ergostat's own: library/templates/modelling/modeller.md'). web/snapshot.py:41 adds agents/NAME/files.
+Definition of done:
+1. /api/agents/work on ticket-factory has spec.files with {name: 'prompts/work.md', role: 'prompt', format: 'markdown'} and bin/step.py, and spec.params.takes.kind == 'ticket'.
+2. /api/agents/keep-located-worked has implied true, implied_by 'work' and a non-empty law.
+3. /api/agents/fixer has spec.own.module set and no string containing '/.venv/' or '/private/'.
+4. A run naming ../../etc/passwd or an absolute path outside the roots is listed 'not shown: outside the project' and never read.
+5. A decision-rung agent (examples/docs-fresh page-picker) has decisions {count, kinds}.
+6. /api/agents/NAME stays under 300 ms on :8796 and :8797 (median of 10).
+Files: new ergostat/web/agent_spec.py, ergostat/web/server.py, ergostat/web/snapshot.py, tests/test_agent_spec.py.
+Acceptance tests: unit tests on a tiny model with one block of each type (ai with prompt file and run, ai inline prompt, narrow-ai, decision, program bin/x.py, program -m ergostat.library.run, implied onoff, expr, lookup, person with ask) asserting the fields, roots, traversal, size cap.
+Budget: 260 net lines (tests not counted). If the builder finds it over 300, the file route is split off as its own gap and said to the Coordinator.
+
+Milestone: agent-show-page. Owner items: 19. From the owner's list and the design review of 2026-11-22.
