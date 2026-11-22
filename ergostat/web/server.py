@@ -275,7 +275,8 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
     fields cut to its kind's columns. A kind whose items carry large fields (the model's changes)
     otherwise made every refresh of the list hundreds of KB, most of it never shown. The systems in
     ``hide`` (comma-separated: the page's collapsed groups) send no items, only their kinds' counts."""
-    items = got["items"]
+    from ..actions.record import ACTION, who
+    items = [{**i, "fields": {**i["fields"], **who(i["fields"], i.get("state"))}} if i.get("kind") == ACTION else i for i in got["items"]]
     if hide:
         gone = set(hide.split(","))
         items = [i for i in items if i.get("system") not in gone]
@@ -449,9 +450,12 @@ def _answer(live: Live, path: str, q: dict, project=None):
         from ..runner import running_pid
         running = bool(running_pid(p))
         edited = _edited(live, p, running)
-        return {"name": m.name, "running": running, "live": snap["live"], "first": p.events.first_time(),
+        spec = getattr(m, "spec", None)              # the diagram's caption: what the model is for, its loops
+        said = {"purpose": spec.purpose, "top": len(spec.subsystems(None)),
+                "controlled": sorted(g for g in spec.goals if spec.loop(g).controllers)} if spec else {}
+        return {"name": m.name, **said, "running": running, "live": snap["live"], "first": p.events.first_time(),
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
-                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"],
+                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 **({"edited": edited} if edited else {}),
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
@@ -567,7 +571,18 @@ def _answer(live: Live, path: str, q: dict, project=None):
             from ..daemons.supervise import of_daemon
             b = m.spec.blocks.get(name) if getattr(m, "spec", None) else None
             dn = b.params.get("daemon") if b is not None else None
-            return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
+            from ..actions import record as acts
+            began = {e.get("causedby") for e in runs[-80:]}   # the gated actions each run asked for, by its start's id
+            asked: dict[str, list] = {}
+            for x in acts.stored(p, until=snap["at"]).values():
+                if x.get("run") in began:
+                    asked.setdefault(x["run"], []).append({k: x.get(k) for k in ("id", "action", "state")})
+            from ..leases import ENDED  # how each run's lease ended (a nack: it gave its item back), from its start on
+            since = min((e["time"] - (e["data"].get("seconds") or 0) for e in runs[-80:]), default=snap["at"]) - 60
+            ended = {e["causedby"]: {k: e["data"].get(k) for k in ("how", "why")} for e in p.events.query(
+                n=None, type=ENDED, since=since, until=snap["at"]) if e.get("causedby") in began}
+            return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:], "asked": asked,
+                    "ended": ended,
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
@@ -615,6 +630,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
             est = _estimates(p, m, snap, one("whatif"))
             if d and est and name in est.get("items", {}):
                 d["eta"] = {**est["items"][name], "at": est["at"], "runs": est["runs"]}
+            if d and d.get("kind_of") and spec and d["kind_of"]["name"] in spec.items:   # its endings, as the process map counts them
+                from ..process import _done
+                ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
+                d["kind_of"]["final"] = [s for s in d["kind_of"]["states"] if s in ends]
             return d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
@@ -705,7 +724,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "items-graph":                     # the Items page's Graph and Timeline: relations (SPEC §5a)
         from .eta_api import merge
         from .relations_api import graph as items_graph
-        return merge(items_graph(p, m, snap, q), _estimates(p, m, snap, one("whatif")))
+        est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
+        return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":

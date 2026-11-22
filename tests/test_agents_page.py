@@ -54,6 +54,10 @@ blocks:
     type: program
     run: ./tidy.sh
     out: flow.tidied
+actions:
+  push:
+    run: "echo pushed"
+    description: Push the page
 """
 
 HISTORY = """
@@ -62,6 +66,7 @@ from pathlib import Path
 from ergostat import model as mdl
 from ergostat.store import Project
 from ergostat.costs import record as cr
+from ergostat.actions import record as ar
 p = Project(mdl.load(Path(DIR)))
 random.seed(7)
 now = time.time()
@@ -77,9 +82,30 @@ for i in range(60):                                   # the last twenty hours, a
         if model:
             toks = int(30000 + 40000 * random.random())
             data["ai"] = {"cost_usd": round(usd, 5), "cost": how, "tokens": {"total": toks}, "model": model}
+        if block == "writer":                         # its runs are each about a page: done, refused or failed
+            data["item"] = f"page/{i}"
+            if i == 58:                               # pool full: agent.ran with its note, given back (engine.py)
+                data["note"] = ("no workspace free: every one of the pool's three workspaces is held by an "
+                                "item under review, so this run was given back and put off until one is")
+            if i == 57:
+                data["note"] = "exited 2"
         begun = p.events.add("agent.started", item=block, source="ergostat", at=t - data["seconds"], data={})
-        e = p.events.add("agent.ran", item=block, source="ergostat", causedby=begun["id"], at=t, data=data)
+        e = p.events.add("agent.failed" if i == 57 and block == "writer" else "agent.ran", item=block, source="ergostat",
+                         causedby=begun["id"], at=t, data=data)
+        if block == "writer":                         # its lease's end, as leases/dispatch.py writes it: 54 gave it back
+            nack = {58: data.get("note"), 57: "exited 2", 54: "the page was rewritten by another run already"}.get(i)
+            p.events.add("ergostat.lease.ended", item=data["item"], source="ergostat", causedby=begun["id"], at=t,
+                         data={"run": begun["id"], "fence": 1, "exit": data["exit"], **({"how": "nack", "why": nack}
+                                                                                       if nack else {"how": "ack"})})
         cr.write_series(p, block, data, t)
+        if block == "writer" and i >= 55:             # the outward actions it asked for, as the gate records them
+            aid = ar.new_id("push")
+            ar.step(p, aid, "requested", {"action": "push", "class": "push", "gate": "owner", "args": {},
+                                          "command": "git push", "item": data["item"], "run": begun["id"],
+                                          **({"session": "session/w1"} if i == 56 else {"block": "writer"})},
+                    by="writer", causedby=begun["id"])
+            ar.step(p, aid, "approved", {"approved_by": "owner", "note": "offline stand-in"}, by="owner")
+            p.events.add("page.edited", item=data["item"], source="writer", at=t, data={})
 import json
 (p.dir / "daemons.json").write_text(json.dumps({"at": now, "daemons": {"counter": {   # as the engine writes it (SPEC §9.7)
     "state": "running", "pid": 4242, "restarts": 2, "restarts_total": 3, "last_line": now - 4, "in_flight": 1,
@@ -89,14 +115,59 @@ import json
 
 
 
-@pytest.fixture(scope="module")
-def site(tmp_path_factory):
-    d = tmp_path_factory.mktemp("agents") / "agents-costs"
+LEASED = """
+name: agents-leased
+items:
+  ticket:
+    id: ticket/*
+    states: [located, worked, stopped]
+stocks:
+  located:
+    unit: tickets
+    sensor: {items: ticket, state: located}
+  worked:
+    unit: tickets
+    sensor: {items: ticket, state: worked}
+flows:
+  work:
+    from: located
+    to: worked
+goals:
+  located-worked:
+    stock: located
+    hold: "<= 0"
+blocks:
+  work:
+    type: ai
+    goal: located-worked
+    prompt: "Do the ticket."
+    run: ./work.sh
+    takes: {kind: ticket, at: located, to: [worked, stopped]}
+    out: flow.work
+"""
+
+LEASED_HISTORY = """
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(DIR)))
+now = time.time()
+full = "workspace pool code has none free for ticket/1: 1 in use, 0 held for review, 0 quarantined (of 1)"
+for i in range(28):                                   # nine worked, nineteen given back for want of a workspace
+    data = {"exit": 0, "seconds": 2.0, "why": "lease", "item": f"ticket/{i}", **({} if i < 9 else {"note": full})}
+    begun = p.events.add("agent.started", item="work", source="ergostat", at=now - 1200 + i * 30, data={})
+    p.events.add("agent.ran", item="work", source="ergostat", causedby=begun["id"], at=now - 1198 + i * 30, data=data)
+"""
+
+
+def serve(tmp_path_factory, name: str, model: str, history: str):
+    d = tmp_path_factory.mktemp("agents") / name
     d.mkdir()
-    (d / "ergostat.yaml").write_text(textwrap.dedent(MODEL))
+    (d / "ergostat.yaml").write_text(textwrap.dedent(model))
     home = d.parent / "home"
     env = {**os.environ, "ERGOSTAT_HOME": str(home)}
-    subprocess.run([sys.executable, "-c", HISTORY.replace("DIR", repr(str(d)))], env=env, check=True, capture_output=True)
+    subprocess.run([sys.executable, "-c", history.replace("DIR", repr(str(d)))], env=env, check=True, capture_output=True)
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -113,6 +184,16 @@ def site(tmp_path_factory):
     yield {"url": url, "dir": d}
     proc.terminate()
     proc.wait(10)
+
+
+@pytest.fixture(scope="module")
+def site(tmp_path_factory):
+    yield from serve(tmp_path_factory, "agents-costs", MODEL, HISTORY)
+
+
+@pytest.fixture(scope="module")
+def leased(tmp_path_factory):
+    yield from serve(tmp_path_factory, "agents-leased", LEASED, LEASED_HISTORY)
 
 
 @pytest.fixture(scope="module")
@@ -163,8 +244,10 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     assert "per hour" in pg.inner_text(".use-charts .chart:first-of-type .chart-head")
     totals = pg.inner_text(".use-totals")
     assert "60 runs" in totals and "$" in totals and "tokens" in totals and "CPU" in totals
-    runs = pg.eval_on_selector_all("#detail table:has(th:text-is('tokens')) tr", "trs => trs.slice(1).map((tr) => tr.innerText)")
-    assert len(runs) == 10 and all("$" in r and "MB" in r for r in runs)
+    runs = pg.eval_on_selector_all(".runs-table > table tr", "trs => trs.slice(1).map((tr) => tr.textContent)")
+    assert len(runs) == 10 and all("$" in r for r in runs)
+    used = pg.eval_on_selector_all("#detail table:has(th:text-is('tokens')) tr", "trs => trs.slice(1).map((tr) => tr.textContent)")
+    assert len(used) == 10 and all("MB" in r for r in used)                 # behind its 'resources' disclosure
     # the cursor on one chart moves them all, and each says its value there
     box = pg.locator(".use-charts .chart-plot").first.bounding_box()
     pg.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] / 2)
@@ -174,6 +257,72 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     shot(pg, f"agent-panel-{theme}.png")
     pg.eval_on_selector("#detail table:has(th:text-is('tokens'))", "el => el.scrollIntoView({ block: 'end' })")
     shot(pg, f"agent-panel-runs-{theme}.png")
+    assert not errors, errors
+    pg.close()
+
+
+def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_and_fit_the_panel(site, browser):
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site['url']}/agents")
+    pg.click("tr.click:has(b:text-is('writer'))")
+    pg.wait_for_selector(".runs-table td a[href^='/item/']")
+    rows = pg.eval_on_selector_all(".runs-table > table tr", """trs => trs.slice(1).map((tr) => ({
+        item: tr.cells[1].querySelector("a")?.getAttribute("href"), outcome: tr.cells[2].textContent,
+        asked: [...tr.cells[3].querySelectorAll("a")].map((a) => a.getAttribute("href"))}))""")
+    assert len(rows) == 10 and all((r["item"] or "").startswith("/item/page") for r in rows)
+    words = [r["outcome"].split(":")[0] for r in rows]                         # newest first: 59 .. 50
+    assert words == ["done", "refused", "failed", "done", "done", "refused", "done", "done", "done", "done"], words
+    assert "no workspace free" in rows[1]["outcome"] and "exited 2" in rows[2]["outcome"]
+    assert "rewritten by another run" in rows[5]["outcome"]                    # exit 0, but its item given back
+    assert [len(r["asked"]) for r in rows] == [1, 1, 1, 1, 1, 0, 0, 0, 0, 0]  # the runs that asked for a push
+    assert all(h.startswith("/item/ergostat.action") for r in rows for h in r["asked"])
+    edge = pg.evaluate("""() => [document.querySelector('.runs-table > table').getBoundingClientRect().right,
+                                document.querySelector('#detail').getBoundingClientRect().right]""")
+    assert edge[0] <= edge[1] + 0.5, edge                                     # not clipped by the panel
+    assert not pg.is_visible("#detail th:text-is('CPU')")                     # behind 'resources' until opened
+    pg.click("details.runs-resources summary")
+    assert pg.is_visible("#detail th:text-is('CPU')")
+    pg.goto(f"{site['url']}/items?kind=ergostat.action")
+    pg.wait_for_selector("table.items tr.click, table tr.click")
+    heads = pg.eval_on_selector_all("table:has(th button[title='Sort by by']) th", "ths => ths.map((t) => t.textContent.trim())")
+    by, ok = heads.index("by"), heads.index("approved by")
+    cells = pg.eval_on_selector_all("table:has(th button[title='Sort by by']) tr.click",
+                                    f"trs => trs.map((tr) => [tr.cells[{by}].textContent, tr.cells[{ok}].textContent])")
+    assert len(cells) == 5 and all(c[0] not in ("", "–") for c in cells), cells
+    assert sorted(c[0] for c in cells) == ["session/w1"] + ["writer"] * 4
+    assert all(c[1] == "owner (offline stand-in)" for c in cells), cells
+    pg.goto(f"{site['url']}/item/{'page%2F59'}")                              # the item's own 'Gated actions'
+    pg.wait_for_selector("h2:has-text('Gated actions')")
+    assert "asked by writer, approved by owner (offline stand-in)" in pg.inner_text("body")
+    assert not errors, errors
+    pg.close()
+
+
+def test_each_group_heading_counts_its_rows_as_the_summary_does(site, browser):
+    """A group's heading says its kind and how many agents are under it ('ai · 2'), the rung only as small text, and
+    that number is the summary line's for the same kind."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site['url']}/agents")
+    pg.wait_for_selector("tbody.group th[data-kind]")
+    groups = pg.evaluate("""() => [...document.querySelectorAll('tbody.group')].map((tb) => {
+        const th = tb.querySelector('th[data-kind]');
+        return [th.dataset.kind, th.textContent, th.querySelector('.count').textContent, tb.querySelectorAll('tr.click').length,
+                th.querySelector('small').textContent]; })""")
+    summary = dict(pg.evaluate("""() => [...document.querySelectorAll('.ladder-line .step')].map((s) =>
+        [s.dataset.kind, s.textContent.trim().split(' ')[0]])"""))
+    kinds = [g[0] for g in groups]
+    assert "ai" in kinds and "program" in kinds, groups              # the model's two AI blocks and its program
+    for kind, text, count, rows, small in groups:
+        assert text.startswith(f"{kind} · {rows}"), (kind, text)    # the kind first, then its count
+        assert int(count) == rows == int(summary[kind]), (kind, count, rows, summary)
+        assert small.strip().startswith("rung "), small              # the rung, said as a rung
+    assert {g[0]: g[3] for g in groups}["ai"] == 2                  # writer and reviewer
+    line = pg.inner_text(".ladder-line")
+    assert line.count("→") == 1 and "most general → most specific" in line
     assert not errors, errors
     pg.close()
 
@@ -188,5 +337,28 @@ def test_the_agents_page_lists_the_daemons(site, browser):
     assert "running" in row and "sensor.pages.main" in row and "2" in row and "1 of 10" in row
     assert "1.5s" in row and "21 MB" in row and "ago" in row
     assert "wall time only" in pg.inner_text(".page")
+    assert not errors, errors
+    pg.close()
+
+
+def test_each_row_says_how_it_is_engaged_and_which_goal_it_serves(site, leased, browser):
+    """Design review Q38: no 'runs when' cell is blank; a leased block reads 'on demand, per item (leased)', its role
+    names the goal it serves, and its panel tallies the runs given back for a full workspace pool apart from those done."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    for s in (site, leased):
+        pg.goto(f"{s['url']}/agents")
+        pg.wait_for_selector("tr.click")
+        when = pg.eval_on_selector_all("tr.click", "trs => trs.map((tr) => tr.children[4].textContent.trim())")
+        assert when and all(when), when
+    row = pg.inner_text("tr.click:has(b:text-is('work'))")
+    assert "on demand, per item (leased)" in row and "valve work → goal located-worked" in row, row
+    pg.click("tr.click:has(b:text-is('work'))")
+    pg.wait_for_selector("#detail h2:text-is('work')")
+    panel = pg.inner_text("#detail")
+    assert "not run by ergostat" not in panel
+    assert "started per item by its lease, not on a schedule" in panel
+    assert "28 runs: 9 done, 19 refused (workspace pool full), 0 failed" in panel, panel
     assert not errors, errors
     pg.close()
