@@ -43,3 +43,23 @@ Built on library-provenance-marks: writer marks, `run_ok` and `writer_ok` in `er
 ## Size budget
 90 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+
+Built, round 1: all five points. The code is 51 net lines (trust.py +71/-24, uses.py +15/-11), within budget. The calls below were made alone (headless), each taking the more reversible, fail-closed option:
+
+- **`sources` cannot be written by a template today.** `templates.BODY` has no `sources`, so a template holding `sources:` does not load. `templates.py` is not in this gap's files, so it is unchanged. The gate still lists `sources` in `ALLOWED`, with every key (`type`, `url`, `token-file`, `tls`) under the R3 text rule `T`. `test_sources_entry_gated` tests that rule at the `trust.refused` level, not end to end. Opening `sources:` to templates is its own change.
+- **Keys count as pieces.** In a `query` map, each field's value can be the owner's, but if the map's keys (`source:`, `promql:`) are the library template's own words, the whole value is refused. Owner text passes when it is given whole (`query: '${q}'`), or when every key and value is the owner's or a trusted template's. This is stricter than strictly needed and is easy to loosen later.
+- **A template's own text whose writer can't be told** (lesson-3). expand.py leaves a field (`${m.q}`, `${it.x}`), an `each:` element and a key made from a value unmarked, outside `run:`. That makes them look like the template's own words. This branch does not touch expand.py, so `trust.blind(t)` reads all of such a template's own text in these four keys as the library's. A trusted template that uses fields anywhere therefore cannot place `ask`/`prompt`/`query` text in a held chain. A whole value given (`Given`) carries its writer down into its leaves, so an owner folder's `sensor: '${how}'` holding a library map is refused. The same unmarked-field path still reaches the `W` keys (`every`/`cron`/`timeout`/`averages`) of a trusted template. That is outside this gap; it is noted here, not fixed.
+- **`ai`/`person` tables.** `MACHINE_TYPES` (program, ai, person) replaces `PROGRAM` and the three types' `REFUSED_TYPES` entries. All three share one `MACHINE_NO` listing every machine key by name. `program`'s allowed keys are unchanged (goal, run, every, cron, timeout). `ai` and `person` allow only their text, goal, until, every and cron. `timeout` stays refused for them, since the definition names only goal/until and every/cron. `test_every_compile_key_classified` now checks each machine type's table against compile's `TYPE_KEYS` and its `sources` keys against `SOURCE_TYPES`.
+- **Refusal order.** The first refused path decides the code. A part with both a library `prompt` and a `model` reports whichever key comes first.
+- **Point 4's "same template compiles":** an owner-folder run can take only an owner command passed whole (R1). So the case that compiles is that template with `run: '${x}'` and `x: {type: command}`, given the owner's `${cmd}` wholly. `sh -c ${x:quote}` is refused for a library literal, and an owner value would not compile there either.
+- **Not in this gap:** `bounds.STARTED` is program, ai and judge, so a held chain's `person` block gets no compile-time `untrusted-limit` floor. Its `every`/`cron` must still be the owner's or a trusted template's (`W`), and `pace()` floors its clock at run time.
+- **Merge:** this clone has only `main` and this branch (no remote-tracking refs). `main` is an ancestor of HEAD, so there was nothing to merge.
+- **Lesson-9 breaks, each seen to fail:**
+  - key back to `NO` (`query`/`prompt`/`ask`): 8 failures (gated ×3, mixed, other-keys ×3, try_use[ask]).
+  - any owner mark enough: `test_untrusted_text_mixed_value_refused` and `test_sources_entry_gated`.
+  - code left `library-untrusted`: gated ×3, mixed, try_use[ask].
+  - `blind()` returning False: the mixed test's `${m.q}` case.
+  - a `Given`'s writer not carried down: the mixed test's `${how}` case.
+  - `test_try_use_runs_nothing_when_refused` guards code main already had (author.trial returns before starting a process when check has errors). No break of that code was tried.
