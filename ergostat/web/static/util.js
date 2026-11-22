@@ -195,6 +195,9 @@ function rateText(r, unit = "", flow = null) {
 /* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠ */
 const op = (x) => x == null ? "" : String(x).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
   .replace(/(^|[\s(=:])-(?=\.?\d)/g, "$1\u2212");                // and a negative number's real minus
+/* a goal's reference as control names it: one-sided, a limit ("limit ≤ 20"); two-sided, a setpoint ("setpoint 0.93 ±0.01") */
+const isLimit = (sp) => /^\s*[<>]/.test(sp ?? "");
+const holdText = (sp, band = "") => `${isLimit(sp) ? "limit" : "setpoint"} ${op(sp).replace(/^\s*=\s*/, "")}${(band || "").replace(/^ \((±.*)\)$/, " $1")}`;
 /* raw data, shown: every float to the precision that means something (the event's panel keeps it whole) */
 const tidy = (v) => typeof v === "number" && !Number.isInteger(v) ? +v.toPrecision(6)
   : Array.isArray(v) ? v.map(tidy) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, tidy(x)])) : v;

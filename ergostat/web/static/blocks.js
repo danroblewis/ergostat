@@ -630,7 +630,8 @@ function bdSym(parent, x, y, fn, { size = BD.FS, anchor = "middle", bold = false
 function bdSketch(kind, x, y) {                        // a static nonlinearity, as the textbooks sketch it
   const g = s("g", { class: "bd-sketch", transform: `translate(${x},${y})` });
   g.append(s("path", { d: "M0,12 H28 M14,0 V24", class: "bd-axis" }));
-  if (kind === "relay") g.append(s("path", { d: "M2,18 H16 V5 H26 M8,18 V5 H16", class: "bd-curve" }));
+  if (kind === "relay") g.append(s("path", { d: "M2,18 H16 V5 H26 M8,18 V5 H16", class: "bd-curve" }));   // with hysteresis
+  else if (kind === "ideal-relay") g.append(s("path", { d: "M2,18 H14 V5 H26", class: "bd-curve" }));      // on and off at one threshold
   else if (kind === "saturation") g.append(s("path", { d: "M2,20 H8 L20,4 H26", class: "bd-curve" }));
   else if (kind === "zoh") g.append(s("path", { d: "M2,20 H8 V15 H14 V9 H20 V5 H26", class: "bd-curve" }));
   else if (kind === "deadzone") g.append(s("path", { d: "M2,22 L9,12 H19 L26,2", class: "bd-curve" }));
