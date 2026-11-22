@@ -257,3 +257,25 @@ Tests run this round (Playwright 1.63.0, under `scripts/suite_watch.py`, through
 - Not run, as the house rules say: the unit suite, the four browser files, and `tests/test_agents_page.py` (the Agents
   code did not change). `main` has not moved in the clone, so there was nothing to merge.
 - Refused this round: a no-op `python3 - <<'EOF'` command. It changed nothing.
+
+## Where it stopped (round 7: each side-list row keyed by its what)
+
+The one finding (blocking, diagram.js:1365 with :1324-1325 and util.js:101-111, lesson 5), answered:
+- The cause is as the review says. The *Needs attention* rows had no `key`, so a refresh patched them in by position.
+  When a request above was answered and went, the request below was patched into its old row and kept that row's typed
+  Why text. Since round 6 the handler reads the inputs on the page, so Deny then sent that text as the wrong request's
+  note.
+- Fixed in `diagram.js` (net 0 lines: `key: a.what` added to the row's attributes). `patchKids` now matches each row
+  by its `what`, so a request keeps its own row, inputs included, and a row whose request is gone is removed.
+- New test `tests/test_inbox_page.py::test_a_reason_typed_for_one_request_does_not_stay_for_the_request_below_it`. It
+  uses three requests, types a reason in the top one, clicks Deny and leaves the list. Once that row is gone, it
+  asserts that both remaining Why boxes are empty. It then denies the next request and asserts the stored notes are
+  exactly the typed reason and none.
+- Break seen to fail (lesson 9): with the `key` removed, the test fails at the Why-box check
+  (`['not this week', ''] == ['', '']`). Restored, and the whole file was run again.
+
+Tests run this round (Playwright 1.63.0, under `scripts/suite_watch.py`, through `scripts/named_tests.py`):
+- `tests/test_inbox_page.py`: rc 0, 4 passed (121.2 s), after the break was restored.
+- `uv run ruff check ergostat tests scripts`: clean.
+- Not run, as the house rules say: the unit suite, the four browser files, and `tests/test_agents_page.py` (the Agents
+  code did not change). `main` has not moved in the clone, so there was nothing to merge.

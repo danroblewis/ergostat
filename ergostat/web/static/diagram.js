@@ -1362,7 +1362,7 @@ function renderSide(side, g, view) {
   for (const a of shown) {
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
     const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
-    att.append(h("div", { "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) }, href ? h("a", { href, class: "plain" }, what) : what, " ",
+    att.append(h("div", { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) }, href ? h("a", { href, class: "plain" }, what) : what, " ",
       linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
   }
   if (problems.length > shown.length) att.append(h("div", { class: "more" }, `${problems.length - shown.length} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));

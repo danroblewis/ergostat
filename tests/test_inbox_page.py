@@ -199,6 +199,36 @@ def test_the_side_list_holds_still_while_the_reader_is_in_it_and_a_request_stays
         b.close()
 
 
+def test_a_reason_typed_for_one_request_does_not_stay_for_the_request_below_it(three):
+    """A reason typed in the top request, Deny, the reader gone: the next request moves up into the place, and its
+    Why box is its own (empty), so its Deny records no note of the first's."""
+    from ergostat.actions import record
+    url, p, reqs = three
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        pg.locator('[data-inbox^="action/"]').nth(2).wait_for(timeout=20000)
+        first = pg.locator('[data-inbox^="action/"]').nth(0).get_attribute("data-inbox")
+        row = pg.locator(f'[data-inbox="{first}"]')
+        row.locator('input[aria-label="Why"]').fill("not this week")
+        row.locator('button[data-verb="deny"]').click()
+        pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=row.element_handle(), timeout=20000)
+        leave(pg)
+        pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="{first}"]')""", timeout=20000)
+        boxes = pg.locator('[data-inbox^="action/"] input[aria-label="Why"]')
+        assert boxes.count() == 2 and [boxes.nth(i).input_value() for i in range(2)] == ["", ""]
+        nxt = pg.locator('[data-inbox^="action/"]').nth(0)
+        nxt.locator('button[data-verb="deny"]').click()
+        pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=nxt.element_handle(), timeout=20000)
+        notes = sorted((record.get(p, a["id"]).get("note") or "") for a in reqs if record.get(p, a["id"])["state"] == "denied")
+        assert notes == ["", "not this week"], notes
+        assert not errors, errors
+        b.close()
+
+
 def test_a_request_answered_from_the_keyboard_holds_the_list_with_the_pointer_off_it(site):
     """Answered with the keyboard, the pointer off the list: the disabled button does not drop the focus to the body.
     The focus goes to the row's reply, so the answered row stays in its place, saying so, until the reader leaves."""
