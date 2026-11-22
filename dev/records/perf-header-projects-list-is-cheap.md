@@ -76,3 +76,17 @@ Run here after the merge: tests/test_projects_header.py, tests/test_goal_upkeep.
 (8 passed), tests/test_web_access.py and tests/test_graph_cli_web.py (60 passed), tests/test_page_refresh.py (9 passed,
 under suite_watch, rc 0). ruff is clean.
 Not run here: the owner-machine check, the full unit suite and the other three browser files.
+
+Round 4: the merge of main (bea24a23) conflicted in ergostat/projects.py `_row` and util.js `refreshProjects`. Kept
+both sides: main's new `goals_off` field (the system's goals off, upkeep apart) and its menu figures (`N off` from
+`goals_off`, `N unknown`, `model upkeep N`), with the branch's third return value (the kept model) and its 'cannot
+load' / 'no page' bits and the error as the option's title. Main's 'stopped' bit is gone, as stopped projects are no
+longer in the menu. The browser test's stand-in row now carries `goals_off` as real rows do.
+Run here after the merge: tests/test_projects_header.py, tests/test_projects_listing.py, tests/test_goal_upkeep.py
+(9 passed), tests/test_web_access.py and tests/test_graph_cli_web.py (63 passed); ruff is clean.
+tests/test_page_refresh.py: 8 passed, 1 failed (rc 1), and it fails the same way when run alone:
+`test_other_pages_left_open_change_nothing[diagram?view=process&by=events]` sees 3 mutations of the H1's `title`.
+This is unrelated to the branch. It comes from main's ergostat/web/static/diagram.js:1194 (`caption.title =
+caption.textContent`, written on every refresh), and the branch does not change diagram.js. It was left alone.
+The header menu test (DoD 3) passed.
+Not run here: the owner-machine check, the full unit suite and the other three browser files.
