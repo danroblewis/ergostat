@@ -574,7 +574,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
         from ..costs import record as costs
         use = costs.per_block(p, snap["at"] - snap["window"], snap["at"])
-        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {})}
+        span = min(snap["window"], snap["recorded"])     # the runs its interval asks for over the window's record
+        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {}),
+                    "expected": int(span // a["every"]) if a.get("every") else None, "span": span}
                 for n, a in snap["agents"].items()}
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})

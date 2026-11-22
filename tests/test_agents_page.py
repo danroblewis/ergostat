@@ -178,6 +178,110 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     pg.close()
 
 
+STANDOUT = """
+name: agents-standout
+stocks:
+  changes:
+    unit: changes
+flows:
+  made:
+    to: changes
+  judged:
+    from: changes
+  tidied:
+    from: changes
+blocks:
+  improver:
+    type: program
+    run: ./improve.sh
+    every: 3m
+    out: flow.made
+  judge:
+    type: judge
+    every: 30s
+    in:
+      waiting: +stock.changes
+  tidy:
+    type: program
+    run: ./tidy.sh
+    every: 1h
+    out: flow.tidied
+"""
+
+STANDOUT_HISTORY = """
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(DIR)))
+now = time.time()
+p.events.add("note", item="start", source="test", at=now - 3700, data={})      # the record began over an hour ago
+for i in range(10):                                   # ten runs of the judge in the hour, where ~120 were asked for
+    p.events.add("agent.ran", item="judge", source="ergostat", at=now - 3000 + i * 300, data={"exit": 0, "seconds": 1})
+p.events.add("agent.failed", item="tidy", source="ergostat", at=now - 600, data={"exit": 2, "note": "tidy.sh exited 2"})
+"""
+
+
+@pytest.fixture(scope="module")
+def standout(tmp_path_factory):
+    d = tmp_path_factory.mktemp("standout") / "agents-standout"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(textwrap.dedent(STANDOUT))
+    home = d.parent / "home"
+    env = {**os.environ, "ERGOSTAT_HOME": str(home)}
+    subprocess.run([sys.executable, "-c", STANDOUT_HISTORY.replace("DIR", repr(str(d)))], env=env, check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never answered")
+    yield {"url": url, "dir": d}
+    proc.terminate()
+    proc.wait(10)
+
+
+def test_an_agent_that_never_ran_is_behind_or_last_failed_stands_out(standout, browser):
+    """improver never ran, judge ran 10 of ~120 asked for, tidy last failed: each row says so in the alarm colour with
+    a reason under it, the top line counts them, and judge's runs cell is its panel's count."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{standout['url']}/agents")
+    pg.wait_for_selector("tr.click:has(b:text-is('judge'))")
+    row = lambda n: f"tr.click:has(b:text-is('{n}'))"                       # noqa: E731
+    word = lambda n: pg.inner_text(f"{row(n)} .exception").strip()          # noqa: E731
+    assert word("improver") == "never ran"
+    assert word("judge") == "behind: 10 of ~120"
+    assert word("tidy") == "last run failed"
+    assert pg.eval_on_selector(f"{row('judge')} .exception", "el => getComputedStyle(el).color") == \
+        pg.eval_on_selector("body", "() => { const s = document.createElement('span'); s.className = 's-off'; document.body.append(s); "
+                                    "const c = getComputedStyle(s).color; s.remove(); return c; }")   # the alarm colour
+    why = lambda n: pg.eval_on_selector(row(n), "tr => tr.nextElementSibling.matches('tr.exception-why') "  # noqa: E731
+                                                "? tr.nextElementSibling.innerText : ''")
+    assert "no run of it is in the record" in why("improver")
+    assert "about 120 runs" in why("judge") and "10 are recorded" in why("judge")
+    assert "tidy.sh exited 2" in why("tidy")
+    assert pg.eval_on_selector_all("tr.exception-why", "trs => trs.length") == 3      # (and no other row stands out)
+    top = pg.inner_text(".ladder-line")
+    assert "1 never ran" in top and "1 behind schedule" in top and "1 last run failed" in top
+    runs = pg.eval_on_selector(row("judge"), "tr => tr.children[2].textContent")
+    pg.click(row("judge"))
+    pg.wait_for_selector("#detail h2:text-is('judge')")
+    import re
+    said = re.search(r"(\d+) runs, \d+ failed", pg.inner_text("#detail"))
+    assert said and runs == said.group(1) == "10"                         # the list and the panel: one count
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_agents_page_lists_the_daemons(site, browser):
     pg = browser.new_page(viewport={"width": 1400, "height": 900})
     errors: list[str] = []
