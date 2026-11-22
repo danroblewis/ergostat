@@ -39,7 +39,14 @@ flows:
     from: pages
   tidied:
     from: pages
+  drafted:
+    from: pages
 blocks:
+  drafter:
+    type: ai
+    prompt: "Draft one page."
+    run: ./draft.sh
+    out: flow.drafted
   writer:
     type: ai
     prompt: "Rewrite one stale page."
@@ -69,7 +76,7 @@ for i in range(60):                                   # the last twenty hours, a
     t = now - 72000 + i * 1200
     for block, model, usd, how in (("writer", "claude-sonnet-5-5", 0.05 + 0.04 * random.random(), "reported"),
                                    ("reviewer", "claude-haiku-5-5", 0.002 + 0.002 * random.random(), "estimated"),
-                                   ("tidy", None, None, None)):
+                                   ("tidy", None, None, None), ("drafter", None, None, None)):   # (an AI on a stand-in)
         data = {"exit": 0, "seconds": round(20 + 40 * random.random(), 1), "why": "schedule",
                 "resources": {"cpu": round((9 if model else 0.4) * random.random() + 0.1, 3),
                               "memory_peak": int((300e6 if model else 40e6) * (1 + random.random())), "samples": 5,
@@ -149,7 +156,8 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
          ...['cost', 'tokens', 'cpu', 'memory'].map((k) => tr.querySelector(`td[data-use=${k}]`).textContent)])""")}
     assert rows["writer"][0].startswith("$") and "est." not in rows["writer"][0]
     assert rows["reviewer"][0].startswith("$") and rows["reviewer"][0].endswith("est.")   # priced from tokens
-    assert rows["tidy"][0] == "–" and rows["tidy"][1] == "–"                     # a program: no AI
+    assert rows["tidy"][0] == "no AI, $0" and rows["tidy"][1] == "–"             # a program: no AI, and it says so
+    assert rows["drafter"][0] == "free stand-in, $0"                                   # an AI agent whose runs had no session
     assert rows["tidy"][2].endswith("s") and rows["tidy"][3].endswith("MB")                # but its CPU and memory
     assert rows["writer"][1].endswith("M") or rows["writer"][1].endswith("k")
     assert "What the runs cost" in pg.inner_text(".page .note")
@@ -174,6 +182,32 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     shot(pg, f"agent-panel-{theme}.png")
     pg.eval_on_selector("#detail table:has(th:text-is('tokens'))", "el => el.scrollIntoView({ block: 'end' })")
     shot(pg, f"agent-panel-runs-{theme}.png")
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_agents_table_ends_in_the_windows_total_and_no_cost_is_bare(site, browser):
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site['url']}/agents")
+    pg.wait_for_selector("tr[data-total]")
+    pg.click("text=Last 1h")                                # the window: the last day
+    pg.click("text=Last day")
+    pg.wait_for_function("() => /\\$\\d/.test(document.querySelector('tr[data-total] td[data-use=cost]')?.textContent)")
+    pg.wait_for_timeout(3500)                                # (the window's answers settle: one table read below)
+    rows = pg.evaluate("""() => [...document.querySelector('.table-wrap table').querySelectorAll('tr')].map((tr) =>
+        [...tr.children].map((c) => c.textContent))""")
+    last = rows[-1]
+    assert last[0] == "total", last
+    costs = pg.eval_on_selector_all("td[data-use=cost]", "els => els.map((e) => e.textContent)")
+    assert costs and not [c for c in costs if c in ("–", "$0")], costs
+    shown = pg.eval_on_selector_all("tr.click", """trs => trs.map((tr) => [tr.querySelector('b').textContent,
+        +tr.querySelector('td.num').textContent])""")
+    assert int(last[2]) == sum(n for _, n in shown)                         # the runs, every agent's together
+    total = float(pg.inner_text("tr[data-total] td[data-use=cost]").lstrip("$"))
+    each = [float(c.split()[0].lstrip("$")) for c in costs[:-1] if c.startswith("$")]
+    assert len(each) == 2 and abs(total - sum(each)) < 0.01 * len(each) + 0.01   # writer's and reviewer's dollars
     assert not errors, errors
     pg.close()
 

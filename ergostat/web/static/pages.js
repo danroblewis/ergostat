@@ -88,15 +88,20 @@ async function pageAgents(main) {
     const last = (a) => a.runs_itself ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
-    const use = (a) => a.use || {};
+    const use = (a) => a.use || {}, all = Object.values(agents), sum = (f) => all.reduce((s, a) => s + (f(use(a)) || 0), 0);
+    // [key, head, title, its cell, the window's total]: a column empty for every agent is left out
+    const nums = [["tokens", "tokens", "Tokens its AI sessions used in the window: input, output, cache reads and writes",
+      (u) => (u.ai_runs ? u.tokens : null), tokensText, () => sum((u) => u.ai_runs && u.tokens)],
+      ["cpu", "CPU", "CPU time of its runs' processes in the window, user and system", (u) => u.cpu, cpuText, () => sum((u) => u.cpu)],
+      ["memory", "peak memory", "The most memory one of its runs held (its processes together)", (u) => u.memory_peak, bytesText,
+        () => Math.max(...all.map((a) => use(a).memory_peak || 0))]].filter(([, , , v]) => all.some((a) => v(use(a)) != null));
+    const spent = sum((u) => u.cost_usd);
     patch(box, h("div", { class: "table-wrap" }, h("table", {},
       h("tr", {}, h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
-        h("th", { class: "num", title: "What its AI sessions cost in the window, in USD" }, "cost"),
-        h("th", { class: "num", title: "Tokens its AI sessions used in the window: input, output, cache reads and writes" }, "tokens"),
-        h("th", { class: "num", title: "CPU time of its runs' processes in the window, user and system" }, "CPU"),
-        h("th", { class: "num", title: "The most memory one of its runs held (its processes together)" }, "peak memory")),
+        h("th", { class: "num", title: "What its AI sessions cost in the window, in USD; a stand-in or a program runs free" }, "cost"),
+        nums.map(([k, head, title]) => h("th", { class: "num", key: k, title }, head))),
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
-        h("tr", {}, h("th", { colspan: 9 }, `${i} ${k}`, h("span", { class: "muted" }, `  ${RUNG_HINT[i]}`))),
+        h("tr", {}, h("th", { colspan: 6 + nums.length }, `${i} ${k}`, h("span", { class: "muted" }, `  ${RUNG_HINT[i]}`))),
         xs.map(([name, a]) => h("tr", { class: "click", key: name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
           h("td", {}, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || h("span", { class: "muted" }, "no roles"),
@@ -107,10 +112,12 @@ async function pageAgents(main) {
           h("td", { class: "nowrap muted" }, last(a)),
           h("td", { class: "muted" }, a.schedule || a.every || ""),
           h("td", { class: "num nowrap", "data-use": "cost", title: use(a).cost ? `${use(a).cost}, over ${use(a).ai_runs} runs` : "" },
-            usd(use(a).cost_usd), use(a).cost && use(a).cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
-          h("td", { class: "num", "data-use": "tokens" }, tokensText(use(a).ai_runs ? use(a).tokens : null)),
-          h("td", { class: "num", "data-use": "cpu" }, cpuText(use(a).cpu)),
-          h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak)))))))));
+            costText(use(a), a), use(a).cost && use(a).cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
+          nums.map(([key, , , v, text]) => h("td", { class: "num", key, "data-use": key }, text(v(use(a))))))))),
+      h("tbody", { class: "total", key: "total" }, h("tr", { "data-total": "" }, h("td", {}, h("b", {}, "total")), h("td", { class: "muted" }, "over the window"),
+        h("td", { class: "num" }, String(all.reduce((s, a) => s + (a.runs_itself ? a.runs || 0 : 0), 0))), h("td", {}), h("td", {}),
+        h("td", { class: "num nowrap", "data-use": "cost" }, spent ? usd(spent) : "$0: no AI cost recorded"),
+        nums.map(([key, , , , text, total]) => h("td", { class: "num", key, "data-use": key }, text(total()))))))));
     const ds = Object.entries(daemons || {});
     patch(dbox, ...(ds.length ? [h("h3", {}, "Daemons"), h("p", { class: "note" }, "Long-lived processes the blocks' runs and the " +
       "sensors' readings are handed to (SPEC §9.7). Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
@@ -937,6 +944,9 @@ async function pageItem(main, id, q) {
       d.eta ? pair("Expected done", h("span", { "data-eta": "" }, h("b", {}, etaWhen(d.eta.p50)), h("span", { class: "muted" }, ` (${etaP90(d.eta)}`
         + (d.eta.start != null && d.eta.start > nowS() + 60 ? `; started about ${etaWhen(d.eta.start)}` : "")
         + (d.eta.dead ? `; a dead letter in ${Math.round(d.eta.dead * 100)}% of runs` : "") + ")"))) : null,
+      d.cost ? pair("Cost", h("span", { "data-cost": "", title: "What the runs that took it cost: their AI sessions, from its leases" },
+        d.cost.runs ? costText(d.cost, { rung: d.cost.rung }) : "not known yet", d.cost.cost && d.cost.cost !== "reported" ? " est." : "",
+        h("span", { class: "muted" }, d.cost.runs < d.cost.taken ? ` (${d.cost.runs} of the ${d.cost.taken} runs that took it ended)` : ` (over ${d.cost.taken} run${d.cost.taken === 1 ? "" : "s"})`))) : null,
       pair("Events", String(d.events)), pair("First", ago(d.first)), pair("Latest", h("span", {}, d.latest, h("span", { class: "muted" }, `, ${ago(d.last)}`))));
     const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
       h("span", { class: `stbox${st === d.state ? " on" : ""}${d.moves.some((m) => m.to === st) || (i === 0) ? " been" : ""}` }, st)])) : null;

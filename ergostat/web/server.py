@@ -40,6 +40,22 @@ _STATIC_REF = re.compile(r'((?:src|href)=")/static/([\w./-]+)(")')
 FOREVER = "public, max-age=31536000, immutable"
 
 
+def _item_cost(p, m, record: list[dict], until: float) -> dict | None:
+    """What the runs that took an item cost (its leases name them, SPEC §9.5): their totals, how many took it, and
+    the rung of the agent that ran them; a run not ended yet is counted in ``taken``, never as $0. None when no run
+    took it (as far as its record's latest events show)."""
+    from ..costs import record as costs
+    taken = {e["data"]["run"]: (e["data"].get("block"), e["time"]) for e in record
+             if e["type"] == "ergostat.lease.taken" and isinstance(e.get("data"), dict) and e["data"].get("run")}
+    if not taken:
+        return None
+    since = min(t for _, t in taken.values())
+    blocks = {b for b, _ in taken.values() if b}
+    ends = [costs.numbers(e) for b in blocks for e in costs.ended(p, since, until, b) if e.get("causedby") in taken]
+    rungs = {m.agents[b].rung for b in blocks if b in m.agents}
+    return {**costs.totals(ends), "taken": len(taken), "rung": rungs.pop() if len(rungs) == 1 else None}
+
+
 def asset_version(name: str) -> str | None:
     """A static file's version: a hash of its content, kept until the file changes (its mtime or size). The page
     references every file with it (``/static/NAME?v=VERSION``), so an update changes the address the browser asks
@@ -615,7 +631,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
             est = _estimates(p, m, snap, one("whatif"))
             if d and est and name in est.get("items", {}):
                 d["eta"] = {**est["items"][name], "at": est["at"], "runs": est["runs"]}
-            return d
+            return {**d, "cost": _item_cost(p, m, d["record"], snap["at"])} if d else d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
         if "search" in q:                         # the items whose fields hold every word, as now (SPEC §5a, Search)

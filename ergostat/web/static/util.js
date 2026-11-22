@@ -234,6 +234,14 @@ function usd(x) { return x == null ? "\u2013" : x === 0 ? "$0" : x < 0.01 ? `$${
 function tokensText(n) { return n == null ? "\u2013" : n === 0 ? "0" : n >= 1e6 ? `${+(n / 1e6).toPrecision(3)}M` : n >= 1e4 ? `${+(n / 1e3).toPrecision(3)}k` : String(n); }
 function cpuText(x) { return x == null ? "\u2013" : x < 60 ? `${+x.toPrecision(2)}s` : dur(x); }
 function bytesText(b) { return b == null ? "\u2013" : b >= 1e9 ? `${+(b / 1e9).toPrecision(3)} GB` : `${+(b / 1e6).toPrecision(3)} MB`; }
+/* runs' cost ({runs, cost_usd, tokens}) with why it is none: an AI agent's runs with no session and no tokens ran on
+   a free stand-in; another kind's, no AI (a = the agent, {kind, rung, runs_itself}) */
+function costText(u, a) {
+  if (u.cost_usd) return usd(u.cost_usd);
+  if (u.tokens) return u.cost_usd == null ? "not priced" : "$0 reported";
+  if (!u.runs) return a && !a.runs_itself ? (a.kind === "person" ? "a person, not priced" : "not run here") : "no runs, $0";
+  return a && [1, 2, 3].includes(a.rung) ? "free stand-in, $0" : "no AI, $0";
+}
 function ago(t) {
   if (!t) return "never";
   const d = nowS() - t;

@@ -803,7 +803,7 @@ pre.diff { font-family: var(--mono); font-size: var(--text-sm); background: var(
   padding: var(--sp-2); margin: var(--sp-2) 0; overflow-x: auto; white-space: pre; }
 pre.diff .add { color: var(--ink); background: var(--fill); }
 pre.diff .del { color: var(--muted); text-decoration: line-through; }
-table.fit tr.total td { border-top: var(--hair) solid var(--line-strong); }
+table.fit tr.total td, tbody.total td { border-top: var(--hair) solid var(--line-strong); }
 .page .actions { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; margin: var(--sp-2) 0; }
 .page .actions[hidden], .detail .actions[hidden] { display: none; }   /* a confirm row, until it is asked for */
 .proposal dl, .whatif dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--sp-1) var(--sp-3); margin: var(--sp-2) 0; }

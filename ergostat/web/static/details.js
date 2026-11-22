@@ -233,7 +233,7 @@ async function openAgent(name) {
             (v.pid ? ` (pid ${v.pid})` : "")).join(", ") : "") : null],
         ["log", a.log_path ? h("code", {}, a.log_path) : null]])];
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
-  if (a.use?.runs?.length) kids.push(...useSection(a.use));
+  if (a.use?.runs?.length) kids.push(...useSection(a.use, a));
   kids.push(h("h3", {}, "Recent runs"));
   const costOf = (d) => ({ cost_usd: d.ai ? d.ai.cost_usd : d.cost_usd, cost: d.ai ? d.ai.cost : d.cost_usd != null ? "reported" : null,
                             model: d.ai?.model, tokens: d.ai?.tokens?.total, cpu: d.resources?.cpu, memory: d.resources?.memory_peak });
@@ -241,7 +241,7 @@ async function openAgent(name) {
     h("th", { class: "num" }, "cost"), h("th", { class: "num" }, "tokens"), h("th", { class: "num" }, "CPU"), h("th", { class: "num" }, "memory"), h("th", {}, "")),
     (a.recent || []).slice(-10).reverse().map((e) => { const r = costOf(e.data); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
       h("td", { class: "num" }, String(e.data.readings || 0)), h("td", { class: "num" }, String(e.data.openings || 0)), h("td", { class: "num" }, String(e.data.decisions || 0)),
-      h("td", { class: "num nowrap", title: r.cost ? `${r.cost}${r.model ? ", " + r.model : ""}` : "" }, usd(r.cost_usd), r.cost && r.cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
+      h("td", { class: "num nowrap", title: r.cost ? `${r.cost}${r.model ? ", " + r.model : ""}` : "" }, costText({ ...r, runs: 1 }, a), r.cost && r.cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
       h("td", { class: "num" }, tokensText(r.tokens)), h("td", { class: "num" }, cpuText(r.cpu)), h("td", { class: "num" }, bytesText(r.memory)),
       h("td", {}, e.type === "agent.failed" ? h("span", { class: "s-off" }, e.data.note || "failed") : "")); }))));
   if (a.log?.length) kids.push(h("h3", {}, "End of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
@@ -249,7 +249,7 @@ async function openAgent(name) {
 }
 
 /* what an agent's runs cost over the window (SPEC §9.1): its totals, then one chart per number, sharing a cursor */
-function useSection(u) {
+function useSection(u, agent) {
   const t = u.totals, g = chartGroup("use"), rows = u.runs;
   const series = (k, scale = 1) => { const xs = rows.filter((r) => r[k] != null); return { times: xs.map((r) => r.time), values: xs.map((r) => r[k] * scale) }; };
   const span = { group: g, since: u.since, until: u.until }, made = [];
@@ -262,7 +262,7 @@ function useSection(u) {
   const charts = made.map((c, i) => useChart({ ...span, ...c, xAxis: i === made.length - 1 }));
   const est = t.cost && t.cost !== "reported" ? ` (${t.cost}: from tokens, by a price table)` : "";
   return [h("h3", {}, "What its runs cost"),
-    h("p", { class: "note use-totals" }, `${t.runs} runs: ${usd(t.cost_usd)}${est}, ${tokensText(t.tokens)} tokens, ${cpuText(t.cpu)} CPU, ` +
+    h("p", { class: "note use-totals" }, `${t.runs} runs: ${costText(t, agent)}${est}, ${tokensText(t.tokens)} tokens, ${cpuText(t.cpu)} CPU, ` +
       `at most ${bytesText(t.memory_peak)} in one run.`),
     h("div", { class: "charts use-charts" }, g.when, ...charts)];
 }
