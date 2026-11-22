@@ -169,6 +169,8 @@ def test_the_web_api_serves_what_the_cli_shows(project):
                 return r.status, r.read()
         st, body = get("/api/status")
         assert st == 200 and json.loads(body)["loops"]["disk-under-80"]["status"] == "holding"
+        status = json.loads(body)          # how long the record runs: the flow panel's "no movement in <span>"
+        assert 0 <= status["recorded"] <= status["window"]
         assert json.loads(get("/api/graph?view=control")[1])["kind"] == "control"
         assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "process"     # the wiring's address: the process map
         assert json.loads(get("/api/part/stock/disk-used")[1])["now"]["value"] == 70

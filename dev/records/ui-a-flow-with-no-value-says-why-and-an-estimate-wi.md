@@ -55,3 +55,9 @@ fails at its last line (`"Nothing waiting." in` the /model page, drawn by `pages
 It failed alone, and still failed with every change of this branch except `dynamics.js` undone. `dynamics.js` changes
 only the Dynamics label and panels, not the /model page. It was not run on main: `git checkout main -- ergostat/web`
 was refused. Also refused: running the whole of `tests/test_diagram_rendering.py` in the background.
+
+After the factory's `build` step: it failed with rc 5 because nothing ran. Its only selected file,
+`tests/test_diagram_rendering.py`, is skipped without Playwright, and `server.py` has no `tests/test_server.py`.
+No test had failed. The `recorded` field added to `/api/status` now has a unit check in
+`tests/test_graph_cli_web.py::test_the_web_api_serves_what_the_cli_shows` (0 ≤ recorded ≤ window). It was seen to fail
+(KeyError) with the field removed. That file passes (32), and ruff is clean.
