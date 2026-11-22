@@ -266,9 +266,11 @@ page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and proc
 attention, loops or the process map's kinds, model changes, legend), Loops, Agents (one list, by rung), Items (the
 record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
 its old address `/fit` goes there; first **What's available**: each loop, whether its process is
-identified and what would identify it, or that it closes through queues; each parameter to estimate,
+identified and what would identify it (loops identified alike said once, as a group: "12 loops: an
+integrator, from the model"), or that it closes through queues; each parameter to estimate,
 the parts it is in and whether the record is long enough yet; and where each model tool lives, every
-link choosing the part and opening its view and panel; `docs/MODEL-TOOLS.md` is the guide; then the
+link choosing the part and opening its view and panel (a loop's: with only the systems its goal and stock
+are in open); `docs/MODEL-TOOLS.md` is the guide; then the
 review queue: every change waiting, read like a pull request, each with what kind of change it is, where
 (Show on diagram chooses its parts and opens both views), why, how it was found, its benefit, its effect
 simulated in memory and the exact diff Accept writes; Simulate all pending; what ergostat can and cannot
@@ -280,7 +282,8 @@ little record"; the total led by its scaled error; the fit's history across vers
 each accepted change; Calibrate (each part alone, each system alone, or every stock integrated, with the
 loops a decision leaves open listed), the proposals waiting,
 and why the estimates not proposed were not; and the residuals),
-Check, and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
+Check (each finding once; a kind that comes about many parts, as one table under its advice, said once,
+worst first, each part a link to the diagram; the notes as a list), and a Guide: a sequence of frames, one line each, every frame a tiny built-in model drawn by
 the real dynamics and blocks renderers (`ergostat/guide.py`), with its behaviour over time beside
 it (why: what we control and what we want; system dynamics; control; then the project's own model,
 both ways). Clicking a part opens what `ergostat <topic> <name>` shows, in the detail panel, which
