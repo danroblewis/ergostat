@@ -45,3 +45,18 @@ Not run here: the unit suite and the browser files (the factory runs them). Runn
 the repository's own files was refused in this session. The CLI is covered by the tests instead: `split --dry-run` as
 a subprocess, `render [--check]` through main() on a temporary tree. main is this branch's base (277a9c6c), so there
 was nothing to merge.
+
+Round 2: the one review finding (it was blocking, and the review had no others) is fixed. render's check for titles
+slugging to one branch now compares the branch intake gives a found gap: fac.slug(gap id, 32), as in
+dev/bin/intake.py:226-227. It used to compare the 60-character gap id. Two equal gap ids always give one branch, so
+the new check also catches every collision the old one did. The docstrings no longer treat the gap id and the branch
+as the same thing: gap_id() is described as the gap id, and the module docstring says the branch is the id cut to 32.
+split still names each record by its gap id. That matches round 1's stated choice, and render reports any pair that
+shares a branch. The new test is
+test_two_titles_that_differ_only_past_32_slug_characters_are_named_as_one_branch. It uses two titles with different
+gap ids that share the branch remote-systems-keep-their, and it asserts that the two ids differ. With the check put
+back to 60 characters, this test was seen to fail. dev/bin/gapsdoc.py is still 220 lines: no overrun.
+
+Checked, round 2: tests/test_gapsdoc.py, 23 passed. Ruff is clean on ergostat, tests, scripts and dev/bin/gapsdoc.py.
+main is still 277a9c6c, an ancestor of this branch, so there was nothing to merge. The unit suite and the browser
+files were not run here (the factory runs them).

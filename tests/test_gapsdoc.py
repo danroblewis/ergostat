@@ -218,6 +218,19 @@ def test_two_entries_slugging_to_one_branch_are_named_and_both_rendered():
     assert text.count("- **Remote systems**") == 1 and text.count("- **Remote: systems**") == 1
 
 
+def test_two_titles_that_differ_only_past_32_slug_characters_are_named_as_one_branch():
+    # intake: two gap ids (slug at 60), one branch (the id cut to 32, dev/bin/intake.py:226), so one worktree and record
+    a = UMBRELLA.replace("**Remote systems**", "**Remote systems keep their measures when the link drops**")
+    b = UMBRELLA.replace("**Remote systems**", "**Remote systems keep their measures across restarts**")
+    ida, idb = (gapsdoc.gap_id(t) for t in ("Remote systems keep their measures when the link drops",
+                                            "Remote systems keep their measures across restarts"))
+    assert ida != idb                              # not caught by the gap id: only by the 32-char branch
+    head = HEAD.replace("@entry remote-systems", "@entry remote-a\n@entry remote-b")
+    text, problems = gapsdoc.render({"remote-a": a, "remote-b": b}, head)
+    assert problems == ["remote-a, remote-b: their entries' titles slug to one branch, remote-systems-keep-their"]
+    assert "measures when the link drops**" in text and "measures across restarts**" in text
+
+
 def test_a_sub_gap_whose_umbrella_has_no_entry_and_a_listed_entry_with_none_are_named():
     _, problems = gapsdoc.render({"remote-mtls": sub("remote-mtls", "2026-11-21", "Mutual TLS.")}, HEAD)
     assert any(p.startswith("remote-mtls: entry-of: remote-systems, which has no top entry") for p in problems)

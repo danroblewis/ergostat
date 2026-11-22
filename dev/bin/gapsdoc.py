@@ -5,9 +5,9 @@ A record (dev/records/<branch>.md) may hold one `## Entry` section, shaped as de
 sub-gap, `entry-of: <umbrella's record>` and its done lines only. Every done line of an umbrella and its sub-gaps is
 rendered under the umbrella's bullet in date order (then by name): two sub-gaps are two files, merged with no conflict.
 dev/records/GAPS-head.md is the rest of GAPS.md, each entry a line `@entry NAME`; an entry it does not list goes after
-its section's last, by name. render() reports by name every malformed Entry, two titles slugging to one branch (the
-gap id intake gives them), a listed entry or an umbrella with none: rendered, never silently dropped. split() is the
-inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line.
+its section's last, by name. render() reports by name every malformed Entry, two titles slugging to one branch
+(gap ids cut to 32, as intake does), a listed entry or an umbrella with none: rendered, never silently dropped.
+split() is the inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line.
 
     gapsdoc.py render [--check]       GAPS.md from dev/records to stdout (--check: only the problems); exits 1 on any
     gapsdoc.py split --dry-run [FILE] what split would make of FILE (docs/GAPS.md): records, duplicates, problems
@@ -36,7 +36,7 @@ KEYS = ("section", "entry-of")
 
 
 def gap_id(title: str) -> str:
-    """The branch name intake gives an entry of this title (its gap id after `gap/`)."""
+    """The gap id intake gives an entry of this title (after `gap/`); its branch is this cut to 32 (intake.py:226)."""
     return fac.slug(title.rstrip(":").strip(), 60)
 
 
@@ -108,7 +108,7 @@ def render(records: dict[str, str], head: str) -> tuple[str, list[str]]:
             tops[name] = e
     slugs: dict[str, list[str]] = {}
     for name, e in tops.items():
-        slugs.setdefault(gap_id(ENTRY.match(e["bullet"][0]).group(1)), []).append(name)
+        slugs.setdefault(fac.slug(gap_id(ENTRY.match(e["bullet"][0]).group(1)), 32), []).append(name)
     problems += [f"{', '.join(ns)}: their entries' titles slug to one branch, {s}" for s, ns in slugs.items() if ns[1:]]
     for umbrella, kids in subs.items():
         for name, e in kids:
