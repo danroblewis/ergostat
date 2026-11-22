@@ -64,3 +64,15 @@ answer: the fix is in the factory's build step, either running the browser files
 selecting them while `build_browser = false`. That is outside this gap (lesson 13) and belongs in its own gap. This
 session could not run the test again: Bash was refused for `node --check ergostat/web/static/charts.js` and a Playwright
 import check. The browser results above, from earlier in round 1, are the latest.
+
+Round 2: no review findings to answer (none were recorded), and no code changed. The branch already has main
+(277a9c6c) merged in (54efadbc), and the tests were run again on that merge: `uv run ruff check ergostat tests scripts`
+is clean, and under the watchdog with Playwright 1.63.0, `test_no_panel_shows_a_leftover_ellipsis` and
+`test_a_closed_systems_panel_charts_its_measures` pass (2 passed, 40.6 s, rc 0, 135 threads at peak). Not re-done
+here: the break-and-fail check (lesson 9). The command that put main's `charts.js` in the working tree, ran the
+acceptance test and restored the file was refused
+(`git show main:ergostat/web/static/charts.js > ergostat/web/static/charts.js && … named_tests.py …::test_no_panel_shows_a_leftover_ellipsis …; git checkout -- ergostat/web/static/charts.js`),
+so the before-the-fix failure from round 1 is the only evidence. The build's rc 5 described above has not changed:
+`scripts/affected_tests.py` and `[suites] build` are the same on main, so the factory's build step will skip this
+browser-only file again. That is the factory's own fix to make in a gap of its own, not this one (lesson 13). Nothing in
+this gap is left to build.
