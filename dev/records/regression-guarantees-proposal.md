@@ -15,3 +15,11 @@ The owner, 2026-11-21: before ergostat is given to people, encode our regression
 
 ## Size budget
 0 lines of code; the proposal under 500 lines.
+
+## Where it stopped
+
+Built in full in round 1: `docs/proposals/regression-guarantees.md` (254 lines; no code changed). Nothing is left of
+this definition. Choices taken without the owner, each the most reversible (the proposal's section 8): proposed, not
+built; one new model file (`dev/model/guarantees.yaml`) in the milestone rather than edits across the existing ones;
+every new loop closed by a person or an existing program; holding the queue while main is red left as a separate
+question to the owner; users get an opt-in template, never a default; the setpoints are placeholders for the owner.
