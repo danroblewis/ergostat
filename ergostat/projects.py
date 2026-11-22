@@ -46,7 +46,7 @@ def _row(d: Path, note: dict, pid: int | None) -> tuple[dict, list]:
     return {"name": m.name, "repo": note["repo"], "running": bool(pid), "web": web_url(p) if pid else None,
             "loops": len(snap["loops"]), "off": sorted(g["system"] + g["open"]), "unknown": g["unknown"],
             "upkeep_off": sorted(n for v in g["own"].values() for n in v),
-            "goals_off": g["system"],            # the header's first figure: the system's goals off, upkeep apart
+            "goals_off": g["system"],          # the header's first figure: the system's goals off, upkeep apart
             "attention": len([a for a in st.attention(snap, bool(pid), m) if a["level"] != "hint"])}, files
 
 
