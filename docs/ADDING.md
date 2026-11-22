@@ -73,6 +73,9 @@ uses:
 - **System dynamics:** a stock of items unanswered (waiting, being answered, or given up on), filled by the
   arrivals (a disturbance: nothing in the model sets them) and drained by the answers; the oldest item's age,
   counted from its arrival whoever holds it, is an auxiliary of the stock and the clock.
+- **Exports:** `stock.waiting`, `auxiliary.oldest`, `flow.arriving`, `flow.answered` and `goal.on-time` (as
+  `help-queue-waiting` and so on); the fast loop (`picked-up`, `answer`) and `escalate` are internal, and a
+  reference to them from the rest of the model is a finding (**template-internal-reference**).
 
 ### re-ping
 

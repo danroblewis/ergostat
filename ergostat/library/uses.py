@@ -32,6 +32,19 @@ def library(doc) -> dict[str, tp.Template]:
     return got
 
 
+def exports(t: tp.Template, inst: str, made) -> dict:
+    """What the compiler's exports check reads (SPEC §2a): the refs of the parts this instance made itself (a name
+    given wholly by a parameter is the owner's, never internal), and, when its template declares ``exports:``, the
+    refs it exports, as made."""
+    full = (lambda n: n) if t.once else (lambda n: f"{inst}-{n}")
+    parts = sorted(f"{k}.{n}" for k, s in tp.EXPORT_SECTIONS.items() for n in made.sections.get(s) or {}
+                   if t.once or n.startswith(inst + "-"))
+    if t.exports is None:
+        return {"parts": parts, "exports": None}
+    return {"parts": parts, "exports": list(t.exports),
+            "exported": sorted(f"{x.split('.', 1)[0]}.{full(x.split('.', 1)[1])}" for x in t.exports)}
+
+
 def take(doc, data: Map, defaults: dict, put, depth: int = 0, within: str | None = None) -> None:
     body = data["uses"]
     if not isinstance(body, dict):
@@ -163,7 +176,7 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
             chain.steps.append(("put", section, name, as_map(got, via), via))
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
-                                      "depth": depth, "trust": t.trust, "untrusted": untrusted}))
+                                      "depth": depth, "trust": t.trust, "untrusted": untrusted, **exports(t, inst, made)}))
     if made.standins:
         chain.steps.append(("problem", Problem("finding", f"use {inst}: runs on free stand-ins "
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "

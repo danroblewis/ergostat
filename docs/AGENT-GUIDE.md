@@ -361,6 +361,17 @@ The essentials:
   so the dashed lines between kinds appear; rework as a declared move back.
 - **Everywhere**: the same names in every view, a description on every part.
 
+### A template's exports
+
+When a template says `exports:` (`templates` with `name:` shows them), the rest of the model may read only those of
+an instance's parts; the others are internal, free to change in the next version of the template, and a reference to
+one from outside the instance is a finding (**template-internal-reference**, SPEC §2a). Reference only exports: read
+`help-queue-waiting`, not `help-queue-picked-up`. If what you need is internal, ask the owner (or the template's
+author) to export it, rather than reading it anyway. **When you write a template, write its `exports:`**: the
+stocks, flows, auxiliaries, goals and blocks a user is meant to read (its commitment goal, its main stock), and
+nothing that only its own loops use; an inner use's part is exported by its local name (`stock.INNER-x`), and only
+if that template exports it too.
+
 ### Templates from a folder the owner did not write
 
 A `library:` entry written `{folder: PATH}` is untrusted (SPEC §2a): its templates may make only structure, and a use
