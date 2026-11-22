@@ -304,9 +304,15 @@ def join_brief(cfg: dict, gap: dict, gaps: list[dict]) -> dict:
     f, gid, unread = gap["fields"], gap["id"], []
     reviews = {r["id"]: r["fields"] for r in fac.items("review")}
     entry = brief.gaps_entry(cfg, f.get("title", "")) or f.get("entry") or "(missing: not in docs/GAPS.md on main)"
-    kids = {g["id"]: g for g in gaps if gid in fac.ids(g["fields"].get("parent"))}
+    kids, by_id = {g["id"]: g for g in gaps if gid in fac.ids(g["fields"].get("parent"))}, {g["id"]: g for g in gaps}
     out = []
     for k in dict.fromkeys([*fac.ids(f.get("children")), *sorted(kids)]):
+        then, seen = k, set()            # a stopped child continued (parks.split_again): its continuation, a current
+        while then not in kids and then not in seen and then in by_id:  # sub-gap, is judged in its place (as family)
+            seen.add(then)
+            then = (fac.ids(by_id[then]["fields"].get("resumed_as")) or [""])[0]
+        if k not in kids and then in kids:
+            continue
         if k not in kids:
             out.append(f"## {k}\n\n(missing: not in the record as a sub-gap of {gid})")
             unread.append(f"{k}: not in the record as a sub-gap of {gid}")
@@ -367,13 +373,15 @@ def join(cfg: dict, gap: dict) -> int:
     known, k = {g["id"] for g in gaps} | {f"gap/{g['fields'].get('branch')}" for g in gaps}, n
     while f"gap/{(name := branch[:52].rstrip('-') + f'-join-{k}')}" in known:     # a taken name: the next unused
         k += 1
+    if not fac.SAFE.match(name):
+        raise RuntimeError(f"the join's new sub-gap name {name!r} is not a safe branch name")
     try:
         verdict, points, reasons = judged(str(got.get("result", "")))
     except RuntimeError as e:
         fac.say("gap.measured", gid, last_error=str(e)[:500], **record)
         raise
     seen = dict(join_verdict=verdict, join_reasons=reasons[:4000], join_missing=points, judged_at=now, **record,
-                join_verdicts=[{"verdict": verdict, "missing": points, "at": now, "cost_usd": record["ai_cost_usd"]}])
+                join_verdicts=[{"verdict": verdict, "missing": points, "at": now}])
     lines = "".join(f"- {p}\n" for p in points)
     if verdict == "covered":
         fac.say("gap.merged", gid, merged_by="join-judge", **seen)

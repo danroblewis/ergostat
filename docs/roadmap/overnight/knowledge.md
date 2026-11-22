@@ -31,7 +31,7 @@ point of the parent named to the sub-gaps that build it) plus an AI judgment aga
 cannot read is never covered, and the second `short` parks the parent. Two measures say how well splits work:
 `splits-covered` (the share of parents covered on their first judgment) and `split-budgets-held` (the share of merged
 sub-gaps within their own size budget). gap/plan-by-size gates XL auto-split on `splits-covered ≥ 0.7` over at least
-5 joins. It may open research questions (at most 3) first, and waits for their answers. **A plan review** (the
+5 joins. The planner may open research questions (at most 3) first, and waits for their answers. **A plan review** (the
 reviewer in plan mode: a cheap session given the definition and the lessons only) approves the plan, which is copied as
 reviewed into `run/defs/` and the gap made `ready`, or sends it back to the planner with its findings; a second
 failure parks it.

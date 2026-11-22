@@ -259,11 +259,38 @@ def test_join_with_missing_sub_gap_definition_is_not_covered(tmp_path):
         cost, sessions = (f.item(GID)["fields"].get(k) for k in ("ai_cost_usd", "sessions"))
         assert judge_unsessioned(f) == ["gap.requested", "gap.split"], case
         g = f.item(GID)["fields"]
-        assert g["join_verdict"] == "short" and g["join_verdicts"][-1]["cost_usd"] == 0, case
+        assert g["join_verdict"] == "short" and g["join_verdicts"][-1]["verdict"] == "short", case
         assert [p for p in g["join_missing"] if p.startswith("gap/alpha-two: ") and why in p] == g["join_missing"], \
             (case, g["join_missing"])
         assert (g.get("ai_cost_usd") or 0, g.get("sessions")) == (cost or 0, sessions), case
         assert not list((f.model / "run" / "briefs").glob("alpha-thing-join_judge-*.md")), case
+
+
+def test_join_judges_a_stopped_sub_gap_by_its_continuation(tmp_path):
+    """parks.split_again's shape: the stopped alpha-two keeps its place in the parent's children but no longer names
+    it as parent; its continuation does. Judged by a session through the continuation, never short for it."""
+    f = judged_instance(tmp_path)
+    defs = f.model / "run" / "defs"
+    (defs / "alpha-two-continued.md").write_text((defs / "alpha-two.md").read_text())
+    f.fold([{"event": "gap.requested", "item": "gap/alpha-two-continued", "data": {
+        "branch": "alpha-two-continued", "parent": [GID]}}], None)
+    merge(f, "alpha-two-continued", "the continuation's finding")
+    db = f.db()
+    db["items"]["gap/alpha-two"]["fields"].update(parent=[], resumed_as="gap/alpha-two-continued")
+    db["items"]["gap/alpha-two"]["state"] = "parked"
+    db["items"][GID]["state"] = "joined"
+    f.record.write_text(json.dumps(db))
+    said, _ = judge(f, COVERED)
+    assert said == ["gap.merged"] and f.item(GID)["fields"]["join_verdict"] == "covered"
+    text = saved_brief(f)
+    assert "- the continuation's finding" in text and "not in the record as a sub-gap" not in text
+    db = f.db()                                      # a stopped one never continued: still short, with no session
+    db["items"]["gap/alpha-two"]["fields"]["resumed_as"] = "gap/nowhere"
+    db["items"]["gap/alpha-two-continued"]["fields"]["parent"] = []
+    db["items"][GID]["state"] = "joined"
+    f.record.write_text(json.dumps(db))
+    assert judge_unsessioned(f)[-1] == "gap.split"
+    assert f.item(GID)["fields"]["join_missing"] == ["gap/alpha-two: not in the record as a sub-gap of gap/alpha-thing"]
 
 
 UNREADABLE = ["It is all built.", COVERED + "<missing>\n- one\n</missing>", COVERED + COVERED,
