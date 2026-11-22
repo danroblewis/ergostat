@@ -178,6 +178,33 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     pg.close()
 
 
+def test_each_group_heading_counts_its_rows_as_the_summary_does(site, browser):
+    """A group's heading says its kind and how many agents are under it ('ai · 2'), the rung only as small text, and
+    that number is the summary line's for the same kind."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site['url']}/agents")
+    pg.wait_for_selector("tbody.group th[data-kind]")
+    groups = pg.evaluate("""() => [...document.querySelectorAll('tbody.group')].map((tb) => {
+        const th = tb.querySelector('th[data-kind]');
+        return [th.dataset.kind, th.textContent, th.querySelector('.count').textContent, tb.querySelectorAll('tr.click').length,
+                th.querySelector('small').textContent]; })""")
+    summary = dict(pg.evaluate("""() => [...document.querySelectorAll('.ladder-line .step')].map((s) =>
+        [s.dataset.kind, s.textContent.trim().split(' ')[0]])"""))
+    kinds = [g[0] for g in groups]
+    assert "ai" in kinds and "program" in kinds, groups              # the model's two AI blocks and its program
+    for kind, text, count, rows, small in groups:
+        assert text.startswith(f"{kind} · {rows}"), (kind, text)    # the kind first, then its count
+        assert int(count) == rows == int(summary[kind]), (kind, count, rows, summary)
+        assert small.strip().startswith("rung "), small              # the rung, said as a rung
+    assert {g[0]: g[3] for g in groups}["ai"] == 2                  # writer and reviewer
+    line = pg.inner_text(".ladder-line")
+    assert line.count("→") == 1 and "most general → most specific" in line
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_agents_page_lists_the_daemons(site, browser):
     pg = browser.new_page(viewport={"width": 1400, "height": 900})
     errors: list[str] = []
