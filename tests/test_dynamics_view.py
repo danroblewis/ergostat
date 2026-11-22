@@ -150,6 +150,60 @@ def test_each_loop_through_a_gap_names_its_goal_and_the_goal_names_its_loops(tmp
     assert lp["control_loop"]["controllers"] == ["thin"] and lp["control_loop"]["name"] == "few"
 
 
+TWO = """\
+name: two
+stocks:
+  a:
+    unit: people
+    sensor:
+      manual: true
+  b:
+    unit: people
+    sensor:
+      manual: true
+flows:
+  move:
+    from: a
+    to: b
+  back:
+    from: b
+    to: a
+goals:
+  calm:
+    stock: b
+    hold: "<= 50"
+  few:
+    stock: a
+    hold: "<= 100"
+blocks:
+  thin:
+    type: program
+    run: "true"
+    in: [goal.few.error]
+    out: flow.move
+  slow:
+    type: program
+    run: "true"
+    in: [goal.calm.error]
+    out: flow.back
+"""
+
+
+def test_a_loop_through_two_gaps_closes_both_goals(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(TWO)
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    live = Live(Project(mdl.load(tmp_path)))
+    loops = {c["name"]: c for c in api(live, "graph", {"view": ["dynamics"], "open": ["*"]})["causalLoops"]}
+    both = [n for n, c in loops.items() if {"goal.few", "goal.calm"} <= set(c["parts"])]
+    assert both, loops                                   # a -> few -> thin -> move -> b -> calm -> slow -> back -> a
+    assert all(loops[n]["goal"] == "calm" for n in both)  # its one goal, the first by name
+    for g in ("few", "calm"):                            # yet it closes each, so each goal's panel lists it
+        fl = [x["name"] for x in api(live, f"loops/{g}", {})["feedback_loops"]]
+        assert set(both) <= set(fl), (g, fl)
+        assert set(fl) == {n for n, c in loops.items() if f"goal.{g}" in c["parts"]}
+
+
 def test_closed_systems_fold_the_loops_into_their_boxes(factory):
     g = factory(view="dynamics")
     ids = {n["id"] for n in g["nodes"]}

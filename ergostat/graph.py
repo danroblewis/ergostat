@@ -255,7 +255,7 @@ def goal_loops(model, goal: str) -> dict:
     tags = labels(every)
     lp = spec.loop(goal)
     return {"feedback_loops": [{"name": c["name"], "label": tags[c["name"]], "polarity": c["polarity"]}
-                               for c in every if c["goal"] == goal],
+                               for c in every if goal in c["goals"]],        # each loop through its gap, as SPEC says
             "control_loop": {"name": goal, "sensors": list(lp.sensors), "controllers": list(lp.controllers),
                              "actuators": list(lp.actuators)}}
 

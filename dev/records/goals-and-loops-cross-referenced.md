@@ -50,3 +50,14 @@ counting B loops (browser), and the panel's goal link opening the loop's name in
 first passed, because the first loop shared its goal's name, so the test now picks a loop named apart from its goal).
 Not run here: the whole unit suite and the four browser files (the factory's build and the merge queue run them).
 `main` is the base, and merging it was "Already up to date".
+
+Round 2 (answering the one finding of round 1's review):
+- graph.py goal_loops: `feedback_loops` now keeps every loop with the goal in its `goals` (each goal whose gap it runs
+  through), not only those whose single `goal` (the first by name) is it, as SPEC's paragraph says. A loop through
+  two gaps still carries one `goal` (the first by name) in the graph answer, and the heading counts it once.
+- tests/test_dynamics_view.py: `test_a_loop_through_two_gaps_closes_both_goals`, a two-goal spec (a -> few -> thin
+  -> move -> b -> calm -> slow -> back -> a) where one loop runs through both gaps: both goals list it. It was seen to
+  fail on the old filter (`{'calm via move'} <= {'few'}`).
+- Tests run: tests/test_dynamics_view.py (14 passed), tests/test_graph_cli_web.py and tests/test_scale_caches.py
+  (83 passed with it), the browser round trip in test_diagram_rendering.py (passed, suite_watch rc 0); ruff clean.
+  Merging main: "Already up to date". Still not checked on :8791 (not in this container), as said above.
