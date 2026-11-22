@@ -58,3 +58,14 @@ Round 2.
   waits for its response, and asserts the panel is still 'actuating signal u_tuner' and its kind is not 'Valve'.
   With the `if (!wait.isConnected) return;` guard after the flow's `api` call in dynamics.js removed, the test fails
   (`'quality-steps' == 'actuating signal u_tuner'`); with it back, it passes. No code outside tests changed.
+- tests/test_diagram_rendering.py run whole after the merge: 200 passed, 5 failed (an earlier whole run: 198/7, its
+  names cut off). None is this branch's:
+  - `test_every_view_draws_cleanly_and_in_time[coordinator]` and `[image-squeeze]`: routing open=* took 23.9 s and
+    21.4 s against a 20 s bound, under load; layout, which the branch does not touch.
+  - `test_every_part_opens_its_panel_when_clicked_even_mid_redraw`: two stocks' panels not filled within 3 s in the
+    whole run; it passes run alone. The stock panel now opens before its numbers, which can only make it sooner.
+  - `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`: the side panel says
+    "Goals off", from main's cd71c13e (Needs attention in three groups); the branch does not change the side panel.
+    It fails run alone too, so it fails on main.
+  - `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`: the /model page has no
+    "Nothing waiting."; the branch does not touch that page.
