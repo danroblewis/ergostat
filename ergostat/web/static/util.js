@@ -293,8 +293,18 @@ function snapKey(path, params) {
   return path + (kept.length ? "?" + kept.map(([k, v]) => `${k}=${v}`).join("&") : "");
 }
 
+/* the page shown's fetches, aborted when its page element leaves the document (route() replaces it, leavePage()):
+   the server then drops what it has not begun (web/server.py left()), and the left page never hears back, so
+   draws nothing. The header's (``kept``) are no page's */
+let PAGE = { el: null, c: null };
+function pageSignal() {
+  const el = document.querySelector("#main > *");
+  if (el !== PAGE.el) { leavePage(); PAGE = { el, c: el ? new AbortController() : null }; }
+  return PAGE.c?.signal;
+}
+function leavePage() { if (PAGE.el && !PAGE.el.isConnected) PAGE.c?.abort(); }
 /* an answer as its text, and the address it came from */
-async function apiText(path, params = {}) {
+async function apiText(path, params = {}, kept = false) {
   if (SNAP) {
     const k = snapKey(path, params);
     if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
@@ -303,11 +313,17 @@ async function apiText(path, params = {}) {
   const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
   for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
   const url = `/api/${path}?${q}`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`${path}: ${r.status}`);
-  return [url, await r.text()];
+  const signal = kept ? undefined : pageSignal();
+  try {
+    const r = await fetch(url, { signal });
+    if (!r.ok) throw new Error(`${path}: ${r.status}`);
+    return [url, await r.text()];
+  } catch (e) {
+    if (signal?.aborted) return new Promise(() => {});   // its page left: never answered, so nothing draws or says so
+    throw e;
+  }
 }
-async function api(path, params = {}) { return JSON.parse((await apiText(path, params))[1]); }
+async function api(path, params = {}, kept = false) { return JSON.parse((await apiText(path, params, kept))[1]); }
 /* a page's answers, remembered: ``changed`` says whether any asked since ``begin()`` differed from the last
    time it was asked (an unchanged answer is a 304, given as the same body): a refresh that changed nothing
    then draws nothing */
@@ -347,7 +363,7 @@ async function apiSend(path, body) {
 
 async function refreshHeader() {
   try {
-    const st = await api("status");
+    const st = await api("status", {}, true);
     S.status = st;
     const sel = $("#project");
     if (!sel.dataset.filled) {
@@ -381,7 +397,7 @@ async function refreshHeader() {
    or unknown; stopped ones shown, not offered. Not waited for, and not changed while the list is open */
 function refreshProjects(sel) {
   S.projectsAt = Date.now();
-  api("projects").then((ps) => {
+  api("projects", {}, true).then((ps) => {
     const name = S.status?.name || "";
     const opts = [h("option", { value: "" }, name)];
     for (const p of ps) {
@@ -505,6 +521,7 @@ async function route() {
   if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
   main.replaceChildren();
+  leavePage();
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names

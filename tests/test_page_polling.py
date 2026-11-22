@@ -186,6 +186,37 @@ def test_leaving_a_page_stops_its_polling(browser, site):
     assert set(asked) <= {"events", "status", "projects"}, f"pages left behind still ask: {sorted(set(asked))}"
 
 
+FETCHES = """window.__fetches = []; const realFetch = window.fetch;
+window.fetch = (url, opts = {}) => { const f = { url: String(url), signal: opts.signal || null, failed: null };
+  window.__fetches.push(f);
+  return realFetch(url, opts).catch((e) => { f.failed = e.name; throw e; }); };"""
+
+
+def test_leaving_a_page_cancels_its_fetches_in_flight(browser, site):
+    """The Loops page's answer held on its way; the page left for Agents: that fetch is aborted (the server can
+    drop it), the left page says nothing of it, and the header's and the new page's fetches are not aborted."""
+    pg = browser.new_page()
+    pg.add_init_script(FETCHES)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    held = []
+    pg.route("**/api/loops?*", lambda r: held.append(r))          # never answered while held
+    pg.goto(f"{site}/loops")
+    pg.wait_for_function("window.__fetches.some((f) => f.url.includes('/api/loops'))", timeout=60000)
+    pg.wait_for_function("window.__fetches.some((f) => f.url.includes('/api/status'))", timeout=60000)
+    pg.evaluate("navigate('/agents')")
+    pg.wait_for_function("window.__fetches.some((f) => f.url.includes('/api/agents'))", timeout=60000)
+    pg.wait_for_timeout(1000)
+    got = pg.evaluate("""window.__fetches.map((f) => ({ url: f.url.split('/api/')[1].split('?')[0],
+                                                          aborted: !!(f.signal && f.signal.aborted), failed: f.failed }))""")
+    pg.unroute("**/api/loops?*")
+    pg.close()
+    loops = [f for f in got if f["url"] == "loops"]
+    assert loops and all(f["aborted"] and f["failed"] == "AbortError" for f in loops), got
+    assert not any(f["aborted"] for f in got if f["url"] in ("status", "projects", "agents")), got
+    assert not errors, errors
+
+
 def test_a_hidden_tab_asks_for_nothing(browser, site):
     pg = browser.new_page()
     pg.add_init_script(INIT)
