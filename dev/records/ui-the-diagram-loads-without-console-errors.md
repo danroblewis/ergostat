@@ -60,3 +60,10 @@ Built (round 1). Nobody could be asked, so these are the choices made, each the 
   failed only in the long run and passed when run alone, both on this branch and with the changes undone. Under
   lesson 13 they are reported here, not fixed. The other three browser files were not run (nothing they cover changed).
   `main` is already in the branch: the clone has no newer main.
+- **The fast suite's rc 5 (after round 1).** `[suites] build` in dev/factory.toml runs pytest without Playwright, and
+  `scripts/affected_tests.py` picks only tests/test_diagram_rendering.py for this branch (its code changes are `.js`,
+  which map to no unit test file). That file skips as a whole without Playwright ('1 skipped'), so pytest ran no test
+  and exited 5. No test failed and nothing in this branch's code causes it, so the code is left as it is. It is the
+  build step's setup, outside this gap (lesson 13): either `build` runs with `--with playwright==1.63.0`, or
+  affected_tests treats a selection made only of browser files as "collection only". The browser file was run with
+  Playwright in this container, as above.
