@@ -261,3 +261,21 @@ Code lines changed this round: comments and the docstring only (about +2 net, st
 Tests run in round 2: `tests/test_remote_mtls.py` (23 passed) and `tests/test_remote.py` (12 passed), one file at a
 time; ruff clean. Still not done here, as in round 1: the merge of origin/main (there is no `origin` in this clone)
 and the whole unit and browser suites, which the factory runs under the watchdog.
+
+### Round 3
+
+The one finding was the merge conflicts with main (c9d3bab5) in `cache.py` and `compose.py`. Both are resolved
+in 22811be2 and keep both sides. `cache.refresh` keeps main's `locked(d)` read-ask-write and passes `tls=tls` to
+`client.get` inside the lock. The remote info in `compose.one` keeps main's new `names` map and the branch's `tls`.
+Every `client.get` and `cache.refresh` caller on the merged tree passes `tls` (cache, compose, events, process,
+readings, refresh, cli/remote). Main gained no new caller.
+
+After the merge, main's `test_ergostat_sends_nothing_for_a_for_remote_proposal` failed. It fakes
+`urllib.request.urlopen(req, timeout=None)`, and `client.get` always passed `context=`. The definition says that
+`client.get` without `tls` behaves as it did, so the fix is in `client.py`, not in main's test. `context=` is now
+passed only when a TLS context was made. Net code outside tests and docs is 386 lines (budget 400).
+
+Tests run after the merge, one file at a time: `test_remote_mtls.py` (23), `test_remote.py` (12),
+`test_remote_proposals.py`, `test_remote_pair.py` and `test_remote_box_measures.py` (all pass), and
+`test_reports.py` (10). Ruff is clean. Not run here: the whole unit suite and the four browser files, which the
+factory runs under the watchdog.

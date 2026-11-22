@@ -46,7 +46,8 @@ def get(url: str, path: str, token: str | None, params: dict | None = None, etag
                                                 **({"Authorization": f"Bearer {token}"} if token else {}),
                                                 **({"If-None-Match": f'"{etag}"'} if etag else {})})
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:  # noqa: S310 (a URL the owner wrote)
+        # without tls the call is exactly as before (no context= at all)
+        with urllib.request.urlopen(req, timeout=timeout, **({"context": ctx} if ctx else {})) as r:  # noqa: S310
             body = r.read()
             return r.status, json.loads(body.decode() or "null"), (r.headers.get("ETag") or "").strip('"') or None, ""
     except urllib.error.HTTPError as e:
