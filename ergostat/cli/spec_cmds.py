@@ -420,7 +420,11 @@ def run_now(p, b, args) -> int:
                 e.outputs.setdefault(cmd.name, {})["out"] = args.command
     ctx = e.context(b, "by hand")
     print(c("given: " + __import__("json").dumps(ctx), "dim"))
-    moved = e.run_block(b, "by hand")
+    out: dict = {}
+    moved = e.run_block(b, "by hand", outcome=out)
+    if out.get("refused"):                                # nothing started: no earlier run reported as this one
+        print(c(f"refused: budget: {out['refused']}", "warn"))
+        return 1
     last = p.events.query(n=1, item=b.name, type="agent.*")
     d = last[-1]["data"] if last else {}
     print(f"{'failed' if last and last[-1]['type'] == 'agent.failed' else 'ran'} in {d.get('seconds', '?')}s"

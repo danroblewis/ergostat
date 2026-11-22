@@ -605,6 +605,48 @@ def test_size_accuracy_high_only_and_no_value(tmp_path):
     assert size_measure(f, "size-accuracy").stdout.strip() == "0.667"
 
 
+def test_split_measures(tmp_path):
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    f = Instance(tmp_path / "a")
+    now = time.time()
+    for r in (size_measure(f, "splits-covered"), size_measure(f, "split-budgets-held")):   # nothing to count
+        assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
+    judged = {"gap/p-covered": [("covered", now - DAY)],
+              "gap/p-short-covered": [("short", now - DAY), ("covered", now - 2 * DAY)],   # first in list, later `at`
+              "gap/p-short": [("short", now - DAY)], "gap/p-old": [("covered", now - 20 * DAY)]}
+    for gid, verdicts in judged.items():
+        f.fold([{"event": "gap.split", "item": gid, "data": {"children": [f"{gid}-1"]}}] + [
+            {"event": "gap.measured", "item": gid, "data": {"join_verdicts": [{"verdict": v, "missing": [], "at": at}]}}
+            for v, at in verdicts], None)
+    r = size_measure(f, "splits-covered")
+    assert r.returncode == 0 and r.stdout.strip() == "0.333", r.stderr
+    defs = f.model / "run" / "defs"
+    defs.mkdir(parents=True, exist_ok=True)
+    for b, budget, lines in (("s-at", "100 net lines", 100), ("s-over", "100 net lines", 101),
+                             ("s-unbudgeted", None, 50), ("s-uncounted", "100 net lines", None), ("s-undefined", "", 5)):
+        if budget is not None:
+            text = "# x\n\n## Definition of done\n\nIt works.\n" + (f"\n## Size budget\n\n{budget}\n" if budget else "")
+            if b != "s-undefined":
+                (defs / f"{b}.md").write_text(text)
+        merged_gap(f, f"gap/{b}", now - DAY, parent=["gap/p"], **({"net_lines": lines} if lines is not None else {}))
+    merged_gap(f, "gap/s-old", now - 20 * DAY, parent=["gap/p"], net_lines=500)       # merged before the window
+    merged_gap(f, "gap/unsplit", now - DAY, net_lines=900)                              # not a sub-gap
+    (defs / "s-old.md").write_text("## Size budget\n\n100 net lines\n")
+    r = size_measure(f, "split-budgets-held")
+    assert r.returncode == 0 and r.stdout.strip() == "0.2", r.stderr                  # only s-at, of five
+    g = Instance(tmp_path / "b")
+    merged_gap(g, "gap/s-old", now - 20 * DAY, parent=["gap/p"], net_lines=1)
+    merged_gap(g, "gap/unsplit", now - DAY, net_lines=1)
+    r = size_measure(g, "split-budgets-held")
+    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
+    spec, _ = read(ROOT / "ergostat.yaml")
+    for name in ("splits-covered", "split-budgets-held"):
+        aux = spec.auxiliaries[name]
+        assert [s.run for s in aux.sensors.values()] == [f"python3 dev/bin/measure.py {name}"]
+        assert "split-quality" not in spec.auxiliaries
+
+
 def deny(f: Instance, aid: str, lid: str, by: str = "coordinator", note: str = "too narrow") -> None:
     """The coordinator's answer to a lesson's knowledge-change, as the record keeps it."""
     f.fold([{"event": "ergostat.action.requested", "item": aid, "data": {"action": "knowledge-change",
@@ -700,6 +742,7 @@ def test_cli_tools_on_a_fixture_instance(tmp_path):
     assert "gap/my-change" in out and "waits on gap/alpha-thing (building)" in out
     assert "Stopped: the lock order." in out and "Spend today $0.00" in out and "no value yet" in out
     assert rid in out
+    assert "Pools implementor 1, reviewer 1: risk " in out and "tolerance 2, target 1" in out   # (pool-control)
 
 
 @pytest.mark.parametrize("role", ["planner", "plan_reviewer", "researcher", "librarian"])

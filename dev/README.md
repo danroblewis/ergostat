@@ -121,16 +121,25 @@ read is taken, the other waits). Each run fetches its session's work to a side r
 (`refs/incoming/<run>/factory/NAME`). Before each implementor run on a branch behind main, implement.py merges main in
 itself: a clean merge is committed by the factory; a conflicted one is handed to the session with the files in its brief
 (it may run `git merge`, `git add`, `git commit`, `git status`, and also `git rm`, `git mv`, `git restore`, `rm` and
-`uv run python scripts/suite_watch.py`; its refused calls are kept as `tool_denials`, and a session with no result or
+`scripts/named_tests.py`, below; its refused calls are kept as `tool_denials`, and a session with no result or
 a result silent on them as `tool_denials_unknown`, which the measure `tool-denials` leaves out and
 `tool-denials-unknown` counts), and a branch that comes back without main in it (say, the merge aborted), or with the
 merge unfinished, is refused before the drop's `factory/NAME` moves. The fast suites run
-after: ruff, the unit suite and the four browser files, each under the watchdog in a suite container of the agent image
-and the suite slot; a browser test skipped fails them, as in the queue. **No browser stops the round:** before the
-session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
+after: ruff and `[suites] build`, each under the watchdog in a suite container of the agent image and the suite slot.
+The four browser files run there too only with `[suites] build_browser = true` (default false: minutes of 4 CPUs a
+round, plus a Chromium launch); then a browser test skipped fails them, as in the queue. `build` is the small set
+(`scripts/affected_tests.py`: the test files the branch changed since main and `tests/test_<module>.py` of each
+`ergostat/**/<module>.py` it changed; only collection when there are none; the full suite when the diff cannot be
+read). With `build` commented out or empty, the full `unit` suite runs there instead. The merge queue never reads
+`build`: it runs `unit`, `browser` and `demo` in full. **No browser stops the round** (with `build_browser` only):
+before the session, `[suites] browser_ready` launches Playwright's Chromium once in that container; if it cannot (or the setting is
 missing), the gap is given back uncounted with the reason (rebuild the dev image, then the agent image), and no session
-starts. The session itself may run the suites under `scripts/suite_watch.py`, the browser files with
-`uv run --with playwright==1.63.0` (inside its own container's limits: the host's slot is not reachable from there).
+starts. The session itself runs tests only through `scripts/named_tests.py`: 1 to 3 named `tests/test_*.py` files
+or test ids, no options, pytest run serially (no xdist, the ini's addopts cleared); a browser file the same way under
+`scripts/suite_watch.py` with `uv run --with playwright==1.63.0`. Never a whole suite: those run in the merge queue.
+Each session's container has `[agents] session_cpus` CPUs (1.5; empty: the suites' 4), its suites' containers 4.
+The script holds against habit, not against a session that edits it (it has Edit on its clone): such an edit shows in
+the branch's diff, for the review.
 The unit suite's tests/test_agents.py::test_implementor_environment_has_a_browser really launches Chromium that way, so
 every unit run (the queue's on the host, a developer's, an implementor's offline container) needs Playwright 1.63.0
 cached for `uv run --with` and its Chromium installed, or it fails: on purpose, a missing browser is a failure, not a
@@ -244,11 +253,23 @@ made a definition by the lint sweep; each sub-gap's plan review is given it (`(n
 file). Once every sub-gap is merged the join moves the parent to `joined`, never to `merged`, and the **join judge**
 (`plan.py join`, the plan reviewer's model and session cap, `[ai] join_judge_*`) reads, in a read-only clone of main,
 the parent's entry, its coverage, and each sub-gap's definition and last review (anything unreadable shown as
-`(missing: why)`). `covered` merges the parent, its verdict, reasons and `judged_at` recorded. `short` requests a new
-sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points not built), adds those points to the
-coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
-most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
-cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
+`(missing: why)`). A sub-gap whose definition or last review cannot be read (or a child not in the record) makes the
+verdict `short` at once, a point naming each, with no clone, no session and cost 0. `covered` moves the parent to
+`merged` with its verdict, reasons and `judged_at`, but no `merged_at`: no work merged, so it stays out of
+cycle-hours, cost-per-merged and fix-rounds. "Covered" is the planner's coverage mapping plus an AI judgment at the
+join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (the next unused name when that one is
+taken; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
+name)`, and only then splits the parent again, so the join waits for the new sub-gap. At most `plan.MOST_SHORT` = 1
+short round splits again: the second `short` parks the parent, its "Where it stopped" listing the points not built. A
+verdict that cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget
+refusal waits. The judge's verdicts are measured by `splits-covered` (of parents first judged in 14 days, the share
+whose first verdict, in record order, was `covered`), `split-budgets-held` (of sub-gaps merged in 14 days, the share
+whose `net_lines` are at or under their own definition's `## Size budget`; a definition, budget or `net_lines` that
+cannot be read is not held), `split-joins` (parents judged at least once, whole record) and `split-overhead` (the
+median, over parents judged covered in 14 days by `judged_at`, of the parent's and its children's AI cost, a parked
+sub-gap's and its continuation's both, over the median cost of merged unsplit gaps of the children's size class; a
+parent unpriced, with a child unmerged, unsized or unpriced, or with no unsplit gap of its class is left out and
+named), and `splits-covered ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -303,14 +324,71 @@ count is left out of the share (never a hit) and named on stderr; with nothing m
 **Not covered:** gaps whose definitions you wrote (no planner, no size; a plan that finds your definition already
 there records no size either), and split parents (they merge nothing; a split clears an earlier size).
 
-## The pools: one at a time, raised on good results
+## The pools: sized by risk, against your tolerance
 
-One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 4 and 2, in
-`[pools]`). After three gaps in a row are approved within one fix round and none was reverted after merging, the pool
-tuner asks for `raise-pool` (the implementor first), held in the inbox; a park, a second fix round or a reverted merge
-lowers the pools by one at once. Say a merge was reverted on main with
-`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
+One implementor and one reviewer to start (`run/pools.json`; the blocks' `pool:` is only the most, 9 and 6, in
+`[pools]`, never above 9). The pool tuner measures **risk** in expected interventions a day at each implementor pool size: factory-
+caused interventions per gap given a verdict, plus escapes per merged gap, times the gaps a day at that size (from the
+measured cycle time). Each rate is a Gamma posterior per pool size with a weak prior; a size never run starts with a
+higher, wide prior, so its 90% bound is high until it has been run (`dev/bin/risk.py`). The **target** is the largest
+pool whose 90% bound is within your **risk tolerance** and not above the gaps ready, at fix or building. The tuner
+asks for `raise-pool` one step at a time (held in the inbox), only after `[pools] probation` gaps had a verdict since
+the last raise; your approval is checked again when it runs (the pool unchanged, the bound still within the tolerance,
+the probation over), so a late approval does nothing once those have changed. It lowers the pool by one at once when
+the bound at the pool now crosses the tolerance, and never for want of demand alone (an idle slot costs nothing). The
+reviewer pool follows the implementor's, up to its most: up with an approved raise, down with each drop. Each decision is a `pool.*` event carrying its evidence; `status.py` prints
+the risk, its bound, the tolerance and the target.
+
+**On hold for now**: `[pools] hold = true` in `dev/factory.toml` keeps your pause of 2026-11-20. The tuner
+measures and says what it would do (`held` on `pool.measured`) but never moves the implementor or reviewer pool; the
+queue's batch is still tuned. Set it to `false` to have the pools sized by risk. A pool you set by hand that was never
+run has a wide bound, so the tuner then steps it down until the record narrows that bound.
+
+**The tolerance is yours**: the parameter `risk-tolerance` in `dev/model/pools.yaml` (interventions a day, 2 to
+start). Raising it trades risk for velocity: edit the value, and the next tune's target uses it.
+
+**For an intervention to count**, record it (below) with a `class` the factory caused: `environment-defect`,
+`self-reference`, `factory-missing-capability` or `queue-interleaving`, or `"factory": true`. The factory's own
+records count by themselves: the merge queue stopped (`queue`) and the upgrader unable to bring the instance back
+(`switch`). Review findings and a reviewer's park are not harm and do not count. Escapes count against the pools
+too: a merge reverted on main (`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`),
+main broken by it (`ergostat event --add gap.measured --item gap/NAME --data '{"broke_main": true}'`; the
+implementor's triage counts by itself: a `main-broken` intervention blames the gaps whose merge made that main
+commit, their `main_sha`, or, with none found, counts one escape at the pool size then), or a later gap or
+intervention naming it as its cause (`"caused_by": "gap/NAME"` in its data). By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
+
+## The simplifier: a gap that removes code
+
+Every 3 days (`simplify-when`, `dev/model/code-health.yaml`), while no simplification gap is open and the day's money
+is not spent, the simplifier (`dev/bin/simplify.py`, a program) picks one module of `ergostat/`, `dev/bin/` or
+`scripts/` by its evidence (`scripts/code_evidence.py`, read from main): net lines over the 75th percentile, commits in
+the last 60 days, duplicate function bodies and dead candidates, weighted in `[code_health]`. A "dead candidate" is
+only a top-level name that nothing else names as a word (strings, tests, YAML `run:` lines and `pyproject.toml`
+counted); a name built at run time is not seen, so it is a candidate, never a finding. A module under the coverage
+floor (`coverage_floor`, or not in the report), touched by a gap in flight, or picked in the last 30 days is passed
+over. Coverage is main's latest report under `run/coverage/`, chosen as `measure.py coverage` chooses it (by seq, on
+main, at most 20 merges old); `[code_health] coverage = "FILE"` names one report instead.
+It asks for `gap/simplify-<module>-<yyyymmdd>` (`source: simplifier`) with a definition from
+`dev/prompts/simplify.md`: remove only, behaviour and tests unchanged, net lines below 0, and one trailer per removal,
+`Removed: <class> <path>[::<name>] <lines>`. The ordinary implementor and reviewer build it. Pool 1 is fixed in the
+code and held under `run/simplify.lock`. A git that fails, a missing coverage report or an in-flight definition it
+cannot read means no pick; the run says why. On each merged simplification, `simplify.py removals` makes one
+`removal/<gap>-<n>` item per trailer, and a class off the allowlist is recorded as `unclassified`. It reads only
+the gap's own merge (found by its subject in the batch's range), never a batch-mate's commits. To see what it
+would pick: `python3 dev/bin/simplify.py pick`.
+
+**The code measures** (`dev/model/code-health.yaml`, hourly): `measure.py code-net-lines`, `code-long-functions`,
+`code-duplicates` and `code-dead-candidates` are sums over `code_evidence.py`'s rows on the checkout's main;
+`code-coverage` is the latest coverage report's covered statements over its statements. Each reading is appended to
+`run/code-measures.jsonl` with the seq and sha it measured. `measure.py NAME-change` is the change over main's last 10
+merges, by seq. A sha counts once (its last reading), and a sha no longer on main is not read. The goals
+`code-net-lines-not-rising`, `code-long-functions-not-rising`, `code-duplicates-not-rising`,
+`code-dead-candidates-not-rising` and `code-coverage-not-falling` each hold one measure, so net lines alone never
+say the code got simpler. A size goal off sets `simplify-when`'s `drift` input (`code-drift`), which still waits
+while a simplification is in flight. Any goal off asks the coordinator (`code-health-off`). No checkout, a failing
+evidence run, no coverage report, an unreadable history line, or fewer than two of main's commits measured within
+10 merges: no value (exit 1), never 0.
 
 ## The machine's resources: a cap on the pools
 
@@ -450,12 +528,40 @@ after 10 minutes), and the count is kept on the gap as `empty_batches`, per revi
 the same commit (`EMPTY_MOST` in queue.py) sends the gap back instead, as a failed gate, with the reason as its finding,
 so it is never taken forever.
 
+A suite that hangs does not hold the queue for the block's 3 hour timeout. Each of the queue's and triage's suites is
+stopped (its process group and its container) when its log has not grown for `[suites] stall_minutes` (10; at most 60)
+or when it has run past `[suites] wall_minutes` (45, three times the 15-minute `suites-in-time` goal; at most 120).
+A value past its ceiling, or not above 0, is refused when the settings are read, and again when a suite starts. Past
+either limit the run's lease is no longer renewed. A stopped suite is a stall, not the batch's failure: main is
+undone, the run's own gap gets `stalled` (the suite), `stalled_why`, `stalled_test`, `stalled_tail` and
+`stalled_batch`, and its lease is given back uncounted, so it and its batch-mates (which never left `approved`) are
+taken again, with no failed gate and nothing sent to fix or triage. `-q` prints no test ids while tests run, so each
+of these suites runs with `PYTEST_ADDOPTS=-o faulthandler_timeout=<half the stall limit>`. A test still running then
+has its stack dumped into the log, and `stalled_test` is the `tests/test_*.py::test_*` function in the last such
+stack. A method or a parametrized case is named by its file and function only. With no stack, it is the last test id
+the log names, or null. Each hung test's dump grows the log once, so it stops the suite up to half a stall limit
+later. A stall also halves the next run's batch (at least 1), so a gap that hangs tends to come to run alone. This is
+not guaranteed: any run that settles a gap clears the halving, and a stall in a batch of more than one counts on no
+gap. A stall during a bisect throws away a green prefix that run already found. Gaps that run already sent on (to
+triage, or back for a conflict) keep that outcome, though `stalled_batch` still lists them. A stall
+with the gap alone in its batch is counted on it (`stalls`). The clocks start once `[suites] slot` (triage's suites)
+is held, so a wait for the slot is never a stall. Its third (`STALLS_MOST` in fac.py) is no longer given
+back: it goes to triage as `queue-failed`, the stalled test as its failed test. In triage, a stalled rerun gets the
+same fields and `stalls`, and its lease is given back the same way until the gap's third stall. Then the failure is
+the branch's: back to fix, or parked by the kill rule.
+
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
-`run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
-a batch of 4 whose every merge fails is at most 8 suite runs (about 1.5 hours at 12 minutes), and the block's 3 hour
-timeout also covers the wait for the lock and a quiet machine. `merges-per-hour` (gaps merged over the hours of every
-queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
+`run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max` (8, never
+past 32). A run starts no suite run once `[pools] batch_minutes` (120; a value of 0 or less, over 150 or NaN is refused,
+and the queue takes no gap) have passed since it began, the wait for the lock and a quiet machine and the dry merges
+included: it stops bisecting, the prefix a full green run proved lands, and the gaps not yet settled go back to
+`approved` uncounted, for the next run. A run that settled none of its batch leaves the next one half as many
+(`cap` in `run/queue.json`, cleared by the first run that settles one), down to a batch of 1, which is one suite run.
+So, whatever the batch, the block's 3 hour timeout is reached only by a suite run begun inside the allowance that
+lasts past it (over 60 minutes at 120, 30 at 150); nothing here bounds a suite run that hangs. Each run's
+`queue_runs` entry says how many it `tried`, `landed` and `given_back`. `merges-per-hour` (gaps merged over the hours
+of every queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
 
@@ -480,7 +586,7 @@ or unreadable bookmark makes it read every gap again (and write only a changed t
   it ends at the approval after it, or at a park or close straight from fix. While it still goes round, `loop_ended` is
   empty and its span runs to its latest move.
 - `gates`: the minutes of each gate, summed over its rounds, and when it last ran: `implementor` (its runs,
-  `build_hours`), `fast` (its fast suites: ruff, unit and browser, every try in a round, `fast_seconds`; a build recorded before it
+  `build_hours`), `fast` (its fast suites: ruff, build or unit, and browser with `build_browser`, every try in a round, `fast_seconds`; a build recorded before it
   has only its last try, `suites_fast`), `review` (`review_hours`), the queue's `unit`,
   `browser` and `demo` (`suites_queue`, failed runs too), and `push-wait` (a merge to `gap.pushed`, a push said pushed
   at once, or the coordinator settling it).
@@ -509,7 +615,8 @@ many gaps are in each state now and the oldest of them.
 
 ## Record an intervention
 
-Each time you step in by hand, say so: it is evidence of a loop the factory lacks.
+Each time you step in by hand, say so: it is evidence of a loop the factory lacks. One the factory itself caused (its
+`class` one of those under the pools, above, or `"factory": true`) counts against the pools' risk.
 
 ```sh
 ergostat event --add intervention.recorded --item intervention/2026-11-20-unstick-alpha \
@@ -542,8 +649,9 @@ on a read-only clone of main, its conversation kept as a session item related to
 **What it is given.** Every standing trigger no earlier session answered (by fingerprint): the queue blocked; a gap dead
 past half an hour, or parked within `parked_within_hours` (48) for a kind no program resumes (`defect`, `kill-rule`, or
 none said), unless another gap carries its branch on or the park is `deferred` or `cancelled` (its kind, or the
-coordinator's `deferred: true` or `cancelled: true`); a `waits_on` or `needs`
-park not cleared in `park_wait_hours` (24, at least 1); a `split` park never (each stopped sub-gap raises its own
+coordinator's `deferred: true` or `cancelled: true`), or an old park classified `unknown` whatever its age; a `waits_on`
+or `needs` park not cleared in `park_wait_hours` (24, at least 1); a continuing gap whose branch intake could not fetch
+(`unfetched`); a `split` park never (each stopped sub-gap raises its own
 trigger); a gap past `[manager.stuck_hours]` in its state (from state-times' `time_in` when it has it,
 else its moves), unless it waits on main, its dependencies, a full pool or a held push; an open, unremedied defect past
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
@@ -571,17 +679,72 @@ Both check what is open and write under one lock (`run/one-open.lock`), so a ses
 never both get past the rule.
 The measures `manager-triggers-per-session` and `manager-actions-per-session` say how much each session takes on.
 
+**A definition's named measurement** (`measure-runs GAP --runs N --tests "T" [--load K]`, `dev/bin/runs.py`). Use it
+when a definition's acceptance is a repeated or loaded run that its sessions cannot make, and the gap is parked or
+built with "Where it stopped" saying the measurement was not run here. The first user is gap/lease-shutdown-race:
+`--runs 30 --load 4 --tests "-n 8 tests/test_leases.py"`. It makes N runs (1-50) of the selection T on the branch
+head, in a clone of the drop at it. T is test files or ids under `tests/` and at most one `-n` of 1-8. Each run is
+`[suites] measure`, under `scripts/suite_watch.py`, in the shared suite slot and a suite container. With `--load`, K
+busy processes (1-8) of `[suites] load` run beside the runs under a watchdog of their own. Their process group, and
+their container, are stopped when the runs end normally, on an error or on a SIGTERM. The load also ends on its own:
+manage.py touches a heartbeat file in the clone every few seconds, and each busy process stops once that file is gone
+or has not changed for `[suites] load_stale_s` (30 s, at most 300). So if manage.py is SIGKILLed, the load is gone
+within about that time. A run during which the load had ended counts as a failure. The load's container has the role
+`measure-load`, which other processes' container sweeps (`agents.sweep`) leave for 12 h (`runs.WALL`) plus 10 min, not
+a suite's 70 min. A measurement starts no run that would end past those 12 h, judged by its longest run so far; each
+run not started counts as a failure. A run still going at those 12 h (one that hangs) is stopped there, its process
+group and container with it, and counts as a failure. Each run's own container is a suite's, so a single run past
+70 min may be swept by another process and then counts as a failure. Each cap is checked when the call
+is parsed and again when it runs. A run passes only on exit 0 with the watchdog's last line saying pytest's rc 0 and
+nothing killed. A killed run counts as a failure, and so does one whose log or watchdog line cannot be read. A parked
+gap is measured only if it was parked for `defect`, or for `needs` with a `parked_until` action that names a
+measurement (a word starting "measure"), was not resumed, and no other live gap holds its branch: a deferred,
+cancelled or kill-rule park is refused, and so is a need for anything else (an approval, say). The counts (passed and
+failed of N, the head, each run's rc, and the log tail of each failed run) are appended to the gap's `measured_runs`.
+They are also said in its `findings`, which both briefs carry. If every run passed, the gap goes to `built` at the same
+head, for review. If any failed, it goes to `fix`, with the first failing run's tail as its input (one failed gate).
+Before the gap is moved, its state, its branch and the park checks are read again, under the continue lock that
+`continue` and the park resumer take. If the gap left parked or built while the runs ran, its branch moved, or it is no
+longer one a measurement may move (resumed meanwhile, say), it keeps its state, the counts are recorded alone
+(`gap.measured`) and the call is refused. The engine's takes share no lock, so a reviewer that takes a built gap
+between the second read and the write is not seen: that window is one record read wide.
+Who runs it: the coordinator by hand runs it at once, in their own process. The pipeline manager's call is never run
+inside its block (which ends within 1 h, before a 30-run loaded measurement could): it is checked (the caps, the park
+checks) and asked in the inbox as the action `manager-measure`. Once approved, ergostat runs that action's command,
+`manage.py measure-runs --detach`, in whichever process carries out the approval (an `actions --approve` terminal,
+a web request, the engine). That command checks the call again and starts the measurement in a session of its own
+(no terminal, not in the approver's process group, its output in `run/measure/*-detached.txt`), then returns at once.
+The action is recorded `ran` with the measurement's pid and log. Its timeout is 2 min. So the approver does not wait,
+and a Ctrl-C to the approver, or the web server exiting, does not reach the measurement. The measurement then runs
+as a plain `measure-runs` with `--asked-as` set to the action's id. It is recorded as by `pipeline-manager`, its asker,
+with `asked_as` naming the action. It records its own end: the counts and the move as above, or, when it is refused or
+fails, an intervention saying why (`ended`). A SIGTERM to its pid (or a Ctrl-C) stops its run and load, records an
+intervention `ended: stopped` with `asked_as`, and exits 143. Only a SIGKILL to it leaves its end unrecorded (its
+load still ends by its heartbeat). It is bounded by
+`runs.WALL`. `runs.measure` refuses to run off the main thread, because only there can SIGALRM bound a run. A
+refusal at the start (the gap no longer measurable) fails the action, and no run is made.
+
 **Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
 records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in
 `parked_until`), `needs` (an action named for someone), `kill-rule` (rounds, hours or attempts ran out: the implementor,
 the reviewer, the queue, triage, the plan lint, dead letters), `deferred` (the manager's park, once the coordinator
 approved it), `cancelled` (the plan review's), `split` (split-watch: the stopped sub-gaps). The reviewer's park verdict
 gives its kind and condition; one naming nothing checkable is a `defect`. The block `park-resume` (every 5 minutes, no
-AI) resumes `waits_on` once the gap merged or the commits are on main, `needs` once
+AI) resumes `waits_on` once the gap's work is on main as pushed (its merge on the checkout's `origin/main`; a merge not
+pushed has not cleared), through its continuation (`resumed_as`, followed) when it was continued, or once the commits
+are on pushed main; `needs` once
 `ergostat event --add gap.need-met --item gap/NAME --data '{"need_met": "what was done"}'` is recorded, and `split`
 once each stopped sub-gap is resumed or closed (the split gap back to split, the continuations its children). A resume
 is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the parked gap saying what cleared (a
-continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Measures:
+continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Each pass
+first classifies, once, the parks from before kinds (`classified_by: park-classify`): `kill-rule` by who parked it,
+`waits_on` the one other gap whose merge its branch carries (one merge in `base..branch`; whether main already has that
+gap's work is not checked, and if it has, the wait clears on the next pass), else `unknown` (the manager's);
+a `deferred` or `cancelled` one, one the plan review or the manager parked, or one continued already (`resumed_as`:
+its work goes on in the continuation) is left alone, and an `unknown` one continued is not raised past its age. Expect the first
+session after this lands to carry many `parked` triggers, one for each old park classified `unknown` (a reviewer's
+included), once; after that, only new ones. An old park classified `waits_on` keeps its first `parked_at`, so one whose
+gap is not on pushed main raises `waiting` at once too (past `park_wait_hours`). Measures:
 `measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.
 
 ## Upgrade and revert

@@ -60,6 +60,7 @@ class Web:
     aud: str | None = None
     emails: set[str] = field(default_factory=set)
     open: bool = False        # ``open: read``: the names are public and read only, with no login
+    mtls: object = None       # ``mtls:``: the remote API on a listener of its own, over mutual TLS (remote/mtls.py)
 
     @property
     def issuer(self) -> str:
@@ -73,8 +74,10 @@ def parse(raw, problems: list[str]) -> Web:
     if not isinstance(raw, dict):
         problems.append("web: a map (names:, access: or open: read)")
         return out
-    for k in set(raw) - {"names", "access", "open"}:
-        problems.append(f"web: unknown key {k!r} (known: names, access, open)")
+    for k in set(raw) - {"names", "access", "open", "mtls"}:
+        problems.append(f"web: unknown key {k!r} (known: names, access, open, mtls)")
+    from .remote import mtls
+    out.mtls = mtls.parse(raw.get("mtls"), problems)
     names = raw.get("names") or []
     for n in [names] if isinstance(names, str) else names if isinstance(names, list) else [names]:
         if isinstance(n, str) and NAME.match(n.lower()):

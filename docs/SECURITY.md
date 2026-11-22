@@ -98,6 +98,88 @@ Each of these is tested by an attack (`tests/test_sandbox_attacks.py`), with fak
 - **What happens after you approve.** Once a fix is approved and merged, it runs as your code always does, with your
   permissions. The sandbox protects the time before anyone has looked.
 
+## Libraries you did not write
+
+A folder of templates someone else wrote can be listed in the main file as `library: [{folder: PATH}]` (SPEC §2a).
+A map entry is **untrusted** unless it says `trust: owner`; a plain path, and `$ERGOSTAT_LIBRARY`, are yours and
+trusted (`untrusted: true|false`, a YAML bool, may say the same as `trust:`). A map entry written wrong (another
+key, no `folder:`, a `trust:` other than `owner` or `untrusted`, an `untrusted:` not a bool or disagreeing) is an
+error and its folder is not read at all. Trust is decided for each file: a template file that lies inside any folder
+listed untrusted (as listed, or with links resolved) is untrusted, even when a trusted folder that holds it, such as
+its parent, also reaches it.
+
+An untrusted template never takes the place of ergostat's own template or one of yours of the same name, whatever order
+the folders are listed in; the check says which one it skipped. A use whose chain holds an untrusted template anywhere
+(it, or a template it uses, at any depth) is **held**: everything made from the first untrusted template down,
+including trusted and built-in templates it uses, is checked against an allowlist (`ergostat/library/trust.py`), as
+expanded, with every parameter's value put in. If any part is not on it, the whole use is refused at your `use:` line
+(`library-untrusted`), and nothing of it is in the model. What a held chain may make:
+
+- **Sections:** `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`, `blocks`, `uses`.
+- **Block types:** `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`,
+  `timer`, `counter`, `alarm`: computed by ergostat from their inputs.
+- **Sensor keys:** `items`, `state`, `entering`, `leaving`, `where`, `over`, `measure`, `sum`, `changes`, `unit`,
+  `description`: sensors that count items or read a stock's changes from the record ergostat keeps; and `run`,
+  `every`, `cron`, `timeout`, `averages`, only as below.
+
+Each section's keys are listed in trust.py, each with its reason; any other section, key, block type or shape of value
+is refused, including queries and daemons on sensors, `ai`, `person`, `external` and `judge` blocks, `on-stale`, an
+item kind's `lease`, a goal's `owner`, and `inferred` or `formerly` anywhere. A test holds this list to trust.py's
+tables (`tests/test_library_trust.py`).
+
+**What runs.** Every value carries who wrote it: you (in your own file's `with:`), a trusted template (ergostat's or
+one from your folders), or the library. Only two kinds of `run` (a sensor's, or a `program` block's) are let through:
+
+- **Your own commands.** A value you wrote for a `type: command` parameter, which reached the run whole (each nested
+  use passing it wholly as `${p}`, to a `type: command` parameter again), as the whole `run`, or quoted (`:quote`,
+  `:arg`) into one of ergostat's own templates' runs. Any library words around it (`${cmd} | sh`), a library default
+  for a command, a library's literal that equals a command of yours, or your value for a parameter of another type
+  (a `string`) is refused.
+- **Ergostat's programs with checked arguments.** In a built-in template's run that starts `${lib} ` (the programs
+  `python -m ergostat.library.run` runs), a value the library wrote may stand only directly after a flag listed in
+  trust.py's `LIB_DATA_FLAGS` (data such as `--kind`, `--state`, `--every`, `--limit`; never `--run`, `--render`,
+  `--command`, `--url`, `--header`, `--folder`, `--keep`, `--timeout`, `--max` or the AI programs' budgets), only
+  for a parameter typed `name`, `duration`, `number`, `integer` or `bool`, and only when both the value and the text
+  that lands fully match its type's pattern (no space or newline): name `[a-z][a-z0-9-]{0,63}`, duration
+  `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`, number or integer `-?[0-9]{1,15}(\.[0-9]{1,9})?`, bool `true` or
+  `false` (or the bare flag). `--every` is at least 300 s (the floor every untrusted part has), `--limit` at most
+  100, `--stand-in` at most 3600 an hour (`LIB_BOUNDS`). A library's value of any other type never reaches a run, nor does any value of one in the run of
+  a template from your own folders (no test can vouch for `sh -c ${x:quote}`), nor a run holding an element's or a
+  list's field (`${it.run}`, whose writer can't be told).
+
+A sensor's or a program block's `every`, `cron`, `timeout` and `averages` stand only as you or a trusted template wrote
+them; a library's (its own `poll: 1m`) is refused. Whoever wrote it, the period of a part made under an untrusted
+template is still at least 5 minutes (SPEC §2a, *Untrusted libraries*). A program block may say nothing else but
+`goal`, `in`, `out`, `role` and its words: `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network`
+and the rest stay refused, and so do `prompt` and `ask` (no `ai` or `person` block). Marks are made only by ergostat
+as it expands a template; a template or a value that holds a mark's control characters is refused whole.
+
+A block's `out:` commands the block it names, and sets the goal it names. So a held chain's blocks may name in `out:`
+only parts the chain made itself: an `out:` to one of your blocks (a `program` block that deploys, run on the
+library's timer) or to your goal's setpoint is refused like any other part (`library-untrusted`), and so is an `out:`
+that is not a reference.
+
+What this does **not** stop:
+
+- **What your command is run on.** A library that runs your command chooses the kinds, states, counts and periods it
+  runs on (`--kind`, `--state`, `--every` within its bounds), so your command may run on items you did not mean.
+- **An agent writing your `with:`.** A value in your own file's `with:` counts as yours, whoever typed it: an agent that
+  copies a library's command there makes it your command.
+
+- **Its words reaching agents.** An untrusted template's descriptions, `example:` and `reading:` are still shown to
+  the AI agents that use the authoring tools, and may try to steer them. In the `templates` tool and in three kinds
+  of `check` problem they are marked as the library's (SPEC §2a, *Untrusted libraries*), which tells an agent what
+  they are but does not stop it reading them; the text of the parts a template makes is not marked.
+- **What you trusted.** A path entry, or a map entry with `trust: owner`, is trusted wholesale: its templates may make
+  anything, and may take the place of ergostat's own. Read a folder before you mark it so.
+- **An agent that can write the main file.** It can mark a folder trusted, as you can. The agent guide tells agents
+  never to, but nothing enforces it.
+- **What its allowed parts name.** Its parts may still name yours in every other place: a block's `in:` or `goal:`, a
+  flow's `from:` and `to:`, a goal's `stock:`, a `driven-by`, a part's `within:`. So it can read your parts, add a
+  flow to your stock, and put its parts in your systems. If one of *your* machine blocks reads one of its blocks
+  (`in: block.x`), that block commands yours, by your wiring. A raised `alarm` shows on the page and counts as an
+  intervention, as any alarm does.
+
 ## The page from elsewhere
 
 The page answers only requests addressed to `127.0.0.1:PORT` on this machine. Behind a cloudflared tunnel it answers a

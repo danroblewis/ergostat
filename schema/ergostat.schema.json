@@ -29,6 +29,16 @@
     "keep": {
       "$ref": "#/$defs/duration"
     },
+    "budget": {
+      "description": "The day's AI budget (SPEC 9.9): no charged run starts unless daily, less what runs spent over the last day and what runs in flight reserved, covers max-cost. Main file only.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["daily", "max-cost"],
+      "properties": {
+        "daily": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "US dollars over the trailing 24 hours"},
+        "max-cost": {"type": "number", "exclusiveMinimum": 0, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
+      }
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,

@@ -1,6 +1,6 @@
 template: upkeep
 once: true
-description: ergostat's own upkeep as loops of the model (SPEC §2a, Upkeep) - its item-index files a stock held under a goal, tidied by a program on the rule rung instead of by the engine on its own; the delete interlock stays in ergostat's code.
+description: ergostat's own upkeep as loops of the model (SPEC §2a, Upkeep) - its item-index files a stock held under a goal, tidied by a program on the rule rung instead of by the engine on its own; the delete interlock stays in ergostat's code. The engine's watchdog, the outer watcher (with its heartbeat goal), and when asked lease expiry and a workspace pool, drawn as loops whose controllers stay ergostat's code.
 reading: |
   System dynamics: the item-index files (each an on-disk fold of the record for one shape of the model's item kinds)
   are a stock (index-files, read by ergostat's built-in measure ergostat.upkeep.index-files: the live
@@ -16,6 +16,18 @@ reading: |
   lock without waiting and leaves any live one changed within the last hour, checked again under the lock, and no goal or
   parameter changes that. If the tidier stops, files only pile up: every index still opens and folds right.
   With this use the engine no longer tidies the index files itself when it makes one.
+  The watched loops are drawn, not run: protection stays in ergostat's code, and no goal here turns it off.
+  The stock heartbeat-age (ergostat.upkeep.heartbeat-age, the seconds since the last pass heartbeat.json gives) is
+  held under `stale` by heartbeat-fresh, and stalls (ergostat.engine.stalled over the last hour) at 0 by no-stalls;
+  restarts counts the outer watcher's restarts over the last day. Their controllers are external blocks, observed
+  and never run by ergostat, in layers: the engine's own watchdog (spec/watchdog.py) mends a wedged pool or loop
+  within its own process; the outer watcher (watcher.py, kept running by `ergostat run --service`: launchd or
+  systemd) restarts an engine dead or whose heartbeat is older than `stale`, which the engine writes into
+  heartbeat.json for it to read; past those, the owner. The engine's reading of heartbeat-age is a drawing: an
+  engine frozen whole reads nothing, and the watcher is the layer that acts. With `leases: true`, the leases past
+  their expiry (overdue-leases) are held at 0 by lease expiry (leases/dispatch.py), and expired-leases counts those
+  it ended over the last day. With `pool: NAME`, that workspace pool's quarantined slots are held at 0 by the owner
+  (pool-keeper, a person, who frees one with ergostat workspaces NAME --free N); ergostat never frees one itself.
   It is used once a model, and its parts keep the names written here (index-files, index-files-few, index-tidier),
   in a system named for the use (upkeep, by convention).
 example: |
@@ -41,7 +53,31 @@ params:
     type: duration
     default: 1h
     description: the window the files made and tidied are measured over
+  stale:
+    type: integer
+    default: 180
+    min: 60
+    max: 3600
+    description: the oldest the engine's last pass may be, in seconds, before the outer watcher restarts it (60 to 3600)
+  watch-every:
+    type: duration
+    default: 1m
+    description: how often the heartbeat's age, the stalls and the restarts are read
+  leases:
+    type: bool
+    default: false
+    description: draw lease expiry too (the leases overdue and expired)
+  pool:
+    type: name
+    description: a workspace pool whose free and quarantined slots are drawn, with the owner freeing a quarantined one
 stocks:
+  heartbeat-age: {unit: s, description: "the seconds since the engine's last pass, as heartbeat.json gives it (no reading without one)", sensor: {builtin: ergostat.upkeep.heartbeat-age, every: "${watch-every}"}}
+  stalls: {unit: stalls, description: "the engine's watchdog's stalls (ergostat.engine.stalled) over the last hour", sensor: {builtin: ergostat.upkeep.stalls, every: "${watch-every}"}}
+  restarts: {unit: restarts, description: "the outer watcher's restarts of the engine (ergostat.engine.restarted) over the last day", sensor: {builtin: ergostat.upkeep.restarts, every: "${watch-every}"}}
+  overdue-leases: {if: "${leases}", unit: leases, description: leases held past their expiry and not yet expired, sensor: {builtin: ergostat.leases.overdue, every: "${watch-every}"}}
+  expired-leases: {if: "${leases}", unit: leases, description: leases that expired over the last day, sensor: {builtin: ergostat.leases.expired, every: "${watch-every}"}}
+  free-workspaces: {if: "${pool}", unit: workspaces, description: "the workspaces of pool ${pool} free to be given to an item", sensor: {builtin: "ergostat.workspaces.free@${pool}", every: "${watch-every}"}}
+  quarantined-workspaces: {if: "${pool}", unit: workspaces, description: "the workspaces of pool ${pool} found dirty or broken and kept aside for the owner", sensor: {builtin: "ergostat.workspaces.quarantined@${pool}", every: "${watch-every}"}}
   index-files:
     unit: files
     description: the live item-index files under the state directory's items folder, now
@@ -78,6 +114,16 @@ flows:
       changes: falls
       over: ${over}
       every: ${count-every}
+  heartbeat-aged: {to: heartbeat-age, description: "time passing between passes, the age's rises (an age that resets each pass reads mostly as this sawtooth)", sensor: {changes: rises, over: "${over}", every: "${watch-every}"}}
+  heartbeat-renewed: {from: heartbeat-age, driven-by: +stock.heartbeat-age, description: "the heartbeat's age set back by a pass, or by the outer watcher's restart of an engine frozen whole", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  restarts-made: {to: restarts, description: "a restart of the engine by the outer watcher, dead or frozen whole", sensor: {changes: rises, over: "${over}", every: "${watch-every}"}}
+  restarts-aged-out: {from: restarts, driven-by: +stock.restarts, description: "restarts leaving the day's window", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  stalls-mended: {from: stalls, driven-by: +stock.stalls, description: "stalls leaving the hour's window once the watchdog mended them (one it cannot mend adds more)", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  overdue-leases-expired: {if: "${leases}", from: overdue-leases, driven-by: +stock.overdue-leases, description: "leases past their expiry ended by lease expiry, their items taken again", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  leases-expired: {if: "${leases}", to: expired-leases, description: "leases lease expiry ended, counted for a day as expired", sensor: {changes: rises, over: "${over}", every: "${watch-every}"}}
+  expired-leases-aged-out: {if: "${leases}", from: expired-leases, driven-by: +stock.expired-leases, description: "expired leases leaving the day's window", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  free-workspaces-moved: {if: "${pool}", to: free-workspaces, two-way: true, description: "workspaces of pool ${pool} given to items and given back (net, either way)", sensor: {changes: net, over: "${over}", every: "${watch-every}"}}
+  quarantined-workspaces-freed: {if: "${pool}", from: quarantined-workspaces, driven-by: +stock.quarantined-workspaces, description: "quarantined workspaces of pool ${pool} freed by the owner", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
 goals:
   index-files-few:
     stock: index-files
@@ -88,7 +134,35 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: no retired index file left waiting
+  heartbeat-fresh: {stock: heartbeat-age, hold: "<= ${stale}", description: "the engine's last pass at most ${stale}s ago (the outer watcher's limit, written into heartbeat.json)"}
+  no-stalls: {stock: stalls, hold: "<= 0", tolerance: 0, description: no stall of the engine over the last hour}
+  no-overdue-leases: {if: "${leases}", stock: overdue-leases, hold: "<= 0", tolerance: 0, description: no lease held past its expiry}
+  no-quarantined-workspaces: {if: "${pool}", stock: quarantined-workspaces, hold: "<= 0", tolerance: 0, description: "no workspace of pool ${pool} kept aside"}
 blocks:
+  watchdog:
+    type: external
+    in: goal.no-stalls
+    out: flow.stalls-mended
+    description: the engine's own watchdog (ergostat/spec/watchdog.py), in its process, never run or turned off by a goal - a wedged sensor pool replaced, a wedged loop started again, the process restarted past that
+  outer-watcher:
+    type: external
+    in: goal.heartbeat-fresh
+    out: [flow.heartbeat-renewed, flow.restarts-made]
+    description: the outer watcher (ergostat/watcher.py, kept running by ergostat run --service - launchd or systemd), which restarts an engine dead or whose last pass is older than heartbeat.json's stale (60 to 3600 s, else 180)
+  lease-expiry:
+    if: ${leases}
+    type: external
+    in: goal.no-overdue-leases
+    out: [flow.overdue-leases-expired, flow.leases-expired]
+    description: lease expiry (ergostat/leases/dispatch.py), which ends a lease past its TTL and takes the item again
+  pool-keeper:
+    if: ${pool}
+    type: person
+    goal: no-quarantined-workspaces
+    in: +stock.quarantined-workspaces
+    out: flow.quarantined-workspaces-freed
+    ask: a workspace of pool ${pool} is quarantined - look at it, and free it with ergostat workspaces ${pool} --free N once it is clean (ergostat never frees one itself)
+    description: the owner, who frees a quarantined workspace of pool ${pool} (ergostat workspaces ${pool} --free N)
   index-tidier:
     type: program
     goal: index-files-few
