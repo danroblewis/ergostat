@@ -15,3 +15,16 @@ Acceptance tests: test_explain_marks_remote_part (a planted remote, explain of s
 Size budget: 80 net lines.
 
 Area: remote-and-libraries. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built: all five points, about 33 net lines of code, inside the 80-line budget. Choices made alone, each easy to undo:
+- ergostat/remote/__init__.py, which is not in the Files list, gets one added key: box() returns its state words as
+  `now`, so explain doesn't have to parse them back out of `says`.
+- The golden file (tests/golden/explain-alert-triage.txt) is examples/alert-triage's whole explanation and every
+  part's and system's. It was written by the test itself, once, from main's explain.py before this gap changed it
+  (commit 2cf215fd). The branch that wrote it was then removed.
+- A goal's "reads a remote's parts" line counts its goal's measure, the parts the loop goes through, its
+  disturbances and their driven-by causes, and its blocks' inputs.
+- The MCP explain tool calls explain(), so it is covered by the same code. No separate MCP test was added.
+Not run here: the unit suite, the browser files (no page changed) and demo_check (no example changed).
