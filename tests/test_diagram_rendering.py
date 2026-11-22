@@ -2716,6 +2716,79 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         pg.close()
 
 
+def seed_product_calibrations(d: Path) -> None:
+    """The software factory's copy with a calibration kept of two of the product's parameters: churn-per-failing-op
+    0.404 ± 0.116 against its declared 2 (the record's short-record note), fixes-per-ticket 0.01 ± 0.5."""
+    from ergostat import model as mdl
+    from ergostat.numbers import estimate as es
+    from ergostat.numbers import version as ver
+    from ergostat.store import Project
+    old = os.environ.get("ERGOSTAT_HOME")
+    os.environ["ERGOSTAT_HOME"] = str(d.parent / "home")                # where served() points the page's server
+    try:
+        p = Project(mdl.load(d))
+        p.measurements.add("sensor/users.main", 120.0, at=time.time() - 33 * 60)    # a record begun 33 minutes ago
+        short =("held, inconclusive: too little record to identify it (40 points fitted, under 60). Nothing says the "
+                 "value written is wrong: it needs about 20m more record (as the record has gone so far)")
+        f = es.path(p, ver.structure(p.model.spec), "parts")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({
+            "churn-per-failing-op": {"parameter": "churn-per-failing-op", "scope": "parts", "value": 0.404, "se": 0.116,
+                                     "n": 40, "refused": short},
+            "fixes-per-ticket": {"parameter": "fixes-per-ticket", "scope": "parts", "value": 0.01, "se": 0.5, "n": 40,
+                                 "refused": short}}))
+    finally:
+        if old is None:
+            os.environ.pop("ERGOSTAT_HOME", None)
+        else:
+            os.environ["ERGOSTAT_HOME"] = old
+
+
+VALVE_OF = "((n, f) => ['valve', 'disturbance'].includes(n.kind) && (n.flow || n.label) === f)"
+
+
+def test_a_flow_with_no_value_says_why_and_an_estimate_with_no_basis_says_so(browser, tmp_path):
+    """On the product's Dynamics view no flow's label is a bare '–' (one not measured says so, one that did not move
+    says 0, and its panel how long nothing moved); the churn panel does not say 'Nothing says the value written is
+    wrong' while the declared 2 lies outside 0.404 ± 3σ, and no interval more than ten times its estimate is printed."""
+    with served("software-factory", tmp_path, seed_product_calibrations) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        labels = pg.evaluate("""() => Object.fromEntries(S.graph.nodes.filter((n) => n.kind === 'valve' || n.kind === 'disturbance')
+          .map((n) => [n.flow || n.label, [...document.querySelectorAll(`svg.canvas g.node[data-id="${n.id}"] text.sd-value`)]
+                                            .map((t) => t.textContent.trim())]))""")
+        assert {"regressions", "fixes", "shipped", "asks", "churn"} <= set(labels), labels
+        assert not [f for f, t in labels.items() if "–" in t or not t], labels
+        assert labels["regressions"] == ["not measured"], labels
+        zero = [f for f, t in labels.items() if t and t[0].startswith("0")]
+        assert zero, labels                                     # (the market's flows: its block has moved nothing yet)
+        for flow in zero[:1] + ["regressions"]:
+            pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), flow)
+            pg.wait_for_function("(f) => new RegExp('the rate of ' + f).test(document.querySelector('#detail').textContent)", arg=flow,
+                                 timeout=5000)
+            pg.wait_for_timeout(300)
+            rate = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')]
+                                            .find((d) => d.textContent === 'rate, over the window');
+                                          return dt ? dt.nextElementSibling.textContent : null; }""")
+            assert rate == "not measured" if flow == "regressions" else re.match(r"^0 .*: no movement in 3[34]m$", rate or ""), (flow, rate)
+        pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), "churn")
+        pg.wait_for_function("() => document.querySelector('#detail table.calibrations')", timeout=10000)
+        text, cal = pg.locator("#detail").inner_text(), pg.locator("#detail table.calibrations").inner_text()
+        assert "Nothing says the value written is wrong" not in text, cal
+        assert "the record so far rejects 2 but cannot yet settle a value" in cal.lower(), cal
+        assert "0.404 ± 0.116" in cal, cal
+        pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), "fixes")
+        pg.wait_for_function("() => /fixes-per-ticket/.test(document.querySelector('#detail table.calibrations')?.textContent || '')",
+                             timeout=10000)
+        cal = pg.locator("#detail table.calibrations").inner_text()
+        assert "not enough record yet" in cal and "± 0.5" not in cal, cal
+        assert "Nothing says the value written is wrong" in cal, cal     # 0.4 lies within 0.01 ± 3σ: the note stays
+        assert not errors, errors
+        pg.close()
+
+
 # ---- two views at once: one selection of model parts, lit in both (correspond.py, interact.js, split.js)
 
 # (beside the checkout; where that cannot be written, as for a clone at /work in a container, the temporary folder)
