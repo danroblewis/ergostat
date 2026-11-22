@@ -36,6 +36,10 @@ lines in dev/bin, within the 140. The four acceptance tests pass, and each was s
 (lesson-9): no concurrency cap (peak 6, not 2); no stop handling (4 containers started, not 2); no sweep at the
 start (the killed run's worktree kept); a sweep by denylist (the symlink and the non-pattern entry wrong); exit 125
 read as a result (fail, not unknown); an earlier run's log left in place (read as pass).
+Run here (serially, in the implementor's container): tests/test_factory.py 170 passed, 2 skipped (both for want of
+Docker and the agent image, as on main); tests/test_agents.py 18 passed; ruff clean. Not run here: the unit suite, the
+browser files and demo_check (no example touched); a prefix run against real Docker containers (the stop test
+fakes docker itself and runs real fac.suite processes).
 
 Choices made alone (nobody to ask), each the most reversible:
 - Not wired into queue.py: the definition says the queue *can* run it and does not list queue.py, so bisection is
