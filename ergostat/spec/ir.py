@@ -857,6 +857,8 @@ class Relation:
     group: bool = False             # a parent: the Graph view groups by it
     remote: str = ""                # names a remote's kind (incidents-incident): the remote; never precedence (§4c)
     there: str = ""                 # the kind's name at that remote (incident)
+    # precedence: the target's states (not finished) in which it no longer blocks; the CPM stays finish-to-start
+    starts_at: list[str] = field(default_factory=list)
 
 
 @dataclass

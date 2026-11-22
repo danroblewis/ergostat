@@ -16,6 +16,7 @@ systems:
   complexity:
     within: code-health
     description: the code's complexity in many forms and slices, one reading per commit of main
+    show: [stock.complexity-lzma-logic]
 
 stocks:
   complexity-tokens:

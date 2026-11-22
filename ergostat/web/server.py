@@ -630,6 +630,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
             est = _estimates(p, m, snap, one("whatif"))
             if d and est and name in est.get("items", {}):
                 d["eta"] = {**est["items"][name], "at": est["at"], "runs": est["runs"]}
+            if d and d.get("kind_of") and spec and d["kind_of"]["name"] in spec.items:   # its endings, as the process map counts them
+                from ..process import _done
+                ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
+                d["kind_of"]["final"] = [s for s in d["kind_of"]["states"] if s in ends]
             return d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
