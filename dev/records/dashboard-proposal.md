@@ -34,3 +34,15 @@ The web UI), because the command that copied the examples to /tmp to time them w
 10-panel target is measured first by dashboard-page-v1, against a factory-size fixture it makes (none is on main).
 Found: goalrow.js, state.goals_off and the server's `word` are not on main, so dashboard-page-v1 waits for the gap
 that lands them (the proposal says so in sections 4 and 9).
+
+Round 2 (review/dashboard-proposal-1, both findings answered in section 6):
+- Blocking, rule 2: the late pool is now 2 threads with at most 16 jobs waiting (hard maxima in code); beyond that a
+  panel is refused as "busy" with a Try again button and no automatic retry. A waiting job not asked for in 6 s is
+  dropped, a running one stops at its next step when unwanted or past 10 s (what stops is said plainly: Python
+  threads cannot be killed). Kept results are keyed by the moment key (window, at, model mtime, a per-snapshot seq
+  compared for equality), kept 30 s, and handed only to a retry naming the same key. Eager panels run one after
+  another on the request thread against one 0.8 s batch deadline (snapshot included), not 2 s each, which is
+  consistent with the 1 s first-paint target. Sections 7, 8 and 9 were changed to match.
+- Non-blocking, the quoted numbers: section 6 now quotes scale.md's table after its fixes (graph 0.093 s at N = 10,
+  0.413 s at N = 30) and keeps the browser layout times, which did not improve, as the reason for the diagram cap.
+Still no new timings taken in this session (as above).

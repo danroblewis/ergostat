@@ -171,13 +171,16 @@ owner's Accept, because display is not one of the classes the owner has named `a
 
 - Owner item 2: on :8796, a fanned projection (`/api/series?…&replay=1&fan=1`) took 3.5 s, and the live factory
   answered nothing in 60 s.
-- `docs/proposals/scale.md`, *The web UI* (synthetic models of N systems, each answer timed twice). `items` takes
-  0.005 to 0.5 s at N = 10 to 100 and 2.5 s at N = 300. `loops` takes 0.11 / 0.35 / 1.7 s. `graph` takes 1.1 s at
-  N = 10 and 19 s at N = 30. `status` takes 13 s at N = 10 on its first answer, because it runs `check`, then 0.1 s.
-  Drawing one system of the diagram takes 12 s at N = 10, and 50 s to route.
-- The same page: with an empty record, `examples/the-job` answers `graph` in 0.04 s and `status` in 0.5 to 0.75 s.
-- `scale.md` also found that a request is never cancelled. Answers the client gave up on kept computing, and every
-  graph answer after the first ran past five minutes.
+- `docs/proposals/scale.md`, the page server's answers after its fixes (`scale_bench.py api`, synthetic models of N
+  systems, load average 10 to 18): `graph` 0.093 s at N = 10, 0.413 s at N = 30, 2.45 s at N = 100; `loops` (the
+  snapshot behind every answer) 0.058 s, 0.32 s and 2.26 s; `status` still 12.7 s at N = 10 and 129 s at N = 30 on
+  its first answer, because it runs `check`'s extreme-conditions tests. `items` took 0.005 to 0.5 s at N = 10 to 100
+  and 2.5 s at N = 300 (its earlier table, not re-timed after the fixes).
+- What did not improve: the browser's layout and routing. An open Diagram at N = 10 drew in 13.2 s after the fixes
+  (15.8 s before), and one system took 12 s to draw and 50 s to route.
+- `scale.md` also found that a request is never cancelled: answers the client gave up on kept computing, and every
+  graph answer after the first ran past five minutes. The snapshot is now made once per key however many ask
+  (`server.py:151-179`), but a live one is kept only 1.5 s, so it is made again for each moment.
 
 No new timings were taken for this proposal. dashboard-page-v1 takes them first, against the fixture below, before
 it builds anything else.
@@ -188,12 +191,38 @@ it builds anything else.
    snapshot key (`server.py:157`), and the snapshot is made once. A window per panel would make one snapshot per
    window, so it is refused in the format itself (section 1).
 2. **One batched read on the shared snapshot.** `GET /api/dashboard?name=NAME|draft=…&since=…&at=…` answers every
-   eager panel in one request. It runs each panel on the one snapshot, with a **per-panel time limit of 2 s**. A
-   panel that misses the limit comes back as `{"late": true}` beside the panels that answered. The page draws what
-   came back and asks again for the late panels alone, so the answer is partial and honest. A late panel's work is
-   not abandoned while it keeps running, the failure `scale.md` saw. It runs on a **bounded pool of 2 threads per
-   server**, a hard maximum at run time, and its result is kept for the retry, so the retry costs nothing new. The
-   batch never calls `status`, because its first answer runs `check`.
+   eager panel in one request. The batch never calls `status`, because its first answer runs `check`. How it runs:
+   - **The moment.** The handler takes the snapshot once (`snapshot`, `server.py:151`) and names it by a **moment
+     key**: `(window, at, model mtime, seq)`, where `seq` is a number the server gives each snapshot it makes. For a
+     past `at` the snapshot itself is kept until the model changes; for a live one, `seq` is what tells two
+     snapshots of the same window apart, compared for equality, never by time. Every panel of the batch, and every
+     retry of a late one, is computed on that one snapshot object, so nothing is answered from another moment.
+   - **One deadline for the batch, not one per panel.** The batch has **0.8 s** in all, counted from the request's
+     arrival, snapshot included. Its panels run **one after another** on the request's own thread, in declared
+     order, each given what is left of the 0.8 s; no thread is started for them. A panel is a pure read of the
+     snapshot that checks the deadline between its steps (each series, each item kind, each bucket pass) and stops
+     at the first check past it. Panels not started by the deadline, and the one stopped, come back as
+     `{"late": true, "moment": KEY}` beside those that answered. So ten panels cost at most 0.8 s of server time
+     plus one step, never ten limits added together, and the page draws within the 1 s target (rule 6) whatever is
+     late. If the snapshot itself is not ready in 0.8 s, every panel is late and the page shows Loading frames.
+   - **Late work, bounded.** A late panel becomes one job on the server's **late pool: 2 threads, at most 16 jobs
+     waiting**, both hard maxima fixed in code and not read from config. A job is keyed by its moment key and the
+     panel's parameters, so a second request for the same thing joins the job already there. Beyond 16 waiting, a
+     job is **refused**: the panel answers `{"late": true, "refused": "busy"}` and the page shows "The server is
+     busy" with a **Try again** button, and asks nothing more on its own. One dashboard is at most 24 panels
+     (rule 5), so one reader can fill the queue but never grow it.
+   - **No work for a reader who has gone.** Each job holds the time its reader last asked for it. The page asks for
+     its late panels again every 2 s (one request for all of them); a waiting job not asked for in **6 s** is dropped
+     before it starts, and so is every job when its moment key's model mtime changes. A running job checks, between
+     its steps, both that it is still wanted and a hard limit of **10 s** of its own; past either it stops and its
+     partial work is thrown away. Python threads cannot be killed, so what is promised is exactly this: abandoned
+     work stops at its next step, and at most 2 threads are ever doing it. A kind whose read has no steps to check
+     between (the diagram's layout) is never a batch panel (rule 4).
+   - **A kept result has the moment's key.** A finished job's result is kept **30 s** under its moment key and
+     parameters, and handed only to a retry that names the same key. It is drawn with the moment it was read at
+     ("as of 12:03:04"), and the page's next ordinary poll asks at a new moment, as for any panel. A retry whose key
+     is gone (dropped, expired, or the model changed) is answered by a new batch at a new moment, never by a result
+     of another moment shown as now.
 3. **Replay and fan panels are lazy and slowly polled.** A panel with `replay` or `fan` is left out of the batch. It
    is asked for only once it scrolls into view, and polled every 60 s, not at the page's few seconds. A past
    moment (`at`) is never polled, because its snapshot is kept until the model changes. At most **4** such panels
@@ -208,7 +237,7 @@ it builds anything else.
    **factory-size fixture**, a record of the factory's shape (its item kinds, about 30 systems' worth of stocks and
    a week of events), made by dashboard-page-v1 because none exists on main. The first measurement is 10 eager
    panels of the kinds the default (section 8) makes, cold and then warm, with the result in that gap's record.
-   Missing the target is reported with its numbers, and the panel cap or the time limit is lowered to meet it. The
+   Missing the target is reported with its numbers, and the panel cap or the batch deadline is lowered to meet it. The
    target itself is not raised.
 
 ## 7. Layout and editing
@@ -220,7 +249,8 @@ order. Charts are styled only with the design tokens, as charts.md requires. Eac
 - **Loading**: its frame and title, and "Loading" in words.
 - **Empty**: the reason, in the panel's own terms ("No ticket finished in the last day", "stock.backlog: nothing
   recorded in the window").
-- **Late**: "Took longer than 2 s; asking again", until the retry answers.
+- **Late**: "Still reading; asking again", until the retry answers, or "The server is busy" with **Try again**
+  when the late pool refused it (section 6, rule 2).
 - **Drawn.**
 
 A panel whose refs no longer exist after a model edit says so ("stock.x: not in the model") and keeps its place.
@@ -260,7 +290,7 @@ declared opens, and a menu lists the others.
 
 **Snapshot and export (R10).** The page snapshot (`web/snapshot.py`) writes every answer the page would ask for,
 keyed as the page keys them (`snapshot.key`). For a dashboard that is the batched answer plus each lazy panel's
-answer, fetched at snapshot time within the same per-panel limit. A panel still late is written as late and says
+answer, fetched at snapshot time within the same deadline and late pool. A panel still late is written as late and says
 so offline. The dashboard's export is that one file. A `diagram` panel also keeps the Diagram's SVG export
 (`standaloneSvg`, `export.js:7`). There is no other export format.
 
@@ -268,7 +298,7 @@ so offline. The dashboard's export is that one file. A `diagram` panel also keep
 (`_window`, `server.py:245`). A dashboard may open with a longer window (`window: 30d`). The menu then offers it,
 and only up to the model's `keep:`, since the record is kept no longer than that. A window longer than `keep:` is
 refused at compile time. Series stay bucketed to the same number of points, so a chart's cost grows only with the
-record read. dashboard-page-v1 measures 30d on the fixture. A panel over its time limit is late, as in section 6.
+record read. dashboard-page-v1 measures 30d on the fixture. A panel past the batch deadline is late, as in section 6.
 
 **The Goals page.** Whether it folds into the Dashboard is left to goals-page-keep-or-fold-decision. Nothing here
 depends on the answer: the `goals` panel is the same `goalRow` either way.
@@ -333,7 +363,7 @@ Each gap is confirmed, with the amendments this proposal makes, in the order the
 1. **dashboard-page-v1 (confirmed, amended).** It covers the `/dashboard` route, nav and `split.js` entry, the
    grid, the four panel states, drafts in the address and localStorage, the default (section 8), and the kinds that
    reuse a function as it is: `note`, `goals`, `items`, `states`, `cycle-time`, `chart`, `scope`, `items-graph` and
-   `timeline`. It includes the batched `GET /api/dashboard` with the per-panel limit, the bounded pool and the caps
+   `timeline`. It includes the batched `GET /api/dashboard` with the batch deadline, the snapshot's `seq` and moment key, the bounded late pool and the caps
    (section 6), the factory-size fixture, and the measurement of the target. *Amended:* it depends on the gap that
    lands `goalrow.js`, `state.goals_off` and `word`. The batched read moves here from dashboard-declaration-and-api,
    because the budget cannot be measured without it.
