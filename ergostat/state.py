@@ -608,6 +608,14 @@ LEVELS = {"bad": 0, "warn": 1, "hint": 2}
 UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
 
 
+def upkeep(m) -> set[str]:
+    """The model's own upkeep: the goals in the system of its ``use: modelling`` (SPEC §12e), counted apart from the
+    system's own goals in the page's header and the project switcher."""
+    spec = getattr(m, "spec", None)
+    mine = [k for k, u in (getattr(spec, "uses", None) or {}).items() if (u or {}).get("template") == "modelling"]
+    return {lp.name for lp in m.loops() if any(lp.name in m.members(k) for k in mine)}
+
+
 def setpoint_text(lp: dict) -> str:
     return lp["setpoint"] + lp.get("band", "")
 

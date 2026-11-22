@@ -10,6 +10,7 @@ It needs Playwright and a Chromium, so the usual run skips it:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -934,3 +935,72 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+UPKEEP_SEED = """
+import sys, time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(sys.argv[1])))
+for stock, value in (("inbox", 10), ("model-error", 0.5), ("unanswered-requests", 3)):   # inbox-short holds; the two
+    s = next(iter(p.model.spec.stocks[stock].sensors.values()))                         # modelling goals are off
+    p.measurements.add(s.series, value, at=time.time())
+"""
+
+
+def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser, tmp_path):
+    """Q14: with only requests-handled and model-fits off (the modelling use's own goals), the header's first figure is
+    0 and not red, 'model upkeep 2' is said apart, and the switcher's entry for a project, read from another one, has
+    the same first figure as that project's own header."""
+    home, urls, procs = tmp_path / "home", {}, []
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    try:
+        for name in ("first-loop", "second-loop"):
+            d = tmp_path / name
+            shutil.copytree(ROOT / "examples" / "first-loop", d)
+            y = d / "ergostat.yaml"
+            y.write_text(y.read_text().replace("name: first-loop", f"name: {name}"))
+            env = {**os.environ, "ERGOSTAT_HOME": str(home)}
+            subprocess.run([sys.executable, "-c", UPKEEP_SEED, str(d)], env=env, check=True, capture_output=True)
+            port = free_port()
+            procs.append(subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                                          env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            urls[name] = f"http://127.0.0.1:{port}"
+        for url in urls.values():
+            for _ in range(150):
+                try:
+                    urllib.request.urlopen(url + "/api/status", timeout=1)
+                    break
+                except Exception:
+                    time.sleep(0.2)
+            else:
+                pytest.fail("a page never came up")
+        heads, entries = {}, {}
+        for name, url in urls.items():
+            pg.goto(f"{url}/items")
+            st = pg.evaluate("() => fetch('/api/status').then((r) => r.json())")
+            assert sorted(n for n, lp in st["loops"].items() if lp["status"] == "off") == ["model-fits", "requests-handled"]
+            pg.wait_for_function("() => / off/.test(document.querySelector('#running').textContent)")
+            run = pg.locator("#running")
+            heads[name] = run.inner_text()
+            assert re.match(r"^0 goals off\b", heads[name]), heads[name]
+            red = pg.evaluate("""() => { const p = document.createElement('span'); p.className = 'runstate bad';
+                document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; }""")
+            assert run.evaluate("(e) => getComputedStyle(e).color") != red, "the first figure is red"
+            assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
+            assert pg.locator("#upkeep").evaluate("(e) => getComputedStyle(e).color") != red
+            assert "model upkeep 2" in pg.locator("header").inner_text()
+            other = next(n for n in urls if n != name)
+            find = f"[...document.querySelectorAll('#project option')].find((o) => o.text.startsWith('{other} ('))"
+            pg.wait_for_function(f"() => !!{find}")
+            entries[other] = pg.evaluate(f"() => {find}.text")
+        for name, head in heads.items():
+            entry = entries[name]
+            assert re.search(r"\((\d+) off", entry).group(1) == re.match(r"^(\d+)", head).group(1), (entry, head)
+            assert "model upkeep 2" in entry, entry
+    finally:
+        pg.close()
+        for proc in procs:
+            proc.terminate()
+            proc.wait(timeout=10)
