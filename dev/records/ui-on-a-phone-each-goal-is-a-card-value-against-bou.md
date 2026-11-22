@@ -25,3 +25,22 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1 (15 net lines outside tests). Choices taken without anyone to ask, each the most reversible:
+- How long a goal has been off was not in the page's answer, only the share of the window. `ergostat/state.py` (outside
+  `ergostat/web/`) gains two keys on each loop: `off_since`, when its current off spell began, and `off_before_window`,
+  so a spell that began before the window reads 'off over 6h'. An off goal with no recorded crossing reads 'off since ?'.
+- The card is one more cell in each row of the same table, shown alone below 760 px by CSS. There is still one table,
+  the rows keep their keys and row click, and the desktop table is unchanged. Off goals come first by the page's existing
+  order. The card's bound is the setpoint without its tolerance band, as in the change's example.
+
+Acceptance test: tests/test_diagram_rendering.py::test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long_off
+(passes). Three breaks were each seen to fail it: the phone rule off (760 → 300 px), the other cells left visible, and
+the duration left out of the card.
+The whole of tests/test_diagram_rendering.py ran serially under the watchdog: 196 passed, 5 failed. Four are the
+failures earlier reviews found on main (coordinator and image-squeeze routing time, the big tangled model, the
+'Nothing waiting.' equation test). The fifth, test_a_valve_turns_upright_when_its_pipe_runs_up, draws a Dynamics valve
+this change does not touch, and it passed when rerun alone. The other three browser files and the unit suite were
+not run here.
