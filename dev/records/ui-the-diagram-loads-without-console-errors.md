@@ -67,3 +67,12 @@ Built (round 1). Nobody could be asked, so these are the choices made, each the 
   build step's setup, outside this gap (lesson 13): either `build` runs with `--with playwright==1.63.0`, or
   affected_tests treats a selection made only of browser files as "collection only". The browser file was run with
   Playwright in this container, as above.
+- **The fast suite's rc 5, answered.** A browser-free test file, `tests/test_diagram_scripts.py`, now goes with the
+  branch, so the build step has tests to run without Playwright:
+  `test_every_libavoid_pin_is_a_share_of_its_part_clamped_to_it` (every `addPin` in avoid.js goes through the
+  clamped `pinOn`) and `test_elk_is_tried_at_single_edge_wrapping_before_wrapping_is_dropped` (layouts.js). They
+  check the scripts' source as served, not their behaviour; the behaviour is checked in
+  tests/test_diagram_rendering.py. Both pass; ruff is clean. Not seen: the build command itself (refused in this
+  session), and these tests failing against main's scripts (the command that put main's scripts in place was
+  refused). Read against the code, both would fail there: main's `addPin` calls take a `{ classId … }` object, and
+  main's layouts.js has no `SINGLE_EDGE`.
