@@ -130,3 +130,62 @@ All in `tests/test_residual_structure.py` unless named otherwise.
 - Charge a stock's full 6 after-runs against MOST_REPLAYS before starting it, so it is never offered on an incomplete τ set; test the case where exactly the budget is left.
 - The two forms have different ids: say whether dismissing one should stop the other from being offered for the same stock, and test it.
 - The MA(1)-with-ρ1∈[−0.5,0] claim assumes no equation flow is driven by a noisy reading; a reading-driven outflow adds lag-1 structure. Note it or test it.
+
+## Where it stopped
+
+Built: points 1 to 9 and every acceptance test named, in `tests/test_residual_structure.py` (19 tests, all passing) and
+the updated `tests/test_review.py` test. 419 net lines outside tests and docs (budget 450). Choices taken without
+anyone to ask, each the more reversible one:
+
+- **Whiteness (answering the first two plan notes).** Measured first on the test's 400 seeded MA(1) series (n = 200):
+  the formula in point 2 rejects 1.75% (reading noise 0.1) and 2.25% (noise 1.0). That is under the 3%, but not
+  α = 0.01. The quadratic form q = n·r′Σ̂⁻¹r over r_2…r_10 (Σ̂ Bartlett's banded MA(1) matrix: 1+2ρ², 2ρ, ρ²)
+  rejects 0.5% and 1.75%. Prewhitening with a fitted MA(1) rejects up to 36% (ρ1 ≈ −0.5 is at the edge of
+  invertibility), so it was not used. Built: the quadratic form, with the sample r_1 taken in **[−0.45, 0]** for Σ̂.
+  At −0.5 the matrix is singular. A positive r_1 is not excused: with it, Σ̂ expects r_2…r_10 to share one sign and
+  discounts exactly the slow, persistent autocorrelation a missing delay leaves. On the planted queue record that took
+  q from 14 (called white) to well past 21.67. `test_whiteness_q_matches_the_formula` computes this form by hand
+  (Gauss–Jordan) and checks that it differs from the uncorrected sum. The size test also patches Σ̂ to the identity
+  and asserts a rejection share above 6%. It is named a Box–Pierce portmanteau in the method, `CAN`, SPEC and the
+  module docstrings, not Ljung–Box. Point 8's `CAN` text is reworded to match.
+- **AIC (third note).** Dropped. The reason states the SSE and q before and after, and nothing about AIC. The
+  right-model test runs on 20 seeds per world (40 records), with no residual proposal made.
+- **Point 6 (fourth note).** Every stock with an `initial:` in `ergostat/bench/cases/*.yaml` has a sensor, so the case
+  files' replay is unchanged; the bench itself was not run. Of the existing files I ran (`test_review`,
+  `test_spec_compile`, `test_numbers`, `test_modes`, `test_churn_carry`, `test_cloud_arrivals`, `test_architecture`,
+  `test_chains`, `test_exercised`, `test_bench`, `test_observer`, `test_gated_actions`, `test_churn`, `test_gate`,
+  `test_slowjudge`), none moved. Point 9 is tested: the queue world's `run.values` are identical with point 6
+  patched out.
+- **Budget (fifth note).** The model's own residual run counts as 1. A stock's six after-runs are charged before it is
+  started, so a stock is never offered on an incomplete τ set. `test_the_replays_a_find_runs_are_capped` covers both
+  30 (4 of 8 stocks examined, 25 runs) and exactly-the-budget-left (13 = 1 + 2·6: two examined, the third told the
+  budget was used).
+- **The two forms' ids (sixth note).** Dismissing either form stops both for that stock. The finder reads the
+  dismissed `residual-*` proposals and says "a delay on its inflow was dismissed: not proposed again". Tested in the
+  revise/dismiss test; with that guard removed, the other form is offered after the dismissal and the test fails.
+  Left: the finder reads the dismissals outside `pr.locked`. A dismissal landing between the finder's read and
+  `pr.admit` stops the same id (admit re-checks it) but not, on that one pass, the other form's id.
+- **Reading-driven flows (seventh note).** Noted in SPEC §12b. The queue and chain worlds' outflows are driven by the
+  noisy stock readings (`k * stock.queue`), so the 20-seed right-model test covers it.
+- **A flow with neither `from:` nor `to:`** (outside the files to touch: `spec/compile.py`, 9 lines). Point 4's
+  DELAY3 form for an inflow from outside with no equation (the `arrivals` of the named test) takes its `to:` off,
+  which compile refused (`flow-without-ends`). It is now allowed only when another flow's material delay
+  (DELAY1/DELAY3) takes it in, since what it moves goes into the delay's stages. SPEC §7 says so.
+- **Revised in place (lesson-5)** needed `review.refresh` (outside the files to touch, 8 lines). On the same model
+  version it never re-admitted a pending structural change found with new numbers. It now does so for `residual-*`
+  codes only, through `pr.admit`'s existing revise path. With that removed, the revise test fails.
+- **Breaking each test (lesson-9), seen to fail:**
+  - a missing flow value taken as 0 (2 tests);
+  - the regressor written u(i) − u(i−k) (4);
+  - the point-3 exclusions removed (both not-offered-again cases);
+  - the residual run with `integrate=set()` (the hidden-stock test);
+  - the budget check removed (both cap cases);
+  - an invalid after-run accepted (the invalid case);
+  - the revision in `refresh` removed;
+  - the dismissed-stock guard removed.
+
+  Point 6 is shown in-test by patching `ob.unread_start` out: the gate test and the initial-start test both depend on
+  it.
+- **Not done here:** the clone has no `origin` remote, so origin/main could not be fetched or merged. Local `main`
+  (5617e225) is already in the branch. The unit suite and the four browser files were not run whole (the factory and
+  the merge queue run them). No page test was run; the review.js change is one sentence of text.
