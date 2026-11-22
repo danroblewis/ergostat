@@ -57,3 +57,22 @@ code getting simpler. Branch `code-health-measures`, from main. It can be built 
 
 50 net lines of code outside `tests/`, `docs/` and `dev/`, where any is needed at all (the measures are factory code in
 `dev/`).
+
+## Where it stopped
+
+Round 1 stopped before any code, because a gap this one depends on is not on main. `depends-on` names
+`code-health-simplifier`, and the brief lists it as merged, but this clone (main at 900f8aa6, every ref and the whole
+history: `git log --all --diff-filter=A`) has none of what it makes:
+
+- no `scripts/code_evidence.py`, though point 1 says every reading is computed from it ("no second implementation");
+- no `dev/model/code-health.yaml`, the file where point 1 puts the five auxiliaries and their sensors;
+- no `simplify-when` block or `drift` input (point 3), and no simplifier pool of 1;
+- no `docs/roadmap/overnight/code-health.md`, the parent definition.
+
+`code-health-coverage` is on main (`scripts/coverage_report.py`, `tests/coverage_lines.py`), so the `code-coverage`
+reading alone could be built. Building it alone would put a partial gap on main. Writing the evidence script, the
+model file or the simplifier here would build another gap inside this one (the brief's rule 1, lesson-13). I took the
+reversible option and built nothing.
+
+Left: all five points and all four acceptance tests. Once `code-health-simplifier` has really merged into main,
+continue this branch with main merged in. The definition above stays as it is.
