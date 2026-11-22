@@ -928,8 +928,8 @@ def test_an_items_files_show_as_what_they_are_and_nothing_in_them_runs(browser, 
 
 
 def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_transcript(browser, tmp_path, monkeypatch):
-    """Each field with its current value and a history disclosure: each change, oldest last, with
-    the event that made it (a click opens it); a refused patch said; and a session item whose
+    """Each field with its current value and 'N changes' opening the one Changes section narrowed to it: each change,
+    oldest last, with the event that made it (a click opens it); a refused patch said; and a session item whose
     transcript's lines became events, folded into its conversation. ERGOSTAT_SHOTS=DIR keeps
     screenshots of both."""
     from ergostat import model as mdl
@@ -1018,20 +1018,23 @@ def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_t
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(f"{url}/item/ticket%2F7")
-        pg.wait_for_selector("table.fields tr[data-field=title] details.history", timeout=10000)
-        assert "Thumbnails are blurry at quality 60" in pg.locator("table.fields tr[data-field=title] > td").first.inner_text()
-        notes = pg.locator("tr[data-field=notes] details.history")
-        assert notes.locator("summary").inner_text() == "history (4 changes)"
-        notes.locator("summary").click()
-        rows = notes.locator("table.history tr")
+        pg.wait_for_selector(".field-grid [data-field=title] .changes-of", timeout=10000)
+        assert "Thumbnails are blurry at quality 60" in pg.locator("[data-field=title]").first.inner_text()
+        assert pg.locator("[data-field] details.history").count() == 0          # one Changes section, not one per field
+        changes = pg.locator("details.changes")
+        notes = pg.locator("[data-field=notes] .changes-of")
+        assert notes.inner_text().strip() == "4 changes"
+        notes.click()
+        pg.wait_for_selector("details.changes[open] table.history", timeout=10000)
+        rows = changes.locator("table.history tr")
         assert rows.count() == 5                                           # the head and four changes, the latest first
         assert "add (append)" in rows.nth(1).inner_text() and "/notes/2" in rows.nth(1).inner_text()
         assert "raised it to 75" in rows.nth(1).inner_text() and "ticket.submitted" in rows.nth(1).inner_text()
-        pg.locator("tr[data-field=hours] details.history summary").click()
-        assert "(sum)" in pg.locator("tr[data-field=hours] table.history").inner_text()
-        title = pg.locator("tr[data-field=title] details.history")
-        title.locator("summary").click()
-        assert "replace by patch" in title.inner_text()
+        pg.locator("[data-field=hours] .changes-of").click()
+        pg.wait_for_function("() => document.querySelector('details.changes table.history')?.innerText.includes('(sum)')")
+        pg.locator("[data-field=title] .changes-of").click()
+        pg.wait_for_function("() => document.querySelector('details.changes table.history')?.innerText.includes('replace by patch')")
+        title = changes
         assert pg.locator("h2", has_text="Refused").count() == 1 and "test /title" in pg.locator("table.refused").inner_text()
         if shots:
             shots.mkdir(parents=True, exist_ok=True)
@@ -1040,12 +1043,12 @@ def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_t
         pg.wait_for_selector("#detail h2", timeout=5000)
         assert pg.locator("#detail h2").inner_text() == "ticket.retitled" and "/title" in pg.locator("#detail").inner_text()
         pg.goto(f"{url}/item/session%2Fdeveloper-1a2b")
-        pg.wait_for_selector("tr[data-field=messages] table.sub", timeout=10000)
-        msgs = pg.locator("tr[data-field=messages] > td").first.inner_text()
+        pg.wait_for_selector("[data-field=messages] table.sub", timeout=10000)
+        msgs = pg.locator("[data-field=messages]").first.inner_text()
         assert "Raise the thumbnail quality" in msgs and "keeps every case under its size target" in msgs
-        assert "Grep" in pg.locator("tr[data-field=tool_calls] > td").first.inner_text()
-        assert "2,600" in pg.locator("tr[data-field=tokens_in] > td").first.inner_text() or \
-            "2600" in pg.locator("tr[data-field=tokens_in] > td").first.inner_text()
+        assert "Grep" in pg.locator("[data-field=tool_calls]").first.inner_text()
+        assert "2,600" in pg.locator("[data-field=tokens_in]").first.inner_text() or \
+            "2600" in pg.locator("[data-field=tokens_in]").first.inner_text()
         assert "4 more events are its transcript" in pg.locator("main").inner_text()
         pg.wait_for_selector(".convo .turn.tool", timeout=10000)                  # the file still shows the conversation
         if shots:

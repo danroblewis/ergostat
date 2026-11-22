@@ -934,3 +934,153 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+CARDS = """
+name: cards
+items:
+  gap:
+    id: gap/*
+    states: [open, done]
+    show: [title]
+    fold:
+      contexts: append
+stocks:
+  queue:
+    sensor: {run: echo 1}
+"""
+
+
+def item_site(tmp_path, adds):
+    """A project of gaps served in process: ``adds(p, d)`` records its events."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    d = tmp_path / "cards"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CARDS)
+    p = Project(mdl.load(d))
+    adds(p, d)
+    return web_serve(p, free_port())
+
+
+def item_page(browser, url, item, width=1440):
+    pg = browser.new_page(viewport={"width": width, "height": 1000})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 8")
+    asked: list[str] = []
+    errors: list[str] = []
+    pg.on("request", lambda r: asked.append(r.url))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{url}/item/{item.replace('/', '%2F')}")
+    return pg, asked, errors
+
+
+def test_a_list_of_records_is_cards_with_files_behind_disclosures(browser, tmp_path):
+    """An append field of records each naming a Markdown brief: cards, newest first; each brief a closed disclosure
+    named by its key and size, read only when opened, then as wide as the column; no table in a table's cell."""
+    def adds(p, d):
+        for n in (1, 2):
+            (d / f"b{n}.md").write_text(f"# Brief {n}\n\n## Its part\n\n| a | b |\n|---|---|\n| {'x' * 300} | y |\n\n"
+                                        + "a long line of words " * 80 + "\n")
+            p.events.add("gap.briefed", item="gap/1", data={"title": "cards", "contexts": {
+                "round": n, "kind": "fix", "model": "opus", "verdict": "pass", "cost": 0.5 * n, "seconds": 60 * n,
+                "reviewer": "r", "brief": f"file:b{n}.md", "ids": [f"gap/x{i}" for i in range(20)]}})
+    server, url = item_site(tmp_path, adds)
+    pg, asked, errors = item_page(browser, url, "gap/1")
+    try:
+        pg.wait_for_selector("[data-field=contexts] .card", timeout=10000)
+        cards = pg.locator("[data-field=contexts] .card")
+        assert cards.count() == 2 and "round 2" in cards.nth(0).inner_text(), "newest first, its scalars flowing"
+        assert cards.nth(0).locator(".chip").count() == 20, "a list of ids wraps as chips"
+        assert pg.locator("#main td table, #main td .md, #main td .file-view").count() == 0
+        assert pg.locator("[data-field=contexts] .md").count() == 0, "nothing rendered until opened"
+        folds = pg.locator("[data-field=contexts] details.file-fold")
+        assert folds.count() == 2 and not folds.nth(0).evaluate("e => e.open")
+        size = round((tmp_path / "cards" / "b2.md").stat().st_size / 1024)
+        assert "brief" in folds.nth(0).inner_text() and f"{size} KB" in folds.nth(0).inner_text(), folds.nth(0).inner_text()
+        pg.wait_for_timeout(1500)                                     # a few refreshes, the files closed
+        assert not [u for u in asked if "/file/" in u], asked
+        folds.nth(1).locator("summary").click()                       # the older card's brief: b1
+        pg.wait_for_selector("[data-field=contexts] details.file-fold[open] .md h4", timeout=10000)
+        opened = pg.locator("[data-field=contexts] details.file-fold[open]")
+        assert opened.locator(".md h1, .md h2, .md h3").count() == 0, "its headings below the page's"
+        pg.wait_for_timeout(800)
+        got = opened.evaluate("""e => { const v = e.querySelector('.file-view'), col = e.closest('.field-block');
+            return { w: v.getBoundingClientRect().width, col: col.getBoundingClientRect().width,
+                     sw: e.scrollWidth, cw: e.clientWidth, vsw: v.scrollWidth, vcw: v.clientWidth,
+                     colsw: col.scrollWidth, colcw: col.clientWidth }; }""")
+        assert got["w"] >= got["col"] - 40, got                       # the card's padding aside, the column's width
+        assert got["sw"] == got["cw"] and got["vsw"] == got["vcw"] and got["colsw"] == got["colcw"], got
+        files = [u for u in asked if "/file/" in u]
+        assert files and all(u.endswith("/file/b1.md") for u in files), files
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_short_fields_flow_in_a_grid(browser, tmp_path):
+    """20 numeric fields at 1440 px: a grid of at most 4 rows, each name above its value."""
+    def adds(p, d):
+        p.events.add("gap.measured", item="gap/2", data={f"measure_{i:02d}": i * 1.5 for i in range(20)})
+    server, url = item_site(tmp_path, adds)
+    pg, _, errors = item_page(browser, url, "gap/2")
+    try:
+        pg.wait_for_selector(".field-grid [data-field=measure_19]", timeout=10000)
+        tops = pg.locator(".field-grid .field").evaluate_all("es => es.map((e) => e.getBoundingClientRect().top)")
+        assert len(tops) == 20 and len({round(t) for t in tops}) <= 4, sorted(tops)
+        name = pg.locator("[data-field=measure_03] .field-name").bounding_box()
+        value = pg.locator("[data-field=measure_03] > div").nth(1).bounding_box()
+        assert name["y"] + name["height"] <= value["y"] + 1, (name, value)
+        assert pg.locator("table.fields").count() == 0
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_field_history_is_one_section(browser, tmp_path):
+    """No field has a history disclosure: 'N changes' beside a name opens the one Changes section, at the page's end,
+    narrowed to that field, its changes latest first, each linked to its event; the poll asks for history only then."""
+    import json
+
+    def adds(p, d):
+        p.events.add("gap.opened", item="gap/3", data={"title": "one", "n": 1})
+        p.events.add("gap.moved", item="gap/3", data={"n": 2})
+        p.events.add("gap.moved", item="gap/3", data={"n": 3})
+    server, url = item_site(tmp_path, adds)
+    pg, asked, errors = item_page(browser, url, "gap/3")
+    try:
+        pg.wait_for_selector("[data-field=n] .changes-of", timeout=10000)
+        assert pg.locator("[data-field] details").count() == 0
+        assert pg.locator("[data-field=title] .changes-of").count() == 0, "one change: nothing to open"
+        assert pg.locator("[data-field=n] .changes-of").inner_text().strip() == "3 changes"
+        sec = pg.locator("details.changes")
+        assert sec.count() == 1 and not sec.evaluate("e => e.open")
+        assert sec.evaluate("e => !e.nextElementSibling"), "at the page's end"
+        pg.wait_for_timeout(800)
+        polls = [u for u in asked if "/api/items/gap%2F3" in u]
+        assert len(polls) >= 2 and not [u for u in polls if "history=" in u], polls
+        plain = json.loads(urllib.request.urlopen(f"{url}/api/items/gap%2F3").read())
+        assert "history" not in plain and plain["changes"]["n"] == 3
+        one = json.loads(urllib.request.urlopen(f"{url}/api/items/gap%2F3?history=n").read())
+        assert list(one["history"]) == ["n"] and len(one["history"]["n"]) == 3
+        pg.locator("[data-field=n] .changes-of").click()
+        pg.wait_for_selector("details.changes[open] table.history", timeout=10000)
+        rows = sec.locator("table.history tr")
+        assert rows.count() == 4, rows.count()                       # the head and three changes
+        assert [rows.nth(i).locator("td").nth(4).inner_text() for i in (1, 2, 3)] == ["3", "2", "1"]
+        assert all(rows.nth(i).locator("td").nth(5).locator("a").count() == 1 for i in (1, 2, 3))
+        assert [u for u in asked if "history=n" in u]
+        sec.locator("summary").click()                                # closed: the poll stops asking
+        pg.wait_for_timeout(300)
+        n = len(asked)
+        pg.wait_for_timeout(800)
+        assert not [u for u in asked[n:] if "history=" in u], asked[n:]
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
