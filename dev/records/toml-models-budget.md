@@ -79,3 +79,11 @@ Tests seen to fail when the code they guard was broken (lesson-9): no close on a
 
 Not run here: the whole unit suite and the four browser files (the factory and the merge queue run them). No page is
 changed. Main has nothing new since the clone, so there was nothing to merge.
+
+Round 2, the one finding of round 1 (blocking; there were no others): `ergostat convert` dropped `[budget]`. It now
+writes it as `budget: {daily, max-cost}` (`ergostat/spec/convert.py`, 2 lines; 82 net lines in all, budget 110), and
+SPEC §14's table has a `[budget]` row. Outside the Files list: `ergostat/spec/convert.py`, which the finding named.
+`tests/test_toml_budget.py::test_convert_carries_budget` converts a budgeted toml, loads the YAML with `spec.load`
+and checks its budget (and that a toml without one converts to none); with the two lines disabled it failed
+(`budget` was None). `tests/test_spec_compile.py::test_every_old_example_converts_to_a_model_that_compiles` still
+passes. Main has nothing new since the clone; the unit suite and browser files were not run here.

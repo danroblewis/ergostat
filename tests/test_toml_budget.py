@@ -173,3 +173,20 @@ def test_no_budget_runs_unchanged(tmp_path):
     runner.run_agent(p, p.model.agents["a"])
     assert "reserve" not in evs(p, "agent.started")[0]["data"] and not evs(p, "budget.refused")
     assert (p.repo / "started-a").exists()             # (no budget: as before)
+
+
+def test_convert_carries_budget(tmp_path):
+    """``ergostat convert`` writes ``[budget]`` as ``budget: {daily, max-cost}``, so the converted project is still
+    refused past it; without one, none is written."""
+    from ergostat import spec
+    from ergostat.spec.convert import convert
+    for name, table in (("on", "[budget]\ndaily = 1.5\nmax-cost = 1\n"), ("off", "")):
+        out = tmp_path / name / "yaml" / "ergostat.yaml"
+        m = toml(tmp_path / name, table).model
+        out.parent.mkdir()
+        out.write_text(convert(m)[0])
+        b = spec.load(out).budget
+        if table:
+            assert (b.daily, b.max_cost) == (1.5, 1.0)
+        else:
+            assert b is None

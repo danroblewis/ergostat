@@ -6998,6 +6998,7 @@ blocks:
 | `[[valve]]` with `agent` | a machine block whose `out` is the flow |
 | `[[agent]]` | its `run`, `every`, `parse` move onto the blocks it ran; an `agents:` entry only when it is shared, external, a person, or has limits |
 | `[[system]]` | `systems:` |
+| `[budget]` | `budget:` (its `daily` and `max-cost`, unchanged), so the converted project's runs are still refused past it |
 
 `ergostat convert` writes an existing `ergostat.toml` as `ergostat.yaml` (`--stdout` to look first).
 A controller that held a stock through a valve becomes a goal, and the valve's block names it
