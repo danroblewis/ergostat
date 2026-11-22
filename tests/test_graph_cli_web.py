@@ -588,6 +588,26 @@ def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
     assert {"epic/e1", "epic/e2", "goal/g"} <= both and data["items-graph?kinds=epic,goal"]["asked"] == ["epic", "goal"]
 
 
+def test_a_snapshot_holds_the_timeline_of_a_system_without_relations(tmp_path):
+    # as pages.js: a system none of whose kinds has relations asks for its kinds that have items (the Timeline)
+    import re as _re
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    (tmp_path / "ergostat.yaml").write_text("systems:\n  desk: {description: the help desk}\nitems:\n"
+                                            "  ticket: {id: ticket/*, system: desk}\n  call: {id: call/*, system: desk}\n"
+                                            "  memo: {id: memo/*, system: desk}\n")
+    p = Project(mdl.load(tmp_path))
+    p.events.add("ticket.opened", item="ticket/a", data={"title": "printer"})
+    p.events.add("call.taken", item="call/c", data={"title": "a call"})
+    data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
+    got = data.get("items-graph?kinds=ticket,call") or data.get("items-graph?kinds=call,ticket")
+    assert got is not None, sorted(k for k in data if k.startswith("items-graph"))
+    assert {x["id"] for x in got["items"]} == {"ticket/a", "call/c"}                # memo: no items, not asked
+    assert not any("memo" in k and "," in k for k in data if k.startswith("items-graph"))
+
+
 def _snapshot_data(p) -> dict:
     import re as _re
 

@@ -67,3 +67,18 @@ pytest ran no tests. The code didn't cause this, so the code is unchanged. Runni
 tests/test_items_page.py`) gives 22 passed, none skipped, rc 0. Ruff is clean. Making the build step install
 Playwright, or treat a browser-only file as not affected, belongs in the factory's own tooling and is outside this
 gap (lesson-13), so it is not changed here.
+
+## Where it stopped (round 1, after the build step failed again)
+
+The build step failed again with rc 5 for the same reason: the only test file it picked, `tests/test_items_page.py`,
+is skipped without Playwright. This time it pointed at something real that the record had left as a known gap: a
+snapshot of a system with several kinds and no relations had no Timeline ("The graph and the timeline are not in a
+snapshot."), because `snapshot.py` `_graphs` held `items-graph` only for related kinds. It now asks for what pages.js
+asks for: with no related kind in a system, its kinds that have items, joined (+3 net lines; the branch is +7 in all).
+Its unit test is `tests/test_graph_cli_web.py::test_a_snapshot_holds_the_timeline_of_a_system_without_relations`
+(a `desk` of ticket and call with items and memo without). I broke the fix (`want or` to `want and`) and saw the
+test fail, then put the fix back. Because the branch changes that unit file, the build step now runs its 32 tests
+along with the skipped browser file. The earlier decision "a snapshot says not in a snapshot" is withdrawn.
+
+Tests run: `tests/test_graph_cli_web.py` whole: 32 passed. `uv run ruff check ergostat tests scripts`: clean. Not run
+again this session: `tests/test_items_page.py` with Playwright (no page code changed since its 22 passed).
