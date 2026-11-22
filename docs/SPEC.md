@@ -654,6 +654,21 @@ least) is stale and is not taken.
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
 in place like any system. In Process its kinds' maps are drawn beside ours, framed *remote incidents*.
+
+**Lines to a remote's items.** Where one of our items names a remote's item through a relation to the remote's kind
+(§5a, *A remote's kind*), the process map draws a related line, dashed, from the step our item was last at in the
+window to the step the remote says its item was last at (`at=` on `/remote/v1/process`, in the same request as its
+map). The ids sent are the distinct ids named, each 1 to 128 characters with no space or control character (any
+other is `bad-id`), sorted by id (never by time), as many as fit in 200 ids and 32,000 bytes of query (the rest
+`capped`); the remote refuses more than 200 (400). A link is drawn only when the remote's answer names its item with
+the relation's kind (`other-kind` otherwise) and a step (`not-answered` when the answer leaves it out, is malformed,
+or the remote predates `at`), that step is in the remote's map as drawn (`not-drawn`) and our step in ours
+(`not-drawn-here`); an unreachable remote counts its links `unreachable`, after `bad-id` and `capped`, which are
+decided before the request. A link not drawn is never dropped: `remotes.NAME.unlinked` counts it by reason, and
+`linked` the ones drawn, so the two add up to every link; the side list says how many are not drawn and why.
+Several relations naming one id ask it once, and the answer is checked against each link's kind. No time of the
+remote's is compared with one of ours, and the line never gates (§5a). The remote's map as last read in the window
+is drawn when it does not answer, marked `cached`, its `at` used only when it was for exactly the ids sent now.
 Its closed box shows, in this order of precedence: (a) the `show:` on its `remotes:` entry; else (b) the
 served `show:` of its top systems (those with no `within`, or with `systems:` the kept ones whose `within` is
 not kept), in the order it serves them, each part once, a part `systems:` leaves out cut; else (c) the
@@ -717,7 +732,7 @@ what admits.
 | `/remote/v1/items`, `/remote/v1/items/ID`, `/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by kind and state |
 | `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time; at most 200 a call |
 | `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
-| `/remote/v1/process` | its process map (§5b) |
+| `/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the kind and the step each id asked was last at in the window (an id with no step there left out) |
 
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
@@ -939,6 +954,16 @@ item index keeps every item's links both ways (one row per link, indexed by the 
 what an item names and what names it (the inverse: `blocks`, `children`) are both one lookup: an item's page lists
 them both ways, each related item with its state, and what it waits on first. A link to an id that was never
 recorded is kept, and said: what it names is not known to be finished.
+
+**A remote's kind.** A relation may name a remote's item kind by its local name (`blocked_by: incidents-incident`,
+for the kind `incident` of remote `incidents`, §4c): a kind that is not a local kind and starts with a remote's
+name and `-` (the longest such name, when more than one fits). A local kind of that name comes first: the relation
+is local, and nothing is asked of the remote. A remote relation names only that kind (with another kind it is an
+error, `bad-relation`), is never precedence or a group, whatever its name (`precedence: true` on it is an error,
+`remote-relation-precedence`: ergostat does not see when a remote's item is finished, so it cannot gate on it;
+`group: true` is `bad-relation`), so an item it names never blocks, and is not waited on by `takes: {unblocked:
+true}`. It is checked against the remote's model as last read: a kind the remote no longer serves, or a remote
+never read, is a finding (`remote-reference-unresolved`), never an error. It is drawn in the process map (§4c).
 
 **Graph queries.** Three questions over the links, both ways, and the items' fields (`spec/itemgraph.py`), as the
 record is now: `ergostat item ID --near [N]`, `ergostat item A --path B`, `ergostat item ID --about`, each with
@@ -1351,7 +1376,7 @@ happened between the moves, and loops on one step.
 
 **The paths slider** (in the view bar) hides the lines rarer than its share of their kind's most frequent
 (the lines between kinds, of theirs), and the nodes it leaves alone, as process mining tools' slider does;
-the side panel says how many were hidden.
+the side panel says how many were hidden. The related lines to a remote's items (§4c) are not subject to it.
 
 **Bounded.** The newest 50,000 events in the window are read, the moves of at most 20,000 items (the
 latest moved), and the 60 most frequent nodes and 160 most frequent lines drawn; the side panel says when

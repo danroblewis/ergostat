@@ -394,7 +394,8 @@ keeps running it; this model reads it.
    runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
 5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
    the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
-   incidents, ref: stock.open}`.
+   incidents, ref: stock.open}`. To link one of your items to one of its items, name its kind by its local
+   name in `relations:` (`blocked_by: incidents-incident`): the process map draws the line, and it never gates.
 6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
    equations for the remote's parts, written as text in its names for its owner, each marked current or not.
    They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.

@@ -27,9 +27,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `examples/remote-pair/` and its two-instance test. A remote's measures on its closed box (done on
     `remote-box-measures`): its top systems' served `show:`, or a `show:` on its `remotes:` entry in its own
     names (`remote-show-unresolved` for one it does not serve), each marked stale with its age when the remote
-    or the reading is not current.
+    or the reading is not current. Lines in the process map between our items and theirs (done on
+    `remote-process-lines`): a relation may name a remote's kind (`blocked_by: incidents-incident`, never
+    precedence); the remote says the step each named item was last at (`at=`, at most 200 ids, chosen by id), and
+    a link not drawn is counted by its reason (`unlinked`), never dropped.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
-    it); lines in the process map between our items and theirs (needs an id both logs carry); serving the IR beside
+    it); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
     not served); mutual TLS.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
