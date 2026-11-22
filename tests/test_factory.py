@@ -1266,6 +1266,29 @@ def test_no_reruns_past_the_building_hours(tmp_path):
     assert len(runs(tmp_path)) == 1 and "no building hours" in f.item(gid)["fields"]["suites_fast"]["not_checked"]
 
 
+def test_a_gap_past_its_build_hours_is_parked(tmp_path):
+    """The kill rule's `build_hours` (implement.py): a gap whose building reached the limit is parked with the kill
+    rule's reason and starts no session; one just under it is built."""
+    limit = Factory.GATES["build_hours"]
+    for hours, parked in ((limit, True), (limit - 0.001, False)):
+        where = tmp_path / str(parked)
+        where.mkdir()
+        f = Factory(where)
+        gid = ready(f)
+        f.fold([{"event": "gap.measured", "item": gid, "data": {"build_hours": hours}}], None)
+        said, lines = f.run("implement.py", gid)
+        gap = f.item(gid)
+        session = any(x.get("type") == "result" for x in lines)              # (the stand-in session's cost line)
+        if parked:
+            assert said == ["gap.parked"] and not session and gap["state"] == "parked"
+            assert gap["fields"]["parked_for"] == "kill-rule" and gap["fields"]["parked_in"] == "building"
+            assert f"past the kill rule's {limit:g}" in gap["fields"]["where_it_stopped"]
+            assert not (where / "live" / "drop.git").exists() or not git(
+                where / "live" / "drop.git", "branch", "--list", "factory/alpha-thing")   # no branch pushed
+        else:
+            assert said == ["gap.started", "gap.built"] and session and gap["state"] == "built"
+
+
 def quarantined(tmp: Path, says: str, rc: int = 0, on_main: bool = True) -> Factory:
     """A factory whose main quarantines T (``on_main``; else main has no list and T fails only where a
     tests/quarantine.txt is in the tree): the unit suite fails T unless it is deselected, and the run of the

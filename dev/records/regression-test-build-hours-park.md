@@ -28,3 +28,17 @@ tests/test_factory.py.
 0 net lines outside tests/.
 
 Area: regression. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built. `test_a_gap_past_its_build_hours_is_parked` (tests/test_factory.py) runs the implementor on two Factory fixtures.
+The first has `build_hours` at `GATES["build_hours"]` and is parked: `gap.parked` alone, parked_for kill-rule, parked_in
+building, the kill rule's reason in where_it_stopped, no stand-in session's result line, no branch in the drop. The
+second has the limit less 0.001 and is built: `gap.started`, `gap.built`, and a session ran.
+
+Broken on purpose (lesson 9) in dev/bin/implement.py:191 and restored each time: the comparison flipped to `<`, `>=`
+changed to `>` (the limit itself let through), and the check removed (`if False:`). Each time the test failed with
+`['gap.started', 'gap.built'] != ['gap.parked']`. It passes on the restored code, and so does
+`test_no_reruns_past_the_building_hours`. Not run here: the whole unit suite and the browser files, which the brief
+leaves to the factory and the queue. Main has not moved in this clone, so there was nothing to merge. 0 net lines
+outside tests/.
