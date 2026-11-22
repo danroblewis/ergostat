@@ -675,3 +675,18 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
             "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)
     assert sorted(i["id"] for i in data["items?kind=epic"]["items"]) == ["epic/e1", "epic/e2"]
+
+
+def test_the_items_graph_says_when_its_finish_is_still_being_worked_out(tmp_path, monkeypatch):
+    """The legend's 'being worked out' (SPEC §5a Graph): pending while the estimates of now are not yet there;
+    never at a moment travelled to, which has none to wait for; nor once they are."""
+    import time as t
+
+    from ergostat.web import eta_api, server
+    live = server.Live(related_project(tmp_path))
+    monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: None)
+    assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is True
+    past = server.api(live, "items-graph", {"kinds": ["epic"], "at": [str(t.time() - 600)]})
+    assert past["eta_pending"] is False
+    monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: {"items": {}, "kinds": {}})
+    assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is False

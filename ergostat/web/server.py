@@ -705,7 +705,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "items-graph":                     # the Items page's Graph and Timeline: relations (SPEC §5a)
         from .eta_api import merge
         from .relations_api import graph as items_graph
-        return merge(items_graph(p, m, snap, q), _estimates(p, m, snap, one("whatif")))
+        est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
+        return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":
