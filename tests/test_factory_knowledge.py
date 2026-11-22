@@ -700,6 +700,7 @@ def test_cli_tools_on_a_fixture_instance(tmp_path):
     assert "gap/my-change" in out and "waits on gap/alpha-thing (building)" in out
     assert "Stopped: the lock order." in out and "Spend today $0.00" in out and "no value yet" in out
     assert rid in out
+    assert "Pools implementor 1, reviewer 1: risk " in out and "tolerance 2, target 1" in out   # (pool-control)
 
 
 @pytest.mark.parametrize("role", ["planner", "plan_reviewer", "researcher", "librarian"])
