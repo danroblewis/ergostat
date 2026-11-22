@@ -285,3 +285,83 @@ need no sandbox.
 - Say how isinstance's type argument (int, str) is classified, since it is not shaped under the stated rules.
 - Say whether a removed compound statement counts everything nested in it as removed, as changed does.
 - allow.py at 280 lines is tight; report the real count rather than cutting fail-closed branches.
+
+## Where it stopped
+
+Built, round 1. Everything in the definition is in the branch. What was not run, and where the build departs from
+the text above, is listed below.
+
+**Size: 555 net lines against 450 (an overrun of 105).** allow.py is 445 lines, against the plan's ~280; approve.py
+83; approver.md 14; fix.py +6; stats.py +8; template +2; compile.py -3. The reason is the plan review's additions to
+the guard: the dynamic-rebinding refusals, the least fixed point, the isinstance type argument, removed statements
+nested in removed ones, and G4's "rest of the function/module" walk. Each is a fail-closed branch, and the review asked
+for the real count rather than cuts. Docstrings account for about 60 of the lines.
+
+**The plan review's notes, answered.**
+- Dynamic rebinding: G0 also refuses, anywhere in the new module, a reference to `globals locals vars setattr delattr
+  getattr exec eval compile __import__ __builtins__ breakpoint`; an attribute starting `__` or named `modules
+  f_globals f_locals f_builtins`; a store or del of an attribute named like a trusted name (the listed builtins,
+  `print`, the exceptions, `json load loads dumps`); and an import of `builtins importlib ctypes gc inspect`, or of
+  those names from `sys`. A name with no binding is not shaped. Tests: `test_refuses_dynamic_rebinding` and
+  `test_unbound_name_not_shaped`, each with an accepted twin. SPEC residual 3 says what is still unseen: `pickle`-loaded
+  code and C extensions.
+- Least fixed point: `Shapes` starts from no shaped names and widens. Test: `test_shaped_names_from_nothing_are_not_shaped`
+  (`a = b; b = a` is refused, `a = 1; b = a` accepted).
+- Residuals 3 and 4 tests: `test_residual_other_modules_not_read` and `test_residual_time_and_memory_accepted`.
+- Denial: SPEC says the fold makes a denial final whatever the order. Tests: `test_denial_during_ai_call_stays_denied`
+  (before the write) and `test_denial_after_ai_approval_stays_denied` (after it, before the sweep).
+- isinstance: the type argument must be a name from `int float str bool list dict tuple set`, bound nowhere in the
+  module, or a tuple of such names; the first argument must be shaped.
+- Removed compound statements: everything nested counts as removed, and each is read by G2 against the old module. A
+  nested `continue`/`break`/`return` whose loop or function was itself removed controls nothing (its loop is gone).
+- allow.py: 445 lines (above).
+
+**Departures from the text, each the stricter or more reversible choice.**
+- `test_taint_through_function_return_refused`: the table's accepted twin "the same with `print(x)`" cannot pass the
+  definition's own rules. `x = f()` is not shaped (form (e) was dropped), and G3 holds a tainted reader to G2 with S.
+  The test asserts that `print(x)` is refused. Its accepted twin is the same program whose last statements do not read
+  `x` (`print('removing')`, `os.remove('p')`). That twin shows the exception for `x = f()` and that taint is what refuses.
+- Stricter than written. Names bound by controlled statements are tainted, so `if flag: p = 'x'` taints `p`. A function
+  holding a tainted statement is tainted, not only one holding a changed, removed or controlled statement; otherwise an
+  unchanged `def f(): return g` would hide a changed `g` from the `x = f()` reader. An augmented assignment needs its
+  target name shaped. (d) methods take no keywords. A `json.load`/`json.loads` binding counts only without keywords
+  (`object_hook` could make non-JSON values). A file beside the program named `json.<anything>` makes `json` untrusted.
+- "At most 40 lines changed" counts each run of changed lines by its longer side, so a one-line edit is 1.
+- `escalate(path, old, new, beside, tests=None, risk=None)`: G0 needs the test result and the risk. Their defaults
+  fail closed (untested, high).
+- A `stale` review is recorded with `approval.verdict: stale` on the failure, with the old stamp. It is not an approval,
+  and the stamp shows which version it was about.
+- `tests/test_repair2.py::test_g2_approver_ai_is_refused_by_check` was removed, since this gap makes it false.
+  `test_check_accepts_approver_ai` replaces it.
+- The approver tests run `fix.main` in this process with only `fix.trial` (the sandbox) and `fix.impact` stubbed. They
+  run without the OS sandbox and still exercise the wiring in fix.py. `test_ai_approver_end_to_end_in_the_sandbox`
+  runs the engine and is skipped without the sandbox. Added beyond the table: `test_approver_person_is_as_on_main`,
+  `test_high_risk_escalates_without_asking_ai`, `test_removed_return_controls_the_rest_of_the_function` and
+  `test_denial_after_ai_approval_stays_denied`.
+- Not built (GAPS): `inbox/interventions.py` reads `stats.asked`, so an AI-approved action still counts as an
+  intervention there, as an MCP answer already does. It is outside the files to touch.
+- No test runs `fix.run`'s lock under real concurrency. The race tests put the competing write in the gap between
+  the AI's answer and the write, which is where the definition puts them.
+
+**Each test seen to fail with its code broken** (each mutation applied, then reverted):
+- The guard always `[]`: 48 tests fail. The guard always refusing: 62 fail.
+- G3 off: path-literal, unchanged-call and function-return tests fail. G4 off: the for, if, removed-continue and
+  removed-return tests fail. G5 off, and its function rule alone off: `test_change_inside_try_or_with_refused` fails.
+- The no-binding rule off: all 8 shadowing cases fail. `dynamic()` off: vars, sys.modules, dunder, import-star and
+  builtins, and all 6 dynamic-rebinding cases fail. `beside` ignored: the `json.py` case fails.
+- A seeded fixed point: the cycle test fails. Removed statements not read by G2: the removed-unreadable test fails.
+- In approve.py, the stamp check off: the remake, requested-seq and denial-during tests fail. The requested-seq check
+  alone off: the requested-seq test fails. The guard skipped: the guard-escalates and high-risk tests fail. A truthy
+  approve accepted: the `"approve": "yes"` case fails.
+- `approval: None` dropped from `passed`: the remade-failure test fails. `by_agent` reverted in stats.py: the
+  counted-apart test fails.
+
+**Not run, or not possible here.**
+- The whole unit suite and the four browser files were not run: the task says the factory runs them. Run, one at a
+  time: `tests/test_repair_allow.py` (53 passed), `tests/test_repair_approver.py` (16 passed, 1 skipped: sandbox),
+  and `test_inbox`, `test_runlog`, `test_factory_knowledge`, `test_backlog`, `test_daemon_yaml_review`,
+  `test_resilience`, `test_factory` (335 passed, 2 skipped).
+- `tests/test_repair2.py` is skipped whole in this container: bwrap cannot make its namespaces.
+- origin/main is not merged. This clone has no `origin/main` ref, `git fetch` is refused (it reaches the network), and
+  the local `main` is already an ancestor of the branch.
+- Ruff is clean.
