@@ -284,3 +284,70 @@ code was changed. Run on the merged head, one batch at a time: `test_library_unt
 which are left to the factory under the watchdog. The stall the factory saw at 88% after round 3 has not yet been
 seen on a run that has round 3's test changes (8a221683). If it comes back, the worker's log naming the test is still
 needed.
+
+**Round 4: main merged at e5d8c220 (d2e33b54), which brought `library-trust-folders` (lesson-7).** It conflicted in
+SPEC, `author.py`, `templates.py`, `uses.py`, `engine.py` and `load.py`. Main now holds the other way to mark a
+library untrusted that this definition foresaw, so the two meet on one attribute, and nobody was there to ask:
+- *One attribute.* Main's `Template.trust` (`ergostat`, `owner` or `untrusted`, default `untrusted`) is the one
+  attribute. `Template.untrusted` is now a property read from it (true unless `ergostat` or `owner`), so a later
+  source of trust sets `trust` and the marking and the limits follow. `doc.untrusted_library` is gone. Main's
+  `doc.untrusted` (a set of resolved folders) is the one set. `doc.library` is still `list[Path]`.
+- *The declaration.* Main's form stays: `{folder: PATH}` is untrusted unless it says `trust: owner`. This branch's
+  `untrusted: true|false` is accepted in the same map, as another way to say it. It must be a YAML bool (`1`, `"yes"`
+  and `yes` are refused), and beside a `trust:` it must agree, or the entry is `bad-library` and its folder is not
+  read. This **differs from the definition**: "both keys required" can no longer hold, because main's `{folder}`
+  (untrusted, no `untrusted:` key) is valid. So `test_library_map_declares_untrusted` no longer lists `{folder: lib}`
+  as bad. It lists it, with three other forms, as main's valid forms, and adds `untrusted: 1` and the two disagreeing
+  pairs to the bad ones. Each bad entry is also checked to leave `doc.library` empty (fail closed).
+- *Chain trust.* Main's `plan` already carries `under`, the first untrusted template of a chain. An instance's
+  `untrusted` is now `under is not None`, which is the same rule (its own template, or any instance above it), and its
+  `uses` entry carries both main's `trust` and this branch's `untrusted` bool. The marked `bad-param`, `bad-template`
+  and stand-in messages go into the chain's steps, as main's other problems do.
+- *Shadowing.* Main's rule decides which template is kept (the trusted one, whichever comes first), and its note text
+  stays as it is. A note about a skipped untrusted file now has this branch's fixed prefix (`untrusted library folder
+  FOLDER:`), and the rest is marked. Main's tests look for the file's path and `is not used` inside the note, and still
+  pass. This branch's `within` (the untrusted folder a file lies under, as written or with links followed) replaces
+  main's `held`. It is the same test, and it also gives the folder the note names.
+- *The limits are a second line now.* Main's allowlist refuses a held chain's program, ai and judge blocks and a
+  sensor's `run`, `every`, `cron` and `daemon` before anything is put (`library-untrusted`). So, with both in place,
+  the compile limits that can fire today are the untrusted sensor's default `every` (`UNTRUSTED_EVERY`), plus the
+  run-time gates. The rest bound whatever a later rule admits, such as library-sandbox-blocks running untrusted
+  program blocks. SPEC §2a says this in the *Bounded* paragraph. Both test files therefore take the allowlist away
+  with an autouse fixture (`second_line`: `trust.refused` returns None), to show the limits hold alone. A new test,
+  `test_the_allowlist_refuses_first`, puts it back and shows three things. A program block under an untrusted
+  template is `library-untrusted`, with no `untrusted-limit` and no `uses` entry. A sensor counting items, which the
+  allowlist lets through, gets `UNTRUSTED_EVERY`. And the templates tool still marks the template's text.
+- *The snapshot.* Main's trusted output now carries `"trust": "owner"`, in the list form after `from` and in the full
+  form (`summary()`). The snapshot gained that one key in both places. This was read from main's `author.library` and
+  `Template.summary` at e5d8c220, not captured by running main's code, because running a copy of main from `/tmp`
+  was refused here (`PYTHONPATH=/tmp/snap/main uv run python /tmp/snap/make.py ...`, and writing that script under
+  `/tmp`).
+- *Docs.* The GAPS *Shared libraries* entry had been spliced by the merge: the branch's *Still needed* sat inside
+  main's sentence, and was followed by a dangling "only to hosts the owner lists" and a second, stale *Still needed*.
+  It is one entry again: main's *Built*, then this branch's *Built*, then one *Still needed*. SPEC §2a's *Untrusted
+  libraries* now points at main's *Folders the owner did not write* for the declaration. The errors list gains
+  **untrusted-limit**, which the problems list lacked, and **bad-library** names the bool form. SECURITY's "does not
+  stop" item on a library's words is narrowed to what is true now (marked in the `templates` tool and three kinds of
+  `check` problem, the made parts unmarked), and it names the bool form. AGENT-GUIDE, the skill and the MCP tool
+  description say "a folder not marked trusted".
+- *Left unmarked, not claimed:* main's `library-untrusted` refusal names the template's folder (`u.path.parent`),
+  which can hold a library's subfolder names. It is listed under GAPS *Still needed*.
+
+Break-once for this round (lesson-9). The two new break-once runs:
+- `untrusted:` allowed to disagree with `trust:` (`trust = said`): `test_library_map_declares_untrusted` failed.
+- The chain flag read from the template alone (`untrusted = t.untrusted`): `test_trusted_nested_under_untrusted`
+  failed.
+- The untrusted sensor default removed (`default_every` returning the default): `test_defaults_within_limits` and
+  `test_the_allowlist_refuses_first` failed.
+Each was put back. Net code is 229 lines over main (budget 340).
+
+Run here, on the merged head, one file batch at a time:
+- `test_library_untrusted` (22) and `test_library_untrusted_runs` (8);
+- `test_library_trust` (48, main's, unchanged);
+- `test_templates`, `test_modelling_template`, `test_upkeep_template` and `test_library_trust` (102);
+- `test_spec_compile`, `test_leases`, `test_reload_in_place`, `test_spec_engine`, `test_engine_shard` and
+  `test_engine_shard_asks` (99);
+- `test_guide`;
+- `test_resilience`, `test_chains`, `test_modelling_core` and `test_cli_fallback` (111).
+All passed, and ruff is clean. Not run here: the whole unit suite and the four browser files, which are left to the
+factory under the watchdog.
