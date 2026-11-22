@@ -11,8 +11,9 @@ count, as a stock, would be the signal for feedback loops that raise it.
 
 - A **conformance list** is a file of named **cases**, each a wish ("draws a service map", "exports XMILE") with a
   command that says whether ergostat does it today.
-- A **runner** runs the list, and reports each case as an item (`case/<list>/<name>`) in one of three states:
-  `met`, `unmet`, or `broken` (the check itself could not say). It never fails because a case is unmet.
+- A **runner** runs every list a project names, in one run, and reports each case as an item
+  (`case/<list>/<name>`) in one of three states: `met`, `unmet`, or `broken` (the check itself could not say). It
+  never fails because a case is unmet.
 - The count of met cases is an ordinary **stock**, counted from those items by an `items:` sensor. Its readings
   are its history (the Jenkins line); the item kind's states over time are the stacked graph.
 - A **goal** on the wanted cases (unmet and broken) is off while any is left. A block serving it is the loop that
@@ -86,14 +87,34 @@ cases:
 A case is a wish, not a test of a wish's details: one case per feature, and a check that passes only when the
 feature really works on a real model (the image-squeeze cases are measured, not asserted).
 
+**Several lists, one use.** A project keeps one file per list (ergostat's three in section 6), and its model names
+them all in one use of the template:
+
+```yaml
+uses:
+  conformance:
+    use: conformance
+    with:
+      folder: dev/conformance          # where the list files are: <folder>/<list>.yaml
+      lists: [diagrams, model-formats, discovery]
+```
+
+The use names its lists, rather than taking every file in the folder, so a list file that has gone missing is an
+error (the run stops, step 1 below) instead of reading as a list with no cases. The list's name in each file must
+match its file name, and each name may appear once. At most 20 lists, and 500 cases across them.
+
 ## 2. Running and counting
 
 The runner (proposed: `ergostat/library/run/conformance.py`, reached as `${lib} conformance`, beside the
-library's other programs such as `ergostat/library/run/each.py:1-19`):
+library's other programs such as `ergostat/library/run/each.py:1-19`) runs **every list the use names, in one
+run**. One run over all lists, not one per list, is what keeps the counts consistent: the declared count and the
+withdrawals below are worked out across the same lists the item counts read.
 
-1. Reads the list. A list it cannot read, or one that breaks the table above, exits non-zero. A sensor whose
-   command exits non-zero records no reading and none of its observations (`ergostat/spec/engine.py:2365-2368`),
-   so a broken list stops the count instead of reading as zero.
+1. Reads every list. If any list it was told of cannot be read, or breaks the table above (or the limits of 20
+   lists and 500 cases), it runs nothing and exits non-zero. A sensor whose command exits non-zero records no
+   reading and none of its observations (`ergostat/spec/engine.py:2365-2368`), so a broken list stops the count
+   instead of reading as zero, and no other list's cases are moved by a half-read run.
+
 2. Decides whether to run. Like `bench.py`, it runs the cases only when what they check has changed: for
    ergostat, when main's head moved; else it prints the last result again.
 3. Runs each case's check, one at a time, in its own process group. At the case's timeout it kills the group, not
@@ -106,16 +127,26 @@ library's other programs such as `ergostat/library/run/each.py:1-19`):
    "commit": "…", "run": 41, …}}` (the case's `description` and `from` too, so the item shows them), or
    `case.unmet` / `case.broken` with the check's last lines of output in `data.said`. The run number comes from
    the runner's own counter, so "which result is newer" is read by sequence, never by time (lesson 2).
-5. Prints `case.withdrawn` for each case item the record holds that the list no longer names. It reads them with
-   `$ERGOSTAT_CMD item --kind case --json` (`docs/SPEC.md:1729`, the `run` row). Without this a case taken off the
-   list would stay `met` and keep counting (lesson 5).
-6. Prints its number: how many cases the list declares.
+5. Prints `case.withdrawn` for each case item the record holds, not already withdrawn, whose id is
+   `case/<list>/<name>` where either `<list>` is a list it read and `<name>` is not a case in it, or `<list>` is not
+   among the use's lists at all (a list dropped from the use). It reads the items with
+   `$ERGOSTAT_CMD item --kind case --json` (`docs/SPEC.md:1729`, the `run` row), and takes the list from the id's
+   prefix, never from `data.list` alone, so an item is judged by the list its id says it belongs to. Without this a
+   case taken off a list would stay `met` and keep counting (lesson 5). An item of a list that was named but could
+   not be read is never withdrawn: step 1 has already stopped the run.
+6. Prints its number: how many cases all the lists declare together.
 7. Exits 0 whatever the cases said. An unmet case is a result, not a failure of the runner.
 
 The model it feeds (proposed as a built-in template, `use: conformance`, beside
-`ergostat/library/templates/keep-under.yaml`; the parts below are what a use makes):
+`ergostat/library/templates/keep-under.yaml`; the parts below are what a use makes). It is written `once: true`,
+so its parts keep the names written in it and a second use in one model is an error, **used-twice**
+(`docs/SPEC.md:142-144`). That is what stops two uses from clashing over the one kind `case`, and from
+`items: case` sensors in one use counting another use's cases: there is one use, and its one runner speaks for
+every list. More lists are more names in `lists:`, not more uses.
 
 ```yaml
+template: conformance
+once: true
 items:
   case:
     id: case/*
@@ -123,9 +154,9 @@ items:
     on: {case.unmet: unmet, case.met: met, case.broken: broken, case.withdrawn: withdrawn}
     show: [list, description, from, asked, commit, run, said]
 stocks:
-  conformance-declared:              # the runner's number: what the list asks for
+  conformance-declared:              # the runner's number: what all the lists ask for
     unit: cases
-    sensor: {run: "${lib} conformance --list ${list}", every: 10m, timeout: 30m}
+    sensor: {run: "${lib} conformance --folder ${folder:quote} ${lists:arg}", every: 10m, timeout: 30m}
   conformance-met:                   # the count: the Jenkins line
     unit: cases
     sensor: {items: case, state: met, every: 1m}
@@ -142,14 +173,24 @@ flows:
 goals:
   every-wish: {stock: conformance-wanted, hold: "<= 0"}
   nothing-lost: {flow: conformance-lost, hold: "<= 0"}
-  every-case-run: {auxiliary: conformance-unaccounted, hold: "<= 0"}
+  every-case-run: {auxiliary: conformance-unaccounted, hold: "== 0"}
 ```
+
+The runner's command passes every list: `${lists:arg}` writes `--lists NAME` once for each (`docs/SPEC.md:223`),
+and `${folder:quote}` quotes the folder for the shell (`docs/SPEC.md:222`).
+
+`every-case-run` holds at `== 0`, not `<= 0` (a goal may hold at a level, `ergostat/spec/ir.py:686`). Above 0,
+some declared case has never been run. Below 0, the items count more cases than the lists declare: a case item
+written by something other than the runner, or a withdrawal that went wrong. Both are off, so neither can read as
+"every case run" (lesson 3).
 
 What can be missing, and how each counts (lesson 3):
 
 | Missing | Counts as |
 |---|---|
-| the list file, or a bad one | no reading of `conformance-declared` (step 1); its goal's input goes stale |
+| any one list file, or a bad one | no reading of `conformance-declared` and no case moved in any list (step 1); its goal's input goes stale |
+| a list dropped from the use's `lists:` | its items withdrawn (step 5), and its cases no longer declared |
+| case items the lists do not account for | `conformance-unaccounted` below 0, and `every-case-run` off |
 | a check's command, or its exit other than 0 or 1 | `broken`: wanted, never met |
 | a check that hangs | killed at its timeout, `broken` |
 | a case never run (new, or the run out of time) | not an item yet, so `conformance-unaccounted` is above 0 and `every-case-run` is off |
@@ -171,8 +212,18 @@ flows"). This is the same reading the image-squeeze demo gives its `capabilities
 - **The stacked graph** (met, unmet, broken over time, the Jenkins test-result trend) is the item kind's states
   over time (`ergostat/series.py:342`), which the Items tab draws as a kind's cumulative flow diagram
   (`docs/DISCIPLINES.md:31`). No new chart and no new page.
-- **Per list**: a stock per list where wanted, with `where: {list: diagrams}` on its sensor (`docs/SPEC.md:1743`,
-  the `where` row).
+- **Per list**: the template's stocks count across all lists. A count per list is a stock the model adds beside
+  the use, with `where: {list: diagrams}` on its `items:` sensor (`docs/SPEC.md:1743`, the `where` row), such as
+  `diagrams-met: {sensor: {items: case, state: met, where: {list: diagrams}}}`. The runner writes `data.list`
+  from the case's id prefix, so the field and the id never disagree. These are views of the one count, never a
+  second runner: the declared count and the withdrawals stay with the use's one run.
+
+Not chosen, and why: a use per list, each instance's parts named by the instance (`diagrams-met`, with
+`where: {list: ...}` on its met and wanted sensors, and its own runner withdrawing only under its `case/<list>/`
+prefix). It would also be correct, but it needs the template to take the item kind as a shared parameter that
+several instances declare, and several runners writing one kind. One use with a list of lists is the smaller
+change, and the more reversible one: moving to per-list uses later changes only the model, not the items, whose
+ids already carry their list.
 
 ## 4. How a loop's goal reads it
 
@@ -194,7 +245,7 @@ blocks:
 ```
 
 This uses only what leases already do (`docs/SPEC.md:2584-2620`): a run per item, held until the item moves on.
-Here the item moves only when the next run of the list says `met`, so a run that claims done without meeting the
+Here the item moves only when the next run of the lists says `met`, so a run that claims done without meeting the
 check is not counted.
 
 For ergostat itself, the factory does not let an AI change main directly. Its loop asks for a **gap**, the same
@@ -234,7 +285,7 @@ the code on main**: no case has been run, and the check commands named below do 
 runs them, and corrects any expectation that is wrong). Where a unit test already shows the feature works, the
 check may run that test; it is named.
 
-### diagrams (from `docs/proposals/diagram-options.md` and `docs/DISCIPLINES.md`)
+### diagrams (`dev/conformance/diagrams.yaml`; from `docs/proposals/diagram-options.md` and `docs/DISCIPLINES.md`)
 
 The owner decided on 2026-11-16 not to start any new diagram yet (`docs/proposals/diagram-options.md:3-7`). So
 this list's unmet cases are `asked: false`: counted, and not taken by the loop until the owner opens them. That is
@@ -254,7 +305,7 @@ Not on the list, and why (each with its line): the Petri net (the process map is
 the item state machine are marked possible (`docs/DISCIPLINES.md:13`, `:16`, `:18`, `:19`), but nothing in the
 repository asks for them. They are the owner's to add.
 
-### model formats
+### model formats (`dev/conformance/model-formats.yaml`, list `model-formats`)
 
 | Case | What the check does | Today | Why |
 |---|---|---|---|
@@ -268,7 +319,7 @@ Not on the list: Vensim `.mdl` (the research points to PySD for that, if ever wa
 `docs/research/sre-control-systems.md:1250`), and outside event-log formats such as OCEL. The repository names
 OCEL only as the method the Process view follows (`ergostat/process.py:3`), not as a file to read.
 
-### discovery algorithms
+### discovery algorithms (`dev/conformance/discovery.yaml`, list `discovery`)
 
 | Case | What the check does | Today | Why |
 |---|---|---|---|
@@ -295,18 +346,25 @@ loop. These are expectations, not measurements.
 Four gaps, in order. Each builds only what its paragraph says.
 
 1. **conformance-template**: the runner and the `use: conformance` template, for any project. The runner
-   (`ergostat/library/run/conformance.py`) does what section 2 says: it reads and validates the list (names by the
-   pattern, at most 500 cases, timeouts at most 10m, all checked when the list is read and again when a run starts),
-   runs the cases one at a time in their own process groups and kills each group at its timeout, stops starting
-   cases before the sensor's timeout, prints one observation per case run and one `case.withdrawn` per item the list
-   dropped, prints the declared count, and exits 0 whatever the cases said. The template makes section 2's kind,
-   stocks, auxiliary, flows and goals, and a stand-in list for a project that has none. Acceptance tests by name,
-   among them: a hung check killed with its children; a check that exits 2 counted as broken; a removed case
-   withdrawn and no longer counted; a list over 500 cases refused; a run that runs out of time names the cases it
-   skipped and never counts them as met. SPEC §2a and the agent guide say how to use it.
-2. **ergostat-conformance-list**: ergostat's own list, section 6, as `dev/conformance/*.yaml`, with its checks in
-   `dev/conformance/checks/` (outside `tests/`, so the unit suite never collects them), and `use: conformance` in a
-   new `dev/model/conformance.yaml`. Each check written, and each shown able to fail: a check expected met is run
+   (`ergostat/library/run/conformance.py`) does what section 2 says, over every list the use names in one run: it
+   reads and validates them all (names by the pattern, each list's name matching its file, at most 20 lists and 500
+   cases across them, timeouts at most 10m, all checked when the lists are read and again when a run starts), runs
+   nothing if any one fails, runs the cases one at a time in their own process groups and kills each group at its
+   timeout, stops starting cases before the sensor's timeout, prints one observation per case run and one
+   `case.withdrawn` per item dropped (scoped by its `case/<list>/` prefix: a case a read list no longer names, or
+   any case of a list the use no longer names), prints the declared count across all lists, and exits 0 whatever
+   the cases said. The template, `once: true`, makes section 2's kind, stocks, auxiliary, flows and goals, and a
+   stand-in list for a project that has none. Acceptance tests by name, among them: a hung check killed with its
+   children; a check that exits 2 counted as broken; a removed case withdrawn and no longer counted; with two
+   lists, a case removed from one withdrawn while the other list's cases are left as they were; a list dropped from
+   `lists:` has its cases withdrawn; one unreadable list of two stops the run and moves no case of either;
+   `conformance-unaccounted` below 0 (a case item no list declares) puts `every-case-run` off; a second
+   `use: conformance` refused as used-twice; a list over 500 cases refused; a run that runs out of time names the
+   cases it skipped and never counts them as met. SPEC §2a and the agent guide say how to use it.
+2. **ergostat-conformance-list**: ergostat's own lists, section 6, as `dev/conformance/diagrams.yaml`,
+   `model-formats.yaml` and `discovery.yaml`, with their checks in `dev/conformance/checks/` (outside `tests/`, so
+   the unit suite never collects them), and one `use: conformance` naming all three in its `lists:`, in a new
+   `dev/model/conformance.yaml`, with a met stock per list beside it (`where: {list: ...}`, section 3). Each check written, and each shown able to fail: a check expected met is run
    once against a copy with the feature broken, and seen unmet (lesson 9). The list run once on main, and its real
    counts recorded in the gap's record beside section 6's expectations, each difference explained. No loop yet: the
    count is only watched.
