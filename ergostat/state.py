@@ -726,11 +726,11 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"],     # waiting on a person
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
-             + (f". {en.command(e)}" if e["verbs"] else ""),
-             "first": e["summary"], "waiting": human(e["age"]), "run": e.get("run"), "cli": en.command(e),
-             "record": e.get("record"), "suggest": e.get("suggest"),
-             "more": e["why"] if e.get("why") and e["why"] not in e["summary"] else None}
-            for e in snap.get("inbox", [])]
+             + (f". runs: {e['run']}" if e.get("run") else "") + (f". {en.command(e)}" if e["verbs"] else ""),
+             "first": e["summary"] + (f" because {by}" if by else ""), "waiting": human(e["age"]), "run": e.get("run"),
+             "cli": en.command(e), "record": e.get("record"), "suggest": e.get("suggest"),
+             "more": None if by else e.get("why") or None}         # an action's reason ends its sentence, said once
+            for e in snap.get("inbox", []) for by in [e["kind"] == "action" and not e.get("warn") and e.get("why")]]
     out = sorted(out, key=lambda a: LEVELS.get(a["level"], 1))           # problems first, then what waits on a person
     return [a for a in out if a["level"] == "bad"] + asks + [a for a in out if a["level"] != "bad"]
 

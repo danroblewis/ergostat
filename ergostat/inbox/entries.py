@@ -38,12 +38,11 @@ def command(e: dict) -> str | None:
     return f"ergostat inbox {e['id']} " + " | ".join(flags.get(v, f"--{v}") for v in e["verbs"]) if e["verbs"] else None
 
 
-def sentence(a: dict, why: str = "") -> str:
-    """A held action as a sentence: what it does, to what, for which item, who asks and why."""
+def sentence(a: dict) -> str:
+    """A held action as a sentence: what it does, to what, for which item and who asks (its why stays the entry's)."""
     args = ", ".join(f"{k} {v}" for k, v in (a.get("args") or {}).items())
     return (f"{a.get('description') or a.get('action')}" + (f" ({args})" if args else "")
-            + (f", for {a['item']}" if a.get("item") else "") + (f", asked by {a['block']}" if a.get("block") else "")
-            + (f" because {why}" if why else ""))
+            + (f", for {a['item']}" if a.get("item") else "") + (f", asked by {a['block']}" if a.get("block") else ""))
 
 
 def _why(p, spec, item: str | None) -> str:
@@ -68,9 +67,8 @@ def _actions(p, spec, now: float) -> list[dict]:
     return [{"id": f"action/{record.short(a['id'])}", "kind": "action", "time": a["time"], "link": f"/item/{a['id']}",
              "verbs": ["approve", "deny"], "class": a.get("class") or a.get("action"), "action": a.get("action"),
              **({"warn": w} if (w := warning(p, spec, a)) else {}), "run": a.get("command"),
-             "summary": sentence(a, "" if w else why), "why": w if a.get("action") == "revert-fix" else why}
-            for a in record.stored(p, until=now).values() if a["state"] == "requested"
-            for why in [_why(p, spec, a.get("item"))]]
+             "summary": sentence(a), "why": w if a.get("action") == "revert-fix" else _why(p, spec, a.get("item"))}
+            for a in record.stored(p, until=now).values() if a["state"] == "requested"]
 
 
 def asks(p, b, since: float | None = None, until: float | None = None) -> list[dict]:

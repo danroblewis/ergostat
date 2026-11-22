@@ -64,3 +64,26 @@ Round 2: the review's one finding answered. About 29 net lines of code outside t
 - Run: `tests/test_inbox_page.py` (4 passed, under the watchdog, with Playwright), `tests/test_inbox.py` (30 passed),
   ruff clean. Not run here: the unit suite and the four browser files, which the merge queue runs. `main` has no
   commits the branch lacks, so there was nothing to merge.
+
+Round 3: both findings of review 2 answered (both blocking; it raised no others). About 28 net lines of code outside
+tests in all (round 3 subtracted 1).
+
+- Finding 1 (the command gone from the CLI and notifications): `ergostat inbox` prints a `runs: {command}` line under
+  each action again (cli/inbox.py), and a `detail: full` notification carries `runs: {command}`, scrubbed like the
+  summary (deliver.py). A `minimal` message still leaves it out, as on main. The status line (`says` in
+  `state.attention`) carries it as well. `tests/test_inbox.py:373` checks the full message for the `runs:` line again.
+- Finding 2 (the reason said twice): the shared `summary` no longer holds the reason. It reads `{description}
+  ({args}), for {item}, asked by {block}`, and `why` is unchanged from main, so the CLI, notifications and the status
+  each say it once. The side list's first line adds `because {why}` itself (state.attention's `first`), and then
+  drops `more` so the reason is not shown again. When the action has a warning, the reason stays on its own line, as
+  before. Choice taken (reversible): the reason is left out of the shared summary rather than clearing `why`, because
+  `why` is read as its own field (tests/test_inbox.py's impact test, the CLI's `why:` line).
+- Test: `tests/test_inbox.py::test_an_action_says_its_command_and_its_reason_once_in_the_cli_the_message_and_the_status`.
+  An action whose item has an impact and a test result must show the reason exactly once and the command, in the CLI
+  listing, in a full-detail message (its model names scrubbed: `echo flow-1 >> flow-1.txt`) and in the status
+  line. The page's first line must end `because {why}`. Seen to fail under three breaks: the CLI's `runs:` line
+  removed; the message's `runs:` line removed (the old message test fails too); and the reason put back into the summary
+  (the count is 2).
+- Run: `tests/test_inbox.py` (31 passed), `tests/test_inbox_page.py` (4 passed, under the watchdog, with Playwright),
+  ruff clean. Not run here: the unit suite and the four browser files, which the merge queue runs. `main` has no
+  commits the branch lacks.
