@@ -1376,9 +1376,11 @@ def test_a_branch_cannot_quarantine_its_own_failing_test(tmp_path):
     f.fold([{"event": "gap.measured", "item": gid, "data": {"head": git(work, "rev-parse", "HEAD")}}], None)
     f.run("review.py", gid)
     assert f.item(gid)["fields"]["reviewed_head"] == git(work, "rev-parse", "HEAD")
-    (tmp_path / "rerun.sh").write_text(f'echo "rerun $*" >> {tmp_path}/runs.log\necho "FAILED {T} - boom"; exit 1\n')
-    f.config.write_text(f.config.read_text().replace(f'rerun = "{tmp_path / "alone.sh"} {{tests}}"',  # (T fails alone
-                                                     f'rerun = "sh {tmp_path / "rerun.sh"} {{tests}}"'))  # too: no flake)
+    (tmp_path / "rerun.sh").write_text(f'echo "rerun $*" >> {tmp_path}/runs.log\nif [ -e tests/quarantine.txt ]; then '
+                                       f'echo "FAILED {T} - boom"; exit 1; fi\necho "PASSED {T}"\n')
+    f.config.write_text(f.config.read_text().replace(f'rerun = "{tmp_path / "alone.sh"} {{tests}}"',  # (T fails alone on
+                                                     f'rerun = "sh {tmp_path / "rerun.sh"} {{tests}}"'))  # the branch: no
+    # flake; it passes on main, which lists nothing: not main's)
     said, _ = f.run("queue.py", gid)
     assert said[:2] == ["gap.queued", "gap.queue-failed"] and f.item(gid)["fields"]["failed_tests"] == [T]  # red
     unit = [r for r in runs(tmp_path) if r.startswith("unit ")]
@@ -2541,9 +2543,9 @@ def test_bisect_reruns_only_the_failing_tests(tmp_path):
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
     assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3
-    # all four red, naming test_b; test_b alone on all four (failed); then on p, q (passed) and on p, q, r (failed): r.
-    # Then p, q, s merged again and run in full: green
-    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 3 and suite_runs(f) == 2
+    # all four red, naming test_b; test_b alone on all four (failed), on main (passed); then on p, q (passed) and on
+    # p, q, r (failed): r. Then p, q, s merged again and run in full: green
+    assert reruns(f) == ["tests/test_b.py::test_b -rA"] * 4 and suite_runs(f) == 2
     r = f.item("gap/r")["fields"]
     assert r["failed_suite"] == "unit" and r["failed_tests"] == ["tests/test_b.py::test_b"]
     assert r["suites_queue"]["named"]["tests"] == 1                            # found by the named run
@@ -2607,7 +2609,7 @@ def test_a_test_that_fails_alone_on_either_rerun_still_bisects(tmp_path):
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
     assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
-    assert len(reruns(f)) == 4 and suite_runs(f) == 2               # twice on p..s, then on p, q and on p, q, r
+    assert len(reruns(f)) == 5 and suite_runs(f) == 2               # twice on p..s, on main, on p, q and on p, q, r
     r = f.item("gap/r")["fields"]
     assert r["failed_tests"] == [t] and r["suites_queue"]["named"]["tests"] == 1
     assert "flake/tests-test-b-py-test-b" not in f.db()["items"]
@@ -2616,7 +2618,7 @@ def test_a_test_that_fails_alone_on_either_rerun_still_bisects(tmp_path):
     g = flaky_stand_ins(tmp_path / "g", [t], rerun=f"sh {tmp_path / 'mute.sh'}")
     approved_gaps(g, {"a": 1}, bad="a")
     said, _ = g.run("queue.py", "gap/a")
-    assert said == ["gap.queued", "gap.queue-failed", "gap.measured"] and len(reruns(g)) == 1
+    assert said == ["gap.queued", "gap.queue-failed", "gap.measured"] and len(reruns(g)) == 2   # (and on main)
 
 
 def test_four_failed_tests_that_each_pass_alone_still_bisect(tmp_path):
@@ -2626,7 +2628,7 @@ def test_four_failed_tests_that_each_pass_alone_still_bisect(tmp_path):
     said, _ = f.run("queue.py", "gap/p")
     # green alone on the red tree, so the bisect runs every suite, and r (not the last merge, s) is blamed
     assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
-    assert len(reruns(f)) == 1 and suite_runs(f) == 4                          # the check on p..s, then in full
+    assert len(reruns(f)) == 2 and suite_runs(f) == 4                  # the check on p..s, on main, then in full
     r = f.item("gap/r")["fields"]
     assert r["failed_tests"] == four and "named" not in r["suites_queue"]
     assert not [i for i in f.db()["items"] if i.startswith("flake/")]
@@ -2643,7 +2645,7 @@ def test_a_page_polling_failure_is_never_excused(tmp_path):
         approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
         said, _ = f.run("queue.py", "gap/p")
         assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
-        assert len(reruns(f)) == 1 and suite_runs(f) == 4                      # handled as a real failure: bisected
+        assert len(reruns(f)) == 2 and suite_runs(f) == 4      # (on p..s and main) a real failure: bisected
         assert f.item("gap/r")["fields"]["failed_tests"] == sorted(tests)
         assert not [i for i in f.db()["items"] if i.startswith("flake/")]
 
@@ -2663,8 +2665,142 @@ def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
     g = bisect_stand_ins(tmp_path / "g", rerun=f"sh {tmp_path / 'notfound.sh'}")
     approved_gaps(g, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     g.run("queue.py", "gap/p")
-    assert len(reruns(g)) == 1 and suite_runs(g) == 4 and merges(g) == ["p", "q", "s"]   # (the check on p..s)
+    assert len(reruns(g)) == 2 and suite_runs(g) == 4 and merges(g) == ["p", "q", "s"]   # (on p..s and main)
     assert g.item("gap/r")["state"] == "queue-failed"
+
+
+def queue_json(f: Factory) -> dict:
+    return json.loads((f.model / "run" / "queue.json").read_text())
+
+
+def test_a_batch_failing_on_a_test_that_also_fails_on_main_sends_no_gap_back(tmp_path):
+    f = bisect_stand_ins(tmp_path)
+    main_has_test_b(f)
+    main_moves(f, "bad.txt")                                                   # main itself fails test_b
+    start = git(f.checkout, "rev-parse", "main")
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3}, batch=3)
+    said, lines = f.run("queue.py", "gap/p")
+    assert said == ["gap.queued", "flake.main-broken", "intervention.recorded"]   # no gap blamed or sent back
+    assert [x["nack"] for x in lines if "nack" in x][0]["count"] is False         # the own gap's lease, uncounted
+    assert all(f.item(f"gap/{g}")["state"] == "approved" for g in "qr")
+    assert git(f.checkout, "rev-parse", "main") == start and merges(f) == ["main changes bad.txt"]
+    t = "tests/test_b.py::test_b"
+    # the red run, test_b alone on its tree, then on main alone twice: only the named test, no suite on main
+    assert suite_runs(f) == 1 and reruns(f) == [f"{t} -rA"] * 3
+    held = queue_json(f)["main_red"]
+    assert held["pre"] == start and held["tests"] == [t] and held["suite"] == "unit"
+    iv = f.item(held["intervention"])
+    assert iv["fields"]["class"] == "queue" and iv["fields"]["main"] == start and iv["fields"]["tests"] == [t]
+    assert f.item("flake/tests-test-b-py-test-b")["fields"]["main"] == start
+    given = f.db()
+    given["items"]["gap/p"]["state"] = "approved"                              # (the nack played)
+    f.record.write_text(json.dumps(given))
+    said, _ = f.run("queue.py", "gap/q")                                       # main still fails: no batch taken
+    assert said == [] and suite_runs(f) == 1 and reruns(f)[-1] == f"{t} -rA" and len(reruns(f)) == 4
+    (f.checkout / "tests").mkdir(exist_ok=True)                                # quarantined on main: taken again
+    (f.checkout / "tests" / "quarantine.txt").write_text(f"{t} | main's, for now\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "quarantine test_b")
+    git(f.checkout, "push", "-q", "origin", "main")
+    f.config.write_text(f.config.read_text().replace(f"sh {tmp_path / 'unit.sh'}", "true"))  # (deselected, as unit is)
+    said, _ = f.run("queue.py", "gap/q")
+    said = [e for e in said if e != "flake.measured"]                         # (the quarantined test, run beside)
+    assert said == ["intervention.remedied", "gap.queued"] + ["gap.merged"] * 3 + ["gap.push-asked"] * 3
+    assert "main_red" not in queue_json(f) and f.item(held["intervention"])["state"] == "remedied"
+    assert len(reruns(f)) == 4                                                 # (nothing left to run on main)
+
+
+def main_has_test_b(f: Factory, body: str = "def test_b():\n    pass\n") -> None:
+    """main's tree holds tests/test_b.py (committed with the next main_moves()), so main_red() runs it there."""
+    (f.checkout / "tests").mkdir(exist_ok=True)
+    (f.checkout / "tests" / "test_b.py").write_text(body)
+
+
+def held_red(f: Factory) -> dict:
+    """main fails test_b: a batch of p held by main (main_red), and p approved again (its nack played)."""
+    main_has_test_b(f)
+    main_moves(f, "bad.txt")
+    approved_gaps(f, {"p": 1}, batch=1)
+    f.run("queue.py", "gap/p")
+    held = queue_json(f)["main_red"]
+    given = f.db()
+    given["items"]["gap/p"]["state"] = "approved"
+    f.record.write_text(json.dumps(given))
+    return held
+
+
+def test_main_red_clears_when_its_intervention_is_remedied(tmp_path):
+    f = bisect_stand_ins(tmp_path)
+    held = held_red(f)
+    assert len(reruns(f)) == 3                                                 # the red tree, main twice
+    f.fold([{"event": "intervention.remedied", "item": held["intervention"], "data": {"remedied_by": "coordinator"}}], None)
+    said, _ = f.run("queue.py", "gap/p")                                       # main still fails test_b
+    assert said[0] == "gap.queued"                                             # taken at once: no check first
+    assert len(reruns(f)) == 6 and "intervention.remedied" not in said        # (the batch fails on main again)
+
+
+@pytest.mark.parametrize("fix", ["removed", "renamed"])
+def test_a_held_test_main_no_longer_has_clears_the_hold(tmp_path, fix):
+    f = bisect_stand_ins(tmp_path)
+    held = held_red(f)
+    if fix == "removed":
+        git(f.checkout, "rm", "-q", "tests/test_b.py")
+    else:
+        main_has_test_b(f, "def test_b_renamed():\n    pass\n\n\ndef helper_test_b():\n    pass\n")
+    git(f.checkout, "commit", "-qam", f"{fix} test_b")
+    git(f.checkout, "push", "-q", "origin", "main")
+    said, _ = f.run("queue.py", "gap/p")                                       # bad.txt stays: test_b would fail
+    assert said[:2] == ["intervention.remedied", "gap.queued"] and len(reruns(f)) == 6   # never run before the batch
+    assert f.item(held["intervention"])["fields"]["remedy"] == "they are quarantined or gone from main"
+
+
+def test_main_red_clears_once_its_tests_pass_on_main(tmp_path):
+    f = bisect_stand_ins(tmp_path)
+    main_has_test_b(f)
+    main_moves(f, "bad.txt")
+    approved_gaps(f, {"p": 1}, batch=1)
+    f.run("queue.py", "gap/p")
+    assert queue_json(f)["main_red"]["tests"] == ["tests/test_b.py::test_b"]
+    git(f.checkout, "rm", "-q", "bad.txt")                                     # main fixed
+    git(f.checkout, "commit", "-q", "-m", "fix main")
+    git(f.checkout, "push", "-q", "origin", "main")
+    given = f.db()
+    given["items"]["gap/p"]["state"] = "approved"
+    f.record.write_text(json.dumps(given))
+    said, _ = f.run("queue.py", "gap/p")
+    assert said == ["intervention.remedied", "gap.queued", "gap.merged", "gap.push-asked"]
+    assert "main_red" not in queue_json(f) and merges(f)[-1] == "p"
+
+
+def test_a_batch_failing_on_a_test_that_passes_on_main_bisects_as_today(tmp_path):
+    f = bisect_stand_ins(tmp_path)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    start = git(f.checkout, "rev-parse", "main")
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3 and merges(f) == ["p", "q", "s"]
+    assert "intervention.recorded" not in said and "main_red" not in queue_json(f)
+    t = "tests/test_b.py::test_b"
+    assert reruns(f) == [f"{t} -rA"] * 4 and suite_runs(f) == 2               # one more: on main, passed
+    assert f.item("gap/r")["state"] == "queue-failed" and f.item("gap/r")["fields"]["failed_tests"] == [t]
+    assert not [i for i in f.db()["items"] if i.startswith("flake/")]
+    assert git(f.checkout, "rev-parse", "main~3") == start                     # (main as it was, then the three)
+
+
+def test_a_test_that_fails_on_main_then_passes_is_a_flake_not_mains(tmp_path):
+    # the second rerun (main's first; the first is on the red tree) fails whatever the tree; main's re-run passes
+    (tmp_path / "once.sh").write_text(
+        f'echo "$*" >> {tmp_path}/reruns\nn=$(wc -l < {tmp_path}/reruns)\n'
+        'for t in "$@"; do case "$t" in -*) continue;; esac\n'
+        ' if [ -e bad.txt ] || [ "$n" -eq 2 ]; then echo "FAILED $t - boom"; rc=1; else echo "PASSED $t"; fi\n'
+        'done\nexit ${rc:-0}\n')
+    t = "tests/test_b.py::test_b"
+    f = flaky_stand_ins(tmp_path, [t], rerun=f"sh {tmp_path / 'once.sh'}")
+    approved_gaps(f, {"p": 1, "q": 2}, bad="q", batch=2)
+    said, _ = f.run("queue.py", "gap/p")
+    assert "intervention.recorded" not in said and "main_red" not in queue_json(f)
+    flake = f.item("flake/tests-test-b-py-test-b")
+    assert flake["state"] != "main-broken" and flake["fields"]["failed_on_main"]
+    assert f.item("gap/q")["state"] == "queue-failed" and merges(f) == ["p"]   # bisected as before
 
 
 def test_nothing_lands_without_a_full_green_run(tmp_path):
@@ -2775,8 +2911,9 @@ def test_one_bad_commit_of_8_is_found_and_the_other_7_land(tmp_path):
 
 
 def test_a_run_past_its_allowance_lands_only_what_is_proven_and_gives_back_the_rest(tmp_path):
-    # 25 minutes a run, 60 allowed: all 8 red (25), the named check on them (50), a..d green (75); a..f never runs
-    f = eight(tmp_path, minutes=60, bad="g")
+    # 25 minutes a run, 85 allowed: all 8 red (25), the named check on them (50), on main (75), a..d green (100); a..f
+    # never runs
+    f = eight(tmp_path, minutes=85, bad="g")
     said, lines = clocked(f, "gap/h", 25)                                      # the run's own gap is among the rest
     assert merges(f) == list("abcd") and suite_runs(f) == 2                    # (the named check is not the unit suite)
     assert said.count("gap.merged") == 4 and "gap.queue-failed" not in said and "gap.sent-back" not in said
@@ -2798,13 +2935,13 @@ def test_a_run_past_its_allowance_lands_only_what_is_proven_and_gives_back_the_r
     said, _ = f.run("queue.py", "gap/e")                                       # the next run takes them
     assert merges(f) == list("abcdefh") and f.item("gap/g")["state"] == "queue-failed"
     # a prefix green on the named tests only is not proven: out of time there, nothing lands. All 8 red (25); test_b
-    # alone on them, red (50); test_b alone on a..d, green (75); a..f never runs
+    # alone on them, red (50); on main, green (75); test_b alone on a..d, green (100); a..f never runs
     (tmp_path / "named").mkdir()
     g = bisect_stand_ins(tmp_path / "named")
-    g.config.write_text(g.config.read_text().replace("batch_max = 4", "batch_max = 8\nbatch_minutes = 60"))
+    g.config.write_text(g.config.read_text().replace("batch_max = 4", "batch_max = 8\nbatch_minutes = 85"))
     approved_gaps(g, EIGHT, bad="g", batch=8)
     said, _ = clocked(g, "gap/a", 25)
-    assert reruns(g) == ["tests/test_b.py::test_b -rA"] * 2 and suite_runs(g) == 1
+    assert reruns(g) == ["tests/test_b.py::test_b -rA"] * 3 and suite_runs(g) == 1
     assert merges(g) == [] and "gap.merged" not in said and not g.db().get("acts")
     assert counts(g, "gap/a") == (8, 0, 8)
 
@@ -2819,8 +2956,8 @@ def test_a_batch_of_8_every_merge_failing_stays_inside_the_block_s_timeout(tmp_p
 
 
 def test_a_run_out_of_time_before_its_first_finding_halves_the_next_batch(tmp_path):
-    # the top-ranked gap bad, 31 minutes a run, 120 allowed: all 8 red (31), test_b alone on them, red (62), a..d red
-    # (93), a..b red (124): out of time before a alone, nothing found, all 8 back
+    # the top-ranked gap bad, 31 minutes a run, 120 allowed: all 8 red (31), test_b alone on them, red (62), on main
+    # (93), a..d red (124): out of time before a alone, nothing found, all 8 back
     f = eight(tmp_path, bad="a")
     said, _ = clocked(f, "gap/a", 31)
     assert "gap.merged" not in said and "gap.queue-failed" not in said and counts(f, "gap/a") == (8, 0, 8)
@@ -2829,7 +2966,7 @@ def test_a_run_out_of_time_before_its_first_finding_halves_the_next_batch(tmp_pa
     db = f.db()
     db["items"]["gap/a"]["state"] = "approved"                                 # (the engine's nack, uncounted)
     f.record.write_text(json.dumps(db))
-    said, _ = clocked(f, "gap/a", 31)                    # the next run: a..d red (31), alone (62), a..b (93), a (124)
+    said, _ = clocked(f, "gap/a", 28)        # the next: a..d red (28), alone (56), main (84), a..b (112), a (140)
     assert f.item("gap/a")["state"] == "queue-failed" and counts(f, "gap/a") == (4, 0, 3)
     assert all(f.item(f"gap/{g}")["state"] == "approved" for g in "bcdefgh") and merges(f) == []
     assert "cap" not in json.loads(queue_json.read_text())                    # a gap settled: the cap is cleared
