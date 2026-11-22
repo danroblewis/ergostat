@@ -34,3 +34,19 @@ not the engine, counts a node's slots; secrets come from named files; a node's r
 sensors, daemons and AI blocks stay on the engine's machine in this milestone. "Worker" names the node's program
 only, never an agent or a role (CLAUDE.md, *Words*, keeps "worker" away from the NOTES.md terms; the proposal says so
 in its opening).
+
+Round 2 (about 465 lines, still no code), answering every finding of review 1:
+- The interlock (§2.2, §2.7): `start` and `renew` carry `left` seconds and the engine's monotonic `sent`, never a
+  time of day. The worker times the deadline on its own suspend-counting clock as `sent + base + left`, where `base`
+  is the least `heard − sent` over ten minutes, so the deadline is late by at most the fastest one-way transit and a
+  delayed renewal cannot move it later. It sends SIGTERM at that deadline and SIGKILL `grace(ttl)/4` later. The
+  engine sends a node a `start` only while its least ping round trip is at most `grace(ttl)/4`, so SIGKILL is sent
+  by expiry + `grace(ttl)/2`, inside `terms.grace` and before the watchdog's second look. The wider claim is gone,
+  and what the proposal does not claim (a suspended node, descendants that left the group) is said.
+- Unknown is not gone (§2.4, §5): gone only on a reading from an allowlist. An unreadable record or a failed `ps`
+  is `unknown`: the lease kept, a stop by group file or container name tried, and the lease left to expire.
+- A `start` refused after the lease is given back uncounted, as `engine.py:1149-1150` does (§2.2).
+- Engine-wide bounds (§3): at most 64 nodes and 256 runs on nodes over all pools, checked at `check` and counted at
+  run time with the draining runs included.
+The most reversible choices taken here: ten minutes for the window, 2 s for the ping, a quarter of the grace for
+each bound, and 256 for the engine-wide ceiling. Each can change without changing the protocol.

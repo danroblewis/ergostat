@@ -109,7 +109,7 @@ The first line the worker says is `hello`:
 - `runs` lists the runs it still holds (section 2.4).
 
 Every 10 seconds, and at once after a run starts or ends, it says `beat`: the slots free, the disk free, and per run
-its state (`running`, `ended`), its byte offsets so far and its latest CPU and memory reading. The engine counts a
+its state (`running`, `ended`, `unknown`: section 2.4), its byte offsets so far and its latest CPU and memory reading. The engine counts a
 node **lost** after three beats missed (30 s) or the session's end, whichever comes first.
 
 ### 2.2 A run, with limits, through a backend
@@ -123,11 +123,18 @@ The engine sends `start`:
  "secrets": {"API_TOKEN": "..."}, "limits": {"cpus": 2, "memory": 4294967296, "pids": 512, "disk": 10737418240,
  "wall": 1800, "network": "none"}, "work": {"repo": "main-repo", "commit": "1a2b3c..."},
  "out": {"bundle": true, "artifacts": ["dist/*.tar.gz"], "transcripts": [".claude/projects/*.jsonl"]},
- "lease": {"fence": 7, "expires": 1795862400.0, "grace": 30}}
+ "lease": {"fence": 7, "ttl": 60, "left": 60.0, "sent": 81234.5}}
 ```
 
+The lease carries no time of day: `left` is the seconds until the engine's expiry and `sent` the engine's
+monotonic clock when it said so, both read by the engine at one moment; section 2.7 says how the worker times them.
+
 and the worker answers `started` (with the backend's own handle: a pid and its start time, or a container name) or
-`refused` with why (`full`, `no such image`, `limits over the node`, `bad name`). A **backend** is how a run is made
+`refused` with why (`full`, `no such image`, `limits over the node`, `bad name`). A `start` refused after its
+item was leased is not the run's fault: the engine gives the item back uncounted and puts it off, as it does today
+for a run that found its workspace pool full (`engine.py:1149-1150`, `POOL_FULL_AFTER`, `engine.py:59`), and a
+refusal for any other reason (`no such image`, `limits over the node`) is said in the pool's status and gives the
+item back the same way, so a misconfigured node costs no item an attempt. A **backend** is how a run is made
 to execute under its limits; each says the same four things: start, is it still going, stop, and what it used.
 
 - **process**: a session of its own and the same `sh` wrapper that writes the exit code (`runrecord.py:21-29`), so
@@ -166,9 +173,21 @@ or a detached container, and its folder holds its record (`run.json`: run id, bl
 pid's start time or the container's id, its offsets, its limits, its deadline). A new `ergostat worker --stdio`
 reads the run folders at start and lists their runs in `hello`. The engine, on reconnecting, attaches every run it
 still holds a lease for, and sends `kill` for every one it does not (a run the engine no longer knows is never left
-running on a node). A pid is taken as the same process only with the same start time (as `runrecord.py:79-83`), a
-container only by its id: a reused pid or a renamed container counts as **gone**, never as still running; an
-unreadable record counts as gone and the engine is told so (`unknown`), never as fine.
+running on a node). Each run the worker lists is in one of three states, and **gone** needs evidence read:
+
+- **running**: its pid alive with the start time recorded (as `runrecord.py:79-83`), or its container running with
+  the id recorded;
+- **gone**: only on one of an allowlist of readings: the wrapper's exit file written; the container read as exited
+  with the id recorded; or the pid absent (or now another process, by its start time) *and* the run's process group
+  read as empty. Then the run ended, and its exit (or its want of one) is reported as `ended`;
+- **unknown**: anything else: the record unreadable, the start time not read (a failed or timed-out `ps`, the
+  case lesson-3 records), `docker inspect` failing, the group not read. Unknown is never gone and never fine. The
+  worker tries a stop by name at once (SIGTERM then SIGKILL to the group in `runs/RUN/pgid`, a file of its own
+  written before the run starts; `docker rm -f ergostat-run-RUN`), and keeps listing the run as unknown until a
+  reading puts it in one of the other two states. The engine keeps the lease, records no end, and sends no
+  renewal: the lease expires at its TTL through the watchdog as a silent run's does (`dispatch.py:468-504`), the
+  run ends `agent.failed` with the note `unknown on its node`, and whatever the run still says is refused by the
+  fence (`engine.py:2061-2085`). The lease is never released early on a reading that was not made (lesson-6).
 
 The engine's own side is the half SPEC says is not built for local runs (`docs/SPEC.md:2201`): an engine that
 restarts must take up the runs its record says it started. That is one mechanism for both (milestone gap 6).
@@ -209,15 +228,42 @@ it misses an encoded copy); the claim is "never written by ergostat", not "never
   (`TERM`, `KILL`) as `ergostat.run.killed` records it today (`kill.py:56-63`).
 - **The wall timeout is the worker's.** The worker holds the run's deadline (`limits.wall`, the block's `timeout:`,
   `ir.py:703`) and kills it there whether or not the engine is connected.
-- **A lost lease stops its run.** `start` carries the lease's expiry, and the engine sends `renew {"run",
-  "expires"}` each time the lease is renewed. A run whose expiry passes by more than its grace with no renewal heard
-  is killed by the worker on its own: a node cut off from its engine stops its runs within a TTL and a grace,
-  because after that the engine has given the item to someone else (`dispatch.py:482-504`). On the engine's side,
+- **A lost lease stops its run.** The engine gives a silent run's item to another no earlier than its expiry plus
+  `grace(ttl) = max(1, min(0.1 × ttl, 30))` seconds (`terms.py:38-41`): the watchdog expires a lease only on a
+  second look, `grace(ttl)` after the pass that first found it overdue (`dispatch.py:468-480`), and no pass finds it
+  overdue before its expiry (`dispatch.py:458`). The node's interlock is built to have **finished** its kill inside
+  that window, and never compares a time of the engine's with a time of its own (lesson-2):
+  - *What the engine says.* With `start`, and with `renew {"run", "fence", "left", "sent"}` at once after each
+    renewal it records and every 2 seconds besides, the engine says how many seconds its lease has `left`
+    (its expiry less its own clock, read together) and `sent`, its monotonic clock at that moment.
+  - *How the worker times it.* Only on its own clock, one that counts a suspend (`CLOCK_BOOTTIME` on Linux). It
+    keeps `base`, the least `heard − sent` of the session's messages over the last ten minutes (heard on its clock,
+    sent on the engine's: the difference is never read as a time, only compared with other such differences; the
+    window keeps two clocks' drift, tens of parts per million, to a few milliseconds). A run's deadline is
+    `sent + base + left` from the latest renewal heard: the engine's expiry on the worker's clock, late by at most
+    the fastest one-way transit of the window (`d_min`), however late *this* renewal came. A renewal that arrives
+    slow therefore cannot move the deadline later than a fast one would.
+  - *The kill.* At its deadline the worker sends SIGTERM to the run's group (or `docker stop -t K`), and SIGKILL (or
+    `docker rm -f`) `K = grace(ttl) / 4` seconds later: SIGTERM by `expiry + d_min`, SIGKILL by
+    `expiry + d_min + grace(ttl) / 4`.
+  - *What the engine checks.* It sends `ping` every 2 seconds and times each `pong` on its own monotonic clock;
+    `d_min` is below every round trip (a round trip contains a one-way transit). The engine starts a run on a node only while the least round trip of the last minute is at
+    most `grace(ttl) / 4` for the block's TTL (else `start` is not sent and the item goes back uncounted, as a
+    `full`; with a 60 s TTL that is 1.5 s), and kills a running one by `kill` if its node's round trips grow past it.
+    The SIGKILL is then sent by `expiry + grace(ttl) / 2`, leaving half the grace for the kernel or Docker to end
+    the processes and for the worker's own timer (a quarter second), before the watchdog's second look can give the
+    item away. With a 60 s TTL: grace 6 s, the kill asked by expiry + 3 s.
+  - *What is not claimed.* A node that is suspended stops its runs with it; on waking, a run may go on for one tick
+    of the worker's timer before the kill, and what it says then is refused by the fence. A run's descendants that
+    left its group are reached by `reap` only as the local kill reaches them (`kill.py:53-57`). Docker's own stop
+    time past `rm -f` is Docker's.
+
+  On the engine's side,
   `kill()` reaches a node's run through its handle as it reaches a local one through `eng.live` today
   (`kill.py:39-46`). The fence still refuses whatever a run says after its lease ended (`engine.py:2061-2085`), so
   the interlock on the node is a second stop, not the only one.
-- **Every number has a ceiling**: slots at most 64 a node, nodes at most 64 a pool, `wall` at most a day, `grace`
-  at most 10 minutes, retries of a lost session backed off up to ten minutes; each refused at `check` above its
+- **Every number has a ceiling**: slots at most 64 a node, nodes at most 64 and runs on nodes at most
+  256 over all pools (section 3), `wall` at most a day, a `kill`'s `grace` at most 10 minutes, retries of a lost session backed off up to ten minutes; each refused at `check` above its
   ceiling and again by the worker at `start` (the review lessons' lesson-4).
 
 ### 2.8 Per-run CPU and memory, as readings
@@ -260,7 +306,12 @@ and `type`, at most 1 MiB. Requests carry an `id` that their answer repeats.
 
 The worker sends at most 4 MiB ahead of the engine's acknowledgement (`attach` and `beat` carry the offsets
 taken), so a slow engine slows the node's output, never fills its memory. One connection per node per engine
-process, one reader thread per connection: a pool of 64 nodes costs 64 threads, a number `check` can bound. A
+process, one reader thread per connection, and the lines of every run on that node come through it. Each run on a
+node still costs the engine its dispatch thread (`dispatch.py:314`), as a local run does, but no follower thread of
+its own. Both are bounded **engine-wide**, not only per pool: at most 64 nodes over all pools (64 reader threads),
+and at most 256 runs on nodes at once over all pools. `check` refuses a model whose pools' `nodes × slots` sum past
+256; at run time the dispatcher counts every node run still held or draining (killed, not yet `ended`) against
+that 256 before it sends a `start`, whatever the pools and nodes say. A
 worker that meets a version it does not know answers `error` and ends; the engine says so in the pool's status and
 starts nothing there.
 
@@ -334,8 +385,10 @@ blocks:
   empty `compute:` runs nothing.
 - **Leases and fences.** A run's lease, fence, attempts and dead letters are today's (SPEC §9.5); a node adds a
   second stop (its interlock), never a second judgement of whether a lease is held.
-- **Fail closed.** An unreadable record, a pid whose start time differs, a missing beat, a hello of an unknown
-  version: each counts as gone, lost or refused, never as running or fine.
+- **Fail closed.** A missing beat counts as a lost node, a hello of an unknown version as refused, a node too slow
+  for a block's grace as refused for it. A run counts as gone only on a reading from an allowlist (section 2.4);
+  an unreadable record, a start time not read or a container not inspected is **unknown**: its lease kept, a stop
+  by name tried, the lease left to expire, never gone and never fine.
 
 ## 6. Decisions for the owner
 
@@ -348,7 +401,7 @@ These are open; each is the most reversible choice, and each can change without 
 | What a lost node's runs cost the item | an attempt, as any expired lease today; `count: false` is a one-line change later |
 | Secrets | named files, read at each start, sent in `start`, never written by ergostat |
 | The run's environment on a node | an allowlist, not the engine's environment |
-| When a node's interlock kills | lease expiry plus its grace with no renewal heard |
+| When a node's interlock kills | at the engine's expiry, timed on the node's own clock from the renewals heard; SIGKILL `grace(ttl) / 4` later |
 | What a node keeps | run folders until `done`, bare repositories by age and size |
 | Sensors, daemons, AI blocks | engine-local in this milestone; AI blocks in a later gap |
 | Kubernetes | a later backend, the same protocol |
@@ -378,13 +431,18 @@ These are open; each is the most reversible choice, and each can change without 
    records as a local block does; a block without it is unchanged.
 5. **`compute-lease-on-node`**: the lease's expiry in `start`, `renew` on each renewal, the worker's interlock
    killing a run whose lease it has not heard renewed, the engine's lease kill reaching node runs, a node lost after
-   three beats missed, its slots out of the stock at once. Tests: a worker whose session is cut keeps its run until
-   the expiry plus grace and then kills it; the item goes back once; a line the cut-off run sends after reconnecting
-   is refused by the fence.
+   three beats missed, its slots out of the stock at once, `ping` round trips and the `grace(ttl) / 4` bound, the
+   engine-wide ceilings of section 3. Tests: a worker whose session is cut has SIGKILLed its run by the expiry plus
+   `grace(ttl) / 2`, before the watchdog expires the lease; a worker whose clock of day is set an hour off kills at
+   the same moment; a renewal delayed in the pipe does not move the deadline later; a node whose round trip is past
+   the bound is sent no `start`; the item goes back once; a line the cut-off run sends after reconnecting is refused
+   by the fence.
 6. **`compute-reattach`**: runs that outlive the connection, and the engine's taking up of the runs it started
    (local and remote alike, the half `docs/SPEC.md:2201` says is not built; it takes up what the parked
    `rs-adopt` review found, such as recording the end before releasing the record). A reconnect attaches every run
-   it holds a lease for, from its offsets, and kills every one it does not; a reused pid counts as gone.
+   it holds a lease for, from its offsets, and kills every one it does not; a run is gone only on a reading of section 2.4's allowlist (a reused
+   pid with its group empty), and a failed `ps` or an unreadable record gives `unknown`: the lease kept until it
+   expires, never released early.
 7. **`compute-work-in-out`**: the exact commit in (bare repositories, `need`, bundles in chunks) and the bundle,
    artifacts and transcripts out (sizes and hashes, caps, a side ref per run and fence, a result after the lease
    ended refused).
