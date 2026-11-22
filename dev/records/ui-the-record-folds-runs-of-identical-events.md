@@ -43,3 +43,12 @@ opening one event instead of the run (timeout waiting for the list). tests/test_
 tests/test_page_refresh.py (8 passed) run with Playwright under the watchdog, rc 0; ruff clean. Not run here: the unit
 suite, tests/test_diagram_rendering.py, tests/test_page_polling.py (left to the factory and the merge queue). Main is
 already an ancestor of the branch; nothing to merge.
+
+Build step, round 1: `build` failed with rc 5 and no test failed. scripts/affected_tests.py picks only
+tests/test_items_page.py, the one test file this branch changes; that file needs a browser and the build step runs
+without Playwright, so the whole module is skipped ("1 skipped") and pytest exits 5 (no tests collected). Under
+Playwright and the watchdog the same file passes: 22 passed, rc 0 (re-run after the failure). No code changed: the
+fault is in the build step's choice of tests (a test file only for the browser and no browser), which is outside this
+gap (lesson 13) and belongs in a gap of its own, e.g. affected_tests.py leaving out the four browser files, or
+`build_browser = true`. Until then this gap needs the four browser files run in the merge queue, which already runs
+them in full.
