@@ -22,8 +22,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    whose log stops growing, or that runs too long (fac.limits()), is stopped as a stall: undone, the next batch
    halved, no gap blamed until one alone stalls fac.STALLS_MOST times (stalled()). After unit and browser,
    `[suites] host` (the sandbox's tests, which skip in the container) runs on the Mac, never boxed, as a suite like
-   the others (its log `<tag>-host.txt`; red bisects); empty, the step is off. Exit 126 or 127 is a step that did not
-   start (NotStarted), and a test it skips that the unit run skipped too fails it (nowhere());
+   the others (its log `<tag>-host.txt`; red bisects); empty, the step is off. The outer shell's exit 126 or 127
+   is a step that did not start (NotStarted; a pytest missing behind uv exits 1: red), and a test it skips that the
+   unit run skipped too fails it (nowhere());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    when its 1 to 3 named tests each pass alone on the red tree twice and the suites it did not finish pass, it lands as

@@ -75,3 +75,30 @@ Round 3:
 - Round-2 "not run by this reviewer": this round ran tests/test_queue_host.py (9 passed) and tests/test_queue.py
   (13 passed). The clone still has only a local `main` (`git branch -a`: this branch and main), already an ancestor
   of HEAD, so there was nothing to merge.
+
+Round 4:
+- Queue finding `tests/test_factory.py::test_the_shipped_build_setting_runs_the_small_set`: this branch's. Round 1
+  added `-rs` to `[suites] unit`, and the test holds `build` to end with unit's pytest arguments. `build` now has
+  `-rs` too. That only names skips in its output. Seen to fail before the change and pass after.
+- Queue finding `tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network`:
+  it passes here, alone and with the rest of tests/test_agents.py (16 passed). I think it is main's, not this branch's.
+  The test (8212a01f, on main) asserts the docker `-e` is exactly `PYTEST_ADDOPTS=-o faulthandler_timeout=300`.
+  fac.suite (main's code, line 480) appends to the caller's PYTEST_ADDOPTS. Inside the queue's own boxed unit run,
+  that variable is already `-o faulthandler_timeout=300`, so the stand-in gets the option twice and the exact match
+  fails. Outside the queue it is unset and the test passes. I did not reproduce it: running it with PYTEST_ADDOPTS set
+  (`PYTEST_ADDOPTS="-o faulthandler_timeout=300" uv run python scripts/named_tests.py tests/test_agents.py::...`) was
+  refused in this session. Not fixed here (lesson-13). It belongs to its own gap: fac.suite should drop an inherited
+  faulthandler_timeout, or the test should clear PYTEST_ADDOPTS in the factory's env.
+- Round-3 finding (126/127 is the outer shell's exit): dev/README.md and queue.py's docstring now say so. They also
+  say that a pytest missing behind suite_watch.py/uv exits 1 and counts as a real red host failure (fails closed).
+- Round-3 finding (triage's host rerun with 126/127 was read as a red rerun that blames the branch): triage.rerun now
+  raises agents.NotStarted for it, as the queue's host step does, so no gap is sent back. Test:
+  `test_a_triage_rerun_of_the_host_step_that_cannot_start_blames_no_gap`. With the guard replaced by `if False:`, it
+  was seen to fail (the gap was sent back).
+- Round-1 finding left open until now (the missing-unit-log branch of nowhere() had no test): added
+  `test_a_missing_unit_log_counts_every_host_skip_as_nowhere`.
+- Round-3 "not run by this reviewer": this round ran tests/test_queue_host.py (11 passed), tests/test_queue.py (13
+  passed), tests/test_agents.py (16 passed) and the build-setting test (passed). Ruff is clean on ergostat, tests and
+  scripts, and on the three dev/bin files changed. Ruff on all of dev/bin reports 3 errors: two in plan.py and
+  review.py, which this branch does not touch, and one that was mine in queue.py, now fixed. The clone still has only
+  a local `main`, already an ancestor of HEAD, so there was nothing to merge.

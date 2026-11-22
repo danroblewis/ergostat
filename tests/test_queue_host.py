@@ -120,7 +120,7 @@ def test_skips_that_cannot_be_compared_count_as_nowhere(tmp_path):
         assert f.item("gap/a")["fields"]["suites_queue"]["host"]["nowhere"], n
 
 
-def test_only_the_stated_external_needs_in_use_are_exempt(tmp_path):
+def queue_module():
     spec = importlib.util.spec_from_file_location("factory_queue", BIN / "queue.py")   # (not the stdlib's queue)
     q = importlib.util.module_from_spec(spec)
     sys.path.insert(0, str(BIN))
@@ -128,6 +128,11 @@ def test_only_the_stated_external_needs_in_use_are_exempt(tmp_path):
         spec.loader.exec_module(q)
     finally:
         sys.path.remove(str(BIN))
+    return q
+
+
+def test_only_the_stated_external_needs_in_use_are_exempt(tmp_path):
+    q = queue_module()
     exempt = ("set ERGOSTAT_TEST_VM_URL to run VictoriaMetrics", "spends money: ERGOSTAT_LIVE_AI=1",
               "no Chromium to drive: gone", "could not import 'playwright.sync_api': No module named 'playwright'",
               "needs Docker and the agent image (dev/agent/Dockerfile)", "no 3 free ports in 9000-9100")
@@ -137,6 +142,26 @@ def test_only_the_stated_external_needs_in_use_are_exempt(tmp_path):
     unit.write_text("\n".join(lines))
     assert q.nowhere("\n".join(lines), unit) == sorted(f"tests/test_x.py:{i}: {r}"
                                                        for i, r in enumerate(exempt + counted) if r in counted)
+
+
+def test_a_missing_unit_log_counts_every_host_skip_as_nowhere(tmp_path):
+    q = queue_module()
+    host = f"SKIPPED [2] tests/test_repair2.py:44: {NS}\nSKIPPED [1] tests/test_x.py:9: spends money: set it\n2 skipped"
+    assert q.nowhere(host, tmp_path / "no-such-unit.txt") == [f"tests/test_repair2.py:44: {NS}"]   # (an excused run)
+
+
+def test_a_triage_rerun_of_the_host_step_that_cannot_start_blames_no_gap(tmp_path):
+    import re
+
+    from tests.test_factory import queue_failed
+    f, gid = queue_failed(tmp_path)
+    db = f.db()
+    db["items"][gid]["fields"]["failed_suite"] = "host"
+    f.record.write_text(json.dumps(db))
+    f.config.write_text(re.sub(r"^rerun = .*$", f'rerun = "{tmp_path / "no-such-suite"} {{tests}}"',   # (the shell's 127)
+                               f.config.read_text(), flags=re.M))
+    said, _ = f.run("triage.py", gid, fails=True)
+    assert "gap.sent-back" not in said and "gap.retried" not in said and "the host rerun did not start" in f.stderr
 
 
 def test_a_host_step_that_stops_writing_is_stopped_as_a_stall(tmp_path):

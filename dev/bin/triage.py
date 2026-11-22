@@ -39,6 +39,8 @@ def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int,
         if not tests:
             return 0, {"why": "only quarantined tests failed", "quarantined": held}
         rc, secs = fac.suite(cfg, "rerun", wt, log, box="host" if suite == "host" else "triage", tests=tests)
+        if suite == "host" and rc in (126, 127):        # (the outer shell's: did not start, as a box that did not)
+            raise fac.agents_module().NotStarted(f"the host rerun did not start (exit {rc})")
         return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text()),
                     "quarantined": held}
     finally:
