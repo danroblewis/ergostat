@@ -252,3 +252,15 @@ now the merged commit, ready for review again. Nothing else changed. Run in roun
 (38 passed), `test_control` + `test_redesign` + `test_spec_mcp_explain` + `test_architecture` (84),
 `test_vsm_review` + `test_unmoved` + `test_spec_schema` + `test_parity` (78). Ruff is clean. I did not run the whole
 unit suite or the browser files.
+
+Round 5, answering the one finding (blocking): `docs/GAPS.md`'s System architecture review entry had been spliced by
+a merge of main. This branch's two new lines were left in the middle of main's sentence, so `model-level purpose:` came
+twice, `interface` dangled, and there were two *Left* clauses, the second still listing the relative gain array. The
+entry is now rewritten as one text. It is main's entry, with the relative gain array (`control/rga.py`, on
+`relative-gain-array`) added last to what is done and taken off the single *Left*, which keeps main's other items as
+they were. I read through the branch's other doc changes against main (SPEC §12d, `docs/proposals/architecture.md` §3,
+`docs/AGENT-GUIDE.md`) and found no other splice. No code changed. A heredoc append to this file through the shell
+(`cat >> docs/roadmap/overnight/relative-gain-array.md <<'EOF' ...`, together with ruff and pytest) was refused, so
+this section was added with the editor instead. Run in round 5, one group at a time: `test_rga` (38 passed),
+`test_backlog` + `test_factory_knowledge` + `test_daemon_yaml_review` + `test_unmoved` (145), `test_factory` (141, 2
+skipped). Ruff is clean. I did not run the whole unit suite or the browser files.
