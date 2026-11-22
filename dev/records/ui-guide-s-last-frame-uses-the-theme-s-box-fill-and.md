@@ -51,3 +51,13 @@ Round 1: built.
   under the watchdog); tests/test_guide.py (6 passed); ruff clean. Not run here: the unit suite and the four browser
   files, which the factory and the merge queue run.
 - **Size:** 5 net lines outside tests (guide.js +2, style.css +1 rule line), within 60.
+
+Round 1, after the fast suites: `build` failed with rc 5, and no ergostat code caused it. The only test file the
+branch changes is `tests/test_diagram_rendering.py`, so `scripts/affected_tests.py` selected that file alone. The build
+command (`dev/factory.toml` `[suites] build`) runs pytest without Playwright, so the module skips at import (line 38),
+nothing is collected, and pytest exits 5 (no tests collected). Running the same file with Playwright under the watchdog
+gives 2 passed, rc 0: the new test and `test_the_guide_draws_every_frame_live_and_in_a_snapshot`. I did not change the
+code, because nothing in it failed. Making a browser-only selection pass in the build (count rc 5 as a pass when every
+selected file skips for want of Playwright, or install Playwright in the build command) would change
+`scripts/affected_tests.py` or `dev/factory.toml`. Both are outside this gap (lesson-13), so that fix belongs in its
+own gap, and this one waits for it or for the merge queue's browser run.
