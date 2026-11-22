@@ -1973,18 +1973,20 @@ def contrast(a: str, b: str) -> float:
     return (la + 0.05) / (lb + 0.05)
 
 
-def test_an_open_system_is_framed_by_its_corners_in_every_view_and_both_themes_and_modellings_hairline_is_dashed(browser, tmp_path):
+@pytest.mark.parametrize("example", ["software-factory", "ticket-factory"])
+def test_an_open_system_is_framed_by_its_corners_in_every_view_and_both_themes_and_modellings_hairline_is_dashed(browser, tmp_path,
+                                                                                                                example):
     """Every open system's frame, in Dynamics, Blocks and Process and in both themes: no fill, a square-cornered
     hairline in --frame (at least 1.6:1 on the paper) and a path of corner marks; modelling's hairline dashed, its
     corners solid."""
     from ergostat import model as mdl
     from ergostat.store import Project
-    with served("software-factory", tmp_path) as url:
-        seed_workflows(Project(mdl.load(tmp_path / "software-factory")), time.time())
+    with served(example, tmp_path) as url:
+        seed_workflows(Project(mdl.load(tmp_path / example)), time.time())
         time.sleep(1.6)
         for scheme in ("light", "dark"):
             pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
-            for i, view in enumerate(["open=*", "view=blocks&open=*", "view=process"]):
+            for i, view in enumerate(["open=*", "view=blocks&open=*", *(["view=process"] if example == "software-factory" else [])]):
                 if view == "view=process":
                     pm_served(pg, url, 10 + i)
                 else:

@@ -15,3 +15,35 @@ Acceptance tests: computed-style checks per view on the three demos in both them
 Budget: 110 net lines (minus the tint rules removed).
 
 Milestone: diagram-notation. Owner items: 8 (boxes around system groups). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. Net 39 lines outside tests and docs (budget 110). main is merged (HEAD..main is empty).
+
+- One helper, `frameMarks` (diagram.js), draws every open frame in Dynamics, Blocks and Process: `rect.frame` (no fill,
+  square, `--frame`: #b8bec4 light, 1.9:1; #4a5057 dark, 2.1:1) and `path.frame-corners` (13 px arms, 8 px nested,
+  1.3 px, `--frame-mark` = `--muted`). The name sits on the top edge with a paper-coloured halo (paint-order stroke;
+  export.js now carries paint-order so the file draws it the same). The Dynamics tint (`hueOf`, the `svg.sd` stroke-none
+  rule) is gone. Modelling's hairline is dashed 4 3, a cascade's inner loop dotted, a remote kind in Process keeps
+  its 9 5 dash (now in CSS). A closed module (Dynamics) and subsystem block (Blocks) are `--frame-mark` 1.2 px, and
+  `sys-off` (full ink, 2 px) when a goal in them is off (`systemOff`: the box's loop counts in Dynamics, the goals
+  it holds against `S.status.loops` in Blocks).
+- Choices taken without the owner (reversible): "modelling" is known from the server, as state.attention already
+  decides it (`use: modelling` instances), so the graph's `tree` entries carry `modelling: true`: this touches
+  ergostat/fold.py, ergostat/blockdiagram.py and ergostat/spec/ir.py (`modelling_systems`), which the Files list
+  did not name. colours.js, interact.js, guide.py and tests/layout_geometry.js needed no change: the rings and the
+  hull mark select the frame rect as before, the Guide's opened-cascade frame is drawn by bdDraw, and the geometry
+  reads `lay.containers`, which this gap does not move.
+- Tests: `test_an_open_system_is_framed_by_its_corners_in_every_view_and_both_themes_and_modellings_hairline_is_dashed`
+  (software-factory in Dynamics, Blocks and Process, ticket-factory in Dynamics and Blocks, light and dark) and
+  `test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off`; the old tint assertion in
+  `test_the_dynamics_view_speaks_system_dynamics_...` rewritten. Each new test was seen to fail with the modelling
+  dash removed and with `systemOff` forced false.
+- Not done as written: the demos on :8791, :8796 and :8797 are not running in this container, so the per-demo checks
+  run on the examples above instead (dev/model, the factory's own, is not checked). The layout corpus was not run;
+  there is no detector named line-overlap-with-frame in tests/layout_rules.py, and no layout or routing code changed.
+- Failing, judged unrelated: `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`
+  fails after its frame checks pass, on SD_WORDS matching "Goals off" / "No goal is off." in the side list (added on
+  main by cd71c13e); `test_every_view_draws_cleanly_and_in_time[image-squeeze]` and `[coordinator]` fail only on the
+  20 s routing bound (22-26 s, load average 12-15); this gap touches no routing. Neither was rerun on main: the
+  command that would swap main's files in was refused.
