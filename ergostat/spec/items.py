@@ -454,7 +454,7 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     q = s.items or {}
     now = now or time.time()
     where = q.get("where") or {}
-    if s.of.kind != "flow":                         # a stock, or an auxiliary: how many there are now
+    if not (q.get("entering") or q.get("leaving")):  # a stock, or an auxiliary: how many there are now
         if q.get("measure") == "age":                   # since it was first seen, whatever states it passed through
             _, _, got = in_states(events, spec, q["kind"], q.get("state") or None, where, until=now, items=True)
             return (max((now - i.first) / 3600 for i in got) if got else 0.0), ""
@@ -465,10 +465,11 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     over = q.get("over") or 3600.0
     since = now - over
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
+    per = 3600.0 / over if s.of.kind == "flow" else 1.0   # a flow: per hour; an auxiliary: how many over the window
     if q.get("sum"):                                # a field summed over the items moving, not how many moved
-        return sum(x for _, x in summed(events, spec, q, since, now)) * 3600.0 / over, ""
+        return sum(x for _, x in summed(events, spec, q, since, now)) * per, ""
     n = sum(1 for t in moved(events, spec, q["kind"], key, state, since, now, where, at=now) if t > since)
-    return n * 3600.0 / over, ""
+    return n * per, ""
 
 
 def summed(events, spec: Spec, q: dict, since: float, until: float) -> list[tuple[float, float]]:

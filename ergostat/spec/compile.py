@@ -572,8 +572,8 @@ class Compiler:
         for k in ("entering", "leaving"):
             if s.get(k) is not None:
                 q[k] = str(s[k])
-        if of.kind != "flow":
-            for k in ("entering", "leaving", "over", "sum"):
+        if of.kind != "flow" and not (of.kind == "auxiliary" and ("entering" in q or "leaving" in q)):
+            for k in ("entering", "leaving", "over", "sum"):   # (an auxiliary may count the moves over a window)
                 if s.get(k) is not None:
                     self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving:, over: and "
                              f"sum: measure a flow", s.at(k), "items-on-stock")

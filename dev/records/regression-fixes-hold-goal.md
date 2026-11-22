@@ -32,3 +32,28 @@ ergostat/library/templates/repair/template.yaml, docs/SPEC.md, tests/test_repair
 25 net lines outside tests/ and docs/.
 
 Area: regression. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1. Choices made without the owner, each the most reversible:
+
+- **Engine files outside "Files to touch".** The sensor the Change names (`entering:`/`over:` on an auxiliary) was
+  refused by compile (`items-on-stock`: only a flow could count moves). Smallest fix: an `items` sensor on an
+  auxiliary that names `entering:` or `leaving:` counts the moves over `over:` (ergostat/spec/compile.py, counts.py,
+  items.py: the window is used when the sensor names a move, not only on a flow). Its reading is how many moved, not a
+  rate per hour, so `fixes-hold` reads in failures. Flows are unchanged (still per hour). An auxiliary with `over:` and
+  no move is still refused. SPEC section 6's sensor table says so. Net code lines outside tests/docs/dev: 9, within
+  the 25 budget.
+- **Which block serves it.** The template has no person approver block (the approver is the gate on the actions), so
+  `repair-settle` reads the goal (`in: goal.fixes-hold`). It is the block that asks each regressed fix's revert. `check`
+  then finds the loop closed through `flow.fixes-regressed`. Its schedule and commander are unchanged (30 s, the
+  implied on-off of `fixes-answered`); the goal only appears in its run's context.
+- SPEC's parts table now matches the whole template, not only the three parts named: it adds the auxiliaries row,
+  the `fixes-verified`/`fixes-regressed`/`fixes-reverted` flows and `revert-fix`, and drops "(cumulative)" on
+  `applied-fixes`, which the template does not declare (tests/test_repair2.py asserts it is not cumulative).
+  `test_specs_parts_table_matches_the_template` checks it.
+
+Tests beyond the three named: `test_the_template_has_fixes_hold_and_check_finds_it_served` (definition 2),
+`test_specs_parts_table_matches_the_template` (definition 3),
+`test_an_auxiliary_counts_moves_over_its_window_and_refuses_over_alone` (the engine change).
+tests/test_repair2.py skips every test in this container (no bwrap), so it was not run here.
