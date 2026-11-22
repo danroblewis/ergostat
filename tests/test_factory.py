@@ -4679,6 +4679,8 @@ def test_prefix_runs_hold_to_prefix_most(tmp_path, monkeypatch):
             p.run_all(cfg, repo, heads, check(1), PREFIX_TAG, logs)
         with pytest.raises(ValueError, match="from 1 to 8"):  # (and again at run time, given)
             p.run_all({**cfg, "suites": {"queue_container": False}}, repo, heads, check(1), PREFIX_TAG, logs, bad)
+    with pytest.raises(ValueError, match="66 heads are over 64"):  # (a thread each: capped too)
+        p.run_all({**cfg, "suites": {"queue_container": False}}, repo, heads * 11, check(1), PREFIX_TAG, logs, 2)
     cfg["suites"] = {}
     for bad in (0, 4.5, True, "1.5"):
         cfg["agents"] = {"prefix_cpus": bad}

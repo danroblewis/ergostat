@@ -28,3 +28,27 @@ dev/bin/prefixes.py (new), dev/bin/agents.py (the per-prefix CPU limit), dev/fac
 140 net lines in dev/bin.
 
 Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: dev/bin/prefixes.py (125 lines) and the per-prefix CPU limit in dev/bin/agents.py (+13 net): 138 net
+lines in dev/bin, within the 140. The four acceptance tests pass, and each was seen to fail with the code broken
+(lesson-9): no concurrency cap (peak 6, not 2); no stop handling (4 containers started, not 2); no sweep at the
+start (the killed run's worktree kept); a sweep by denylist (the symlink and the non-pattern entry wrong); exit 125
+read as a result (fail, not unknown); an earlier run's log left in place (read as pass).
+
+Choices made alone (nobody to ask), each the most reversible:
+- Not wired into queue.py: the definition says the queue *can* run it and does not list queue.py, so bisection is
+  still serial until a gap of its own calls run_all (under the queue's lock, which run_all's sweep relies on).
+- check keeps the definition's signature check(i, worktree); the log it writes is prefixes.log_of(logs, tag, i)
+  (logs/<tag>-<i>.txt), and prefixes.suite(cfg, name, logs, tag, **fmt) makes that check from fac.suite (box
+  "queue", slot=False). A check that raised, an exit of 125-127 or of a signal, an empty or missing log, a worktree
+  that could not be made: unknown, with its why. Pass is rc 0 with a log; reading a pass more strictly (every named
+  test PASSED, as queue.named does) is left to the caller, which has the log and its tail.
+- agents.queued gives a container prefix_cpus when its work is under run/queue-prefix/ (fac.py, not in the files to
+  touch, is unchanged); prefix_cpus out of (0, 4] is refused at run_all's start, before any worktree is made.
+  prefix_most out of 1..8 is refused by prefixes.prefix_most and again for a `most` given at run time; neither is
+  checked in fac.config(), so a bad value is refused when a prefix run starts, not when the config is read.
+- run_all starts a thread per head, so a run's heads are capped too: more than 64 refused (lesson-4; [pools]
+  batch_max is at most 8).
+- The sweep removes only entries of run/queue-prefix/ named <run tag>-<i> (a symlink of that name: the link only).

@@ -20,8 +20,9 @@ import fac
 
 ROOT = "queue-prefix"                                   # under [paths] run
 TAG = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}-\d{8}T\d{6}Z$")          # a run's tag (fac.run_tag)
-MADE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}-\d{8}T\d{6}Z-\d{1,3}$")  # a worktree this code names: <tag>-<i>
-MOST = 8                                                # [suites] prefix_most's ceiling
+MADE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}-\d{8}T\d{6}Z-\d{1,2}$")  # a worktree this code names: <tag>-<i>
+MOST, HEADS_MOST = 8, 64                                # [suites] prefix_most's ceiling; a run's most heads ([pools]
+                                                        # batch_max is at most 8)
 
 
 def prefix_most(cfg: dict) -> int:
@@ -79,8 +80,8 @@ def read(head: str, rc, log: Path, why: str = "") -> dict:
 def run_all(cfg: dict, repo: Path, heads: list[str], check, tag: str, logs: Path, most: int | None = None) -> list:
     """check(i, worktree) on each of ``heads`` (head i in run/queue-prefix/<tag>-i), at most ``most`` (default
     [suites] prefix_most; held to 1..MOST here again) at a time; one result per head, in heads' order (read())."""
-    if not TAG.match(tag) or len(heads) > 999:
-        raise ValueError(f"a prefix run's tag {tag!r} is not a run tag, or {len(heads)} heads are more than 999")
+    if not TAG.match(tag) or len(heads) > HEADS_MOST:            # (a thread each: the machine's limit, lesson-4)
+        raise ValueError(f"a prefix run's tag {tag!r} is not a run tag, or {len(heads)} heads are over {HEADS_MOST}")
     most = prefix_most(cfg) if most is None else most
     if type(most) is not int or not 1 <= most <= MOST:
         raise ValueError(f"prefix runs at once = {most!r}: a whole number from 1 to {MOST}")
@@ -114,7 +115,7 @@ def run_all(cfg: dict, repo: Path, heads: list[str], check, tag: str, logs: Path
     except BaseException:                               # stopped: no check starts, each running one is killed
         stop.set()
         while any(t.is_alive() for t in ts):
-            fac.stop_suites()                       # (again each pass: one started as the stop came)
+            fac.stop_suites()                           # (again each pass: one started as the stop came)
             for t in ts:
                 t.join(0.5)
         raise
