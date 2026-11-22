@@ -123,7 +123,8 @@ def test_an_unchanged_answer_records_nothing(tf):
 def test_a_malformed_entry_beside_a_blocks_link_leaves_blocked_by_unchanged(tf, capsys):
     tf.watch.look(_record(tf))
     assert _fold(tf, "ticket/SCRUM-2")["blocked_by"] == ["ticket/SCRUM-1"]
-    _board(tf, "SCRUM-2", issuelinks=[_blocks("SCRUM-1"), {"type": {"name": "Blocks"}}])
+    # beside the Blocks link, a new one and one with neither side: dropping the bad one would write [1, 3]
+    _board(tf, "SCRUM-2", issuelinks=[_blocks("SCRUM-1"), _blocks("SCRUM-3"), {"type": {"name": "Blocks"}}])
     _board(tf, "SCRUM-3", issuelinks=[_blocks("SCRUM-1")])                 # another in the same batch: still written
     capsys.readouterr()
     tf.watch.look(_record(tf))

@@ -157,11 +157,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `examples/roadmap` uses it in place of `bin/epics.py`. *Left*: the Blocks view does not draw a join (a rule on a
   kind, not a block); each child's move reads all its parent's children (O(children) per move: fine for an epic's
   tickets, not tuned for thousands).
-- **Relations, what is left** (open; the first part merged as c4888bd from `relations`; the Process view draws them,
+- **Relations, what is left** (done; the first part merged as c4888bd from `relations`; the Process view draws them,
   done in 0f7f870 on `smallgaps`; the Graph and Timeline at a moment travelled to, and in a snapshot, done on
-  `relations-as-of`): `ticket-factory` does not record Jira's links: its collector does not read them (`bin/jira.py`
-  asks Jira for summary, status, labels and description only), so `issuelinks` and `parent` must be asked for and
-  folded as relations first.
+  `relations-as-of`; Jira's links recorded by `ticket-factory`'s watcher as the ticket's relations, done on
+  `ticket-factory-jira-links`, with its limits in that example's README).
 - **A kind chosen in a snapshot** (done, on `a-kind-chosen-in-a-snapshot`; SPEC §5a): a snapshot holds each kind
   chosen alone (`items?kind=K`), its list in each of its states (`items?kind=K&state=S`, the states from the kind's
   own answer), and its Graph and Timeline (`items-graph?kinds=K`, related or not); an answer that cannot be got is
