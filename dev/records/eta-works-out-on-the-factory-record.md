@@ -104,3 +104,16 @@ passed, none skipped, rc 0), ruff clean. Not run: the unit suite and the other b
 
 Overrun reason: 195 net lines against 110 (63 in code, 132 in tests): round 2's 183 plus the counted-out share and
 its why in `simulate` (7 code lines), its place in the Items list's why (2), and the review's asked-for assertions (3).
+
+### Round 4 (the merge of main, 720426bd)
+
+- The conflict in `relations.js` (the Timeline note): main had changed `draw();` to `draw(); toNow();`, and the
+  branch had added the no-estimates words ("failed: <error>", "being worked out"). The merge keeps both: the branch's
+  note, then `draw(); toNow();`. Nothing else changed in this round.
+- DoD 5 (the table rerun) and the after-deploy GET are still not done, for the reasons given in rounds 1 to 3.
+  In this round a `python3` heredoc used only to resolve the conflict was refused too, so the edit was made by hand.
+
+Tests run after the merge: `tests/test_eta.py` (19 passed), `tests/test_items_page.py` under the watchdog with
+Playwright (23 passed, none skipped, rc 0), ruff clean. Not run: the unit suite and the other browser files.
+
+Overrun reason: 195 net lines against 110, unchanged from round 3; the merge adds no lines of the branch's own.
