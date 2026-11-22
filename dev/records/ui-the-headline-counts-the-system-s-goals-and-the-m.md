@@ -25,3 +25,23 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built (35c0bb01), about 23 net lines outside tests. The choices made alone, each the most reversible:
+- "Model upkeep" is the goals in the system of the model's `use: modelling` (`state.upkeep`, one definition read by
+  `/api/status` for the header and by `projects.py` for the switcher). A model without that use has no upkeep.
+- The switcher now counts as the header does: goals with status `off`, not `off` or `open` as before. It shows
+  "N off, K unknown, model upkeep M" (unknown and upkeep counted only among the goals they belong to). Its row gets
+  three new fields (`goals_off`, `goals_unknown`, `upkeep_off`); the existing `off` and `unknown` are kept unchanged,
+  so the CLI's `ergostat projects` listing is untouched (outside this gap).
+- The header's upkeep part is its own span (`#upkeep`, the muted runstate colour) after `#running`, so it is never red;
+  the header reads "Running" when nothing is off, and "0 goals off · model upkeep 2" (", not running" when stopped).
+- The acceptance runs on two copies of examples/first-loop that share one home, each served on a free port rather than
+  :8796, with the two modelling goals' stocks read off and inbox-short holding:
+  tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart.
+  Seen to fail under three breaks: the header not excluding upkeep ("2 goals off"), the switcher counting the old `off`
+  ("2 off" against the header's 0), and the header turned red for upkeep alone.
+Run: that test file whole (22 passed, rc 0, under the watchdog), tests/test_projects_listing.py,
+tests/test_graph_cli_web.py, tests/test_resilience.py (73 passed), ruff clean. Main merged (already up to date). The unit
+suite and the other three browser files were not run here (left to the factory and the merge queue).
