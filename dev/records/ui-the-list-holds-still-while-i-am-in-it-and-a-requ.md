@@ -134,3 +134,22 @@ out has to come from outside this gap. Any one of these is enough, and each is s
 `--collect-only` when Playwright is missing, or send the gap to the merge queue as it stands. Refused this time: a
 `cat >> … <<'EOF'` append to this file chained with `git add dev/records && git commit …`. The text was added with the
 editor.
+
+## Where it stopped (round 3: main 277a9c6c merged)
+
+The factory's merge of main (277a9c6c) conflicted in two files. Both are resolved so that main's change and the
+branch's change both stay (merge commit e1dfdfa9):
+- `ergostat/web/static/pages.js`: the Agents group heading is main's ("ai · 2", with the rung in small text, from
+  ui-agents-a-group-heading-counts-its-rows). The agent rows keep the branch's `data-row` key, which the hold-still
+  note counts. The heading row has no `data-row`, so it is not counted as an update.
+- `tests/test_agents_page.py`: both tests are kept, main's
+  `test_each_group_heading_counts_its_rows_as_the_summary_does` and the branch's
+  `test_the_agents_table_holds_still_while_the_pointer_is_on_a_row`, each with its own close.
+
+No other code changed. Run after the merge, each under `scripts/suite_watch.py` with Playwright 1.63.0 through
+`scripts/named_tests.py`:
+- `tests/test_agents_page.py`: rc 0, 5 passed (39.1 s).
+- `tests/test_inbox_page.py`: rc 0, 2 passed (104.0 s).
+- `uv run ruff check ergostat tests scripts`: clean.
+Not run here, as the house rules say: the unit suite and the four browser files. The merge queue runs them. The
+build without Playwright will still return rc 5 for the reason given above.
