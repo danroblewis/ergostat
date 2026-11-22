@@ -25,3 +25,28 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built (12 net lines of code). Each Dynamics loop now carries `around`: every link around it, worked out over the
+whole model before any system is closed (`_around` in ergostat/dynamics.py). Each link is signed as its connector
+is drawn, with flows and gaps signed by definition, and both ends go by plain names. The panel, the marker and the
+side list's row all read from it.
+
+One file outside "Files to touch": ergostat/dynamics.py (22 lines). The page alone cannot sign a link whose ends
+are inside a closed system, because the folded graph no longer holds them. The server's connector signs are the
+ones the drawn lines use, so one sign per link holds across panels.
+
+Choices I made alone (each is easy to undo):
+- The side list's loop rows follow the same rule as the marker (a '?' tag and "Polarity not known"), so no panel
+  calls a loop R or B when its marker reads '?'.
+- A loop whose links are all signed, but whose count of minus signs disagrees with the model's polarity, also reads
+  '?', and the panel says they disagree. Not seen in software-factory.
+- Stock → gap and desired → gap follow the convention the connectors already use: + and − for a ceiling's excess
+  (as this definition says), − and + for a floor's gap.
+
+Tests: test_a_loop_is_called_r_or_b_only_when_every_link_has_a_sign (tests/test_diagram_rendering.py) was seen to
+fail on four breaks: '+N' put back; ids in place of names; flow signs dropped while the marker kept 'R2'; the gap
+sign flipped in the panel (caught in open=*). Also test_each_loop_gives_every_link_around_it_a_sign_and_a_plain_name
+(tests/test_dynamics_view.py), and SD_CHECK's marker-letter check now reads the same rule. Not run here: the unit
+suite and the four browser files as a whole.
