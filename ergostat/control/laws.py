@@ -66,7 +66,7 @@ def check(raw) -> tuple[KnownLaw | None, list[tuple[str | None, str]]]:
     if not isinstance(raw, dict):
         return None, [(None, f"a map, {{kind: KIND, ...}}, KIND one of {', '.join(CATALOGUE)}")]
     kind = raw.get("kind")
-    if kind not in CATALOGUE:
+    if not isinstance(kind, str) or kind not in CATALOGUE:      # a list or map is no kind (and unhashable)
         return None, [("kind" if "kind" in raw else None, f"kind: one of {', '.join(CATALOGUE)}")]
     cat, got, bad = CATALOGUE[kind], {}, []
     for key in raw:

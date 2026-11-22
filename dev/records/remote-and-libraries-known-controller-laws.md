@@ -25,3 +25,11 @@ ask, each the more reversible one:
   compiles; docs/AGENT-GUIDE.md gains one bullet. `Law.said()`/`short()` gain a ratio line each so a ratio Law can be
   written without a KeyError; drawing and explaining stay in remote-and-libraries-known-laws-drawn-and-explained.
 - Nothing runs the declared law yet (projection, check against the record): SPEC says so.
+
+Round 2: the review's one finding is fixed. A `kind:` written as a YAML list or map raised TypeError (unhashable)
+before it reached the catalogue lookup. It is now bad-law at `kind`, like any other unknown kind
+(ergostat/control/laws.py checks `isinstance(kind, str)` first). test_each_refusal_is_bad_law_at_its_key gains a list
+case and a map case. Without the fix the test failed with that TypeError; with it, it passes. The other values a law
+can take were read for the same crash and none was found: a duration given as a list or map is turned into a string
+and refused as not a duration, a side given as a list or map is compared by equality, and a NaN or infinite number is
+refused by the bounds check. The fix changes one line; the total is still within 160.

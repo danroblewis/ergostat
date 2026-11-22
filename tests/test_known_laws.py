@@ -87,6 +87,8 @@ def test_each_refusal_is_bad_law_at_its_key(tmp_path):
     head = len(KUBE.splitlines())               # the law: line is the next
     cases = [
         ("law:\n  kind: kubernetes-autoscaler\n  target: 1\n", 2, "kind: one of"),
+        ("law:\n  kind: [kubernetes-hpa]\n  target: 1\n", 2, "kind: one of"),
+        ("law:\n  kind: {name: alert-rule}\n", 2, "kind: one of"),
         ("law:\n  kind: alert-rule\n  threshold: 1\n  side: above\n  for: 1m\n  hysteresis: 2\n", 6, "takes no hysteresis"),
         ("law:\n  kind: kubernetes-hpa\n  target: 0.7\n  min: 1\n", 1, "needs max"),
         ("law:\n  kind: kubernetes-hpa\n  target: 0.7\n  min: 1\n  max: 5\n  tolerance: 2\n", 6, "tolerance: a number from 0"),
