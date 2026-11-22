@@ -188,3 +188,21 @@ it names a test, that name is needed for a fix round.
 Parked by the factory (review/plan-by-size-2, 2026-11-21 16:47).
 
 Built to its definition, by reading: the S/M/L/XL routing, the fail-closed path, config limits checked before any session, the per-gap L sample, exclusive create of the S definition, planning_cost_usd summed with the whole reservation charged on failure, measure.py planning-cost-share with unrecorded and out-of-range gaps left out, model flows, sensors and auxiliary, README and prompt. The round-1 finding about the S text is fixed. Left: the definition reads a size class that no program records before planning (gap-size records it only from the planner's own plan), so on main the size paths are never reached and the only live effect is every planner-made plan reviewed instead of 1 in 3. The owner needs to decide where the class comes from before planning (the groomer, the coordinator through a manage.py tool, or a cheap sizing step) and whether unsized plans keep main's sample. The definition then needs amending to match. Building more under the current definition would ship dead routing and higher review spend to main.
+
+**Continued, round 1: main merged (5617e225).** There were conflicts in two files. In `dev/README.md`, main's
+newer join judge paragraph is kept whole (the early `short` verdict, `merged` with no `merged_at`, `MOST_SHORT` = 1,
+and the splits-covered / split-budgets-held / split-joins / split-overhead measures). The plan review sentence keeps
+the branch's *Planning by size* pointer, the branch's *Planning by size* section stays, and the pools heading is
+main's ("sized by risk, against your tolerance"). In `dev/bin/measure.py`, the branch's `planning_cost_share` sits
+beside main's `SPLITS`, `priced`, `family`, `budget` and `split_reading`. The docstring's no-value line names main's
+three split measures and planning-cost-share. After the merge, these pass: `tests/test_factory_knowledge.py`
+(92 passed), `tests/test_factory.py` (164 passed, 2 skipped, both for want of Docker) and
+`ruff check ergostat tests scripts`. The unit suite and the browser files were not run here. The factory runs them.
+
+No other code was changed. The park's reason still holds on the merged main: `planned_size` is still written only by
+`plan.py` from the planner's own plan (`size_of`), and nothing records a class on an open gap before it is planned.
+So the size paths are still unreachable, and the owner's decision named above is still what is left. Until the
+definition is amended, building more here would be building what was not asked. Main's README now calls
+`splits-covered ≥ 0.7` over at least 5 joins the condition this gap gates XL auto-split on. The definition asks for
+no XL auto-split, so that sentence is a claim about this gap that its definition does not make. It is main's text and
+is left alone; the owner's amendment should say whether the XL path is meant to wait on it.
