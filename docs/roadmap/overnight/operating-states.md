@@ -552,3 +552,11 @@ merge: `tests/test_operating.py` (36 passed); `tests/test_leases.py`, `tests/tes
 `tests/test_pool_now.py` (80 passed); main's `tests/test_one_bad_link.py` and `tests/test_run_budget.py` (40 passed);
 ruff clean. Not run by the implementor: the full unit suite and the four browser files. No demo is touched, so
 `demo_check` is not needed.
+
+## Where it stopped
+
+Parked by the factory (queue run 2, 2026-11-22 03:02).
+
+Failed its gates 8 times (the kill rule); the last, in the merge queue:
+- the first failing merge of a batch of 8, found by bisecting
+- failed again alone: tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network
