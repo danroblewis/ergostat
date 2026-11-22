@@ -212,7 +212,8 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att > div > b:first-child { font-weight: 600; }
 .att .more, .att .none { color: var(--muted); }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
-.att .inbox-act input { width: 6em; }
+.att .inbox-act .ask-in { flex: 1 1 100%; display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.att .inbox-act input { width: 100%; box-sizing: border-box; }
 details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }
 details > summary { cursor: pointer; color: var(--ink-2); }
 details > summary:hover { color: var(--ink); }

@@ -103,8 +103,18 @@ def _blocks(p, spec, now: float) -> list[dict]:
         out.append({"id": f"{kind}/{b.name}@{x['seq']}", "kind": kind, "block": b.name, "seq": x["seq"],
                     "time": x["time"], "link": f"/diagram?view=blocks&around=block/{b.name}",
                     "verbs": ["done"] if person else ["approve", "deny"], "class": f"{kind}:{b.name}", "why": "",
+                    **(_done_in(spec, b) if person else {}),
                     "summary": f"{b.name} is asked: {_cut(ask) or cmd}" if person else f"{b.name} advises its {cmd}"})
     return out
+
+
+def _done_in(spec, b) -> dict:
+    """What a person's number means: the flow it moves and its unit (the flow's, else its stock's); ``yes_no`` when
+    the block's outputs are two named ends (a decision, as declared or dismissed): yes moves one, no none."""
+    f = next((spec.flows.get(t.name) for t in b.targets() if t.kind == "flow"), None)
+    ends = [spec.stocks.get(s) for s in ((f.target, f.source) if f else ()) if s]
+    unit = (f.unit if f else "") or next((s.unit for s in ends if s and s.unit), "")
+    return {"flow": f.name if f else "", "unit": unit, "yes_no": len(b.outputs) == 2}
 
 
 def _breakers(p, spec, now: float) -> list[dict]:

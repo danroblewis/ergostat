@@ -1317,15 +1317,24 @@ function legendBox(view) {
 function inboxAnswer(a) {
   if (SNAP || S.at) return null;
   const said = h("span", { class: "note", "aria-live": "polite" });
-  const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
-  const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": "Why" }) : null;
-  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async () => {
+  // each input under a label that says what it means: a number its unit and flow, a reason whether it is needed
+  const labelled = (text, input) => input && h("label", { class: "ask-in" }, h("span", {}, text), input);
+  const unit = a.unit || a.flow || "work";
+  const cap = unit[0].toUpperCase() + unit.slice(1), along = a.flow ? `, along ${a.flow}` : "";
+  const yesNo = a.answer.includes("done") && a.yes_no;                    // a decision: two buttons, no number
+  const n = a.answer.includes("done") && !yesNo ? h("input", { type: "number", min: "0", step: "any" }) : null;
+  const why = a.answer.includes("deny") ? h("input", { type: "text" }) : null;
+  const need = a.what.startsWith("request/") ? "required" : "optional";
+  const go = (verb, yes) => h("button", { class: verb === "deny" || yes === 0 ? "ghost" : "", "data-verb": verb, onclick: async () => {
     for (const b of row.querySelectorAll("button")) b.disabled = true;
-    const q = { ...(n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
+    const q = { ...(yes != null ? { n: yes } : n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
     try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
     catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
-  } }, { approve: "Approve", deny: "Deny", done: "Done" }[verb]);
-  const row = h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), why, said);
+  } }, yes === 1 ? "Yes" : yes === 0 ? "No" : { approve: "Approve", deny: "Deny", done: "Done" }[verb]);
+  const row = h("div", { class: "row inbox-act", sig: a.what },        // kept whole while it waits: what is typed stays
+    yesNo ? h("span", { class: "ask-in" }, `Yes moves one of ${unit}${along}; no moves none`) : null,
+    labelled(`${cap} done${along} (number)`, n), labelled(`Reason for denying (${need})`, why),
+    ...(yesNo ? [go("done", 1), go("done", 0)] : a.answer.map((v) => go(v))), said);
   return row;
 }
 

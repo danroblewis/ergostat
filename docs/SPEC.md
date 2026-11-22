@@ -6199,7 +6199,10 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
 - The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
   each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own.
+  (`note=`); `GET /api/inbox`. Each box has a label above it, as wide as the row: a number names its unit and flow
+  (the flow's unit, else its stock's: "Jobs done, along reviewed (number)"), a reason whether it is required. A person
+  block whose outputs are two named ends (a decision: `declared`, `dismissed`) gets Yes (`n=1`, along its first flow)
+  and No (`n=0`) instead of a number. The item pages keep their own buttons. No page or panel of its own.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 
