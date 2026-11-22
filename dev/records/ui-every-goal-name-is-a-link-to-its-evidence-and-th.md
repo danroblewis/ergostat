@@ -59,3 +59,11 @@ test_a_loop_lit_from_its_marker_lets_go_the_way_everything_else_does (3 passed);
 passed); ruff clean. Not run: the rest of tests/test_diagram_rendering.py (a serial run is longer than the session's
 10-minute command limit, and a background run was refused), tests/test_items_page.py, tests/test_page_refresh.py, the
 unit suite. The merge queue runs those. Local `main` merged in: already up to date.
+
+Build fix (round 1): the factory's build step ran only tests/test_diagram_rendering.py. Without Playwright that file
+skips at module level, so pytest collected nothing (rc 5). Added
+`tests/test_graph_cli_web.py::test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock`, which needs no
+browser: an off goal's attention entry is `loop NAME`, its loop names its stock, and the page carries
+`showGoal`/`goalButton`. It is a stand-in that pins the data contract and the spelling, not the button's behaviour;
+the browser test stays the acceptance check. It was seen to fail with the Needs-attention name made plain again.
+Run: tests/test_graph_cli_web.py (32 passed); ruff clean.
