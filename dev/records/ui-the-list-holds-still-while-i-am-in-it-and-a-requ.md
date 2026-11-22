@@ -177,3 +177,32 @@ is clean. The page code has been the same since round 1. Its own browser files p
 (round 3). If this build parks the gap, nothing in the gap is left to do. What is missing is a build that can run these
 files: `build_browser = true` for this gap, a browser-only selection treated as `--collect-only` when Playwright is
 missing, or the merge queue.
+
+## Where it stopped (round 4: a unit test the build can run)
+
+No review findings came to this round. `main` (277a9c6c) is still an ancestor of HEAD and has not moved, so there was
+nothing to merge. The page code is unchanged since round 1.
+
+What changed: one unit test in `tests/test_inbox.py`,
+`test_a_request_answered_leaves_the_attention_list_the_side_list_keys_by_what`. It follows main's own way out of the
+same rc 5 (ab17bb6e, from ui-agents-a-group-heading-counts-its-rows: a unit test of the contract the page reads). Now
+that `tests/test_inbox.py` is in the branch's diff, `affected_tests.py` selects it, so the build without Playwright has
+tests to run. It is not a filler test (lesson 9). It checks the server half of the side list's "no longer waiting"
+mark: each of three held requests is in the attention list under its own `what` (`action/<short>`, the row's
+`data-inbox` key) with its verbs. Once one is denied through the API, that one is gone and the others keep their order.
+The mark goes on a row only when its `what` drops out of the answer. If answered requests stayed in it, or were keyed
+some other way, the mark would never show, and the browser test is the only other check of that.
+Choice made without asking (easy to undo: delete the test): adding this test instead of waiting for factory tooling to
+change.
+
+Tests run this round:
+- The new test alone: passed. With `state.py`'s asks keyed by `e["summary"]` instead of `e["id"]` (a break, then
+  reverted, so `git diff ergostat` is empty), it failed at the first assert.
+- `uv run python scripts/named_tests.py tests/test_inbox.py`: 31 passed (15.8 s).
+- `uv run ruff check ergostat tests scripts`: clean.
+- Not run this round: the two browser files (they passed with rc 0 after the merge, round 3), the unit suite and the
+  four browser files (the house rules leave those to the factory and the merge queue).
+- Refused this round: `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py
+  tests/test_inbox.py::… 2>&1 | tail -15` and `uv run python scripts/suite_watch.py -- uv run python
+  scripts/named_tests.py tests/test_inbox.py`. Both were run instead as plain `uv run python scripts/named_tests.py …`,
+  with no watchdog (a single serial unit file).
