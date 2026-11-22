@@ -25,3 +25,21 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built (778d33cd). `ergostat/web/static/style.css` gets one rule below 760 px: the nav takes a row of its own
+and wraps (no sideways scroll); `a.on` keeps its underline. 3 net lines of code, within the budget of 60.
+
+Choices made with no one to ask (each reversible):
+- The 700 px rule's sideways scroll and right-edge fade on the nav were removed, because nothing scrolls now.
+- The acceptance test `tests/test_items_page.py::test_the_navigation_shows_every_page_at_phone_width_and_at_200_percent_zoom`
+  (phone 390x844, zoom-200 720x450, all eight pages) serves its own unseeded copy of image-squeeze (`nav_site`).
+  On the shared `site`, opening Loops/Model records ergostat's first offered model changes
+  (ergostat/control/proposals.py), and that made `test_the_model_changes_are_found_by_heading_search_and_panel`
+  (which counts exactly three) fail when it ran after the new test.
+
+Tests: the new test was seen to fail with the rule switched off (both sizes: Loops…Guide past 390 px, Guide past 720 px)
+and with `nowrap` (phone: Check and Guide off-screen). `tests/test_items_page.py` under the watchdog with Playwright:
+23 passed, none skipped, rc 0. ruff clean. Not run here (by the factory's rules): the unit suite and the other three
+browser files. No example touched, so no demo_check. main is an ancestor of the branch, so there was nothing to merge.
