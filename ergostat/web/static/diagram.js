@@ -1014,6 +1014,25 @@ function legend(view) {
     h("span", { class: "sym" }, "H A P"), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, `${RUNG_LETTER[i]} ${k}`))));
 }
 
+/* the diagram's caption, the page's h1: which discipline's diagram, the model and what it is for, and its verdict
+   (Dynamics: every goal; Blocks: the goals a controller holds, its control loops; off as the loops say) */
+const DIAGRAM_TYPE = { dynamics: "Stock-and-flow diagram (system dynamics)", blocks: "Block diagram (control)",
+                       process: "Process map (process mining)" };
+function captionText(st, view) {
+  const parts = [DIAGRAM_TYPE[view] || view];
+  if (!st) return parts[0];
+  const n = (k, word) => `${k} ${word}${k === 1 ? "" : "s"}`;
+  parts.push(st.purpose ? `${st.name}: ${st.purpose}` : st.name);
+  if (st.top) parts.push(n(st.top, "system"));
+  // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
+  if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
+    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
+    const off = names.filter((x) => st.loops[x]?.status === "off").length;
+    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
+  }
+  return parts.join(" · ");
+}
+
 async function pageDiagram(main, q) {
   // the system dynamics view is the first; "control", its old name, still reaches it
   if (q.get("view") === "wiring") {                             // the wiring the process map replaced: its address reaches it
@@ -1033,7 +1052,8 @@ async function pageDiagram(main, q) {
   S.pins = loadPins();
   S.showHulls = !around;
   const wrap = h("div", { class: "canvas-wrap" });
-  const svg = s("svg", { class: "canvas" });
+  const svg = s("svg", { class: "canvas", "aria-labelledby": "diagram-caption" });
+  const caption = h("h1", { id: "diagram-caption", class: "caption" }, captionText(S.status, view));   // the page's name
   const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "Everything"));
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
@@ -1116,7 +1136,7 @@ async function pageDiagram(main, q) {
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
     around ? h("span", { class: "around" }, "around ", h("b", {}, around), " ", h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ around: "" }) }, "\u00d7")) : null,
-    more);
+    more, caption);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
     h("button", { class: "z", title: "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
@@ -1169,6 +1189,8 @@ async function pageDiagram(main, q) {
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
     S.graph = g;
+    setText(caption, captionText(S.status, view));
+    caption.title = caption.textContent;
     proposedBanner(wrap, g, proposal, go);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
       sysSel.dataset.tree = "1";

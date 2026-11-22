@@ -449,7 +449,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
         from ..runner import running_pid
         running = bool(running_pid(p))
         edited = _edited(live, p, running)
-        return {"name": m.name, "running": running, "live": snap["live"], "first": p.events.first_time(),
+        spec = getattr(m, "spec", None)              # the diagram's caption: what the model is for, its loops
+        said = {"purpose": spec.purpose, "top": len(spec.subsystems(None)),
+                "controlled": sorted(g for g in spec.goals if spec.loop(g).controllers)} if spec else {}
+        return {"name": m.name, **said, "running": running, "live": snap["live"], "first": p.events.first_time(),
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"],
                 **({"edited": edited} if edited else {}),
