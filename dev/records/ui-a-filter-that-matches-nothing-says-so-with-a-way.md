@@ -52,3 +52,10 @@ Round 1: built. All of it is in `ergostat/web/static/pages.js`, +10 net lines; n
   watchdog with rc 0 and nothing skipped; ruff is clean. `git merge main` was already up to date. Not run here: the
   unit suite, test_diagram_rendering.py and test_page_polling.py; the snapshot path of the count (no test covers it);
   demo_check (no example was touched).
+
+Round 1, after the build step: `build` returned rc 5 with "1 skipped": its affected-tests selection was only
+tests/test_items_page.py, a browser file, and the build command has no Playwright, so the file skipped at import and
+pytest collected nothing. That is not a fault in the change: run again here with Playwright under the watchdog
+(`suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_items_page.py`) the file
+gives 23 passed, rc 0, nothing skipped. No code was changed for it; the most reversible choice was to leave the build
+step and the tests as they are and say so here.
