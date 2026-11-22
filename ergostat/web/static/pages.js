@@ -675,7 +675,8 @@ async function pageItems(main, q) {
     if (view !== "list") for (const g of systems) {
       if (!isOpen(g.name) || (d.set && !g.kinds.includes(kind))) continue;
       const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : g.kinds.filter((n) => relKinds.has(n));
-      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }).catch((err) => ({ err })) : null };
+      // (by its system: only its own kinds' dependency network is drawn, another system's items stubs at its edge)
+      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...(g.name ? { system: g.name } : {}), ...whatifParams() }).catch((err) => ({ err })) : null };
     }
     if (!p.isConnected) return;
     if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
@@ -766,6 +767,12 @@ async function pageItems(main, q) {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
       if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "No relations among these kinds: a kind declares them under relations: (blocked_by: ticket).")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
+      if (view === "graph" && rd.waits === false) {      // nothing to draw: said once, and where what they name is
+        const seen = new Set(), go2 = (sys) => (ev) => { ev.preventDefault(); document.querySelector(`.sys-group[data-system="${CSS.escape(sys)}"]`)?.scrollIntoView(); };
+        const where = (rd.about || []).filter((a) => a.system && a.system !== g.name && !seen.has(`${a.kind}>${a.to}`) && seen.add(`${a.kind}>${a.to}`))
+          .flatMap((a, i) => [i ? "; " : "", `${a.kind}s are about ${a.to}s: see `, h("a", { href: "#", class: "rg-where", onclick: go2(a.system) }, a.system)]);
+        return [h("p", { class: "muted rg-none", key: `rel-flat:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.", ...(where.length ? [" ", ...where, "."] : []))];
+      }
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);
       const key = `rel:${view}:${g.name}`;

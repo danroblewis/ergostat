@@ -1545,19 +1545,27 @@ estimate, and was dropped. On the ticket-factory demo's record, with its workspa
 covers every item.
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
-group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
-(`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
+group (or for the chosen kind), the kinds with relations and that system's own dependency network
+(`GET /api/items-graph?kinds=A,B&system=NAME`; worked out again only when the record changes). A system's Graph
+follows only precedence and parent relations, and only to items of its own kinds; a precedence target or parent of
+another system's kind is not a card but a small stub at the edge ("waits on gap/x", its state and its system), a
+click opening it, its status still counted (what waits on it stays waiting while it is unfinished). Any other
+relation (one an item is *about*, a duplicate) is not drawn: it is listed in the card's hover text, and under
+Relations on the item's page. A system whose kinds declare no precedence or parent relation draws no Graph and says
+once "These items do not wait on one another, so there is no dependency graph", and where the items they name are
+("reviews are about gaps: see building"). Without `system=` (the command line, `kinds=` alone) the answer is as
+before: every relation followed both ways, to items of any kind.
 
 | View | What it shows |
 |---|---|
-| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
+| **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; another system's items stubs at the edge, dashed. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
 `status=` in the address) and says when the critical path is expected to end (until the completion estimates are worked out); a click opens the item |
 | **Timeline** | A Gantt chart: a row an item (a parent, then its children under it), its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the forward pass), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend says when each kind's last open item is done (p50, p90). Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier by default, the finished kept as what happened |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
-the window, 400 more reached by relations (six links away at most), 300 cards and 200 rows drawn; a note says when
-any was reached. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
+the window, 400 more reached by relations (six links away at most), 400 stubs, 300 cards and 200 rows drawn; a note
+says when any was reached. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
 is read by id and its own status counts (one that cannot be read counts as unfinished, and is named). In a snapshot
 they are not drawn.
 

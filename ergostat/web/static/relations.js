@@ -17,7 +17,7 @@
    and zoom kept. Bounded: RG.NODES cards, RG.BARS rows; a note says when that was reached. */
 "use strict";
 
-const RG = { W: 210, H: 46, HUB_W: 190, HUB_H: 40, NODES: 300, BARS: 200, ROW: 24, BAR: 12, LABEL: 250, AXIS: 26 };
+const RG = { W: 210, H: 46, STUB_H: 34, HUB_W: 190, HUB_H: 40, NODES: 300, BARS: 200, ROW: 24, BAR: 12, LABEL: 250, AXIS: 26 };
 const RG_STATUS = ["active", "queued", "unblocked", "blocked", "paused", "dead", "done"];
 const RG_WORD = { active: "active", queued: "queued", unblocked: "unblocked", blocked: "waiting", paused: "paused", dead: "dead letter", done: "done" };
 
@@ -78,6 +78,15 @@ function rgModel(d, o) {
     if (!shown.length && g && drawn.has(g) && (hub(g) || o.group === "kind")) edges.push({ id: `g:${g}>${id}`, from: g, to: id, cls: "member", label: "" });
   }
   for (const e of d.edges) if (e.kind === "other" && drawn.has(e.from) && drawn.has(e.to)) edges.push({ id: `o:${e.from}>${e.to}:${e.rel}`, from: e.from, to: e.to, cls: "other", label: e.rel.replace(/_/g, " ") });
+  // another system's item a drawn one waits on, or is part of: a stub at the edge, its status still counted
+  const stubOf = Object.fromEntries((d.outside || []).map((x) => [x.id, x]));
+  for (const e of d.edges) {
+    const x = stubOf[e.from];
+    if (e.kind !== "outside" || !x || !drawn.has(e.to)) continue;
+    const part = !!kinds[byId[e.to].kind]?.relations?.[e.rel]?.group;
+    if (!nodes.some((n) => n.id === x.id)) nodes.push({ id: x.id, x, stub: true, part, w: RG.W, h: RG.STUB_H });
+    edges.push({ id: `s:${x.id}>${e.to}`, from: x.id, to: e.to, cls: part ? "member" : "outside", label: "" });
+  }
   const counts = {};
   for (const x of d.items) counts[x.status] = (counts[x.status] || 0) + 1;
   return { nodes, edges, kinds, counts, capped, byId, scope };
@@ -97,8 +106,9 @@ async function rgLayout(m, o) {
   let children;
   if (o.group === "kind") {
     const by = {};
-    for (const n of m.nodes) (by[n.x.kind || ""] ||= []).push(n);
-    children = Object.entries(by).map(([k, ns]) => ({ id: `kind:${k}`, children: ns.map(node), layoutOptions: { "elk.padding": "[top=30,left=14,bottom=14,right=14]" } }));
+    for (const n of m.nodes) if (!n.stub) (by[n.x.kind || ""] ||= []).push(n);
+    children = Object.entries(by).map(([k, ns]) => ({ id: `kind:${k}`, children: ns.map(node), layoutOptions: { "elk.padding": "[top=30,left=14,bottom=14,right=14]" } }))
+      .concat(m.nodes.filter((n) => n.stub).map(node));      // another system's: outside the frames
     opts["elk.hierarchyHandling"] = "INCLUDE_CHILDREN";
   } else children = m.nodes.map(node);
   const g = { id: "root", layoutOptions: opts, children,
@@ -135,7 +145,9 @@ function rgCard(n, kinds, open) {
   const said = [x.id, x.title, `${x.kind || "no kind"}, ${x.state || "no state"}: ${RG_WORD[st] || st}`,
                 x.waiting?.length ? `waits on ${x.waiting.join(", ")}` : "", x.holder ? `leased by ${x.holder}` : "",
                 x.slack != null ? (x.critical ? "on the critical path" : `slack ${dur(x.slack)}`) : "",
-                x.ef ? `expected done ${new Date(x.ef * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}${x.known === false ? " (assumed)" : ""}` : ""].filter(Boolean).join("\n");
+                x.ef ? `expected done ${new Date(x.ef * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}${x.known === false ? " (assumed)" : ""}` : "",
+                ...Object.entries(x.links || {}).filter(([r]) => { const rel = kinds[x.kind]?.relations?.[r]; return rel && !rel.precedence && !rel.group; })
+                  .map(([r, ids]) => `${r.replace(/_/g, " ")}: ${ids.join(", ")}`)].filter(Boolean).join("\n");   // about: listed, not drawn
   g.append(s("title", {}, said));
   if (n.hub) {
     const c = x.children || { done: 0, total: 0 };
@@ -150,6 +162,18 @@ function rgCard(n, kinds, open) {
     s("text", { class: "rg-pill", x: n.w - 8, y: 18, "text-anchor": "end" },
       st === "blocked" ? `waits ${x.waiting.length}` : st === "active" && x.holder ? rgClip(x.holder, 12) : (x.state || RG_WORD[st])),
     s("text", { class: "rg-sub", x: 14, y: 35 }, rgClip(x.title || (x.state ? `${x.state}` : ""), 30)));
+  return g;
+}
+
+/* another system's item: a small stub, what waits on it beside it, its state and its system; a click opens it */
+function rgStub(n, open) {
+  const x = n.x, st = RG_WORD[x.status] || x.status;
+  const g = s("g", { class: `rg-stub rg-${x.status}`, "data-id": x.id, transform: `translate(${n.px},${n.py})`, tabindex: 0, role: "link",
+                     onclick: () => open(x.id), onkeydown: (ev) => { if (ev.key === "Enter") open(x.id); } });
+  g.append(s("title", {}, `${n.part ? "part of" : "waits on"} ${x.id}${x.title ? `: ${x.title}` : ""}\n${x.state || "no state"}: ${st}, in ${x.system || "another system"}`),
+    s("rect", { class: "rg-box", width: n.w, height: n.h, rx: 3 }),
+    s("text", { x: 8, y: 14 }, rgClip(`${n.part ? "part of" : "waits on"} ${x.id}`, 32)),
+    s("text", { class: "rg-sub", x: 8, y: 28 }, rgClip(`${x.state || st} · ${x.system || "another system"}`, 32)));
   return g;
 }
 
@@ -180,7 +204,7 @@ function relGraph(open) {
     view.x = mx - (mx - view.x) * (k / view.k); view.y = my - (my - view.y) * (k / view.k); view.k = k; view.moved = true; apply();
   }
   let drag = null;
-  stage.addEventListener("pointerdown", (e) => { if (e.button !== 0 || e.target.closest(".rg-node")) return; drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; stage.setPointerCapture(e.pointerId); stage.classList.add("dragging"); });
+  stage.addEventListener("pointerdown", (e) => { if (e.button !== 0 || e.target.closest(".rg-node, .rg-stub")) return; drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; stage.setPointerCapture(e.pointerId); stage.classList.add("dragging"); });
   stage.addEventListener("pointermove", (e) => { if (!drag) return; view.x = drag.vx + e.clientX - drag.x; view.y = drag.vy + e.clientY - drag.y; view.moved = true; apply(); });
   stage.addEventListener("pointerup", () => { drag = null; stage.classList.remove("dragging"); });
   stage.addEventListener("wheel", (e) => {
@@ -207,7 +231,7 @@ function relGraph(open) {
       if (l.label) gg.append(s("text", { class: "rg-elabel", x: (l.label.x + l.label.w / 2).toFixed(1), y: (l.label.y + 10).toFixed(1), "text-anchor": "middle" }, e.label));
       parts.push(gg);
     }
-    for (const n of m.nodes) { const p = got.pos[n.id]; if (!p) continue; n.px = p.x; n.py = p.y; parts.push(rgCard(n, m.kinds, open)); }
+    for (const n of m.nodes) { const p = got.pos[n.id]; if (!p) continue; n.px = p.x; n.py = p.y; parts.push(n.stub ? rgStub(n, open) : rgCard(n, m.kinds, open)); }
     const hgt = Math.round(Math.min(Math.max(320, got.h + 40), Math.max(420, innerHeight * 0.7)));
     if (stage.style.height !== `${hgt}px`) stage.style.height = `${hgt}px`;
     vp.replaceChildren(...parts);

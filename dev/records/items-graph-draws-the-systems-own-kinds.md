@@ -14,3 +14,19 @@ Acceptance tests: unit tests of build() on the two fixtures; build(kinds=[gap]) 
 Budget: 160 net lines.
 
 Milestone: items-page-readable. Owner items: 12. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1; nothing left of the definition. 85 net lines of code (budget 160). Choices made alone, each the more
+reversible one:
+- The stubs are a list of their own in the answer (`outside`, each `outside: true` with its `system`), with edges of
+  kind `outside`, not entries in `items`: the Timeline, the legend's counts, the estimates' merge and `order_ready`
+  read `items` and are untouched. Capped at MOST_PULLED (`capped.outside`, said by the legend); past it their status
+  still counts.
+- The page asks `kinds=` (its kinds with relations, as before) and `system=` together; `system=` alone still means the
+  system's kinds. Only the Graph gives way to the sentence; the Timeline of such a system is still drawn.
+- `ergostat/web/snapshot.py` (outside the Files list) asks the same `system=` keys as the page, or a snapshot would
+  lose its Graph; tests/test_graph_cli_web.py's three snapshot tests follow it. The SPEC's open question (the owner
+  may want "of any kind" back) is not answered here.
+- "reviews are about gaps" is the kind's name and an "s"; a kind whose plural is not that reads oddly.
+Not done: no screenshot was taken (a scratch script outside the repository was refused in this session).

@@ -309,3 +309,115 @@ def test_the_items_graph_answer_is_kept_until_the_record_changes(tmp_path):
     p.events.add("ticket.planned", item="ticket/b", data={"blocked_by": "ticket/a"})
     three = graph(p, p.model, snap, {"kinds": ["ticket"]})
     assert three is not one and len(three["items"]) == 2
+
+
+# ---- a system's Graph: its own kinds' dependency network, another system's items stubs at its edge
+
+FACTORY = """
+systems:
+  knowledge: {description: what is known}
+  building: {description: the gaps}
+  support: {description: the tickets}
+items:
+  gap:
+    id: gap/*
+    system: building
+    states: [ready, building, done]
+    on: {gap.started: building, gap.done: done}
+    relations: {depends_on: gap}
+  session:
+    id: session/*
+    system: building
+    states: [running, ended]
+    on: {session.ended: ended}
+    relations: {gap: gap}
+  review:
+    id: review/*
+    system: knowledge
+    states: [open, judged]
+    on: {review.judged: judged}
+    relations: {gap: gap}
+  ticket:
+    id: ticket/*
+    system: support
+    states: [todo, done]
+    on: {ticket.done: done}
+    relations: {blocked_by: gap}
+messages:
+  done: {gap: [done], session: [ended], review: [judged], ticket: [done]}
+"""
+
+
+def factory(tmp_path, ticket: bool = True) -> Project:
+    """gap/a, then gap/b depending on it, then gap/c on gap/b; a session about each; a review about gap/c; a ticket
+    blocked by gap/c (unfinished)."""
+    p = project(tmp_path, FACTORY)
+    ev = p.events
+    ev.add("gap.opened", item="gap/a", at=T0)
+    ev.add("gap.opened", item="gap/b", data={"depends_on": "gap/a"}, at=T0 + 1)
+    ev.add("gap.opened", item="gap/c", data={"depends_on": "gap/b"}, at=T0 + 2)
+    ev.add("gap.started", item="gap/c", at=T0 + 3)
+    for g in "abc":
+        ev.add("session.opened", item=f"session/{g}", data={"gap": f"gap/{g}"}, at=T0 + 4)
+    ev.add("review.opened", item="review/1", data={"gap": "gap/c"}, at=T0 + 5)
+    if ticket:
+        ev.add("ticket.opened", item="ticket/1", data={"blocked_by": "gap/c"}, at=T0 + 6)
+    return p
+
+
+def test_a_systems_graph_draws_no_other_systems_items_and_says_where_they_are(tmp_path):
+    from ergostat.web.relations_api import graph
+    p = factory(tmp_path)
+    before = pr.build(p.events, p.model.spec, ["review"], T0 + 10, T0 - 10)     # no system: every relation, any kind
+    assert {"gap/a", "gap/b", "gap/c", "session/c"} <= {x["id"] for x in before["items"]}
+    ans = graph(p, p.model, {"at": T0 + 10, "window": 3600}, {"kinds": ["review"], "system": ["knowledge"]})
+    assert [x["id"] for x in ans["items"]] == ["review/1"]                  # no gap, no session: not even a stub
+    assert ans["outside"] == [] and ans["edges"] == [] and ans["waits"] is False
+    assert ans["about"] == [{"kind": "review", "rel": "gap", "to": "gap", "system": "building"}]
+    assert ans["items"][0]["links"] == {"gap": ["gap/c"]}                  # listed on its card, not drawn
+
+
+def test_an_item_blocked_by_another_systems_item_is_waiting_with_one_stub(tmp_path):
+    p = factory(tmp_path)
+    spec = p.model.spec
+    g = pr.build(p.events, spec, ["ticket"], T0 + 10, T0 - 10, own=["ticket"])
+    assert [x["id"] for x in g["items"]] == ["ticket/1"]
+    assert [(x["id"], x["system"], x["status"], x["outside"]) for x in g["outside"]] == [("gap/c", "building", "active", True)]
+    assert g["edges"] == [{"from": "gap/c", "to": "ticket/1", "rel": "blocked_by", "kind": "outside", "critical": False}]
+    assert g["items"][0]["status"] == "blocked" and g["items"][0]["waiting"] == ["gap/c"]
+    p.events.add("gap.done", item="gap/c", at=T0 + 20)
+    g = pr.build(p.events, spec, ["ticket"], T0 + 30, T0 - 10, own=["ticket"])
+    assert g["items"][0]["status"] == "unblocked" and g["outside"][0]["status"] == "done"
+
+
+def test_the_gaps_own_system_keeps_its_chain_and_critical_path(tmp_path):
+    p = factory(tmp_path, ticket=False)          # (another system's ticket waiting on a gap: no longer on its path)
+    spec = p.model.spec
+    plain = pr.build(p.events, spec, ["gap"], T0 + 10, T0 - 10)
+    mine = pr.build(p.events, spec, ["gap"], T0 + 10, T0 - 10, own=["gap", "session"])
+    gaps = lambda g: [x["id"] for x in g["items"] if x["kind"] == "gap"]   # noqa: E731
+    assert gaps(plain) == gaps(mine) and {"gap/a", "gap/b", "gap/c"} == set(gaps(plain))   # the depends_on chain
+    assert plain["critical"] == mine["critical"] and plain["end"] == mine["end"]
+    prec = lambda g: sorted((e["from"], e["to"]) for e in g["edges"] if e["kind"] == "precedence")   # noqa: E731
+    assert prec(plain) == prec(mine) == [("gap/a", "gap/b"), ("gap/b", "gap/c")]
+    assert mine["outside"] == [] and not any(x["kind"] == "session" for x in mine["items"])   # about a gap: not pulled
+
+
+def test_the_roadmaps_delivery_graph_draws_the_same_cards(tmp_path):
+    from pathlib import Path
+
+    from ergostat import process as pm
+    p = project(tmp_path, (Path(__file__).parent.parent / "examples" / "roadmap" / "ergostat.yaml").read_text())
+    ev = p.events
+    for n in (1, 2):
+        ev.add("epic.planned", item=f"epic/e{n}", data={"after": "epic/e1"} if n > 1 else {}, at=T0 + n)
+        ev.add("ticket.planned", item=f"ticket/e{n}-a", data={"parent": f"epic/e{n}"}, at=T0 + n)
+        ev.add("ticket.planned", item=f"ticket/e{n}-b", data={"parent": f"epic/e{n}", "blocked_by": f"ticket/e{n}-a"},
+               at=T0 + n)
+    ev.add("ticket.started", item="ticket/e1-a", at=T0 + 5)
+    spec = p.model.spec
+    assert set(pm.kinds_of(spec, "delivery")) == {"epic", "ticket"}
+    plain = pr.build(ev, spec, ["epic", "ticket"], T0 + 10, T0 - 10)
+    mine = pr.build(ev, spec, ["epic", "ticket"], T0 + 10, T0 - 10, own=pm.kinds_of(spec, "delivery"))
+    assert [x["id"] for x in mine["items"]] == [x["id"] for x in plain["items"]] and len(mine["items"]) == 6
+    assert mine["edges"] == plain["edges"] and mine["critical"] == plain["critical"] and mine["outside"] == []
