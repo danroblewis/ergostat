@@ -189,7 +189,8 @@ flows:
   joins-covered:
     system: intake
     from: gaps-joined
-    description: a joined gap the join judge found covered - merged, with its verdict (also counted by gaps-merged)
+    to: gaps-landed
+    description: a joined gap the join judge found covered - merged (merged_by join-judge, so not gaps-merged's), with its verdict
     driven-by: [+stock.gaps-joined]
     equation: (1 - short-share) * stock.gaps-joined / judge-time
     sensor: {items: gap, entering: merged, where: {join_verdict: covered}, over: 1d}
