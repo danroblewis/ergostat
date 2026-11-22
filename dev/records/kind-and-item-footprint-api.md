@@ -15,3 +15,24 @@ Acceptance tests: unit tests for ticket-factory's ticket footprint (every step's
 Budget: 200 net lines.
 
 Milestone: kind-and-item-pages. Owner items: 15, 20. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1: `ergostat/spec/footprint.py` (kind_footprint, item_path), `GET /api/kinds/K` and `path` on
+`/api/items/ID` (server.py), `kinds/K` in the snapshot, SPEC §5a *What a kind touches, and an item's path*, and
+tests/test_footprint.py (8 tests). 193 net lines outside tests, docs and dev, within the 200 budget.
+
+Choices I made with nobody to ask (each the one easiest to undo):
+- `finish_of` does not exist on main. A state is `finished` if `messages: done:` names it, else if it is the kind's
+  last state (`finished_by` says which). This reads the spec only: `messages/route.done_states` also infers from the
+  record, and this gap must not read it.
+- The "goal's word" is the goal's `status` (holding or off), taken from the snapshot's loops and shown beside `hold` as written.
+- The footprint is the spec's alone, cached in `spec.lookups().kept` (per model version). The server adds `now` (the
+  item index's counts), each block's `taken` and each goal's `status` per request. `taken` reads, from the item
+  index, the items whose `lease.block` names the block, and counts those whose lease has a holder.
+- A step's block is the lease taken out of that state (`how: taken from here`). Failing that, it is the lease open
+  when the item entered the state, if that lease had not yet ended (`taken while here`). The k-th move into `leased`
+  is matched to the k-th entry of `lease.history`, counted from the tail.
+- `how` values use "taken", never "held", following docs/vocabulary.md.
+- Done item 4 (under 300 ms on :8796) was not measured: no demo runs on :8796 in this container. A serial unit test
+  checks that the answer on 300 roadmap tickets, after a first call, takes under 300 ms.

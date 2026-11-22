@@ -107,7 +107,7 @@ def test_a_done_tickets_path_has_its_states_in_order_with_the_block_that_took_it
     path = api(Live(p), "items/ticket%2F1", {})["path"]
     assert [s["state"] for s in path] == ["todo", "doing", "review", "done"]          # leased is not a step
     assert [s["block"] for s in path] == ["developer", "developer", "reviewer", "reviewer"]
-    assert [s["how"] for s in path] == ["took it", "held it", "took it", "held it"]
+    assert [s["how"] for s in path] == ["taken from here", "taken while here", "taken from here", "taken while here"]
     assert [s["attempts"] for s in path] == [1, 1, 1, 1] and [s["run"] for s in path] == ["r1", "r1", "r2", "r2"]
     assert [s["stock"] for s in path] == ["todo", "in-progress", "in-review", None]
     assert [s["flow"] for s in path] == ["planned", "started", "submitted", "finished"]

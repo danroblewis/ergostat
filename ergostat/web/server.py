@@ -339,7 +339,7 @@ def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
 
 def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
     """A kind's footprint (``footprint.py``, the model's alone) with what is so now: its count per state, how many each
-    taking block holds (a lease holder, whatever state the run has moved it to), and each goal's word."""
+    block has taken now (a lease holder, whatever state the run has moved it to), and each goal's word."""
     from ..leases.fold import held
     from ..spec import items as its
     from ..spec.footprint import kind_footprint

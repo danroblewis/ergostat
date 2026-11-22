@@ -123,7 +123,7 @@ def _attempts(history: list[dict]) -> list[int]:
 def item_path(spec, it) -> list[dict]:
     """An item's moves as ordered steps through the model: each state it was in (``leased`` is not a step: the lease
     is the step's ``block``), the stock that counts it there and the flow that counted it in, the block that took it
-    from there (or held it while there), that run's attempt, the goal, when it entered and left. A nack or rework is
+    from there (or had taken it while it was there), that run's attempt, the goal, when it entered and left. A nack or rework is
     a repeated step; a state nothing counts says so."""
     fp = kind_footprint(spec, it.kind or "") or {"counted_in": [], "taken_by": [], "goals": []}
     stocks, flows = {}, {}
@@ -146,18 +146,18 @@ def item_path(spec, it) -> list[dict]:
         if m["to"] == LEASED:
             open_ = lease_at.get(i)
             continue
-        if m["type"].startswith("ergostat.lease."):  # given back, expired or redriven: no lease holds it now
+        if m["type"].startswith("ergostat.lease."):  # given back, expired or redriven: no run has it taken now
             open_ = None
         nxt = it.moves[i + 1] if i + 1 < len(it.moves) else None
-        k, how = (lease_at.get(i + 1), "took it") if nxt and nxt["to"] == LEASED else (None, None)
+        k, how = (lease_at.get(i + 1), "taken from here") if nxt and nxt["to"] == LEASED else (None, None)
         if k is None and open_ is not None and (hist[open_].get("ended") is None or m["time"] <= hist[open_]["ended"]):
-            k, how = open_, "held it"
+            k, how = open_, "taken while here"
         h = hist[k] if k is not None else {}
         st = m["to"]
         stock, part = stocks.get(st, (None, None))
         step = {"state": st, "stock": stock, "flow": flows.get(st), "block": h.get("block"),
                 "run": h.get("run"), "attempts": tries[k] if k is not None else None, "how": how,
-                "ended": h.get("how") if how == "took it" else None,
+                "ended": h.get("how") if how == "taken from here" else None,
                 "goal": on_part.get(part) or goal_of.get(h.get("block")),
                 "entered": m["time"], "left": nxt["time"] if nxt else None}
         if st not in stocks and st not in flows:
