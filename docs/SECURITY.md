@@ -162,8 +162,8 @@ shell:
 **A library's own sensor run goes into the sandbox.** A sensor's `run` that is neither of these (the library's own
 script, a command with library words around it) is not refused but runs only through the sandbox above, never on your
 shell: no network, no environment (so it cannot call ergostat back or relay a message to you), nothing of yours
-readable, only its template's folder and a work folder of its own (`<state>/library-work/<instance>`, emptied when the
-templates above it change), at most 120 seconds and at most 4 such runs at once. Where no sandbox can start, it does
+readable, only its template's folder and a work folder of its own (`<state>/library-work/<instance>`, or a digest of a
+name too long to be a folder's; emptied when the templates above it change), at most 120 seconds and at most 4 such runs at once. Where no sandbox can start, it does
 not run and records nothing. A library sensor's `daemon` stays refused (`library-unsandboxed`): a process kept
 running is not sandboxed. Anything ergostat cannot prove is yours (an unknown origin, a check that fails) goes to the
 sandbox too. What ergostat's own tests prove here is what the sandbox is asked to enforce (the policy handed to it);

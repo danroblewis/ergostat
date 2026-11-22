@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import shutil
+import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -20,7 +21,8 @@ OWNER, SANDBOX = "owner", "sandbox"
 CEILING = 120.0         # seconds: the longest a sandboxed run may take, whatever the model says
 MOST = 4                # sandboxed runs at once, of the whole process
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
-UNKNOWN = "0-unknown"   # the work folder of a run whose instance can't be told (no instance's name starts with a digit)
+INSTANCE = re.compile(r"[a-z][a-z0-9-]*")   # an instance's name (spec.ir.NAME), of any length
+UNKNOWN = "0-unknown-"  # a run whose instance can't be told: a fresh folder each run (no instance's name starts with a digit)
 _LOCK = threading.Lock()
 _held = [0]
 
@@ -88,13 +90,20 @@ def chain(uses, inst: str) -> list:
     return out
 
 
-def work_folder(uses, state, inst: str) -> Path:
-    """``<state>/library-work/<inst>``, emptied when the chain of templates that made the instance changed. The marker
-    saying which chain made it is kept beside the folder, never in it, where the run could forge it."""
-    if not NAME.fullmatch(inst):
+def folder_name(inst) -> str:
+    """The instance's own name when it can be a folder's; a longer one's (nested names grow) is ``0-`` and its digest,
+    which no instance's name can be. Anything else is no instance's name, and raises."""
+    if not isinstance(inst, str) or not INSTANCE.fullmatch(inst):
         raise ValueError(f"not a work folder's name: {inst!r}")
+    return inst if NAME.fullmatch(inst) else "0-" + hashlib.sha256(inst.encode()).hexdigest()[:40]
+
+
+def work_folder(uses, state, inst: str) -> Path:
+    """``<state>/library-work/<name>``, emptied when the chain of templates that made the instance changed. The marker
+    saying which chain made it is kept beside the folder, never in it, where the run could forge it."""
+    name = folder_name(inst)
     root = Path(state) / "library-work"
-    work, marker = root / inst, root / f"{inst}.made"
+    work, marker = root / name, root / f"{name}.made"
     want = json.dumps(chain(uses, inst))
     root.mkdir(parents=True, exist_ok=True)
     try:
@@ -113,14 +122,27 @@ def work_folder(uses, state, inst: str) -> Path:
 
 def read(spec, s, state) -> tuple[str | None, str]:
     """Run a sensor's ``run:`` sandboxed: its output, or None and why not (nothing ran, or it failed)."""
-    from .. import sandbox
     inst = getattr(s.where, "instance", None) if type(s.where) is Via else None
     u = (spec.uses or {}).get(inst) if inst else None
     folder = Path(u["path"]).parent if isinstance(u, dict) and u.get("path") else None
+    root = Path(state) / "library-work"
     try:
-        work = work_folder(spec.uses, state, inst if inst and NAME.fullmatch(inst) else UNKNOWN)
-    except (OSError, ValueError) as e:
+        if inst is None:            # no instance to keep a folder for: a fresh one, removed after the run
+            root.mkdir(parents=True, exist_ok=True)
+            work = Path(tempfile.mkdtemp(prefix=UNKNOWN, dir=root))
+        else:
+            work = work_folder(spec.uses, state, inst)
+    except (OSError, ValueError, TypeError) as e:
         return None, f"not run: its sandbox's work folder: {e}"
+    try:
+        return _run(s, work, folder)
+    finally:
+        if inst is None:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def _run(s, work: Path, folder) -> tuple[str | None, str]:
+    from .. import sandbox
     policy = sandbox.Policy(work=work, read=[str(folder)] if folder else [], hosts={}, env={})
     try:
         timeout = float(s.timeout) if 0 < float(s.timeout) <= CEILING else CEILING

@@ -387,11 +387,12 @@ its `uses` entry), one R1 or R2 passed (the use's `owner_runs`), or ergostat's b
 unknown `where`, a remote's, a missing use or a check that raised included, and a sensor compile never judged
 (`run_in` None), runs only through `ergostat.sandbox`: `/bin/sh -c RUN`, with `hosts={}` (no network), `env={}` (no
 `ERGOSTAT_*`, so no calling ergostat back), only its template's folder readable besides the toolchain, a work folder
-`<state>/library-work/<instance>` (the name checked, `[a-z0-9][a-z0-9-]{0,63}`) as its only writable place and its
-working directory, a timeout of at most 120 s (a longer, zero or non-number one reads as 120), and at most 4 such
+`<state>/library-work/<instance>` (the name checked, `[a-z0-9][a-z0-9-]{0,63}`; a longer instance name, as nested
+ones grow, is `0-` and 40 hex of its SHA-256, which no instance name can be; a run with no instance gets a fresh
+`0-unknown-*` folder, removed after it) as its only writable place and its working directory, a timeout of at most 120 s (a longer, zero or non-number one reads as 120), and at most 4 such
 runs at once in the process, checked and taken under one lock; a run whose processes escaped the kill keeps its slot.
 The work folder is emptied when the chain of instances that made it changes: which template each instance above it
-uses, and each template file's digest, are kept in a marker beside the folder (`<instance>.made`), never inside it.
+uses, and each template file's digest, are kept in a marker beside the folder (`<folder>.made`), never inside it.
 Where no sandbox can start (no `bwrap` or `sandbox-exec`), nothing runs: the reading fails (`sensor.failed`, "not
 run: ...") and no measurement is made. Its output's event lines are recorded as any sensor's; a relayed message is
 refused (`sensor.refused`, "a sandboxed run cannot relay a message"). The sensing view adds `, sandboxed` to it.

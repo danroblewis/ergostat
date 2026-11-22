@@ -58,3 +58,12 @@ Built, round 1; no part of the definition is left undone (179 net lines). Decisi
   compiles with `run_in == "sandbox"`, or uses a block run where the refusal itself was the point.
 - The four live-sandbox tests (`test_live_*`) did not run here: bwrap is installed but cannot make its namespaces in
   this container, so they skip.
+
+Round 2 (202 net lines). The one finding: an instance name over 64 chars fell back to one shared, never-cleared
+`0-unknown` folder. Now such a name's folder is `0-` and 40 hex of its SHA-256 (no instance name starts with a
+digit, so it cannot collide with one), with its marker still made from the instance's real chain, so it is cleared
+like any other. A name that is not an instance's name at all still raises, and the run is "not run". A run with no
+instance (a `where` that is not a `Via`) no longer shares a folder either: it gets a fresh `0-unknown-*` folder,
+removed after the run. Digesting was chosen over refusing so that long nested instances keep working; to refuse
+instead, make `folder_name` raise for a name `NAME` does not match. New test:
+`test_long_instance_name_has_its_own_work_folder` (seen to fail with the old shared fallback put back).

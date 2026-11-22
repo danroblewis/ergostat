@@ -96,7 +96,9 @@ def test_unknown_provenance_is_sandboxed(tmp_path, monkeypatch, no_shell):
         assert s.run_in is None and runs.sandboxed(s)
         assert read_sensor(spec, s, env={"ERGOSTAT_STATE_DIR": str(tmp_path / "state")}) == (7.0, "")
     assert len(got.calls) == 3 and all(c.policy.read == [] for c in got.calls)
-    assert {c.cwd.name for c in got.calls} == {runs.UNKNOWN, "u"}
+    unknown = [c.cwd for c in got.calls if c.cwd.name != "u"]   # no instance: a fresh folder each run, then gone
+    assert len(unknown) == 2 and unknown[0] != unknown[1] and all(c.name.startswith(runs.UNKNOWN) for c in unknown)
+    assert not any(c.exists() for c in unknown)
     # compiled: a library's own run is judged sandboxed; the owner's command given whole, the owner's
     path = write(tmp_path, {"l": HOSTED})
     s = sensor(compiles(path))
@@ -210,6 +212,33 @@ def test_nested_remake_under_another_library_clears_work_folder(tmp_path):
     assert (folder("b") / "kept").exists()
     with pytest.raises(ValueError):
         runs.work_folder({}, state, "../x")
+
+
+def test_long_instance_name_has_its_own_work_folder(tmp_path, monkeypatch, no_shell):
+    """A name past 64 chars gets a folder of its own (a digest), cleared when the library above it switches."""
+    long, other = "u" + "-x" * 40, "v" + "-x" * 40
+    got = Captured()
+    monkeypatch.setattr(sandbox, "run", got)
+    state = tmp_path / "state"
+
+    def run(use: str, inst: str = long):
+        (tmp_path / "lib").mkdir(exist_ok=True)
+        for name in ("a", "b"):
+            (tmp_path / "lib" / f"{name}.yaml").write_text(HOSTED.replace("template: l", f"template: {name}"))
+        (tmp_path / "ergostat.yaml").write_text(f"name: t\nlibrary: [{{folder: lib}}]\nuses:\n  {inst}:\n    use: {use}\n")
+        spec = compiles(tmp_path / "ergostat.yaml")
+        s = sensor(spec, f"{inst}-s")
+        assert s.run_in == runs.SANDBOX and read_sensor(spec, s, env=callback_env(spec, state)) == (7.0, "")
+        return got.calls[-1].cwd
+    work = run("a")
+    assert work.parent == state / "library-work" and work.name.startswith("0-") and work.name != runs.UNKNOWN
+    (work / "planted").write_text("1")
+    assert run("a") == work and (work / "planted").exists()           # the same chain: kept
+    assert run("b") == work and not (work / "planted").exists()       # the library above it switched: cleared
+    (work / "planted").write_text("1")
+    assert run("a", other) != work and (work / "planted").exists()    # another long name: another folder
+    with pytest.raises(ValueError):
+        runs.work_folder({}, state, "a" * 70 + "/../x")
 
 
 def test_owner_file_sensor_runs_as_owner(tmp_path, monkeypatch):
