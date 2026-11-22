@@ -81,4 +81,5 @@ failed with `AttributeError: 'types.SimpleNamespace' object has no attribute 'wo
 `work=GoalWork(background=False)` as `Live` does. Code outside the test is unchanged: every real `Live` has `work`,
 so a `getattr` fallback in `forget` would only hide the next stand-in that is missing it. This was the only stand-in
 `Live` in tests (grep for `_kept=`). The test failed before the fix and passes after it (26 of 26 in the file). Main
-had not moved since the branch's last merge of it (`git log HEAD..main` is empty).
+had not moved since the branch's last merge of it (`git log HEAD..main` is empty). After that merge,
+`tests/test_page_polling.py` ran under the watchdog: 20 passed, rc 0, none skipped, 1056 s, peak 205 threads.
