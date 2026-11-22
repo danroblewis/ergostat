@@ -166,3 +166,14 @@ is the fifth of the six failed builds (`build_failures = 6`) that park the gap. 
 Playwright will park it. Its own browser files passed with rc 0 after the merge (round 3, above). The way out is the
 same as before. Any one of these is enough: `build_browser = true` for this gap, a browser-only selection treated as
 `--collect-only` (or rc 5 counted as a pass) when Playwright is missing, or sending the gap to the merge queue.
+
+## Where it stopped (sixth build rc 5)
+
+Again the merge of main 277a9c6c was already done when this session began. `main` is an ancestor of HEAD, there are no
+conflict markers, and the tree is clean, so nothing was left to resolve. The sixth build failed in the same way as the
+other five: only the two browser files were selected, both skipped at import with no Playwright, and pytest returned 5.
+No test failed. No code changed, for the same reasons (lesson 13, lesson 9). `uv run ruff check ergostat tests scripts`
+is clean. The page code has been the same since round 1. Its own browser files passed with rc 0 after the merge
+(round 3). If this build parks the gap, nothing in the gap is left to do. What is missing is a build that can run these
+files: `build_browser = true` for this gap, a browser-only selection treated as `--collect-only` when Playwright is
+missing, or the merge queue.
