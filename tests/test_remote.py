@@ -235,6 +235,9 @@ def test_remote_stale_finding(tmp_path, monkeypatch):
     assert stale[0].message == ("remote incidents: its readings fail (unreachable (timed out)) since 5m ago; "
                                 "its measures here are 10m old"), stale[0].message
     assert not [p for p in problems if p.code == "remote-unreachable"]
+    _plant(local, answered=now - 60, read_ok=False, read_why="refused", read_failing_since=now - 300)   # never read
+    stale = [p for p in _checked(local, monkeypatch) if p.code == "remote-stale"]
+    assert len(stale) == 1 and stale[0].message.endswith("; none of its measures has been read here"), stale
     _plant(local, read=now, read_ok=True)
     assert not [p for p in _checked(local, monkeypatch) if p.code == "remote-stale"]
     _plant(local)                                                      # never read: nothing to say of its readings
