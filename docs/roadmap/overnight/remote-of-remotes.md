@@ -350,3 +350,10 @@ This round changed docs only, and no code, so the size is as in round 7. After t
 groups of at most three files: `test_remote_chain.py` (30); `test_remote.py`, `test_remote_pair.py` and
 `test_remote_lines.py` (33); `test_remote_box_measures.py`, `test_remote_proposals.py` and `test_remote_mtls.py`
 (64). Ruff is clean. Not run here: the whole unit suite, the four browser files and `demo_check`.
+
+## Where it stopped
+
+Parked by the factory (review/remote-of-remotes-8, 2026-11-21 23:49).
+
+Failed its gates 8 times (the kill rule). Blocking findings:
+- ergostat/remote/compose.py:141 (_shown, called from one) with finish at compose.py:513-287 (lesson-3, lesson-7): the remote box's show list (info["show"]) is built from `made` before finish learns which composed names are taken by a local part or an earlier remote. A local stock.m-a-open plus remote m's show: [stock.a-open] (or its top system's served show) leaves {"part": "stock:m-a-open", "missing": False}. measures.refs and measures._sensors (remote/measures.py:28-42, 70-73) then read the LOCAL stock and its sensor, so m's closed box shows our own value as m's measure, with staleness from our sensor (looks fresh) and no remote-show-unresolved finding. This is the round-2 class again (a remote reference silently attaching to the local part that took its name), and it exists only because this branch defers put to finish. Fix: in finish, mark show entries whose part was not put as missing (and say so), and extend test_a_local_part_named_like_an_imported_one_wins with a show: on remote m naming a-open, asserting it is missing and never reads the local stock.
