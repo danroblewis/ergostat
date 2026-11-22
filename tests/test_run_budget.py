@@ -53,6 +53,8 @@ def test_check_budget_keys(tmp_path):
         assert len(got) == 1 and said in got[0], (text, got)
     assert len(errors(tmp_path, "budget: {daily: x, max-cost: y, z: 1}\n")) == 3      # each its own error
     assert len(errors(tmp_path, "budget:\n")) == 2                                     # written empty: never no budget
+    bad_one = [x for x in read(tmp_path / "ergostat.yaml")[1] if x.code == "bad-budget"]
+    assert bad_one and all(str(x.where) == "ergostat.yaml:4" for x in bad_one)        # each error says where
     got = errors(tmp_path, "budget: {daily: 25, max-cost: 2}\n", local="budget: {daily: 9000, max-cost: 9000}\n")
     assert len(got) == 1 and "'budget' is not a per-machine setting" in got[0]
     (tmp_path / "ergostat.local.yaml").unlink()
@@ -75,6 +77,23 @@ def test_free_run_allowlist():
         assert not bg.free(spec, Block(name="b", type="program", agent=k)), k      # a kind not on the allowlist
     assert not bg.free(spec, Block(name="b", type="ai", agent="program"))          # an ai block, whatever its agent
     assert not bg.free(spec, Block(name="b", type="script", agent="unknown-kind"))
+
+
+def test_free_block_runs_fold_to_nothing(p):
+    """The fold applies the allowlist: a program block's runs (ends with no cost) are charged 0, an ai block's and an
+    unknown block's max-cost; with no spec every run is charged."""
+    now = time.time()
+    spec = Spec("m", None, [], agents={"tool": Agent("tool", kind="program"), "claude": Agent("claude", kind="ai")},
+                blocks={"tidy": Block(name="tidy", type="program", agent="tool"),
+                        "think": Block(name="think", type="ai", agent="claude")})
+    for i, name in enumerate(("tidy", "think", "gone")):
+        p.events.add("agent.started", item=name, source="ergostat", at=now - 2 * H, id=f"r{i}", data={})
+        p.events.add("agent.ran", item=name, source="ergostat", at=now - H, causedby=f"r{i}", data={})
+    p.events.add("ergostat.lease.taken", item="ticket/1", source="ergostat", at=now - H,
+                 data={"run": "leased", "block": "tidy", "fence": 1, "ttl": 60})       # a free block's lease: no reserve
+    f = bg.fold(p, B, now, spec)
+    assert f["runs"] == {"r1": 2.0, "r2": 2.0} and (f["spent"], f["reserved"]) == (4.0, 0.0)
+    assert bg.fold(p, B, now)["runs"] == {"r0": 2.0, "r1": 2.0, "r2": 2.0, "leased": 2.0}   # no spec: all charged
 
 
 @pytest.fixture
@@ -110,6 +129,11 @@ def test_reserve_held_until_end_with_cost(p):
     p.events.add("agent.ran", item="w", source="ergostat", at=now - H, causedby="r4", data={"ai": {"cost_usd": 0.25}})
     f = bg.fold(p, B, now)
     assert f["runs"]["r2"] == 0.0 and f["runs"]["r3"] == 2.0 and f["runs"]["r4"] == 0.25
+    take(p, "r5", now - H, reserve=1.75, item="ticket/5")
+    for src in ("w", "record", "intake"):                             # forged by a block, `ergostat record`, a push
+        p.events.add("budget.closed", item="w", source=src, at=now - 0.5 * H, data={"run": "r5", "cost_usd": 0})
+    f = bg.fold(p, B, now)
+    assert f["runs"]["r5"] == 1.75 and f["reserved"] == 1.75          # still held: nothing released
 
 
 def test_malformed_cost_counts_unknown(p):

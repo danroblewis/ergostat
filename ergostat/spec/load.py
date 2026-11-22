@@ -138,6 +138,7 @@ class Document:
     web: object = None               # web: the page's public names and their login (main file only)
     notify: object = None            # notify: where what waits on a person is sent (main file only)
     budget: object = None            # budget: the day's AI budget (main file only, never ergostat.local.yaml; SPEC §9.9)
+    budget_at: object = None         # where budget: is written, for its errors
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
     defaults: dict[tuple[str, str], dict] = field(default_factory=dict)   # what the defining file's defaults: were
@@ -224,6 +225,7 @@ def load(main: Path) -> Document:
         if "budget" in data:
             if top:                          # written but empty: {} (its keys missing, each an error), never no budget
                 doc.budget = data["budget"] if data["budget"] is not None else {}
+                doc.budget_at = data.at("budget")
             else:
                 doc.problems.append(Problem("error", "budget: belongs in the main file only", data.at("budget"), "budget-in-include"))
         if "keep" in data:

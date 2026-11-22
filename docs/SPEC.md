@@ -2870,10 +2870,15 @@ changes. `max-cost` is only what a run reserves before it starts. It is never a 
 **Which runs are charged.** This is an allowlist (`costs/budget.py`, `free`). A run is free only when its block's
 type is not `ai` and its agent is declared with kind `person`, `decision`, `program` or `rule`. Every other run is
 charged: one with no agent, an agent not declared or with no kind, an `ai` or `narrow-ai` agent, or an `ai` block.
+The fold names a run's block from its events (a lease's `block`, an `agent.*` event's item, a `budget.closed`'s
+`block`). It leaves a run out, reserve and ends alike, only when every block named is declared and free. A run
+naming no block, or a block not in the model, is charged.
 
 **The spend, folded by run id** (`costs/budget.py`, `fold`). It reads 7 days of reserving events and ends. The
 reserving events are `ergostat.lease.taken` (its `run`) and `agent.started` carrying a `reserve` (its id). The ends
-are `agent.ran` and `agent.failed` (their `causedby`) and `budget.closed` (its `run`). An end is matched to its start
+are `agent.ran` and `agent.failed` (their `causedby`) and `budget.closed` (its `run`). A `budget.closed` counts only
+when its source is `ergostat`. One from a block's output, `ergostat record` or a push releases nothing (`agent.*`
+are already ergostat's own types). An end is matched to its start
 by run id, never by lease state or time order. So a retaken item's new run is a new run, and the old run keeps its
 own charge. An end's charge counts only while the end is within the last 24 h. A run's charge:
 

@@ -73,28 +73,46 @@ def cost_of(e: dict) -> float | None:
     return _known(ai.get("cost_usd") if isinstance(ai, dict) else d.get("cost_usd"))
 
 
-def fold(p, budget: Budget, now: float | None = None) -> dict:
+def _charged(spec, blocks: set) -> bool:
+    """A run is charged unless every block its events name is a declared, free block (no spec, no name: charged)."""
+    found = [spec.blocks.get(n) if spec is not None and isinstance(n, str) else None for n in blocks]
+    return not found or not all(b is not None and free(spec, b) for b in found)
+
+
+def fold(p, budget: Budget, now: float | None = None, spec=None) -> dict:
     """The trailing day's spend: ``spent`` (ended runs' charges, the end within 24 h), ``reserved`` (runs not ended),
-    and ``runs`` (run id → its charge). Reads 7 days of starts and ends; a record that cannot be read raises."""
+    and ``runs`` (run id → its charge; a free block's runs are left out, given ``spec``). Reads 7 days of starts and
+    ends; a record that cannot be read raises. A ``budget.closed`` counts only when ergostat wrote it."""
     now = time.time() if now is None else now
     reserve: dict[str, float] = {}
+    blocks: dict[str, set] = {}            # run id → the blocks its events name (lease: data.block; agent.*: item)
     for e in p.events.query(n=None, type=STARTS, since=now - READ):
         d = e.get("data") or {}
-        run = d.get("run") if e["type"] == "ergostat.lease.taken" else e.get("id")
-        if run is None or (e["type"] == "agent.started" and "reserve" not in d):
+        leased = e["type"] == "ergostat.lease.taken"
+        run = d.get("run") if leased else e.get("id")
+        if run is None:
+            continue
+        blocks.setdefault(run, set()).add(d.get("block") if leased else e.get("item"))
+        if not leased and "reserve" not in d:
             continue                       # an agent.started with no reserve: a leased run's (its lease reserved) or free
         r = _known(d.get("reserve"))
         reserve[run] = max(reserve.get(run, 0.0), budget.max_cost if r is None else r)
     ends: dict[str, list[float]] = {}
     for e in p.events.query(n=None, type=ENDS, since=now - READ):
-        run = (e.get("data") or {}).get("run") if e["type"] == "budget.closed" else e.get("causedby")
+        closed = e["type"] == "budget.closed"
+        if closed and e.get("source") != "ergostat":
+            continue                       # a block's output, `ergostat record` or a push may not release a reserve
+        run = (e.get("data") or {}).get("run") if closed else e.get("causedby")
         if run is None:
             continue
+        blocks.setdefault(run, set()).add((e.get("data") or {}).get("block") if closed else e.get("item"))
         got = ends.setdefault(run, [])     # ended, though perhaps more than a day ago: charged 0
         if e["time"] >= now - DAY:
             c = cost_of(e)
             got.append(c if c is not None else reserve.get(run, budget.max_cost))
-    runs = {run: max(ends[run], default=0.0) for run in ends}
+    gone = {run for run, bs in blocks.items() if not _charged(spec, bs)}
+    reserve = {run: r for run, r in reserve.items() if run not in gone}
+    runs = {run: max(ends[run], default=0.0) for run in ends if run not in gone}
     spent = sum(runs.values())
     held = {run: r for run, r in reserve.items() if run not in ends}
     runs.update(held)
@@ -109,7 +127,7 @@ def left(p, spec, now: float | None = None) -> float:
     if b is None:
         raise MeasureError("no budget: is declared in ergostat.yaml (SPEC §9.9)")
     try:
-        f = fold(p, b, now)
+        f = fold(p, b, now, spec)
     except Exception as e:
         raise MeasureError(f"the record cannot be read for the budget: {type(e).__name__}: {e}") from e
     return b.daily - f["spent"] - f["reserved"]

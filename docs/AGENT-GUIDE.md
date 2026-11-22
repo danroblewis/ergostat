@@ -460,7 +460,8 @@ blocks:
   run spends. `ergostat.budget.left` is daily less what runs were charged and what runs still going hold, counting
   a run whose cost is unknown at its reserve. It gives no value, never a guess, when no `budget:` is declared or the
   record cannot be read. Runs of `ai` blocks and runs whose agent is not declared as a person, decision, program or
-  rule are charged. Nothing is refused yet: runs are not stopped when the budget is spent (`run-budget-permit`), so
+  rule are charged; other runs count nothing. A `budget.closed` a block prints, or one sent with `ergostat record`,
+  is not counted, so a run cannot release its own reserve. Nothing is refused yet: runs are not stopped when the budget is spent (`run-budget-permit`), so
   keep the goal and gate above for that.
 
 ## 3c. Stale readings and estimates

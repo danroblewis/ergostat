@@ -867,7 +867,7 @@ class Compiler:
             from ..costs import budget
             spec.budget, wrong = budget.parse(d.budget)
             for msg in wrong:
-                self.err(msg, getattr(d.budget, "where", None), "bad-budget")
+                self.err(msg, d.budget_at, "bad-budget")
         if spec.web.open:
             self.problems.append(Problem("finding", f"web: {', '.join(spec.web.names)} is public and read only, with no login "
                                          "(open: read): anyone who reaches it reads everything the page shows", None, "web-public"))

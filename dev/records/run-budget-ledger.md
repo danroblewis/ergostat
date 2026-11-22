@@ -58,18 +58,35 @@ including the 20 lines of schema JSON. The seven acceptance tests pass, and so d
 hand and seen to fail its test: a denylist `free`, a malformed cost counted 0, the 24 h test on ends removed, starts
 keyed by item, `left` returning `daily` when the record raises, and expired leases dropped from `reserved`.
 
-What this clone shows about the merge: `git for-each-ref` lists only `refs/heads/main` (c9d3bab5, this branch's base)
-and this branch. `git merge main` says already up to date. `git merge origin/main` says "not something we can merge"
-because this clone has no `origin/main` ref. So no merge of `origin/main` was made here. The unit suite and the four
-browser files were not run here (the factory runs them after the implementor). The touched neighbours were run:
-test_spec_schema, test_spec_structure, test_local_settings, test_run_costs, test_calls, test_bench, test_messages,
-test_engine_shard, test_modelreview, test_runner_and_state and test_upkeep_template.
+Round 2 (the review's four findings):
+- Free runs are now left out of the fold. `fold` takes the spec (`left` passes it) and names each run's block from
+  its events (a lease's `block`, an `agent.*` event's item, a `budget.closed`'s `block`). A run is left out, reserve
+  and ends alike, only when every block named is declared and `free`. With no spec, no block named, or a block not
+  in the model, the run is charged. New test: `test_free_block_runs_fold_to_nothing`. A program block's run with no
+  cost is charged nothing, while an ai block's and an unknown block's runs are charged `max-cost`.
+- A `budget.closed` counts only when its source is `ergostat`. A forged one from a block's source, `record` or
+  `intake` releases nothing (added to `test_reserve_held_until_end_with_cost`).
+- Budget compile errors now carry the loader's location (`data.at("budget")`, kept as `Doc.budget_at`). They are
+  checked in `test_check_budget_keys`.
+- The merge, as this clone shows it: `refs/heads/main` is at 7c46bc6d, and this branch merged it in 8a542f6b
+  (its second parent is 7c46bc6d, and `git log HEAD..main` lists nothing). The review names 7c46bc6d as origin/main. Here,
+  `git log -1 origin/main` answers "unknown revision" (that is the command's output, not a claim about the factory's
+  clone), so the merge used is of `main` at that same commit. The round-1 paragraph that called main c9d3bab5 was
+  wrong and has been replaced.
+- Each new guard was broken by hand and seen to fail its test: the source check dropped, `free` never applied (spec
+  None), a block not found counted as free, and the location set to None.
+- Run here: `tests/test_run_budget.py` (8 passed), test_spec_schema, test_spec_structure and test_local_settings
+  (41 passed), test_run_costs and test_runner_and_state (57 passed). Ruff is clean. The unit suite and the four
+  browser files were not run here: the brief leaves them to the factory and the merge queue.
+
+Overrun reason: 190 net lines against 170. The 20 extra lines are the round-2 review fixes: applying the free-run allowlist in the fold (`_charged` and the block per run), the `budget.closed` source check, and the compile error location.
 
 Choices the definition left open, each the more reversible one and each said in SPEC §9.9:
 - A `ergostat.lease.taken` with no `reserve`, or a malformed one, reserves `max-cost`. No lease carries a reserve
   until `run-budget-permit`, so every unended leased run holds `max-cost` for now. This fails closed.
-- An `agent.started` with no `reserve` is not a reserving event (as the definition says). So a free run, or any
-  unleased run before the permit, counts only when it ends, and a malformed cost there is charged `max-cost`.
+- An `agent.started` with no `reserve` is not a reserving event (as the definition says). So any unleased
+  charged run before the permit counts only when it ends, and a malformed cost there is charged `max-cost`. (A free
+  block's run counts nothing at all, as of round 2.)
 - An end with no run id (no `causedby`, or a `budget.closed` with no `run`) is not matched and is not charged. A
   person's answer (`agent.ran` from `inbox/answer.py`) has none. The engine's ends always carry theirs.
 - `budget:` written empty is two errors (both keys missing), not "no budget".
