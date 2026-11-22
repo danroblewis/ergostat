@@ -188,6 +188,22 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_path, monkeypatch):
+    from ergostat.web import serve
+    from tests.test_goal_upkeep import seeded
+    p = seeded(tmp_path, monkeypatch)
+    server, url = serve(p, free_port())
+    try:
+        with urllib.request.urlopen(url + "/api/status", timeout=10) as r:
+            body = json.loads(r.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+    got = body["goals_off"]
+    assert got["own"] == {"modelling": 2} and got["system"] >= 1 and got == state.goals_off(state.snapshot(p))
+    assert body["loops"]["model-fits"]["upkeep"] == "modelling" and "upkeep" not in body["loops"]["queue-short"]
+
+
 def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_it_under(project):
     """The Agents page's group headings ('program · 1') and its summary line both count agents by their rung, named by
     RUNG_NAMES in util.js: the answer's rung must be the index of the agent's kind there (the browser half of this
@@ -675,3 +691,18 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
             "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)
     assert sorted(i["id"] for i in data["items?kind=epic"]["items"]) == ["epic/e1", "epic/e2"]
+
+
+def test_the_items_graph_says_when_its_finish_is_still_being_worked_out(tmp_path, monkeypatch):
+    """The legend's 'being worked out' (SPEC §5a Graph): pending while the estimates of now are not yet there;
+    never at a moment travelled to, which has none to wait for; nor once they are."""
+    import time as t
+
+    from ergostat.web import eta_api, server
+    live = server.Live(related_project(tmp_path))
+    monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: None)
+    assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is True
+    past = server.api(live, "items-graph", {"kinds": ["epic"], "at": [str(t.time() - 600)]})
+    assert past["eta_pending"] is False
+    monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: {"items": {}, "kinds": {}})
+    assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is False
