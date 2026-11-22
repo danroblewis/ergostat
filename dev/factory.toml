@@ -84,7 +84,10 @@ cycle_hours = 2                      # the cycle time assumed before one is meas
 hold = true                          # operator (2026-11-20): the role pools stay where `pools.py set` put them; the tuner
                                      # says what it would do (pool.measured, held). false: sized by risk
 batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
-batch_max = 4                        # the most the tuner may ask for while the queue wait is off (never past 4)
+batch_max = 8                        # the most a batch may be (the tuner asks for more while the queue wait is off)
+batch_minutes = 120                  # a queue run's time allowance from its start: past it, no more bisecting (what is
+                                     # proven lands, the rest back to approved uncounted); over 150 refused, so one suite
+                                     # run after it stays inside the block's 3 h timeout
 
 [manager]                            # the pipeline manager's sessions (dev/bin/watch.py, manager.py)
 open = 1                             # the switch managing-open: 0 pauses it
