@@ -3340,15 +3340,39 @@ spends more than its reserve is charged what it spent.
   call that started is closed (`budget.closed`, `run`: the call's id) with the cost it reported, or null (charged its
   reserve) when it raised, timed out, or reported none, or a cost that is NaN, infinite or negative. A call whose
   process died with it is closed by recovery, like a run.
+- **The modeller's calls** through `numbers/modeller` ask too (`modeller.ask`, `modeller.asked`): the redesigner's
+  rounds, the modelling reviewer, the `modelling ai` tier and the daily architecture review. Each reserves the call's
+  `unsaid` estimate. That is an estimate, not a bound: `claude -p` has no output limit, so a call can cost more, and
+  then it is charged what it said. The item is the block's name (`$ERGOSTAT_BLOCK`), else `modeller`. The call is
+  closed with the `usd` it reported. A failed call is closed with null, and charged its reserve, or what it said if
+  that is more. A refusal starts no process and is said `budget: …`. It is checked as well as the template's own
+  daily cap and the `redesign.held` hold, not in their place; the day's budget is asked first, so a refusal charges
+  neither. The redesigner stops its rounds and logs `stopped: budget: …`. A run refused before any round has the
+  result `no budget`, never `nothing proposed`. Nothing is submitted, its `redesign-due` request stays open, and the
+  system takes no rest for it. The reviewer stops its pass with no verdict, `why: budget: …`. The ai tier makes no
+  call, uses no try, and says `no call for N requests; budget: …`. The architecture review is recorded as `capped`
+  before the day's review is stamped.
 - **Counted once.** A call made inside a reserving run belongs to it (`within`): the judge's pass, whose
   `agent.started` (from `Engine.judge`) now carries `reserve: 0` and its `pid`, and whose end sums its verdicts'
   costs (`included: true`); or the run that `$ERGOSTAT_RUN` names, when it is a reserving start, whose end does not
-  include the call (`included: false`). The run is charged the larger of its end's charge and the sum of the calls it
+  include the call (`included: false`). A modeller call inside the run that `$ERGOSTAT_RUN` names is `included:
+  true`: the `modelling` programs print each call's cost as one of the run's Claude Code result lines, so the run's
+  end includes it. The run is charged the larger of its end's charge and the sum of the calls it
   includes, plus the calls it does not include. A call with no enclosing reserving run is charged on its own.
 - **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take` and the
-  calls above, and only those. It does not cover the calls through `numbers/modeller.call` (the redesigner, the
-  modelling reviewer, the `modelling ai` tier), or models in `ergostat.toml` (`runner.run_agent`), which have no
-  `budget:`; their ends count in spent as ends with no reserving run. A pid
+  calls above, and only those. It does not cover models in `ergostat.toml` (`runner.run_agent`), which have no
+  `budget:`; their ends count in spent as ends with no reserving run. "Every AI call asks" is only as wide as a
+  structural scan of `ergostat/` (`tests/test_modeller_budget.py::test_only_listed_ai_starts`). It finds each
+  function that starts a process (`subprocess`, `os` or `asyncio` spawns) in a module that names an AI command
+  (`ERGOSTAT_AI`, `ERGOSTAT_CLAUDE`, `claude` as a command, `AI_COMMAND`, `claude_command`, `decisions.ai.command`).
+  It allows only `decisions/ai.py` and `numbers/modeller.py`, plus this list:
+  - `bench/`: developer benchmarks.
+  - `session.py`: inside a run, which the run's permit covers.
+  - `supervisor.chat`: the owner's own chat.
+  - `spec/engine.py`: an `ai` block's run, which is the permitted run itself.
+  - `repair/fix.py`: inside `repair-fix`'s run, which the run's permit covers.
+
+  That list is the limit of the claim. A command name built at run time out of pieces is not seen. A pid
   reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
   drops out of reserved. Each permit reads 7 days of starts and ends.
 

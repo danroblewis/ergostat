@@ -77,3 +77,47 @@ reversible option. Resume once `ai-calls-ask-the-budget` is on main.
   an empty answer (lesson-3).
 - `modeller.call` uses `subprocess.run` with no process group. A refused call must return before that line, so that
   no process starts.
+
+## Where it stopped (round 2)
+
+Round 2, 2026-11-22. **Built** on `ai-calls-ask-the-budget`, which is now in this branch through the merge of main
+(a96c5e63). Main has not moved since, so there was nothing more to merge. Points 1-4 are done, and the four named
+acceptance tests exist and pass. Net code: about 59 lines, within the 70 budget.
+
+- **The call path.** `modeller.ask` reserves the call's `unsaid` estimate through `costs/budget.ask`, or raises
+  `Capped("budget: …")` before any process starts. `modeller.asked` makes the call and closes the permit with its
+  `usd`; a failed call is closed with null, unless it said more than its reserve. Inside `$ERGOSTAT_RUN` the call is
+  `included: true`, because the `modelling` programs print each call as a result line of the run. The redesigner,
+  the reviewer and the ai tier (`modeller.answer`) go through `asked`. The day's budget is asked before the ai
+  tier's own cap, so a refusal charges neither.
+- **Beyond the Files list, and why.** These three changes are the most reversible way to keep the refusal from
+  being read as something else (lesson-3):
+  - `numbers/redesign_due.py`: a `no budget` run takes no rest.
+  - `numbers/archreview.py`: the daily architecture review also calls through `modeller`, so it asks too. A refused
+    review is recorded `capped` before its day is stamped. A redesign that ends `no budget` leaves the review's
+    request open.
+  - `refused` was already a redesign result (a change set turned away, which rests). So a refusal by the budget is
+    named `no budget`, not `refused`. `test_architecture_review.py` caught the clash.
+- **The allowlist is wider than point 3 names.** The scan also allows two places, each with its reason in the test
+  and in SPEC §9.9, because each starts an AI command under a run's own permit:
+  - `spec/engine.py`: an `ai` block's run, which is the permitted run itself.
+  - `repair/fix.py`: inside `repair-fix`'s run, under `Dispatcher.take`'s permit.
+
+  Routing them through `decisions/ai.py` would change the engine and repair code, outside this gap. `intent/ai.py`
+  goes through `decisions.ai.call`, and `bench/improvers.py` is under `bench/`, so neither needed naming. SPEC
+  states the list, and that a command name built at run time out of pieces is not seen, as the limit of the claim.
+- **Tests run:**
+  - `tests/test_modeller_budget.py`: 5 passed. Each test was broken and seen to fail: no raise on refusal (the
+    redesigner and the reviewer started the stand-in), the ai tier calling past `asked` (the stand-in started),
+    `included: false` (the counted-once test failed), the redesign result back to `nothing proposed`, and the
+    review's ask removed.
+  - Also passed: `test_modeller`, `test_modelreview`, `test_modelling_ai_cap`, `test_redesign`,
+    `test_architecture_review`, `test_ai_calls_budget`, `test_redesign_rescored`, `test_redesign_memory` and
+    `test_self_improve`.
+- **Unrelated failure (lesson-13).**
+  `tests/test_modelling_core.py::test_an_owner_asked_redesign_is_an_ask_the_block_takes_up` asserts
+  `threading.active_count()` is unchanged. In this container a thread that started before the call ended during it
+  (2 → 1). The test passed earlier in this session, before the architecture review's ask, the `no budget` name and docstrings
+  were changed, and its path
+  (`numbers_api.redesign_asked`) touches none of the changed code. Left alone, for the factory to run again on main.
+- **Not run:** the whole unit suite and the browser files (the factory's step). No page was changed.
