@@ -475,7 +475,9 @@ bwrap cannot make its namespaces and there is no kqueue: `tests/test_repair2.py`
 (the AI repair sandbox's tests) and `tests/test_notify.py`'s kqueue test skip there. `[suites] host` runs those three
 files on the Mac, outside any container, after unit and browser and before demo, under the queue's lock: a required
 step like the others (its log `run/queue/<run>-host.txt`, its result `host` in the gap's `suites_queue`; red fails the
-batch and bisects, and flake triage reruns its tests on the Mac too). `host = ""` turns the step off. Exit 126 or 127
+batch and bisects, and flake triage reruns its tests on the Mac too). It is held to the same `stall_minutes` and
+`wall_minutes` as the boxed suites, in the queue and in triage's rerun: a host run that stops writing is a stall (the
+run undone, no gap blamed until `STALLS_MOST`). `host = ""` turns the step off. Exit 126 or 127
 (a command not found or not runnable) is a step that did not start: the run fails and is undone, no gap blamed, never
 read as a pass. A test the host step skips that the same run's unit suite skipped too (by `path:line` in their `-rs`
 summaries) ran nowhere, and fails the step, unless its reason is one of the stated needs outside the machine in use
@@ -485,7 +487,8 @@ image", "no N free ports in"), matched as those exact phrases: a new external sk
 host skip counts as one that ran nowhere.
 
 **The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
-triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
+triage's and the implementor's suites deselect (`--deselect`, unit and browser only: a quarantined test in the host
+step's files still runs there and blocks, since run beside in the container it would only skip). The list is read from main (the
 queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a branch that adds
 its own failing test to the list is still red in the queue, and its line takes effect only once it is on main. (The
 implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch that adds the list,

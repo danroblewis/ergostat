@@ -59,3 +59,19 @@ Round 2:
   batch's first gap: left as is. It is how every suite bisects, the definition asks the host step to bisect "like any
   suite", and triage then sends the gap back with the named failure, so nothing wrong lands. Telling a Mac fault from a
   branch's would need a run of the base on its own, a change to the bisect for every suite: its own gap.
+
+Round 3:
+- Round-2 finding (blocking): round 2's note that "main's stall limits apply to it too" was false. The host step ran
+  with box="", and fac.suite applied limits(), the stall and wall checks and faulthandler_timeout only when box was
+  set. `fac.suite` now takes box="host": the limits apply, but it is never put in a container. The queue's host step
+  and triage's rerun of a host failure both pass it. Tests: `test_a_host_step_that_stops_writing_is_stopped_as_a_stall`
+  (Stalled, the run undone, no gap blamed, the process group gone) and
+  `test_a_triage_rerun_of_the_host_step_is_limited_too`. Both were seen to time out with the old box="". Removing the
+  `box != "host"` guard was seen to fail `test_a_failing_host_step_fails_the_batch_and_bisects` (its triage rerun
+  needed docker).
+- Round-2 finding (quarantine covers only unit and browser): documented in dev/README.md's quarantine paragraph, not
+  extended. Deselecting a quarantined sandbox test from the host step would run it "beside" in the container, where
+  it only skips, so it would never be run anywhere (lesson-3). The way it works now fails closed.
+- Round-2 "not run by this reviewer": this round ran tests/test_queue_host.py (9 passed) and tests/test_queue.py
+  (13 passed). The clone still has only a local `main` (`git branch -a`: this branch and main), already an ancestor
+  of HEAD, so there was nothing to merge.

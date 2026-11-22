@@ -38,7 +38,7 @@ def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int,
         tests = [t for t in tests if t not in held]       # main's list, not the branch's: they never block
         if not tests:
             return 0, {"why": "only quarantined tests failed", "quarantined": held}
-        rc, secs = fac.suite(cfg, "rerun", wt, log, box="" if suite == "host" else "triage", tests=tests)
+        rc, secs = fac.suite(cfg, "rerun", wt, log, box="host" if suite == "host" else "triage", tests=tests)
         return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text()),
                     "quarantined": held}
     finally:

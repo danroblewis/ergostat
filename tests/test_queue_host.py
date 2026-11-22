@@ -139,6 +139,46 @@ def test_only_the_stated_external_needs_in_use_are_exempt(tmp_path):
                                                        for i, r in enumerate(exempt + counted) if r in counted)
 
 
+def test_a_host_step_that_stops_writing_is_stopped_as_a_stall(tmp_path):
+    from tests.test_queue import gone, hangs, limited, reaped
+    f = Factory(tmp_path, unit=UNIT.format(runs=tmp_path / "runs"))
+    with_host(f, host_script(f, hangs(tmp_path)))
+    limited(f, stall_minutes=0.05)                                               # 3 s
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    start = git(f.checkout, "rev-parse", "main")
+    try:
+        said, lines = f.run("queue.py", "gap/a", timeout=90)
+        assert gone(int((tmp_path / "sleeper").read_text()))                    # its process group stopped
+    finally:
+        reaped(tmp_path / "group")
+    assert said == ["gap.queued", "gap.measured"] and merges(f) == []           # undone; no gap blamed
+    assert git(f.checkout, "rev-parse", "main") == start
+    nacks = [x["nack"] for x in lines if "nack" in x]
+    assert len(nacks) == 1 and nacks[0]["count"] is False and "did not grow" in nacks[0]["why"]
+    a = f.item("gap/a")["fields"]
+    assert a["stalled"] == "host" and a["stalled_test"] == "tests/test_x.py::test_hangs" and "failed_gates" not in a
+
+
+def test_a_triage_rerun_of_the_host_step_is_limited_too(tmp_path):
+    import re
+
+    from tests.test_factory import queue_failed
+    from tests.test_queue import hangs, limited, reaped
+    f, gid = queue_failed(tmp_path)
+    db = f.db()
+    db["items"][gid]["fields"]["failed_suite"] = "host"                          # a host failure, rerun on the Mac
+    f.record.write_text(json.dumps(db))
+    f.config.write_text(re.sub(r"^rerun = .*$", f'rerun = "{hangs(tmp_path)}"', f.config.read_text(), flags=re.M)
+                        .replace("queue_container = false", "queue_container = true"))   # (boxed: no Docker here)
+    limited(f, stall_minutes=0.05)
+    try:
+        said, lines = f.run("triage.py", gid, timeout=90)
+    finally:
+        reaped(tmp_path / "group")
+    assert said == ["gap.measured"] and f.item(gid)["fields"]["stalled"] == "rerun"
+    assert [x["nack"]["count"] for x in lines if "nack" in x] == [False]
+
+
 def test_the_host_step_is_never_boxed(tmp_path):
     f = with_host(Factory(tmp_path), "true", **{"queue_container = false": "queue_container = true"})
     code = ("import sys, json, pathlib; sys.path[:0] = [sys.argv[1]]; import fac, queue\n"
@@ -153,6 +193,6 @@ def test_the_host_step_is_never_boxed(tmp_path):
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout.splitlines()[-1])
     boxes = dict(out["seen"])
-    assert boxes["host"] == "" and {boxes[n] for n in ("ruff", "unit", "browser", "demo")} == {"queue"}
+    assert boxes["host"] == "host" and {boxes[n] for n in ("ruff", "unit", "browser", "demo")} == {"queue"}
     assert [n for n, _ in out["seen"]].index("host") > [n for n, _ in out["seen"]].index("unit")
     assert "host" in out["got"]

@@ -103,7 +103,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
         cmd = fac.deselected(name, f"ERGOSTAT_COVERAGE={shlex.quote(str(cov))} {cfg['suites']['unit']}", held) \
             if cov else None
         rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held,
-                             box="" if name == "host" else "queue")  # (lock: slot; host: on the Mac, never boxed)
+                             box="host" if name == "host" else "queue")  # (lock: slot; host: limited, on the Mac)
         text = log.read_text()
         if name == "host" and rc in (126, 127):      # (lesson-3: a step that could not start is never its result)
             raise agents.NotStarted(f"the host suite did not start (exit {rc}): {text[-400:].strip()}")
