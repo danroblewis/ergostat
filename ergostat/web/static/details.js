@@ -247,7 +247,7 @@ async function openAgent(name) {
           (a.daemon.alarm ? ` (alarm: ${a.daemon.alarm.why})` : "") +
           (a.daemon.processes ? "; " + Object.entries(a.daemon.processes).map(([k, v]) => `#${k.split("#").pop()} ${v.state}` +
             (v.pid ? ` (pid ${v.pid})` : "")).join(", ") : "") : null],
-        ["log", a.log_path ? h("code", {}, a.log_path) : null]])];
+        ["log", a.log_path ? h("code", {}, a.log_path.split(/[\\/]/).pop()) : null]])];   // its file, not where it lies
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
   if (a.use?.runs?.length) kids.push(...useSection(a.use));
   kids.push(h("h3", {}, "Recent runs"));

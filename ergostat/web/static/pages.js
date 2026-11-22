@@ -115,7 +115,7 @@ async function pageAgents(main) {
           h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak)))))))));
     const ds = Object.entries(daemons || {});
     patch(dbox, ...(ds.length ? [h("h3", {}, "Daemons"), h("p", { class: "note" }, "Long-lived processes the blocks' runs and the " +
-      "sensors' readings are handed to (SPEC §9.7). Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
+      "sensors' readings are handed to. Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
       h("div", { class: "table-wrap" }, h("table", { "data-daemons": "" },
         h("tr", {}, ["daemon", "state", "serves", "restarts", "last line", "in flight", "CPU", "memory"].map((c, i) => h("th", i > 2 ? { class: "num" } : {}, c))),
         ds.map(([n, d]) => h("tr", { key: n, "data-daemon": n },
@@ -715,7 +715,7 @@ async function pageItems(main, q) {
              (el) => el.update?.(fl, chosen)));
     };
     patch(notes, ...[
-      d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
+      d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
@@ -769,7 +769,7 @@ async function pageItems(main, q) {
     const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
     const relPart = async (g) => {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
-      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "No relations among these kinds: a kind declares them under relations: (blocked_by: ticket).")];
+      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no critical path.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);

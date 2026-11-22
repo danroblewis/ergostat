@@ -4266,6 +4266,85 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+# the reader's pages say what the reader can see or do, never a command, a line of the YAML or a section of SPEC
+NOT_FOR_READERS = re.compile(r"SPEC §|ergostat\.yaml|`ergostat |relations:|under with:|/private/tmp")
+READERS_DEMOS = ["first-loop", "image-squeeze", "roadmap", "software-factory", "the-job", "ticket-factory"]
+PANELS = """async (which) => {
+  // each panel the page opens, as a click opens it: its text once what it asks for has come
+  const out = [], settle = () => new Promise((r) => setTimeout(r, 300));
+  const take = async (what, open) => {
+    try { await open(); } catch (e) { out.push([what, `failed to open: ${e}`]); return; }
+    await settle();
+    for (let i = 0; i < 20 && document.querySelector('#detail')?.innerText.includes('\\u2026'); i++) await settle();
+    out.push([what, document.querySelector('#detail')?.innerText || '']);
+  };
+  if (which === "diagram") for (const n of S.graph.nodes.filter((n) => n.kind !== 'cloud')) await take(n.id, () => openNode(n));
+  if (which === "systems") for (const n of S.graph.nodes.filter((n) => n.kind === 'system')) await take(n.id, () => openNode(n));
+  if (which === "loops") for (const n of Object.keys(await api('loops'))) await take(`loop ${n}`, () => openLoop(n));
+  if (which === "agents") for (const n of Object.keys(await api('agents'))) await take(`agent ${n}`, () => openAgent(n));
+  return out;
+}"""
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("example", READERS_DEMOS)
+def test_the_readers_pages_name_no_command_yaml_line_or_spec_section(browser, tmp_path, example):
+    """/diagram (its side panel and each part's panel), /loops (each loop's panel), /agents (each agent's panel) and
+    /items (its list and its graph) say none of: a SPEC section, ergostat.yaml, a command, a YAML key, or an absolute
+    path into the project (an agent's log is named by its file)."""
+    with served(example, tmp_path) as url:
+        folder = str(tmp_path.resolve())                  # the project and its home (its logs) are under it
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        said: list[tuple[str, str]] = []
+        # both drawings: every part's panel with every system open, each system's own with them closed
+        for i, (view, which) in enumerate([("view=dynamics&open=*", "diagram"), ("view=blocks&open=*", "diagram"),
+                                           ("view=dynamics", "systems"), ("view=blocks", "systems")]):
+            drawn(pg, url, view, i)
+            said.append(("/diagram", pg.inner_text("body")))
+            said += [(f"/diagram {w}", t) for w, t in pg.evaluate(PANELS, which)]
+        for path, which in (("/loops", "loops"), ("/agents", "agents")):
+            pg.goto(url + path)
+            pg.wait_for_selector(".page h1")
+            pg.wait_for_timeout(800)
+            said.append((path, pg.inner_text("body")))
+            said += [(f"{path} {w}", t) for w, t in pg.evaluate(PANELS, which)]
+        pg.goto(url + "/items")
+        pg.wait_for_selector(".page h1")
+        pg.wait_for_timeout(800)
+        said.append(("/items", pg.inner_text("body")))
+        graph = pg.locator("button", has_text="Graph")
+        if graph.count():
+            graph.first.click()
+            pg.wait_for_timeout(1500)
+            said.append(("/items graph", pg.inner_text("body")))
+        pg.close()
+    found = re.compile(f"{NOT_FOR_READERS.pattern}|ergostat explain |{re.escape(folder)}")   # (a <code> shows no backticks)
+    bad = sorted({(where.split(" ")[0], m.group(0), t[max(0, m.start() - 60):m.end() + 60]) for where, t in said
+                  for m in found.finditer(t)})
+    assert any(w.startswith("/agents agent") for w, _ in said), "no agent's panel was opened"
+    assert any(w.startswith("/loops loop") for w, _ in said), "no loop's panel was opened"
+    assert not bad, "\n".join(map(str, bad))
+    assert not errors, errors
+
+
+def test_the_harris_row_says_what_is_missing_not_where_to_write_it(browser, tmp_path):
+    """A loop whose dead time is not known: its Harris row says so, not which YAML key to write it in (the demos are
+    not run, so the row is drawn here from the answer the server gives such a loop, control/monitor.py)."""
+    from ergostat.control.monitor import performance
+    t = [float(i) for i in range(20)]
+    hr = performance({"t": t, "h": 1.0, "e": [0.0] * 20, "u": [0.0] * 20}, "==", 0.0, None, None, [], "setting")["harris"]
+    assert hr.get("needs_theta") and "process:" in hr["why"], hr         # the answer as the server gives it
+    with served("first-loop", tmp_path) as url:
+        pg = browser.new_page()
+        pg.goto(url + "/loops")
+        pg.wait_for_selector(".page h1")
+        row = pg.evaluate("(hr) => performanceRows({ performance: { harris: hr } })[0]", hr)
+        pg.close()
+    assert row == ["Harris index", "needs the loop's dead time"], row
+
+
 def test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_verdict(browser, tmp_path):
     """/diagram has exactly one h1, one line under the view switch: the view's diagram type, the model's purpose, its
     systems and its verdict (Dynamics: goals; Blocks: control loops, the goals a controller holds); the svg is named
