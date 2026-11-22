@@ -28,7 +28,13 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    when its 1 to 3 named tests each pass alone on the red tree twice and the suites it did not finish pass, it lands as
-   a flake (excusable(), excused()); else bisected to the first failing merge (land(), on the failing tests alone when
+   a flake (excusable(), excused()). Else, before any gap is blamed, the named tests run on main (`pre`) alone, in the
+   same container and settings (on_main()): failing there and on a re-run, the failure is main's: no gap is sent back
+   (all stay `approved`, the own gap's lease given back uncounted), run/queue.json holds `main_red`, an intervention
+   of class queue names main and the tests (a pipeline situation), and no batch is taken until they pass alone on
+   main's head, are quarantined or gone there, or the coordinator remedies it (main_red()); failing, then passing,
+   each is a flake seen. Else (they pass on main, a test main lacks, a run that cannot tell, a failure naming no
+   test) it is bisected to the first failing merge (land(), on the failing tests alone when
    the run named any), which goes on to flake triage with what failed (`queue-failed`) and the rest lands, each merge
    only on a full green run. Past its time allowance (allowance()) a run starts no suite run: the proven prefix lands,
    the rest back uncounted; a run that settled none of its batch halves the next run's batch (run/queue.json `cap`,
@@ -672,7 +678,7 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         return dict(queue_wait_hours=waited_hours(g, began), queue_minutes=round((time.time() - began) / 60, 1),
                     lock_and_load_wait_s=round(waited), suites_queue=got, batch_size=len(batch), batch_id=tag,
                     batch_runs=runs[0])
-    counted, back = {}, []                                 # each gap's own merge: main before it to it (its last try)
+    counted, back, blamed = {}, [], []                     # each gap's own merge: main before it to it (its last try)
     try:
         while todo:
             fac.git(repo, "reset", "-q", "--keep", base)
@@ -700,6 +706,8 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
                 landed += [(g, timing(g, red) | counted[g["id"]]) for g, _ in todo]
                 base = heads[-1]
                 break
+            if red.get("tests") and not blamed:      # main itself first, before any gap is blamed (on_main())
+                on_main(repo, pre, red, run, tag, [g["id"] for g, _ in todo])
             full = alone if alone and alone.get("failed") else None  # they fail there alone: bisect on them; else full
             hi = len(todo)                           # the first lo merges ran green (or none); the first hi red
             while hi - lo > 1:
@@ -710,6 +718,7 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             g, onto = todo[hi - 1][0], heads[hi - 2] if hi > 1 else base
             if "named" in green:                     # (that commit is merged again, never landed: main's own is told)
                 onto = base
+            blamed.append(g["id"])
             tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=onto,
                  findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
                  + ([f"the first failing merge of a batch of {len(todo)}, found by bisecting"] if len(todo) > 1 else []),
@@ -727,6 +736,77 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         back = [g for g, _ in todo]
     fac.git(repo, "reset", "-q", "--keep", base)
     return landed, base, back
+
+
+class MainRed(Exception):
+    """The batch's failing tests fail on main (``pre``) alone, twice: main's failure, no gap's (on_main())."""
+
+
+def on_main(repo, pre: str, red: dict, run, tag: str, gaps: list[str]) -> None:
+    """A red run's named tests on main (``pre``) alone, in the same container and settings (named()). Failing there and
+    again on a re-run (or a re-run that cannot tell): MainRed. Failing, then passing: each a flake seen, not main's.
+    Passing, or not told (a test main lacks, a run that could not start): bisected as before."""
+    fac.git(repo, "reset", "-q", "--keep", pre)
+    first = run(red, every=False)
+    if not (first and first.get("failed")):
+        return
+    again = run(first, every=False)
+    bad = first["tests"] if again is None else again["tests"] if again.get("failed") else []
+    for t in sorted(set(first["tests"]) - set(bad)):
+        fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=gaps, times=1, seen_at=time.time(), run=tag,
+                suite=red["failed"], failed_on_main=pre, log=first["log"])
+    if bad:
+        raise MainRed({"pre": pre, "suite": red["failed"], "tests": bad})
+
+
+def main_red(cfg: dict, repo) -> str | None:
+    """While main is held red (run/queue.json `main_red`): its tests, less those quarantined at main's head now, run
+    there alone, but those main's head lacks (lacks(): removed or renamed, they cannot hold it). Passing, or none left:
+    cleared and its intervention remedied (None); its intervention remedied by the coordinator: cleared; else (failing,
+    a run that could not tell or start, a remedy that cannot be read) why no batch is taken."""
+    st = state(cfg)
+    if not (r := st.get("main_red")):
+        return None
+    if action_state(r["intervention"]) == "remedied":     # (as settle() lifts `blocked`: said already, not again)
+        st.pop("main_red")
+        save(cfg, st)
+        return None
+    head = fac.git(repo, "rev-parse", "HEAD")
+    if tests := [t for t in r["tests"] if t not in fac.quarantine(repo, head) and not lacks(repo, head, t)]:
+        fac.wait_quiet(cfg)
+        try:
+            got = named(cfg, repo, f"main-{head[:12]}-{int(time.time())}", fac.run_dir(cfg, "queue"),
+                        {"failed": r["suite"], "tests": tests})
+        except agents.NotStarted as e:
+            return f"main is held red and its check did not start: {e}"
+        if not passed(got):
+            return f"main {head[:12]} fails {', '.join(tests[:5])} (held since {r['pre'][:12]})"
+    st.pop("main_red")
+    save(cfg, st)
+    fac.say("intervention.remedied", r["intervention"], remedied_by="queue", remedied_at=time.time(),
+            remedy=f"main {head[:12]} passes them" if tests else "they are quarantined or gone from main")
+    return None
+
+
+def lacks(repo, ref: str, test: str) -> bool:
+    """``ref`` has no such test: its file is gone, or no `def` of its function (less any `[param]`) is in it."""
+    path, _, name = test.partition("::")
+    fn = re.escape(name.split("::")[-1].split("[")[0])
+    return not re.search(rf"^\s*(async\s+)?def\s+{fn}\s*\(", fac.git(repo, "show", f"{ref}:{path}", check=False), re.M)
+
+
+def held_by_main(cfg: dict, r: dict) -> None:
+    """main fails the batch's tests: no gap blamed (its batch-mates never left `approved`; the own gap's lease given
+    back uncounted), main held red in run/queue.json, and one intervention (class queue) naming main and the tests,
+    which pipeline-watch raises as a situation (watch.py triggers())."""
+    iid = r["intervention"] = f"intervention/queue-main-red-{r['pre'][:12]}-{time.strftime('%Y%m%d-%H%M%S')}"  # (new)
+    save(cfg, {**state(cfg), "main_red": r})
+    for t in r["tests"]:
+        fac.say("flake.main-broken", f"flake/{fac.slug(t, 80)}", test=t, main=r["pre"], main_broken_at=time.time())
+    fac.say("intervention.recorded", iid, recorded_at=time.time(), main=r["pre"], tests=r["tests"], **{"class": "queue"},
+            reason=f"main {r['pre'][:12]} fails {', '.join(r['tests'][:5])} alone in the queue's container: the queue "
+                   "takes no batch until they pass on main or are quarantined")
+    fac.nack(f"queue: main fails {', '.join(r['tests'][:3])}", after="10m", count=False)
 
 
 def recover(cfg: dict, repo) -> str | None:
@@ -797,7 +877,8 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
         if cfg["suites"].get("queue_container", True) is not False:
             agents.sweep_box("queue")                  # a SIGKILLed run's containers (under the lock: none is live)
         try:
-            why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
+            why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo) \
+                or main_red(cfg, repo)
             capped = state(cfg)                            # (read before the gap is taken: unreadable, none taken)
         except Unreadable as e:                        # (it cannot tell whether a push waits: no gap is taken)
             why = str(e)
@@ -825,6 +906,9 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
                 landed, merged, back = land(cfg, repo, batch, pre, began, waited, dried, until)
             except fac.Stalled as e:                       # (main undone below; no gap blamed for it)
                 stalled(cfg, gap, batch, pre, e)
+                return 0
+            except MainRed as e:                           # (main undone below; no gap blamed for it)
+                held_by_main(cfg, e.args[0])
                 return 0
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
