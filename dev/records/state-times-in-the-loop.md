@@ -53,3 +53,27 @@ code to undo):
   model with the reader check runs (`read(..., extremes=False)`), and that reader produces all three findings. On the
   unchanged branch it found 138 of them in times.yaml; now it finds none. The clone has no `origin/main`; local
   `main` has no commit the branch lacks.
+
+### The check findings sent back (round 1, after the build)
+
+`ergostat check` found five architecture notes on the branch that main lacks: `interface` for managing and times
+(12 goals read by pipeline-watch across the boundary: 14 and 12 information links), `systems-merge` for times (24
+links to managing against 24 inside) and load (12 links from suites-running against 5 inside), and `system-splits`
+for times (the p90s and the gates a second cluster). The model was changed so each goes; none is allowed by the
+definition (it has no `allows-findings` line, and it was not edited). This supersedes the goal list above:
+
+- Seven goals now, not twelve: ready, queued, replan, planned, leased, queue-failed and loop-short. fix, built,
+  building and in-review became plain measures (loop-short holds the build-review loop they add up to; the manager's
+  act is the same), and approved (merge-pipeline-flowing already raises approved gaps waiting with no merge). The
+  header says so. Reversible: a goal line and its `in:` entry put back.
+- Each p90 is driven by its own median, not by the stock outside (it moves with it); only in-queued-hours and
+  in-leased-hours read suites-running; the queue's unit, browser and demo gates are `exogenous: true` (their length
+  is their tests', which nothing in the model sets), and the fast gate is driven by loop-rounds alone.
+- `test_the_time_goals_have_no_check_findings` now also runs check's own architecture findings and holds none of
+  them on system.times, system.managing or system.load (time-scales aside, which this branch did not raise). It failed
+  with exactly the five before the model change and passes after. `test_a_time_goal_off_reaches_the_managers_session`
+  reads queued-short on target and planned-short unknown in place of fix and built; test_factory_times.py's
+  setpoints check keeps in-queued-hours' hold in place of in-fix-hours'.
+- Not run: `uv run ergostat check` itself (refused by the shell, as before); the test calls the same
+  `architecture.findings` check runs. The other architecture notes it prints (intake, landing, building, oversight,
+  knowledge) do not touch times.yaml's links and were not among the ones sent back.

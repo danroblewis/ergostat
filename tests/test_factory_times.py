@@ -247,7 +247,7 @@ def test_a_measure_per_state_counts_gaps_that_left_it_not_only_merged_ones(tmp_p
     finally:
         times.GOALS, times.fac.items = was
     assert now_held["in-ready-hours"] == 4 and "in-ready-hours-p90" not in now_held
-    assert now_held["in-fix-hours"] == held["in-fix-hours"]
+    assert now_held["in-queued-hours"] == held["in-queued-hours"]
 
 
 def test_status_prints_the_per_state_table(tmp_path):

@@ -3798,7 +3798,13 @@ def test_the_time_goals_have_no_check_findings(tmp_path):
     measures = {a for a, x in spec.auxiliaries.items() if in_times_yaml(x)} - {spec.goals[n].of.name for n in goals}
     header = (ROOT / "dev" / "model" / "times.yaml").read_text().split("\ndefaults:")[0]
     assert "-p90" in header and all(m.endswith("-p90") or m in header for m in measures)   # each plain measure said
-
+    # closing the loops draws no new boundary findings: times, the manager and the load interlock stay separable
+    from ergostat.spec import architecture
+    said: list[str] = []
+    architecture.findings(spec, lambda code, msg, _, about: said.append(f"{code}@{about}: {msg}"))
+    near = ("system.times", "system.managing", "system.load")
+    found = [x for x in said if x.split(":")[0].split("@")[1] in near and not x.startswith("time-scales")]
+    assert found == [], "\n".join(found)
 
 def test_a_time_goal_off_reaches_the_managers_session(tmp_path):
     """state-times-in-the-loop: a time goal off past its tolerance is a trigger of the watch's next session and is in
@@ -3809,15 +3815,15 @@ def test_a_time_goal_off_reaches_the_managers_session(tmp_path):
 
     def slow(i: int, hours: float) -> None:
         f.put(f"gap/slow-{i}", "merged", branch=f"slow-{i}", merged_at=left,
-              time_in={"ready": {"hours": hours, "visits": 1, "left": left}, "fix": {"hours": 0.5, "visits": 1,
-                                                                                    "left": left}})
+              time_in={"ready": {"hours": hours, "visits": 1, "left": left}, "queued": {"hours": 0.25, "visits": 1,
+                                                                                       "left": left}})
     for i, h in enumerate((4.0, 5.0, 6.0)):                                    # ready-short: <= 2, tolerance 0.5
         slow(i, h)
     s = f.watch()
     (t,) = [t for t in s["triggers"] if t["trigger"] == "time"]
     assert t["subject"] == "goal.ready-short" and "reads 5 " in t["why"]
-    assert s["times"]["ready-short"] == 5.0 and s["times"]["fix-short"] == 0.5   # (fix: read, and on target)
-    assert "built-short" in s["times"] and s["times"]["built-short"] is None     # nothing left built: unknown
+    assert s["times"]["ready-short"] == 5.0 and s["times"]["queued-short"] == 0.25   # (queued: read, on target)
+    assert "planned-short" in s["times"] and s["times"]["planned-short"] is None     # nothing left planned: unknown
     answer = {"calls": [], "answers": {t["print"]: "asked the researcher why ready waits"}, "summary": "ready waits"}
     said, _ = f.run("manager.py", s["id"], FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(answer) + "\n```")
     f.drain()
