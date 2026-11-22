@@ -16,3 +16,37 @@ Acceptance tests: check `line-tones` on :8796 ?system=product and ?view=blocks&o
 Budget: 100 net lines.
 
 Milestone: diagram-notation. Owner items: 8 (line tones). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Round 1: built (commit 0c7e68af), 36 net lines of code. Decisions taken alone, each the most reversible:
+- "A goal's gap -> flow link": a connector from a gap (role gap) straight into a valve or disturbance gets the class
+  sd-drive and stays full ink. A gap that drives its flow through an auxiliary (a block's output) keeps tone 2 on that
+  link; the chain is not followed. On software-factory ?system=product no gap is drawn at all, so
+  test_line_tones_information_lighter_than_the_material_path checks the full-ink case on first-loop (two such links).
+- ?view=blocks&open=product,factory has no record wire, and no r or e wire (no collector, no loop closes inside). There
+  the test checks that u, y and y_m are ink and that port and disturbance lines are tone 2. Definition of done 3 (a record
+  wire against r and e) is checked on the-job ?view=blocks&system=incidents, which has a collector.
+- The tone hexes were worked out by hand from WCAG luminance, because scratch scripts outside the repository were
+  refused: --sd-ink-2 #84898e / #6f7479 (3.5 / 3.7:1), --ink-2-line #858a90 / #71767b, --accent-2 #5f90cf / #4f77a8. The
+  unit test checks the 3.0-4.5:1 window and the ink at 10:1 or more, not the exact mix percentage.
+- Rule (i) is stated for the two diagram views. The page chrome's accent for links and focus is unchanged.
+- The text of shadow variables and stubs moved from --sd-muted to --sd-ink-2 (.k-terminal only; a cloud's name keeps
+  --sd-muted). On a lit loop the heads take --accent-2 with their connectors, and polarity signs stay --accent.
+- export.js's control legend gains the row. Its "loop holding" and "off" rows are left alone (outside this gap). A
+  Blocks export draws no legend (unchanged).
+- Exports: the test checks that the saved SVG text carries both resolved tones. The PNG is drawn from that same text and
+  was not checked pixel by pixel.
+- The Guide's "links" frame (frame 4) now says a link is information, drawn lighter than the pipe.
+
+Tests run on the branch: tests/test_style_tokens.py and tests/test_guide.py pass (the new contrast test was seen to fail
+with --sd-ink-2 set to the ink). test_line_tones_information_lighter_than_the_material_path[light,dark],
+test_flows_only_export_legend_lists_only_what_is_shown and test_the_guide_draws_every_frame_live_and_in_a_snapshot pass.
+The line-tones test was seen to fail on three breaks: no sd-drive, record wires in ink, connectors in ink. ruff is clean.
+Render audit (test_every_view_draws_cleanly_and_in_time and
+test_the_control_view_draws_every_example_cleanly_as_a_block_diagram): 40 passed, 2 failed, the same two in each of
+two runs: [coordinator] and [image-squeeze], each on the libavoid routing bound only ("routing open=* took 36361ms" /
+"36107ms", bound 20000). Every layout-fault check in them passed. I think the branch did not cause these: it changes
+colours and adds classes, not geometry, layout or routing. That is unproven: the same two cases were not run on main
+(the checkout of main's static files was refused). The merge queue's run on clean main must settle it. Not run: the unit
+suite and the other three browser files (left to the factory, as the rules say).
