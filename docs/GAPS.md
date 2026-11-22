@@ -412,8 +412,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Interface
 
-- **Searching items and querying their graph** (`gap/item-search`): **done**, both halves merged: full-text search
-  and graph queries over items, from the CLI and API.
+- **Searching items and querying their graph** (done, both halves merged; `gap/item-search`): full-text search and
+  graph queries over items, from the CLI and API.
   - *Search*: **done** on `factory/item-text-search` (merged in `512f08ef`; SPEC §5a, *Search*): `ergostat item
     --search WORDS` and `/api/items?search=WORDS` list the items whose fields' text contains every word (a casefolded
     substring, no ranking, no fuzzy match; the first 65,536 characters of each item's text), kept in the item index.
