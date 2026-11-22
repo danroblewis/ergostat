@@ -728,6 +728,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
              + (f". {en.command(e)}" if e["verbs"] else ""),
              "first": e["summary"], "waiting": human(e["age"]), "run": e.get("run"), "cli": en.command(e),
+             "record": e.get("record"), "suggest": e.get("suggest"),
              "more": e["why"] if e.get("why") and e["why"] not in e["summary"] else None}
             for e in snap.get("inbox", [])]
     out = sorted(out, key=lambda a: LEVELS.get(a["level"], 1))           # problems first, then what waits on a person

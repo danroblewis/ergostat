@@ -73,6 +73,24 @@ def deny_only(tmp_path, home):
     yield from serve(tmp_path, home, p, eid)
 
 
+@pytest.fixture
+def ladder(tmp_path, home):
+    """A class the owner approved six times this week, none denied, with one more held: up the ladder."""
+    from ergostat import model as mdl
+    from ergostat.actions import gate, record
+    from ergostat.inbox import answer
+    from ergostat.store import Project
+
+    from .test_inbox import MODEL
+    (tmp_path / "ergostat.yaml").write_text(MODEL)
+    p = Project(mdl.load(tmp_path))
+    for _ in range(6):
+        a = gate.request(p, p.model.spec, "push", {}, {"block": "pusher"})
+        answer.answer(p, p.model.spec, f"action/{record.short(a['id'])}", "approve")
+    a = gate.request(p, p.model.spec, "push", {}, {"block": "pusher"})
+    yield from serve(tmp_path, home, p, a)
+
+
 def serve(tmp_path, home, p, a):
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "web", "--port", str(port)],
@@ -135,6 +153,7 @@ def waiting_entries(pg) -> list[dict]:
     pg.locator("[data-inbox]").first.wait_for(timeout=20000)
     return pg.eval_on_selector_all("[data-inbox]", """els => els.map(e => ({
         id: e.dataset.inbox, text: e.textContent, first: e.querySelector('.ask-first')?.textContent,
+        ladder: e.querySelector('.ladder')?.textContent,
         cmd: e.querySelector('details.cmd')?.textContent, cmdOpen: e.querySelector('details.cmd')?.open,
         rest: e.querySelector('details.ask')?.textContent, restOpen: e.querySelector('details.ask')?.open,
         verbs: [...e.querySelectorAll('button[data-verb]')].map(b => b.dataset.verb)}))""")
@@ -189,4 +208,21 @@ def test_a_deny_only_modelling_request_says_what_deny_does(deny_only):
         for e in es:
             readable(e)
         assert "Modelling cannot decide it" in req[0]["first"] and "Deny tells it to stop asking" in req[0]["text"]
+        b.close()
+
+
+def test_an_entry_keeps_its_class_record_and_its_suggestion_up_the_ladder(ladder):
+    """SPEC §12o: each entry shows its class's record, and a class always approved is suggested up the ladder."""
+    from ergostat.actions import record
+    url, p, a = ladder
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        pg.goto(f"{url}/diagram?view=blocks")
+        es = {e["id"]: e for e in waiting_entries(pg)}
+        act = es[f"action/{record.short(a['id'])}"]
+        readable(act)
+        assert act["ladder"] and act["ladder"].startswith("7 asked this week, 6 approved, 0 denied"), act
+        assert "6 approvals of outward this week, all approved: consider gate: auto" in act["ladder"], act
+        assert "python3" not in act["ladder"] and "consider gate" not in act["first"], act
         b.close()

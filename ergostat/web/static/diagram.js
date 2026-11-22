@@ -1330,12 +1330,14 @@ function inboxAnswer(a) {
 }
 
 /* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
-   its text in full, past three lines folded; the exact command folded below */
+   its class's record and its suggestion up the ladder (SPEC §12o); its text in full, past three lines folded; the
+   exact command folded below */
 const ticked = (s) => String(s).split("`").map((x, i) => (i % 2 ? h("code", {}, x) : op(x)));
 function inboxBody(a, href) {
   const ls = [a.first, a.more].filter(Boolean).join("\n").split("\n"), run = [a.run, a.cli].filter(Boolean).join("\n");
   const first = h("span", { class: "ask" }, ticked(ls.slice(0, 3).join("\n")));
   return [h("div", { class: "ask-first" }, href ? h("a", { href, class: "plain" }, first) : first, h("span", { class: "muted" }, ` waiting ${a.waiting}`)),
+    a.record || a.suggest ? h("div", { class: "muted ladder" }, [a.record, a.suggest].filter(Boolean).join(". ")) : null,
     ls.length > 3 ? h("details", { class: "ask" }, h("summary", {}, "the rest"), h("span", { class: "ask" }, ticked(ls.slice(3).join("\n")))) : null,
     run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
 }

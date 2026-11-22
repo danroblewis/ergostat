@@ -50,3 +50,17 @@ Round 1: built. About 26 net lines of code outside tests (entries.py, state.py, 
   `::test_a_deny_only_modelling_request_says_what_deny_does`. It runs on a free port, not :8792: that demo is not in
   this container. Each test was seen to fail under these breaks: backticks left raw; the command box open; "Deny"
   reworded; the item page's first line reverted to the action name.
+
+Round 2: the review's one finding answered. About 29 net lines of code outside tests in all (round 2 added 3).
+
+- Finding (blocking): round 1's side-list entries dropped each class's record and its suggestion up the ladder
+  (SPEC §12o). Fixed. `state.attention` passes `record` and `suggest` into each inbox entry again (state.py), and
+  `inboxBody` draws them on a muted line of their own (`.ladder`), below the sentence and outside the folded command
+  (diagram.js). The wording is `stats.record_said` and `stats.suggest`, unchanged.
+- Test: `tests/test_inbox_page.py::test_an_entry_keeps_its_class_record_and_its_suggestion_up_the_ladder`. The owner
+  approves `push` six times, one more is held, and the entry must show "7 asked this week, 6 approved, 0 denied" and
+  "consider gate: auto". It also checks that the entry still passes the acceptance. Seen to fail under two breaks:
+  the `.ladder` line not drawn, and `suggest` dropped on the server while the record still shows.
+- Run: `tests/test_inbox_page.py` (4 passed, under the watchdog, with Playwright), `tests/test_inbox.py` (30 passed),
+  ruff clean. Not run here: the unit suite and the four browser files, which the merge queue runs. `main` has no
+  commits the branch lacks, so there was nothing to merge.
