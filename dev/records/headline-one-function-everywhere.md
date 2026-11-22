@@ -40,3 +40,21 @@ tests/test_graph_cli_web.py::test_status_and_projects_print_the_one_count_api_st
 ::test_no_page_code_counts_goals_by_their_status (item 3, an allowlist of lines). Seen to fail: with the side heading
 put back to counting its rows (10 against 8 · model upkeep 2), and with a Loops heading that counts `status === "off"`
 rows (the grep test).
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 14:15).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
