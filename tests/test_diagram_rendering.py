@@ -2157,6 +2157,56 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
     assert not errors and not asked, (errors, asked)
 
 
+SYS_BOXES = """(sel) => {
+  const rgb = (c) => (c.match(/[\\d.]+/g) || []).slice(0, 4).map(Number);
+  const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+                               return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const ratio = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const svg = document.querySelector(sel);
+  return [...svg.querySelectorAll('g.node.k-system')].map((n) => {
+    // every rect the box draws (its Into and Open buttons are transparent controls, not the box)
+    const rects = [...n.querySelectorAll('rect')].filter((r) => !r.closest('.sys-btn') && getComputedStyle(r).display !== 'none')
+      .map((r) => getComputedStyle(r).fill);
+    const title = getComputedStyle(n.querySelector('.sys-title')).fill;
+    return { rects, title, contrast: ratio(title, rects[0]) };
+  }); }"""
+
+
+def test_the_guides_last_frame_draws_its_boxes_as_the_live_diagram_does_and_says_it_is_drawing(browser, tmp_path):
+    """Design review Q06: in light mode the last frame's system dynamics thumbnail draws each system box with the
+    live diagram's fill, its text readable on it; and arriving there by the arrow, the stage says something at once,
+    before the project's own graphs have come back (they are slowed here, so the wait is seen)."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 800}, color_scheme="light")
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        live = pg.evaluate(SYS_BOXES, "svg.canvas")
+        assert live, "software-factory's dynamics view draws no closed system"
+        fill = live[0]["rects"][0]
+        pg.goto(url + "/guide?frame=12")
+        pg.wait_for_function(GUIDE_FRAME, arg=12, timeout=60000)
+        boxes = pg.evaluate(SYS_BOXES, ".g-view:first-child svg.g-canvas")
+        assert boxes, "the thumbnail draws no system box"
+        for b in boxes:
+            assert b["rects"] and all(f == fill for f in b["rects"]), (fill, b)
+            assert b["contrast"] >= 4.5, b
+        pg.add_init_script("""(() => { const f = window.fetch;
+          const later = (u, a) => new Promise((r) => setTimeout(r, 1500)).then(() => f(u, ...a));
+          window.fetch = (u, ...a) => String(u).includes('/api/graph') ? later(u, a) : f(u, ...a); })()""")
+        pg.goto(url + "/guide?frame=11&v=1")
+        pg.wait_for_function(GUIDE_FRAME, arg=11, timeout=60000)
+        pg.keyboard.press("ArrowRight")
+        pg.wait_for_timeout(200)
+        said = pg.locator(".g-stage").inner_text().strip()
+        assert said and pg.locator(".g-stage").get_by_text(said.splitlines()[0]).first.is_visible(), repr(said)
+        pg.wait_for_function(GUIDE_FRAME, arg=12, timeout=60000)
+        assert pg.locator(".g-stage svg.g-canvas").count() == 2
+        assert "Drawing your system" not in pg.locator(".g-stage").inner_text()        # gone once both are drawn
+        assert not errors, errors
+        pg.close()
+
+
 def test_a_loop_lit_from_its_marker_lets_go_the_way_everything_else_does(browser, tmp_path):
     """The owner could not unselect a loop: clicking its marker again, the background, Escape, and the
     detail's close each let it go (no loop lit, nothing faded)."""

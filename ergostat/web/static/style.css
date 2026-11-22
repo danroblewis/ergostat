@@ -705,7 +705,8 @@ svg.canvas rect.hull-mark.xhover { stroke-width: 4px; vector-effect: non-scaling
    several), drawn always and shown only when asked (the menu's toggle, or C held). Pointed at in the other
    pane, the ring is thick, haloed and pulses once, in the accent (or its groups' colours, when shown), and
    the rest of that pane steps back. The rings keep their width on the screen at any zoom */
-svg.canvas g .corr-ring.corr-ring, svg.canvas g .corr-halo.corr-halo {   /* (over what styles an outline's rect) */
+svg.canvas g .corr-ring.corr-ring, svg.canvas g .corr-halo.corr-halo,   /* (over what styles an outline's rect) */
+svg.g-canvas g .corr-ring.corr-ring, svg.g-canvas g .corr-halo.corr-halo {   /* (the Guide's drawings: never shown) */
   display: none; fill: none; stroke: var(--ring); stroke-dasharray: var(--dash, none); stroke-dashoffset: var(--dash-at, 0);
   pointer-events: none; vector-effect: non-scaling-stroke; stroke-linecap: butt; }
 body.corr-on svg.canvas g .corr-ring.corr-ring { display: inline; stroke-width: 3px; }
