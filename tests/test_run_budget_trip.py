@@ -159,6 +159,15 @@ def test_session_capped_at_run_left(sess):
     assert given(first) == pytest.approx(1.0) and given(second) == pytest.approx(0.7)
 
 
+def test_session_resume_given_what_is_left():
+    from ergostat.session import Session
+    s = Session.__new__(Session)
+    s.share, s.results = ("a", 1.0), [{"total_cost_usd": 0.4}]
+    assert s.remaining() == pytest.approx(0.6)
+    s.results.append({"is_error": True})                        # (a turn of unknown cost: all of it)
+    assert s.remaining() == 0.0
+
+
 def test_session_unknown_cost_counts_reserve(sess):
     run = uuid.uuid4().hex
     (sess.state / "budget").mkdir(parents=True)
@@ -246,8 +255,10 @@ def stopped(tmp_path, block: str, cost, tokens: int = 0):
 
 
 def test_run_stopped_at_cap(tmp_path):
-    _, end = stopped(tmp_path, "spender", 1.5)
+    p, end = stopped(tmp_path, "spender", 1.5)
     assert end["type"] == "agent.failed" and end["data"]["note"] == budget.T1, end["data"]
+    killed = wait_for(lambda: p.events.query(n=None, type="ergostat.run.killed"))   # (written by the kill's thread)
+    assert [k["data"]["why"] for k in killed] == [budget.T1] and killed[0]["causedby"] == end["causedby"]
 
 
 def test_charged_run_stopped_on_unknown_cost(tmp_path):

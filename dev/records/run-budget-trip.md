@@ -96,3 +96,51 @@ after its removal.
 Parked by the factory (review/run-budget-trip-1, 2026-11-22 00:03).
 
 Done: the definition of done (dev/records/run-budget-trip.md) and a 'Where it stopped' section. No code, no tests, no docs changes. Left: all of points 1-5 (ERGOSTAT_MAX_COST and --max-budget-usd given to runs; the flocked per-run session ledger with path checks; the T1 check and process-group kill in run_block; the narrowed SPEC claims; GAPS/AGENT-GUIDE updates), all ten acceptance tests, and answers to the seven plan-review notes. It stops because every point needs the reserve, charged/free runs and the fold defined by run-budget-reserve, which is not on main. It exists only as origin/factory/run-budget-reserve (8e4f2923), and building on it would ship that unlanded gap with this one. When it resumes, correct the false claim in 'Where it stopped' that no run-budget-reserve branch exists in the clone.
+
+## Where it stopped
+
+Continued (round 1 of `gap/run-budget-trip-continued`), after `run-budget-reserve` landed on main (c8c94527, in
+`main` at 5617e225, which this branch has merged). Built: points 1 to 4 and the GAPS, SPEC and agent-guide parts
+of point 5. 165 net lines of code in `ergostat/` (budget of 200).
+
+**A correction to the first "Where it stopped".** It said there was no `run-budget-reserve` branch to merge from.
+That was read from local heads only. The review found `refs/remotes/origin/factory/run-budget-reserve` in that
+clone's packed refs. In this clone, `git for-each-ref` and `.git/packed-refs` show no remote-tracking refs at all
+(only `refs/heads/main` and this branch), so `origin/main` cannot be merged here. Local `main` is in HEAD
+(`git merge-base --is-ancestor main HEAD`), and it already holds the run-budget-reserve merge.
+
+**Review run-budget-trip-1, its three findings.** (1) The false ref claim: corrected above. (2) "Files to touch" names
+`docs/roadmap/overnight/run-budget-trip.md`, but the definition is at `dev/records/run-budget-trip.md` (correct for a
+branch begun after 2026-11-21). The definition's text may not be edited, so the right path is stated here. (3) The
+GAPS.md entry for T1 was checked before it was marked done: it is there (from run-budget-reserve) and now says done.
+
+**The plan-review notes, each answered.**
+- An unknown cost trips whatever the reserve: `budget.tripped` counts a part of unknown cost as the whole reserve.
+  `test_charged_run_stopped_on_unknown_cost` (reserve 1) fails against the old rule (unknown counted only at 0).
+- `budget.cap` refuses NaN, ±inf and negative values. They are in `test_session_refuses_unreadable_ledger`.
+- One of `ERGOSTAT_RUN` / `ERGOSTAT_MAX_COST` without the other: a cap with no run always refuses. A run with no cap
+  refuses only when the model the session loads declares `budget:`. The engine removes `ERGOSTAT_MAX_COST` from
+  every run of a model without `budget:` (point 1), so refusing then would stop every session in every unbudgeted
+  model. This is the reversible choice; a session whose model cannot be loaded runs as before. Both are tested.
+- SPEC §9.9 states that a session reserves all that is left, so a second one at the same time always refuses.
+- An `ai` block's own `claude` is not written to the ledger. SPEC states the overshoot of up to about twice the
+  reserve (plus a turn each) before T1 sees it. This was the smaller change.
+- The engine's `--max-budget-usd` wins: one already in the command is removed first (`test_ai_block_given_max_budget`).
+- `budget.settle` opens the ledger without `O_CREAT`, so a removed ledger is not made again (`test_ledger_path_validated`).
+
+**Also built.** A resumed session (the owner's messages after its turn) is given what is left of its share, and none
+when nothing is left (`test_session_resume_given_what_is_left`). The trip writes `ergostat.run.killed` through
+`leases/kill.py`. A run that exits on its own after a trip still ends with the T1 note.
+
+**Tests seen to fail against their guarded code (lesson-9)**, by temporary edits that were then reverted (`git diff`
+empty afterwards): the ledger flock removed (the lock test fails); the old T1 rule (the charged unknown-cost test
+fails); `cap` accepting NaN and ±inf (the unreadable test fails); the user's `--max-budget-usd` left in place, and
+the `ERGOSTAT_MAX_COST` pop removed (the AI block test fails); the T1 check removed (all four trip tests fail: the
+stopped run, the charged unknown-cost run, the free run and the charged cost); the hex check removed, and the
+engine's ledger removal removed (the path test fails). Not broken one by one: `test_session_capped_at_run_left`,
+`test_session_unknown_cost_counts_reserve`, `test_session_refused_when_nothing_left` (it failed only as a side
+effect of the `cap` break) and `test_session_resume_given_what_is_left`.
+
+**Not run here:** the unit suite and the four browser files (the factory runs them). Run here, one file at a time:
+`tests/test_run_budget_trip.py` (12 passed), `test_run_budget.py`, `test_run_costs.py`, `test_messages.py` (70
+passed), `test_factory_sessions.py`, `test_lease_kill.py`, `test_workspaces.py` (24 passed). Ruff is clean.
