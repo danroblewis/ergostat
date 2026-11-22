@@ -504,4 +504,5 @@ origin/main merge.
   round 8 (`test_modelling_ai_cap.py::test_two_runs_cannot_both_take_the_last_of_the_cap`) is in main's code and is
   left alone (lesson-13).
 - The commit of this note (`git add docs/roadmap/overnight/the-judge-almost-never-decides.md && git commit`) was
-  refused in this session ("don't ask" mode) together with the append, and is tried once more on its own below.
+  refused in this session ("don't ask" mode) when run in the same command as the append. Run on its own, it was
+  allowed (3be27fb9).
