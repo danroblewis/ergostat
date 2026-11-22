@@ -214,3 +214,45 @@ Run, one file at a time: `tests/test_repair_verify.py` (24 passed), `tests/test_
 `test_act_risk`, `test_gated_actions`, `test_modelreview`, `test_program_actions`, `test_recipes`, `test_resilience`,
 `test_runlog`, `test_triggers2`, `test_sandbox_attacks`, `test_repair2_live`, `test_redesign_bench`, `test_impact` and
 `test_calls`, all passing (the sandbox ones skipped). `ruff check ergostat tests scripts` is clean.
+
+### Round 2
+
+**The finding answered (the only one, blocking).** `judge()` took the newest `10 × verify` `agent.started` after the
+applied seq and gave up when an older one existed. A block that ran faster than settle's passes would leave its failure
+`applied` for good. Now:
+- The event store has an oldest-first limit. `query(first=k)` returns the oldest `k` matching events, by seq. It is
+  in both backends: `store.Events` uses `order by seq limit k`, and `segments.Segments` passes it to `_scan`'s existing
+  `limit`, whose segment walk now stops reading rows once it has `k`. This is a new keyword. No caller's behaviour
+  changes, but `store.py` and `segments.py` are shared files (lesson-7). I chose it over paging with `before_seq` and
+  `after_seq` because it is one bounded read, and because it is the most reversible fix: one keyword, used in one place.
+- `judge()` reads `query(first=10 × verify, after_seq=<applied seq>)` and walks those runs oldest first. The first
+  decisive run decides, however many runs began after it. The "more than N runs" bail-out is gone. When the whole
+  window of `10 × verify` runs ended by timeout, kill, signal or failing to start, settle says "the first N runs begun
+  since the fix decided nothing" and the failure stays `applied`. This is the stall the plan review named. It fails
+  closed.
+- SPEC §12r now says this: it reads the oldest ten times `verify` runs, so a failed first run regresses the fix however
+  many followed. The stall sentence names only the all-timeouts-or-kills window. The ends query is unchanged. It is
+  still read by `causedby` from the first counted run's seq on. That read is item-indexed, but it is not capped.
+- New tests:
+  - `test_a_failed_first_run_regresses_the_fix_however_many_runs_follow_it`: the first run fails, then 40 good runs,
+    more than 30.
+  - `test_three_good_first_runs_verify_the_fix_however_many_runs_follow_them`: 3 good runs, then 40 failed ones.
+  - `test_a_first_window_of_only_timeouts_is_not_verified_and_says_why`
+  - `test_the_store_reads_the_oldest_first_events[sqlite|segments]`: the segments case asserts that it reads across
+    sealed segments and the head.
+- Lesson-9:
+  - Turning `first=limit` back into `n=limit`, the newest window, failed all three settle tests.
+  - Making `Segments.query` ignore `first` failed `test_the_store_reads_the_oldest_first_events[segments]`.
+- The size is about 259 net lines outside `tests/`, `docs/` and `dev/`, inside the budget of 280.
+
+**Run this round, one file at a time:**
+- `tests/test_repair_verify.py`: 29 passed.
+- `tests/test_inbox.py`: 30 passed.
+- `tests/test_storage.py`: 7 passed.
+- `tests/test_rollup.py`: 48 passed.
+- `tests/test_item_index.py`: 55 passed.
+- `tests/test_repair2.py`: 32 skipped, because bwrap cannot run in this container, as in round 1.
+
+`ruff check ergostat tests scripts` is clean. Local `main` (e5d8c220) is already merged into the branch (55b4de67).
+There is no `origin` remote, so nothing newer could be merged. The full unit suite and the four browser files are
+left for the factory's runs.

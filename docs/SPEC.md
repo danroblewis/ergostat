@@ -5750,10 +5750,12 @@ the code may be to blame for, whatever its failure's signature: the `verdict` sa
 whether triage recorded it on this same failure (`same`). The `verdict` field holds the runs counted, the seq they
 were counted after and `verify: {used, asked, clamped}`. With an input missing (no `applied` event, the block no longer
 in the model, a commit that cannot be read) the fix is not verified: it stays `applied` and settle says why. It can
-also stay `applied` for good, said each pass: a run that never ends, or more than ten times `verify` runs begun since
-the fix with none deciding it (all timeouts or kills); a person looks. **`verify`** is a whole number from 1 to 50:
-`check` refuses any other in `repair-settle`'s `run:`, and settle clamps again (below 1 is 1, above 50 is 50, one that
-cannot be read is 50) and records the clamp. It reads at most ten times `verify` runs.
+also stay `applied` for good, said each pass: a run that never ends, or a first ten times `verify` runs begun since
+the fix that all ended by a timeout, a kill, a signal or failing to start; a person looks. **`verify`** is a whole
+number from 1 to 50: `check` refuses any other in `repair-settle`'s `run:`, and settle clamps again (below 1 is 1,
+above 50 is 50, one that cannot be read is 50) and records the clamp. It reads the oldest ten times `verify` runs begun
+since the fix, by seq, however many began after them, so a first run that failed regresses the fix even when many
+more followed before settle's pass.
 
 **Reverting.** A regressed failure gets `revert_key` (`<name>-<commit>`), and settle asks for the gated action
 **`revert-fix`** in the same locked step, and on every later pass while it is regressed, unless an action about the

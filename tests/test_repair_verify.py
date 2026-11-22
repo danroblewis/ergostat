@@ -150,6 +150,56 @@ def test_a_run_ended_by_timeout_or_kill_counts_neither_way(made):
     assert it.state == "verified" and it.fields["verdict"]["runs"] == good
 
 
+FLOOD = 40                                                  # runs after the decisive ones: above 10 x verify (30)
+
+
+def test_a_failed_first_run_regresses_the_fix_however_many_runs_follow_it(made):
+    p, e, fid, root, base = made()
+    first = run(p, ok=False)
+    for _ in range(FLOOD):
+        run(p)
+    rapply.settle("3", p)
+    it = one(p, fid)
+    assert it.state == "regressed" and it.fields["verdict"]["run"] == first, it.fields.get("verdict")
+    assert len(reverts(p, fid)) == 1
+
+
+def test_three_good_first_runs_verify_the_fix_however_many_runs_follow_them(made):
+    p, e, fid, root, base = made()
+    good = [run(p) for _ in range(3)]
+    for _ in range(FLOOD):
+        run(p, ok=False)
+    rapply.settle("3", p)
+    it = one(p, fid)
+    assert it.state == "verified" and it.fields["verdict"]["runs"] == good, it.fields.get("verdict")
+
+
+def test_a_first_window_of_only_timeouts_is_not_verified_and_says_why(made, capsys):
+    p, e, fid, root, base = made()
+    for _ in range(30):
+        run(p, ok=False, note="stopped after its timeout of 2s", code=None)
+    for _ in range(3):
+        run(p)
+    rapply.settle("3", p)
+    assert one(p, fid).state == "applied" and moves(p, fid)[-1] == "applied"
+    assert "the first 30 runs begun since the fix decided nothing" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "segments"])
+def test_the_store_reads_the_oldest_first_events(tmp_path, backend):
+    from ergostat.segments import Segments
+    from ergostat.store import Events
+    ev = Events(tmp_path) if backend == "sqlite" else Segments(tmp_path, seal=4)
+    ids = [ev.add("agent.started", item="b")["id"] for _ in range(11)]
+    ev.add("agent.started", item="other")
+    assert backend == "sqlite" or len(ev._state()[0]) >= 2, "read across sealed segments and the head"
+    after = ev.query(n=None, item="b")[1]["seq"]            # the second one's
+    assert [x["id"] for x in ev.query(first=3, type="agent.started", item="b")] == ids[:3]
+    assert [x["id"] for x in ev.query(first=6, type="agent.started", item="b", after_seq=after)] == ids[2:8]
+    assert [x["id"] for x in ev.query(first=50, type="agent.started", item="b")] == ids
+    assert ev.query(first=0, item="b") == []
+
+
 def test_settle_asks_the_revert_again_when_it_was_lost(made, monkeypatch):
     p, e, fid, root, base = made()
     run(p, ok=False)

@@ -101,10 +101,7 @@ def judge(p, spec, fid: str, name: str, v: dict) -> str:
     if not HEX40.match(commit):
         return "its commit cannot be read: not verified"
     seq, limit = applied[0]["seq"], 10 * v["used"]
-    runs = p.events.query(n=limit, type="agent.started", item=blk, after_seq=seq)      # (the newest; all, when fewer)
-    if runs and len(runs) == limit and p.events.query(n=1, type="agent.started", item=blk, after_seq=seq,
-                                                      before_seq=runs[0]["seq"]):
-        return f"more than {limit} runs began since the fix and none decided it: not verified, a person looks"
+    runs = p.events.query(first=limit,type="agent.started", item=blk, after_seq=seq)  # the oldest, by seq
     ends = {e.get("causedby"): e for e in p.events.query(n=None, type="agent.ran,agent.failed", item=blk,
                                                          after_seq=runs[0]["seq"])} if runs else {}
     good: list[str] = []
@@ -126,6 +123,8 @@ def judge(p, spec, fid: str, name: str, v: dict) -> str:
                 "same": mine}})
             ask_revert(p, spec, fid, f"{name}-{commit}")
             return "regressed"
+    if len(runs) >= limit:
+        return f"the first {limit} runs begun since the fix decided nothing (timeouts or kills): not verified, a person looks"
     return f"{len(good)} of {v['used']} good runs begun after the fix so far"
 
 
