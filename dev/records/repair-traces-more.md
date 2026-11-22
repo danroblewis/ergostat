@@ -43,3 +43,21 @@ depends-on: []
 ## Size budget
 100 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built; every acceptance test is written and passes. About 62 net lines of code, within the budget. Decisions made
+alone (each easy to reverse):
+- The supersede acceptance test checks that the old item becomes `superseded` (rule 6's `ergostat.failure.superseded`),
+  not `dismissed`: the definition's "dismissed" is read as superseding, since rule 6 never dismisses.
+- The same rule for a long Python failure: the old how-signed item's kept stderr is read the same way as the new run's
+  (`capture.read`). Its 8,000-character tail has no header, so the run file named by its own `log` field is read.
+  When that file is gone, nothing is superseded.
+- "Python exception line": the last non-blank line matches `pkg.Type` or `pkg.Type: message` with the type capitalised.
+  "Runs to the end": the traceback's exception line is the file's last non-blank line. A multi-line message, or a note
+  after it, is not read, so the run is signed by how it ended.
+- The run file is opened with `O_NOFOLLOW | O_NONBLOCK`, and only when it is under `logs/runs/`. A link or any other
+  path is treated as unreadable.
+- `gems` counts as a library folder for Ruby frames only, so Node, Java and Go project frames do not change.
+  `<internal:` (Ruby's runtime frames) is added to the runtime prefixes for every language.
+- `docs/AGENT-GUIDE.md`'s triage paragraph is updated too (the house rule keeps the agent guide current). The file is
+  not in the Files list.

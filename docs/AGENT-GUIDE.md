@@ -714,9 +714,10 @@ a clone of the repository, tested in the sandbox, and proposed as the gated acti
 Once applied, the fix is verified by the runs of its block begun after it (`verify` of them finished well: not a claim
 the failure is fixed); one that fails again regresses it, and the gated action `revert-fix` offers one `git revert` of
 the fix. A regressed fix whose revert is denied stays regressed, for the owner.
-Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
-is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
-swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
+Triage reads Python, Node, Java, Go and Ruby traces from the last 8,000 characters of a run's output (a trace whose
+header is cut off there counts as none, except a Python traceback that runs to the end of the run's own file: that is
+read from the file's last 64,000 characters), and a run that exits 0 but printed a trace through the project's code is
+noted as a swallowed error, never opened and never moving a failure already there. Other languages are not read.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is

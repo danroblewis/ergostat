@@ -7,22 +7,47 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import hashlib
+import os
 from pathlib import Path
 
 from ..spec import runrecord
 from . import BLOCKS, FAILURE, FROM, traces
 
 TAIL = 8000
+LONG = 64000                               # characters of a run's own file read for a Python traceback the tail cut
 NOT_THE_CODE = ("stopped", "killed", "could not start", "signal")    # how a run ended that a change to its code is not for
-OTHER = ("node", "java", "go")              # signed by how they ended until triage read their traces (superseded)
+OTHER = ("node", "java", "go", "ruby")      # signed by how they ended until triage read their traces (superseded)
 
 
-def clip(text: str) -> str:
-    """The tail of a run's output from its last ``TAIL + 1`` characters: the last ``TAIL``, the first partial line
-    dropped when they do not begin at the run's start (so no trace's header is there in part)."""
-    if len(text) <= TAIL:
+def clip(text: str, n: int = TAIL, start: bool = True) -> str:
+    """The tail of a run's output from its last ``n + 1`` characters: the last ``n``, the first partial line dropped
+    when they do not begin at the run's start (``start``: ``text`` does) (so no trace's header is there in part)."""
+    if len(text) <= n and start:
         return text
-    return text[-TAIL:] if text[-TAIL - 1] == "\n" else text[-TAIL:].partition("\n")[2]
+    return text[-n:] if len(text) > n and text[-n - 1] == "\n" else text[-n:].partition("\n")[2]
+
+
+def _long(p, log) -> str | None:
+    """The last ``LONG`` characters of the run's own file (``logs/runs/...``, never the block's log); None when there
+    is none or it cannot be read."""
+    if not isinstance(log, str) or not log.startswith("logs/runs/") or ".." in log.split("/"):
+        return None
+    try:
+        with open(Path(p.dir) / log, "rb", opener=lambda f, fl: os.open(f, fl | os.O_NOFOLLOW | os.O_NONBLOCK)) as fh:
+            at = max(0, fh.seek(0, os.SEEK_END) - LONG * 4)
+            fh.seek(at)
+            return clip(fh.read(LONG * 4).decode("utf-8", "replace"), LONG, at == 0)
+    except (OSError, ValueError):
+        return None
+
+
+def read(p, root: Path, stderr: str, log) -> tuple[dict | None, bool]:
+    """The trace a failed run is signed by, and whether it came from the long read: the tail's last trace, unless the
+    tail ends in a Python exception line with no header, when the last Python traceback of the run's own file's last
+    ``LONG`` characters that runs to the end is taken, if there is one."""
+    if traces.ends_in_python_exception(stderr) and (text := _long(p, log)) and (tb := traces.python_to_end(text, root)):
+        return tb, True
+    return traces.last(stderr, root), False
 
 
 def scrub(p, text: str) -> str:
@@ -115,7 +140,7 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
     what is decided here from a read (whether it is new, ``began``, which old failure it supersedes) is under ``held``."""
     if guarded(p, b, begun.get("causedby")):
         return None
-    tb = traces.last(stderr, spec.root)
+    tb, long = read(p, spec.root, stderr, data.get("log"))
     program = program_of(spec, b) if b.type in ("program", "ai") else None
     how = ended(data)
     sig = signature(b.name, program, tb, how)
@@ -135,10 +160,10 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
             new = it is None or it.state in FROM["opened"]
             rows.append(_row(f"{FAILURE}.opened", fid, begun, {"reopened": it is not None, **(
                 {"verdict": None, "revert": None, "revert_key": None} if new else {})}))
-        if tb and tb.get("language") in OTHER:               # its old item, signed by how it ended, if the same bug
+        if tb and (long or tb.get("language") in OTHER):     # its old item, signed by how it ended, if the same bug
             old = f"{FAILURE}/{b.name}-{signature(b.name, program, None, how)}"
             was = current(p, spec, old)
-            again = was is not None and traces.last(str(was.fields.get("stderr") or ""), spec.root)
+            again = was is not None and read(p, spec.root, str(was.fields.get("stderr") or ""), was.fields.get("log"))[0]
             if again and was.state not in ("superseded", "dismissed") and signature(b.name, program, again) == sig:
                 rows.append(_row(f"{FAILURE}.superseded", old, begun, {"by": fid}))
         p.events.add_many(rows, new=True)
