@@ -294,3 +294,20 @@ browser run must run both remote tests in `tests/test_items_page.py`.
 Playwright is missing. No Python under `ergostat/` changed this round.
 
 **Size:** +3 net lines in `pages.js`, about 322 under `ergostat/` (budget 420).
+
+## Where it stopped (round 5)
+
+**The finding: the merge of main conflicted in docs/AGENT-GUIDE.md.** Fixed. The factory's merge of main
+(c9d3bab) was finished in cde4cb9. The one conflict was in §3, the remote systems steps. This branch's step 5 is
+kept: the remote's items can be seen in the Items page and its events in the Record page, but they are never
+folded or counted locally (point 12). Main's new step 6 (`ergostat remote proposals`) is kept after it. No code
+changed in this round.
+
+**Run after the merge, one file at a time:** `tests/test_remote_items.py` (21 passed), `tests/test_remote.py` with
+`tests/test_remote_pair.py` (13 passed), `tests/test_graph_cli_web.py` (31 passed), `tests/test_web_access.py`
+(26 passed), `tests/test_spec_items.py` (6 passed). `ruff check ergostat tests scripts` is clean.
+
+**Still not run: the browser files.** `tests/test_items_page.py -k remote` is skipped here: "could not import
+'playwright.sync_api': No module named 'playwright'". The two remote browser tests and the page code have still
+never been executed, and they have never been shown failing with their guards broken (lesson-9). By the house
+rules the gap is not done until they pass. The whole unit suite was not run here either; the factory runs it.
