@@ -197,3 +197,50 @@ def test_a_flow_measured_by_events_lists_its_openings_and_their_items(p):
     p.events.add("valve.opened", item="approver", data={"amount": 1, "flow": "approving"}, causedby=rid, at=now - 90)
     got = item_sets.events_items(p.events, {"valve": "approver"}, now - 3600, now)
     assert got["total"] == 1 and got["rows"][0]["items"] == ["ticket/42"] and got["rows"][0]["amount"] == 1
+
+
+TAKES = """
+name: taken
+items:
+  job:
+    id: job/*
+    states: [new, doing, done]
+    on: {job.started: doing, job.done: done}
+    show: [title]
+stocks:
+  todo: {unit: jobs, sensor: {items: job, state: new}}
+  made: {unit: jobs}
+flows:
+  started: {from: todo, to: made}
+blocks:
+  developer: {type: program, run: 'true', takes: {kind: job, at: new, to: [done]}, out: flow.started}
+"""
+
+
+def test_an_item_taken_then_moved_on_by_its_run_is_counted_as_taken(tmp_path):
+    """A valve's panel (SPEC §9.5): an item is taken while its lease has a holder, whatever state its run moved it to;
+    one acked (its lease ended) is not; those in the block's ``at`` states, not taken, wait. The set opens exactly
+    the taken ones on the Items page."""
+    from ergostat.web.server import Live, api
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(TAKES))
+    p = Project(mdl.load(tmp_path))
+    now = time.time()
+    for i in range(1, 5):
+        p.events.add("job.opened", item=f"job/{i}", data={"title": f"j{i}"}, at=now - 600 + i)
+    lease = {"block": "developer", "fence": 1, "ttl": 600, "max": 2, "back": "new", "tier": "program"}
+    for i in (1, 2):
+        p.events.add("ergostat.lease.taken", item=f"job/{i}", data={**lease, "run": f"run{i}"}, at=now - 300 + i)
+        p.events.add("job.started", item=f"job/{i}", data={}, causedby=f"run{i}", at=now - 200 + i)   # out of leased
+    p.events.add("job.done", item="job/2", data={}, causedby="run2", at=now - 100)
+    p.events.add("ergostat.lease.ended", item="job/2", data={"run": "run2", "fence": 1, "how": "ack"}, at=now - 99)
+    got = item_sets.leased_by(p.events, p.model.spec, "started", now)
+    assert [(x["block"], x["taken"], x["waiting"], x["at"]) for x in got] == [("developer", 1, 2, ["new"])]
+    live = Live(p)
+    panel = api(live, "items", {**got[0]["set"], "alone": ["1"], "n": ["10"], "shown": ["1"]})
+    assert [(i["id"], i["state"]) for i in panel["items"]] == [("job/1", "doing")] and panel["total"] == 1
+    assert panel["items"][0]["fields"]["lease"]["holder"] == "run1"
+    assert "being worked by developer" in panel["set"]["says"]
+    part = api(live, "part/flow/started", {})
+    assert [(x["taken"], x["waiting"]) for x in part["leases"]] == [(1, 2)]
+    with pytest.raises(BadSet):
+        item_sets.parse({"kind": ["job"], "taken": ["developer"], "moved": ["new>doing"]})

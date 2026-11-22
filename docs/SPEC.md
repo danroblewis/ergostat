@@ -2981,6 +2981,19 @@ dead letter another go once its cause is fixed. The Items page shows, for a kind
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
 attempt.
 
+**A valve's panel lists what its block has taken.** A valve (or flow) moved by a block that takes items says, in its
+side panel (Dynamics, and the Blocks view's valve panel), one line per such block: the kind, how many items it has
+**taken** now and how many wait (`N waiting at STATE`, or `none waiting`), and a link to the Items page's set of exactly
+the taken ones (`/items?kind=K&taken=BLOCK`). An item is taken while its lease has a holder of that block, whatever its
+state: a run's first event moves it out of `leased` and it is still taken; an acked or given-back one is not. Waiting
+are the kind's items in the block's `at` states, matching its `where`, not taken. Under the line, **the list of taken
+items**: up to ten (`being worked by BLOCK (N)`), each with its id (a link to its page), its title, its state, its run
+(the first 8 characters, a link to the item's events in the Record), how long it has been taken, when its lease expires
+(`overdue 1m`, in the bad colour, past it) and its attempt (`attempt 2 of 3`); more than ten, `all N taken` links to
+the set; none, `BLOCK is working nothing now`. The list is read again every 4 s while the panel is open, so a lease
+taken or ended comes or goes without a reload; an answer unchanged leaves the panel alone. Its words are taken and
+being worked, never held (docs/vocabulary.md).
+
 ### 9.6 The observer: stale readings and estimated stocks
 
 A controller acts on its picture of the world, and a reading is only a picture as of when it was taken. The engine can

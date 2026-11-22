@@ -225,7 +225,8 @@ details.suggest .hint { margin-top: var(--sp-3); }
 .set-chip .n { font-variant-numeric: tabular-nums; }
 .set-chip button { min-height: 0; border: 0; padding: var(--sp-0) var(--sp-2); }
 .set-chip.bad { color: var(--bad); }
-.item-set table.item-list td.cell { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-set table.item-list td.cell, .taken-list table.item-list td.cell { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taken-list .taken-head { margin-bottom: var(--sp-1); }
 
 /* the diagram: the canvas and its side panel */
 .diagram { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); }
