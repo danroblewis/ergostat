@@ -561,6 +561,40 @@ def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap
     pg.close()
 
 
+def test_the_timeline_says_how_well_last_weeks_estimates_held(browser, roadmap):
+    """A clause per kind in the Timeline's note (eta.calibration, SPEC §5a), in the warning ink under 0.7 of 10 or more;
+    by item and by lanes."""
+    good = "last week's estimates: 8 in 10 tickets finished by their p90 (41 tickets)"
+    poor = "last week's estimates: 4 in 10 epics finished by their p90 (12 epics)"
+    cal = {"ticket": {"coverage": 0.83, "items": 41, "mae": 600.0, "since": 0, "said": good},
+           "epic": {"coverage": 0.42, "items": 12, "mae": 900.0, "since": 0, "said": poor},
+           "note": {"coverage": 0.0, "items": 3, "mae": None, "since": 0, "said": "notes: too few finished last week to check"}}
+
+    def fill(route):
+        r = route.fetch()
+        d = r.json()
+        if d.get("eta"):
+            d["eta"]["calibration"] = cal
+        route.fulfill(response=r, json=d)
+    def look(rows: str) -> None:
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/items-graph*", fill)
+        pg.goto(f"{roadmap}/items?view=timeline{rows}")
+        pg.wait_for_selector(".rg-timeline .rg-note .rg-calibration span", timeout=20000)
+        said = pg.locator(".rg-timeline .rg-note").inner_text()
+        assert good in said and poor in said and "too few finished last week to check" in said, said
+        warned = pg.locator(".rg-timeline .rg-calibration .lvl-warn").evaluate_all("els => els.map((e) => e.dataset.kind)")
+        assert warned == ["epic"], warned
+        ink = lambda k: pg.locator(f'.rg-timeline .rg-calibration [data-kind="{k}"]').evaluate("e => getComputedStyle(e).color")   # noqa: E731
+        assert ink("epic") != ink("ticket") and ink("note") == ink("ticket")
+        assert not errors, errors
+        pg.close()
+    look("")
+    look("&rows=lanes")
+
+
 def test_the_timeline_levels_lanes_per_block(browser, roadmap):
     """The projected bars are levelled (numbers/eta.py): by lanes, each block that takes items a row a lane, no more
     lanes than its capacity, one run at a time in each; by item, each open item's p50 tick and p90 whisker."""

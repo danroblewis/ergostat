@@ -226,8 +226,11 @@ function relTimeline(open) {
     h("button", { class: "ghost", title: "Zoom in", "aria-label": "Zoom in", onclick: () => zoom(0.7) }, "+"),
     h("button", { class: "ghost", title: "Zoom out", "aria-label": "Zoom out", onclick: () => zoom(1.4) }, "−"));
   const svg = s("svg", { class: "rg-svg rg-gantt", role: "img", "aria-label": "Items over time: what happened, and what is projected" });
-  const note = h("p", { class: "note rg-note" });
+  const said = h("span"), held = h("span", { class: "rg-calibration" });   // held: how well last week's estimates held
+  const note = h("p", { class: "note rg-note" }, said, held);
   el.append(tools, h("div", { class: "rg-stage rg-tstage" }, svg), note);
+  const calibrated = (d) => patchKids(held, Object.entries(d.eta?.calibration || {}).map(([k, c]) =>
+    h("span", { "data-kind": k, class: c.items >= 10 && c.coverage != null && c.coverage < 0.7 ? "lvl-warn" : "" }, ` ${c.said}.`)));
   let span = null, cur = null, width = 0;
   const domain = () => span || cur?.fit || [0, 1];
   function zoom(f, at = null) {
@@ -370,7 +373,8 @@ function relTimeline(open) {
     const p90s = shown.map((x) => x.eta?.p90).filter((t) => t != null);
     const top = Math.max(hi, ...p90s);
     cur = { rows: shown, kinds: m.kinds, d, edges, fit: [lo - pad, top + pad] };
-    setText(note, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
+    calibrated(d);
+    setText(said, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
       + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. Not modelled: a goal that switches a block off, a capacity no block declares.`
         + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
         : d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : ""));
@@ -392,7 +396,8 @@ function relTimeline(open) {
     const ts = rows.flatMap((r) => r.bars.flatMap((b) => [b[3], b[4]]));
     const lo = d.now, hi = Math.max(d.now + 60, ...ts);
     cur = { rows, kinds: m.kinds, d, edges: [], fit: [lo - (hi - lo) * 0.02, hi + (hi - lo) * 0.03] };
-    setText(note, rows.length ? `Each block's lanes, at most its capacity at once (leases held over a lowered pool keep theirs until they end): one of ${d.eta.runs} runs of the simulation, levelled. A bar is an item's run; a click opens it. Not modelled: a goal that switches a block off, a capacity no block declares.` : "No block takes these items.");
+    calibrated(d);
+    setText(said, rows.length ? `Each block's lanes, at most its capacity at once (leases held over a lowered pool keep theirs until they end): one of ${d.eta.runs} runs of the simulation, levelled. A bar is an item's run; a click opens it. Not modelled: a goal that switches a block off, a capacity no block declares.` : "No block takes these items.");
     draw();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   }
