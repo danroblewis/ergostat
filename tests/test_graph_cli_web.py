@@ -188,6 +188,23 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_only_the_record_folds_runs_of_identical_events():
+    """Without a browser (the page test is tests/test_items_page.py::test_the_record_folds_runs_of_identical_events):
+    a run's key is the event's type, source, item and shown data, and only the Record (local and remote) asks for
+    the fold, so an item's own event list and a folded run's list show each event."""
+    import re
+
+    from ergostat.web.server import STATIC
+    details, pages = (STATIC / "details.js").read_text(), (STATIC / "pages.js").read_text()
+    assert "JSON.stringify([e.type, e.source, e.item, changeOf(e)])" in details
+    assert re.search(r"if \(fold && last && last\.sig === sig\)", details)
+    assert (details + pages).count("eventsTable(") == 6    # the definition, the Record's two, item, history, run
+    assert (details + pages).count(", false, true)") == 2 and "eventsTable(run.slice().reverse(), false)" in details
+    record = pages[pages.index("async function pageRecord"):]
+    record = record[:record.index("\n}\n")]
+    assert record.count("eventsTable(") == 2 and record.count(", false, true)") == 2
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""

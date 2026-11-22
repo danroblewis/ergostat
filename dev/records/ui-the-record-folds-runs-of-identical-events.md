@@ -52,3 +52,11 @@ fault is in the build step's choice of tests (a test file only for the browser a
 gap (lesson 13) and belongs in a gap of its own, e.g. affected_tests.py leaving out the four browser files, or
 `build_browser = true`. Until then this gap needs the four browser files run in the merge queue, which already runs
 them in full.
+
+Build step, round 1, second failure (rc 5 again: only the browser file was picked, and it skips without
+Playwright). Fixed with a test; no page code changed. tests/test_graph_cli_web.py::test_only_the_record_folds_runs_of_identical_events
+reads the served details.js and pages.js without a browser. It checks that the run key is type, source, item and
+data, that only the Record's two calls ask for the fold, and that the run list doesn't. It sits in a unit file the
+branch now changes, so the build step has tests that run. It checks the source text, not behaviour; the behaviour is
+the browser test above. Seen to fail with `e.source` dropped from the key, and with the local Record's fold switched
+off. The whole file passes (32 passed); ruff clean.
