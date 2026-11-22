@@ -133,3 +133,19 @@ reach the slot's timeout, but that is a guess. It was not measured. Refused here
 (to time the same tests on main), suite_watch around a test file, and a python -c profile of read(). Left: a unit run
 that reaches its end (its summary and suite_watch's JSON line), or the same tests timed on main, to show whether the
 stop is this branch's.
+
+Round 5 (review 3's blocking finding: the conflict with main). origin/main 93d433d9 is merged (b75b98bf; 93d433d9 is
+an ancestor of HEAD). dev/bin/queue.py merged with no conflict this time; its allowance(), Late and the `except Late`
+around the bisect are kept with main's changes. The conflict was in dev/bin/pools.py, where main added HARD = 9 (no
+role pool above it), POOLS, DEMAND, locked() and the `raise batch` docstring, and kept BATCH_MOST = 4. Resolved: all of
+main's kept, BATCH_MOST dropped (point 1), and most() split: the batch is held to [pools] batch_max, 8 when unset,
+and to BATCH_CEILING = 32. The role pools are held to main's HARD. Choice made alone: HARD's comment says each pool is
+AI sessions at once, and the batch is gaps merged together, so the batch keeps its own ceiling and not HARD's 9.
+Lowering BATCH_CEILING to 9 later is one line. Now 56 net lines of code against main (queue.py +51, pools.py +2,
+factory.toml +3), within the 60.
+Review 3's other findings: the 3 h claim (lesson-8) stays narrowed in dev/README.md as written in round 2, and still
+no test shows a slow suite run's bound. An out-of-range batch_minutes still nacks uncounted and records no
+intervention. It fails closed and says why in its event, and an intervention would be added work outside points 1 to 4.
+Run: tests/test_factory.py whole (149 passed, 2 skipped), tests/test_queue.py (5 passed), ruff clean. Not run: the
+unit suite and the four browser files (the factory runs them under the watchdog). No new test in this round, so
+nothing was broken to watch one fail.
