@@ -347,18 +347,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
     engine writes `stale` into `heartbeat.json`; the watcher uses it within 60 to 3600 s, else 180. Left: the loops
     are drawn, not closed by ergostat (their controllers are its code); the heartbeat the run writes as it starts has
     no `stale`, so the watcher uses 180 until the watchdog's first beat (5 s); `restarts` has no goal.
-- **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):
-  - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (done, 3e106ee:
-    `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
-  - **The watchdog restarts without finding the cause, every 6.5 minutes; a hang while starting is unseen; pool
-    wedge found at 130 s** (done, 3e106ee: the index lock's holder dumped; back-off 60 s to 30 m; a startup deadline).
-  - **An `alarm` block lights nothing** (done, 3e106ee).
-  - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
-    (done, 3e106ee: `storage: logs:`; `ergostat compact --projects`).
-  - **The CLI refuses to run while the YAML is broken**, so every `$ERGOSTAT_CMD` call fails while an agent edits
-    (done on branch `cli-fallback`, `docs/roadmap/overnight/cli-fallback.md`: the engine keeps the model it takes as
-    one content-addressed snapshot of every file its loading read; commands that read load that snapshot alone,
-    never running anything; commands that act, `event --add` among them, refuse naming the YAML's error).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per

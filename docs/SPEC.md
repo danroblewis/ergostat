@@ -306,8 +306,9 @@ goal, parameter or block turns one off or goes round it (`coordinator/08-modes-a
 - The stock `heartbeat-age` (`ergostat.upkeep.heartbeat-age`: the seconds since the last pass `heartbeat.json`
   gives) is held at `<= ${stale}` by `heartbeat-fresh` (`stale` 180 by default, 60 to 3600, checked when the model
   loads), served by `outer-watcher` (`watcher.py`, kept running by `ergostat run --service`: launchd or systemd). It
-  fills by `heartbeat-aged` (time passing, its rises) and drains by `heartbeat-renewed`. The stock `restarts` (`ergostat.upkeep.restarts`: `ergostat.engine.restarted`
-  events over the last day) fills by `restarts-made`, which the outer watcher moves, and has no goal.
+  fills by `heartbeat-aged` (time passing, its rises) and drains by `heartbeat-renewed`. The stock `restarts`
+  (`ergostat.upkeep.restarts`: `ergostat.engine.restarted` events over the last day) fills by `restarts-made`, which
+  the outer watcher moves, and has no goal.
 - With `leases: true` (default false): the stocks `overdue-leases` and `expired-leases` (`ergostat.leases.overdue`,
   `.expired`), the goal `no-overdue-leases` (`<= 0`), and the external block `lease-expiry` (`leases/dispatch.py`).
 - With `pool: NAME` (default none): the stocks `free-workspaces` and `quarantined-workspaces`
@@ -2129,9 +2130,8 @@ the engine recovering meanwhile cancels it. The last restart is kept in `<state>
 outlives the process. **A start that hangs** (a lock held by another process, say) is caught by a startup deadline
 (120 s, `ERGOSTAT_STARTUP`): its stacks dumped (`stalls/*-start.txt`) and the process restarted under the same
 back-off. Every 5 s the watchdog writes `<state>/heartbeat.json` (when the last pass finished, the pid, and under
-`use: upkeep` the `stale` the outer watcher uses), and the run
-writes it as it starts. The alarms' own sensor pool is watched as the sensors' is: replaced when wedged, and a third time in ten minutes
-restarts the process. `kill -USR1`
+`use: upkeep` the `stale` the outer watcher uses), and the run writes it as it starts. The alarms' own sensor pool
+is watched as the sensors' is: replaced when wedged, and a third time in ten minutes restarts the process. `kill -USR1`
 on the runner writes every thread's stack to `<state>/threads.txt` at any time, and the socket's `ping` says how long
 ago the last pass finished.
 
@@ -2146,9 +2146,9 @@ which reads only `run.pid`, `heartbeat.json` and `stopped` every 5 s: an engine 
 (`ergostat run --stop` leaves `<state>/stopped`, removed by the next start; a logout or a shutdown leaves none), is
 started again; one whose last pass is older than 180 s, or than the heartbeat's `stale` when that is 60 to 3600 s
 (`use: upkeep`'s `heartbeat-fresh`, section 2a; malformed or out of range, 180, said once in `run.log`), is stopped
-(`SIGTERM`, then `SIGKILL`) and started again; each
-under the same back-off, said in `run.log`, and recorded as `ergostat.engine.restarted` when the start succeeded. `ergostat status` says "engine not running (last seen ...)", from the heartbeat, and
-shows each loop as it was then, never as holding now.
+(`SIGTERM`, then `SIGKILL`) and started again; each under the same back-off, said in `run.log`, and recorded as
+`ergostat.engine.restarted` when the start succeeded. `ergostat status` says "engine not running (last seen ...)",
+from the heartbeat, and shows each loop as it was then, never as holding now.
 
 **What a run records.** Every machine block's run ends with `agent.ran` (or `agent.failed`), and besides what it said
 and moved, that event says what the run cost, measured by ergostat, never by the run's own say:

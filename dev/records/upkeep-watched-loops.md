@@ -170,3 +170,22 @@ Run in round 2, one file at a time: `tests/test_upkeep_watched.py`, `tests/test_
 `tests/test_graph_cli_web.py` (`-k watch`). All pass, and ruff is clean. No new test was added this round, so the round-1 breaks still
 stand. The same items as round 1 were not run. origin/main is still not merged, for the same reason (this clone has no
 `origin/main`, and `git log HEAD..main` is empty).
+
+### Round 3
+
+The queue's finding was that the push of its merge (ce282fdaf099) was denied and the merge undone. That commit is
+not in this clone, so the reason for the denial could not be read here. What the branch itself got wrong is fixed:
+
+- **lesson-7, a merge splice.** The merge of main (2af3876b) brought back an old copy of the *From upkeep's fault
+  injection* entry in `docs/GAPS.md`, just after this gap's entry. Main has already moved and rewritten that entry,
+  which the branch still has further down, so the file held two contradictory copies. The stale copy is removed.
+  `git diff main -- docs/GAPS.md` now shows only this gap's lines.
+- **Wrap width.** A SPEC line this gap added (the `heartbeat-aged` / `restarts` bullet) ran past the wrap width. It is
+  reflowed, along with the two §9.1 sentences this gap edited.
+
+No code changed. The size is still 175 net lines outside `tests/`, `docs/` and `dev/`. `git log HEAD..main` is still
+empty, so there is no newer main to merge. Run in round 3, one file at a time: `tests/test_upkeep_watched.py`,
+`tests/test_upkeep_template.py`, `tests/test_templates.py` (72 passed), `tests/test_watchdog.py`,
+`tests/test_resilience.py` (43 passed), and
+`tests/test_graph_cli_web.py::test_the_service_text_runs_this_repositorys_watcher`. Ruff is clean. The unit suite,
+the four browser files and `demo_check` were not run here.
