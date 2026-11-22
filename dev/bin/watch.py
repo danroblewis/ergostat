@@ -159,9 +159,9 @@ TIME_GOAL = re.compile(r'^  ([a-z0-9-]+): \{auxiliary: ([a-z0-9-]+), hold: "<= (
 def time_goals(gaps: dict, now: float) -> tuple[list[dict], dict]:
     """The time-in-state goals (dev/model/times.yaml) off past their tolerance, as triggers (raised again only when
     further off by a whole tolerance), and every goal's reading: one with no gap in its window, or that cannot be read,
-    is unknown (None), never on target; a file with no goal the watch can read is a trigger of its own."""
-    out, read, rows, since = [], {}, list(gaps.values()), now - measure.WINDOW
-    for name, aux, ceiling, tol in TIME_GOAL.findall(times.GOALS.read_text()):
+    is unknown (None), never on target; a goal in the file the watch cannot parse (or none at all) is a trigger."""
+    out, read, rows, since, text = [], {}, list(gaps.values()), now - measure.WINDOW, times.GOALS.read_text()
+    for name, aux, ceiling, tol in TIME_GOAL.findall(text):
         try:
             v = times.reading(aux, rows, since) if times.values(aux.removesuffix("-p90"), rows, since) else None
         except (SystemExit, ValueError, TypeError, KeyError, AttributeError):
@@ -171,9 +171,10 @@ def time_goals(gaps: dict, now: float) -> tuple[list[dict], dict]:
         if read[name] is not None and over > float(tol):
             out.append(sit("time", f"goal.{name}", f"goal {name} is off: {aux} reads {v:g} against <= {ceiling} "
                                                    f"(tolerance {tol}) over the last 14 days", math.floor(over / step)))
-    if not read:
-        out.append(sit("time", "dev/model/times.yaml", "no time-in-state goal the watch can read in dev/model/times.yaml: "
-                                                       "every time is unknown"))
+    lost = [n for n in re.findall(r"(?m)^  ([a-z0-9-]+): \{auxiliary:", text) if n not in read]
+    if lost or not read:                       # (a goal reworded past the pattern: unknown, never on target)
+        out.append(sit("time", "dev/model/times.yaml", "time-in-state goals the watch cannot read in "
+                                                       f"dev/model/times.yaml: {', '.join(lost) or 'all'}", *lost))
     return out, read
 
 

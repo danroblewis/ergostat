@@ -3765,7 +3765,7 @@ def in_times_yaml(part) -> bool:
     return part.where is not None and Path(part.where.file).name == "times.yaml"
 
 
-def test_the_time_goals_have_no_check_findings():
+def test_the_time_goals_have_no_check_findings(tmp_path):
     """state-times-in-the-loop: check's missing-feedback, auxiliary-without-causes and collector-undescribed say
     nothing of dev/model/times.yaml (the reader check runs, before the extremes, which say none of the three); each
     goal left in it is read by the pipeline watch, its loop closes, and the watch's own reading of the file finds
@@ -3779,11 +3779,22 @@ def test_the_time_goals_have_no_check_findings():
     assert not [n for n in goals if n.endswith("-p90")]
     assert goals <= {r.name for r in spec.blocks["pipeline-watch"].reads() if r.kind == "goal"}
     assert [n for n in goals if not spec.loop(n).closes] == []
+    # each closes through the manager's sessions (what they do moves the time), not by a path that merely exists
+    assert [n for n in goals if "flow.situations-handled" not in spec.loop(n).through] == []
     code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import watch, times; "
             "print(json.dumps(sorted(m[0] for m in watch.TIME_GOAL.findall(times.GOALS.read_text()))))")
     r = subprocess.run([sys.executable, "-c", code, str(BIN)], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout) == sorted(goals)
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import watch, times, pathlib; p = pathlib.Path(sys.argv[2]); "
+            "p.write_text(times.GOALS.read_text().replace('ready-short: {auxiliary: in-ready-hours, hold: \"<=', "
+            "'ready-short: {auxiliary: in-ready-hours, hold: \"<')); times.GOALS = p; "
+            "off, read = watch.time_goals({}, 0); print(json.dumps([off, read]))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(tmp_path / "times.yaml")], capture_output=True,
+                       text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    off, got = json.loads(r.stdout)                       # a goal reworded past the watch's pattern: never on target
+    assert "ready-short" not in got and [t["why"] for t in off if "ready-short" in t["why"]]
     measures = {a for a, x in spec.auxiliaries.items() if in_times_yaml(x)} - {spec.goals[n].of.name for n in goals}
     header = (ROOT / "dev" / "model" / "times.yaml").read_text().split("\ndefaults:")[0]
     assert "-p90" in header and all(m.endswith("-p90") or m in header for m in measures)   # each plain measure said
