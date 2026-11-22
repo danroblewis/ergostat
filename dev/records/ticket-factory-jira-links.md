@@ -117,3 +117,31 @@ All tests are in `tests/test_ticket_factory_links.py`. A fixture copies the exam
 - relates_to is recorded from both ends, since Jira shows the link on both issues. Say whether ergostat treats the relation as symmetric, or whether each side holds its own copy. Either way, test that removing it in Jira clears both sides.
 - Each reading now makes an extra search across up to 500 issues with issuelinks. State how often the daemon polls and confirm this stays within Jira's rate limits, or read links less often than arrivals.
 - Confirm that a sensor source may write relation fields through the socket. If not, the daemon test catches it, but the report should name the rule that allows it.
+
+## Where it stopped
+
+Built: every point of the definition, in 114 net lines of code (jira.py 65, watch.py 29, fakes.py 15,
+ticket.yaml 5). `tests/test_ticket_factory_links.py` (all named tests and five more) and
+`tests/test_ticket_factory_daemons.py` (unchanged) pass, 30 tests. `ruff check ergostat tests scripts` is clean.
+
+Not done here:
+- `scripts/demo_check.py ticket-factory` was not run: the command was refused in this session. It is left to the
+  merge queue.
+- Merging origin/main (lesson-7): this clone has no `origin` remote, and its `main` (5617e225) is this branch's base,
+  so there was nothing to merge. It was not fetched: fetching is reaching the network.
+- The unit suite and the four browser files were not run here (the house rule leaves them to the factory and queue).
+
+Choices made alone (the most reversible one each time):
+- The 500 cap: `_search` does not page, so `linked()` pages by itself (Cloud by `nextPageToken`, DC by
+  `startAt`/`total`) up to `LINKS_MOST`. `_search` and `counts()` are left as they are.
+- Epics on DC: the Epic Link custom field is not read. The README says only Cloud's `parent` gives an epic.
+  `test_an_epic_on_data_center_is_not_read_as_parent` pins this.
+- Link types are matched by name only, and the README says so. A renamed Blocks is recorded as relates_to.
+- Hidden links: the README says the record holds only the links the Jira account can see, and that a hidden one
+  looks removed and is cleared.
+- Links are read at every reading (every 10 s: 6 more searches a minute), as the definition says. This is not
+  checked against Jira's rate limits here (no network). Reading them less often would be a change to the definition.
+- A search answer with an issue that has no key raises JiraError, so the whole reading writes nothing.
+- The test asserted in the definition's malformed-entry case could not fail on `blocked_by` alone: with the entry
+  dropped, the set is unchanged. The test adds a second Blocks link (SCRUM-3) beside SCRUM-1 and the bad entry, so
+  a dropping implementation writes `[1, 3]`.
