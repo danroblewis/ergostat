@@ -1014,6 +1014,25 @@ function legend(view) {
     h("span", { class: "sym" }, "H A P"), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, `${RUNG_LETTER[i]} ${k}`))));
 }
 
+/* the diagram's caption, the page's h1: which discipline's diagram, the model and what it is for, and its verdict
+   (Dynamics: every goal; Blocks: the goals a controller holds, its control loops; off as the loops say) */
+const DIAGRAM_TYPE = { dynamics: "Stock-and-flow diagram (system dynamics)", blocks: "Block diagram (control)",
+                       process: "Process map (process mining)" };
+function captionText(st, view) {
+  const parts = [DIAGRAM_TYPE[view] || view];
+  if (!st) return parts[0];
+  const n = (k, word) => `${k} ${word}${k === 1 ? "" : "s"}`;
+  parts.push(st.purpose ? `${st.name}: ${st.purpose}` : st.name);
+  if (st.top) parts.push(n(st.top, "system"));
+  // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
+  if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
+    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
+    const off = names.filter((x) => st.loops[x]?.status === "off").length;
+    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
+  }
+  return parts.join(" · ");
+}
+
 async function pageDiagram(main, q) {
   // the system dynamics view is the first; "control", its old name, still reaches it
   if (q.get("view") === "wiring") {                             // the wiring the process map replaced: its address reaches it
@@ -1033,7 +1052,8 @@ async function pageDiagram(main, q) {
   S.pins = loadPins();
   S.showHulls = !around;
   const wrap = h("div", { class: "canvas-wrap" });
-  const svg = s("svg", { class: "canvas" });
+  const svg = s("svg", { class: "canvas", "aria-labelledby": "diagram-caption" });
+  const caption = h("h1", { id: "diagram-caption", class: "caption" }, captionText(S.status, view));   // the page's name
   const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "Everything"));
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
@@ -1117,7 +1137,7 @@ async function pageDiagram(main, q) {
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
     around ? h("span", { class: "around" }, "around ", h("b", {}, around), " ", h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ around: "" }) }, "\u00d7")) : null,
-    more);
+    more, caption);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
     h("button", { class: "z", title: "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
@@ -1170,6 +1190,8 @@ async function pageDiagram(main, q) {
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
     S.graph = g;
+    setText(caption, captionText(S.status, view));
+    caption.title = caption.textContent;
     proposedBanner(wrap, g, proposal, go);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
       sysSel.dataset.tree = "1";
@@ -1343,6 +1365,18 @@ function inboxBody(a, href) {
     run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
 }
 
+/* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
+   or its summing junction (Blocks), the closed system holding it opened first (one level: the box drawn) */
+function goalButton(name, label) { return h("button", { class: "name", type: "button", onclick: () => showGoal(name) }, label); }
+function showGoal(name) {
+  const corr = S.graph?.corr, stock = (S.graph?.loops?.[name] || S.status?.loops?.[name])?.stock;
+  const part = S.graph?.kind === "blocks" ? `goal.${name}` : [`stock.${stock}`, `auxiliary.${stock}`].find((p) => corr?.parts?.[p]) || `stock.${stock}`;
+  const box = (corr?.parts?.[part] || []).map((id) => corr.shapes?.[id]).find((x) => x?.region && x.system)?.system;
+  choose([part]);
+  if (box && !(S.graph?.open || []).includes(box)) S.toggleSystem?.(box);
+  openLoop(name);
+}
+
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
@@ -1379,11 +1413,11 @@ function renderSide(side, g, view) {
       if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
       const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
       const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-      const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
+      const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
       const said = h("span", { class: "att-word" }, `${word} · `);
       if (a.answer && a.first) { att.append(h("div", { "data-inbox": a.what }, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
       att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, said,
-        href ? h("a", { href, class: "plain" }, what) : what, " ",
+        href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
         linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
     });
     return att;
@@ -1403,8 +1437,8 @@ function renderSide(side, g, view) {
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.says)?.[1];
-      d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", op(a.says), " ",
-        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "Evidence") : null));
+      d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
+        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }
     side.append(d);
   }

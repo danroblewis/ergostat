@@ -388,7 +388,7 @@ def message_kind() -> ItemKind:
 
 def action_kind() -> ItemKind:
     on = {f"{ACTION}.{s}": s for s in ACTION_STATES}
-    return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "command", "exit"], {},
+    return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "approved by", "command", "exit"], {},
                     None, "a gated action an AI session or a program asked for: approved by its gate (auto) or the owner, or denied; "
                     "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"},
                     final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)

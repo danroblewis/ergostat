@@ -307,6 +307,11 @@ def build() -> argparse.ArgumentParser:
             sp.add_argument("--forget-above", type=float, metavar="V", help="set aside readings above V (wrong ones: they "
                                                                           "would skew every rate and residual)")
             sp.add_argument("--forget-below", type=float, metavar="V", help="set aside readings below V")
+            sp.add_argument("--backfill", metavar="FILE", help="readings at past times: JSON lines {\"at\": EPOCH, "
+                                                              "\"value\": N} (- for standard input), written whole or "
+                                                              "not at all; one backfilled before is skipped")
+            sp.add_argument("--from", dest="from_", metavar="TEXT", help="with --backfill: where they came from")
+            sp.add_argument("--backfilled", action="store_true", help="the sensor's backfills: when, from, first, last, count")
         if t == "controller":
             sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")
     r = topic("run", cmd_run, "Start the agents (in the background) and the web page", named=False)
