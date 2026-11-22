@@ -186,6 +186,33 @@ def test_leaving_a_page_stops_its_polling(browser, site):
     assert set(asked) <= {"events", "status", "projects"}, f"pages left behind still ask: {sorted(set(asked))}"
 
 
+def test_the_loops_page_asks_once_for_every_goal(browser, site):
+    """Opening Loops sends at most four API requests (status, loops, projects and one more), none of them the graph
+    and none per goal; its performance column fills within a few polls, each goal's as loop-control says."""
+    pg = browser.new_page()
+    asked: list[str] = []
+    pg.on("request", lambda r: asked.append(r.url.split("/api/")[1]) if "/api/" in r.url else None)
+    pg.goto(f"{site}/loops")
+    pg.wait_for_selector("td[data-perf]", timeout=30000)
+    pg.wait_for_timeout(1500)                            # the first tick's answers all asked (the next poll is at 3 s)
+    opening = list(asked)
+    goals = pg.evaluate("() => [...document.querySelectorAll('td[data-perf]')].map((c) => c.dataset.perf)")
+    deadline = time.monotonic() + 60
+    while pg.evaluate("() => document.body.innerText.includes('being worked out')"):
+        assert time.monotonic() < deadline, "the performance column never filled"
+        pg.wait_for_timeout(500)
+    cells = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('td[data-perf]')]"
+                        ".map((c) => [c.dataset.perf, c.textContent]))")
+    later = asked[len(opening):]
+    each = pg.evaluate("async (gs) => Object.fromEntries(await Promise.all(gs.map(async (g) => "
+                       "[g, performanceWord(await api('loop-control', { goal: g }))])))", goals)
+    pg.close()
+    names = [a.split("?")[0] for a in opening]
+    assert len(opening) <= 4 and "graph" not in names and "loop-control" not in names, opening
+    assert {"status", "loops"} <= set(names), opening
+    assert not [a for a in later if a.startswith(("graph", "loop-control"))], later
+    assert len(goals) >= 3 and cells == each, (cells, each)
+
 def test_a_hidden_tab_asks_for_nothing(browser, site):
     pg = browser.new_page()
     pg.add_init_script(INIT)
