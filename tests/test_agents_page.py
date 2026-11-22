@@ -84,14 +84,19 @@ for i in range(60):                                   # the last twenty hours, a
             data["ai"] = {"cost_usd": round(usd, 5), "cost": how, "tokens": {"total": toks}, "model": model}
         if block == "writer":                         # its runs are each about a page: done, refused or failed
             data["item"] = f"page/{i}"
-            if i == 58:
-                data["nack"] = {"why": "no workspace free: every one of the pool's three workspaces is held by an "
-                                           "item under review, so this run was given back and put off until one is"}
+            if i == 58:                               # pool full: agent.ran with its note, given back (engine.py)
+                data["note"] = ("no workspace free: every one of the pool's three workspaces is held by an "
+                                "item under review, so this run was given back and put off until one is")
             if i == 57:
                 data["note"] = "exited 2"
         begun = p.events.add("agent.started", item=block, source="ergostat", at=t - data["seconds"], data={})
-        e = p.events.add("agent.failed" if data.get("note") else "agent.ran", item=block, source="ergostat",
+        e = p.events.add("agent.failed" if i == 57 and block == "writer" else "agent.ran", item=block, source="ergostat",
                          causedby=begun["id"], at=t, data=data)
+        if block == "writer":                         # its lease's end, as leases/dispatch.py writes it: 54 gave it back
+            nack = {58: data.get("note"), 57: "exited 2", 54: "the page was rewritten by another run already"}.get(i)
+            p.events.add("ergostat.lease.ended", item=data["item"], source="ergostat", causedby=begun["id"], at=t,
+                         data={"run": begun["id"], "fence": 1, "exit": data["exit"], **({"how": "nack", "why": nack}
+                                                                                       if nack else {"how": "ack"})})
         cr.write_series(p, block, data, t)
         if block == "writer" and i >= 55:             # the outward actions it asked for, as the gate records them
             aid = ar.new_id("push")
@@ -213,8 +218,9 @@ def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_a
         asked: [...tr.cells[3].querySelectorAll("a")].map((a) => a.getAttribute("href"))}))""")
     assert len(rows) == 10 and all((r["item"] or "").startswith("/item/page") for r in rows)
     words = [r["outcome"].split(":")[0] for r in rows]                         # newest first: 59 .. 50
-    assert words[0] == "done" and words[1] == "refused" and words[2] == "failed" and set(words[3:]) == {"done"}
+    assert words == ["done", "refused", "failed", "done", "done", "refused", "done", "done", "done", "done"], words
     assert "no workspace free" in rows[1]["outcome"] and "exited 2" in rows[2]["outcome"]
+    assert "rewritten by another run" in rows[5]["outcome"]                    # exit 0, but its item given back
     assert [len(r["asked"]) for r in rows] == [1, 1, 1, 1, 1, 0, 0, 0, 0, 0]  # the runs that asked for a push
     assert all(h.startswith("/item/ergostat.action") for r in rows for h in r["asked"])
     edge = pg.evaluate("""() => [document.querySelector('.runs-table > table').getBoundingClientRect().right,

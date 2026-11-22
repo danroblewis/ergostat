@@ -276,7 +276,7 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
     otherwise made every refresh of the list hundreds of KB, most of it never shown. The systems in
     ``hide`` (comma-separated: the page's collapsed groups) send no items, only their kinds' counts."""
     from ..actions.record import ACTION, who
-    items = [{**i, "fields": {**i["fields"], **who(i["fields"])}} if i.get("kind") == ACTION else i for i in got["items"]]
+    items = [{**i, "fields": {**i["fields"], **who(i["fields"], i.get("state"))}} if i.get("kind") == ACTION else i for i in got["items"]]
     if hide:
         gone = set(hide.split(","))
         items = [i for i in items if i.get("system") not in gone]
@@ -574,7 +574,12 @@ def _answer(live: Live, path: str, q: dict, project=None):
             for x in acts.stored(p, until=snap["at"]).values():
                 if x.get("run") in began:
                     asked.setdefault(x["run"], []).append({k: x.get(k) for k in ("id", "action", "state")})
+            from ..leases import ENDED  # how each run's lease ended (a nack: it gave its item back), from its start on
+            since = min((e["time"] - (e["data"].get("seconds") or 0) for e in runs[-80:]), default=snap["at"]) - 60
+            ended = {e["causedby"]: {k: e["data"].get(k) for k in ("how", "why")} for e in p.events.query(
+                n=None, type=ENDED, since=since, until=snap["at"]) if e.get("causedby") in began}
             return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:], "asked": asked,
+                    "ended": ended,
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],

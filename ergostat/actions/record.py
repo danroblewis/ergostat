@@ -42,12 +42,18 @@ def fold(aid: str, events: list[dict]) -> dict:
             "moves": it.moves, **({"ignored": ignored} if ignored else {})}
 
 
-def who(f: dict) -> dict:
-    """Who asked for it (the block, else the session) and who answered (the gate, or the owner with their note)."""
-    said = lambda by: "gate (auto)" if by == GATE else f"{by} ({f['note']})" if f.get("note") else by   # noqa: E731
-    return {"by": f.get("block") or f.get("session") or "a session",
-            "approved by": said(f["approved_by"]) if f.get("approved_by") else
-            f"denied by {said(f['denied_by'])}" if f.get("denied_by") else "not yet answered"}
+def who(f: dict, state: str | None) -> dict:
+    """Who asked for it (the block, else the session) and who answered, decided by its folded state (the fold applies
+    the answers in the record's order): a denial is final, so it is the last answer and ``note`` is the denial's. A
+    gate's own denial (deny gate, risk, fence, the act's check) says so with its reason, after any approval it overrode."""
+    said = lambda by, note: "gate (auto)" if by == GATE else f"{by} ({note})" if note else by   # noqa: E731
+    if state == "denied":
+        no = (f"denied by its gate: {f.get('note')}" if f.get("denied_by") == GATE
+              else f"denied by {said(f.get('denied_by'), f.get('note'))}")
+        answer = f"{said(f['approved_by'], None)}, then {no}" if f.get("approved_by") else no
+    else:
+        answer = said(f["approved_by"], f.get("note")) if state != "requested" and f.get("approved_by") else "not yet answered"
+    return {"by": f.get("block") or f.get("session") or "a session", "approved by": answer}
 
 
 def get(p, aid: str) -> dict | None:

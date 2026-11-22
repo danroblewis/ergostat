@@ -239,7 +239,7 @@ async function openAgent(name) {
                             model: d.ai?.model, tokens: d.ai?.tokens?.total, cpu: d.resources?.cpu, memory: d.resources?.memory_peak });
   const last = (a.recent || []).slice(-10).reverse(), th = (t, c) => h("th", c ? { class: c } : {}, t);
   const outcome = (e) => e.type === "agent.failed" ? [h("span", { class: "s-off" }, "failed"), h("span", { class: "muted" }, `: ${e.data.note || "no reason given"}`)]
-    : e.data.nack ? [h("span", { class: "s-open" }, "refused"), h("span", { class: "muted" }, `: ${e.data.nack.why || e.data.note || "no reason given"}`)]
+    : (a.ended || {})[e.causedby]?.how === "nack" ? [h("span", { class: "s-open" }, "refused"), h("span", { class: "muted" }, `: ${a.ended[e.causedby].why || e.data.note || "no reason given"}`)]
     : [h("span", { class: "status" }, "done"), e.data.note ? h("span", { class: "muted" }, `: ${e.data.note}`) : null];
   kids.push(h("div", { class: "table-wrap runs-table" }, h("table", {}, h("tr", {}, th("when"), th("item"), th("outcome"), th("outward actions asked"), th("cost", "num")),
     last.map((e) => { const r = costOf(e.data), asked = (a.asked || {})[e.causedby] || []; return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
