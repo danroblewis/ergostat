@@ -97,3 +97,7 @@ Round 2, the review's two findings:
 
 Tests run in round 2 (rc 0 unless stated): the acceptance browser test, under suite_watch with Playwright 1.63.0;
 `tests/test_inbox_page.py` (browser); `tests/test_inbox.py` (31 passed). ruff is clean.
+Not run to the end: the whole of `tests/test_diagram_rendering.py`. It was started under suite_watch, ran for over
+20 minutes with its output buffered, and was stopped at the session's time limit with no result. It was not
+restarted, since it is one of the four browser files left to the merge queue. The unit suite and the other browser
+files were not run either. No merge of main: local `main` is this branch's base.
