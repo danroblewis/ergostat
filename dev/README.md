@@ -551,11 +551,12 @@ same fields and `stalls`, and its lease is given back the same way until the gap
 the branch's: back to fix, or parked by the kill rule.
 
 The factory's own tests run inside these containers too, so a test of the factory must not depend on the queue's
-environment: what the queue sets there (`PYTEST_ADDOPTS`, `UV_PROJECT_ENVIRONMENT`, `PYTHONPYCACHEPREFIX`,
-`RUFF_CACHE_DIR`, `SPLIT_SHOTS`; `QUEUE_ENV` in tests/test_factory.py) is never passed on to the factory's processes a test starts
-(the `Factory` fixture drops them), and a test that runs factory code in its own process sets or clears what it reads
-(monkeypatch). A new setting the queue gives its containers goes into `QUEUE_ENV`: the queue-container test fails
-until it does.
+environment. What the queue sets there (`PYTEST_ADDOPTS`, `UV_PROJECT_ENVIRONMENT`, `PYTHONPYCACHEPREFIX`,
+`RUFF_CACHE_DIR`, `SPLIT_SHOTS`; `QUEUE_ENV` in tests/test_factory.py) is not passed on to the processes started with
+the `Factory` fixture's `env`: it drops `PYTEST_ADDOPTS` and `SPLIT_SHOTS`, and sets the other three itself (the
+running venv, caches under the test's own folder). A test that starts a process with `os.environ` of its own, or runs
+factory code in its own process, must set or clear what it reads (monkeypatch). A new setting the queue gives its
+containers goes into `QUEUE_ENV`: the queue-container test fails until it does.
 
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in

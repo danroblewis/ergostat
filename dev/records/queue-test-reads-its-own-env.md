@@ -43,3 +43,26 @@ Built, round 1. No code changed outside `tests/`; the only other change is 7 lin
 - Point 4: `dev/README.md`, in the queue's suite-limits section, says a factory test must not depend on the queue's
   environment and points to `QUEUE_ENV`.
 - Not done: origin/main was not merged in because this clone has no remote.
+
+Round 2. Main (67a9e611) is merged in.
+
+- The conflict in `tests/quarantine.txt` came from main's quarantine line for the test colliding with this branch's
+  Released line. Releasing the test is point 3, so main's line is gone and only the `# Released:` line remains, with
+  main's reason folded into it. The test is no longer quarantined.
+- Review 1, README claim wider than the code (lesson-8): `dev/README.md` now covers only the processes started with
+  the `Factory` fixture's `env`, and says that a test starting a process with its own `os.environ` must set or clear
+  what it reads. `tests/test_agents.py:51` (the browser-ready check) still passes `os.environ` on purpose: it checks
+  that this environment can launch Chromium, and it is not a test of the suite or queue code.
+- Review 1, wrap width: the paragraph is reflowed.
+- Review 1, the three cache settings dropped: the fixture now sets them instead of dropping them, which point 1 allows
+  ("cleared or set by the test"). `UV_PROJECT_ENVIRONMENT` is set to the running venv (`sys.prefix`), and
+  `PYTHONPYCACHEPREFIX` and `RUFF_CACHE_DIR` point under the test's own tmp folder, so nothing goes into a checkout.
+  `PYTEST_ADDOPTS` and `SPLIT_SHOTS` are still dropped. This is the most reversible choice: one dict in the fixture.
+- Review 1, not run by the reviewer: run in this round. The two queue-container tests pass. With the fixture's
+  `QUEUE_ENV` filter undone, the acceptance test failed with `PYTEST_ADDOPTS=-o faulthandler_timeout=300 -o
+  faulthandler_timeout=300`, the queue's failure. The filter is restored. `tests/test_queue.py` passes 13 of 13,
+  `tests/test_agents.py` 17 of 17, and `tests/test_factory.py` 164 passed with 2 skipped (both need Docker and the
+  agent image, which this container lacks). Ruff is clean. I started the `test_agents.py` run before the
+  `test_factory.py` run had finished, so for a few minutes two serial runs overlapped, against the one-at-a-time rule.
+  The unit suite and the four browser files were not run here; the queue runs them.
+- No code changed outside `tests/` and `dev/README.md`.
