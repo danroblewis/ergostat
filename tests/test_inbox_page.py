@@ -133,3 +133,40 @@ def test_approve_and_deny_say_what_they_answer_in_an_order_the_keyboard_can_use(
         assert got["state"] == "denied" and got.get("note") == "not today", got
         assert not errors, errors
         b.close()
+
+
+def test_a_typed_reason_stays_with_its_entry_when_one_above_is_answered(site):
+    """Three pushes wait; a reason is typed for the middle one only, then the top one is approved. The rows shift up,
+    and the reason, and Deny's being on, go with the middle entry, not with its old place: the bottom entry shows no
+    reason and its Deny stays off, and the middle one's denial is recorded with its own reason."""
+    from ergostat.actions import gate, record
+    url, p, a = site
+    made = [a] + [gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None}) for _ in range(2)]
+    ids = {f"action/{record.short(x['id'])}": x["id"] for x in made}
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        pg.wait_for_function("""() => document.querySelectorAll('.att [data-inbox^="action/"]').length === 3""",
+                             timeout=20000)
+        top, mid, low = pg.eval_on_selector_all('.att [data-inbox^="action/"]', "rs => rs.map((r) => r.dataset.inbox)")
+        row = lambda what: pg.locator(f'[data-inbox="{what}"]')   # noqa: E731
+        waiting = record.get(p, ids[low])["state"]
+        row(mid).locator("input[type=text]").fill("not this one")
+        assert not row(mid).locator('button[data-verb="deny"]').is_disabled()
+        row(top).locator('button[data-verb="approve"]').click()
+        pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="{top}"]')""", timeout=20000)
+        pg.wait_for_timeout(3000)                   # and a refresh after it (every 2.5 s)
+        assert row(mid).locator("input[type=text]").input_value() == "not this one"
+        assert not row(mid).locator('button[data-verb="deny"]').is_disabled()
+        assert row(low).locator("input[type=text]").input_value() == ""
+        assert row(low).locator('button[data-verb="deny"]').is_disabled()
+        row(mid).locator('button[data-verb="deny"]').click()
+        pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="{mid}"]')""", timeout=20000)
+        got = record.get(p, ids[mid])
+        assert got["state"] == "denied" and got.get("note") == "not this one", got
+        assert record.get(p, ids[low])["state"] == waiting        # untouched
+        assert not errors, errors
+        b.close()

@@ -59,3 +59,16 @@ entry had no unit test. It has one now, in tests/test_inbox.py::test_the_inbox_a
 entry names `push`, the person's `reviewer`, the advised command's `pusher`. The build selects that file too.
 The test failed when the field was broken (the action's name dropped) and passes with it in place.
 Run here: tests/test_inbox.py (30 passed); ruff clean. No code outside tests changed.
+
+Round 2: the review's one finding (diagram.js:1373 with :1342) is fixed. Each Needs-attention row that takes an
+answer is now keyed by its entry (`key: a.what`), so patch() matches rows by the entry, as Deny's `typed` lookup
+does. When an entry above is answered, a typed reason, and Deny being on, stay with their own entry. The review
+had no other finding. 1 net line outside tests (16 in all).
+- Test: tests/test_inbox_page.py::test_a_typed_reason_stays_with_its_entry_when_one_above_is_answered. Three pushes
+  wait. A reason is typed for the middle one only, the top one is approved, and a refresh runs. The middle row
+  keeps its reason with Deny on. The bottom row has no reason and its Deny is off. The middle one's denial is
+  recorded with its own note, and the bottom one is untouched. With the key removed it failed (the middle row's
+  reason read '').
+- Run here: tests/test_inbox_page.py (3 passed, rc 0, Playwright, under the watchdog); tests/test_inbox.py
+  (30 passed); ruff clean. Not run here: the unit suite and the four browser files. Nothing to merge: `main` has not
+  moved since the clone.

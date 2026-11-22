@@ -1370,7 +1370,8 @@ function renderSide(side, g, view) {
   for (const a of problems.slice(0, MAX)) {
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
     const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
-    att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
+    // keyed by the entry, as Deny's lookup is: when one above is answered, a typed reason stays with its entry
+    att.append(h("div", a.answer ? { key: a.what, "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
       linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
   }
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
