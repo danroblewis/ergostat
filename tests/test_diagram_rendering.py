@@ -2226,6 +2226,56 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
     assert not errors and not asked, (errors, asked)
 
 
+SYS_BOXES = """(sel) => {
+  const rgb = (c) => (c.match(/[\\d.]+/g) || []).slice(0, 4).map(Number);
+  const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+                               return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const ratio = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const svg = document.querySelector(sel);
+  return [...svg.querySelectorAll('g.node.k-system')].map((n) => {
+    // every rect the box draws (its Into and Open buttons are transparent controls, not the box)
+    const rects = [...n.querySelectorAll('rect')].filter((r) => !r.closest('.sys-btn') && getComputedStyle(r).display !== 'none')
+      .map((r) => getComputedStyle(r).fill);
+    const title = getComputedStyle(n.querySelector('.sys-title')).fill;
+    return { rects, title, contrast: ratio(title, rects[0]) };
+  }); }"""
+
+
+def test_the_guides_last_frame_draws_its_boxes_as_the_live_diagram_does_and_says_it_is_drawing(browser, tmp_path):
+    """Design review Q06: in light mode the last frame's system dynamics thumbnail draws each system box with the
+    live diagram's fill, its text readable on it; and arriving there by the arrow, the stage says something at once,
+    before the project's own graphs have come back (they are slowed here, so the wait is seen)."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 800}, color_scheme="light")
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        live = pg.evaluate(SYS_BOXES, "svg.canvas")
+        assert live, "software-factory's dynamics view draws no closed system"
+        fill = live[0]["rects"][0]
+        pg.goto(url + "/guide?frame=12")
+        pg.wait_for_function(GUIDE_FRAME, arg=12, timeout=60000)
+        boxes = pg.evaluate(SYS_BOXES, ".g-view:first-child svg.g-canvas")
+        assert boxes, "the thumbnail draws no system box"
+        for b in boxes:
+            assert b["rects"] and all(f == fill for f in b["rects"]), (fill, b)
+            assert b["contrast"] >= 4.5, b
+        pg.add_init_script("""(() => { const f = window.fetch;
+          const later = (u, a) => new Promise((r) => setTimeout(r, 1500)).then(() => f(u, ...a));
+          window.fetch = (u, ...a) => String(u).includes('/api/graph') ? later(u, a) : f(u, ...a); })()""")
+        pg.goto(url + "/guide?frame=11&v=1")
+        pg.wait_for_function(GUIDE_FRAME, arg=11, timeout=60000)
+        pg.keyboard.press("ArrowRight")
+        pg.wait_for_timeout(200)
+        said = pg.locator(".g-stage").inner_text().strip()
+        assert said and pg.locator(".g-stage").get_by_text(said.splitlines()[0]).first.is_visible(), repr(said)
+        pg.wait_for_function(GUIDE_FRAME, arg=12, timeout=60000)
+        assert pg.locator(".g-stage svg.g-canvas").count() == 2
+        assert "Drawing your system" not in pg.locator(".g-stage").inner_text()        # gone once both are drawn
+        assert not errors, errors
+        pg.close()
+
+
 def test_a_loop_lit_from_its_marker_lets_go_the_way_everything_else_does(browser, tmp_path):
     """The owner could not unselect a loop: clicking its marker again, the background, Escape, and the
     detail's close each let it go (no loop lit, nothing faded)."""
@@ -2444,6 +2494,77 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1", timeout=20000)
     pg.close()
     assert not errors and not asked, (errors, asked)
+
+
+RINGED = "() => [...document.querySelectorAll('svg.canvas .node.selected')].map((n) => n.dataset.id)"
+TITLED = "(name) => (document.querySelector('#detail:not([hidden]) h2')?.firstChild?.textContent || '') === name"
+
+
+def goal_named(tmp_path: Path, monkeypatch, boxed: bool) -> Path:
+    """charted, its goal off now; boxed: every part inside a system 'desk' (drawn closed beside an empty 'other')."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = charted(tmp_path, monkeypatch)
+    if boxed:
+        y = re.sub(r"^(  [a-z-]+:)$", r"\1\n    system: desk", CHARTED, flags=re.M).replace("    system: desk\n    id:", "    id:")
+        (d / "ergostat.yaml").write_text(y.replace("name: charted\n", "name: charted\nsystems:\n  desk:\n    description: the desk\n"
+                                                   "  other:\n    description: nothing yet\n"))
+    p = Project(mdl.load(d))
+    p.measurements.add("sensor/backlog.main", 9, at=time.time())
+    p.events.add("loop.off", item="short-backlog", data={"value": 9}, at=time.time() - 1400)   # off most of the window: a hint
+    return d
+
+
+@pytest.mark.parametrize("boxed", [False, True])
+def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction(browser, tmp_path, monkeypatch, boxed):
+    """The off goal's name in Needs attention is a button: it opens the panel 'Evidence' opens, titled with the goal,
+    and rings one shape, its stock in Dynamics and its summing junction in Blocks, opening the closed system that holds
+    it. On /loops each row's first cell is a focusable button, and Enter on it opens the same panel."""
+    d = goal_named(tmp_path, monkeypatch, boxed)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(300):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for view, ring in (("", "stock:backlog"), ("view=blocks", "sum:short-backlog")):
+            drawn(pg, url, view, 1)
+            if boxed:
+                assert not pg.evaluate(f"() => !!document.querySelector('svg.canvas [data-id=\"{ring}\"]')"), "drawn closed first"
+            pg.locator(".side .att button.name", has_text="loop short-backlog").click()
+            pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
+            # (the closed box holding it is ringed until it is drawn open)
+            pg.wait_for_function(f"(r) => JSON.stringify(({RINGED})()) === JSON.stringify([r])", arg=ring, timeout=60000)
+            if boxed:
+                assert pg.evaluate("() => S.graph.open") == ["desk"]
+            pg.evaluate("() => { closeDetail(); choose([]); }")
+            if not boxed and not view:                   # the name under Suggestions: the same
+                pg.locator(".side details.suggest").evaluate("(d) => { d.open = true; }")
+                pg.locator(".side .suggest .hint button.name").first.click()
+                pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
+                assert pg.evaluate(RINGED) == [ring], pg.evaluate(RINGED)
+                pg.evaluate("() => { closeDetail(); choose([]); }")
+        pg.goto(url + "/loops")
+        pg.wait_for_selector("tr.click")
+        rows, names = pg.locator("tr.click"), pg.locator("tr.click > td:first-child > button.name")
+        assert rows.count() == names.count() >= 1
+        names.first.focus()
+        assert pg.evaluate("() => document.activeElement.matches('td:first-child > button')")
+        pg.keyboard.press("Enter")
+        pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
 
 
 def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):

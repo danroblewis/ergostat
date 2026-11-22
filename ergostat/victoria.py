@@ -9,7 +9,8 @@ was written is read at once. Raw reads: ``/api/v1/export``. Buckets: MetricsQL o
 server, so a month of readings never leaves it one by one. Retention is the server's own
 (``-retentionPeriod``); VictoriaMetrics compresses what it keeps, and the open-source server has no
 downsampling, so ``roll`` does nothing and old spans are bucketed when they are asked for. A reading
-set aside (``forget``) is kept in ``measurements.forgotten.json`` in the state directory."""
+set aside (``forget``) is kept in ``measurements.forgotten.json`` in the state directory, and the ledger of
+backfilled readings (``backfill``) in ``measurements.backfilled.db`` beside it."""
 
 from __future__ import annotations
 
@@ -47,6 +48,8 @@ class Victoria:
         self._pending: list[tuple[str, float, float]] = []    # written here, not yet sent: sent within FLUSH
         self._lock = threading.Lock()
         self._flusher: threading.Thread | None = None
+        from .store import LEDGER, _Conns
+        self._ledger = _Conns(directory / "measurements.backfilled.db", LEDGER)   # beside measurements.forgotten.json
 
     FLUSH = 0.5                   # seconds a reading waits before it is sent (one import for many)
 
@@ -152,6 +155,15 @@ class Victoria:
         self.flush()
         for i in range(0, len(rows), 200_000):
             self._import(rows[i:i + 200_000])
+
+    def backfill(self, series: str, rows: list[tuple[float, float]], src: str | None = None) -> dict:
+        """Past readings not backfilled before, sent while the ledger is held; a refused import rolls the ledger back."""
+        from .store import ledger_write
+        return ledger_write(self._ledger, series, rows, src, lambda c, rows: self.add_many(rows))
+
+    def backfills(self, series: str) -> list[dict]:
+        from .store import ledger_read
+        return ledger_read(self._ledger, series)
 
     # ---- reading
 

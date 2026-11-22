@@ -1381,6 +1381,18 @@ function foldRow(ms, row) {
     SNAP || S.at ? null : h("div", { class: "row inbox-act" }, why, all, said));
 }
 
+/* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
+   or its summing junction (Blocks), the closed system holding it opened first (one level: the box drawn) */
+function goalButton(name, label) { return h("button", { class: "name", type: "button", onclick: () => showGoal(name) }, label); }
+function showGoal(name) {
+  const corr = S.graph?.corr, stock = (S.graph?.loops?.[name] || S.status?.loops?.[name])?.stock;
+  const part = S.graph?.kind === "blocks" ? `goal.${name}` : [`stock.${stock}`, `auxiliary.${stock}`].find((p) => corr?.parts?.[p]) || `stock.${stock}`;
+  const box = (corr?.parts?.[part] || []).map((id) => corr.shapes?.[id]).find((x) => x?.region && x.system)?.system;
+  choose([part]);
+  if (box && !(S.graph?.open || []).includes(box)) S.toggleSystem?.(box);
+  openLoop(name);
+}
+
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
@@ -1413,9 +1425,9 @@ function renderSide(side, g, view) {
   const row = (a) => {
     const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
+    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
     return h("div", a.answer ? { "data-inbox": a.what } : {}, h("span", { class: "att-word" }, `${word} · `),
-      href ? h("a", { href, class: "plain" }, what) : what, " ",
+      href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
       linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null);
   };
   const one = (a) => (a.members ? a.members[0] : a);
@@ -1443,8 +1455,8 @@ function renderSide(side, g, view) {
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.says)?.[1];
-      d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", op(a.says), " ",
-        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "Evidence") : null));
+      d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
+        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }
     side.append(d);
   }
