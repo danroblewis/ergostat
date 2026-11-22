@@ -201,3 +201,17 @@ Parked by the factory (review/run-budget-ledger-8, 2026-11-22 00:25).
 
 Failed its gates 8 times (the kill rule). Blocking findings:
 - dev/records/run-budget-ledger.md:186-188 (lesson-8; definition item 5): the round-8 bullet says 'Git printed `unknown revision` for the name `origin/main`, so the commit checks above stand in for it'. In this clone origin/main resolves (refs/remotes/origin/main at 5617e225, one of 174 refs), and `git log HEAD..origin/main` is empty. Item 5 says origin/main is present here, so no sentence may claim it is missing. This is the same partial-view claim raised in rounds 7 and 8. Fix: a round-9 entry that withdraws that sentence and says only what this clone shows: origin/main at 5617e225, `git log HEAD..origin/main` empty, b0fbc839's second parent 5617e225.
+
+Round 9 (the round-8 park's finding):
+- The round-8 sentence "Git printed `unknown revision` for the name `origin/main`, so the commit checks above stand
+  in for it" (line 190) is withdrawn. This record makes no claim about `origin/main` or any remote ref, either way.
+  The implementor and the reviewer work in different clones (see `gap/implementor-clone-has-no-remote`, merged), so
+  the refs of one do not bear on the other. The review's check (`git log HEAD..origin/main` empty, with
+  `origin/main` at 5617e225 in its clone) stands as the review gives it.
+- Checked here, by commit only: b0fbc839's second parent is 5617e225. The latest merge, a6e3593a, has 67a9e611 as
+  its second parent, which is `main` here, and `git log HEAD..main` is empty. No code changed.
+- Not written: the review's suggested wording ("origin/main at 5617e225, `git log HEAD..origin/main` empty") as a
+  finding of this clone, since it was not seen here. Writing it unchecked would be the same lesson-8 fault the other
+  way round. Leaving it to the review's clone is the more reversible choice.
+- Run here in round 9: `tests/test_run_budget.py` (39 passed). Ruff is clean. The unit suite and the four browser
+  files were not run here (left to the factory and the merge queue).
