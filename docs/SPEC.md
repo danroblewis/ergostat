@@ -4111,8 +4111,11 @@ off expected over the 8h"); a run that is not valid (it blew up) counts as off f
 many ("3 of 100 runs not valid, counted as off"). The page says it in words (`ergostat/numbers/forecast_words.py`,
 one function for every surface): "Likely to stay within its bound for the next 8 minutes (about 9 in 10)", "Likely to
 cross its bound around 14:10 (about 7 in 10)", "Expected back within its bound by 14:25", "Likely to stay outside its
-bound for the next 3 hours (about 8 in 10)", a moment reading as off when half the runs or more are off there, the odds
-rounded half up to N in 10 (under 1 and over 9 said so), a clock time today as 14:10, another day as "Tue 14:10"; a
+bound for the next 3 hours (about 8 in 10)". The chance is of whole runs: the share that leave the bound (or, off now,
+come back within it) at some moment ahead, not the worst single moment's share, and a time is when half the runs have.
+The odds are rounded half up to N in 10 ("under 1 in 10" and "over 9 in 10" at the ends, with no "about"). When runs
+that were not valid change what the sentence says, it says how many ("4 of 10 runs not valid, counted as off"); when
+none was valid there is no estimate. It says a clock time today as 14:10, another day as "Tue 14:10"; it has a
 short form for the goal row ("within, 9 in 10"); the raw p, the runs, the horizon and the method in the sentence's
 title and in a closed "How this was worked out" disclosure. A goal with no forecast says why ("No estimate: the loops
 are held (open loop)"). For each part, the half and nine in ten of the valid runs, drawn as

@@ -45,3 +45,20 @@ Built, round 1. The choices below were made alone; each one is the easiest to un
   a planted break: `round()` for the half-up rounding (3 failed), and the raw line printed beside the sentence (the
   browser test failed on 'p≈').
 Overrun reason: about 74 net lines against 70, because a second surface (the strip's riskLines) prints the forecast too, and the no-estimate reasons are wired at two points in add_to_series.
+
+Round 2, answering review 1 (all three findings):
+
+- Chances of whole runs (lesson-8): `closedloop.risk` now also gives each goal `p_ever_off` and `p_ever_on`, the share
+  of runs that have been off (or within) at some moment by each moment ahead. The sentence uses them: 'stay within'
+  says 1 minus the share of runs ever off over the horizon; 'cross around T' says the share ever off, at the moment
+  half the runs have crossed; 'stay outside' says the share never back; 'back by T' is when half the runs have been
+  back. `p_off` (per moment) is unchanged and still feeds risk_said, impact and the disclosure's 'highest chance off'.
+  `test_runs_that_cross_at_different_moments_count_as_crossing` and the 'stay outside' case with a run that comes back
+  for a moment fail on the round-1 reading (planted: per-moment shares fed back in, 2 failed).
+- Runs not valid (lesson-3): with no valid run the answer is 'No estimate: none of the N runs of the model was valid'.
+  When the sentence with only the valid runs would differ (form, time or odds), it says '(…; N of M runs not valid,
+  counted as off)'; when it would read the same, it does not. Tested both ways (planted: the naming switched off, 1
+  failed). Invalid runs are off at every moment, so the valid-only shares are worked out from the totals.
+- 'about' is dropped at the ends: 'over 9 in 10', 'under 1 in 10' (`about()`; tested).
+- docs/SPEC.md says what the chance is of, when invalid runs are named, and the no-'about' ends.
+Overrun reason: about 103 net lines against 70, because answering the review's honest-numbers finding needs the per-run shares computed in closedloop.risk (5 lines) and the invalid-run check works the sentence out a second time from the valid runs alone (a helper of 12 lines).

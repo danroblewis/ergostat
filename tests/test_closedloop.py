@@ -319,6 +319,8 @@ def test_risk_is_reproducible_with_a_seed_and_bounded(tmp_path):
     assert a["runs"] == 40 and not a["stopped"]
     x = a["goals"]["queue-short"]
     assert 0.0 <= x["p_off_end"] <= 1.0 and x["expected_off"] >= 0 and len(x["p_off"]) == 48
+    for ever, now_p in ((x["p_ever_off"], x["p_off"]), (x["p_ever_on"], [1 - v for v in x["p_off"]])):   # whole runs
+        assert len(ever) == 48 and ever == sorted(ever) and all(e >= v - 1e-12 for e, v in zip(ever, now_p, strict=True))
     assert "worker.cap" in {u["name"] for u in a["sampled"]}
     said = cl.risk_said(a, "queue-short")
     assert said.startswith("queue-short: ") and "(40 runs)" in said
@@ -535,5 +537,6 @@ def test_a_run_that_is_not_valid_counts_as_off_and_is_said(tmp_path):
     got = cl.risk(spec, data, run, 24 * 3600, 24, {}, cl.Start(), runs=40, seed=3)
     assert 0 < got["invalid"] < got["made"]
     x = got["goals"]["queue-short"]
-    assert x["p_off_end"] >= got["invalid"] / got["made"]
+    assert x["p_off_end"] >= got["invalid"] / got["made"] and x["p_ever_off"][0] >= got["invalid"] / got["made"]
+    assert x["p_ever_on"][-1] <= 1 - got["invalid"] / got["made"]
     assert f"{got['invalid']} of {got['made']} runs not valid, counted as off" in cl.risk_said(got, "queue-short")
