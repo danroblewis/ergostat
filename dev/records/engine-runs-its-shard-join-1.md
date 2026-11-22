@@ -94,3 +94,18 @@ Round 4: main (5617e225) is merged in. Both conflicts keep both sides. In `spec/
 `data.shard`, and main's `budget.recover` at start runs in every engine, as main has it. In `spec/watchdog.py`,
 `heartbeat(state, passed, stalls, stale, failing=None, shard=None)` writes main's `dispatch_error` into the shard's
 own file. The watchdog passes the dispatcher's `failing` and the shard.
+
+Round 5, the queue's finding: `tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network`
+failed in the queue, in a batch and then alone. This branch does not cause it, and nothing in the branch is changed for
+it (lesson-13):
+- The test runs `dev/bin/queue.py` with a stand-in ergostat (`ERGOSTAT_CMD` is the fixture's fake) and a stand-in
+  Docker. `queue.py` and `fac.py` import no ergostat module, and this branch changes nothing under `dev/bin`, in
+  `tests/test_agents.py` or in `tests/test_factory.py` (`git diff main --stat` lists none of them).
+- Here, on this branch (main 5617e225 merged), it passes alone in 63 s. The whole of `tests/test_agents.py` passes
+  (16 passed, 121 s).
+- Not known, because the queue's log is not in this clone and the clone has no remote to fetch a newer main: what it
+  failed on there. One possible cause, not confirmed: the queue run sits under `Factory.run`'s fixed 120 s timeout, and
+  it takes 63 s on a quiet machine, so it can run past that under load. That would be a fixed limit in the test
+  (lesson-10), outside this gap. The other possibility is a main newer than 5617e225. It should be rerun on clean main.
+- Run again here: tests/test_engine_shard.py (15 passed), tests/test_resilience.py (41 passed),
+  tests/test_engine_shard_asks.py (8 passed), tests/test_agents.py (16 passed). ruff is clean.
