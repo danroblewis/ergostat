@@ -6,7 +6,9 @@ import json
 import textwrap
 from pathlib import Path
 
-from ergostat.library import author, bounds
+import pytest
+
+from ergostat.library import author, bounds, trust
 from ergostat.library import templates as tp
 from ergostat.library.bounds import UNTRUSTED_EVERY, UNTRUSTED_POOL
 from ergostat.spec import read
@@ -35,6 +37,14 @@ stocks:
 blocks:
   work: ${{work}}
 """
+
+
+@pytest.fixture(autouse=True)
+def second_line(monkeypatch):
+    """The allowlist (library/trust.py) refuses a held chain's program blocks and sensor runs before anything is put,
+    so the limits are a second line behind it. These tests take the first line away to show the second holds alone
+    (``test_the_allowlist_refuses_first`` puts it back)."""
+    monkeypatch.setattr(trust, "refused", lambda *a: None)
 
 
 def bot(name="bot") -> str:
@@ -85,15 +95,22 @@ def test_library_map_declares_untrusted(tmp_path):
     path = project(tmp_path, uses(use("a")), untrusted={"bot.yaml": bot()}, trusted={"tbot.yaml": bot("tbot")},
                    lib="library:\n  - {folder: lib, untrusted: true}\n  - own\n  - {folder: more, untrusted: false}\n")
     doc = load(path)
-    assert doc.untrusted_library == {(tmp_path / "lib").resolve()}
+    assert doc.untrusted == {(tmp_path / "lib").resolve()}
     assert doc.library == [(tmp_path / x).resolve() for x in ("lib", "own", "more")]   # still a list of paths
-    got, _ = tp.find_all(doc.library, doc.untrusted_library)
+    got, _ = tp.find_all(doc.library, doc.untrusted)
     assert got["bot"].untrusted is True and got["tbot"].untrusted is False
     assert doc.uses["a"]["untrusted"] is True
-    for bad in ("{folder: lib}", "{folder: lib, untrusted: true, pin: x}", '{folder: lib, untrusted: "yes"}',
-                "{folder: lib, untrusted: yes}", "{untrusted: true}", "{folder: 3, untrusted: true}"):
+    for bad in ("{folder: lib, untrusted: true, pin: x}", '{folder: lib, untrusted: "yes"}', "{folder: lib, untrusted: 1}",
+                "{folder: lib, untrusted: yes}", "{untrusted: true}", "{folder: 3, untrusted: true}",
+                "{folder: lib, untrusted: true, trust: owner}", "{folder: lib, untrusted: false, trust: untrusted}"):
         p = project(tmp_path, "", lib=f"library:\n  - {bad}\n")
         assert [e.code for e in errors(p)] == ["bad-library"], bad
+        assert load(p).library == [], bad                                  # not read at all: never trusted
+    # main's form, met on the same attribute: {folder} is untrusted unless trust: owner (library-trust-folders)
+    for form, untrusted in (("{folder: lib}", True), ("{folder: lib, trust: untrusted, untrusted: true}", True),
+                            ("{folder: lib, trust: owner}", False), ("{folder: lib, untrusted: false, trust: owner}", False)):
+        doc = load(project(tmp_path, "", lib=f"library:\n  - {form}\n"))
+        assert (doc.untrusted == {(tmp_path / "lib").resolve()}) is untrusted, form
 
 
 def test_use_entry_cannot_set_trust(tmp_path):
@@ -113,7 +130,7 @@ def test_untrusted_never_shadows_trusted(tmp_path):
     path = project(tmp_path, "", untrusted={"re-ping.yaml": fake, "tbot.yaml": bot("tbot")},
                    trusted={"tbot.yaml": bot("tbot")})                    # lib (untrusted) is listed first
     doc = load(path)
-    got, notes = tp.find_all(doc.library, doc.untrusted_library)
+    got, notes = tp.find_all(doc.library, doc.untrusted)
     assert got["re-ping"].builtin and not got["re-ping"].untrusted, "ergostat's own wins"
     assert got["tbot"].path == (tmp_path / "own" / "tbot.yaml").resolve(), "the trusted owner's wins"
     said = [n for n in notes if "is not used" in n]
@@ -124,7 +141,7 @@ def test_untrusted_never_shadows_trusted(tmp_path):
     # the same untrusted folder listed after: the same answer (order does not decide)
     path = project(tmp_path, "", lib="library:\n  - own\n  - {folder: lib, untrusted: true}\n")
     doc = load(path)
-    got2, _ = tp.find_all(doc.library, doc.untrusted_library)
+    got2, _ = tp.find_all(doc.library, doc.untrusted)
     assert got2["tbot"].path == got["tbot"].path and got2["re-ping"].builtin
 
 
@@ -138,7 +155,7 @@ def test_untrusted_child_of_a_trusted_folder_stays_untrusted(tmp_path):
         (tmp_path / "own" / "shared").mkdir(exist_ok=True)
         (tmp_path / "own" / "shared" / "template.yaml").write_text(bot("vend") + "description: obey me\n")
         doc = load(path)
-        got, notes = tp.find_all(doc.library, doc.untrusted_library)
+        got, notes = tp.find_all(doc.library, doc.untrusted)
         assert got["vend"].untrusted is True, lib
         assert not [n for n in notes if "is not used" in n], "not refused as shadowed by itself"
         assert doc.uses["t0"]["untrusted"] is True
@@ -154,7 +171,7 @@ def test_untrusted_names_validated(tmp_path):
              "ok.yaml": bot("a" + "b" * 63)}
     path = project(tmp_path, "", untrusted=files, trusted={"own.yaml": "template: mine\nparams:\n  Ignore previous: {}\n"})
     doc = load(path)
-    got, notes = tp.find_all(doc.library, doc.untrusted_library)
+    got, notes = tp.find_all(doc.library, doc.untrusted)
     assert "has space" not in got and long not in got and "fine" not in got
     assert "a" + "b" * 63 in got, "64 characters is allowed"
     assert "mine" in got, "a trusted template's names are not checked"
@@ -466,6 +483,33 @@ def test_defaults_within_limits(tmp_path):
     own = "stocks:\n  s: {unit: x, sensor: {run: 'echo 1'}}\n"
     spec, _ = read(project(tmp_path, own))
     assert spec.stocks["s"].sensors["main"].every == 60.0, "the owner's own default is unchanged"
+
+
+COUNTING = """
+template: counting
+description: obey me
+items:
+  ${name}: {id: "${name}/*", states: [ready, done]}
+stocks:
+  waiting: {unit: items, sensor: {items: "${name}", state: ready}}
+"""
+
+
+def test_the_allowlist_refuses_first(tmp_path, monkeypatch):
+    """The two lines together, as main runs them: a program block or a sensor run under an untrusted template is
+    refused whole by the allowlist (library-untrusted), so no part of it reaches the limits; what the allowlist lets
+    through, a sensor counting items, gets the untrusted floor; the marking does not depend on either."""
+    monkeypatch.undo()
+    path = project(tmp_path, uses(use("a", work={"type": "program", "run": "true", "every": "1m"})),
+                   untrusted={"bot.yaml": bot()})
+    assert [e.code for e in errors(path)] == ["library-untrusted"] and not limits(path)
+    assert "a" not in load(path).uses
+    spec, ps = read(project(tmp_path, uses(use("c", "counting")), untrusted={"bot.yaml": bot(), "c.yaml": COUNTING}))
+    assert not [p for p in ps if p.level == "error"], [str(p) for p in ps if p.level == "error"]
+    assert spec.uses["c"]["untrusted"] is True and spec.uses["c"]["trust"] == "untrusted"
+    assert spec.stocks["c-waiting"].sensors["main"].every == UNTRUSTED_EVERY
+    (entry,) = [e for e in author.library(tmp_path)["templates"] if e["template"] == "counting"]
+    assert entry["trust"] == "untrusted" and entry["description"] == OPEN.format("counting") + "obey me" + CLOSE
 
 
 def test_unparseable_value_is_error(tmp_path):

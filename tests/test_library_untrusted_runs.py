@@ -15,7 +15,7 @@ import pytest
 
 from ergostat import model as mdl
 from ergostat.leases import TAKEN
-from ergostat.library import bounds
+from ergostat.library import bounds, trust
 from ergostat.library.bounds import UNTRUSTED_EVERY, UNTRUSTED_RUNS
 from ergostat.spec import engine as engine_module
 from ergostat.spec import items as its
@@ -57,6 +57,13 @@ def project(tmp_path) -> Project:
 
 
 MADE: list[Engine] = []
+
+
+@pytest.fixture(autouse=True)
+def second_line(monkeypatch):
+    """The allowlist (library/trust.py) refuses these untrusted blocks before compile; the run-time gates are a second
+    line behind it (and behind the compile check), so they are shown here with the first line taken away."""
+    monkeypatch.setattr(trust, "refused", lambda *a: None)
 
 
 @pytest.fixture(autouse=True)

@@ -3,6 +3,7 @@
   "template": "plain",
   "description": "A stock of work and a block that drains it, as the owner wrote it.",
   "from": "OWNERS",
+  "trust": "owner",
   "params": {
    "every": {
     "type": "duration",
@@ -52,6 +53,7 @@
    "template": "plain",
    "description": "A stock of work and a block that drains it, as the owner wrote it.",
    "from": "OWNERS",
+   "trust": "owner",
    "params": [
     "every",
     "limit",
