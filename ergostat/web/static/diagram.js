@@ -1346,8 +1346,10 @@ function renderSide(side, g, view) {
   if (charts && S.sel?.size) side.append(live(charts));
   // three groups, always in this order, each with its count: what waits on a person; the goals off (the system's,
   // then modelling's after a rule: as many as the header's "loops off"); the rest, the model's housekeeping (folded,
-  // unless a fault is in it). Each entry starts with its state or kind word, so colour is not the only cue.
-  const waiting = problems.filter((a) => Array.isArray(a.answer) || a.waiting);
+  // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
+  // colour is not the only cue.
+  const ask = (a) => (Array.isArray(a.answer) && a.kind !== "request") || a.waiting;
+  const waiting = problems.filter(ask);
   const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
   const rest = problems.filter((a) => !waiting.includes(a) && !off.includes(a));
   const count = (xs) => h("span", { class: "muted" }, ` ${xs.length}`);
@@ -1361,7 +1363,7 @@ function renderSide(side, g, view) {
     if (!xs.length) att.append(h("div", { class: "none" }, none));
     xs.forEach((a, i) => {
       if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
-      const word = a.state || (Array.isArray(a.answer) || a.waiting ? "waiting" : a.level === "bad" ? "fault" : "note");
+      const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
       const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
       const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
       att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, h("span", { class: "att-word" }, `${word} · `),

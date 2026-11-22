@@ -3859,6 +3859,10 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
     p.measurements.add("sensor/backlog.main", 9, at=now - 30)                    # the system's goal: off
     p.measurements.add("sensor/unanswered-requests.main", 3, at=now - 30)        # modelling's goal: off
     p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 2, "ask": "review the backlog"})
+    from ergostat.numbers import requests as rq
+    for code in ("collector-undescribed", "flow-unmeasured"):                  # modelling's held requests: housekeeping
+        rq.event(p, rq.rid("check", code, "flow.x"), "held", {"code": code, "about": "flow.x", "source": "check",
+                                                               "tier": "ai", "why": "its tries are used"})
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                             env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -3886,7 +3890,10 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
             header = pg.locator("#running").inner_text()
             assert int(heads[1].rsplit(" ", 1)[1]) == int(re.match(r"(\d+) loops? off", header).group(1)) == 2, (heads, header)
             waiting, off, house = groups
-            assert len(waiting["rows"]) == 1 and waiting["rows"][0].startswith("waiting · "), waiting
+            assert len(waiting["rows"]) == 1 and waiting["rows"][0].startswith("waiting · ") \
+                and "request/" not in waiting["rows"][0], waiting                # only the person's ask
+            held = [r for r in house["rows"] if "request/" in r]
+            assert len(held) == 2 and all(r.startswith("request · request/") for r in held), house
             assert off["rows"][0].startswith("off · loop short-backlog"), off          # the system's first,
             assert off["rows"][1] == "---", off                                         # a rule,
             assert off["rows"][2].startswith("off · loop requests-handled"), off       # then modelling's

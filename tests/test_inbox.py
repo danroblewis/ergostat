@@ -700,3 +700,10 @@ def test_each_loop_line_carries_its_state_and_whether_the_goal_is_modellings(tmp
     snap["reports"] = [{"id": "report/1", "title": "a crash"}]
     said = [a for a in st.attention(snap, False, p.model) if a["what"] == "reports upstream"]
     assert said and said[0]["waiting"] is True, said
+    from ergostat.numbers import requests as rq
+    rq.event(p, "r1", "held", {"code": "flow-unmeasured", "about": "flow.x", "source": "check", "tier": "ai"})
+    p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 2, "ask": "look"})
+    asks = {a["what"]: a for a in st.attention(st.snapshot(p, now=time.time()), False, p.model) if "answer" in a}
+    assert asks["request/r1"]["kind"] == "request", asks                     # the page puts these under housekeeping
+    assert [a["kind"] for w, a in asks.items() if w != "request/r1"] and all(
+        a["kind"] != "request" for w, a in asks.items() if w != "request/r1"), asks

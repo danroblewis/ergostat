@@ -78,3 +78,22 @@ things: each loop entry's `state` is its status; only the `use: modelling` goal 
 reports-upstream line is marked `waiting`. It passes, and so does the whole of `tests/test_inbox.py` (31 passed).
 Checked that it can fail: with the modelling match broken in `state.py`, it failed (KeyError 'modelling'). No code
 outside tests changed.
+
+Round 2, the review's two findings:
+- Finding 1 (blocking): modelling's held requests filled "Waiting for you". Fixed. `state.attention` now passes each
+  inbox entry's `kind` (one more key on the asks; nothing else reads it). The page counts an entry with answers as
+  "Waiting for you" only when its kind is not `request`. Modelling's held requests (`request/…`) go under "Model
+  housekeeping", each starting "request · ". They keep their answer controls there, so they can still be answered
+  where they are listed. Choice made with nobody to ask (the most reversible one): model changes waiting for approval
+  (`change/…`) stay under "Waiting for you". They are a person's approval of a change, not a note. Moving them is a
+  one-word change in `ask` in `diagram.js`. Net code outside tests is still about 27 lines, inside the budget of 60.
+- Finding 2 (blocking, lesson-9): the browser test now seeds two held `ergostat.modelling-request` entries. It checks
+  that "Waiting for you" holds only the person's ask (one row, no `request/`), and that both requests are under
+  "Model housekeeping" and start with "request · ". The unit test in `tests/test_inbox.py` also checks that a held
+  request's attention entry has `kind` `request` and that the person's ask does not.
+- Checked that both tests can fail. With `ask` reverted to taking every entry that has answers, the browser test
+  failed (`assert (3 == 1)` on the "Waiting for you" rows). With `kind` broken in `state.py`, the unit test failed
+  (`assert 'x' == 'request'`). Both pass again on the restored code.
+
+Tests run in round 2 (rc 0 unless stated): the acceptance browser test, under suite_watch with Playwright 1.63.0;
+`tests/test_inbox_page.py` (browser); `tests/test_inbox.py` (31 passed). ruff is clean.
