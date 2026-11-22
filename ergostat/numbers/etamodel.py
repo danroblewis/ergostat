@@ -228,13 +228,14 @@ def read(p, spec, kinds: list[str], at: float, ix=None, truth: bool = False) -> 
 
 def _unscheduled(out: Inputs) -> None:
     """The items that cannot move, marked to be left out of the run (else it goes on to the horizon): paused, of a
-    kind with no finished state, waiting at blocks every one of which is switched off (not leased), or waiting on one
-    of these, however far."""
+    kind with no finished state, waiting at blocks every one of which is switched off, or waiting on one of these,
+    however far. A leased item is run (its lease holds a slot, and its run ends); one that reaches a paused or off
+    state partway through a run is counted out there (``eta._Run.out``)."""
     said: dict[str, str] = {}                           # id → what it is, after "which"
     for x in out.items.values():
         k = out.kinds[x.kind]
         bs = [b.name for b in out.blocks if b.kind == x.kind and x.state in b.at]
-        if x.state in k.paused:
+        if x.state in k.paused and not x.lease:
             x.unscheduled, said[x.id] = f"paused in {x.state}", f"is {x.state}"
         elif not k.finished:
             x.unscheduled = said[x.id] = f"has no finished state ({x.kind})"

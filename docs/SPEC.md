@@ -1365,7 +1365,7 @@ for:
   state a block takes from, such as review); *blocked* (a precedence relation names an item not finished, a paused
   one too: it is named as what the item waits on); *unblocked* (in its first state, nothing it waits on unfinished;
   not "ready", which is often a state's name); *paused* (in a state its kind declares paused, `messages: paused:`:
-  not finished, not active, kept out of the critical path, and held where it is by the completion estimates, "paused:
+  not finished, not active, kept out of the critical path, and not scheduled by the completion estimates, "paused:
   continued by hand", with no projected bar); *dead* (a dead letter).
 - **Durations**: each kind's time per state, the median of the stays its latest 2,000 items made in it (`leased`, a
   run's hold, counted as the work it is), weighted by how often a finished item visits the state (a rework state,
@@ -1514,11 +1514,13 @@ stand now):
 - **Dependencies:** an item does not leave its kind's first state, nor is it taken by an `unblocked` block, until
   every item its precedence relations name is finished (an item named but not in the record is not waited on).
 - **Items that cannot move are left out of the run** (else every run would go on to the horizon): an item paused
-  (its kind's `paused` message), one waiting at a state whose every block that takes from it is switched off and
-  not leased, one of a kind with no finished state, and one whose precedence relations reach any of these,
-  however far. Each is **not scheduled**: no p50 or p90, no bar, and why ("paused in parked", "waits for dev,
-  switched off", "waits on gap/x, which is parked"); each kind counts them (`unscheduled`), and its last finish is of
-  the items that can move only.
+  (its kind's `paused` message) or waiting at a state whose every block that takes from it is switched off, either
+  not leased (a leased one is run: its lease takes a slot and its run ends), one of a kind with no finished state,
+  and one whose precedence relations reach any of these, however far. Each is **not scheduled**: no p50 or p90, no
+  bar, and why ("paused in parked", "waits for dev, switched off", "waits on gap/x, which is parked"); the Items
+  list and an item's page say that first, then the item's reason as above. Each kind counts them (`unscheduled`),
+  and its last finish is of the items that can move only. An item that reaches a paused or switched-off state
+  partway through a run, and one parked waiting on it, is counted out of that run there: not finished in it.
 - **Arrivals:** new items at the record's rate per kind (a batch brought in at one moment is not a rate), into the
   states they arrive in, competing for the same capacity.
 

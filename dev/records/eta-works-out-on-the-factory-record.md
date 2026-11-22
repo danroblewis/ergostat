@@ -47,3 +47,35 @@ Not done:
 Overrun reason: 139 net lines against 110 (34 in code, 105 in tests). Each of the five acceptance tests needs its own
 record or inputs, and two also check the record-read path through `read` (the paused and gated models), which the
 budget did not count.
+
+### Round 2 (answering review/eta-works-out-on-the-factory-record-1)
+
+- Blocking (eta.py: an item that moves into a paused or switched-off state partway through a run held it to the
+  horizon): `_Run.out` now counts such a tracked item out of that run (not finished, `open` lowered), and with it each
+  item parked waiting on it, however far; an item parked later on one already counted out is counted out too.
+  `test_an_item_paused_partway_through_a_run_does_not_hold_it`: a third of the block's runs end in `parked`, one item
+  waits on another; 200 runs in under 1 s, and a run ends with `open == 0`. Seen to fail with `out` a no-op (19 runs
+  of 200) and with the propagation to waiting items removed (31 of 200). The branch for an item parked after its
+  predecessor was counted out (rework back to the first state) is not reached by that test.
+- The `reasons()` words (lesson-8): taken the reversible way, the words are kept. `_work` again lets `reasons()`'
+  why stand on the Items list and item page (the goal or switch that turned a block off, "continued by hand", "waits
+  on"), and an item not scheduled says so first: "not scheduled: waits for dev, switched off; waits for dev, which is
+  switched off now (by ...)"; a paused item whose reason already begins with its cause is left as it is.
+  `test_off_block_items_unscheduled` checks this through `eta_api.estimates`; the old code, which kept only the
+  short why, fails it by its text (not run with it undone). SPEC's paused status line now says "not scheduled by the
+  completion estimates" (it said "held").
+- eta.py:260 (a paused item holding a lease skipped before its lease is set up): a leased item is no longer left out
+  for being paused, as already for off blocks; its lease takes its slot and its run ends, and where it goes then is
+  counted out if it cannot move. Checked in the new test (`t/0` paused and leased: scheduled, and started).
+- DoD 5, the table rerun: still not done. This session refused a plain `python3` script (used only to edit files),
+  so the backtest script was not tried again; it still needs a run on a host. The narrower claim above stands, and
+  the mid-run count-out changes nothing on records with no paused state and no off block.
+- SPEC §5a says the mid-run count-out and the leased exception.
+
+Tests run: `tests/test_eta.py` (19 passed), `tests/test_items_page.py` under the watchdog with Playwright (21
+passed, none skipped, rc 0), ruff clean. Not run: the unit suite and the other browser files (the factory's and the
+queue's), the after-deploy GET.
+
+Overrun reason: 183 net lines against 110 (54 in code, 129 in tests): round 1's 139 plus the mid-run count-out
+(`_Run.out`, 20 code lines), the Items list wording (4), and the tests the review asked for (a run routed into
+parked, and the Items list's words through `estimates`).

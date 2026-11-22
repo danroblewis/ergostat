@@ -87,6 +87,7 @@ class _Run:
             for pr in x.preds:
                 self.after.setdefault(pr, []).append(x.id)
         self.parked: set[str] = set()
+        self.gone: set[str] = set()                     # tracked items counted out partway through (``out``)
         self.holds = {i: set(x.holds) for i, x in inp.items.items() if x.holds} if flags.queue else {}
         self.wsfree = {w: n - sum(1 for h in self.holds.values() if w in h) for w, n in inp.workspaces.items()}
         self.no_ws = [[] for _ in self.blocks]          # queued, waiting for a workspace: back in the queue when one frees
@@ -107,15 +108,19 @@ class _Run:
             self.done(i, t, state == DEAD)
             return
         if state in k.paused:
-            return                                     # paused: continued by hand, projected not to move
+            self.out(i)                                # paused: continued by hand, projected not to move
+            return
         if i not in self.start and state != k.states[0] and i in self.inp.items:
             self.start[i] = t
         bs = self.by_state.get((it[0], state))
         if self.left.get(i) and (state == k.states[0] or bs and any(self.blocks[b].unblocked for b in bs)):
             self.parked.add(i)                         # waits on what it names
+            if any(p in self.gone for p in self.inp.items[i].preds):
+                self.out(i)
             return
         if bs and all(self.blocks[b].off for b in bs):
-            return                                     # what would take it is commanded off: it stays where it is
+            self.out(i)                                # what would take it is commanded off: it stays where it is
+            return
         if bs:
             x = self.inp.items.get(i)
             for b in bs:
@@ -145,6 +150,17 @@ class _Run:
         rest = [s for s in k.states if s not in (DEAD, LEASED)]   # never seen to leave: the next in its kind's order
         j = rest.index(state) + 1 if state in rest else len(rest)
         return rest[j] if j < len(rest) else rest[-1]
+
+    def out(self, i: str) -> None:
+        """A tracked item that cannot move from here (paused, at blocks off, waiting on such an item): not finished
+        in this run and no longer waited for, as are those parked waiting on it (else the run goes to the horizon)."""
+        if i not in self.inp.items or i in self.gone:
+            return
+        self.gone.add(i)
+        self.open -= 1
+        for d in self.after.get(i, []):
+            if d in self.parked:
+                self.out(d)
 
     def done(self, i: str, t: float, dead: bool) -> None:
         for w in self.holds.pop(i, ()):                 # finished: its workspace cleaned, free for the next

@@ -83,8 +83,11 @@ def _work(p, spec, kinds, w) -> dict:
         inp = etamodel.read(p, spec, kinds, time.time())
         ans = eta.simulate(inp, pools=w.pools, failures=w.failures)
         why = eta.reasons(inp, w.pools)
-        for i, x in ans["items"].items():               # (an item not scheduled keeps its own why)
-            x.update({k: v for k, v in (why.get(i) or {}).items() if not (k == "why" and x.get("unscheduled"))})
+        for i, x in ans["items"].items():               # (reasons' words kept; one not scheduled says so first)
+            r = dict(why.get(i) or {})
+            if x.get("unscheduled") and not r.get("why", "").startswith(x["why"]):
+                r["why"] = f"not scheduled: {x['why']}" + (f"; {r['why']}" if r.get("why") else "")
+            x.update(r)
         ans["assumed"] = {b.name: b.assumed for b in inp.blocks if b.assumed}
         ans["whatif"] = w.said()
         return ans

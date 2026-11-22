@@ -301,6 +301,23 @@ def test_paused_item_does_not_hold_the_run():
     assert g["items"]["t/1"]["p50"] is not None and "t/0" not in g["schedule"]
 
 
+def test_an_item_paused_partway_through_a_run_does_not_hold_it():
+    inp = paused_inputs()
+    b = inp.blocks[0]                                     # a third of the runs leave the item parked
+    b.attempts = [Attempt(600.0, "ack", "done")] * 2 + [Attempt(600.0, "ack", "parked")]
+    inp.items["t/9"].preds = ["t/1"]
+    inp.items["t/0"].lease = ("dev", T0 - 10)             # a paused item holding a lease: run, its slot held
+    _unscheduled(inp)
+    assert not inp.items["t/0"].unscheduled
+    t = time.monotonic()
+    g = eta.simulate(inp, runs=200)
+    assert g["runs"] == 200 and time.monotonic() - t < 1.0      # (was: a run to the horizon whenever one parks)
+    run = eta._Run(inp, eta.Flags(), random.Random(3), {}, {}, False)
+    run.go(eta.HORIZON)
+    assert run.open == 0 and run.gone and "t/0" in run.start
+    assert ("t/1" not in run.gone) or "t/9" in run.gone         # waiting on one parked: counted out with it
+
+
 def test_waiting_on_a_paused_item_is_unscheduled(tmp_path):
     inp = paused_inputs()
     inp.items["t/1"].preds, inp.items["t/2"].preds = ["t/0"], ["t/1"]
@@ -323,13 +340,19 @@ def test_waiting_on_a_paused_item_is_unscheduled(tmp_path):
     assert got["ticket/b"].unscheduled == "waits on ticket/a, which is held"
 
 
-def test_off_block_items_unscheduled(tmp_path):
+def test_off_block_items_unscheduled(tmp_path, monkeypatch):
+    from collections import OrderedDict
+
+    from ergostat.web import eta_api
     p = take_project(tmp_path, GATED)
     p.events.add("ticket.opened", item="ticket/a", at=time.time() - 60)
     inp = read(p, p.model.spec, ["ticket"], time.time())
     assert inp.items["ticket/a"].unscheduled == "waits for dev, switched off"
     x = eta.simulate(inp, runs=20)["items"]["ticket/a"]
     assert x["unscheduled"] and x["p50"] is None and x["why"] == "waits for dev, switched off"
+    monkeypatch.setattr(eta_api, "_CACHE", OrderedDict())     # the Items list: reasons' words kept, after the cause
+    why = eta_api.estimates(p, p.model, wait=10.0)["items"]["ticket/a"]["why"]
+    assert why.startswith("not scheduled: waits for dev, switched off; waits for dev, which is switched off now (by")
     on = inputs(n=2)                                      # one block of two off: the other takes it
     on.blocks.append(BlockIn("dev2", "t", ["todo"], 1, [], False, 9, off="gate", attempts=on.blocks[0].attempts,
                              run=on.blocks[0].run))
