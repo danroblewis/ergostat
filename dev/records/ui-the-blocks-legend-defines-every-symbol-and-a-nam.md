@@ -25,3 +25,23 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built in round 1: 7 net lines in `ergostat/web/static/blocks.js`; the acceptance test is
+`tests/test_diagram_rendering.py::test_the_blocks_legend_defines_the_subsystem_letter_and_its_size_and_a_name_is_printed_once`
+(software-factory served; `view=blocks` and `view=blocks&open=factory`). Each of the three changes was undone in turn
+and the test failed each time: on the style ({italic 400, normal 700}), on the name ('Qfactoryfactory'), and on the
+legend (no '×').
+
+Choices made with nobody to ask, the reversible way:
+- One typeface: the subsystem letter Q is drawn italic at normal weight everywhere, closed or open, as the frame already
+  drew it. Before this, a closed subsystem with more than one input or output drew Q bold and upright. A process
+  block's bold P (several stocks) and bold vector signals are unchanged, and so is the side panel's MathML definition,
+  which still sets Q bold for a vector system. Only the drawing changes, in one line of `bdBody`.
+- The name printed once: an open system's frame title is now Q with the name as its subscript and no plain name after
+  it. A cascade's 'inner loop of …' title is unchanged.
+- The legend: a new row, shown when a subsystem block or frame is drawn, takes its letter from the graph and defines it,
+  with (s) or without, and 'p×m: outputs × inputs (disturbances counted)'. The first row no longer mentions Q, since
+  the new row covers it. 'Disturbances counted' holds because every wire into a subsystem box becomes one of its input
+  ports (`blockdiagram.py`, `box_port`), a disturbance's included.

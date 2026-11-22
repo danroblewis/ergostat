@@ -3808,3 +3808,40 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+# each subsystem drawn, closed (a block) or open (a frame): its letter's style, its name, and the text it shows
+SUBSYSTEMS = """() => [...document.querySelectorAll('svg.canvas g.bd-subsystem, svg.canvas g.bd-frame-system')].map((g) => {
+  const n = S.graph.nodes.find((n) => n.id === g.dataset.id) || (S.graph.frames || []).find((f) => f.id === g.dataset.hull);
+  const t = g.classList.contains('bd-frame') ? g.querySelector(':scope > text') : g.querySelector('text.bd-sym');
+  const q = t.querySelector('tspan.bd-mi'), cs = getComputedStyle(q);
+  return { name: n.label, frame: g.classList.contains('bd-frame'), letter: q.textContent, style: cs.fontStyle + ' ' + cs.fontWeight,
+           text: [...g.querySelectorAll('text')].map((x) => x.textContent).join(' ') }; })"""
+
+
+def test_the_blocks_legend_defines_the_subsystem_letter_and_its_size_and_a_name_is_printed_once(browser, tmp_path):
+    """In the Blocks view the legend defines the subsystem letter drawn and p×m (outputs × inputs); a subsystem's
+    name is printed once in its block or frame; its letter has one style and weight, closed at the top and open."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        seen = []
+        for i, v in enumerate(["view=blocks", "view=blocks&open=factory"]):
+            drawn(pg, url, v, i)
+            got = pg.evaluate(SUBSYSTEMS)
+            assert got, f"[{v}] no subsystem drawn"
+            seen += [(v, x) for x in got]
+            legend = pg.locator(".legend-box .bd-legend").text_content()
+            assert "×" in legend and "outputs" in legend and "inputs" in legend, legend
+            for x in got:
+                assert f"{x['letter']}, its system's name as the subscript: a subsystem" in legend, (x, legend)
+        opened = {(x["name"], x["frame"]) for v, x in seen if v.endswith("open=factory")}
+        assert ("factory", True) in opened and ("intake", False) in opened, opened     # the frame, and a block inside it
+        assert ("factory", False) in {(x["name"], x["frame"]) for v, x in seen if v == "view=blocks"}
+        for v, x in seen:
+            assert x["text"].count(x["name"]) == 1, f"[{v}] {x['name']} printed more than once: {x['text']!r}"
+        styles = {(x["letter"], x["style"]) for _, x in seen}
+        assert len(styles) == 1, styles
+        pg.close()
+        assert not errors, errors

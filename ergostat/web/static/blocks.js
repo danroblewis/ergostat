@@ -707,7 +707,7 @@ function bdBody(n, fn, w, hgt, dy) {                    // what is inside a bloc
   }
   const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
   const top = frac ? hgt / 2 - 12 : fn.expr ? hgt / 2 - 2 : hgt / 2 + 5;
-  bdSym(g, w / 2, top, fn);
+  bdSym(g, w / 2, top, n.role === "subsystem" ? { ...fn, bold: false } : fn);   // Q in one typeface, closed or open
   if (frac) {
     const fw = Math.max(bdTextW(frac[0]), bdTextW(frac[1])) + 6;
     g.append(bdPower(s("text", { x: w / 2, y: hgt / 2 + 6, class: "bd-expr", "text-anchor": "middle" }), frac[0]),
@@ -782,7 +782,8 @@ function bdDraw(svg, g, lay) {
     const fg = s("g", { class: `sys-hull hull bd-frame bd-frame-${f.frame}`, "data-hull": c.id });
     fg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height }));
     const t = bdSym(fg, c.x + 10, c.y + 19, f.fn || {}, { anchor: "start", size: 13 });
-    t.append(s("tspan", { class: "bd-frame-name", dx: 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
+    if (f.frame === "cascade" || f.fn?.sub !== f.label)      // a system's name is its Q's subscript: not printed twice
+      t.append(s("tspan", { class: "bd-frame-name", dx: 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
     fg.append();
     // its top is a handle: dragged, the frame moves with everything in it, and stays there (interact.js, places.js)
     fg.append(s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: Math.max(0, c.width - 24), height: 30,
@@ -1098,11 +1099,14 @@ function bdRouteDraw(svg, lay) {
 }
 
 function blocksLegend() {
+  const q = [...(S.graph?.nodes || []), ...(S.graph?.frames || [])].find((n) => n.role === "subsystem" || n.frame === "system")?.fn?.sym;
   const row = (svgTxt, text) => [h("span", { html: `<svg width="30" height="20">${svgTxt}</svg>` }), h("span", {}, text)];
   const ink = 'stroke="currentColor" fill="none" stroke-width="1.3"';
   return h("div", { class: "legend bd-legend" },
     row(`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
-        "a block, its function inside: C a controller, P a process, Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
+        "a block, its function inside: C a controller, P a process; C(z) runs every T, (s) is continuous; click it for its definition"),
+    q && row(`<rect x="2" y="1" width="26" height="18" ${ink}/><text x="15" y="10" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">${q}</text><text x="15" y="17" font-size="6" text-anchor="middle" fill="currentColor">p×m</text>`,
+        `${q}, its system's name as the subscript: a subsystem, a system as one block (+ opens it, − closes it); ${q}(s) if every part inside is continuous, ${q} alone if it holds sampled or nonlinear parts; p×m: outputs × inputs (disturbances counted)`),
     row(`<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
         "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, a period that matters against the loop's) and, beneath, what it reads and how often"),
     row(`<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
