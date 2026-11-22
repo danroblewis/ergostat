@@ -40,9 +40,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
   blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
   refused at the owner's `use:` line, with a refusal that suggests
-  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). *Still needed:* a gate on **provenance**,
-  so an untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
-  substitution of a `type: command` parameter, the marks kept through nested uses); a library's `example:` and
+  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). **Built** (`library-provenance-marks`):
+  values carry their writer through expansion and nested uses, so a held chain may run the owner's own `type:
+  command` values (whole, or quoted into a built-in's run) and pass only narrow, fully matched, bounded library
+  values after data flags of ergostat's own programs (`LIB_DATA_FLAGS`); an owner folder's run takes no library
+  value. *Still needed:* a library's `example:` and
   `reading:` marked untrusted wherever an agent reads them (library-untrusted-text); `fetch` by git URL or package,
   refusing a lock entry without a tree, symlinks hashed explicitly; then running untrusted library scripts through
   `ergostat.sandbox` and the rebase onto main.

@@ -223,13 +223,50 @@ in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `
 `goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
 `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
 `alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
-names); sensors only counting items (`items:`) or reading a stock's changes (`changes:`), with no `every` or `cron`.
-Anything else is refused: any other section, block type or key (a sensor's `run`, `query` or `daemon`, a block's
+names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs below.
+Anything else is refused: any other section, block type or key (a sensor's `query` or `daemon`, a block's
 `on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
 anywhere). One refused part refuses the whole
 use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
 nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
 *Libraries you did not write*).
+
+**Writers.** Every parameter value has a writer: the **owner** (a value in the owner's own file, in a depth-0
+`with:`), a **trusted** template (ergostat's own, or one from the owner's folders: its literal text, its defaults and
+its `|default`s), or the **library** (anything an untrusted template writes: its literal text, defaults, `|default`s,
+and text it builds around values). A nested use's `with:` value that is wholly one `${p}` (no `:how`, `|default` or
+`.field`) keeps p's writer; any other is the library's if any part of it is (a parameter written by a library, a
+field such as `${it.x}`, `${p.first}` or `${p.count}`, whose writer can't be told, or a key that can't be found in the
+template), else the writer of the template writing it. A value is an **owner command** only if the owner wrote it for
+a `type: command` parameter and every later hop passed it wholly to a `type: command` parameter again; a hop through
+any other type, or text equal to a command the owner wrote elsewhere, is not one. `expand.py` marks every substituted
+value with its writer, its type and whether its own text is its type's narrow form, keeps the marks until the gate
+has judged the chain, then strips them. Only expand makes marks: a template or a value holding a mark's control
+characters is refused, whole.
+
+**R1, what a held chain may run.** A sensor's or a `program` block's `run` stands when every character of it is: (a)
+an owner command, as the whole value; or, inside a built-in template's run, (b) the template's own text, ergostat's
+names (`${lib}`, `${python}`, `${name}`), a value ergostat's template wrote, or an owner command through `:quote` or
+`:arg`; or (c) a value allowed by R2. A library's text (an untrusted template's words around `${cmd}`, its
+`${here}`, a library default for a command), an owner value of another type (a `string`), and a run holding a field
+(`${it.run}`) refuse the chain. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
+template wrote them. A `program` block may say only `goal`, `run`, `every`, `cron`, `timeout` and the common block
+keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, as do
+`ai` and `person` blocks (`prompt`, `ask`).
+
+**R2, a library's values as arguments to ergostat's programs.** A value not written by ergostat's template (the
+library's, the owner's of a narrow type, or an owner folder's) may stand in a run only in a built-in template whose
+run starts `${lib} `, directly after a flag in trust.py's `LIB_DATA_FLAGS` (flags of `ergostat.library.run` whose
+value is data, such as `--kind`, `--state`, `--every`, `--limit`; never `--run`, `--render`, `--command` or another
+of `LIB_EXEC_FLAGS`), for a parameter typed `name`, `duration`, `number`, `integer` or `bool`, when both the value's
+own text and the text that lands (after `:seconds`, `:hours`) fully match its type's pattern, with no space or
+newline: name `[a-z][a-z0-9-]{0,63}`; duration `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`; number or integer
+`-?[0-9]{1,15}(\.[0-9]{1,9})?`; bool the bare flag (`:arg`), or `true`/`false`. A rate or count flag is also bounded
+(`LIB_BOUNDS`): `--every` 60 s or more, `--limit` 100 or less, `--stand-in` 3600 an hour or less, `--window` 60 s to
+a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any) reaches a run, and no value
+not ergostat's own reaches the run of a template from the owner's folders (such as `sh -c ${x:quote}`), even though
+that template is trusted: no test can vouch for one. Every option of every program is in exactly one of the two
+lists, and every built-in run slot is scanned against these rules (`tests/test_library_provenance.py`).
 
 ### Upkeep
 

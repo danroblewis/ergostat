@@ -123,3 +123,56 @@ Round 1 stopped before any code: the gap this one depends on is not on main.
 Parked by the factory (review/library-provenance-marks-1, 2026-11-21 18:06).
 
 Done: only the definition of done and a 'Where it stopped' note; no code, tests or docs. Left: all of the definition (writer marks in expand.py and uses.py, R1/R2 in trust.py with LIB_DATA_FLAGS/LIB_EXEC_FLAGS and fullmatch patterns, every acceptance test in tests/test_library_provenance.py, SPEC/SECURITY/AGENT-GUIDE/GAPS), plus answers to both plan-review notes (mark-character forgery refused; --every/--limit bounded or dropped, with tests). Why stop: two rounds have produced no work, and the round-2 reason (dependency missing from main) is disproved by the clone. library-trust-folders landed on origin/main as 1171fb2f before the stop commit was written. The next attempt must merge origin/main first and then build the definition as written.
+
+## Where it stopped
+
+Round 1 of the continuation: built. The clone has no `origin` remote; local `main` is `1171fb2f` (library-trust-folders),
+already merged into the branch (`e6c56237`), so there was nothing new to merge.
+
+**Done.** Writer marks in `expand.py` (`A who,type,how,ok H text B`; who is `o` owner, `c` owner command, `e`
+ergostat, `f` owner folder, `l` library). They are passed through nested `with:` (`expand.nested`, `Made.writers`) and
+kept until the gate (`Made.marked`). R1/R2 are in `trust.py` (`run_ok`, `writer_ok`, `NARROW`, `LIB_DATA_FLAGS`,
+`LIB_EXEC_FLAGS`, `LIB_BOUNDS`). `uses.py` passes writers down and judges the marked entries. Every acceptance test
+is in `tests/test_library_provenance.py`. SPEC §2a, SECURITY, AGENT-GUIDE and GAPS are updated. 204 net lines of code,
+within the 320 budget.
+
+**Choices where the definition was silent (each the more closed option):**
+- `averages` joins `every`/`cron`/`timeout` (owner or trusted writer only). Without it, collect's own `averages: 10m`
+  refuses `test_owner_command_through_builtin_allowed`.
+- A `program` block is still refused by type (`REFUSED_TYPES`, so `test_every_compile_key_classified` stands), unless
+  its keys are all in trust.py's `PROGRAM` table (`goal`, `run`, `every`, `cron`, `timeout`) plus the common block
+  keys.
+- The owner's values of a non-command type, and owner-folder values, are judged in built-in runs exactly like library
+  values (R2). The definition names only a `string` as refused; narrow owner values after data flags pass the same
+  checks.
+- Fields in a run (`${it.run}` in `steps`, `${redesign.when|auto}` in `modelling`) were unmarked text, which the gate
+  would have read as ergostat's literal. A run holding a field now starts with a sentinel character (`expand.F`), and
+  the gate refuses any run that holds it. The text itself is not marked, so `rename` (`flow.${it.name}-done`) works as
+  before. Consequence: `steps` with program steps, and the modelling redesign/review blocks, are refused under a held
+  chain.
+- The minimum `every` "of library-untrusted-text" does not exist on main: a library-written `every` is refused
+  outright, the one rule.
+- Built-in runs made only of ergostat's words (collect on its stand-in feed) now pass in a held chain. Two
+  library-trust-folders tests that relied on that being refused now give collect a library command; the program-block
+  case now names `.run`, not `.type`.
+- The scan test's fixture: `sh -c ${kind}`, `--run ${kind}` and `${title:quote}` are all reported by the checker
+  (`checked`). For built-ins, every placement the checker reports is shown refused by probing `trust.run_ok` with a
+  well-formed library value. The string `title` is a type trust refuses from a library, not a slot fault.
+
+**Plan-review notes, answered.**
+- Forged marks: `expand.forged` refuses any template body, default or given value holding `A`, `H`, `B` or `F`; in a
+  held chain the whole chain is refused. Tested by `test_forged_owner_mark_refused` (lesson-8, lesson-3).
+- Rate and count flags are bounded in `LIB_BOUNDS`: `--every` at least 60 s, `--limit` at most 100, `--stand-in` at
+  most 3600, `--window` 60 s to a week, and the shares at most 1. `--max`, `--tries`, `--most`, `--daily`, `--budget`,
+  `--rounds` and `--keep` are in `LIB_EXEC_FLAGS`. Tested by `test_library_values_are_bounded_after_rate_and_count_flags`
+  and the `0ms`, `101` and `100000` cases of `test_narrow_value_patterns`. So lesson-4 applies, and is answered.
+
+**lesson-9, each broken once and seen to fail:**
+- writer forced to the owner for given values: 6 tests failed;
+- `fullmatch` turned back into `match`: 5 failed;
+- owner-folder templates allowed in `run_ok`: `test_library_value_into_owner_folder_template_run_refused[${lib} each]`
+  failed (the `sh -c` case stays refused, since it is not a `${lib}` slot);
+- `--run` added to `LIB_DATA_FLAGS`: 3 failed, including `test_every_lib_flag_classified`;
+- the forgery check off: `test_forged_owner_mark_refused` failed (the forged mark passed as an owner command).
+
+**Not run here:** the full unit suite and the four browser files (left to the factory's watched run).
