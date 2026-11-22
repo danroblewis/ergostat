@@ -18,3 +18,25 @@ Acceptance tests: the three browser checks above on a test page that mounts each
 Budget: 220 net lines of JS, 30 CSS, 60 tests.
 
 Milestone: dashboard. Owner items: 18 (several flow rates on one graph, X/Y plot, heatmap). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. plots.js is 206 lines (multiChart, phasePlot, heatmap; alignPairs; heatOfSeries, heatOfStates and heatOfGoals to make
+heatmap rows from /api/series, /api/items-flow and /api/loop-scope answers). style.css has 15 new lines, index.html one script tag,
+and docs/proposals/charts.md has item 6 and a changed "Later" line. tests/test_plots.py has 114 lines: a unit test of the bucket
+alignment (two refs on one time base, a reading in its own bucket), a check that plots.js holds no literal colour, and one browser
+test run once in light and once in dark.
+Overrun reason: tests/test_plots.py is 114 lines, not 60. The checks read the drawn canvas (each line's hue, the phase plot's first,
+last and middle pixels, each heatmap cell's ramp step, the red hatch on an off stretch) so that each can fail. A DOM-only check could
+not fail. That page script, the served fixture and the seed data take about 50 lines.
+Choices nobody could confirm, each made the easier way to undo:
+- The heatmap ramp reuses seven existing neutral tokens (--fill to --ink). No new tokens were added, so a ramp of its own is a
+  token-block change for later.
+- The test page is served by Playwright's route() in the test, not a file in the repository.
+- phasePlot's done-item-2 check uses fixed data for two stand-in stocks ("queue", "done", in items). The served fixture
+  (disk-space) has only one stock.
+- A goal's heatmap row is |e| from its loop scope, on its own range, with its off stretches hatched.
+Not covered by any test: the heatmap's value under the cursor, the phase plot's nearest-point hover, and heatOfSeries.
+Screenshots were not taken (file tools and scratch scripts are confined to /work here), so how it looks was checked only by the
+pixel samples in both themes. tests/test_plots.py is not one of the four browser files, so the merge queue runs it only if named.
+Left for dashboard-xy-and-heatmap-panels: registering the three forms as panels.

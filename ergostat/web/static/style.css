@@ -340,6 +340,21 @@ a.chart-name { color: var(--accent); }
 .side-charts h3 { margin-top: var(--sp-5); }
 .side-strip + .side-strip { border-top: var(--hair) solid var(--line); }
 .detail .scope dl { margin-top: var(--sp-2); }
+/* plots.js: several series on one axis (each named with its value), a phase plot, a heatmap and its key */
+figure.plot-fig { margin: 0 0 var(--sp-3); }
+.plot-fig .chart-head { flex-wrap: wrap; }
+.plot-vals { display: flex; flex-wrap: wrap; gap: 0 var(--sp-3); color: var(--muted); }
+.plot-chip .n { color: var(--ink); }
+.plot-chip .sw { display: inline-block; width: var(--sp-4); border-top-width: var(--sp-0); margin-right: var(--sp-1); vertical-align: middle; }
+.plot-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
+.plot-key .ramp { display: inline-flex; border: var(--hair) solid var(--line); }
+.plot-key .ramp span, .plot-key .hatch { display: inline-block; width: var(--sp-3); height: var(--sp-3); }
+.plot-key .hatch { margin-left: var(--sp-2); border-top: var(--sp-0) solid var(--bad);
+  background: repeating-linear-gradient(-45deg, var(--bad) 0 var(--hair), var(--bg) var(--hair) var(--sp-1)); }
+.plot-data summary { cursor: pointer; }
+.plot-data table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.plot-data th, .plot-data td { padding: 0 var(--sp-2); text-align: right; font-weight: normal; }
+.plot-data thead th { color: var(--muted); }
 /* the Items page: each kind's cumulative flow, its states named at the right; its cycle times under its table */
 .cfd { display: grid; grid-template-columns: minmax(0, 1fr) 12em; gap: var(--sp-4); align-items: center; margin: 0 0 var(--sp-3); }
 .cfd-states { display: flex; flex-direction: column; gap: var(--sp-0); }
