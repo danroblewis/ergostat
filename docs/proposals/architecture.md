@@ -217,6 +217,16 @@ edited the whole model in one change. It takes one system's notes, its interface
 to that system alone, and the judge tests it. The notes say where to start: loose parts that split are two redesigns;
 a pair that should merge is one; a nearly decomposable system is already as many redesigns as its subsystems.
 
+**What is built** (on `architecture-per-system-redesign`, SPEC §12e *Redesign*). The redesigner already took the
+model a system at a time (`redesign_due.units`). Its prompt now carries the system's architecture: the notes on it
+and on the systems within it (not on others), its size, its interface port by port with the peers, its
+subsystems and whether it is nearly decomposable. Above it, once a day, one call on a larger model (sonnet by
+default) reads the architecture of the whole model (the notes, each system's size, interface, subsystems and
+purpose, each unit's fit and last redesign; not the YAML) and says where to start. Its findings are requests: a
+`redesign` of a unit is taken up next (a resting unit still rests); a `split` or `merge` is held for the owner,
+since it moves parts between systems. It shares the redesigner's daily cap, checked against its estimated most
+before the call. Not built: a merge redesigned as one change set over two systems.
+
 ## What the examples say
 
 Run over every example on main at 2ed2f16 (`ergostat check` and `explain`; each well under 50 ms), after the gate

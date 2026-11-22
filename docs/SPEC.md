@@ -4420,6 +4420,53 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   reason given, and to read each recurring intervention as a loop the model lacks, with a lookup from symptom to
   structure (a queue that builds only in bursts: a capacity; items seen twice: rework; a part that lags another: a
   delay or a stock between; a level that settles whatever its start: a balancing flow).
+- **Its architecture** (`redesigner.architecture`). A redesign of a system is shown that system's architecture, from
+  the structure alone (no run, no call), in a section of its own: its size (`architecture.size_said`), its interface
+  (each port's part, kind, direction and peers, at most 30 listed and the rest counted), its subsystems and whether
+  it is nearly decomposable. For the whole model: its size and each top system's. Its "What check finds" section
+  holds the architecture notes on the system and on the systems within it (`system-splits`, `systems-merge`,
+  `interface`, `time-scales`, `purpose`), and not those on other systems (`redesign_due._in`: a `system.S` note
+  is a unit's when the unit is S or S lies within it; every note is the whole model's).
+- **The daily architecture review** (`ergostat/numbers/archreview.py`, guide `architect.md`). Once a day, inside the
+  redesigner block's run and before it plans, one call (no retry, tools off) on `review`, a model larger than haiku
+  (sonnet by default, the owner's allowance in the overnight note of 2026-11-19: the redesign and architecture
+  reviews may use a larger model, their costs recorded), reads the model's architecture as a whole: check's
+  architecture notes, each system's size, interface counts by kind, subsystems, nearly-decomposable line and
+  description, each unit's replay fit by stock, each unit's last redesign result, and the units too large to
+  redesign; never the YAML; at most 40,000 characters and 60 systems. A part it cannot read (check, the fit) is
+  said as unknown, never as fine. It answers JSON lines `{"review": {"system", "advice", "says"}}`, read by
+  allowlist: `advice` is `redesign`, `split` or `merge`; a redesign's system is a unit the redesigner can take (or
+  `model`), a split's or merge's one of the model's own systems; `says` is cut to 600 characters; at most 8 are
+  taken, the first for a system and advice kept, and what is dropped is said on the review's event. Each is held as
+  a modelling request (`source: redesign`, so the collector never answers it as "check no longer finds it"),
+  `review-redesign`, `review-split` or `review-merge` about the system, stamped with the review's event
+  (`review`). A `review-redesign` is open, and makes its system due before those due only for their daily review
+  ("the architecture review: ..."); a system resting is still not taken. A `review-split` or `review-merge` is held
+  for the owner and never acted on: it moves parts between systems, which is structure. One the review raised
+  before and does not say again is answered ("the architecture review no longer says it"), but one `proposed`,
+  waiting on its change; one said again is written again, its old change and why cleared. The run that takes a
+  review's request up marks it after (proposed with its change, or answered with the result) only if, read again
+  under the locks, it still carries the stamp the plan read: a newer review that said it again meanwhile leaves it
+  open. The review writes no model change and edits no file.
+  - *When*: with `when: auto` only (never `ask` or `off`; never with `review: off`), and only when no
+    `ergostat.model.architecture-reviewed` event but a `capped` one is in the last day: a review that started
+    (written before its call), failed (its call failed, or its answer had no JSON line) or reviewed is the day's, so
+    a failing call is not retried each run.
+  - *Cost*: within the redesigner's `daily` cap, on the redesigner's side of it. It is not called when its
+    estimated most (`modeller.unsaid`) is more than the redesigner's block has left (`redesign.room`: what is left of
+    the cap, and never the quarter kept for the reviewer), said on the log with an `architecture-reviewed` event,
+    `capped`. That check and the estimate's charge are made under the lock `redesign.held` takes, so the reviewer and
+    the review do not both start calls on one remainder. The
+    estimate is charged before the call (`redesign-ran`, `result: call`, `by: architecture-review`) and the
+    difference after it, so a run killed mid-call keeps the estimate charged. The bound is that estimate: `claude
+    -p` takes no output limit, so a call can cost more. Its cost is printed as a Claude Code result line, and its
+    event holds the model, the cost and the requests it raised. The redesign that follows gets what is left of
+    the cap, read again after the review. Time: after a review that called, the review's call and each round's call
+    are each given one share of the block's timeout in rounds + 1 (`archreview.timeouts`, through `per_call`), so
+    their limits together are what the rounds' alone would be on a day with no review.
+  - *The lock*: the review (due, cap, call, requests, event) and the mark after a redesign hold `redesign.lock` in
+    the project's state directory, taken without waiting: a run that finds it held skips the review, or leaves the
+    request unmarked, and says so.
 - **The benchmark** (`scripts/redesign_bench.py`, `docs/redesign-bench.md`): models of known structure
   (`tests/redesign_cases/`) each cut (a capacity limit, a rework loop, a delay, a goal gap, a stock merged away, an
   outflow), the record made from the whole model, the redesigner asked to repair the cut one (nothing submitted), and
@@ -4435,8 +4482,12 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   tinted, the changed and renamed dashed, and names what it takes away; the review section's Dynamics and Blocks
   buttons open it.
 
-The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` (and
-`redesign-every`, 10m).
+The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2, review:
+sonnet|off}` (and `redesign-every`, 10m). `review` is a decision taken here, the most reversible form of the
+owner's allowance: it exists only with `ai: true` and `when: auto`, stays inside `daily`, and `review: haiku` or
+`review: off` changes it (unquoted: the model's YAML takes only `true` and `false` as booleans, and `review: false`
+is `off` too). `modelling redesign` itself takes `--review` (a model's name or `off`; `off` when not
+given, so a run by hand reviews only when asked to).
 
 ### The reviewer: a senior modeller reads what the judge passed
 
