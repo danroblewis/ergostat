@@ -32,3 +32,11 @@ can, such as a deleted test. Gap 5 now depends on gap 2, and its queue hold lift
 `main-repair-hours` runs from `main-broken` to `main-fixed`, not to the intervention's hand-marked `remedied`. Gap 7's
 goal is now `fixes-hold`, a 14-day window on the flow `fixes-regressed`, because a denied revert keeps the stock
 `regressed-fixes` up for good (docs/SPEC.md:6293). Sections 3, 4, 6a, 6b, 7 and 8 changed; still no code.
+
+Round 3 (fix): both findings of round 2 are answered in the proposal, still with no code. (1) Section 2's tables now
+give file:line for each test: F8 cites tests/test_factory.py:484, :947 and :982, and says plainly that no test parks a
+gap on `build_hours` (dev/bin/implement.py:190-192). F12 cites dev/bin/knowledge.py:268-272 and
+tests/test_factory_knowledge.py:1373 and :1402. U2 cites tests/test_claims.py:234 and :217. U3 cites
+tests/test_repair_verify.py:101, :117 and :227. U5 cites tests/test_runner_and_state.py:78 and :114 for residuals, and
+says that no test checks that an empty install runs nothing. (2) Section 6a item 3 and gap 1 now say the queue keeps
+`rc`, `seconds` and, for the browser suite only, a `skipped` count (dev/bin/queue.py:104-105).

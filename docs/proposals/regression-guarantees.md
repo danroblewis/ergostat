@@ -38,11 +38,11 @@ guarantees are in that second case.
 | F5 | On any error or stop, main is put back (`git reset --keep`) | dev/bin/queue.py:32, dev/bin/queue.py:644, dev/bin/queue.py:694, dev/bin/queue.py:712 | tests/test_factory.py:1526 (a denied push undoes its merge) |
 | F6 | The quarantine is read from the base, never the branch under test; a quarantined test that is skipped or not collected counts as unknown, never as a pass; it never blocks | dev/bin/fac.py:564-569, dev/bin/fac.py:580-586, dev/bin/fac.py:589-610 | tests/test_factory.py:1355, tests/test_factory.py:1303, tests/test_factory.py:1290 |
 | F7 | The definition of done does not change after its first commit, except for "Where it stopped"; a branch over its size budget needs a written `Overrun reason:` | dev/bin/review.py:5-7, dev/bin/review.py:34-62, dev/bin/review.py:91-99 | tests/test_review.py:753, tests/test_review.py:764, tests/test_review.py:788 |
-| F8 | The kill rule: the `kill_after`-th failed gate parks a gap, and repeated build failures or too many build hours park it | dev/bin/review.py:10-12, dev/bin/fac.py:535-546, dev/bin/implement.py:22-26, dev/bin/triage.py:76-81 | (reviewed by reading here; no single test named) |
+| F8 | The kill rule: the `kill_after`-th failed gate parks a gap, and repeated build failures or too many build hours park it | dev/bin/review.py:10-12, dev/bin/fac.py:535-546, dev/bin/implement.py:22-26, dev/bin/triage.py:76-81 | tests/test_factory.py:484 (`test_fix_then_park`: the `kill_after`-th failed gate), tests/test_factory.py:947 and tests/test_factory.py:982 (failed builds park); no test parks a gap on `build_hours` (dev/bin/implement.py:190-192): that part is untested |
 | F9 | A failure that names tests is triaged: one that passes alone is a flake (at most `RETRIES` = 2 retries), and one that fails on clean main too is main's, not the gap's | dev/bin/triage.py:1-7, dev/bin/triage.py:18, dev/bin/onmain.py:1-15 | tests/test_factory.py:505, tests/test_factory.py:1241, tests/test_factory.py:3380 |
 | F10 | A suite that stops making progress is stopped as a stall; a gap is blamed only after it stalls alone `STALLS_MOST` = 3 times | dev/bin/queue.py:22-23, dev/bin/fac.py:435 | tests/test_queue.py:231, tests/test_queue.py:322 |
 | F11 | An upgrade that does not show healthy in time is reverted to the version before it | dev/model/landing.yaml:169-180 | tests/test_factory.py:1427 |
-| F12 | Every review lesson is carried into every implementor and reviewer brief | dev/knowledge/review-lessons.md:1-5 | (the brief's assembly; not named here) |
+| F12 | Every review lesson is carried into every implementor and reviewer brief | dev/knowledge/review-lessons.md:1-5, dev/bin/knowledge.py:268-272 | tests/test_factory_knowledge.py:1373 (`test_the_next_brief_carries_an_applied_lesson`: the implementor's, reviewer's and pipeline manager's briefs, and lessons kept when the brief is cut), tests/test_factory_knowledge.py:1402 |
 
 The review lessons are not a gate. They are a list of the kinds of mistake that got past the implementor and were
 found by a review (dev/knowledge/review-lessons.md:8-9). Each lesson is therefore a record of a guarantee that once
@@ -53,10 +53,10 @@ failed before the merge gate.
 | # | Guarantee | Where | Test |
 |---|---|---|---|
 | U1 | A block's claim ("tests pass") is checked by ergostat itself, never taken on the block's word; a claim no check can judge is never trusted | docs/SPEC.md:4912-4916, docs/SPEC.md:4956-4958 | tests/test_claims.py:60 (a pipe that hid a failing exit code) |
-| U2 | Trust is a measure that a goal can hold: the share of a block's claims contradicted | docs/SPEC.md:5012-5024 | (SPEC names examples/image-squeeze/lab.yaml) |
-| U3 | A repaired program's fix is verified by the runs after it; a failed run **regresses** it, and its revert is asked for as a gated action | docs/SPEC.md:6264-6276, docs/SPEC.md:6278-6293 | (the repair suite) |
+| U2 | Trust is a measure that a goal can hold: the share of a block's claims contradicted | docs/SPEC.md:5012-5024 | tests/test_claims.py:234 (`test_the_kind_is_built_in_and_trust_is_a_measure_a_sensor_reads`), tests/test_claims.py:217 |
+| U3 | A repaired program's fix is verified by the runs after it; a failed run **regresses** it, and its revert is asked for as a gated action | docs/SPEC.md:6264-6276, docs/SPEC.md:6278-6293 | tests/test_repair_verify.py:101 (verified), tests/test_repair_verify.py:117 (a failed run regresses it and asks for the revert once), tests/test_repair_verify.py:227 (the approved revert) |
 | U4 | A change written to the model is checked against the record after it: `verified`, or `regressed` with the edit that undoes it | docs/SPEC.md:4885-4891 | tests/test_bench.py:200 |
-| U5 | The invariants: a residual is evidence and never silently ignored, and ergostat adds nothing of its own accord | CLAUDE.md:40-41, CLAUDE.md:52-53 | (the whole suite) |
+| U5 | The invariants: a residual is evidence and never silently ignored, and ergostat adds nothing of its own accord | CLAUDE.md:40-41, CLAUDE.md:52-53 | the residual half: tests/test_runner_and_state.py:78 (`test_with_no_disturbance_to_absorb_it_the_rest_is_unexplained`), tests/test_runner_and_state.py:114; the "nothing of its own accord" half: no test (none checks that an empty install runs nothing) |
 
 ## 3. What the model shows of them today
 
@@ -145,7 +145,8 @@ All of this is model work and sensor work in `dev/`, which is the factory's own 
    `lessons-recurring`). The stocks of items are plain `items:` sensors and need no code.
 3. **The record's missing events.** `flake.fixed` and a new `flake.main-fixed` must be emitted, and `flake.seen`
    must no longer take an item out of `main-broken` (milestone gap 2). The queue must also write the
-   pytest summary of its green run (today it keeps only `rc` and `seconds`: dev/bin/queue.py:104-105).
+   pytest summary of its green run (today it keeps `rc`, `seconds` and, for the browser suite only, a count of
+   `skipped` lines: dev/bin/queue.py:104-105; no passed or failed counts).
 4. **Wiring the loops.** `main-green` and `quarantine-*` feed `factory-off` (dev/model/measures.yaml:132-147), so
    the coordinator still has one commander (the pattern of dev/model/code-health.yaml:163-172). `escapes-rare` also
    reaches the librarian. Nothing new acts on the world: every loop ends in a person, an existing program, or a
@@ -192,7 +193,8 @@ Each gap has its own definition of done. The order follows dependencies: the rec
 the goals, then the loops, then the users.
 
 1. **regression-record-summary.** The merge queue writes each suite's pytest counts (passed, failed, skipped,
-   deselected, errors) on the gap and on the queue run, next to `rc` and `seconds` (dev/bin/queue.py:104-105), read
+   deselected, errors) on the gap and on the queue run, next to `rc`, `seconds` and the browser suite's `skipped`
+   count, the only fields kept today (dev/bin/queue.py:104-105), read
    from the suite's whole log, never a tail (the quarantine lesson, lesson 3). A log that cannot be read writes
    `counts: unknown`. Acceptance: a test that a run with 3 failed and 1 skipped records exactly those counts, and that
    a truncated log records unknown, never zero. Size: small, `dev/bin/` only.
