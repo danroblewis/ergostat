@@ -182,3 +182,9 @@ lesson-13). On the branch at 87418f1c these pass, each group run alone: `tests/t
 2 skipped), and `test_factory_resources.py`, `test_factory_manager.py`, `test_factory_sessions.py` and
 `test_factory_times.py` (55). `ruff check ergostat tests scripts` is clean. Left: the factory's rerun of `unit`. If
 it names a test, that name is needed for a fix round.
+
+## Where it stopped
+
+Parked by the factory (review/plan-by-size-2, 2026-11-21 16:47).
+
+Built to its definition, by reading: the S/M/L/XL routing, the fail-closed path, config limits checked before any session, the per-gap L sample, exclusive create of the S definition, planning_cost_usd summed with the whole reservation charged on failure, measure.py planning-cost-share with unrecorded and out-of-range gaps left out, model flows, sensors and auxiliary, README and prompt. The round-1 finding about the S text is fixed. Left: the definition reads a size class that no program records before planning (gap-size records it only from the planner's own plan), so on main the size paths are never reached and the only live effect is every planner-made plan reviewed instead of 1 in 3. The owner needs to decide where the class comes from before planning (the groomer, the coordinator through a manage.py tool, or a cheap sizing step) and whether unsized plans keep main's sample. The definition then needs amending to match. Building more under the current definition would ship dead routing and higher review spend to main.
