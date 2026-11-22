@@ -203,17 +203,21 @@ class _Stepper:
             x -= V[f]
         return x
 
-    def rates(self, state: dict[str, float | None]) -> float:
-        """How fast the stocks move here, per hour: Gershgorin's bound on their Jacobian (finite
-        differences of the compiled equations). Keeps each stock's own drain for the implicit step.
-        (A delay's stages are stepped through within a step, ``evaluate``.)"""
+    def jacobian(self, state: dict[str, float | None], full: bool = True) -> tuple[dict[tuple[str, str], float], list[str]]:
+        """∂(net inflow of stock i)/∂(level of stock j), per hour, over the live stocks, by forward differences
+        of the compiled equations at the moment's values; with ``full``, a column no equation reads is written as 0,
+        and the equations that faulted, failed, or gave NaN or a value past ±BIG while a stock was moved (each taken
+        as 0 or clamped, so that entry is not to be trusted) are listed. Without it (``rates``, on the replay path)
+        neither is, and the list is empty. The faults counted before are kept."""
         live = [s for s in self.stocks if state.get(s) is not None]
         felt = [s for s in self.felt if state.get(s) is not None]
-        rows = {s: 0.0 for s in live}
-        off = {s: 0.0 for s in live}
-        self.diag = {s: 0.0 for s in self.stocks}
+        J: dict[tuple[str, str], float] = {}
+        faulted: list[str] = []
         if felt:
             saved = {r: dict(c.faults) for r, c in self.pl.eqs.items()}
+            errors, clamped = (dict(self.errors), dict(self.clamped)) if full else ({}, {})
+            for c in self.pl.eqs.values():
+                c.faults.clear()
             base = {s: self.net(s) for s in live}
             for j in felt:
                 x = state[j]
@@ -221,17 +225,37 @@ class _Stepper:
                 self.V[f"stock.{j}"] = x + h
                 self.evaluate()
                 for i in live:
-                    d = (self.net(i) - base[i]) / h
-                    rows[i] += abs(d)
-                    if i == j:
-                        self.diag[i] = max(0.0, -d)
-                    else:
-                        off[i] += abs(d)
+                    J[(i, j)] = (self.net(i) - base[i]) / h
                 self.V[f"stock.{j}"] = x
+            if full:
+                faulted = [r for r, c in self.pl.eqs.items() if c.faults or self.errors.get(r, 0) > errors.get(r, 0)
+                           or self.clamped.get(r, 0) > clamped.get(r, 0)]
             self.evaluate()
             for r, c in self.pl.eqs.items():
                 c.faults.clear()
                 c.faults.update(saved[r])
+        if full:                                         # rates sums |entries| and is hot: its zeros add nothing
+            moved = set(felt)
+            for j in live:
+                if j not in moved:
+                    for i in live:
+                        J[(i, j)] = 0.0
+        return J, faulted
+
+    def rates(self, state: dict[str, float | None]) -> float:
+        """How fast the stocks move here, per hour: Gershgorin's bound on their Jacobian (``jacobian``).
+        Keeps each stock's own drain for the implicit step. (A delay's stages are stepped through within a
+        step, ``evaluate``.)"""
+        live = [s for s in self.stocks if state.get(s) is not None]
+        rows = {s: 0.0 for s in live}
+        off = {s: 0.0 for s in live}
+        self.diag = {s: 0.0 for s in self.stocks}
+        for (i, j), d in self.jacobian(state, full=False)[0].items():
+            rows[i] += abs(d)
+            if i == j:
+                self.diag[i] = max(0.0, -d)
+            else:
+                off[i] += abs(d)
         self.coupling = max(off.values(), default=0.0)
         return max(rows.values(), default=0.0)
 

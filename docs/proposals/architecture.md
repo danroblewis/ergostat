@@ -69,7 +69,7 @@ than 10 times between neighbours (above 10, not at it), with the fast and slow p
 **Not computed.** A stock with no equation (measured only) has no time constant; most observed models are mostly
 such stocks, so the measure is silent on them until equations are fitted. A loop's closed-loop speed (its
 controller's period, its answer time from the record: `back_in` on the loop's panel) is not yet used; nor are
-the eigenvalues of the whole Jacobian (modes, not parts).
+the modes at the start (§4, `explain`) in `time-scales`.
 
 **Reads.** `system plant: its parts run on time scales 20 times apart: fast [stock.fast 6m], slow [stock.slow
 1h59m], linked within it. Each stock's own time constant is a screen, not the system's modes; if they hold, the
@@ -116,11 +116,14 @@ chain of a system's own stocks, each with its own drain, that no loop beyond eac
 the page shows, every loop through it scored and named. It reads: `over the window (2026-11-20 09:00 to 2026-11-20
 10:00) no feedback loop beyond each stock's own drove stock.ramps-briefed, stock.ramps-to-research: a candidate to
 aggregate into one delay`. A candidate, not a finding: it says nothing beyond the window, and nothing is proposed.
+The modes at the start and each link's eigenvalue elasticity (`numbers/modes.py`, shown by `explain` and `explain
+system.NAME`, never by `check`): the eigenvalues of the stocks' Jacobian, from the one Jacobian the time constants
+take (the same point, the same forward differences), for stocks only (a delay's stages are not states there), up to
+40 stocks; a λ = 0 or repeated mode, or a fault in the equations, is said instead of numbers (SPEC, *Modes*).
 
-**Not computed.** Eigenvalue elasticity needs the Jacobian over time and its eigenvectors: one Jacobian is already
-taken for time constants, so the elasticities at the start are a small step; over the replay they are a
-simulation, kept out of `check`. The proposal to aggregate (the chain replaced by one stock or one delay, judged
-over a long record) is the AI rung's, with the computed candidates and LTM as its evidence.
+**Not computed.** Eigenvalue elasticity over the replay (the Jacobian over time): a simulation, kept out of
+`check`. The proposal to aggregate (the chain replaced by one stock or one delay, judged over a long record) is the
+AI rung's, with the computed candidates and LTM as its evidence.
 
 ## 5. Interface control documents: what crosses each boundary
 
@@ -134,10 +137,13 @@ setpoint, command, action, signal, material, influence; `explain system.NAME` li
 crosses by kind, when one of three is true: material crosses through clouds on both sides (a flow to a cloud on
 one side drives a flow from a cloud on the other, in one unit: what is conserved is lost at the boundary); a block
 outside moves or commands what the system's own goals' loops use (filing work into a queue is not: that is how
-systems hand work on); or ten or more information links cross it (a heuristic, set on the examples).
+systems hand work on); or ten or more information links cross it (a heuristic, set on the examples). Whether the
+interface is stable (an ICD's point is a boundary that changes slowly): each `model.changed` of a YAML model
+carries every system's interface as a signature (`interface_history.py`), and `explain system.NAME` counts how
+often it changed over the recorded versions, starting over at a stretch that does not record it (SPEC §4a).
 
-**Not computed.** Whether a crossing is stable (an ICD's point is a boundary that changes slowly): the model's
-history (`history.py`) has every version, and how often each boundary's crossings changed is a count over it.
+**Not computed.** Changes between the versions ergostat loaded are not seen, and the system's box and panel do not
+show the count.
 
 **Reads.** `system down: what crosses its boundary: 1 command, 1 influence. material crosses through clouds on both
 sides: flow.shipped leaves for a cloud and flow.received arrives from one, driven by it; one flow from shipped's
@@ -216,6 +222,16 @@ found. The AI rung comes next, per system, not on the whole model at once: the r
 edited the whole model in one change. It takes one system's notes, its interface and its parts, proposes a change
 to that system alone, and the judge tests it. The notes say where to start: loose parts that split are two redesigns;
 a pair that should merge is one; a nearly decomposable system is already as many redesigns as its subsystems.
+
+**What is built** (on `architecture-per-system-redesign`, SPEC §12e *Redesign*). The redesigner already took the
+model a system at a time (`redesign_due.units`). Its prompt now carries the system's architecture: the notes on it
+and on the systems within it (not on others), its size, its interface port by port with the peers, its
+subsystems and whether it is nearly decomposable. Above it, once a day, one call on a larger model (sonnet by
+default) reads the architecture of the whole model (the notes, each system's size, interface, subsystems and
+purpose, each unit's fit and last redesign; not the YAML) and says where to start. Its findings are requests: a
+`redesign` of a unit is taken up next (a resting unit still rests); a `split` or `merge` is held for the owner,
+since it moves parts between systems. It shares the redesigner's daily cap, checked against its estimated most
+before the call. Not built: a merge redesigned as one change set over two systems.
 
 ## What the examples say
 
