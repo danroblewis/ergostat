@@ -12,10 +12,14 @@ import importlib.util
 import json
 import os
 import re
+import shlex
+import signal
 import subprocess
 import sys
 import textwrap
+import threading
 import time
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -2454,6 +2458,123 @@ def test_batch_keeps_rank_order_among_mergeable_gaps(tmp_path):
     assert r["state"] == "approved" and "failed_gates" not in r["fields"]
 
 
+def stacked_gaps(f: Factory, ranks: dict[str, int], bad: str = "", batch: int | None = None) -> dict[str, str]:
+    """A stack in the drop: each gap branched from the tip of the one before it (the first from main), adding
+    NAME.txt (``bad``: bad.txt too), approved with `stacked_on` naming the one below at its commit. {name: commit}."""
+    drop = f.tmp / "live" / "drop.git"
+    if not drop.exists():
+        subprocess.run(["git", "init", "-q", "--bare", str(drop)], check=True)
+    out, below = {}, None
+    git(f.checkout, "checkout", "-q", "-b", "stack", "main")
+    for name, rank in ranks.items():
+        (f.checkout / f"{name}.txt").write_text(name)
+        if name == bad:
+            (f.checkout / "bad.txt").write_text("breaks the suite")
+        git(f.checkout, "add", "-A")
+        git(f.checkout, "commit", "-q", "-m", name)
+        out[name] = git(f.checkout, "rev-parse", "HEAD")
+        git(f.checkout, "push", "-q", str(drop), f"stack:refs/heads/factory/{name}")
+        on = {"stacked_on": [{"gap": f"gap/{below}", "sha": out[below]}]} if below else {}
+        f.fold([{"event": "gap.approved", "item": f"gap/{name}", "data": {
+            "branch": name, "reviewed_head": out[name], "approved_at": time.time() - 3600, "rank": rank, **on}}], None)
+        below = name
+    git(f.checkout, "checkout", "-q", "main")
+    git(f.checkout, "branch", "-q", "-D", "stack")
+    if batch:
+        (f.model / "run").mkdir(exist_ok=True)
+        (f.model / "run" / "pools.json").write_text(json.dumps({"batch": batch}))
+    return out
+
+
+def test_a_stacked_gap_brings_its_base_into_its_batch_below_it(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 5, "b": 0}, batch=2)                    # b ranks first, but holds a's commit
+    said, _ = f.run("queue.py", "gap/b")
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and suite_runs(f) == 1
+    assert merges(f) == ["a", "b"]                                # a, then b, in one batch
+    assert f.item("gap/a")["state"] == f.item("gap/b")["state"] == "merged"
+    assert [f.item(f"gap/{g}")["fields"]["merged_lines"] for g in "ab"] == [1, 1]   # each its own commits only
+    assert json.loads((f.model / "run" / "queue.json").read_text())["pending"]["gaps"] == ["gap/a", "gap/b"]
+
+
+def test_a_stacked_gap_whose_base_is_in_fix_is_given_back_uncounted(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 1, "b": 0}, batch=2)
+    f.fold([{"event": "gap.sent-back", "item": "gap/a", "data": {"findings": ["x"]}}], None)
+    assert f.item("gap/a")["state"] == "fix"
+    said, lines = f.run("queue.py", "gap/b")
+    assert said == ["gap.queued"] and suite_runs(f) == 0 and merges(f) == []
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert nack["count"] is False and nack["after"] == "10m" and "gap/a" in nack["why"] and "stack" in nack["why"]
+    assert "empty_batches" not in f.item("gap/b")["fields"]      # never counted towards EMPTY_MOST
+    f.fold([{"event": "gap.approved", "item": "gap/b", "data": {}}], None)   # (its lease given back, as the engine)
+    approved_gaps(f, {"p": 9})                                    # b as a batch-mate: skipped, stays approved
+    assert f.item("gap/b")["state"] == "approved"
+    said, _ = f.run("queue.py", "gap/p")
+    assert merges(f) == ["p"] and f.item("gap/b")["state"] == "approved" and "gap.sent-back" not in said
+
+
+def test_a_failing_base_gives_its_descendants_back(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"p": 0})
+    stacked_gaps(f, {"a": 1, "b": 2}, bad="a", batch=3)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 1
+    assert f.item("gap/a")["state"] == "queue-failed" and f.item("gap/b")["state"] == "approved"
+    assert "failed_gates" not in f.item("gap/b")["fields"] and f.item("gap/p")["state"] == "merged"
+    assert suite_runs(f) == 3                                     # red, p green, p+a red: b never run again
+    pending = json.loads((f.model / "run" / "queue.json").read_text())["pending"]
+    assert pending["gaps"] == ["gap/p"] and merges(f) == ["p"]
+    tree = git(f.checkout, "ls-tree", "--name-only", pending["sha"]).split()
+    assert "p.txt" in tree and not {"a.txt", "b.txt", "bad.txt"} & set(tree)   # the pushed tree
+
+
+def test_a_base_whose_merge_again_conflicts_takes_its_descendants_out(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"x": 0}, bad="x")
+    stacked_gaps(f, {"a": 1, "b": 2}, batch=3)
+    code = ("import sys, json, time; sys.path[:0] = [sys.argv[1]]; import fac, queue; cfg = fac.config(); "
+            "repo = fac.path(cfg, 'checkout'); pre = fac.git(repo, 'rev-parse', 'HEAD'); "
+            "own = next(g for g in fac.items('gap', 'approved') if g['id'] == 'gap/x'); "
+            "batch, dried, _ = queue.picks(cfg, repo, own, 3, pre); real, tries = queue.merge, []\n"
+            "def merge(cfg, repo, g, sha, began):\n"
+            " tries.append(g['id'])\n"
+            " if tries.count('gap/a') > 1:\n"                 # a's merge again onto the green prefix conflicts
+            "  queue.refuse(cfg, g, ['a.txt'], began); return False\n"
+            " return real(cfg, repo, g, sha, began)\n"
+            "queue.merge = merge\n"
+            "landed, head, back = queue.land(cfg, repo, batch, pre, time.time(), 0, dried)\n"
+            "print(json.dumps({'batch': [g['id'] for g, _ in batch], 'landed': [g['id'] for g, _ in landed], "
+            "'back': [[g['id'], why] for g, why in back], 'tries': tries, 'pre': head == pre, "
+            "'tree': fac.git(repo, 'ls-tree', '--name-only', head).split()}))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    said = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    out = said[-1]
+    assert out["batch"] == ["gap/x", "gap/a", "gap/b"]
+    assert out["tries"] == ["gap/x", "gap/a", "gap/b", "gap/a"]          # b is never merged again without a
+    assert out["landed"] == [] and out["pre"] is True
+    assert out["back"] == [["gap/b", "its base gap/a could not be merged in the queue"]]
+    assert not {"a.txt", "b.txt", "bad.txt"} & set(out["tree"])
+    sent = [(x["event"], x.get("item")) for x in said if "event" in x]
+    assert ("gap.sent-back", "gap/a") in sent and ("gap.queue-failed", "gap/x") in sent
+    assert not any(e[1] == "gap/b" for e in sent)                       # b: back to approved, uncounted
+
+
+def test_a_stack_deeper_than_the_cap_gives_the_own_gap_back(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 0, "b": 1, "c": 2}, batch=2)
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == ["gap.queued"] and suite_runs(f) == 0 and merges(f) == []
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert nack["count"] is False and nack["after"] == "10m" and "does not fit a batch of 2" in nack["why"]
+    assert "empty_batches" not in f.item("gap/c")["fields"]
+    f.fold([{"event": "gap.approved", "item": "gap/c", "data": {}}], None)   # (its lease given back, as the engine)
+    said, _ = f.run("queue.py", "gap/a")                       # the bottom base, in its own run
+    assert said[:2] == ["gap.queued", "gap.merged"] and merges(f)[0] == "a" and f.item("gap/a")["state"] == "merged"
+    assert merges(f) == ["a", "b"] and f.item("gap/c")["state"] == "approved"   # b fits on it; c waits
+
+
 def test_gaps_passed_over_for_the_own_gap_fill_its_slot_once_it_is_sent_back(tmp_path):
     f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
     approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"c": "app.py"})
@@ -4744,7 +4865,6 @@ READ_BY_FAILED_TESTS = ("unit", "host", "build", "browser", "rerun", "alone")
 
 def pytest_args(cmd: str) -> list[str]:
     """The arguments after ``-m pytest`` in a suite's command (none found: the test fails, never passes empty)."""
-    import shlex
     words = shlex.split(cmd)
     at = [i for i in range(len(words) - 1) if words[i:i + 2] == ["-m", "pytest"]]
     assert len(at) == 1, f"no single `-m pytest` in {cmd!r}"
@@ -4768,7 +4888,6 @@ def prints_failed_lines(args: list[str]) -> bool:
 
 
 def test_every_suite_fac_reads_prints_failed_lines():
-    import tomllib
     suites = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
     for name in READ_BY_FAILED_TESTS:
         assert suites.get(name), f"[suites] {name} is gone: name the suites fac.failed_tests reads again"
@@ -4789,7 +4908,6 @@ def test_a_failing_browser_test_is_named(tmp_path):
         spec.loader.exec_module(q)
     finally:
         sys.path.remove(str(BIN))
-    import tomllib
     suites = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
     (tmp_path / "test_b.py").write_text(textwrap.dedent("""\
         import pytest
@@ -4829,3 +4947,189 @@ def test_a_failing_browser_test_is_named(tmp_path):
     for text in (now, old):
         assert len(re.findall(r"^SKIPPED", text, re.M)) == 1                   # queue.suites's browser skip count
         assert q.nowhere(text, unit) == ["test_b.py:17: needs a thing"]
+
+
+# ---- one check on every prefix of a batch at once (dev/bin/prefixes.py)
+
+PREFIX_TAG = "batch-20261122T094631Z"
+
+
+def prefixes_module():
+    sys.modules.setdefault("fac", module("fac"))
+    sys.modules.setdefault("agents", module("agents"))
+    return module("prefixes")
+
+
+def prefix_repo(tmp_path: Path, n: int = 5) -> tuple[Path, list[str], dict, Path]:
+    """A repository of n commits (the batch's prefixes), the config, and the logs' folder."""
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    heads = []
+    for i in range(n):
+        (repo / "f.txt").write_text(f"{i}\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", f"prefix {i}")
+        heads.append(git(repo, "rev-parse", "HEAD"))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    return repo, heads, {"paths": {"run": str(tmp_path / "run")}, "suites": {"queue_container": False}}, logs
+
+
+def worktrees(repo: Path) -> list[str]:
+    return [x for x in git(repo, "worktree", "list", "--porcelain").splitlines() if x.startswith("worktree ")]
+
+
+def test_prefix_runs_return_one_result_per_head_in_order(tmp_path):
+    p = prefixes_module()
+    repo, heads, cfg, logs = prefix_repo(tmp_path)
+
+    def check(i: int, wt: Path) -> int:
+        time.sleep(0.05 * (5 - i))                      # (the last head finishes first: order is heads', not theirs)
+        p.log_of(logs, PREFIX_TAG, i).write_text(git(wt, "rev-parse", "HEAD") + "\n")
+        return i % 2
+    got = p.run_all(cfg, repo, heads, check, PREFIX_TAG, logs, 5)
+    assert [r["head"] for r in got] == heads
+    assert [r["result"] for r in got] == ["pass", "fail", "pass", "fail", "pass"]
+    assert [r["tail"].strip() for r in got] == heads                 # each read from its own log, on its own head
+    assert [r["log"] for r in got] == [str(p.log_of(logs, PREFIX_TAG, i)) for i in range(5)]
+    assert not list((tmp_path / "run" / "queue-prefix").iterdir()) and len(worktrees(repo)) == 1   # all removed
+
+
+def test_prefix_runs_hold_to_prefix_most(tmp_path, monkeypatch):
+    p = prefixes_module()
+    repo, heads, cfg, logs = prefix_repo(tmp_path, 6)
+    said, now, peak = threading.Lock(), [0], [0]
+
+    def check(most: int):
+        def one(i: int, wt: Path) -> int:
+            with said:
+                now[0] += 1
+                peak[0] = max(peak[0], now[0])
+            end = time.time() + 3                       # (each waits for the most to be running, or 3 s)
+            while time.time() < end and peak[0] < most:
+                time.sleep(0.01)
+            time.sleep(0.05)
+            with said:
+                now[0] -= 1
+            p.log_of(logs, PREFIX_TAG, i).write_text("ok\n")
+            return 0
+        return one
+    assert [r["result"] for r in p.run_all(cfg, repo, heads, check(2), PREFIX_TAG, logs, 2)] == ["pass"] * 6
+    assert peak[0] == 2
+    peak[0] = 0
+    cfg["suites"]["prefix_most"] = 3                    # (unset: [suites] prefix_most)
+    assert [r["result"] for r in p.run_all(cfg, repo, heads, check(3), PREFIX_TAG, logs)] == ["pass"] * 6
+    assert peak[0] == 3
+    for bad in (0, 9, 2.5, True, "4"):                  # out of bounds: refused with the reason, nothing made
+        cfg["suites"]["prefix_most"] = bad
+        with pytest.raises(ValueError, match=r"\[suites\] prefix_most = .*from 1 to 8"):
+            p.run_all(cfg, repo, heads, check(1), PREFIX_TAG, logs)
+        with pytest.raises(ValueError, match="from 1 to 8"):  # (and again at run time, given)
+            p.run_all({**cfg, "suites": {"queue_container": False}}, repo, heads, check(1), PREFIX_TAG, logs, bad)
+    with pytest.raises(ValueError, match="66 heads are over 64"):  # (a thread each: capped too)
+        p.run_all({**cfg, "suites": {"queue_container": False}}, repo, heads * 11, check(1), PREFIX_TAG, logs, 2)
+    cfg["suites"] = {}
+    for bad in (0, 4.5, True, "1.5"):
+        cfg["agents"] = {"prefix_cpus": bad}
+        with pytest.raises(ValueError, match=r"\[agents\] prefix_cpus = .*at most 4"):
+            p.run_all(cfg, repo, heads, check(1), PREFIX_TAG, logs)
+    assert not list((tmp_path / "run" / "queue-prefix").iterdir()) and len(worktrees(repo)) == 1
+    real = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())   # the settings, as shipped
+    assert (real["suites"]["prefix_most"], real["agents"]["prefix_cpus"]) == (4, 1.5)
+    real["paths"]["run"] = str(tmp_path / "run")
+    monkeypatch.setattr(p.agents.fac, "git", lambda *a, **k: str(repo / ".git"))
+    wt = tmp_path / "run" / "queue-prefix" / f"{PREFIX_TAG}-0"
+    wt.mkdir()
+    one = shlex.split(p.agents.queued(real, "rerun", "true", wt, "queue")[1])
+    unit = shlex.split(p.agents.queued(real, "unit", "true", repo, "queue")[1])
+    for args, cpus in ((one, "1.5"), (unit, "8")):     # a prefix's container: prefix_cpus, within queue_cpuset
+        assert args[args.index("--cpus") + 1] == cpus and args[args.index("--cpuset-cpus") + 1] == "12-23"
+
+
+def test_a_stopped_prefix_run_leaves_no_worktree_or_container(tmp_path, monkeypatch):
+    p = prefixes_module()
+    fac, agents = p.fac, p.agents
+    repo, heads, cfg, logs = prefix_repo(tmp_path, 4)
+    cfg["suites"] = {"queue_container": True, "rerun": "true {tests}"}
+    monkeypatch.delenv("ERGOSTAT_LEASE", raising=False)
+    root = tmp_path / "run" / "queue-prefix"
+    root.mkdir(parents=True)
+    git(repo, "worktree", "add", "-q", "--detach", str(root / "old-20261121T000000Z-0"), heads[0])  # a SIGKILLed run's
+    (root / "keep-me").mkdir()                          # not of the pattern: kept (deleted by allowlist)
+    (root / "old-20261121T000000Z").mkdir()
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "outside" / "x").write_text("kept\n")
+    (root / "old-20261121T000000Z-1").symlink_to(tmp_path / "outside")
+    started, calls = [], []
+
+    def queued(cfg, suite, cmd, work, box, env=()):     # the container: a shell that sleeps, named as agents names it
+        started.append(agents.container(f"suite-{box}"))
+        return started[-1], "echo $$; exec sleep 30"
+    monkeypatch.setattr(agents, "queued", queued)
+    monkeypatch.setattr(agents, "docker", lambda *a, **k: calls.append(a) or subprocess.CompletedProcess(a, 0, "", ""))
+
+    def stop():                                         # SIGTERM once two checks run (the other two wait their turn)
+        end = time.time() + 20
+        while time.time() < end and not (len(started) == 2 and all(
+                p.log_of(logs, PREFIX_TAG, i).is_file() and p.log_of(logs, PREFIX_TAG, i).read_text().strip()
+                for i in range(2))):
+            time.sleep(0.05)
+        os.kill(os.getpid(), signal.SIGTERM)
+    was = signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))   # (fac.stop_on_term)
+    try:
+        threading.Thread(target=stop, daemon=True).start()
+        with pytest.raises(SystemExit):
+            p.run_all(cfg, repo, heads, p.suite(cfg, "rerun", logs, PREFIX_TAG, tests=["t"]), PREFIX_TAG, logs, 2)
+    finally:
+        signal.signal(signal.SIGTERM, was)
+    assert len(started) == 2                            # none started after the stop
+    for name in started:                                # each container killed and removed by its name
+        assert ("kill", name) in calls and ("rm", "-f", name) in calls
+    assert not fac.BOXES and not fac.SUITES
+    for i in range(2):                                  # and the processes inside are gone
+        pid = int(p.log_of(logs, PREFIX_TAG, i).read_text().split()[0])
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+    assert sorted(x.name for x in root.iterdir()) == ["keep-me", "old-20261121T000000Z"]   # the run's and the
+    assert len(worktrees(repo)) == 1 and (tmp_path / "outside" / "x").read_text() == "kept\n"  # killed one's gone
+
+
+def test_a_prefix_run_waits_for_its_checks_whatever_a_join_says(tmp_path, monkeypatch):
+    # A signal that breaks a Thread.join (3.12's _wait_for_tstate_lock) marks the live thread stopped: is_alive False.
+    # run_all must wait on its own record of each check's end, never on is_alive, or it returns with checks running.
+    p = prefixes_module()
+    repo, heads, cfg, logs = prefix_repo(tmp_path, 3)
+    monkeypatch.setattr(p.threading.Thread, "is_alive", lambda self: False)
+    monkeypatch.setattr(p.threading.Thread, "join", lambda self, timeout=None: None)
+    ended = []
+
+    def check(i, work):
+        time.sleep(0.3)
+        p.log_of(logs, PREFIX_TAG, i).write_text("ok\n")
+        ended.append(i)
+        return 0
+    got = p.run_all(cfg, repo, heads, check, PREFIX_TAG, logs, 3)
+    assert sorted(ended) == [0, 1, 2] and [r["result"] for r in got] == ["pass"] * 3
+    assert len(worktrees(repo)) == 1
+
+
+def test_a_prefix_run_that_did_not_start_is_unknown(tmp_path):
+    p = prefixes_module()
+    repo, heads, cfg, logs = prefix_repo(tmp_path, 6)
+    heads[3] = "0" * 40                                 # no such commit: its worktree is never made
+    p.log_of(logs, PREFIX_TAG, 2).write_text("1 passed\n")   # an earlier run's log, never read as this one's
+    ran = []
+
+    def check(i: int, wt: Path) -> int:
+        ran.append(i)
+        if i == 0:
+            raise p.agents.NotStarted("the container did not start")
+        if i != 2:                                      # (2 writes no log)
+            p.log_of(logs, PREFIX_TAG, i).write_text("output\n")
+        return {1: 125, 2: 0, 4: 0, 5: -9}[i]          # 125: docker's own; -9: killed
+    got = p.run_all(cfg, repo, heads, check, PREFIX_TAG, logs, 3)
+    assert [r["result"] for r in got] == ["unknown"] * 4 + ["pass", "unknown"]
+    assert "NotStarted" in got[0]["why"] and got[2]["why"] == "no log" and "worktree" in got[3]["why"]
+    assert 3 not in ran and sorted(ran) == [0, 1, 2, 4, 5]
+    assert not list((tmp_path / "run" / "queue-prefix").iterdir()) and len(worktrees(repo)) == 1
