@@ -20,6 +20,8 @@ TYPES = frozenset("int float str bool list dict tuple set".split())          # i
 METHODS = frozenset("get strip lower upper split startswith endswith replace join items keys values".split())
 FRESH = frozenset("len int float str bool abs round repr any all isinstance".split())  # (a): holds no part of its input
 STRS = METHODS - {"get", "items", "keys", "values"}                    # (d) of a str only: a new str, list or bool
+LAZY = frozenset({"enumerate", "zip", "reversed"})        # iterators, as a generator is: reading one uses it up
+DRAINS = frozenset("list tuple set dict sorted sum any all min max".split())   # (a) that use up their first argument
 RAISES = frozenset("ValueError KeyError TypeError RuntimeError SystemExit".split())
 PRINT_KW, DUMPS_KW = frozenset({"sep", "end", "flush"}), frozenset({"indent", "sort_keys", "ensure_ascii"})
 TRUSTED = CALLS | RAISES | {"print", "json", "load", "loads", "dumps"}     # names whose meaning (a)-(c) rely on
@@ -151,7 +153,7 @@ class Shapes:
                 break
             self.names |= more
         while drop := {k for k in self.names if not (all(self.bound(x) for x in self.binds[k])     # then narrowed:
-                                                     and all(self.shaped(e) for e in self.needs.get(self.grp[k], [])))}:
+                                                     and all(self.shaped(e, True) for e in self.needs.get(self.grp[k], [])))}:
             self.names -= drop                               # a value given to an operation with an unshaped part
 
     def escapes(self, t, parent) -> None:
@@ -325,7 +327,7 @@ class Shapes:
             return False
         if b[0] == "value" and self.json_load(b[1]):
             return True
-        return self.shaped(b[1])
+        return self.shaped(b[1], b[0] == "iter")
 
     def json_load(self, e) -> bool:
         return (isinstance(e, ast.Call) and self.is_json(e.func, ("load", "loads")) and not e.keywords)
@@ -338,7 +340,10 @@ class Shapes:
         """A builtin's name is its own only when it is bound nowhere in the module."""
         return name not in self.binds
 
-    def shaped(self, e) -> bool:
+    def shaped(self, e, lazy=False) -> bool:
+        """``lazy``: ``e`` is used up where it stands (a for's or comprehension's iterable, a DRAINS call's argument),
+        so a generator or iterator may stand there. Anywhere else (a name, a display, a return) it could keep state that
+        a changed read uses up under unchanged code, so it is not shaped."""
         s = self.shaped
         if e is None:
             return False
@@ -372,13 +377,14 @@ class Shapes:
             return s(e.test) and s(e.body) and s(e.orelse)
         if isinstance(e, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
             parts = [e.key, e.value] if isinstance(e, ast.DictComp) else [e.elt]
-            return all(not g.is_async and names_only(g.target) and s(g.iter) and all(s(x) for x in g.ifs)
-                       for g in e.generators) and all(s(x) for x in parts)
+            return (lazy or not isinstance(e, ast.GeneratorExp)) and all(
+                not g.is_async and names_only(g.target) and s(g.iter, True) and all(s(x) for x in g.ifs)
+                for g in e.generators) and all(s(x) for x in parts)
         if isinstance(e, ast.Call):
-            return self.call(e)
+            return self.call(e, lazy)
         return False                                         # attributes, lambda, await, yield, walrus, the rest
 
-    def call(self, e) -> bool:
+    def call(self, e, lazy=False) -> bool:
         f, args, kws = e.func, e.args, e.keywords
         if any(k.arg is None or not self.shaped(k.value) for k in kws):
             return False
@@ -388,7 +394,9 @@ class Shapes:
                 return self.shaped(args[0]) and all(isinstance(x, ast.Name) and x.id in TYPES and self.free(x.id)
                                                     for x in t)
             if f.id in CALLS - {"isinstance"}:                                                # (a)
-                return not kws and all(self.shaped(x) for x in args)
+                drain = f.id in {"enumerate", "zip"} or f.id in DRAINS and (len(args) == 1 or f.id == "sum")
+                return (lazy or f.id not in LAZY) and not kws and all(self.shaped(x, drain and (i == 0 or f.id == "zip"))
+                                                                      for i, x in enumerate(args))
             if f.id == "print":                                                               # (b)
                 return not self.stores and all(k.arg in PRINT_KW for k in kws) and all(self.shaped(x) for x in args)
             return False
@@ -397,7 +405,7 @@ class Shapes:
         if self.is_json(f, ("dumps",)):
             return all(k.arg in DUMPS_KW for k in kws) and len(args) == 1 and self.shaped(args[0])
         if isinstance(f, ast.Attribute) and f.attr in METHODS:                                # (d)
-            return not kws and self.shaped(f.value) and all(self.shaped(x) for x in args)
+            return not kws and self.shaped(f.value) and all(self.shaped(x, f.attr == "join") for x in args)
         return False
 
 
@@ -647,7 +655,7 @@ def allowed(s, sh: Shapes) -> str | None:
     if isinstance(s, ast.If):
         return None if sh.shaped(s.test) else "an if whose test is not shaped"
     if isinstance(s, ast.For):
-        return None if names_only(s.target) and sh.shaped(s.iter) else "a for not over a shaped value into names"
+        return None if names_only(s.target) and sh.shaped(s.iter, True) else "a for not over a shaped value into names"
     if isinstance(s, (ast.Pass, ast.Continue, ast.Break)):
         return None
     if isinstance(s, ast.Return):

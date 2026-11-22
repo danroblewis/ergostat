@@ -6300,6 +6300,11 @@ reason.
   name, a function returning a member is not followed when named as an attribute (`m.mk()`), and `import __main__` is
   refused. So a list the program fills in place, even with shaped values, is not shaped, and a fix reading it goes to
   the person, except through a call that is given the name only as a string (residual 5).
+  **Iterators.** A generator expression, or a call of `enumerate`, `zip` or `reversed`, holds state that reading it
+  uses up, so one kept by a name would let a changed `list(gen)` empty what unchanged code reads next. It is shaped
+  only where it is used up in the same expression: a `for`'s or comprehension's iterable, the one argument of `list
+  tuple set dict sorted sum any all min max` (`sum` also with a start), an argument of `enumerate` or `zip` that is
+  itself so used, or `join`'s argument. A name, a display, a return, `print` or another call given one is not shaped.
   No other attribute reads, no lambda, await, yield or walrus; a call of a function the module defines is not a form
   (it goes to the person).
 - **G2.** Each changed statement is one of: an assignment or augmented assignment of a shaped value to names (never an

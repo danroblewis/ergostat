@@ -621,3 +621,51 @@ Run: `tests/test_repair_allow.py` (97 passed), `tests/test_repair_approver.py` (
 `main`, which is an ancestor of the branch, so there was nothing to merge.
 
 Overrun reason: 778 net lines against 450 (allow.py 662, +4 this round for reading a module's names through attributes and refusing import __main__; approve.py 89, +6 for the diff made from the texts the guard judged; approver.md 14; fix.py +6; stats.py +8; template +2; compile.py -3); every line beyond the plan's ~280 for allow.py is a fail-closed branch asked for at the plan review, review rounds 1 to 6 and the park, kept rather than cut as the review asked.
+
+### Continued, round 4: review 7's findings (iterators used up by a changed read; size; GAPS wrap)
+
+Each finding of review 7 is answered here, blocking and not (lesson-12):
+- **Blocking: generator expressions and the iterators `enumerate`, `zip` and `reversed` counted as shaped.** They hold
+  state that reading uses up. In the reviewer's trace, `gen = (x for x in protect)` was shaped, and a changed
+  `print(list(gen))` emptied what an unchanged `keep = list(gen)` read next, which steered an unchanged `os.system`.
+  The guard returned `[]`, which I confirmed by turning the new rule off. I took the review's first remedy:
+  `Shapes.shaped(e, lazy)`. A generator expression, or a call of a `LAZY` builtin (`enumerate zip reversed`), is shaped
+  only when `lazy` is set. That is only where it is used up in the same expression: a `for`'s or comprehension's
+  iterable, the one argument of a `DRAINS` call (`list tuple set dict sorted sum any all min max`, with `sum` also
+  given a start), an argument of `enumerate`/`zip` that is itself so used, or `join`'s argument. A name, a display,
+  a return, `print`, `max([...])` or a (d) method given one makes it not shaped, so a name bound to one is not shaped.
+  A group's `needs` are checked with `lazy` set, since they judge the operation, not where its value is kept (so
+  `for i, v in enumerate(items)` still keeps `items` shaped). The other remedy, tainting every name a changed statement
+  reads, would refuse the headline fix's reads of `answer`, so it was not taken. `range`, `dict.items()` and the other
+  views hold no read position of their own and stay shaped.
+- **Not blocking: size** (778 against 450). This is answered by the overrun reason below, and nothing was cut, since
+  each branch is fail-closed. This round adds +8 net.
+- **Not blocking: GAPS lines 129-130 were reflowed past the wrap width.** They are rewrapped to 120 columns, and the
+  new sentence about iterators follows the same width.
+- SPEC §12r gets an **Iterators** paragraph after the mutation one. SECURITY's opening paragraph, GAPS and
+  AGENT-GUIDE's `approver:` bullet say the same in plain words.
+
+**Tests.** `test_refuses_iterator_used_up_by_a_changed_read` has 6 cases, each with an accepted twin that makes the
+same value eagerly: the reviewer's generator (twin `tuple(...)`), `enumerate`, `zip`, `reversed` (twin `sorted`), an
+iterator kept in a display `[zip(..)][0]`, and one handed back by a call `max([enumerate(..)])`.
+`test_accepts_iterators_used_up_where_they_stand` accepts `join`, `sum`, `sorted(zip)`, `dict(zip)`, `any` and a
+comprehension or `for` over `enumerate`, and refuses `print` of a bare generator, `zip`, a display holding one and
+`d.get('k', zip(..))`.
+
+**Seen to fail with the code broken** (each mutation applied, then restored):
+- The generator rule off (`GeneratorExp` always shaped): the reviewer's case returns `[]` and fails, and so does the
+  accepted test's refusals.
+- The `LAZY` call rule off: the 5 iterator cases and the accepted test fail.
+- `lazy` forced off everywhere (refuse all iterators): 5 twins and the accepted test fail. The `reversed` twin uses
+  `sorted`, which is not lazy, so it still passes. That shows the rule is an allowlist that a blanket refusal fails.
+
+Run: `tests/test_repair_allow.py`, `tests/test_repair_approver.py` and `tests/test_gaps_doc.py`: 124 passed, 1 skipped
+(sandbox). The 97 earlier guard tests pass unchanged. Ruff is clean. Not run here: the unit suite, the four browser
+files, and `test_repair2` (bwrap cannot make its namespaces in this container). The factory runs them. This clone has
+only `main`, which is an ancestor of the branch, so there was nothing to merge.
+
+Refused in this round: a Bash command that ran `python3 - <<'EOF'` (a heredoc that only opened the file) and printed
+lines with `sed -n`. The read tool was used instead. Also refused: `git merge-base --is-ancestor main HEAD; echo $?`.
+It was run again without the `echo`, and returned rc 0.
+
+Overrun reason: 786 net lines against 450 (allow.py 670, +8 this round so that iterators are shaped only where used up; approve.py 89; approver.md 14; fix.py +6; stats.py +8; template +2; compile.py -3); every line beyond the plan's ~280 for allow.py is a fail-closed branch asked for at the plan review, review rounds 1 to 7 and the park, kept rather than cut as the review asked.

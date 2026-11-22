@@ -697,7 +697,7 @@ What you set:
 - **`approver:`** `person` (the default): the owner reads each fix in the inbox. `ai`: an AI (the same `model`, no
   tools) may approve a fix the guard of SPEC §12r lets it see (a change that computes with plain values and prints,
   touching nothing that runs, writes or imports; a list or dict the program fills in place or hands to a call is not
-  plain); the rest, and whatever the AI does not approve, waits for the owner.
+  plain, nor is a generator or iterator held by a variable); the rest, and whatever the AI does not approve, waits for the owner.
   Propose `ai` only once the owner has approved this loop's fixes for a while, and say what the guard does not see
   (docs/SECURITY.md: among it, the program's own unchanged code can rebind a builtin or `json` the guard relies on, or fill a list it names only as a string).
 - **`verify:`** how many good runs after a fix verify it (default 3; 1 to 50, `check` refuses others). A block that

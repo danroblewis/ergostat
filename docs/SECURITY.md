@@ -16,8 +16,9 @@ says so.
 lets it be asked: the guard reads the program before and after and accepts only changes that compute with plain values
 (strings, numbers, lists, dicts read from JSON) and print, and nothing those changes reach may open, run, import, write
 or call anything else. A list or dict counts as plain only if nothing in your program fills it in place, hands it to a
-call or keeps it where the guard cannot follow it, since that code could put anything in it. Everything else goes to
-you, and so does every fix the AI does not approve. The guard says only
+call or keeps it where the guard cannot follow it, since that code could put anything in it. A generator or iterator
+counts only where it is used up at once, never kept in a variable, since a fix that reads it would empty it for the
+code after. Everything else goes to you, and so does every fix the AI does not approve. The guard says only
 what the AI may be asked about; the AI can still approve a wrong fix within that. What the guard does not see:
 
 - **Implicit errors.** Any lookup or division may raise, so a fix can make the program stop earlier, or get further

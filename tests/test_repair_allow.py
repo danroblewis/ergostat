@@ -251,6 +251,34 @@ def test_refuses_the_reviews_container_traces():
         assert (why == []) is ok, (fill, why)
 
 
+USED_UP = "protect = ('a', 'b')\ngen = {gen}\nprint({show})\nkeep = list(gen)\nif len(keep) == 0:\n    os.system('x')\n"
+
+
+@pytest.mark.parametrize("bad, twin", [
+    ("(x for x in protect)", "tuple(x for x in protect)"),          # review 7's trace: a generator held by a name
+    ("enumerate(protect)", "list(enumerate(protect))"),
+    ("zip(protect, protect)", "tuple(zip(protect, protect))"),
+    ("reversed(protect)", "sorted(protect)"),
+    ("[zip(protect)][0]", "[list(zip(protect))][0]"),                # an iterator kept in a display
+    ("max([enumerate(protect)])", "max(enumerate(protect))"),        # an iterator handed back by a call
+])
+def test_refuses_iterator_used_up_by_a_changed_read(bad, twin):
+    """A generator or iterator holds state that reading it uses up, so one kept by a name lets a changed read empty
+    what unchanged code reads next (review 7). It is shaped only where it is used up in the same expression."""
+    fix = ("1", "list(gen)")
+    assert change(USED_UP.format(gen=twin, show=fix[0]), USED_UP.format(gen=twin, show=fix[1])) == []
+    assert refused(change(USED_UP.format(gen=bad, show=fix[0]), USED_UP.format(gen=bad, show=fix[1])), "print")
+
+
+def test_accepts_iterators_used_up_where_they_stand():
+    for e in ("'-'.join(x for x in answer)", "sum(len(x) for x in answer)", "sorted(zip(answer, answer))",
+              "[i for i, v in enumerate(answer)]", "dict(zip(answer, answer))", "any(x for x in answer)"):
+        assert change("", f"print({e})\n") == [], e
+    assert change("", "for i, v in enumerate(answer):\n    print(i, v)\n") == []
+    for e in ("(x for x in answer)", "zip(answer)", "[enumerate(answer)]", "answer.get('k', zip(answer))"):
+        assert refused(change("", f"print({e})\n"), "print"), e
+
+
 FILLED = "paths = []\n{mk}def fill(m):\n    for f in os.listdir('.'):\n        {fill}\nfill(m)\nfor p in paths:\n"
 
 
