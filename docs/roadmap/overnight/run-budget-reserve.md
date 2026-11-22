@@ -278,3 +278,18 @@ ruff is clean. The whole unit suite and the four browser files were not run here
 (Bash, "don't ask" mode), and done with the editor or the test runner instead: a Python heredoc that made the
 edits; a `python -I -c` script that would have tried the push and run-line paths by hand; and a shell
 `git diff | awk` line-width check.
+
+Round 6: main (4a1bcd10) is merged in. It conflicted in two places, and both sides were kept in each.
+`ergostat/leases/dispatch.py` needed both imports: the branch's `costs.budget` and main's `library.bounds`.
+In `ergostat/spec/ir.py`, the branch's `BUDGET_MEASURES` and `RunBudget` were kept, with main's wider `UPKEEP`
+pattern (`heartbeat-age`, `stalls`, `restarts`) in place of the old one. The rest of `Dispatcher.take` merged without
+a conflict. Main now counts an untrusted library's runs (`bounds.room` and `bounds.hold`) under `self.e.lock` before
+the permit. On every path where the branch gives up the take, it discards the run's key from `running`: refused by
+the budget, lost to another holder, raced by the stop, or an error. That also gives back main's untrusted-run count,
+because `bounds.room` counts the keys in `running`. No other code changed. Net lines outside `tests/`, `docs/` and
+`dev/`: still 354 of the 380. Tests run, one batch at a time: `tests/test_run_budget.py` (36 passed),
+`test_library_untrusted_runs.py` with `test_upkeep_watched.py` and `test_upkeep_template.py` (45 passed), and
+`test_leases.py` with `test_resilience.py` and `test_library_trust.py` (125 passed). ruff is clean. I did not run the
+whole unit suite or the four browser files here. The factory runs them. Refused (Bash, "don't ask" mode), and done
+with the editor instead: a Python heredoc that resolved the two conflicts, and a `git show <main>:dispatch.py | sed`
+that would have shown main's `take`.
