@@ -48,3 +48,9 @@ at 1400-1600 px, where the narrow fit never runs: the routing and drawing time b
 the blocks-drag test passed when run again; every_lines_panel_links[ticket-factory] failed again, on different links
 each run (its 5 s wait for a panel), and the run on main's page code to compare was refused here, so the queue
 should confirm it on main.
+
+Build step, after round 1: `build` ended rc 5 because the only test file it picked was the browser file, which skips
+whole without Playwright, so nothing ran. The page code did not change. Added a non-browser test,
+tests/test_style_tokens.py::test_on_a_phone_the_direction_hint_is_not_hidden (no narrow-layout rule hides .panhint),
+so the build step runs a real check of the style change: 6 passed in that file; it fails with `.panhint` put back in
+the phone layout's `display: none` rule. ruff clean.
