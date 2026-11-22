@@ -384,7 +384,7 @@ async function refreshHeader() {
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
       : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
     const waits = $("#waits"), n = (st.attention || []).filter(waitsOnYou).length;   // the side list's "Waiting for you"
-    waits.hidden = !n;
+    if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
     setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43)
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
