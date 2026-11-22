@@ -546,6 +546,8 @@ class Sensor:
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
     untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
+    run_in: str | None = None   # "owner" only when compile proved its run the owner's or ergostat's; else (None too)
+    #                             it runs in ergostat.sandbox (library/runs.py)
 
     @property
     def window(self) -> float:
