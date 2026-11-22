@@ -74,3 +74,24 @@ step. Each of the six new tests failed. Restoring the broad `suite_watch.py:*` p
 the 4-CPU ceiling, failed the permission and CPU tests. **Not run:** the whole unit suite and the four browser files
 (the prompt forbids it; the queue runs them). origin/main: the clone has no remote. Local `main` (07f9b250) is
 this branch's base.
+
+Round 1, after the fast suites: `unit` failed with no test named, and no code was changed.
+
+- **What the failure showed:** the tail ends at the outer `uv run`'s `Uninstalled 1 package / Installed 1 package`.
+  It has no pytest line (not even xdist's worker line), no FAILED line, no summary and no `suite_watch` JSON line. So
+  `suite_watch` itself stopped before pytest wrote anything. No test failed. This is the same silent stop as round 6
+  of `implementors-can-run-the-four` and the four runs of `the-module-map-is-read-and`, both on main's code. The full
+  log is outside this clone, so I could not read it.
+- **Checked against this branch:** the branch changes which suites the round runs, a session's `--cpus` and one
+  permission. Suite containers keep `LIMITS` (4 CPUs, 12g) and `fac.suite` is untouched. Before the session, `browser_ready`
+  no longer runs, so the .venv resync on /work now happens in the unit container's outer `uv run`. That step finishes
+  before pytest starts, and the tail shows it ending normally. So I found no path from this change to a run that
+  dies before pytest's first line. The five new tests run in standin mode, with `echo` suites, no slot and no Docker.
+  They kill nothing outside their own process groups.
+- **Not fixed (lesson 13, the most reversible choice):** no test was named, so there was no test to fix. A guessed change
+  to the suite runner or the watchdog is outside this definition. If the queue's unit run stops the same way, that
+  belongs in a gap of its own, which would need the full log and the container's exit (OOM or killed from outside).
+- **Run here:** `tests/test_agents.py` (10 passed, including the real Chromium launch).
+  `tests/test_factory.py`, `_times.py`, `_manager.py` and `test_in_container.py` together, serially: 173 passed,
+  2 skipped (Docker-only, as on main). Ruff is clean. **Not run:** the whole unit suite and the four browser files.
+  The brief forbids that, and running several files at once in a loop was refused.
