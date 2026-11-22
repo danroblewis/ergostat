@@ -63,3 +63,9 @@ per worker).
 
 Not run here: the unit suite and the four browser files (left to the factory and the merge queue, as the rules say).
 No page changed. main had not moved since the branch was made, so there was nothing to merge.
+
+## Where it stopped
+
+Parked by the factory (review/perf-factory-size-fixture-1, 2026-11-22 07:07).
+
+Done 1, 2 and 4 are built with acceptance tests that can fail: the counts test (every size, read back from the model and record, no lease event refused by the fold, `ergostat check` exits 0), the determinism test (a second build in its own process, sha256 per record file) and the served-answers test (/api/status and /api/items from a real ThreadingHTTPServer). Done 3 is half done: the fixture's snapshot cost is measured, but the factory copy's is not, because the live factory's state is not in the implementor's container and cannot be shipped. The branch can't merge until the PR gives both numbers within a factor of two. Nothing in the gap's own code is wrong enough to block.
