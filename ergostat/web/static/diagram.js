@@ -1316,10 +1316,12 @@ function legendBox(view) {
 /* what waits on the owner (SPEC §12o), answered where it is listed: an event from the owner, as everywhere */
 function inboxAnswer(a) {
   if (SNAP || S.at) return null;
-  const said = h("span", { class: "note", "aria-live": "polite" });
+  const said = h("span", { class: "note", "aria-live": "polite", tabindex: "-1" });
   const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
   const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": "Why" }) : null;
   const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async () => {
+    // answered from the keyboard: focus goes to the reply, not with the disabled button to the body, so the list holds
+    if (row.contains(document.activeElement) && document.activeElement.matches(":focus-visible")) said.focus();
     for (const b of row.querySelectorAll("button")) b.disabled = true;
     const q = { ...(n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
     try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }

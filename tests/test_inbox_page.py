@@ -196,3 +196,38 @@ def test_the_side_list_holds_still_while_the_reader_is_in_it_and_a_request_stays
         assert any(record.get(p, a["id"])["state"] == "denied" for a in reqs)
         assert not errors, errors
         b.close()
+
+
+def test_a_request_answered_from_the_keyboard_holds_the_list_with_the_pointer_off_it(site):
+    """Answered with the keyboard, the pointer off the list: the disabled button does not drop the focus to the body.
+    The focus goes to the row's reply, so the answered row stays in its place, saying so, until the reader leaves."""
+    from ergostat.actions import record
+    url, p, a = site
+    what = f"action/{record.short(a['id'])}"
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        n = alarms_coming(pg, set())
+        pg.goto(f"{url}/diagram?view=blocks")
+        row = pg.locator(f'[data-inbox="{what}"]')
+        row.wait_for(timeout=20000)
+        off(pg)
+        row.locator('input[aria-label="Why"]').focus()
+        pg.keyboard.type("not this week")
+        pg.keyboard.press("Shift+Tab")                                       # to Deny, from the keyboard
+        assert pg.evaluate("() => document.activeElement.dataset.verb") == "deny"
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=row.element_handle(), timeout=20000)
+        assert record.get(p, a["id"])["state"] == "denied"
+        top, seen = row.bounding_box()["y"], n[0]
+        for _ in range(4):
+            pg.wait_for_timeout(2000)
+            assert row.count() == 1 and row.bounding_box()["y"] == top
+            assert row.evaluate("(el) => el.contains(document.activeElement)")
+        assert n[0] >= seen + 2, n                                           # (the answers kept coming)
+        leave(pg)
+        pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="{what}"]')""", timeout=20000)
+        assert not errors, errors
+        b.close()

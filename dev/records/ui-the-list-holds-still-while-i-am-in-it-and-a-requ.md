@@ -206,3 +206,31 @@ Tests run this round:
   tests/test_inbox.py::… 2>&1 | tail -15` and `uv run python scripts/suite_watch.py -- uv run python
   scripts/named_tests.py tests/test_inbox.py`. Both were run instead as plain `uv run python scripts/named_tests.py …`,
   with no watchdog (a single serial unit file).
+
+## Where it stopped (round 5: a keyboard answer keeps the hold)
+
+The findings of review 1 (fix), each answered:
+- Blocking (util.js:81 with diagram.js:1323): a request answered from the keyboard, with the pointer off the list,
+  ended the hold. Its button was disabled while it had focus, `heldStill` does not count a disabled focused element, and
+  the row and its reply went at the next refresh with focus on the body. Fixed in `diagram.js` (+2 net lines): the
+  reply text is focusable (`tabindex="-1"`). When the button that answers has keyboard focus (`:focus-visible`), focus
+  moves to the reply before the buttons are disabled. So the focus stays in the row, the list holds, and the answered
+  row stays in its place, saying so, until the reader leaves.
+  Choice made without asking (easy to undo): this applies only to a keyboard answer. After a mouse click the focus stays
+  on the disabled button and does not hold the list, as before, so the row still goes when the pointer leaves. That is
+  what `test_approve_in_the_side_panel` checks.
+  New test `tests/test_inbox_page.py::test_a_request_answered_from_the_keyboard_holds_the_list_with_the_pointer_off_it`:
+  with the pointer off the list, it types a reason, presses Shift+Tab to Deny and then Enter. It checks the request is
+  denied, then for 8 s (with alarms coming) that the row is still there, has not moved, and holds the focus. Then it
+  leaves and the row goes. Break seen to fail (lesson 9): with the `said.focus()` call removed, it fails at the focus
+  check ("el.contains(document.activeElement)" False).
+- Non-blocking (tests/test_inbox.py, the round-4 unit test covers server behaviour that was already there): it stays.
+  It pins the contract the side list's "no longer waiting" mark reads (`what` keys, and an answered request leaving the
+  answer), and it gives the build without Playwright tests to run. Delete it if that is not wanted.
+
+Tests run this round (Playwright 1.63.0, under `scripts/suite_watch.py`, through `scripts/named_tests.py`):
+- `tests/test_inbox_page.py`: rc 0, 3 passed (109.8 s).
+- `uv run ruff check ergostat tests scripts`: clean.
+- Not run, as the house rules say: the unit suite, the four browser files, and `tests/test_agents_page.py` (the Agents
+  code did not change). `main` has not moved in the clone, so there was nothing to merge.
+- Refused this round: a `python3 - <<'EOF'` edit script on `diagram.js`. The edit was made with the editor instead.
