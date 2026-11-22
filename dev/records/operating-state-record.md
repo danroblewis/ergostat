@@ -48,3 +48,24 @@ depends-on: []
 ## Size budget
 150 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+
+Built, round 1. Every item of the definition is done. The six acceptance tests and one more
+(`test_setting_a_state_is_refused_on_the_last_good_model`) pass. Each guard was broken by hand and a test failed: the
+fold ordered by `at`, an entry merged over the earlier one of its state, a non-number lease end read as lapsed, and
+incident and freeze swapped. Main had nothing new to merge (`HEAD..main` is empty).
+
+Overrun reason: 194 net lines against 150. The extra is the strictest-case handling the risks ask for (an unknown state, a lease end that is not a number, an unreadable record, an overflowing or out-of-bounds `away-after`), the CLI's refusals (a lease past 24 h, `--for` off maintenance, an `--actions` name not in the model), and 6 lines of `operating:` in `schema/ergostat.schema.json` so a model using it stays valid against the schema.
+
+Choices taken where nobody could be asked (each reversible):
+- Each of incident, freeze and maintenance is held as its own layer. `normal` ends the strongest one held, so ending an
+  incident entered over a freeze leaves the freeze in force. This is the stricter reading of "only the owner's typed
+  act ends a freeze".
+- The whole `operating` topic is refused under the read-only fallback, showing included. It is not in
+  `goodmodel.READS`, and adding it there is a one-line change if showing is wanted.
+- "An event from the owner" is an event whose `source` is `owner`.
+- `away_after` is a field on `Spec` (`ergostat/spec/ir.py`, one line), and the `operating` topic has a line in the
+  CLI's help (`ergostat/cli/__init__.py`). Neither file was in the list to touch.
+- Not covered (said in SPEC): a state entered longer ago than the model's `keep:` is pruned with its event and then
+  reads as `normal`. Keeping it belongs with the record's pruning, outside this gap.
