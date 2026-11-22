@@ -478,8 +478,10 @@ step like the others (its log `run/queue/<run>-host.txt`, its result `host` in t
 batch and bisects, and flake triage reruns its tests on the Mac too). `host = ""` turns the step off. Exit 126 or 127
 (a command not found or not runnable) is a step that did not start: the run fails and is undone, no gap blamed, never
 read as a pass. A test the host step skips that the same run's unit suite skipped too (by `path:line` in their `-rs`
-summaries) ran nowhere, and fails the step, unless its reason states a need outside the machine (a URL, money,
-Chromium or playwright, Docker, free ports). When the unit log is missing, or counts skips without naming them, every
+summaries) ran nowhere, and fails the step, unless its reason is one of the stated needs outside the machine in use
+(an `ERGOSTAT_…_URL`, "spends money", "no Chromium to drive", playwright not importable, "needs Docker and the agent
+image", "no N free ports in"), matched as those exact phrases: a new external skip reason must be added to
+`queue.EXTERNAL`, or it counts. When the unit log is missing, or counts skips without naming them, every
 host skip counts as one that ran nowhere.
 
 **The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake

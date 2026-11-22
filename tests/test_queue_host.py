@@ -4,6 +4,7 @@ skips.md). Each suite here is a fake command: no Docker, no live instance."""
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -117,6 +118,25 @@ def test_skips_that_cannot_be_compared_count_as_nowhere(tmp_path):
         said, _ = f.run("queue.py", "gap/a")
         assert said == ["gap.queued", "gap.queue-failed", "gap.measured"], n
         assert f.item("gap/a")["fields"]["suites_queue"]["host"]["nowhere"], n
+
+
+def test_only_the_stated_external_needs_in_use_are_exempt(tmp_path):
+    spec = importlib.util.spec_from_file_location("factory_queue", BIN / "queue.py")   # (not the stdlib's queue)
+    q = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(BIN))
+    try:
+        spec.loader.exec_module(q)
+    finally:
+        sys.path.remove(str(BIN))
+    exempt = ("set ERGOSTAT_TEST_VM_URL to run VictoriaMetrics", "spends money: ERGOSTAT_LIVE_AI=1",
+              "no Chromium to drive: gone", "could not import 'playwright.sync_api': No module named 'playwright'",
+              "needs Docker and the agent image (dev/agent/Dockerfile)", "no 3 free ports in 9000-9100")
+    counted = ("needs curl", "not under Docker", f"{NS} (no playwright either)", "url")
+    lines = [f"SKIPPED [1] tests/test_x.py:{i}: {r}" for i, r in enumerate(exempt + counted)]
+    unit = tmp_path / "unit.txt"
+    unit.write_text("\n".join(lines))
+    assert q.nowhere("\n".join(lines), unit) == sorted(f"tests/test_x.py:{i}: {r}"
+                                                       for i, r in enumerate(exempt + counted) if r in counted)
 
 
 def test_the_host_step_is_never_boxed(tmp_path):

@@ -45,3 +45,17 @@ Built; nothing left that I know of. Judgement calls, each taken as the most reve
   the run fails and is undone, with no gap blamed.
 - The clone has no `origin/main` ref (only local `main`, already an ancestor of the branch) and no network, so there
   was nothing to merge in.
+
+Round 2:
+- The factory's merge of main (c1d10970) conflicted in dev/bin/queue.py (the docstring: main's stall sentence and the
+  branch's host sentence, both kept) and dev/bin/triage.py (main's `fac.Stalled` handling now wraps the branch's
+  `rerun(..., failed_suite)` call). The host step goes through `fac.suite` like the others, so main's stall limits
+  apply to it too.
+- Round-1 finding on `queue.EXTERNAL` (substrings, case-insensitive, so "needs curl" or "not under Docker" were
+  exempt): it is now an allowlist of the exact external reasons the tests use, case-sensitive and anchored; a new
+  external skip reason must be added there or it counts as ran-nowhere (fail closed). Test:
+  `test_only_the_stated_external_needs_in_use_are_exempt`, seen to fail with the old pattern.
+- Round-1 finding that a Mac-wide host fault (sandbox-exec gone) is red on every prefix, so the bisect blames the
+  batch's first gap: left as is. It is how every suite bisects, the definition asks the host step to bisect "like any
+  suite", and triage then sends the gap back with the named failure, so nothing wrong lands. Telling a Mac fault from a
+  branch's would need a run of the base on its own, a change to the bisect for every suite: its own gap.

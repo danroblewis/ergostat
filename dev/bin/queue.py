@@ -188,7 +188,8 @@ EXCUSE_MOST = 3                                         # more failed tests than
 NEVER_EXCUSED = ("tests/test_page_polling.py",)         # (dynamics-open-dom-growth: is it a leak?)
 SUITES = ("ruff", "unit", "browser", "host", "demo")
 SKIP = re.compile(r"^SKIPPED \[\d+\] (\S+:\d+): (.*)$", re.M)     # pytest -rs: one line a skip's place and reason
-EXTERNAL = re.compile(r"URL|money|Chromium|playwright|Docker|free ports", re.I)   # a need outside the machine, stated
+EXTERNAL = re.compile(r"\bERGOSTAT_\w+_URL\b|^spends money\b|^no Chromium to drive\b|^could not import 'playwright\b"
+                      r"|^needs Docker and the agent image\b|^no \d+ free ports in\b")  # the stated external needs in use
 COUNTED = re.compile(r"\b\d+ skipped\b")
 
 
