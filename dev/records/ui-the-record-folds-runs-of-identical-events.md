@@ -34,7 +34,7 @@ with equal type, source, item and data (the shown change); it is one row: the ty
 time as `first–last`; clicking the type lists the run's events in the side panel (the existing detail panel, no new
 panel), each opening as one event does. Choices made with nobody to ask (the reversible ones): a run folds only
 within the 80 events the page asks for, so a run longer than that shows as `×80` at most; the remote record folds the
-same way. Net code: 17 lines (details.js +13, style.css +1, pages.js 0).
+same way. Net code: 14 lines (details.js +13, style.css +1, pages.js 0).
 
 Test: tests/test_items_page.py::test_the_record_folds_runs_of_identical_events (the acceptance: no two adjacent rows
 equal in type, source and data; a `×6` and a `×3` row; a different value or another event in between starts a new
