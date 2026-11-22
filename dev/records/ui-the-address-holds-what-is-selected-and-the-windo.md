@@ -94,3 +94,27 @@ the browser acceptance test again with Playwright under the watchdog, 1 passed, 
 files were not run again after the merge. That merge (18c67055) brought main's Agents-page change into
 ergostat/web (pages.js 7 lines, style.css 2), so the round 1 results above are from before it; the merge queue
 runs them in full.
+
+Round 3, answering the one review finding (S.again left over from an earlier opener, so a flow's panel was replaced
+by the stock's after a window change). It was true, and round 1's claim that such panels "stay open but [are] not asked
+again" was false. Fixed in details.js: showDetail now clears S.again. openNode, openLoop and openAgent go through
+askedAgain, which sets S.again only when the opener's own panel is the last one shown (no other opener started
+since, and a panel was shown during the call). So any panel shown by something else (an edge or flow pipe, a
+connector, a feedback loop, a Blocks signal, an event) stays as it is on a window change and is not asked again. An
+opener whose request fails shows nothing and leaves the panel already shown, and that panel's S.again, as they were.
+main.js's setWindow now returns its promise so a test can wait for it (no line added). This is about 5 net lines
+more than round 1, still within the 60-line budget.
+
+The test gains two steps in tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen_and_the_window,
+on /diagram?view=dynamics. First: the stock inbox's panel, then a flow pipe's, then a window change; the panel is
+still the Flow. Second: the stock's own panel and a window change; the panel is shown again in the new window (a
+marker put into the old panel is gone). Both breaks were seen to fail the test: with showDetail not clearing S.again,
+it fails with "the flow's panel was replaced by Stock". With askedAgain never setting S.again, the stock's panel is
+not asked again. Restored, the test passes (rc 0, under the watchdog with Playwright). Ruff is clean. Merging main
+gives "Already up to date".
+
+Not run in this round: the whole of tests/test_diagram_rendering.py. A first run was stopped by the 10-minute
+background limit before it reported anything. The command to run it again with a longer limit
+(`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+tests/test_diagram_rendering.py > /tmp/diag_full.log 2>&1; ...`, in the background) was refused. The other three
+browser files and the unit suite were not run again either (no Python changed). The merge queue runs them.
