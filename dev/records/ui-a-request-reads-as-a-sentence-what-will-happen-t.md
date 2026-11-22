@@ -25,3 +25,28 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built. About 26 net lines of code outside tests (entries.py, state.py, diagram.js, pages.js, style.css).
+
+- Side list (/diagram): each entry waiting on the owner (`[data-inbox]`) now starts with its sentence, linked to its
+  page, then "waiting N". Its text is shown in full, with anything past three lines in a closed `<details>`, and the
+  exact command (the action's own `run`, then the `ergostat inbox` line) is in a closed `<details class="cmd">`.
+  Backticks are drawn as `<code>`. An action reads `{description} ({arg value, ...}), for {item}, asked by {block}
+  because {why}`. A person block reads `{name} asks: {ask}`, uncut. A held modelling request reads `{check's words}.
+  Modelling cannot decide it: {why}.`, then `Approve hands it back to modelling's AI tier.` when approvable, then
+  `Deny tells it to stop asking until {part} changes; the change is yours to make through the Supervisor.` Step-test
+  and change entries are no longer cut with '...' either.
+- Action item page: its sentence (`.action-says`) comes first, then the old state/class/gate line. The command is in
+  a closed `<details>`, both on its own page and in the list of actions about an item.
+- Choices taken without anyone to ask (the reversible ones):
+  - 'Waiting for you' is taken to mean the inbox entries in the side list's *Needs attention*. No heading was renamed.
+  - The request's sentence is one generic sentence for every code, not a no-unit special.
+  - The request item page is left as it was: its fields already read in full there.
+  - The new `summary` is shared, so `ergostat inbox`, the status and notifications say the same sentence.
+    `tests/test_inbox.py`'s notification check was updated to the new wording.
+- Tests: the acceptance is `tests/test_inbox_page.py::test_a_request_reads_as_a_sentence_with_its_command_folded` and
+  `::test_a_deny_only_modelling_request_says_what_deny_does`. It runs on a free port, not :8792: that demo is not in
+  this container. Each test was seen to fail under these breaks: backticks left raw; the command box open; "Deny"
+  reworded; the item page's first line reverted to the action name.

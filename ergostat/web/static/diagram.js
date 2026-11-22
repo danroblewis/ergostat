@@ -1329,6 +1329,17 @@ function inboxAnswer(a) {
   return row;
 }
 
+/* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
+   its text in full, past three lines folded; the exact command folded below */
+const ticked = (s) => String(s).split("`").map((x, i) => (i % 2 ? h("code", {}, x) : op(x)));
+function inboxBody(a, href) {
+  const ls = [a.first, a.more].filter(Boolean).join("\n").split("\n"), run = [a.run, a.cli].filter(Boolean).join("\n");
+  const first = h("span", { class: "ask" }, ticked(ls.slice(0, 3).join("\n")));
+  return [h("div", { class: "ask-first" }, href ? h("a", { href, class: "plain" }, first) : first, h("span", { class: "muted" }, ` waiting ${a.waiting}`)),
+    ls.length > 3 ? h("details", { class: "ask" }, h("summary", {}, "the rest"), h("span", { class: "ask" }, ticked(ls.slice(3).join("\n")))) : null,
+    run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
+}
+
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
   const all = g.attention || st.attention;           // from the same snapshot as the diagram beside it
@@ -1356,6 +1367,7 @@ function renderSide(side, g, view) {
   for (const a of problems.slice(0, MAX)) {
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
     const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
+    if (a.answer && a.first) { att.append(h("div", { "data-inbox": a.what }, ...inboxBody(a, href), inboxAnswer(a))); continue; }
     att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
       linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
   }

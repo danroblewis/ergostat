@@ -370,7 +370,7 @@ def test_a_message_says_little_unless_the_channel_asks_for_detail_and_then_scrub
     gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "secret-host.corp.internal"})
     deliver.sweep(p, p.model.spec, time.time() + 300)
     full = sent(tmp_path)
-    assert "secret-host.corp.internal" not in full and "for host-1: echo" in full      # its summary, scrubbed
+    assert "secret-host.corp.internal" not in full and "for host-1, " in full      # its summary, scrubbed
     (tmp_path / "minimal").mkdir()
     p2, _ = project(tmp_path / "minimal")
     gate.request(p2, p2.model.spec, "push", {}, {"block": "pusher", "item": "ticket/7"})
