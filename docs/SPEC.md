@@ -3153,17 +3153,17 @@ runs as a process of its own.
 - **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
 - **An engine of one shard.** `Engine(project, shard=NAME)` works only on what `Plan.of` puts in that shard; with
   `shard=None` (what `ergostat run` uses) it works on everything, as before. A name the plan does not have is a
-  `ValueError` when the engine is made. Its own are: the built-ins, the machine blocks and the goals a pass works out;
-  the clock's timed sensors, sensor crons, timed and cron blocks and judges, and the item-count sensors read when the
-  record moves; the blocks the dispatcher takes items for and the kinds whose leases it watches; the blocks an event
-  starts and the kinds whose joins move a parent; the daemons `Supervisor.sync` starts, with the sensors they serve;
-  and the stocks the observer estimates. A pass reads the newest measurements of its own stocks, flows and auxiliaries
-  and of those in other shards its parts read (a goal's part, a block's inputs, an equation's references, an estimated
-  stock's flows), and no others; an estimate read from another shard is a wire and is not carried yet. The shards of
-  one plan divide each of these between them: none twice, none left out. The plan is worked out once per model, so
-  whatever reads a model reads that model's plan. `swap` works out the new model's plan under the engine's lock; a
-  plan without the engine's shard is refused, and the last model keeps running. A part that moved to another shard
-  leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
+  `ShardError` (a `ValueError`) when the engine is made, naming the shard and the plan's shards. Its own are: the
+  built-ins, the machine blocks and the goals a pass works out; the clock's timed sensors, sensor crons, timed and
+  cron blocks and judges, and the item-count sensors read when the record moves; the blocks the dispatcher takes items
+  for and the kinds whose leases it watches; the blocks an event starts and the kinds whose joins move a parent; the
+  daemons `Supervisor.sync` starts, with the sensors they serve; and the stocks the observer estimates. A pass reads
+  the newest measurements of its own stocks, flows and auxiliaries and of those in other shards its parts read (a
+  goal's part, a block's inputs, an equation's references, an estimated stock's flows), and no others; an estimate
+  read from another shard is a wire and is not carried yet. The shards of one plan divide each of these between them:
+  none twice, none left out. The plan is worked out once per model, so whatever reads a model reads that model's
+  plan. `swap` works out the new model's plan under the engine's lock; a plan without the engine's shard is refused
+  (the same `ShardError`), and the last model keeps running. A part that moved to another shard leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
   readings, estimate and observer track, and its daemon (drained). Each owner's ask in the record is followed by
   the one engine whose shard `Plan.of` gives for what it names: an approval, a denial, a breaker reset or a stop by
   the block's (`block.NAME`), a restart by the daemon's, a step test by its goal's (and at start each engine resumes
@@ -3175,9 +3175,29 @@ runs as a process of its own.
   the run would start: an approval judged just before a swap moved its block is refused there, said, and must be
   given again (the new owner judged it not its own). Only the lead does what is done once: the `ergostat.started`
   event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases, actions and notices,
-  the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket. Not yet by shard: the
-  wires are not carried; a run a block's moving a flow asks for reads that flow's stocks' sensors wherever they are;
-  and the calls socket is one per state directory, not one per shard process.
+  the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket.
+- **A shard engine's own files, events and stop.** With `shard=None` each is as it was. A shard engine listens on a
+  socket of its own: `engine.SHARD.sock` in the state directory, or, when that path is too long for a socket, the
+  short folder's file named by a hash of the state directory and the shard (`calls/server.py`'s `path_for(state,
+  shard)`, with its path in `engine.SHARD.sock.path`). Two shard engines in one state directory both answer calls,
+  and each block run's `ERGOSTAT_SOCKET` names its own engine's socket. A run's call takes a socket in its state
+  directory or in the short folder as its state directory's, so a removed state directory still ends the wait. A
+  command run from a shell still finds only the whole engine's socket. The watchdog writes `heartbeat.SHARD.json`
+  (`heartbeat.json` for `None`), and the outer watcher treats the engine as stale when `heartbeat.json`, or any
+  `heartbeat.SHARD.json` whose pid is the running engine's, is older than `STALE`. A shard heartbeat left by another
+  pid is ignored, and a file that cannot be read is no beat. `ergostat.started` (the lead's alone) and
+  `ergostat.stopped` (each engine's own) carry `data.shard`: the name, or `null` for `None`. A shard engine's
+  `close` kills only what it started: each of its machine-block runs (by process group), its daemons and its reading
+  pools. It never calls `kill_all` or sets the process-wide `STOPPING`, and its start never clears it. It waits for
+  the engine's lock at most `lock_wait`, as `shut` does: past a lock held for good it copies its runs without it and
+  still kills them. A run that starts while it closes sees the stop under the lock and kills itself. Its runs are
+  recorded as stopped with ergostat, not as their failure, and another shard's runs and daemons keep going. The
+  engine starts no agent runs of its own (the older runner does), and a sensor's command is bounded by its timeout
+  and is not killed at close, the same with or without a shard.
+- **Not yet by shard.** The wires are not carried, and nothing refuses them yet: that is `shard-wires`, and the
+  shard tests read an estimate across shards on purpose. A run a block's moving a flow asks for reads that flow's
+  stocks' sensors wherever they are. `daemons.json` is still one file per state directory, written by each engine
+  in turn. A swap does not reshard. It clears what moved out, which is what a reshard was to do.
 
 ### 9.9 The day's AI budget: runs reserve before they start
 
