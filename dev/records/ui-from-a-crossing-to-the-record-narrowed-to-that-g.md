@@ -87,3 +87,18 @@ read the unfiltered rows. The test now waits until all drawn rows are fixer rows
 Tests run: tests/test_graph_cli_web.py (34 passed); tests/test_items_page.py with Playwright under suite_watch, twice
 after the test fix (22 passed each time, rc 0, no skips); ruff clean. Not run: the whole unit suite, the other
 browser files, demo_check (no example touched). No merge of main was needed: `git log HEAD..main` is empty.
+
+Round 3, answering the review's one finding (blocking): any request with `match=` went to `_record_rows`, which
+ignored `item=` and `machine=`. So itemsets.js's valve link (`/record?type=valve.opened&item=<valve>&window=1`,
+whose type now goes into the filter box as `match=`) showed every valve's `valve.opened`, and `/record?machine=X`
+plus a typed filter lost the machine. Now the address's `item`, `machine` and `source` go into every question
+`_record_rows` asks (`_scoped` in `ergostat/web/server.py`). A question whose own field would have to equal some
+other value is dropped. For `machine`, the narrower of the two names (`X/inst` within `X`) is kept. This is the
+smaller, reversible choice: there can only be fewer rows, never rows outside the address's scope. New test:
+`tests/test_graph_cli_web.py::test_the_filter_box_keeps_the_addresss_item_and_machine` (match= with item=, with
+machine= and a machine's instance, and with about=). It fails when the scope is not passed into the questions
+(`other-valve` shown). That break was reverted.
+
+Tests run: tests/test_graph_cli_web.py (35 passed); tests/test_items_page.py with Playwright under suite_watch
+(22 passed, rc 0, no skips); ruff clean. About 48 net lines outside tests. Not run: the whole unit suite, the other
+browser files, demo_check (no example touched). No merge of main was needed: `git log HEAD..main` is empty.

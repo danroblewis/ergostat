@@ -391,9 +391,21 @@ def _remote_events(spec, name, n, glob) -> dict:
             "events": evs[-n:]}
 
 
-def _record_rows(p, m, snap, about, match, n, skip, span) -> list[dict]:
+def _scoped(ask: dict, scope: dict) -> dict | None:
+    """One question with the page's own ``item``/``machine``/``source`` added; None when the two cannot both hold."""
+    for k, v in scope.items():
+        o = ask.get(k)
+        if o is None or o == v or (k == "machine" and v.startswith(o + "/")):
+            ask = {**ask, k: v}
+        elif not (k == "machine" and o.startswith(v + "/")):
+            return None
+    return ask
+
+
+def _record_rows(p, m, snap, about, match, n, skip, span, scope=None) -> list[dict]:
     """The Record narrowed: the events of a goal (``about``: it, its controller's and valves' agents, its valves) or
-    those whose type (a glob), item or source is ``match`` (both: the goal's that match), newest ``n``, in seq order."""
+    those whose type (a glob), item or source is ``match`` (both: the goal's that match), newest ``n``, in seq order;
+    every question also holds to ``scope`` (the address's item, machine, source), so a scoped link stays scoped."""
     lp = snap["loops"].get(about) if about else None
     names = [about] if about else [match]
     if lp:
@@ -405,6 +417,7 @@ def _record_rows(p, m, snap, about, match, n, skip, span) -> list[dict]:
     if about and match:          # the match asked inside each question, so none is capped at n before it is matched
         asks = [{k: v, **w} for v in names for k, o in (("item", "machine"), ("machine", "item"))
                 for w in ({"type": match}, {o: match})] + ([{"item": match}, {"machine": match}] if match in names else [])
+    asks = [a for a in (_scoped(a, scope or {}) for a in asks) if a is not None]
     got = {e["id"]: e for a in asks for e in p.events.query(n=n, skip=skip, **a, **span)}
     return sorted(got.values(), key=lambda e: e["seq"])[-n:]
 
@@ -623,7 +636,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
         span = {"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}
         span |= {k: float(one(w)) for k, w in (("since", "from"), ("until", "to")) if one(w)}
         if one("about") or one("match"):          # the Record's filter box, or a crossing's goal (details.js)
-            return _record_rows(p, m, snap, one("about"), one("match"), n, skip, span)
+            return _record_rows(p, m, snap, one("about"), one("match"), n, skip, span,
+                                {k: one(k) for k in ("item", "machine", "source") if one(k)})
         return p.events.query(n=n, type=one("type"), item=one("item"),
                               source=one("source"), machine=one("machine"), after_seq=int(after) if after else None,
                               before_seq=int(before) if before else None, skip=skip, **span)

@@ -174,6 +174,31 @@ def test_the_goals_filtered_rows_are_not_lost_behind_more_than_n_newer_events_of
         server.server_close()
 
 
+def test_the_filter_box_keeps_the_addresss_item_and_machine(repo):
+    """match= with item= or machine= (a valve's link, itemsets.js; a machine's) holds to both, never wider."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    p.events.add("valve.opened", item="cleanup", source="ergostat", at=now - 20)
+    p.events.add("valve.opened", item="other-valve", source="ergostat", at=now - 10)
+    server, url = serve(p, free_port())
+    try:
+        def rows(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [(e["type"], e["item"]) for e in json.loads(r.read())]
+        assert rows("match=valve.opened&item=cleanup") == [("valve.opened", "cleanup")]          # one valve's, not all
+        assert rows("match=invoice/7&machine=mailer") == [("mail.sent", "invoice/7")]             # the machine kept
+        assert rows("match=invoice/7&machine=billing") == [("invoice.sent", "invoice/7")]         # and its instances
+        assert rows("match=mail.*&machine=billing") == []
+        assert rows("match=mailer&item=invoice/8") == []
+        assert rows("about=disk-under-80&match=cleanup.done&machine=nobody") == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def run_cli(repo, *args, capsys=None):
     rc = main(["-C", str(repo.path), *args])
     out = capsys.readouterr().out if capsys else ""
