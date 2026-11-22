@@ -83,3 +83,9 @@ Continued (round 1, 2026-11-22), again in a Linux container with no Docker Deskt
 - Still left, and only someone at the Mac can do it: item 2, the VM's open-file count before and after 10 queue runs
   (`python3 dev/bin/resources.py vm-open-files`), and item 3, the same count across session containers' runs. No
   code change in this branch can close them.
+
+## Where it stopped
+
+Parked by the factory (review/suites-copy-their-checkout-into-the-container-2, 2026-11-22 12:28).
+
+Done: item 1 (agents.queued pipes a tar of the checkout, minus .venv and with its git directory when that is inside it, into docker run -i, unpacked at /work; run/coverage still mounted; tested with a stand-in docker that really unpacks) and item 4 (resources.py vm-open-files via pgrep and lsof on macOS, no reading elsewhere; auxiliary vm-open-files, goal vm-open-files-within <= 150000, and an external restart-docker block; tested). Left: item 2, on the coordinator's Mac with this branch's queued() in use, read `python3 dev/bin/resources.py vm-open-files`, let 10 queue runs go (prefix runs included), read it again, and record both numbers (must be within 1,000); item 3, the same count across session containers' runs, recorded with the follow-up gap sessions-copy-their-clone-into-the-container. It stops because only someone at the Mac with Docker Desktop can take these readings.
