@@ -34,3 +34,29 @@ dev/bin/fac.py, dev/bin/implement.py, dev/bin/agents.py (finish's held shas), te
 130 net lines in dev/bin.
 
 Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built: items 1 to 6, in 68 net lines of dev/bin (fac.py 16, implement.py 51, agents.py 1). Choices made alone,
+each the more reversible one:
+
+- The bases are merged `--no-ff`, in rank order, by this program, into one commit in the drop
+  (refs/stack/factory/<branch>), and that commit is merged into the branch once, after the definition. The branch
+  does not get one merge per base. That way the branch holds the stack commit, so the three-dot measures (strays,
+  net_lines) have one merge base. Separate merges per base would give two merge bases (main and the base), and git
+  would pick either one. Each stack merge is dated as the base it adds, so a later round with the same main and
+  bases makes the same commit and does not merge it again.
+- A conflict with main counts the same as a conflict between bases: the gap is given back uncounted after 30m,
+  with the files named. A base with no recorded reviewed head counts as one that is no longer its branch's tip, so
+  it waits in the same way.
+- fac.stack_base returns {gap, sha, branch}: the implementor needs the branch to check the tip. stacked_on records
+  only {gap, sha}. A dependency that is not in the record makes stack_base return none, as the definition says. The
+  gap then builds on main, which is today's behaviour, and the taking gate decides whether it is taken.
+- When the stack's suites fail only on tests that also fail on the stack, built_main, waits_on_main and the
+  main-broken record still name main's sha, not the stack's. The intake clears waits_on_main when it differs from
+  main, so the stack's sha would release the gap at once. A test that fails on the stack may be a base's fault
+  rather than main's, so stacks-turned-on should look at this.
+- Not in this gap's files, so left alone: review.py's size gate and queue.py still measure against main. A stacked
+  gap stays inert until stacks-turned-on.
+
+Extra test, not named in the definition: test_finish_refuses_a_head_that_no_longer_holds_a_base (item 4).
