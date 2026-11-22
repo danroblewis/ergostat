@@ -1560,8 +1560,8 @@ covers every item.
 believe it: the estimates' worker (never a page's request; when no estimate waits, after the estimates are kept) works
 out each kind's **calibration** at most once an hour: 4 moments over the last 7 days (7, 5¼, 3½ and 1¾ days ago),
 100 runs each within five seconds, against what happened by now. Per kind (`eta.calibration` in the items-graph
-answer): the p90's coverage (an item that finished, judged as above), how many items were judged, the p50's mean
-absolute error, and since when. The Timeline's note adds a clause per kind: "last week's estimates: 8 in 10 tickets
+answer): the p90's coverage (an item that finished, judged as above), how many items were judged (an item open at
+several of the moments judged once, by the latest it could be judged at), the p50's mean absolute error, and since when. The Timeline's note adds a clause per kind: "last week's estimates: 8 in 10 tickets
 finished by their p90 (41 tickets)", the share rounded down; fewer than 10 judged: "tickets: too few finished last
 week to check"; a coverage under 0.7 in the warning ink. Not said until first worked out, and kept as the last worked
 out when one fails.

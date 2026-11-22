@@ -288,6 +288,30 @@ def test_calibration_with_three_finished_says_too_few(tmp_path):
     assert cal["said"] == "tickets: too few finished last week to check"
 
 
+def test_calibration_counts_an_item_open_at_every_cut_once(monkeypatch):
+    # three items open at all four cuts, each finished an hour after the last: 3 items, not 12 judgements, so too few
+    now = T0 + 2 * 86400
+    at = etacheck.cuts(now)
+
+    def three(p, spec, kinds, t, truth=False):
+        inp = inputs(n=3, pool=3, at=t)
+        inp.finished_at = {i: at[-1] + 3600 for i in inp.items}
+        return inp
+    monkeypatch.setattr(etacheck, "read", three)
+    monkeypatch.setattr(eta, "simulate", lambda inp, *a, **k: {"runs": 5, "items": {
+        i: {"p50": inp.at + 600, "p90": inp.at + 1200 if inp.at < at[-1] else at[-1] + 7200, "mean": inp.at + 700}
+        for i in inp.items}})
+
+    class P:
+        class events:
+            query = staticmethod(lambda **k: [{"time": now}])
+    cal = etacheck.calibration(P, None, ["t"], now)["t"]
+    assert cal["items"] == 3 and cal["coverage"] == 1.0                    # each by its latest cut: by its p90
+    assert cal["said"] == "ts: too few finished last week to check"
+    every = etacheck.score([three(None, None, None, t) for t in at], now)["kinds"]["t"]
+    assert every["items"] == 12 and every["coverage"] == 0.25             # (the backtest's: each estimate judged)
+
+
 def test_calibration_is_worked_out_by_the_worker_never_on_a_request(tmp_path, monkeypatch):
     # the calibration held up in the worker: the estimates come first, a request is not slowed, and once it is
     # worked out it is given beside them; asked again within the hour, it is not worked out again

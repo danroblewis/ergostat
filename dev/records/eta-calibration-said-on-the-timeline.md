@@ -28,3 +28,13 @@ Built, round 1. Choices taken with nobody to ask (each the more reversible one):
   item and by lanes, and only the poor one is in the warning ink. style.css has one selector changed so the note is
   still hidden when empty.
 Overrun reason: about 100 net lines against 80: the per-kind split of the score (the tally kept per kind as well as in total), the worker's own calibration queue run when idle and its hourly stamp, and the clause's words in Python so the acceptance test can read them.
+
+Round 2. Main (afeee013) merged in; eta_api.py kept main's failed-simulation error (`eta_error`) and the branch's
+calibration. The review's finding answered: `etacheck.score(..., latest=True)`, used by the calibration, keeps each
+item's latest judged cut, so `items` and the FEW floor count items, not (item, cut) judgements; the backtest keeps
+counting each estimate judged (its default, `latest=False`, said in the docstring). The more reversible choice taken:
+an item's latest *judged* cut is kept, so a miss at an earlier cut is not dropped because a later cut cannot be judged
+yet. SPEC §5a says an item open at several moments is judged once. New test
+test_calibration_counts_an_item_open_at_every_cut_once (three items open at all four cuts: 3 items, "too few"; the
+score without `latest` says 12); seen to fail with `latest=False` in the calibration.
+Overrun reason: about 106 net lines against 80: round 1's reasons, and the per-item dedupe of round 2 (about 6 lines).
