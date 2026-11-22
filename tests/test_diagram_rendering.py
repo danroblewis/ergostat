@@ -2448,6 +2448,61 @@ def test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named(browser, t
         proc.wait(10)
 
 
+def test_a_goals_behaviour_holds_across_refreshes_of_an_open_page(browser, tmp_path, monkeypatch):
+    """The Loops page left open: its behaviours are asked again every 5 minutes, and each answer flips the share past
+    its bound (4%, 0%, 4%, ...) with no change of status. Across refreshes 5 minutes apart (the page's clock jumped
+    forward) the behaviour text stays the same."""
+    d = charted(tmp_path, monkeypatch)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    loaded, asked = [0], [0]
+    row = {"stock": "backlog", "value": 5, "setpoint": "<= 8", "band": "", "error": 0, "status": "holding",
+           "off_share": 0.003, "back_in": None, "times_off": 1, "observed": True}
+
+    def loops(rt):                                       # its value moves (so the page redraws), its status not
+        asked[0] += 1
+        rt.fulfill(status=200, content_type="application/json",
+                   body=json.dumps({"steady": {**row, "value": 5 + asked[0] % 2}}))
+
+    def control(rt):
+        loaded[0] += 1
+        share = 0.04 if loaded[0] % 2 else 0.0
+        rt.fulfill(status=200, content_type="application/json", body=json.dumps(
+            {"goal": "steady", "performance": {"constraint": {"share": share, "share_off": 0, "mean": 1, "worst": 1}}}))
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.clock.install()
+        pg.route(lambda u: "/api/loops?" in u, loops)
+        pg.route(lambda u: "/api/loop-control?" in u, control)
+        pg.goto(url + "/loops")
+        cell = "() => document.querySelector('td[data-perf=\"steady\"]')?.textContent"
+        pg.wait_for_function(cell, timeout=20000)
+        kept = "() => JSON.parse(localStorage.getItem('ergostat.behaviour.' + S.status.name + '.steady')).seen"
+        seen = [pg.evaluate(cell)]
+        for _ in range(3):                               # three refreshes, each 5 minutes after the last
+            before, calls = pg.evaluate("() => Date.now()"), loaded[0]
+            pg.clock.fast_forward(301_000)
+            pg.wait_for_function(f"() => ({kept})() > {before}", timeout=20000)
+            assert loaded[0] > calls, "asked again"
+            seen.append(pg.evaluate(cell))
+        assert loaded[0] >= 4 and len(set(seen)) == 1, (loaded, seen)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
     """They help and they clutter: the ⋯ menu hides them; a reload keeps them hidden; it shows them again."""
     with served("software-factory", tmp_path) as url:

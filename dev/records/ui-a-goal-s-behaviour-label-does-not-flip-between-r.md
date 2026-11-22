@@ -77,3 +77,25 @@ Two breaks each made the test fail: no staleness check (it showed 'within its bo
 Run: that test and `tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (2 passed, rc 0, under the
 watchdog); `tests/test_graph_cli_web.py` (33 passed); ruff clean. Not run: the whole unit suite and the four browser
 files in full (left to the factory and the merge queue).
+
+## Where it stopped (round 3)
+
+The review's one finding (lesson-9, lesson-8): a kept word went stale after one hold (180 s at a 3600 s window), but an
+open page asks for behaviours only every 300 s, so every refresh found it stale and showed the new word at once. Fixed
+in `steadyWord` (pages.js), with 0 more net lines of code (still about 32 in all): a kept word is now stale only when
+it was not seen within the hold plus two refreshes (`PERF_EVERY`, 300 s, the constant the refresh also uses now). Two
+refreshes, not one, so a refresh that comes a few seconds late still finds the word fresh. A word seen a day ago is
+still stale, and the new word is shown at once.
+
+Choice made without an answer (the most reversible): the margin of two refreshes is a constant in the page.
+
+Test: `tests/test_diagram_rendering.py::test_a_goals_behaviour_holds_across_refreshes_of_an_open_page` keeps the Loops
+page open under Playwright's clock and jumps it forward 301 s three times. Each jump brings a refresh whose answer
+flips the share past the bound (4%, 0%, 4%, 0%) with no change of status, and the behaviour text stays the same. With
+the old limit (the hold alone) put back, it failed: `['past its bound', 'within its bound', 'past its bound', 'within
+its bound']`.
+
+Run: the new test, `test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named` and
+`tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (3 passed, rc 0, under the watchdog);
+`tests/test_graph_cli_web.py` (33 passed); ruff clean. Not run: the whole unit suite and the four browser files in full
+(left to the factory and the merge queue). `main` is still 277a9c6c, already merged in, so there was nothing to merge.

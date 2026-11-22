@@ -19,15 +19,15 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 
 /* a loop's behaviour, with hysteresis: its class (the words without their numbers) changes only once the new class
    has held for HOLD_SHARE of the window (a minute at least), and within a class its numbers are kept as long;
-   remembered across reloads (by project), so a reload alone never flips it; a word not seen within the last hold is
-   stale and the new one is shown at once */
-const HOLD_SHARE = 0.05;
+   remembered across reloads (by project), so a reload alone never flips it; a word not seen within the last hold and
+   two refreshes (PERF_EVERY) is stale and the new one is shown at once */
+const HOLD_SHARE = 0.05, PERF_EVERY = 300000;
 function steadyWord(name, word, win) {
   const key = `ergostat.behaviour.${S.status?.name || ""}.${name}`, now = Date.now(), hold = Math.max(60, HOLD_SHARE * win) * 1000;
   const cls = (w) => w.replace(/[\d(−-].*$/, "").replace(/[,\s]+$/, "");
   let k = null;
   try { k = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { /* none kept */ }
-  if (!k || typeof k.word !== "string" || !(now - k.seen < hold)) k = { word, at: now };
+  if (!k || typeof k.word !== "string" || !(now - k.seen < hold + 2 * PERF_EVERY)) k = { word, at: now };
   else if (cls(k.word) !== cls(word)) {                    // another class: it must hold before it is shown
     if (k.next !== cls(word)) Object.assign(k, { next: cls(word), since: now });
     if (now - k.since >= hold) k = { word, at: now };
@@ -64,7 +64,7 @@ async function pageLoops(main) {
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
     // how each loop is doing, as a control engineer reads its scope (control.js), over the last day of record: asked
     // for every 5 minutes, not every tick (each is an identification on the server, up to a second or two, for every loop)
-    if (!perf.at || Date.now() - perf.at > 300000) {
+    if (!perf.at || Date.now() - perf.at > PERF_EVERY) {
       perf.at = Date.now();
       const st = S.status, win = st?.window ? Math.min(st.window, st.first ? st.at - st.first : st.window) : 0;
       for (const [n, lp] of rows) loopControl(n).then((d) => {
