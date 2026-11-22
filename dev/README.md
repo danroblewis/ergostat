@@ -253,6 +253,12 @@ sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points 
 coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
 most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
 cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
+The judge's verdicts are measured by `split-quality` (of parents first judged in 14 days, the share whose first
+verdict, in record order, was `covered`), `split-joins` (parents judged at least once, whole record) and
+`split-overhead` (the median, over parents merged in 14 days, of the parent's and its children's AI cost, a parked
+sub-gap's and its continuation's both, over the median cost of merged unsplit gaps of the children's size class; a
+parent unpriced, with a child unmerged, unsized or unpriced, or with no unsplit gap of its class is left out and
+named), and `split-quality ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
@@ -315,6 +321,26 @@ tuner asks for `raise-pool` (the implementor first), held in the inbox; a park, 
 lowers the pools by one at once. Say a merge was reverted on main with
 `ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
+
+## The simplifier: a gap that removes code
+
+Every 3 days (`simplify-when`, `dev/model/code-health.yaml`), while no simplification gap is open and the day's money
+is not spent, the simplifier (`dev/bin/simplify.py`, a program) picks one module of `ergostat/`, `dev/bin/` or
+`scripts/` by its evidence (`scripts/code_evidence.py`, read from main): net lines over the 75th percentile, commits in
+the last 60 days, duplicate function bodies and dead candidates, weighted in `[code_health]`. A "dead candidate" is
+only a top-level name that nothing else names as a word (strings, tests, YAML `run:` lines and `pyproject.toml`
+counted); a name built at run time is not seen, so it is a candidate, never a finding. A module under the coverage
+floor (`coverage_floor`, or not in the report), touched by a gap in flight, or picked in the last 30 days is passed
+over. Coverage is main's latest report under `run/coverage/`, chosen as `measure.py coverage` chooses it (by seq, on
+main, at most 20 merges old); `[code_health] coverage = "FILE"` names one report instead.
+It asks for `gap/simplify-<module>-<yyyymmdd>` (`source: simplifier`) with a definition from
+`dev/prompts/simplify.md`: remove only, behaviour and tests unchanged, net lines below 0, and one trailer per removal,
+`Removed: <class> <path>[::<name>] <lines>`. The ordinary implementor and reviewer build it. Pool 1 is fixed in the
+code and held under `run/simplify.lock`. A git that fails, a missing coverage report or an in-flight definition it
+cannot read means no pick; the run says why. On each merged simplification, `simplify.py removals` makes one
+`removal/<gap>-<n>` item per trailer, and a class off the allowlist is recorded as `unclassified`. It reads only
+the gap's own merge (found by its subject in the batch's range), never a batch-mate's commits. To see what it
+would pick: `python3 dev/bin/simplify.py pick`.
 
 ## The machine's resources: a cap on the pools
 
@@ -417,7 +443,11 @@ push, of its last merge, so one approval lands the batch, and a denial sends eve
 bisected (the suites again on the first half of the merges, and so on) to the first merge that fails; that gap goes to
 flake triage with its failures, the merges before it land, and those after it are merged again and run once more.
 When the red run named its failing tests (`FAILED`/`ERROR` lines), those are first run alone, serially
-(`[suites] rerun`, `-rA`), on the whole red tree. Only if one fails there too does each bisecting step run only those:
+(`[suites] rerun`, `-rA`), on the whole red tree. **A flake lands:** when it named 1 to 3 tests, none in
+`tests/test_page_polling.py`, and its failed suite skipped none, they are run alone there twice; each passing both
+times (a PASSED line, rc 0), the suites the red run did not finish (stopped by its failure, or never reached) run, and
+green there the batch lands with no bisect, each test a flake seen (`flake.seen` on `flake/<test>`: the run, the suite,
+`passed_alone`, the log; `excused` in each gap's `suites_queue`). Only if one fails alone does each bisecting step run only those:
 red when one of them fails, green only when the run passes and each says PASSED; a step that cannot tell (a test not
 found on that prefix, a run that never started) runs every suite instead. A failure that shows only in the full run
 (order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a

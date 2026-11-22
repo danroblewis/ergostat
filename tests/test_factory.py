@@ -802,6 +802,61 @@ def test_a_new_top_level_file_not_in_the_definition_is_refused(tmp_path):
     assert r.returncode and "scratch_patterns must be a list" in r.stderr     # a bad setting stops, never passes
 
 
+# The strays committed on 2026-11-21's branches (review findings and their removal commits). Seven are on the record;
+# the eighth is tests/_probe_test.py, the earlier finding the stray-files gate was built from (the audit's list itself
+# is not in the repository). operating-states.md.tail is taken to sit beside its definition, under docs/.
+REAL_STRAYS = ["tests/test_zz_scratch.py", "tests/test_zz_profile_tmp.py",
+               "docs/roadmap/overnight/operating-states.md.tail", "scratch_probe.py", ".bench/test_bench_detach.py",
+               ".mut/mut.py", "tests/test_probe_tmp.py", "tests/_probe_test.py"]
+
+
+def strays_of(f: Factory, cfg: dict, definition: str, fn: str = "strays") -> list[str]:
+    """implement.strays (or unlisted) on the drop's factory/alpha-thing against main, in a process of its own."""
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import implement; from pathlib import Path; "
+            "a = (json.loads(sys.argv[3]),) if sys.argv[5] == 'strays' else (); "
+            "print(json.dumps(getattr(implement, sys.argv[5])(*a, Path(sys.argv[2]), 'main', 'factory/alpha-thing', "
+            "sys.argv[4])))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(f.tmp / "live" / "drop.git"), json.dumps(cfg),
+                        definition, fn], capture_output=True, text=True, env=f.env)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_the_gate_catches_the_eight_real_strays(tmp_path):
+    import tomllib
+    f = Factory(tmp_path)
+    gid = ready(f)
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=",".join(REAL_STRAYS))
+    assert said == ["gap.started", "gap.measured"]                              # refused before the suites
+    assert f.item(gid)["fields"]["suites_fast"]["stray"] == sorted(REAL_STRAYS)
+    real = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())           # the factory's own setting, and the default
+    listed = "# x\n\n## Definition of done\n\nIt works.\n\n## Files to touch\n\n`standin/work.txt`, `tests/test_x.py`.\n"
+    for cfg in (real, {}):
+        for definition in ("# x\n\n## Definition of done\n\nIt works.\n", listed):
+            assert sorted(strays_of(f, cfg, definition)) == sorted(REAL_STRAYS)
+
+
+def test_a_file_the_definition_names_is_not_refused(tmp_path):
+    f = Factory(tmp_path)
+    d = tmp_path / "instance" / "run" / "defs"
+    d.mkdir(parents=True)
+    (d / "alpha-thing.md").write_text("# alpha thing\n\n## Definition of done\n\nIt works.\n\n## Files to touch\n\n"
+                                      "- `standin/work.txt` (new)\n- `scripts/load_probe.py` (new)\n- `tests/test_zz_last.py`"
+                                      "\n- `scripts/bench/` (new)\n\n## Size budget\n\n600 net lines.\n")
+    f.run("intake.py")
+    gid = "gap/alpha-thing"
+    named = "scripts/load_probe.py,tests/test_zz_last.py,scripts/bench/run_tmp.py"   # each matches a scratch pattern
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=named + ",docs/loose.md")
+    assert said == ["gap.started", "gap.built"] and not f.item(gid)["fields"]["suites_fast"].get("stray")
+    definition = (d / "alpha-thing.md").read_text()
+    loose = ["dev/records/alpha-thing.md", "docs/loose.md"]                  # (its own definition is shown too)
+    assert strays_of(f, {}, definition) == [] and sorted(strays_of(f, {}, definition, "unlisted")) == loose
+    said, _ = f.run("review.py", gid)                     # a new file matching no pattern, named by no Files to touch:
+    text = (tmp_path / "instance" / "run" / "briefs" / "alpha-thing-reviewer-1.md").read_text()   # shown to the reviewer
+    shown = text.split('## New files the definition\'s "Files to touch" does not name\n\n', 1)[1].split("\n\n", 1)[0]
+    assert sorted(shown.splitlines()) == [f"- `{p}`" for p in loose]
+
+
 def on_main(f: Factory, *paths: str) -> None:
     """Files committed on main and pushed (the main the drop's branches are made from)."""
     for p in paths:
@@ -1079,6 +1134,9 @@ def test_a_branch_cannot_quarantine_its_own_failing_test(tmp_path):
     f.fold([{"event": "gap.measured", "item": gid, "data": {"head": git(work, "rev-parse", "HEAD")}}], None)
     f.run("review.py", gid)
     assert f.item(gid)["fields"]["reviewed_head"] == git(work, "rev-parse", "HEAD")
+    (tmp_path / "rerun.sh").write_text(f'echo "rerun $*" >> {tmp_path}/runs.log\necho "FAILED {T} - boom"; exit 1\n')
+    f.config.write_text(f.config.read_text().replace(f'rerun = "{tmp_path / "alone.sh"} {{tests}}"',  # (T fails alone
+                                                     f'rerun = "sh {tmp_path / "rerun.sh"} {{tests}}"'))  # too: no flake)
     said, _ = f.run("queue.py", gid)
     assert said[:2] == ["gap.queued", "gap.queue-failed"] and f.item(gid)["fields"]["failed_tests"] == [T]  # red
     unit = [r for r in runs(tmp_path) if r.startswith("unit ")]
@@ -2253,18 +2311,99 @@ def test_bisect_reruns_only_the_failing_tests(tmp_path):
     assert git(f.checkout, "rev-parse", f"{r['pre']}^{{tree}}") == git(f.checkout, "rev-parse", "main~3^{tree}")
 
 
-def test_a_named_rerun_green_on_the_red_tree_bisects_in_full(tmp_path):
-    # test_b fails only in the full run (order, pollution, load): alone it passes even on the red tree, so the bisect
-    # runs every suite, and r (not the last merge, s) is blamed
-    (tmp_path / "pass.sh").write_text(f'echo "$*" >> {tmp_path}/reruns\nfor t in "$@"; do echo "PASSED $t"; done\n')
-    f = bisect_stand_ins(tmp_path, rerun=f"sh {tmp_path / 'pass.sh'}")
+def flaky_stand_ins(tmp: Path, tests: list[str], rerun: str = "") -> Factory:
+    """A unit suite that names ``tests`` as failed while bad.txt is there (each run logged in ``runs``), and a rerun
+    (by default: PASSED for every test it is given, its arguments logged in ``reruns``)."""
+    tmp.mkdir(exist_ok=True)
+    said = "; ".join(f"echo 'FAILED {t} - boom'" for t in tests)
+    (tmp / "unit.sh").write_text(f"echo run >> {tmp}/runs\nif [ -e bad.txt ]; then {said}; exit 1; fi\n")
+    (tmp / "pass.sh").write_text(f'echo "$*" >> {tmp}/reruns\nfor t in "$@"; do echo "PASSED $t"; done\n')
+    f = Factory(tmp, unit=f"sh {tmp / 'unit.sh'}")
+    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"',
+                                                     f'rerun = "{rerun or "sh " + str(tmp / "pass.sh")} {{tests}}"'))
+    return f
+
+
+def test_a_batch_whose_one_failed_test_passes_alone_twice_lands_as_a_flake(tmp_path):
+    # test_b fails only in the full run (order, pollution, load): alone on the red tree it passes, twice
+    t = "tests/test_b.py::test_b"
+    f = flaky_stand_ins(tmp_path, [t])
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert "gap.queue-failed" not in said and said.count("gap.merged") == 4 and merges(f) == ["p", "q", "r", "s"]
+    assert reruns(f) == [f"{t} -rA"] * 2 and suite_runs(f) == 1                # no bisect: the red run, twice alone
+    flake = f.item("flake/tests-test-b-py-test-b")["fields"]
+    assert flake["test"] == t and flake["times"] == 1 and flake["suite"] == "unit" and flake["passed_alone"] == 2
+    assert flake["run"] == f.item("gap/p")["fields"]["batch_id"] and flake["log"].endswith("-unit.txt")
+    assert sorted(flake["gaps"]) == ["gap/p", "gap/q", "gap/r", "gap/s"]
+    got = f.item("gap/r")["fields"]["suites_queue"]
+    assert got["excused"]["tests"] == [t] and "failed" not in got and got["demo"]["rc"] == 0   # the rest ran: green
+    # a batch of one, too
+    g = flaky_stand_ins(tmp_path / "one", [t])
+    approved_gaps(g, {"a": 1}, bad="a")
+    said, _ = g.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "flake.seen", "gap.merged", "gap.push-asked"] and len(reruns(g)) == 2
+    # the suites the red run did not finish run before it lands: red there, it bisects (in full) and nothing lands
+    h = flaky_stand_ins(tmp_path / "rest", [t])
+    h.config.write_text(h.config.read_text().replace('demo = "true"', 'demo = "false"'))
+    approved_gaps(h, {"p": 1, "q": 2}, bad="q", batch=2)
+    said, _ = h.run("queue.py", "gap/p")
+    assert "gap.merged" not in said and said.count("gap.queue-failed") == 2
+    assert "flake/tests-test-b-py-test-b" not in h.db()["items"]
+
+
+def test_a_test_that_fails_alone_on_either_rerun_still_bisects(tmp_path):
+    # the first rerun failing is test_bisect_reruns_only_the_failing_tests; here the second fails, then a rerun that
+    # says no PASSED line (rc 0, lesson-3), each bisecting on the named tests as before
+    t = "tests/test_b.py::test_b"
+    (tmp_path / "second.sh").write_text(
+        f'echo "$*" >> {tmp_path}/reruns\nn=$(wc -l < {tmp_path}/reruns)\n'
+        'for t in "$@"; do case "$t" in -*) continue;; esac\n'
+        ' if [ -e bad.txt ] && [ "$n" -ne 1 ]; then echo "FAILED $t - boom"; rc=1; else echo "PASSED $t"; fi\n'
+        'done\nexit ${rc:-0}\n')
+    f = flaky_stand_ins(tmp_path, [t], rerun=f"sh {tmp_path / 'second.sh'}")
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
     assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+    assert len(reruns(f)) == 4 and suite_runs(f) == 2               # twice on p..s, then on p, q and on p, q, r
+    r = f.item("gap/r")["fields"]
+    assert r["failed_tests"] == [t] and r["suites_queue"]["named"]["tests"] == 1
+    assert "flake/tests-test-b-py-test-b" not in f.db()["items"]
+    (tmp_path / "g").mkdir()
+    (tmp_path / "mute.sh").write_text(f'echo "$*" >> {tmp_path / "g"}/reruns\n')      # rc 0, says nothing
+    g = flaky_stand_ins(tmp_path / "g", [t], rerun=f"sh {tmp_path / 'mute.sh'}")
+    approved_gaps(g, {"a": 1}, bad="a")
+    said, _ = g.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.queue-failed", "gap.measured"] and len(reruns(g)) == 1
+
+
+def test_four_failed_tests_that_each_pass_alone_still_bisect(tmp_path):
+    four = [f"tests/test_{x}.py::test_{x}" for x in "bcde"]
+    f = flaky_stand_ins(tmp_path, four)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    # green alone on the red tree, so the bisect runs every suite, and r (not the last merge, s) is blamed
+    assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
     assert len(reruns(f)) == 1 and suite_runs(f) == 4                          # the check on p..s, then in full
     r = f.item("gap/r")["fields"]
-    assert r["failed_tests"] == ["tests/test_b.py::test_b"] and "named" not in r["suites_queue"]
-    assert f.item("gap/s")["state"] == "merged"
+    assert r["failed_tests"] == four and "named" not in r["suites_queue"]
+    assert not [i for i in f.db()["items"] if i.startswith("flake/")]
+    g = flaky_stand_ins(tmp_path / "three", four[:3])                          # three: the most excused
+    approved_gaps(g, {"p": 1, "q": 2}, bad="q", batch=2)
+    said, _ = g.run("queue.py", "gap/p")
+    assert said.count("gap.merged") == 2 and len([i for i in g.db()["items"] if i.startswith("flake/")]) == 3
+
+
+def test_a_page_polling_failure_is_never_excused(tmp_path):
+    for n, tests in enumerate((["tests/test_page_polling.py::test_a_page_left_open_does_not_grow"],
+                               ["tests/test_b.py::test_b", "tests/test_page_polling.py::test_x[dynamics]"])):
+        f = flaky_stand_ins(tmp_path / str(n), tests)
+        approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+        said, _ = f.run("queue.py", "gap/p")
+        assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+        assert len(reruns(f)) == 1 and suite_runs(f) == 4                      # handled as a real failure: bisected
+        assert f.item("gap/r")["fields"]["failed_tests"] == sorted(tests)
+        assert not [i for i in f.db()["items"] if i.startswith("flake/")]
 
 
 def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
@@ -2274,6 +2413,7 @@ def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
     assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
     assert reruns(f) == [] and suite_runs(f) == 4                               # today's bisect: every run in full
     assert f.item("gap/r")["fields"]["failed_tests"] == []
+    assert not [i for i in f.db()["items"] if i.startswith("flake/")]          # nothing excused
     # a named run that cannot tell (its test not found: rc 4, no result for it) runs that step in full, never green
     (tmp_path / "g").mkdir()
     (tmp_path / "notfound.sh").write_text(f'echo "$*" >> {tmp_path / "g" / "reruns"}\necho "ERROR: not found: $1"\n'
@@ -3624,3 +3764,154 @@ def test_the_shipped_build_setting_runs_the_small_set():
     import tomllib
     s = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
     assert "scripts/affected_tests.py -- " in s["build"] and s["build"].endswith(s["unit"].split(" -- ", 1)[1])
+
+
+# ---- pool-full-keeps-its-rank (docs/roadmap/overnight/pool-full-keeps-its-rank.md): given back for a full pool, a gap
+# is put off under a minute, so it still holds its rank when room appears; the gates keep the give-backs from spinning
+
+def pool_full_nack(f: Factory, program: str, block: str) -> dict:
+    """What ``program`` prints when its pool is full (a pool of 1, and gap/second the later of two leases ``block``
+    holds): its nack, as the engine reads it (``nack_of``)."""
+    from ergostat.spec.engine import nack_of
+    lease = lambda t: {"lease": {"block": block, "holder": f"run-{t}", "taken": t}}  # noqa: E731
+    f.fold([{"event": "gap.requested", "item": "gap/first", "data": lease(1)},
+            {"event": "gap.requested", "item": "gap/second", "data": {**lease(2), "branch": "second"}}], None)
+    said, lines = f.run(program, "gap/second")
+    (raw,) = [x["nack"] for x in lines if "nack" in x]
+    assert said == [] and "pool is full" in raw["why"], (said, raw)
+    return nack_of(raw)
+
+
+class Slots:
+    """The real engine on the factory's model and its real dispatch (``tick``: the gate, the pool, ``ready`` and the
+    rank order), on a clock the test moves; each run is played: given back as ``program`` gives it back while
+    ``full()``, else the gap moved on (``done``), as a finished run moves it."""
+
+    def __init__(self, f: Factory, monkeypatch, block: str, program: str, done: str):
+        from types import SimpleNamespace
+
+        from ergostat.leases import dispatch
+        self.nack = pool_full_nack(f, program, block)
+        self.e, _ = instance_engine(f)
+        self.p, self.block, self.done = self.e.p, block, done
+        self.gate_name = f"{'implement' if block == 'implementor' else 'review'}-when"
+        self.t0, self.at = time.time(), 0.0
+        monkeypatch.setattr(dispatch, "time", SimpleNamespace(time=lambda: self.t0 + self.at, monotonic=time.monotonic))
+        add = self.p.events.add                          # (the record on the same clock: a lease's put-off is from it)
+        self.p.events.add = lambda type_, *a, **k: add(type_, *a, **{"at": self.t0 + self.at, **k})
+        self.e.dispatch.pool_now = lambda b: 1 if b.name == block else 0          # (only this block takes, one at once)
+        self.e.run_block = self.run_block
+        # (no pass of the engine's own: a run's end pokes it, and with no loop that runs a whole pass of real sensors in
+        # the run's thread, which outlived the tick under load and set the gate from the machine's real readings over
+        # the test's; the test is the pass here, setting the gate at each tick)
+        self.e.poke = lambda *blocks, now=True: None
+        self.full = lambda: False
+        self.gate = 1.0
+        self.taken: list[tuple[float, str, str]] = []                          # (when, the gap, how its run ended)
+
+    def run_block(self, b, why, *, item, run_id, outcome, **_):
+        if self.full():
+            outcome["nack"] = dict(self.nack)
+            self.taken.append((self.at, item, "given back"))
+        else:
+            self.p.events.add(self.done, item=item, source=self.block, causedby=run_id)
+            self.taken.append((self.at, item, "ran"))
+        return []
+
+    def gap(self, gid: str, event: str, **data) -> None:
+        self.p.events.add(event, item=gid, source="test", data=data)
+
+    def tick(self, at: float) -> None:
+        self.at = at
+        self.e.signals[f"block.{self.gate_name}"] = self.gate                  # (the gate's output, as a pass sets it)
+        self.e.dispatch.tick()
+        deadline = time.monotonic() + 20
+        while (self.e.dispatch.going_items() or self.e.running) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not self.e.dispatch.going_items(), "a played run did not end"
+
+    def gate_of(self, **given) -> float:
+        """The gate's own expression (implement-when, review-when) on these inputs."""
+        from ergostat.spec.blocks import compile_expr, eval_expr
+        b = self.e.spec.blocks[self.gate_name]
+        base = dict(ready=1, fixes=1, open=1, waiting=1, over=0, busy=0, pool=1, room=1, full=0) | given
+        return float(eval_expr(compile_expr(b.params["expr"]), {k: base[k] for k in b.inputs}))
+
+    def lease_of(self, gid: str) -> dict:
+        from ergostat.spec import items as its
+        return its.one(self.p.events, self.e.spec, gid).fields["lease"]
+
+    def close(self) -> None:
+        self.e.close()
+
+
+@pytest.mark.parametrize("block, program, at, done", [("implementor", "implement.py", "gap.defined", "gap.built"),
+                                                       ("reviewer", "review.py", "gap.built", "gap.approved")])
+def test_a_pool_full_give_back_waits_under_a_minute(tmp_path, monkeypatch, block, program, at, done):
+    s = Slots(Factory(tmp_path), monkeypatch, block, program, done)
+    try:
+        assert s.nack["count"] is False and 0 < s.nack["after"] <= 45          # as the program said it
+        s.gap("gap/one", at, rank=1)
+        s.full = lambda: True
+        s.tick(0)
+        lease = s.lease_of("gap/one")
+        (h,) = lease["history"]
+        assert (h["how"], h["counted"]) == ("nack", False) and lease["attempts"] == 0   # not counted as an attempt
+        assert 0 < lease["not_before"] - h["ended"] <= 45                       # put off, under a minute
+        s.full = lambda: False
+        s.tick(10)                                                              # (10 s on: still put off)
+        assert [g for _, g, _ in s.taken] == ["gap/one"]
+        s.tick(46)                                                              # past 45 s: taken again, and it runs
+        assert [(g, how) for _, g, how in s.taken] == [("gap/one", "given back"), ("gap/one", "ran")]
+    finally:
+        s.close()
+
+
+def test_the_highest_ranked_gap_takes_the_next_free_slot(tmp_path, monkeypatch):
+    """As seen on 2026-11-21: the gaps ranked 1 and 2 waiting in fix, unranked ones ready. The gate is open on a
+    reading that still shows room, so the first taken (rank 1) finds the pool full and is given back; the next reading
+    shuts the gate (the machine full) for a minute; then room. The next to run is rank 1, then 2, then the unranked."""
+    s = Slots(Factory(tmp_path), monkeypatch, "implementor", "implement.py", "gap.built")
+    try:
+        for gid, rank in (("gap/u1", None), ("gap/r2", 2), ("gap/u2", None), ("gap/r1", 1)):
+            s.gap(gid, "gap.defined", **({"rank": rank} if rank else {}))
+        for gid in ("gap/r1", "gap/r2"):
+            s.gap(gid, "gap.sent-back")
+        s.full = lambda: s.at < 60
+        assert s.gate_of() == 1.0 and s.gate_of(full=1) == 0.0 and s.gate_of(room=0) == 0.0
+        s.tick(0)                                                               # open on the last reading: given back
+        s.gate = s.gate_of(full=1)                                              # the next reading: no session fits
+        for t in range(5, 60, 5):
+            s.tick(t)
+        s.gate = s.gate_of()                                                    # a minute on: room for one
+        for t in range(60, 100, 5):
+            s.tick(t)
+        assert s.taken[0] == (0, "gap/r1", "given back") and all(t >= 60 for t, _, _ in s.taken[1:])
+        ran = [g for _, g, how in s.taken if how == "ran"]
+        assert ran[:2] == ["gap/r1", "gap/r2"] and set(ran[2:]) == {"gap/u1", "gap/u2"}   # (the unranked: either first)
+        assert s.lease_of("gap/r1")["attempts"] == 0
+    finally:
+        s.close()
+
+
+def test_a_full_machine_does_not_release_and_retake_in_a_loop(tmp_path, monkeypatch):
+    """Twelve minutes of a full machine, looked at every two seconds: with the gate shut (implement-when, no session
+    fits) nothing is leased; even with the gate open while the pool stays full (the worst case: the gate's reading and
+    the run's disagree throughout), a gap is taken again at most once each put-off, not at each look."""
+    s = Slots(Factory(tmp_path), monkeypatch, "implementor", "implement.py", "gap.built")
+    try:
+        s.gap("gap/r1", "gap.defined", rank=1)
+        s.full = lambda: True
+        s.gate = s.gate_of(full=1)
+        for t in range(0, 720, 2):
+            s.tick(t)
+        assert s.taken == []                                                    # shut: nothing leased at all
+        s.gate = s.gate_of()
+        for t in range(720, 1440, 2):
+            s.tick(t)
+        assert 0 < len(s.taken) <= 720 / 45 + 1 and all(how == "given back" for _, _, how in s.taken), s.taken
+        apart = [b - a for (a, _, _), (b, _, _) in zip(s.taken, s.taken[1:], strict=False)]
+        assert apart and min(apart) >= 45                                       # never sooner than its put-off
+        assert s.lease_of("gap/r1")["attempts"] == 0                            # none of them counted
+    finally:
+        s.close()
