@@ -51,3 +51,29 @@ In a model with `use: repair` (SPEC §12r), `approver:` also takes `program` and
 ## Size budget
 220 net lines
 size: L (confidence: low)
+
+## Where it stopped
+Built, round 1: 127 net lines outside tests, docs and dev (159 added, 32 removed). Every acceptance test exists
+and passes. No question could be asked, so these choices were made, each the most reversible one:
+- **Three files outside "Files to touch".** `library/templates.py` and `library/expand.py` (3 lines): a parameter's
+  `required:` may also be a condition on the parameters above it (`required: "${approver} == program"`). No template
+  could otherwise be required to refuse `approve-with` at check time; `required: true` behaves as before (SPEC §2a
+  says so). `inbox/stats.py` (2 lines): `program approver (...)` and `rule approver` are counted as an agent's
+  answers, as `ai approver (...)` already was. Without that, the rungs' own approvals would count as a person's and
+  become evidence for promoting `apply-fix` to `gate: auto`. `test_rung_answers_counted_apart` pins it and fails
+  without the change.
+- **NAME in `program approver (NAME)`** is the first word of `approve-with` (shlex-split), so the record does not
+  carry the command's arguments.
+- **"answered"** means the action's first `approved` or `denied`, and the 10 are ordered by that event's seq. An
+  action that was approved but has not yet `ran` counts as answered and not clean, so it holds the fix.
+- **"the seq of the block's newest answered fix"** is the newest seq of any `approved`, `denied`, `ran` or `failed`
+  event on the block's `apply-fix` actions. Under the lock the rule is read again in full, and it approves only if the
+  same 10 earn it and that seq is the same. This is stricter than the definition asks: a run landing in the gap also
+  holds the fix for the person.
+- **"reached regressed or reverted"** means ever, in the failure's history, even under an earlier fix of the same
+  failure id (lesson-5: a remade failure keeps its id). This is the stricter reading.
+- **The program's environment** is the sandbox's `KEEP` allowlist plus `PATH`. Its cwd is the model's folder, its
+  stderr is dropped, and output over 64 KB counts as unreadable. Its timeout is `min(60 s, the loop's timeout)`.
+- Not run here: the sandbox-backed tests (31 in `test_repair2.py`, one end-to-end in `test_repair_approver.py`).
+  They skipped because bwrap cannot make namespaces in this container, which is the same on main. The unit suite and
+  the four browser files were not run (no page changed), as the factory's instructions say.
