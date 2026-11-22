@@ -25,3 +25,28 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built. About 23 net lines of code (server.py +2, pages.js +15, style.css +4), within the budget.
+
+- **What changed.** `/api/agents` (the listing) adds `expected`, the runs an `every:` asks for over the window's record
+  (`min(window, recorded) // every`), and `span`. On /agents, each row that stands out gets a `span.exception` in the
+  alarm colour (`--bad`) beside the name: "last run failed", "never ran", or "behind: N of ~M". A `tr.exception-why`
+  under the row gives the reason. The ladder line adds counts ("1 never ran", "2 behind schedule", "1 last run failed").
+  The runs cell now shows the window's count (`runs`, from the same `snap["agents"]` entry the panel's "in window"
+  reads) for every agent, and no longer only for those run here. This replaces the old " failing" span.
+- **Choices made without asking (the most reversible ones).** "Exception class" is read as a CSS class named
+  `exception`. An agent counts as behind when fewer than half the expected runs are recorded, and only when at least
+  4 were expected. Cron-only agents are never judged behind: only `every:` gives an expected count. They still show
+  "never ran" or "last run failed". "Never ran" applies to an agent that runs itself or has an `every:`/`cron:` and has
+  no `agent.ran`/`agent.failed` on record. A person with no schedule is never marked.
+- **Acceptance test.** `tests/test_agents_page.py::test_an_agent_that_never_ran_is_behind_or_last_failed_stands_out`,
+  in the page's own test file. It does not run against the live :8797 demo. A fixture shaped like that demo stands in:
+  improver is a program every 3m that never ran; judge is a `type: judge` every 30s, not run here, with 10 runs in an
+  hour of record; tidy last failed. I broke three things and saw it fail each time: `expected` sent as null, the runs
+  cell back to blank for agents not run here, and the alarm colour taken off `.exception`.
+- **Tests run** (each under suite_watch with Playwright, rc 0, nothing skipped): tests/test_agents_page.py (4 passed),
+  tests/test_page_refresh.py (8 passed), tests/test_page_polling.py (17 passed). `ruff check ergostat tests scripts`
+  is clean. Not run: the unit suite, tests/test_diagram_rendering.py and tests/test_items_page.py (neither covers
+  /agents). `main` has not moved since the clone, so there was nothing to merge.
