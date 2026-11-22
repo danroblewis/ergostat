@@ -308,9 +308,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   (`Engine.judge`), the decisions extract, the intent verdicts and the redesigner keep their own per-call caps and
   ask no permit, and models in `ergostat.toml` (`runner.run_agent`) have no `budget:`. Their ends count in spent
   when priced, but nothing refuses them when the day's budget is gone.
-- **T1: a run stopped at its spend cap** (open; `run-budget-trip`, depends on `run-budget-reserve`): `max-cost` is
-  only what a run reserves; a run that spends more is charged more and is not stopped. T1 gives each run its reserve
-  as its cap (`ERGOSTAT_MAX_COST`, `--max-budget-usd`) and its sessions take from it under a lock.
+- **T1: a run stopped at its spend cap** (done; `run-budget-trip`, SPEC §9.9, `dev/records/run-budget-trip.md`):
+  each run gets its reserve as its cap (`ERGOSTAT_MAX_COST`; `--max-budget-usd` on an `ai` block's own `claude`),
+  `ergostat session` takes all that is left from a per-run ledger under `flock`, and the engine kills the run's
+  process group once its reported cost (an unknown part counted as the whole reserve) reaches the reserve. Left: a
+  program running `claude` itself is stopped only after its result line, and an `ai` block's own `claude` is not in
+  the ledger, so a run can go up to about twice its reserve before T1 sees it.
 - **Linux: two bugs the dev container found** (done; `linuxfix`, 2026-11-19). (1) The segmented event log
   (`ergostat/segments.py`, `_sync`) noticed new sealed segments by the directory's mtime alone, and Linux timestamps
   are coarse (one jiffy: 50 file creates on tmpfs gave one mtime), so a seal within the same tick was missed and its

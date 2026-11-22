@@ -3087,8 +3087,8 @@ over the trailing 24 hours (the window of `ergostat.cost.usd`), with 0 < daily �
 0 < max-cost ≤ daily. An unknown key, a missing key, a value that is not a number, and one out of bounds are each an
 error with its own message. Without `budget:` nothing here applies and no run or lease event carries a `reserve`.
 
-`max-cost` is only what a run **reserves** before it starts. It is not a cap on what the run spends: a run that
-spends more is charged what it spent, and nothing stops it as it runs (that is T1, `docs/GAPS.md`).
+`max-cost` is what a charged run **reserves** before it starts, and its cap as it runs (T1, below). A run that
+spends more than its reserve is charged what it spent.
 
 - **Charged and free runs.** A run is free (it reserves 0) only when its block is not `ai` and its agent is declared
   with kind `person`, `decision`, `program` or `rule`. Every other run is charged and reserves `max-cost`, including
@@ -3134,6 +3134,38 @@ spends more is charged what it spent, and nothing stops it as it runs (that is T
   (`runner.run_agent`), which have no `budget:`; their ends count in spent as ends with no reserving run. A pid
   reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
   drops out of reserved. Each permit reads 7 days of starts and ends.
+
+**T1: a run stopped at its spend cap.** With `budget:` declared:
+
+- **The cap given.** Every block run gets `ERGOSTAT_MAX_COST`, its reserve (0 for a free run). Without `budget:` it
+  is removed from the run's environment, so none is inherited. An `ai` block with no `run:` whose command is Claude
+  Code gets `--max-budget-usd <reserve>`; one already in the command (from `$ERGOSTAT_AI`) is replaced by it.
+- **Sessions take from the run's ledger.** `ergostat session` inside a run keeps `<state dir>/budget/<run>.jsonl`.
+  Under `flock` on it, it reads the entries, works out left = `ERGOSTAT_MAX_COST` − each entry's cost (its reserve
+  while unsettled or of unknown cost), and appends an entry reserving **all** of left. So a second session running
+  at the same time in one run always refuses; sessions one after another each get what the earlier ones left. It
+  starts `claude` with `--max-budget-usd <left>` (a resume after the owner's messages gets left less what its turns
+  cost, and none when nothing is left), and at its end appends its real cost, or null when it is not known, under
+  the flock. A ledger already removed is not made again. It refuses (no `claude` started, `session.failed` with
+  the note `budget: …`, rc 1) when left ≤ 0, when the ledger cannot be read, when `ERGOSTAT_MAX_COST` is not a
+  finite number of at least 0 (NaN, ±inf and negatives refused), when it is set without `ERGOSTAT_RUN`, when
+  `ERGOSTAT_RUN` is set without it in a model that declares `budget:`, and when the run id is not 32 lowercase hex
+  digits or the path does not resolve directly under `<state dir>/budget/`. When the run ends, the engine deletes
+  that run's own ledger file, by its validated name, and nothing else.
+- **The trip.** After each line of a run's output that adds AI usage (a `session.ran` or `.failed` line, a Claude
+  Code result message), the engine adds up the run's reported parts, each of unknown cost counted as the whole
+  reserve. When that reaches the reserve, it kills the run's process group (each run is started in a session of
+  its own) through the lease-kill path (`ergostat.run.killed`, TERM, then KILL after the grace). The run ends
+  `agent.failed` with the note `stopped at its spend cap (T1)` and its full reported cost, which the fold charges.
+  So a charged run that reports AI use of unknown price is stopped, and a free run that reports any AI use is
+  stopped. No key or flag turns T1 off.
+- **What it bounds, stated narrowly.** A session started with `ergostat session` is capped by Claude Code's
+  `--max-budget-usd`, which Claude Code checks between turns: a session can pass its share by one turn's cost. A
+  program that runs `claude` itself, not through `ergostat session`, is seen only when its result line arrives: T1
+  stops it after that line, not before. An `ai` block's own `claude` is capped at the whole reserve but writes
+  nothing to the ledger, so `ergostat session`s started inside it also see the whole reserve: such a run can spend
+  up to about twice its reserve (plus a turn each) before T1 sees it. The day's budget is held by the permit above
+  charging actual costs; T1 bounds how far one run goes past its reserve, and makes no "never above" claim.
 
 ## 10. Agents
 

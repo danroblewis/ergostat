@@ -120,6 +120,8 @@ class Session:
         self.given: set[str] = set()              # messages given to it (live or by resume)
         self.queued: set[str] = set()
         self.results: list[dict] = []
+        self.share: tuple[str, float] | None = None   # (its ledger entry, what it took of the run's cap)
+        self.spent: float | None = None                # its known cost, once it has finished
 
     # ---- the record
 
@@ -166,10 +168,55 @@ class Session:
             base += ["--output-format", "json"]
         if self.sandbox:                                   # its folder's reads, and when gated its tools and actions
             from .actions import sandbox as sb
-            return [*base, *self.extra, *sb.flags(self.sandbox, self.item)]
-        return [*base, *self.extra]
+            base = [*base, *self.extra, *sb.flags(self.sandbox, self.item)]
+        else:
+            base = [*base, *self.extra]
+        if self.share:                                     # its share of the run's cap (SPEC §9.9, T1): last, so it wins
+            base += ["--max-budget-usd", str(round(self.remaining(), 6))]
+        return base
+
+    # ---- its share of the run's cap (SPEC §9.9, T1)
+
+    def take_share(self) -> tuple[str, float] | None:
+        """All that is left of the run's cap, taken from its ledger; None when no budget applies. Raises
+        ``budget.Refused`` when it may not start."""
+        from .costs import budget
+        raw = os.environ.get("ERGOSTAT_MAX_COST")
+        if raw is None:
+            if self.run and getattr(self.spec, "budget", None) is not None:
+                raise budget.Refused("ERGOSTAT_RUN is set without ERGOSTAT_MAX_COST in a model with budget:")
+            return None
+        if not self.run:
+            raise budget.Refused("ERGOSTAT_MAX_COST is set without ERGOSTAT_RUN")
+        try:
+            return budget.take(self.p.dir, self.run, budget.cap(raw))
+        except OSError as e:
+            raise budget.Refused(f"the run's ledger: {e}") from None
+
+    def remaining(self) -> float:
+        """Its share less what its turns so far cost (a turn of unknown cost: all of it)."""
+        spent = 0.0
+        for r in self.results:
+            c = r.get("total_cost_usd")
+            if not r.get("_cumulative"):
+                spent += float(c) if isinstance(c, (int, float)) and c >= 0 else float("inf")
+        return max(0.0, self.share[1] - spent) if self.share else float("inf")
 
     def start(self, prompt: str) -> int:
+        from .costs import budget
+        try:
+            self.share = self.take_share()
+        except budget.Refused as e:                       # no claude started (SPEC §9.9, T1)
+            print(json.dumps({"event": "session.failed", "item": self.item,
+                              "data": {"note": f"budget: {e}", "error": True}}))
+            return 1
+        try:
+            return self._start(prompt)
+        finally:
+            if self.share:                                # its real cost (None: unknown, charged its whole share)
+                budget.settle(self.p.dir, self.run, self.share[0], self.spent)
+
+    def _start(self, prompt: str) -> int:
         self.lost()
         self.add("session.started", {"role": self.role, "model": self.model, "started": time.time(), "session_id": self.sid,
                                      "transcript": "file:" + display_path(self.keep, self.p), "run": self.run,
@@ -189,7 +236,7 @@ class Session:
             ok = self._live(prompt) if self.live else self._once(prompt)
             for _ in range(FOLLOW_UPS):                   # what arrived after its turn: resumed with it
                 msgs = self.pending()
-                if not msgs or not ok:
+                if not msgs or not ok or self.remaining() <= 0:   # (its share spent: not resumed)
                     break
                 ok = self._resume(msgs)
         finally:
@@ -322,6 +369,7 @@ class Session:
             if not r.get("unreadable"):
                 usage.add_result(r)
         used = usage.record()
+        self.spent = used["cost_usd"] if used and not used.get("unpriced") else None
         rec = {"cost_usd": round(cost, 4) if used is None or used["cost_usd"] is None else round(used["cost_usd"], 6),
                "turns": sum(int(r.get("num_turns") or 0) for r in counted), "model": self.model,
                **({"ai": used} if used else {}),
