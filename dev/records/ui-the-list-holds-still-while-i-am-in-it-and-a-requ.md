@@ -153,3 +153,16 @@ No other code changed. Run after the merge, each under `scripts/suite_watch.py` 
 - `uv run ruff check ergostat tests scripts`: clean.
 Not run here, as the house rules say: the unit suite and the four browser files. The merge queue runs them. The
 build without Playwright will still return rc 5 for the reason given above.
+
+## Where it stopped (fifth build rc 5, after the round-3 merge)
+
+The merge of main 277a9c6c was already done when this session began: merge commit e1dfdfa9 has both parents, there are
+no conflict markers left in `pages.js` or `test_agents_page.py`, and the tree is clean. So nothing was left to resolve.
+The fifth build failed the same way as the first four. `affected_tests.py` picked only `tests/test_agents_page.py` and
+`tests/test_inbox_page.py`. Both skipped at import ("No module named 'playwright'"), and pytest returned 5 with nothing
+run. No test failed. No code changed, for the reasons given above: the fix belongs to factory tooling (lesson 13), and a
+filler unit test would be a test that cannot fail (lesson 9). `uv run ruff check ergostat tests scripts` is clean. This
+is the fifth of the six failed builds (`build_failures = 6`) that park the gap. One more build of this branch without
+Playwright will park it. Its own browser files passed with rc 0 after the merge (round 3, above). The way out is the
+same as before. Any one of these is enough: `build_browser = true` for this gap, a browser-only selection treated as
+`--collect-only` (or rc 5 counted as a pass) when Playwright is missing, or sending the gap to the merge queue.
