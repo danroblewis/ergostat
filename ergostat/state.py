@@ -530,7 +530,9 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         c = m.controllers[name]
         a = m.agents.get(c.agent or "")
         stock = c.holds
-        mine = set(lp["flows"]) if lp["valves"] else set()   # what its own valve moves (none when it closes the long way)
+        acts = [v for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves]   # the long way: where it acts
+        mine = {m.valves[v].flow for v in acts}           # what its own valves move, not the far flow it closes through
+        acted = any((snap["agents"].get(m.valves[v].agent or "") or {}).get("runs") for v in acts)
         drains = any(m.flows[f].source == stock for f in lp["flows"])
         ours = sum(snap["flows"][f]["rate"] or 0 for f in mine)
         load = sum((snap["flows"][f.name]["rate"] or 0) for f in m.flows_of(stock)
@@ -554,7 +556,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             limits = [m.valves[v].max for v in lp["valves"] if m.valves[v].max]
             at_limit = (bool(limits) and len(amounts) >= 3 and sum(a >= limits[0] * 0.999 for a in amounts) >= len(amounts) / 2) or (
                 not limits and len(amounts) >= 3 and len(set(amounts)) == 1 and (amounts[0] or 0) > 0)
-            says = (f"loop {name} was off {off}% of the time, falling behind: it acts but moves nothing {way[0]} of {stock} "
+            says = (f"loop {name} was off {off}% of the time, falling behind: {'it acts but moves nothing' if acted else 'nothing ran to move any'} {way[0]} of {stock} "
                     f"while {fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "")
                     if not ours else
                     f"loop {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "

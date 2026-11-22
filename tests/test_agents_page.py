@@ -194,19 +194,29 @@ for i in range(34):                                   # the rule tier commanded 
                  data={"amount": 1, "from": "keep-requests-handled"})
     p.events.add("agent.ran", item="fixer", source="ergostat", causedby=begun["id"], at=t + 1,
                  data={"exit": 0, "seconds": 1, "why": "commanded", "commanded": 1})
+    if i < MADE:                                      # and in the other site its first runs each made a change
+        p.events.add("ergostat.model-change.made", item=f"ergostat.model-change/fix-{i}", source="fixer", at=t + 1,
+                     causedby=begun["id"], data={"kind": "unit", "title": f"unit {i}", "made_by": "fixer"})
 p.measurements.add("sensor/unanswered-requests.main", 36, at=now - 2)   # its sensor read, by no agent of the model's
+p.events.add("loop.off", item="requests-handled", source="ergostat", at=now - 2100, data={})   # off all the window
+p.events.add("controller.decided", item="requests-handled", source="ergostat", at=now - 60, data={"decision": "on"})
+for t in (now - 1800, now - 600, now - 5):            # requests came in at 2/h; the fixer's changes came at MADE/h
+    p.measurements.add("sensor/requests-raised.main", 2, at=t)
+    p.measurements.add("sensor/changes-made-by-fixer.main", MADE, at=t)
 log_path(p, "fixer").write_text("--- 2026-11-22 10:00:00 run 0a1b2c3d (commanded)\\nno open request the rule tier answers\\n")
 """
 
 
-@pytest.fixture(scope="module")
-def requests_site(tmp_path_factory):
-    """The modelling template's requests loop (as image-squeeze's): its goal closes the long way, through the judge."""
+@pytest.fixture(scope="module", params=[0, 3], ids=["moved-nothing", "made-changes"])
+def requests_site(tmp_path_factory, request):
+    """The modelling template's requests loop (as image-squeeze's): its goal closes the long way, through the judge.
+    Its fixer made no change in one site, and 3 in the other (`request.param`)."""
     d = tmp_path_factory.mktemp("requests") / "requests"
     d.mkdir()
     (d / "ergostat.yaml").write_text("name: requests\nuses:\n  modelling:\n    use: modelling\n")
     env = {**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")}
-    subprocess.run([sys.executable, "-c", REQUESTS.replace("DIR", repr(str(d)))], env=env, check=True, capture_output=True)
+    subprocess.run([sys.executable, "-c", REQUESTS.replace("DIR", repr(str(d))).replace("MADE", str(request.param))],
+                   env=env, check=True, capture_output=True)
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -220,7 +230,7 @@ def requests_site(tmp_path_factory):
     else:
         proc.kill()
         pytest.fail("the page never answered")
-    yield url
+    yield url, request.param
     proc.terminate()
     proc.wait(10)
 
@@ -229,21 +239,29 @@ def test_the_evidence_says_in_one_line_whether_the_actor_was_commanded_ran_and_m
     pg = browser.new_page(viewport={"width": 1400, "height": 900})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{requests_site}/agents")
+    url, made = requests_site
+    pg.goto(f"{url}/agents")
     pg.wait_for_selector("tr.click:has(b:text-is('fixer'))")
     runs = pg.inner_text("tr.click:has(b:text-is('fixer')) td.num")
     assert runs == "34"
     keep = pg.inner_text("tr.click:has(b:text-is('keep-requests-handled'))")
     assert "controller requests-handled" in keep and "no roles" not in keep    # the implied rule fills its controller
-    pg.goto(f"{requests_site}/loops")
+    pg.goto(f"{url}/loops")
     pg.click("tr.click:has-text('requests-handled')")
     pg.wait_for_selector("#detail .actor-line")
     line = pg.inner_text("#detail .actor-line")
-    assert line == f"fixer: commanded {runs} times, ran {runs}, moved nothing (its log: no open request the rule tier answers)"
+    moved = f"moved {made}" if made else "moved nothing"           # its changes, counted from the record
+    assert line == f"fixer: commanded {runs} times, ran {runs}, {moved} (its log: no open request the rule tier answers)"
     pg.wait_for_selector("#detail .chart-val")                  # its scope drawn: the u chart's word is there too
     evidence = pg.inner_text("#detail")
     assert not ("never opened" in evidence and re.search(r"moves\s+requests-answered", evidence, re.I))
-    assert "requests-answered" not in pg.inner_text("#detail dl")   # its own valve moves none of what answers it
+    moves = pg.locator("#detail dl", has_text="cycled").inner_text()   # the loop's own rows
+    assert "requests-answered" not in moves and "changes-made-by-fixer" in moves   # what its own valve moves
+    hint = pg.inner_text("#detail p:has(b:text-is('Suggestion:'))")
+    if made:                                                     # 3/h made against 2/h raised: it keeps up
+        assert "keeps up on average" in hint and "moves nothing" not in hint
+    else:                                                        # it ran 34 times and moved nothing
+        assert "acts but moves nothing" in hint and "per run" not in hint.lower()
     sensor = pg.inner_text("#detail table.parts tr:has(td:text-is('sensor'))")
     assert ": 36" in sensor and "unfilled" not in sensor            # a sensor that reads is not unfilled
     assert not errors, errors

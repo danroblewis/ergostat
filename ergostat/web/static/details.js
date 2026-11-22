@@ -150,11 +150,11 @@ async function openLoop(name, asController = false) {
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
       lp.back_in != null ? `it holds again ${dur(lp.back_in)} after (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times)` : null,
     ].filter(Boolean).join("; ") : null],
-    ["moves", lp.valves?.length ? lp.flows.map((f) => `${f} ${rateText(lp.rates?.[f], "", f)}`).join(", ") || "nothing" : null],  // its own valve's only
+    ["moves", Object.entries(lp.moves || {}).map(([f, r]) => `${f} ${rateText(r, "", f)}`).join(", ") || null],  // its own valves' only
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
   // each that acts for it in one line, from the counts Agents and the Record use
   for (const a of lp.actors || []) kids.push(h("p", { class: "actor-line" }, h("b", {}, a.name), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
-    + (a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
+    + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
   kids.push(h("table", { class: "parts" }, h("tr", {}, ["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
     (lp.parts || []).map((pt) => h("tr", {}, h("td", {}, pt.kind), h("td", {}, h("b", {}, pt.name),

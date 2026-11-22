@@ -554,8 +554,11 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     b.name for b in blocks.values() if b.goal == name and b.machine and not b.implied]):
                 if a not in snap["agents"]:
                     continue
-                moved = sum(e["data"].get("amount") or 0 for v, x in m.valves.items() if x.agent == a
-                            for e in p.events.query(n=None, type="valve.opened", item=v, since=since, until=snap["at"]))
+                mine = [x for x in m.valves.values() if x.agent == a]
+                opened = [e["data"].get("amount") or 0 for x in mine
+                          for e in p.events.query(n=None, type="valve.opened", item=x.name, since=since, until=snap["at"])]
+                got = [st.moved(p, x.flow, since, snap["at"]) for x in mine]     # else what its flows measured (None: unknown)
+                moved = sum(opened) if opened else (sum(got) if got and None not in got else None)
                 tail = _tail(log_path(p, a), 20)             # its last run's entry in its log: its last line
                 said = [x for x in tail[max((i for i, x in enumerate(tail) if x.startswith("--- ")), default=-1) + 1:] if x.strip()]
                 actors.append({"name": a, "ran": snap["agents"][a]["runs"], "moved": moved, "log": said[-1] if said else None,
@@ -566,6 +569,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     "crossings": in_window[-20:], "crossings_total": len(in_window),
                     "description": c.description, "parts": parts,
                     "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
+                    "moves": {m.valves[v].flow: snap["flows"].get(m.valves[v].flow, {}).get("rate")     # its own valves'
+                              for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves},
                     "decisions": st.decisions(p, name, since, snap["at"]),
                     "hints": [h for h in snap["hints"] if h["controller"] == name]}
         return snap["loops"]

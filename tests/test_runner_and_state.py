@@ -237,7 +237,11 @@ def test_a_loop_whose_valve_moves_nothing_acts_but_moves_nothing_not_more_per_ru
         project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 20 + i * 290, data={"decision": "free 2"})
     project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 30, data={})
     (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
-    assert "acts but moves nothing" in hint["says"] and "per run" not in hint["says"].lower()
+    assert "nothing ran to move any" in hint["says"] and "per run" not in hint["says"].lower()   # its cleaner never ran
+    for i in range(4):
+        project.events.add("agent.ran", item="cleaner", source="ergostat", at=t + 25 + i * 290, data={"exit": 0, "seconds": 1})
+    (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
+    assert "acts but moves nothing" in hint["says"] and "per run" not in hint["says"].lower()    # it ran, and moved nothing
 
 
 def test_a_disturbance_that_would_run_backwards_is_not_hidden(project):
