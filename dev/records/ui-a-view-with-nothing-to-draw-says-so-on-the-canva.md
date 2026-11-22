@@ -25,3 +25,40 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped (round 1)
+
+Built, 8 net lines outside tests (diagram.js +3, style.css +3 net of the two changed lines; within budget).
+
+- `ergostat/web/static/style.css`: `.canvas-wrap > .empty` is laid over the canvas (absolute, inset 0, flex-centred,
+  pointer-events off except its link). That covers every empty state in the wrap (Process, Blocks, an empty model,
+  loading, server not answering), since they all sat below the svg the same way.
+- `ergostat/web/static/diagram.js`: the Process view with no kinds says "No kinds of item in <system, or the model's
+  name>: its parts are counted by sensors. See Dynamics." where Dynamics is a link to the Dynamics view at the same
+  level. The 'No flows at this level' line is drawn 24 px under the layout's bottom, not 14 px above its top. Judgement
+  call, the reversible one: the layout's extent and the first fit are left unchanged, so views that don't show the
+  note fit exactly as before.
+- Tests (tests/test_diagram_rendering.py): `test_process_view_with_no_kinds_says_so_inside_the_canvas` (big at
+  1440, 1024 and 600 wide, 900 tall: the text is wholly inside the svg's box and centred to within 40 px vertically,
+  with the exact wording, and its link opens Dynamics) and `test_no_flows_line_is_under_the_boxes_and_seen` (big's `/`
+  at 1440x900 with Flows only on: one note, inside the viewport, its top below the lowest system box).
+- Seen to fail when the change was broken: with the overlay rule disabled the first test failed (the text was at
+  y=949..966, below the canvas), and with the old y=-14 the second failed (the note was at y=94, above boxes ending at 809).
+  A narrow-width rule (≤700 px) was tried and taken out: the test passed at 600 px without it.
+- Unlike the problem statement, the old note was already within the viewport at 1440x900 (y≈94). It sat above the
+  boxes, under the toolbar's band, so the test checks "under the boxes" as well as "in the viewport".
+- Runs: the two new tests pass. `uv run ruff check ergostat tests scripts` is clean. The whole of
+  tests/test_diagram_rendering.py, run serially under the watchdog, gave rc 1: 197 passed, 5 failed, 52 min
+  (a first attempt was stopped at the 10-minute background limit before it finished):
+  - `test_every_view_draws_cleanly_and_in_time[coordinator]` and `[image-squeeze]` (routing open=* took 43 s, bound
+    20 s) and `test_a_big_tangled_model_lays_out_in_time_and_cleanly` (drawn in 3.6 s, bound 2.5 s): time limits in a
+    52-minute serial run. The change adds no layout or routing work, only one text element in a level with no flows.
+    These were not rerun.
+  - `test_a_valve_turns_upright_when_its_pipe_runs_up`: passed when run alone straight after, so load.
+  - `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`: fails alone as well, on the
+    /model page's text ('Nothing waiting.' missing). This change doesn't touch that page or its script. Not shown to
+    fail on main: the command that would have run it with main's diagram.js and style.css
+    (`git checkout main -- ergostat/web/static/diagram.js ergostat/web/static/style.css && ... named_tests.py ... ;
+    git checkout HEAD -- ...`) was refused here. Left for the merge queue's run on clean main (lesson 13).
+- Not run: the unit suite and the other three browser files (left to the factory and the merge queue, as the rules
+  say). There is nothing to merge from main: this clone's `main` is the branch's base.
