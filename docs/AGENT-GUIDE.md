@@ -405,6 +405,20 @@ from its remote `a`); `remote-cycle`, `remote-too-deep`, `remote-malformed`, `re
 `remote-bad-name`, `remote-name-taken` and `remote-instance` say what was refused or cut and why, and a
 local part named like an imported one always wins.
 
+**A system with an event log of its own that is not an ergostat** (Kafka, a ticket's history, an incident log):
+choose one of three ways.
+- **Copy in** (`collect`, the default): you want items and their current state, and an entry seen twice or missed
+  across a lost memory does no harm. The collector's cursor lives only in its memory file.
+- **Read in place**: only for another ergostat (`remotes:`, above). For anything else it is not built (GAPS).
+- **Mirror** (`collect` with `mirror: true`, `cursor-field:` the entry's position, and `position: text` when the
+  position is a time): each entry must be recorded exactly once, as the log's own history, for example an audit trail
+  or a process map read from it. Each event's id cites the entry (`cite:<flow>.<sensor>:i:<position>`), the cursor
+  is confirmed against the record and recovered from it, and a poll that can't be sure exits 1 and says why. Text
+  positions must sort as text in log order: zero-padded numbers, fixed-width ISO times. Never push a `cite:` id
+  yourself: `/api/events`, hooks and the engine's socket refuse it, and `event --add` takes no id. If the source reads only after the cursor (a Kafka
+  offset in `{cursor}`), a log that restarts is not seen: rename the use when the log resets. Renaming is also the way out of a "went
+  back" stop; clearing the collector's memory is not, since the cursor comes back from the record.
+
 ## 3b. A budget on what the agents cost
 
 ergostat measures every run itself (SPEC §9.1): what its AI sessions cost (dollars as Claude Code reported them, or
