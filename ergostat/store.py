@@ -5,6 +5,7 @@ the project's state directory, ``$ERGOSTAT_HOME/<project>/`` (default ``~/.ergos
 from __future__ import annotations
 
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -66,6 +67,46 @@ create table if not exists tiers (
 create table if not exists late (series text not null, time real not null, value real not null);
 create table if not exists meta (key text primary key, value);
 """
+LEDGER = """
+create table if not exists backfills (id text primary key, series text not null, src text, written_at, first real, last real, count int);
+create table if not exists backfilled (series text not null, at real not null, id text, primary key (series, at)) without rowid;
+"""                                                       # never rolled, pruned or forgotten: what was backfilled, kept
+MEASUREMENTS += LEDGER
+MOST_BACKFILLED = 200_000                                 # readings in one backfill, at most
+
+
+def ledger_write(conns, series: str, rows: list[tuple[float, float]], src: str | None, write) -> dict:
+    """One backfill: ``rows`` (at, value; of one at, the last kept) not yet in the ledger written by ``write(c, rows)``
+    and recorded, all in one transaction held from the ledger's read to its write (two at once: the second waits, then
+    skips what the first wrote). What is skipped is said by the ledger alone, never by the buckets."""
+    now = time.time()
+    last = {float(t): float(v) for t, v in rows}
+    if len(last) > MOST_BACKFILLED or not all(math.isfinite(t) and math.isfinite(v) and t <= now for t, v in last.items()):
+        raise ValueError(f"a backfill is at most {MOST_BACKFILLED} readings, each a finite value at a finite past time")
+    with conns() as c:
+        c.execute("begin immediate")
+        try:
+            have = {r[0] for r in c.execute("select at from backfilled where series = ?", (series,))}
+            new = sorted((t, v) for t, v in last.items() if t not in have)
+            got = {"id": uuid.uuid4().hex, "series": series, "from": src, "written_at": now,
+                   "first": new[0][0] if new else None, "last": new[-1][0] if new else None, "count": len(new)}
+            c.execute("insert into backfills(id, series, src, written_at, first, last, count) values (?,?,?,?,?,?,?)",
+                      tuple(got.values()))
+            c.executemany("insert into backfilled(series, at, id) values (?,?,?)", [(series, t, got["id"]) for t, _ in new])
+            if new:
+                write(c, [(series, t, v) for t, v in new])
+            c.execute("commit")
+        except BaseException:
+            c.execute("rollback")
+            raise
+    return {**got, "skipped": len(last) - len(new), "repeated": len(rows) - len(last)}
+
+
+def ledger_read(conns, series: str) -> list[dict]:
+    """A series' backfills, in the order they were made."""
+    with conns() as c:
+        return [dict(r) for r in c.execute('select id, series, src as "from", written_at, first, last, count from backfills '
+                                           "where series = ? order by rowid", (series,))]
 
 
 OWN = ("agent", "valve", "controller", "loop", "ergostat")     # ergostat's own event types
@@ -619,10 +660,20 @@ class Measurements:
             return
         with self._c() as c:
             c.execute("begin")
-            rows = [(s, float(t), float(v)) for s, t, v in rows]
-            c.executemany("insert into samples(series, time, value) values (?,?,?)", rows)
-            self._late(c, rows)
+            self._write(c, rows)
             c.execute("commit")
+
+    def _write(self, c, rows: list[tuple[str, float, float]]) -> None:
+        rows = [(s, float(t), float(v)) for s, t, v in rows]
+        c.executemany("insert into samples(series, time, value) values (?,?,?)", rows)
+        self._late(c, rows)
+
+    def backfill(self, series: str, rows: list[tuple[float, float]], src: str | None = None) -> dict:
+        """Past readings not backfilled before, written with the ledger (``ledger_write``); late ones merged at the next roll."""
+        return ledger_write(self._c, series, rows, src, self._write)
+
+    def backfills(self, series: str) -> list[dict]:
+        return ledger_read(self._c, series)
 
     # ---- the sources a span is read from
 
@@ -749,9 +800,10 @@ class Measurements:
                     sql = "select time, value from samples where series = ? and time >= ? and time <= ? order by time desc"
                     args: tuple = (series, lo, hi)
                 else:
+                    # a bucket whose last reading is past its part (a coarse one begun before a finer tier's first): read there
                     sql = ("select last_t, last_v from tiers where series = ? and every = ? and t >= ? and t < ? "
-                           "and last_t >= ? order by t desc")
-                    args = (series, e, lo, hi, since)
+                           "and last_t >= ? and last_t < ? order by t desc")
+                    args = (series, e, lo, hi, since, hi if hi < until else 1e18)
                 rows = c.execute(sql + (" limit ?" if last else ""), (*args, last - len(out)) if last else args).fetchall()
                 out += [(r[0], r[1]) for r in rows]
                 if last and len(out) >= last:
