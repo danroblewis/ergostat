@@ -477,3 +477,9 @@ Refused in this round:
   relying on the answer.
 - A compound command (`git merge-base ... && echo; git remote -v; git diff --stat`). It was run as separate commands.
 - `git diff -U0 docs | grep | awk` to find long lines. The new doc lines were checked with the search tool.
+
+## Where it stopped
+
+Parked by the factory (review/ai-approver-for-repairs-needs-a-4, 2026-11-21 16:43).
+
+Done: approver: ai is wired through check, fix.run, the stamped and locked approval in approve.py, inbox stats and the docs, and the guard's G0-G5 structure with its tests. Left: the guard's trust in builtins, print and json (forms a-c) rests on a list of refused spellings that the program's own unchanged code gets round (operator.attrgetter('modules')(sys) with operator.setitem on a module's __dict__; attributes named setattr reached through a module), so a fix can still hand a chosen string to os.system. Round 1 (attributes), round 2 (class headers), round 3 (json internals) and now round 5 each found a new way past the same kind of check. A safe design must stop assuming the builtins and json are what the text suggests, for example by trusting forms (a)-(c) only when every call in the module is itself classified, or by dropping them. Otherwise the claim must be cut to say that the program's own code can rebind them. Either way it is a redesign, not a fix round. Size is also 627 against 450.
