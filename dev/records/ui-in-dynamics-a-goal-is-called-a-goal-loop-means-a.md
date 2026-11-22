@@ -49,3 +49,9 @@ Built, round 1 (8 net lines outside tests: 14 added, 6 removed).
   off record); its words are pinned by the unit tests `test_the_attention_cards_speak_system_dynamics` (changed: it
   forbade the word goal, which this gap asks for) and `test_a_goal_s_suggestion_says_what_serves_it` in
   `tests/test_dynamics_view.py`.
+- Runs: the new browser test passed (rc 0, under the watchdog); `tests/test_dynamics_view.py`,
+  `tests/test_goal_per.py` and `tests/test_observer.py` passed (61); ruff clean. Not run to the end: the whole of
+  `tests/test_diagram_rendering.py` (serial, started under the watchdog, stopped at the session's 20-minute
+  background limit with no result; restarting it with a longer limit was refused). The unit suite and the other
+  browser files were not run here, as the task said; the merge queue runs them. `main` is in the branch (nothing to
+  merge).
