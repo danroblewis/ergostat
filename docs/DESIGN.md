@@ -375,10 +375,14 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   Numbers right-aligned, headers too over numbers. A wide table scrolls inside its own box; the page
   never scrolls sideways.
 - **Numbers.** One formatter (`fmt` in `util.js`): integers as they are, with thousands separated;
-  others to three significant figures; a real minus (−). Raw data on the Record is rounded the same
-  way where it is summarised, and kept whole in the event's panel. Setpoints and conditions use the
+  others to three significant figures; a real minus (−). Raw data on the Record is shown whole,
+  never rounded. Setpoints and conditions use the
   real symbols: ≤, ≥, =, ≠, −, ×, and … for an ellipsis. Subscripts are subscripts (K<sub>p</sub>,
   not K_p).
+- **Times.** One formatter (`stamp` in `util.js`): `2026-11-22 04:03:55 PST`, the date, the time and
+  the browser's zone by its short name, on the Record, a goal's Crossings, the Items page and an item's
+  page. A field named `*_at`, `raised`, `since` or `started` holding epoch seconds or ISO text is
+  shown the same way.
 - **Copy.** No paragraph under a page's title: what a thing is belongs to the Guide. Labels are
   terse and specific; a panel opens with what the thing is now, not its definition. Sentence case
   everywhere. No " · " chains to fake structure: two lines, or a label and a value. No arrows on

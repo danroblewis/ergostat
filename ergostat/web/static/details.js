@@ -180,7 +180,7 @@ async function openLoop(name, asController = false) {
   if (lp.crossings?.length) {
     kids.push(h("h3", {}, `Crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`));
     kids.push(h("table", {}, lp.crossings.slice().reverse().map((e) => h("tr", {},
-      h("td", { class: "nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+      h("td", { class: "nowrap" }, stamp(e.time)),
       h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value)),
       h("td", { class: "muted" }, e.type === "loop.off" && e.data.error != null ? `by ${fmt(Math.abs(e.data.error))}` : "")))));
   }
@@ -308,23 +308,23 @@ function itemLink(id) {
 }
 /* an event's item: a remote's event (marked ``remote``) links to that remote's item, read there (SPEC §4c) */
 const eventItemLink = (e) => (e.remote ? remoteItemLink(e.item, e.remote) : itemLink(e.item));
-function dataCell(d) {                                  // the whole of it, one click away (rounded: the event's panel has it exactly)
-  const flat = JSON.stringify(tidy(d || {}));
+function dataCell(d) {                                  // the whole of it, unrounded, one click away
+  const flat = JSON.stringify(d || {});
   if (flat === "{}") return h("td", { class: "mono muted" }, "");
   if (flat.length <= 110) return h("td", { class: "mono muted data" }, flat);
   return h("td", { class: "mono muted data" }, h("details", {}, h("summary", {}, flat.slice(0, 100) + "\u2026"),
-    h("pre", {}, JSON.stringify(tidy(d), null, 2))));
+    h("pre", {}, JSON.stringify(d, null, 2))));
 }
 function eventsTable(evs, compact) {
   return h("div", { class: "table-wrap" }, h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
-    evs.slice().reverse().map((e) => h("tr", { key: e.id }, h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+    evs.slice().reverse().map((e) => h("tr", { key: e.id }, h("td", { class: "nowrap" }, stamp(e.time)),
       h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: `event ${e.id}`, onclick: (ev) => { ev.preventDefault(); showEvent(e); } }, e.type)),
       compact ? null : h("td", { class: "nowrap" }, e.item ? eventItemLink(e) : "–"),
       h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))))));
 }
 function showEvent(e) {                                 // one event, all of it, in the side panel
   showDetail(h("div", { class: "kind" }, e.remote ? `Event, remote ${e.remote}` : "Event"), h("h2", {}, e.type),
-    dl([["item", e.item ? eventItemLink(e) : null], ["source", e.source], ["when", new Date(e.time * 1000).toLocaleString()], ["id", e.id],
+    dl([["item", e.item ? eventItemLink(e) : null], ["source", e.source], ["when", stamp(e.time)], ["id", e.id],
         ["caused by", e.causedby]]),
     h("pre", {}, JSON.stringify(changeOf(e), null, 2)));
 }
