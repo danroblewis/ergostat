@@ -55,7 +55,12 @@ def main() -> int:
         got = {"why": f"retried {RETRIES} times as flaky already: the failure is the branch's"}
     elif tests:
         fac.wait_quiet(cfg)                             # (a suite slot, in fac.suite: never the queue's lock)
-        rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
+        try:
+            rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
+        except fac.Stalled as e:                        # (stopped for a limit: not the branch's, tried again later)
+            fac.say("gap.measured", stalled=e.suite, stalled_why=e.why, stalled_test=e.test, stalled_tail=e.tail)
+            fac.nack(f"triage: {e}", after="10m", count=False)
+            return 0
     if rc == 0:                                  # (only quarantined tests failed: no flake seen, no retry spent)
         tests = [t for t in tests if t not in got.get("quarantined", [])]
         for t in tests:

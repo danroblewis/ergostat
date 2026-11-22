@@ -44,6 +44,7 @@ def config() -> dict:
     local = MODEL / "factory.local.toml"
     if local.is_file():
         cfg = _merge(cfg, tomllib.loads(local.read_text()))
+    limits(cfg)                                         # (a limit past its ceiling refused here, and again at run time)
     return cfg
 
 
@@ -429,6 +430,31 @@ def stop_suites() -> None:
 BOXES: set[str] = set()                                 # the queue's suite containers running now (suite(box=...))
 
 
+SUITE_GOAL_MINUTES = 15                                 # the suites-in-time goal (dev/model/measures.yaml)
+STALL_MOST, WALL_MOST = 60, 120                         # the ceilings of [suites] stall_minutes and wall_minutes
+
+
+def limits(cfg: dict) -> tuple[float, float]:
+    """The queue's suite limits in seconds: (no log growth for [suites] stall_minutes, default 10, at most 60; in all
+    [suites] wall_minutes, default 3 x the suite-minutes goal, at most 120). One past its ceiling, or not above 0, is
+    refused (ValueError), never clamped."""
+    s = cfg.get("suites", {})
+    stall, wall = s.get("stall_minutes", 10), s.get("wall_minutes", 3 * SUITE_GOAL_MINUTES)
+    for key, v, most in (("stall_minutes", stall, STALL_MOST), ("wall_minutes", wall, WALL_MOST)):
+        if isinstance(v, bool) or not isinstance(v, int | float) or not 0 < v <= most:
+            raise ValueError(f"[suites] {key} = {v!r}: more than 0 and at most {most}")
+    return stall * 60.0, wall * 60.0
+
+
+class Stalled(Exception):
+    """A queue suite stopped for a limit (limits()): never its result, nor the batch's failure."""
+
+    def __init__(self, name: str, why: str, text: str):
+        tests = re.findall(r"(\S+\.py::[^\s\]]+\]?)", text)
+        self.suite, self.why, self.test, self.tail = name, why, tests[-1] if tests else None, text[-2000:]
+        super().__init__(f"the {name} suite was stopped ({why}), on {self.test or 'no test the log names'}")
+
+
 def agents_module():
     import agents
     return agents
@@ -450,17 +476,26 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         BOXES.add(boxed)
     if slot and cfg["suites"].get("slot") and name != "ruff":
         cmd = f"{cfg['suites']['slot']} {cmd}"
-    began = time.time()
+    stall, wall = limits(cfg) if box else (600.0, 600.0)  # (again at run time: the queue's and triage's only)
+    began, stopped = time.time(), None
     with log.open("w") as out:
         env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
         SUITES.add(p.pid)
         try:
+            size, grew = 0, began
             while p.poll() is None:
+                if box:
+                    now, got = time.time(), log.stat().st_size
+                    size, grew = (got, now) if got != size else (size, grew)
+                    stopped = (f"its log did not grow for {stall / 60:g} min" if now - grew > stall else
+                               f"it ran past {wall / 60:g} min" if now - began > wall else None)
+                    if stopped:                         # (past a limit: never renewed, killed in the finally)
+                        break
                 renew()
                 try:
-                    p.wait(timeout=60)
+                    p.wait(timeout=min(60.0, stall / 10, wall / 10))
                 except subprocess.TimeoutExpired:
                     pass
         finally:
@@ -474,6 +509,8 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
             if boxed:
                 agents_module().killed(boxed)
                 BOXES.discard(boxed)
+    if stopped:
+        raise Stalled(name, stopped, log.read_text(errors="replace"))
     if boxed and p.returncode in agents_module().NOT_STARTED:
         raise agents_module().NotStarted(f"the {name} suite's container did not start (exit {p.returncode}): "
                                          f"{log.read_text()[-400:].strip()}")

@@ -18,7 +18,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
    recorded and never blocking (fac.beside()). With `[suites] queue_container` (the default) each suite runs in a
    container of the agent image on `[agents] queue_cpuset` with no network (agents.queued); one that does not start
-   fails the run (agents.NotStarted: undone, no gap blamed), and a stopped run kills its containers by name;
+   fails the run (agents.NotStarted: undone, no gap blamed), and a stopped run kills its containers by name. A suite
+   whose log stops growing, or that runs too long (fac.limits()), is stopped as a stall: undone, no gap blamed
+   (stalled());
 6. green: `gap.merged` for each, and one push to origin main of the batch's last merge asked for as the gated action
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    when its 1 to 3 named tests each pass alone on the red tree twice and the suites it did not finish pass, it lands as
@@ -692,6 +694,16 @@ def main() -> int:
         release({"then": HELD["said"]})
 
 
+def stalled(gap: dict, batch: list, e: fac.Stalled) -> None:
+    """A suite stopped for a limit (fac.limits()) is a stall, not the batch's failure: said on the run's own gap
+    (stalled: the suite, the test its log was on, its tail), whose lease is given back uncounted; its batch-mates never
+    left `approved`. Nothing goes to fix or triage for it (an outcome already held for the own gap stands)."""
+    fac.say("gap.measured", stalled=e.suite, stalled_why=e.why, stalled_test=e.test, stalled_tail=e.tail,
+            stalled_batch=[g["id"] for g, _ in batch])
+    if not HELD["said"]:
+        fac.nack(f"queue: {e}", after="10m", count=False)
+
+
 def take(cfg: dict, gap: dict, repo) -> int:
     """Under the queue's lock throughout: whether a push waits is read from run/queue.json, the gap is taken
     (`gap.queued`), and a push asked for is written there, in one hold, so no run between them takes a gap."""
@@ -720,8 +732,12 @@ def take(cfg: dict, gap: dict, repo) -> int:
         save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": [g["id"] for g, _ in batch], "at": began}})
         done = settled = False
         try:
-            landed, merged = land(cfg, repo, batch, pre, began, waited, dried)
-            if not landed:                                 # no push to wait for: the run's own gap's outcome now
+            try:
+                landed, merged = land(cfg, repo, batch, pre, began, waited, dried)
+            except fac.Stalled as e:                      # (main undone below; no gap blamed for it)
+                stalled(gap, batch, e)
+                return 0
+            if not landed:                                # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
                 HELD["said"] = []
             done = True                                    # the point of no return: main holds the landed merges

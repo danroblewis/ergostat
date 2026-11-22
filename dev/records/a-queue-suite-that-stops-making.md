@@ -15,3 +15,24 @@ depends-on: []
 
 ## Size budget
 80 net lines outside tests and docs.
+
+## Where it stopped
+Built, round 1. Choices made alone (the most reversible each time):
+- The limits are fac.limits(), called from fac.config() (so a bad value stops whatever program reads the settings)
+  and again in fac.suite before a queue or triage suite starts. A value past its ceiling, or not above 0, is refused
+  with ValueError, never clamped. Fractions of a minute are allowed (the tests use 0.05). The default wall limit is
+  3 x fac.SUITE_GOAL_MINUTES (15, the `suites-in-time` hold in dev/model/measures.yaml; the ceiling test checks that
+  the two agree), not read from the model when the program runs.
+- "Untried" here means the run's own gap's lease is given back uncounted (nack, count false, after 10m), with no
+  failed gate, no findings and no send-back. Its batch-mates never left `approved`. `gap.queued` has already said
+  `queue_attempts: 1` before any suite runs, as it does for every run, and that stays.
+- "The run's record" is a `gap.measured` on the run's own gap: `stalled` (the suite), `stalled_why`, `stalled_test`
+  (the last `path.py::name` in the log, or null), `stalled_tail` (the last 2000 characters), `stalled_batch`.
+  Nothing reads `stalled_test` yet. Flagging it is left to triage, as the definition says.
+- In triage, a stalled rerun says the same fields and gives its lease back uncounted, so the gap stays in
+  `queue-failed` and triage takes it again. I did not use `gap.retried` (back to approved) because the
+  `flakes-retried` flow counts it as a flake.
+- When the run's own gap already holds an outcome (a held send-back), the stall does not nack: that outcome stands.
+- Not handled: a test that hangs every time is taken again every time. No cap is placed on that here.
+- The container is stopped by the finally that was already there (agents.killed by name). The tests run with
+  `queue_container = false`, so they show that the process group is gone, not that a container is.

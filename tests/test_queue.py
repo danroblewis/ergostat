@@ -5,10 +5,14 @@ a-queue-run-that-lands-nothing.md)."""
 from __future__ import annotations
 
 import json
+import os
+import re
+import signal
 import subprocess
 import sys
+import time
 
-from tests.test_factory import BIN, ROOT, Factory, approved_gaps, main_moves, merges, set_action, suite_runs
+from tests.test_factory import BIN, ROOT, Factory, approved_gaps, main_moves, merges, module, set_action, suite_runs
 
 RED = "echo run >> {runs}"
 
@@ -187,3 +191,112 @@ def test_a_held_send_back_reaches_fix_after_the_run(tmp_path):
     assert c.state == "fix" and c.fields["sent_back_by"] == "queue"
     assert c.fields["findings"] == ["conflicts with main: app.py"] and c.fields["failed_gates"] == 1
     assert e.sent_back_by_queue() > 0
+
+
+# ---- a suite that stops making progress (fac.suite's limits, for the queue and triage: fac.limits())
+
+SUITE = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac; from pathlib import Path\n"
+         "cfg = fac.config()\n"
+         "try:\n"
+         "    rc, secs = fac.suite(cfg, 'unit', Path('.'), Path(sys.argv[2]), slot=False, box='queue')\n"
+         "    print(json.dumps({'rc': rc, 'seconds': secs}))\n"
+         "except fac.Stalled as e:\n"
+         "    print(json.dumps({'stalled': e.suite, 'why': e.why, 'test': e.test, 'tail': e.tail}))\n")
+
+
+def limited(f: Factory, **limits) -> None:
+    """[suites] limits for the fixture's factory ([suites] is its settings' last table)."""
+    f.config.write_text(f.config.read_text() + "".join(f"{k} = {v}\n" for k, v in limits.items()))
+
+
+def one_suite(f: Factory) -> dict:
+    """fac.suite's unit suite as the queue runs it (box "queue"), from the model's folder."""
+    r = subprocess.run([sys.executable, "-c", SUITE, str(BIN), str(f.tmp / "suite.log")], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.splitlines()[-1])
+
+
+def gone(pid: int) -> bool:
+    """The process ended (no such process, or a zombie only)."""
+    out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return not out or out.startswith("Z")
+
+
+def hangs(tmp_path) -> str:
+    """A stand-in suite that names a test, then sleeps (in a process of its own, its pid written) and prints no more."""
+    return f"echo $$ > {tmp_path / 'group'}; echo tests/test_x.py::test_hangs; sleep 600 & echo $! > {tmp_path / 'sleeper'}; wait"
+
+
+def test_a_suite_whose_log_stops_growing_is_stopped_as_a_stall(tmp_path):
+    f, e = Factory(tmp_path, unit=hangs(tmp_path)), Engine(tmp_path)
+    limited(f, stall_minutes=0.05)                                             # 3 s
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    for g in "ab":
+        e.approved(f"gap/{g}")
+    began = time.time()
+    try:
+        said, lines = f.run("queue.py", "gap/a")
+        assert time.time() - began < 60
+        assert gone(int((tmp_path / "sleeper").read_text()))                  # its process group stopped
+    finally:
+        reaped(tmp_path / "group")
+    assert said == ["gap.queued", "gap.measured"] and merges(f) == []         # main undone; nothing to fix or triage
+    nacks = [x["nack"] for x in lines if "nack" in x]
+    assert len(nacks) == 1 and nacks[0]["count"] is False and "did not grow" in nacks[0]["why"]
+    a = f.item("gap/a")["fields"]
+    assert a["stalled"] == "unit" and a["stalled_test"] == "tests/test_x.py::test_hangs"
+    assert "test_hangs" in a["stalled_tail"] and a["stalled_batch"] == ["gap/a", "gap/b"]
+    assert "failed_gates" not in a and "findings" not in a
+    assert f.item("gap/b")["state"] == "approved"
+    e.run(lines, "gap/a")                                                      # its lease ends after its lines
+    assert e.item("gap/a").state == "approved" and e.item("gap/b").state == "approved"
+
+
+def test_a_suite_past_its_wall_limit_is_stopped(tmp_path):
+    f = Factory(tmp_path, unit=f"echo $$ > {tmp_path / 'sh'}; while true; do echo tick; sleep 0.2; done")
+    limited(f, stall_minutes=1, wall_minutes=0.05)                             # it keeps printing; 3 s in all
+    began = time.time()
+    try:
+        got = one_suite(f)
+        assert time.time() - began < 30
+        assert got["stalled"] == "unit" and got["why"] == "it ran past 0.05 min" and got["test"] is None
+        assert gone(int((tmp_path / "sh").read_text())) and "tick" in got["tail"]
+    finally:
+        reaped(tmp_path / "sh")
+
+
+def reaped(pidfile) -> None:
+    """The stand-in's group stopped by the test itself when the code under test failed to (never left running)."""
+    try:
+        os.killpg(int(pidfile.read_text()), signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
+
+
+def test_stall_limits_have_a_ceiling(tmp_path):
+    f = Factory(tmp_path)
+    text, load = f.config.read_text(), f"import sys; sys.path[:0] = [{str(BIN)!r}]; import fac; from pathlib import Path\n"
+    for bad in ("stall_minutes = 1000", "wall_minutes = 500", "stall_minutes = 0", "wall_minutes = -1"):
+        f.config.write_text(text + bad + "\n")
+        r = subprocess.run([sys.executable, "-c", load + "fac.config()"], cwd=f.model, env=f.env, capture_output=True,
+                           text=True, timeout=60)
+        assert r.returncode != 0 and f"[suites] {bad.split()[0]} =" in r.stderr, (bad, r.stderr)
+    f.config.write_text(text)                  # again at run time: settings changed after they were read are refused
+    code = load + ("cfg = fac.config(); cfg['suites']['stall_minutes'] = 1000\n"
+                   "try:\n    fac.suite(cfg, 'unit', Path('.'), Path('log'), slot=False, box='queue')\n"
+                   "except ValueError as e:\n    print('refused', e)\n")
+    r = subprocess.run([sys.executable, "-c", code], cwd=f.model, env=f.env, capture_output=True, text=True, timeout=60)
+    assert r.stdout.startswith("refused [suites] stall_minutes = 1000"), r.stderr
+    assert not (f.model / "log").exists()                                     # (the suite never started)
+    # the wall limit's default is three times the suites-in-time goal, as the model states the goal
+    goal = re.search(r"suites-in-time:\n\s+auxiliary: suite-minutes\n\s+hold: \"<= (\d+)\"",
+                     (ROOT / "dev" / "model" / "measures.yaml").read_text())
+    assert goal and int(goal[1]) == module("fac").SUITE_GOAL_MINUTES
+
+
+def test_a_slow_but_progressing_suite_is_left_running(tmp_path):
+    f = Factory(tmp_path, unit="for i in 1 2 3 4 5 6; do echo tick; sleep 1; done; exit 3")
+    limited(f, stall_minutes=0.05, wall_minutes=0.5)                           # 3 s without a line; 30 s in all
+    got = one_suite(f)
+    assert got["rc"] == 3 and got["seconds"] >= 5                              # its own rc: it ran to its end

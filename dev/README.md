@@ -517,6 +517,17 @@ after 10 minutes), and the count is kept on the gap as `empty_batches`, per revi
 the same commit (`EMPTY_MOST` in queue.py) sends the gap back instead, as a failed gate, with the reason as its finding,
 so it is never taken forever.
 
+A suite that hangs does not hold the queue for the block's 3 hour timeout. Each of the queue's and triage's suites is
+stopped (its process group and its container) when its log has not grown for `[suites] stall_minutes` (10; at most 60)
+or when it has run past `[suites] wall_minutes` (45, three times the 15-minute `suites-in-time` goal; at most 120).
+A value past its ceiling, or not above 0, is refused when the settings are read, and again when a suite starts. Past
+either limit the run's lease is no longer renewed. A stopped suite is a stall, not the batch's failure: main is
+undone, the run's own gap gets `stalled` (the suite), `stalled_why`, `stalled_test` (the last test its log names),
+`stalled_tail` and `stalled_batch`, and its lease is given back uncounted, so it and its batch-mates (which never left
+`approved`) are taken again, with no failed gate and nothing sent to fix or triage. In triage, the gap gets the same
+fields and its lease is given back the same way, so triage takes it again. Nothing yet stops a test that hangs every
+time from being taken again each time.
+
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in
 `run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max`, never past 4:
