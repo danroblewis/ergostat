@@ -201,7 +201,7 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
     if (v.length && v.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
       const shown = v.slice(-LIST_SHOWN), cols = [...new Set(shown.flatMap((x) => Object.keys(x)))];
       return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
-        h("table", { class: "sub" }, h("tr", {}, cols.map((c) => h("th", {}, c))),
+        h("table", { class: "sub" }, headRow(cols.map((c) => h("th", {}, c))),
           shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1, null, there)))))));
     }
     return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1, null, there)]) : h("span", { class: "muted" }, "none");

@@ -105,3 +105,16 @@ was changed for it: the branch changes only `ergostat/web/static/` and two brows
 `scripts/affected_tests.py` selects only those two files, and the build step runs them without Playwright. Ruff is
 clean. The gap waits on the factory (Playwright in the build step, or `build_browser = true`); the browser results
 after the merge are the ones in round 2 above.
+
+Build step again (rc 5, same tail), now answered in the branch. main already has a no-browser test of this kind
+(tests/test_view_switch_words.py reads diagram.js's source "where Playwright is absent"), so the branch adds
+`tests/test_page_names_source.py` (8 tests) the same way. It reads the scripts and style for the names this gap adds:
+aria-current set and cleared on the nav, aria-pressed on the three view buttons and the Items toggles, 'Zoom out',
+'Zoom in', 'More diagram options', 'Sort by author', the /model links named for their row, the side panel as
+<aside aria-label>, headRow's thead/scope/aria-sort, no table with a header row straight under it, and the 24 px rules.
+The build step selects it, so it runs a test that guards the gap. It is a source check, not the drawn page; the browser
+acceptance test is still the one that checks the drawn pages. Writing it found one more header row in a table's body:
+the item page's sub-table for a list of objects (pages.js fieldView), now in headRow (one line changed, net 0). Seen to
+fail (lesson-9): with the Zoom out label removed, 1 of 8 failed; before the fieldView fix, the thead test failed.
+Tests run: tests/test_page_names_source.py (8 passed), tests/test_items_page.py with Playwright under the watchdog
+(33 passed, rc 0). Ruff clean.
