@@ -949,8 +949,8 @@ function bdEdgeContent(e, pts, cross = null) {
     let at = a[u];
     for (const t of cross.filter((c) => (lvl ? c.h === e.id && !c.head : c.v === e.id && c.head) && Math.abs(c[w] - a[w]) < 0.5 &&
                                         (c[u] - a[u]) * dir > 0 && (b[u] - c[u]) * dir > 0).map((c) => c[u]).sort((p, q) => (p - q) * dir)) {
-      const r = Math.min(4, Math.abs(t - at), Math.abs(b[u] - t));
-      if (r < 0.5) continue;
+      const r = Math.min(4, (t - at) * dir, (b[u] - t) * dir);   // (signed: from the last hop's end on)
+      if (r < 0.5) continue;                                       // on or under the hop before: it covers this one
       short += `L${pt(t - r * dir)}A${r},${r} 0 0 ${dir > 0 ? 1 : 0} ${pt(t + r * dir)}`;   // (over the top; or to the right)
       at = t + r * dir;
     }

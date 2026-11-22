@@ -52,8 +52,10 @@
   }
   // Blocks: the take-off dots, each wire's hops (an arc in its path: the middle of the arc's two ends), each vector's slash
   const dots = [...document.querySelectorAll("svg.canvas #viewport .bd-dots circle.bd-dot")].map((c) => [r2(+c.getAttribute("cx")), r2(+c.getAttribute("cy"))]);
-  const hops = [], slashes = [];
+  // (and each wire's path as drawn, for one that runs back over itself)
+  const hops = [], slashes = [], wires = [];
   for (const w of document.querySelectorAll("svg.canvas #viewport g.edge path.bd-wire")) {
+    wires.push({ edge: w.closest("g.edge").dataset.id, d: w.getAttribute("d") || "" });
     let cur = [0, 0];
     for (const [, op, args] of (w.getAttribute("d") || "").matchAll(/([MLA])([^MLA]*)/g)) {
       const end = args.split(/[ ,]+/).filter(Boolean).map(Number).slice(-2);
@@ -65,6 +67,6 @@
     const q = (p.getAttribute("d") || "").match(/-?[\d.]+/g).map(Number);
     slashes.push({ edge: p.closest("g.edge").dataset.id, at: [r2((q[0] + q[2]) / 2), r2((q[1] + q[3]) / 2)] });
   }
-  return { view: g.kind, nodes, edges, frames, texts, markers, dots, hops, slashes, canvas: [Math.round(cv.left || 0), Math.round(cv.top || 0), Math.round(cv.width), Math.round(cv.height)],
+  return { view: g.kind, nodes, edges, frames, texts, markers, dots, hops, slashes, wires, canvas: [Math.round(cv.left || 0), Math.round(cv.top || 0), Math.round(cv.width), Math.round(cv.height)],
            zoom: [v.k, v.x, v.y], routed: !lay.routing, invalid: (typeof AV !== "undefined" && AV.invalid) || 0 };
 })()

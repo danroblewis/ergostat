@@ -1798,7 +1798,8 @@ def test_a_block_dragged_in_the_blocks_view_stays_pinned_its_lines_end_on_it_and
 def test_blocks_crossings_hop_dots_only_at_takeoffs_slashes_clear_and_a_drag_and_the_export_keep_them(browser, tmp_path):
     """Two lines crossing in the Blocks view are told from a connection: the level one hops over the other, with no
     dot; a dot is drawn only where one signal's lines part; a vector's slash sits 12px or more from any crossing.
-    So after a block is dragged and its lines routed again, and in the exported SVG (its hops kept)."""
+    So after a block is dragged and its lines routed again, and in the exported SVG (its hops kept); and where two
+    crossings fall at one place or within a hop of each other, one hop, the wire never drawn back beneath it."""
     from tests import layout_rules as rules
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
@@ -1823,6 +1824,13 @@ def test_blocks_crossings_hop_dots_only_at_takeoffs_slashes_clear_and_a_drag_and
         assert hops >= len({(round(x), round(y), h) for x, y, h, *_ in rules.wire_crossings(rules.G(after))}) > 0
         text = pg.evaluate("() => standaloneSvg(document.querySelector('svg.canvas'), null).text")
         assert len(re.findall(r'<path d="[^"]*A[\d.]+,[\d.]+ 0 0 [01] ', text)) >= len({h["edge"] for h in after["hops"]})
+        # two crossings on one level stretch at one place (two lines of a signal on one upright track), 2px or 6px
+        # apart: one hop over each place, never the wire drawn back under a hop
+        wire = pg.evaluate("""(xs) => xs.map((x2) => bdEdgeContent({ id: 'w', signal: { n: 1 } }, [{ x: 0, y: 50 }, { x: 100, y: 50 },
+          { x: 100, y: 90 }], [50, x2].map((x) => ({ x, y: 50, h: 'w', v: 'u' + x, head: false })))
+          .els[1].getAttribute('d'))""", [50, 52, 56])
+        assert [rules.wire_backtracks(d) for d in wire] == [[], [], []], wire
+        assert [d.count("A") for d in wire] == [1, 1, 2], wire
         assert not errors, errors
         pg.close()
 

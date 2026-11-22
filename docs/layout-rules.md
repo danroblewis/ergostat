@@ -195,13 +195,16 @@ above, which the rest of this document cites, stay the same.
 **Two lines that cross are drawn as a crossing.** A crossing is a level stretch of one line and an upright stretch of
 another, each passing through the point (a line that ends on another is a take-off, not a crossing). The level
 line has a small half-circle hop over the other line there, and there is no dot. Where the crossing is under the level
-line's arrowhead (within 12px of its end), the upright line hops sideways instead.
+line's arrowhead (within 12px of its end), the upright line hops sideways instead. Where two crossings fall at one
+place, or within a hop of each other, one hop covers them, and the line is never drawn back along itself beneath it.
 
 *Why:* in a block diagram a plain cross reads as a connection, and a dot at it says so outright. A control engineer
 has to be able to tell a junction from two signals that pass each other.
 
 *Measured:* one instance for each crossing with no hop within 2px on the line that should carry it, or with a dot
-within 4px.
+within 4px; and one for each place a line's drawn path turns back along the move before it (a plain cross drawn
+again under a hop). The line's last move back to its arrowhead's base, 10px or less, is not counted: it is under the
+head.
 
 ### 22. dot-not-at-takeoff (critical, Blocks)
 

@@ -9,6 +9,7 @@ the worst-looking first."""
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -649,10 +650,33 @@ def wire_crossings(g: G) -> list:
             for x0, x1, y, h, tip in hs for y0, y1, x, v in vs if x0 + 1 < x < x1 - 1 and y0 + 1 < y < y1 - 1]
 
 
+def wire_backtracks(d: str, verbose: bool = False) -> list:
+    """Where a wire's drawn path (an SVG d of M, L and A: a hop's arc taken by its two ends) runs back along the move
+    before it: a straight stretch drawn back under a hop is a plain cross again. Each the point it turns back at. Not
+    the last move when it is no longer than an arrowhead (10px): the wire ends at the head's base, which lies behind
+    the last bend when the last stretch is shorter than the head, all of it under the head."""
+    pts = [tuple(float(v) for v in re.split(r"[ ,]+", args.strip())[-2:]) for _, args in re.findall(r"([MLA])([^MLA]*)", d)]
+    out, prev = [], None
+    for i, (a, b) in enumerate(segs(pts)):
+        v = (b[0] - a[0], b[1] - a[1])
+        if math.hypot(*v) < 0.05:
+            continue
+        along = prev and abs(prev[0] * v[1] - prev[1] * v[0]) < 0.05 * math.hypot(*prev) * math.hypot(*v)
+        if along and prev[0] * v[0] + prev[1] * v[1] < 0 and not (i == len(pts) - 2 and math.hypot(*v) <= 10):
+            out.append(a)
+            if verbose:
+                out[-1] = (*a, f"from ({a[0] - prev[0]:.1f}, {a[1] - prev[1]:.1f}) to {a} back to {b}")
+        prev = v
+    return out
+
+
 def d_crossing_without_hop(r: Rule, g: G):
     """Two wires crossing drawn as a plain cross (no hop on the level one; on the upright one where the level one's
-    arrowhead is over the crossing), or with a dot: read as a connection."""
-    out = []
+    arrowhead is over the crossing), or with a dot: read as a connection. So too a wire drawn back along itself (under
+    a hop: the cross drawn again beneath it)."""
+    out = [inst(r, 1, f"{w['edge']}'s wire runs back over itself at ({x:.0f}, {y:.0f}): {how}", [w["edge"]],
+                (x - 10, y - 10, x + 10, y + 10))
+           for w in g.geo.get("wires", []) for x, y, how in wire_backtracks(w["d"], True)]
     for x, y, h, v, head in wire_crossings(g):
         hop = any(o["edge"] in ((h, v) if head else (h,)) and math.dist(o["at"], (x, y)) <= HOP_NEAR for o in g.geo.get("hops", []))
         dot = any(math.dist(d, (x, y)) <= 4 for d in g.geo.get("dots", []))
@@ -719,7 +743,7 @@ RULES: list[Rule] = [
     Rule("valve-between-ends", "critical", ("dynamics",), True, d_valve_between,
          "a valve inside the box its two ends span (grown by 30px)"),
     Rule("crossing-without-hop", "critical", ("blocks",), True, d_crossing_without_hop,
-         "two wires crossing: a hop on the level one, and no dot"),
+         "two wires crossing: a hop on the level one, and no dot; no wire drawn back along itself"),
     Rule("dot-not-at-takeoff", "critical", ("blocks",), True, d_dot_not_at_takeoff,
          "a dot only where a signal's wires part"),
     Rule("slash-on-crossing", "major", ("blocks",), True, d_slash_on_crossing,

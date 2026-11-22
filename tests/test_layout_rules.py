@@ -33,6 +33,24 @@ def test_a_crossing_needs_a_hop_on_the_level_wire_and_no_dot():
     assert len(found(geo(CROSS, dots=[(50, 50)], hops=[("a", (50, 50))]), "crossing-without-hop")) == 1
 
 
+def test_a_wire_drawn_back_under_its_hop_is_a_plain_cross():
+    # the level wire (0, 50)-(100, 50) as blocks.js drew it with two crossings 0px and 2px apart before the fix: after
+    # the first hop (46 to 54), a straight line back to 46 (or 50) under it, and a second hop over the same place
+    coincident = "M0,50L46,50A4,4 0 0 1 54,50L46,50A4,4 0 0 1 54,50L100,50"
+    two_apart = "M0,50L46,50A4,4 0 0 1 54,50L50,50A2,2 0 0 1 54,50L100,50"
+    one_hop = "M0,50L46,50A4,4 0 0 1 54,50L100,50"                           # (what both draw now)
+    assert LR.wire_backtracks(coincident) == [(54, 50), (46, 50)]                  # (back to 46, then hops forward again)
+    assert LR.wire_backtracks(two_apart) == [(54, 50), (50, 50)]
+    assert LR.wire_backtracks(one_hop) == [] == LR.wire_backtracks("M10,0L10,40A4,4 0 0 1 10,48L10,90L60,90")
+    assert LR.wire_backtracks("M0,0L50,0L20,0") == [(50, 0)]                        # (any doubling back, hop or not)
+    assert LR.wire_backtracks("M0,0L50,0L48,0") == []           # (but the end, back to a head's base: under the head)
+    assert LR.wire_backtracks("M0,0L50,0L48,0L48,30") == [(50, 0)]                  # (not the end: drawn)
+    for d, bad in ((coincident, 2), (two_apart, 2), (one_hop, 0)):
+        g = geo(CROSS, hops=[("a", (50, 50))])
+        g["wires"] = [{"edge": "a", "d": d}]
+        assert len(found(g, "crossing-without-hop")) == bad, d
+
+
 def test_a_line_ending_on_another_is_no_crossing():
     tee = [wire("a", [(0, 50), (100, 50)]), wire("b", [(50, 0), (50, 50)])]
     assert LR.wire_crossings(LR.G(geo(tee))) == []

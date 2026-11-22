@@ -67,3 +67,46 @@ Built (round 1). There are 43 net lines in blocks.js, against a budget of 120.
   the three rules broken at the same time (no crossing reported, a dot accepted anywhere, no slash too near), 3 of
   them failed. The fourth, which checks that a T-junction is not counted as a crossing, still passed, as expected:
   those changes don't touch the code it checks.
+
+### Round 2
+
+The review made one finding, and it was blocking: the hop loop backtracked at coincident or close crossings. It is
+fixed, and the review made no other findings.
+
+- **The fix (blocks.js, 2 lines changed; blocks.js stays at 43 net lines).** In the hop loop, a crossing's hop
+  radius is now measured with signed distances from where the last hop ended: `Math.min(4, (t - at) * dir, (b[u] - t)
+  * dir)`. A crossing at the same place as the one before it, or under the hop before it, is skipped, because that
+  hop already covers it. So the wire can no longer be drawn back across a crossing. A separate de-duplication step
+  is not needed, because a repeated crossing has a negative distance and is skipped.
+- **The check.** `tests/layout_geometry.js` now records each `bd-wire` path's `d`. `wire_backtracks(d)` in
+  tests/layout_rules.py finds every move that runs back along the move before it. A hop's arc counts as a move
+  between its two ends. `crossing-without-hop` reports one instance for each such move. The rule keeps its name, so
+  there are still three rules.
+- **Decision (taking the most reversible option):** the new check also found something in coordinator (blocks,
+  everything open). When a wire's last stretch is shorter than its arrowhead, the wire ends at the head's base, which
+  is 1.8px behind the last bend. The whole of that move is under the head. main draws it the same way (`back` in
+  bdEdgeContent), and it is no plain cross. So the check skips a last move back of 10px or less, which is the length
+  of an arrowhead, and blocks.js is left as it is there. A backtrack under a hop is never the last move, so this
+  exemption does not hide one. Two unit cases pin the exemption: one with the move at the end and one with it
+  elsewhere.
+- **Tests:**
+  - `tests/test_layout_rules.py::test_a_wire_drawn_back_under_its_hop_is_a_plain_cross` runs the check on paths
+    drawn with coincident crossings and with crossings 2px apart. These are the exact `d` strings the old code drew.
+    The check finds the fault in both. It also checks the single hop the fixed code draws, which has no fault.
+  - The browser acceptance test now calls `bdEdgeContent` with crossings 0px, 2px and 6px apart. It asserts that no
+    path is drawn backwards and that 1, 1 and 2 hops are drawn.
+- **Seen to fail before the fix (lesson 9):** the browser case failed on the old code with
+  `M0,50L46,50A4,4 0 0 1 54,50L46,50A…` and `…54,50L50,50A2,2…`. It passes after the fix. I saw that failure before
+  I added the arrowhead exemption. The exemption does not cover the failing moves, because they are not last moves,
+  and the unit test pins that.
+- **Run here:**
+  - tests/test_layout_rules.py: 5 passed.
+  - `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram` (21 examples) and the drag-and-export
+    acceptance test: 22 passed.
+  - ruff is clean.
+  - main has not moved since the merge at c92bd79b.
+  - The rest of tests/test_diagram_rendering.py, the other browser files and the unit suite were not run here; the
+    factory and the merge queue run them.
+- **Refused here:** a scratch script under /tmp to print the coordinator wire (`cat > /tmp/one.py <<'EOF' …` and
+  then running it), and a `python3 - <<'EOF'` edit. Instead I made the rule's message show the moves on each side of
+  the turn, and found the cause from that.
