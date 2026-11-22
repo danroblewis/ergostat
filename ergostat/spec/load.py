@@ -223,8 +223,9 @@ def load(main: Path) -> Document:
             else:
                 doc.problems.append(Problem("error", "notify: belongs in the main file only", data.at("notify"), "notify-in-include"))
         if "budget" in data:
-            if top:
-                doc.budget, doc.budget_at = data["budget"], data.at("budget")
+            if top:                          # written but empty: {} (its keys missing, each an error), never no budget
+                doc.budget = data["budget"] if data["budget"] is not None else {}
+                doc.budget_at = data.at("budget")
             else:
                 doc.problems.append(Problem("error", "budget: belongs in the main file only", data.at("budget"),
                                             "budget-in-include"))

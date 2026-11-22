@@ -2559,6 +2559,7 @@ through a sensor (`builtin:`, §6, §12e):
 | `ergostat.cost.cpu` | CPU seconds of the runs' process trees over the last day (`-hour`) |
 | `ergostat.cost.memory` | The largest peak memory of one run over the last day (`-hour`), in MB |
 | `ergostat.cost.runs` | Runs that ended over the last day (`-hour`) |
+| `ergostat.budget.left` | `budget.daily` less what runs were charged and still reserve over the trailing 24 h (§9.9) |
 
 Each is about every block, or with `@BLOCK` one block, or with `@model:MODEL` the runs whose sessions mostly used that
 model (`@model:haiku` matches `claude-haiku-5-5`). A budget on AI spend is a stock read from one and a goal on it:
@@ -3284,7 +3285,8 @@ budget: {daily: 20, max-cost: 2}     # dollars over the trailing 24 hours; dolla
 `budget:` (main file only; `ergostat.local.yaml` may not set it) takes both keys, each required: `daily`, US dollars
 over the trailing 24 hours (the window of `ergostat.cost.usd`), with 0 < daily ≤ 10000; `max-cost`, with
 0 < max-cost ≤ daily. An unknown key, a missing key, a value that is not a number, and one out of bounds are each an
-error with its own message. Without `budget:` nothing here applies and no run or lease event carries a `reserve`.
+error with its own message. `budget:` written empty is two errors (both keys missing), never no budget. Without
+`budget:` nothing here applies and no run or lease event carries a `reserve`.
 
 `max-cost` is what a charged run **reserves** before it starts, and its cap as it runs (T1, below). A run that
 spends more than its reserve is charged what it spent.
@@ -4445,6 +4447,7 @@ Everything ergostat owns here is named `ergostat.`, so it never collides with a 
 | `ergostat.model.unidentified-loops` | The goals whose loop closes and whose process the model does not hold (no `process:`, section 8) |
 | `ergostat.model.open-findings` | What `ergostat check` finds, errors aside |
 | `ergostat.cost.usd`, `.tokens`, `.cpu`, `.memory`, `.runs` | What the runs cost over the last day (or `-hour`), every block's or `@BLOCK`'s (section 9.1) |
+| `ergostat.budget.left` | Dollars of `budget.daily` left over the trailing 24 h: daily less spent less reserved. No value when no `budget:` is declared or the record cannot be read (section 9.9) |
 
 A measure's reference is `ergostat.model.NAME`: it reads beside `stock.x`, `flow.x` and `auxiliary.x`, and is
 never one of them (a project's names have no dots). It is read by a sensor, `builtin: ergostat.model.fit`

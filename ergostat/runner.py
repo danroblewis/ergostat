@@ -32,7 +32,7 @@ from . import state as st
 from .reports import crash as reports_crash
 
 RUN_TIMEOUT = 300.0
-# no agent may publish these
+# no agent may publish these (budget.: a forged budget.closed would release a reserve, SPEC §9.9)
 OWN_TYPES = ("agent.", "loop.", "valve.", "controller.", "model.", "ergostat.", "auxiliary.", "variable.", "trigger.",
              "budget.")
 LIVE: set = set()          # the runs in progress, so stopping ergostat stops them too
