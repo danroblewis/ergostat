@@ -9,6 +9,7 @@ import contextvars
 import glob as _glob
 import hashlib
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -32,7 +33,9 @@ class Reads:
         self.files: dict[str, bytes | str | None] = dict(kept.get("files") or {})    # (replay: the hashes)
         self.dirs: dict[str, bool] = dict(kept.get("dirs") or {})
         self.globs: dict[str, list[str]] = {k: list(v) for k, v in (kept.get("globs") or {}).items()}
-        here = {str(Path(p).parent) for p in self.files} | set(self.dirs) | {k.split("\n")[0] for k in self.globs}
+        self.trees: dict[str, dict[str, list]] = dict(kept.get("trees") or {})    # root → rel → [kind, hash | target]
+        here = {str(Path(p).parent) for p in self.files} | set(self.dirs) | {k.split("\n")[0] for k in self.globs} | \
+            set(self.trees)
         self.guarded = tuple(sorted(here))
 
     def ask(self, table: str, key: str, live):
@@ -94,6 +97,67 @@ def glob(base, pattern: str) -> list[Path]:
     """What ``pattern`` (``**`` recursive) matches under ``base``, sorted."""
     r, live = _NOW.get(), lambda: sorted(_glob.glob(pattern, root_dir=base, recursive=True))
     return [Path(base) / h for h in (live() if r is None else r.ask("globs", f"{base}\n{pattern}", live))]
+
+
+class TreeRefused(Exception):
+    """A folder ``tree`` will not read whole: an entry of a kind not allowed, or over a cap (the reason)."""
+
+
+def _walk(root: str, max_entries: int, max_bytes: int) -> dict[str, tuple[str, bytes | str]]:
+    if not stat.S_ISDIR(os.lstat(root).st_mode):         # (missing: FileNotFoundError)
+        raise TreeRefused(f"{root} is not a folder")
+    out: dict[str, tuple[str, bytes | str]] = {}
+    total, todo = 0, [""]
+    while todo:
+        d = todo.pop()
+        for name in sorted(os.listdir(os.path.join(root, d))):
+            rel = f"{d}/{name}" if d else name
+            p = os.path.join(root, rel)
+            m = os.lstat(p).st_mode
+            if len(out) >= max_entries:
+                raise TreeRefused(f"more than {max_entries} entries (the cap)")
+            if stat.S_ISDIR(m):
+                out[rel] = ("dir", b"")
+                todo.append(rel)
+            elif stat.S_ISLNK(m):
+                out[rel] = ("link", os.readlink(p))
+            elif not stat.S_ISREG(m):
+                raise TreeRefused(f"{rel}: not a regular file, a folder or a link")
+            else:
+                fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                try:
+                    st, buf, want = os.fstat(fd), bytearray(), max_bytes - total + 1
+                    if not stat.S_ISREG(st.st_mode):
+                        raise TreeRefused(f"{rel}: not a regular file")
+                    while len(buf) < want and (got := os.read(fd, min(1 << 20, want - len(buf)))):
+                        buf += got
+                finally:
+                    os.close(fd)
+                total += len(buf)
+                if total > max_bytes:
+                    raise TreeRefused(f"more than {max_bytes} bytes (the cap)")
+                out[rel] = ("exec" if st.st_mode & stat.S_IXUSR else "file", bytes(buf))
+    return out
+
+
+def tree(root, max_entries: int, max_bytes: int) -> dict[str, tuple[str, bytes | str]]:
+    """Every entry under ``root``, by its path relative to it: ``(kind, bytes)`` for a ``file`` or ``exec`` file,
+    ``("link", target)``, ``("dir", b"")``. Walked with ``lstat``, never following a link; anything else (a FIFO, a
+    socket, a device) refused unopened, as is more than ``max_entries`` entries or ``max_bytes`` bytes. Noted: the
+    listing in ``Reads.trees``, each file's bytes in ``Reads.files``; a replay answers both from the snapshot."""
+    root, r = str(root), _NOW.get()
+    if r is None:
+        return _walk(root, max_entries, max_bytes)
+    if r.replay:
+        if root not in r.trees:
+            raise NotKept(f"{root}: not in the last good model's snapshot")
+        return {rel: (k, r.ask("files", os.path.join(root, rel), None) if k in ("file", "exec") else v or b"")
+                for rel, (k, v) in r.trees[root].items()}
+    got = _walk(root, max_entries, max_bytes)
+    r.trees[root] = {rel: [k, hashlib.sha256(v).hexdigest() if k in ("file", "exec") else v if k == "link" else ""]
+                     for rel, (k, v) in got.items()}
+    r.files.update({os.path.join(root, rel): v for rel, (k, v) in got.items() if k in ("file", "exec")})
+    return got
 
 
 def replaying() -> bool:

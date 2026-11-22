@@ -82,6 +82,7 @@ run it
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
   remote         Remote systems this model reads (status); token NAME lets another ergostat read this one
+  library        fetch [NAME...]: clone the libraries: by git URL into .libraries/, pinned in libraries.lock
   report         Reports about ergostat itself, scrubbed, for you to read and submit by hand (--draft TEXT)
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
@@ -365,6 +366,8 @@ def build() -> argparse.ArgumentParser:
     inbox_topics(sub, common)
     from .remote import register as remote_topics
     remote_topics(sub, common)
+    from .library import register as library_topics
+    library_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
     return ap
