@@ -69,3 +69,15 @@ Run: the new test, with `test_flows_only_export_legend_lists_only_what_is_shown`
 only in dark mode, so it is unrelated (lesson 13). I could not show it fails on main: `git checkout main -- <files>` was
 refused. Not run here: the other three browser files and the unit suite (left to the factory and the merge queue).
 There is no remote in the clone, so local `main` is the base and nothing was merged.
+
+## Where it stopped (round 1, after the build step)
+
+The factory's `build` step failed with rc 5. It runs `affected_tests.py` without Playwright. This branch's only changed
+test file was the browser file `tests/test_diagram_rendering.py`, so the whole module was skipped and nothing ran. The
+page code was not at fault. `tests/test_style_tokens.py` now has
+`test_the_dark_tokens_stand_aside_while_a_picture_is_exported`, a unit check of the style.css change: every dark-theme
+rule excludes `.export-light`, and export.js sets and clears that class. With this file changed, the build step has a
+test that runs without a browser. Broken once (`:root:not(.export-light)` put back to `:root`): the test failed.
+Restored: `tests/test_style_tokens.py` passed (6), and ruff is clean. No change outside `tests/` and this record.
+That a build of browser-only test files returns rc 5 is a factory matter (scripts/affected_tests.py), not this gap's.
+It is reported here and not fixed (lesson 13).
