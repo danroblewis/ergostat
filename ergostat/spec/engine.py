@@ -34,6 +34,7 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+from .. import mirror
 from .. import runner as old
 from ..costs import ai as costs_ai
 from ..costs import record as costs_record
@@ -1304,9 +1305,13 @@ class Engine:
                     except Exception as err:
                         refused.append(f"message: {err}")
                     continue
+                why = "id" in o and mirror.valid(o["id"], name)     # a cite only of its own log (mirror.py)
+                if why:
+                    refused.append(why)
+                    continue
                 try:
                     self.p.events.add(o["type"], item=o["item"], source=name, data=o["data"], patch=o.get("patch"),
-                                      set=o.get("set"))
+                                      set=o.get("set"), id=o.get("id"))
                 except ChangesetError as err:
                     refused.append(f"{o['type']}: {err}")
             for why in refused:
@@ -2260,8 +2265,10 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
         elif not isinstance(item, str) or "/" not in item:
             refused.append(f"{t}: a sensor's observation names an item (an id with a /, case/logo-3)")
         else:
+            cited = isinstance(obj.get("id"), str) and obj["id"].startswith(mirror.PREFIX)   # any other id: a fresh one
             seen.append({"type": t, "item": item, "data": obj.get("data") if isinstance(obj.get("data"), dict) else {},
-                         **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None}})
+                         **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None},
+                         **({"id": obj["id"]} if cited else {})})
     return seen, refused
 
 
@@ -2308,6 +2315,7 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
         if env is None:
             from ..store import state_dir
             env = callback_env(spec, state_dir(spec.name, spec.root))
+        env = {**env, "ERGOSTAT_SENSOR": sensor_name(s.of.name, s.name)}      # who a mirror cites as (mirror.py)
         p = subprocess.run(s.run, shell=True, cwd=spec.root, capture_output=True, text=True, timeout=s.timeout,
                            start_new_session=True, env=env)
     except subprocess.TimeoutExpired:

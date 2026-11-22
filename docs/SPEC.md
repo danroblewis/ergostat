@@ -193,6 +193,36 @@ runs a command on the item leased to its run and moves it on, or gives it back),
 blocks that work on items take them (section 9.5): `respond-to`'s `answer` and each of `steps`' steps is leased
 one item a run, `pool` at once, and an item that fails every try is a dead letter.
 
+**Mirroring an outside log** (`collect` with `mirror: true`, `cursor-field:` the entry's position, `position: int`
+or `text`). A system that keeps its own event log (Kafka, a ticket history, an incident log) is copied in, read in
+place (another ergostat only, section 4c), or mirrored. A mirror records each entry once, under the id
+`cite:<log>:<type>:<position>`: the log is the sensor that runs it (`<flow>.<sensor>`, given to its command as
+`ERGOSTAT_SENSOR`), the type `i` (a whole number, `9` and `"9"` alike, ordered as numbers) or `t` (text, ordered as
+text, so a text position must sort in log order: zero-padded, fixed-width times). The engine records a sensor's line
+with a `cite:` id only when the log it names is that sensor (`sensor.refused` otherwise), and nothing pushed may
+carry one (section 5c). Each poll, under the collector's lock: what it said last poll is looked for in the record,
+and the cursor moves to the last of it that was all recorded; when one is missing (refused, or lost to a timeout or a
+crash), the poll exits 1 naming it and why (the sensor's last `sensor.refused` or `sensor.failed` recorded by the
+engine, source `ergostat`, since that poll, else "not in the record"; the reason is the record's word, and a push
+that claims source `ergostat` can still put one there), and the next re-reads from the confirmed cursor. With its
+memory lost (`library/<name>/collect.json` gone or unreadable), the cursor is the greatest of the sensor's own cites
+in the record, its rolled-up items' snapshots included (`rollup.cites`), read a page of 5,000 at a time (bounded
+memory, but a time that grows with the record); a record it cannot read fails the poll, never starting from the
+beginning. Every entry is checked before any is said (a position missing or not of its type, two different entries
+at one position: exit 1, nothing said), and at most 5,000 are said a poll, the lowest first. Entries at or before the
+cursor are skipped. A log that went back stops the mirror (exit 1): when the source's newest entry is before the
+cursor, or the entry it returns at the cursor has another id (`id-field`) than the one recorded there (`fields:`,
+`kind` and `event` may change; a changed `id-field` reads as a restart). So does a changed `position`. Clearing the
+collector's memory does not end the stop, since the cursor, its type and the entry at it come back from the record:
+the owner renames the use (a new sensor, so a new log, mirrored from its start), or sets `position` back. What is
+claimed: an entry is recorded once, under the cite of its position, across polls that failed, timed out or were
+refused, and across lost memory while the record holds that sensor's cites (or their snapshots); only the sensor
+named in a cite records it. Not claimed: after the record forgets the log's entries (`keep`, prune) and the
+collector's memory is lost, they are mirrored again; and a restart is seen only when the source returns the entry at
+the cursor or nothing newer than it: a log that restarted and grew past the cursor read from after it (a Kafka
+offset in `{cursor}`) loses the new entries up to the cursor without a word, and so does a restart that grew past the
+cursor once the cursor's own event is rolled up or pruned (there is then nothing recorded at the cursor to compare with).
+
 **What a template may declare.** `items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`,
 `blocks`, `agents` and `uses`, and the `workspaces` and gated `actions` its AI blocks use (section 12k): each named
 for the instance like any part (`steps` makes `NAME-workspace`, and `NAME-push` for an action `push`), and a
@@ -1135,7 +1165,9 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
 the window, 400 more reached by relations (six links away at most), 300 cards and 200 rows drawn; a note says when
-any was reached. In a snapshot they are not drawn.
+any was reached. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
+is read by id and its own status counts (one that cannot be read counts as unfinished, and is named). In a snapshot
+they are not drawn.
 
 **Built-in kinds.** Seven kinds are ergostat's own, present in every project and never declared (a project's
 kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
@@ -1363,9 +1395,11 @@ it: section 9.5) wakes on the write itself. Collectors stay as they are, the fal
 
 **`POST /api/events`** on the running ergostat's page (`ergostat run` prints where): one event, or a list, in the
 envelope a block's output lines use: `{"event": "ticket.found", "item": "ticket/SCRUM-12", "data": {...}}` (or
-`patch` / `set` in place of `data`), with an optional `id` that makes a retry the same event (recorded once). A push
-is checked whole and recorded in one write, or refused whole (400, and why). The answer says how many were new and
-their ids. An event type is lowercase words joined by dots, never ergostat's own.
+`patch` / `set` in place of `data`), with an optional `id` that makes a retry the same event (recorded once). An `id`
+starting `cite:` is refused: it is a mirror's own, recorded only by the sensor it names (section 2, *Mirroring an
+outside log*); so is one from a webhook's `id:` or from `ergostat event` sent to the engine. A push is checked
+whole and recorded in one write, or refused whole (400, and why). The answer says how many were new and their ids.
+An event type is lowercase words joined by dots, never ergostat's own.
 
 **Webhooks, `POST /api/hooks/NAME`**: a sender's own payload, made into events by a small mapping per sender:
 

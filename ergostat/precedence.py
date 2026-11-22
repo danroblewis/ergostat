@@ -273,7 +273,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             if not frontier:
                 break
             near = {d for _, _, d in ix.links_from(frontier)} | {a for a, _, _ in ix.links_to(frontier)}
-            new = [x for x in near if x not in got]
+            new = sorted(x for x in near if x not in got)       # sorted: what the cap cuts is not hash order
             if not new:
                 break
             room = MOST_PULLED - pulled
@@ -286,8 +286,13 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             pulled += len(fetched)
             frontier = {i.id for i in fetched}
         links = ix.links_from(list(got))
+        # a precedence target the cap cut is read by id (one call, at most one per link held): the cap limits what is
+        # drawn, never what is eligible. One not found at all stays unfinished (below)
+        rels = {n: k.relations for n, k in spec.items.items()}
+        cut = sorted({d for a, r, d in links if d not in got
+                      and getattr((rels.get(got[a].kind or "") or {}).get(r), "precedence", False)})
+        beyond = {i.id: i for i in ix.items(None, ids=cut, moves=False)} if cut else {}     # (status reads no moves)
     # the links: precedence (the target first), group (the parent), any other (from the item to what it names)
-    rels = {n: k.relations for n, k in spec.items.items()}
     out_of: dict[str, dict[str, list[str]]] = {}
     into: dict[str, dict[str, list[str]]] = {}
     before: list[tuple[str, str]] = []
@@ -310,7 +315,11 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     found = cycles(list(got), before)
     out["cycles"] = found
     in_cycle = {x for c in found for x in c}
-    # statuses: blocked by a predecessor not finished (one not seen at all is not known to be finished)
+    # statuses: blocked by a predecessor not finished (one past the cap by its own status; one not found at all is not
+    # known to be finished)
+    def finished(d: str) -> bool:
+        i = got.get(d) or beyond.get(d)
+        return i is not None and status(i, info[i.kind], []) == "done"
     durs = {kk: info.expected(kk) for kk in {i.kind for i in got.values()}}
     known = [d for d in durs.values() if d]
     fallback = median(known) if known else ASSUMED
@@ -320,7 +329,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     for a, it in got.items():
         mine = rels.get(it.kind or "") or {}
         preds = [d for r, ds in (out_of.get(a) or {}).items() if mine.get(r) is not None and mine[r].precedence for d in ds]
-        waiting[a] = [d for d in preds if d not in got or status(got[d], info[got[d].kind], []) not in ("done",)]
+        waiting[a] = [d for d in preds if not finished(d)]
     for a, it in got.items():
         st[a] = status(it, info[it.kind], waiting[a])
     # the critical path, over the unfinished items outside any cycle. A parent with unfinished children is a summary:
