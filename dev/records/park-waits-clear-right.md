@@ -128,3 +128,17 @@ The findings of review park-waits-clear-right-2, each answered:
 
 dev/README.md says continued parks are left alone. Size: 82 net lines in dev/bin (79 + 1 parks.py docstring + 0
 for the changed condition, +1 watch.py, +2 intake.py, counting only lines added less lines removed), within the 90.
+
+### After the fast suites (round 3)
+
+The factory's `unit` run stopped after 13 dots, before its first progress mark. It named no test and wrote no
+suite_watch exit line. suite_watch.py prints that line on every exit it controls, its own kills included, so the run
+was stopped from outside the watchdog. That is the same silent stop as round 1 (54%) and the other branches recorded
+there. No code was changed, because there is no failure to fix. Run here: tests/test_factory.py under the unit
+suite's own `-n 8 --dist worksteal` (139 passed, 2 skipped, in 601 s). The continue/park/wait subset was run alone
+with `--durations` (29 passed). Its slowest tests are test_fix_then_park (63 s) and
+test_triage_waiting_on_load_does_not_block_the_queue (36 s). Neither reaches parks.py, intake.py or watch.py. Each
+of this branch's tests takes about 2 s. Refused: a shell reading the container's cgroup memory and pids limits, and
+`git worktree add -q /tmp/mainwt main` (to time those two tests on main). So whether this container is slow or short of
+memory on main too was not checked. The whole unit suite still needs a run that finishes under suite_watch.py. A test
+it names would be this branch's to fix.
