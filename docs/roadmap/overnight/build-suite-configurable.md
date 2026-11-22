@@ -115,3 +115,22 @@ Round 1's review findings, one by one (lesson-12):
 
 **Ready to delete** (DoD 5), as in round 1: the stopgap `[suites] unit` shell selector in the instance's
 `factory.local.toml`.
+
+### Round 3: main (b4639301) merged
+
+The only finding was the conflict in tests/test_factory.py. Both sides only added tests at the end of the file:
+this branch's small-set tests and main's pool-full-keeps-its-rank tests (`Slots` and its three tests). The resolution
+keeps both blocks whole, with no line of either changed. Code outside tests and docs is as in round 2 (78 net lines).
+
+Round 2's review findings (lesson-12):
+- Not run by the reviewer (Bash refused). In this round, after the merge, all of tests/test_factory.py passed
+  (143 passed, 2 skipped: both need Docker and the agent image, as in round 2). `ruff check ergostat tests scripts`
+  is clean. The unit and browser suites in full are left to the factory and the queue.
+- No one has seen affected_tests.py run inside a suite container: **still open, and not checkable here** (no Docker in
+  this clone). It fails safe to the full suite. The next real round's log should show the `affected_tests:` line on
+  stderr. If it shows "cannot read the diff" there instead, the likely cause is git's safe.directory check on the
+  mounted work, and that fix belongs in its own gap.
+- Base hard-coded to `main`, and dev/bin and test-helper changes select nothing: **unchanged**, for the reasons given
+  in round 2. The review did not count either as blocking.
+
+**Ready to delete** (DoD 5): the stopgap `[suites] unit` shell selector in the instance's `factory.local.toml`.
