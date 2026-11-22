@@ -245,7 +245,7 @@ body:has(#detail:not([hidden])) .diagram > .side { display: none; }
 .toolbar select:hover { background: var(--fill); }
 .toolbar .sep { width: var(--hair); align-self: stretch; background: var(--line); margin: var(--sp-0) var(--sp-1); }
 .seg { display: inline-flex; gap: var(--sp-0); }
-.seg .what { color: var(--muted); }
+.seg .what { display: block; font-size: var(--text-sm); color: var(--muted); }   /* under the name: the toolbar no wider, clear of the top grip */
 .strip p.risk { margin: var(--sp-1) 0 0; }
 .block-models ul { margin: var(--sp-1) 0; padding-left: var(--sp-4); }
 .block-models summary { cursor: pointer; }
@@ -673,9 +673,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .canvas-wrap { display: flex; flex-direction: column; }
   .toolbar, .zoom { position: static; margin: var(--sp-2) var(--sp-2) 0; width: auto; max-width: none; }
   .toolbar { order: -1; gap: 0; }
-  .toolbar button { padding: var(--sp-1) var(--sp-2); }
-  .toolbar .seg .what { display: block; font-size: var(--text-sm); }   /* the second half under the first */
-  .toolbar select { max-width: 8em; }
+  .toolbar button { padding: var(--sp-1) var(--sp-2); }  .toolbar select { max-width: 8em; }
   .toolbar .sep, .panhint { display: none; }
   .zoom { order: 3; align-self: flex-end; margin-bottom: var(--sp-2); }
   svg.canvas { height: 420px; flex: none; }

@@ -25,3 +25,35 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built.
+
+- `ergostat/web/static/diagram.js`: each view button keeps its name and its hover title, and gains a `span.what` with
+  ' · what is', ' · what is controlled', ' · what happened'. `style.css`: one rule shows that half in small muted
+  text under the name, at every width.
+- A choice made alone (the most reversible one): the second half goes under the name at 1440 px too, not only at
+  390 px. On one line the toolbar grew from about 430 to 661 px wide in software-factory. That covered the top edge's
+  split grip (test_the_split_opens_from_each_edge_resizes_halves_and_closes_at_the_edge failed at "top") and, with the
+  split open, put the ⋯ menu under the second pane
+  (test_colour_by_correspondence_rings_matching_parts_alike_in_both_panes_and_is_remembered and
+  test_a_part_pointed_at_is_found_at_a_glance_in_the_other_pane timed out on the click). Stacked, the toolbar is
+  477 px wide and all three pass. To put the half back on one line on wide screens, change `display: block` to
+  inline in the `.seg .what` rule, but first move the grip or the menu.
+- Test: tests/test_diagram_rendering.py::test_the_view_switch_says_what_each_view_shows_on_a_wide_screen_and_a_phone,
+  at 1440 and at 390 px. It checks each button's visible text (inner_text), that the hover title is kept, that the
+  half is visible and inside the page, and (wide) that the top split grip is not covered. Seen to fail with the half
+  hidden at phone width, and with it inline at 1440 px (the grip check). Two older checks that compared the active
+  button's whole text with 'Blocks' and 'dynamics' now check the start of the text.
+- Run: tests/test_diagram_rendering.py in full once (an earlier run stopped at its 10-minute limit). 7 failed and
+  194 passed, with the half still on one line. Three were the toolbar problems above, fixed and passing since. The
+  other four also fail on the base commit b39c7d45 (the spans taken out of diagram.js, run alone), so they are not
+  caused by this change:
+  test_every_view_draws_cleanly_and_in_time[coordinator] and [image-squeeze] (routing open=* 26-33 s against 20 s),
+  test_a_big_tangled_model_lays_out_in_time_and_cleanly (draw 2.8-3.1 s against 2.5 s): this container is slower than
+  those limits; and test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page ('Nothing
+  waiting.' not on the Model page after Accept): fails on main.
+- Not run: the full file again after the stacking fix (only the six tests above), tests/test_items_page.py (that page
+  is not touched), the unit suite and the other browser files (left to the factory and the merge queue). There is no
+  merge of main to do: the branch is main plus this work.

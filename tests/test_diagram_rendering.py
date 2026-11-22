@@ -1940,6 +1940,9 @@ def test_the_view_switch_says_what_each_view_shows_on_a_wide_screen_and_a_phone(
                 assert half.is_visible(), (width, name)
                 box, page_w = half.bounding_box(), pg.evaluate("document.documentElement.clientWidth")
                 assert box and box["x"] >= 0 and box["x"] + box["width"] <= page_w + 1, (width, name, box)
+            if width > 700:                                     # the longer labels leave the top edge's split grip reachable
+                assert pg.evaluate("""() => { const r = document.querySelector('.split-grip[data-edge="top"]').getBoundingClientRect();
+                  return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.split-grip') !== null; }""")
             pg.close()
 
 
