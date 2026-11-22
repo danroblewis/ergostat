@@ -322,6 +322,7 @@ def test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_networ
     checkout = f.checkout.resolve()
     for a in got.values():
         assert flag(a, "--network") == ["none"] and flag(a, "--cpuset-cpus") == ["12-23"] and "--init" in a
+        assert "PYTEST_ADDOPTS=-o faulthandler_timeout=300" in flag(a, "-e")   # half the 10 min stall limit
         assert f"{checkout}:/work" in flag(a, "-v") and f"{checkout / '.git'}:/work/.git:ro" in flag(a, "-v")
         assert "UV_PROJECT_ENVIRONMENT=/opt/venv" in flag(a, "-e")               # never the checkout's .venv
         assert a[-4:-1] == ["the-agent-image", "sh", "-c"] and flag(a, "--name")[0].startswith(

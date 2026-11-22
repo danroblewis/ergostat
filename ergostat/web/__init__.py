@@ -61,8 +61,17 @@ class PooledServer(ThreadingHTTPServer):
             return
         super().handle_error(request, client_address)
 
+    def _stop_mtls(self):
+        if getattr(self, "mtls", None) is not None:   # the remote API's listener stops with the page (web: mtls:)
+            self.mtls.stop()
+
+    def shutdown(self):
+        super().shutdown()
+        self._stop_mtls()
+
     def server_close(self):
         super().server_close()
+        self._stop_mtls()
         jobs = getattr(self, "jobs", None)         # (none yet when the port could not be bound: the bind error is the news)
         for _ in range(self.workers if jobs is not None else 0):
             jobs.put(None)
@@ -87,9 +96,11 @@ def record_fits(live, every: float = 300.0, stop: threading.Event | None = None)
             continue
 
 
-def serve(project, port: int | None = None):
+def serve(project, port: int | None = None, mtls_port: int | None = None):
     """The page on ``port`` (or the next free one), on this machine only unless ``intake: bind:`` says where else; from
-    another machine only events may be pushed (``intake: allow:``). The push token is made now (``intake/token.py``)."""
+    another machine only events may be pushed (``intake: allow:``). The push token is made now (``intake/token.py``).
+    With ``web: mtls:``, the remote API's own listener beside it (``remote/listen.py``; ``mtls_port`` overrides its
+    port, 0 for any): ``server.mtls_said`` says where it listens, or why not, and the page serves either way."""
     spec = getattr(project.model, "spec", None)
     host = getattr(getattr(spec, "intake", None), "bind", None) or "127.0.0.1"
     port = _free(port or DEFAULT_PORT) if host == "127.0.0.1" else _free(port or DEFAULT_PORT, host)
@@ -97,6 +108,12 @@ def serve(project, port: int | None = None):
     token(project.dir)
     server = PooledServer((host, port), handler(project))
     server.daemon_threads = True
+    server.mtls, server.mtls_said, server.mtls_port = None, "", None
+    conf = getattr(getattr(spec, "web", None), "mtls", None)
+    if conf is not None:
+        from ..remote import listen
+        server.mtls, server.mtls_said = listen.serve(conf, spec.root, server.RequestHandlerClass, mtls_port)
+        server.mtls_port = server.mtls.server_address[1] if server.mtls else None
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=record_fits, args=(server.RequestHandlerClass.live,), name="ergostat-fit-history", daemon=True).start()
     url = f"http://127.0.0.1:{port}"

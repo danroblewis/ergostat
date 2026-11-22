@@ -27,11 +27,13 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `examples/remote-pair/` and its two-instance test. A remote's measures on its closed box (done on
     `remote-box-measures`): its top systems' served `show:`, or a `show:` on its `remotes:` entry in its own
     names (`remote-show-unresolved` for one it does not serve), each marked stale with its age when the remote
-    or the reading is not current.
+    or the reading is not current. Mutual TLS (done on `remote-mtls`): `web: mtls:` serves the remote API
+    alone on its own listener (16 connections, 10 s handshake and idle, GET of `/remote/v1/` only, the token
+    still needed) to certificates `client-ca` signed; a `remotes:` entry's `tls:` reads it (`mtls-unreadable`).
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
     it); lines in the process map between our items and theirs (needs an id both logs carry); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
-    not served); mutual TLS.
+    not served).
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
@@ -42,12 +44,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
   workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
   blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
   refused at the owner's `use:` line, with a refusal that suggests
-  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). *Still needed:* a gate on **provenance**,
-  so an untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
-  substitution of a `type: command` parameter, the marks kept through nested uses); a library's `example:` and
-  `reading:` marked untrusted wherever an agent reads them (library-untrusted-text); `fetch` by git URL or package,
-  refusing a lock entry without a tree, symlinks hashed explicitly; then running untrusted library scripts through
-  `ergostat.sandbox` and the rebase onto main.
+  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). **Built** (`library-untrusted-text`): an
+  untrusted template's text is marked in the `templates` tool and in three kinds of `check` problem, its names
+  checked, and its parts' schedules, pools, attempts and runs at once bounded at compile and when runs start, a second
+  line behind the allowlist (SPEC §2a, *Untrusted libraries*). *Still needed:* a gate on **provenance**, so an
+  untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
+  substitution of a `type: command` parameter, the marks kept through nested uses); the text an untrusted template
+  makes in the model marked too (its system's and parts' descriptions, prompts, commands, equations and names,
+  wherever `check`, the diagrams and the MCP model views show them, and the `library-untrusted` refusal's folder
+  path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
+  without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
+  the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
@@ -107,8 +114,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
   program). Triage reads Python, Node, Java and Go traces and notes an error a good run swallowed (M5) without moving
-  any failure. *Left*: verifying a fix by the runs after it and offering its revert; log events; the ladder's lower
-  rungs (narrow AI, program, rule) and promoting a class automatically; a program with uncommitted changes is fixed
+  any failure. Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
+  regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
+  fails). *Left*: log events; the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically; a program with uncommitted changes is fixed
   from its committed text; a Python traceback more than 8,000 characters before the end of a failed run's output is
   now signed by how the run ended; a daemon's run hands back little or no standard error, so what a daemon swallows is
   not seen; Ruby and other languages are not read.
@@ -126,12 +134,27 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
   `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a
   model-level `purpose:`; candidates to aggregate from loop dominance over the window, an `aggregate` row on a
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); the stocks' modes at the start
+  and each link's eigenvalue elasticity in `explain` (`numbers/modes.py`, on `eigenvalue-elasticity`); the AI rung's
+  Viable System Model checklist and purpose coverage, on the owner's word (`ergostat improve --architecture`,
+  `spec/vsm.py`, `numbers/vsm_review.py`, on `architecture-vsm-and-purpose`), its findings held for the owner.
+  *Left*: the relative gain array (needs a square, non-singular gain matrix from approved step tests), the AI rung's
+  proposal to aggregate (from loop dominance), elasticity over the replay, interface stability over the model's
+  history, and the per-system redesign and daily larger-model review (after `redesign`).
   system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); the AI rung's Viable System
   Model checklist and purpose coverage, on the owner's word (`ergostat improve --architecture`, `spec/vsm.py`,
-  `numbers/vsm_review.py`, on `architecture-vsm-and-purpose`), its findings held for the owner. *Left*: the relative gain
-  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
-  proposal to aggregate, interface
-  stability over the model's history, and the per-system redesign and daily larger-model review (after `redesign`).
+  `numbers/vsm_review.py`, on `architecture-vsm-and-purpose`), its findings held for the owner; how often each
+  system's interface changed over the model's recorded versions, in `explain system.NAME` (on
+  `interface-stability`; SPEC §4a). *Left*: the relative gain array (needs a square, non-singular gain matrix from
+  approved step tests), eigenvalue elasticity, the AI rung's proposal to aggregate, and the per-system redesign and
+  daily larger-model review (after `redesign`).
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); a system's redesign shown
+  its architecture (its notes, size, interface and subsystems), and a daily architecture review on a larger model
+  (sonnet by default, `redesign.review`) whose findings are requests: a redesign taken first, a split or merge held
+  for the owner (`numbers/archreview.py`, on `architecture-per-system-redesign`). *Left*: the relative gain array
+  (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
+  proposal to aggregate, interface stability over the model's history, the Viable System Model checklist and
+  purpose coverage (the AI rung), and a merge of two systems redesigned as one change.
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
   STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
   move recorded as `ergostat.item.joined` caused by the child's, folded only forward and counted like any other;
@@ -176,7 +199,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `ergostat.model-change` of kind `redesign`, drawn dashed on both diagrams, never written without the owner unless
   `accept: {redesign: auto}` (and never one that removes, rewires or changes control). Runs on its own a system at a
   time when it is due (the owner's decision, 2026-11-19: `when: auto` by default), or when the owner asks. Open: removed parts are named, not drawn as ghosts; splitting a model into systems is
-  in the guide but not scored; the judge scores a redesign on the record it has when it takes it up.
+  in the guide but not scored. (A waiting redesign is scored again as the record it reads moves, and a promoted one
+  written only on a scorecard of the record as it is: `redesign-rescored-as-the-record-moves`.)
 - **A reviewer in the modelling template** (landing, `modelreview`, continued as `gap/modelreview-continued`;
   `docs/roadmap/overnight/modelreview.md`; owner: "I don't see a reviewer"): an `ai` block that reads each structural
   change and redesign the judge passed, and passes it, sends it back to its author, or rejects it, with the authors'
@@ -350,9 +374,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `use: upkeep` with the loop `index-files` / `index-files-few` / `index-tidier` (`upkeep tidy --keep N`); the
     engine stands down from tidying under it; the interlock (lock without waiting, age checked again under the lock,
     an allowlist of index names under the resolved folder) stays in `spec/itemindex.py`. Under `use: upkeep` nothing
-    else limits the count if the tidier stops. Still to come: **upkeep-watched-loops** (the watchdog, the heartbeat
-    goal the outer watcher reads, leases and the worktree pool) and **upkeep-record-loops** (the event log's roll-up
+    else limits the count if the tidier stops. Still to come: **upkeep-record-loops** (the event log's roll-up
     and measurement retention).
+  - **The watched loops** (done on `factory/upkeep-watched-loops`, `dev/records/upkeep-watched-loops.md`): the
+    stocks `heartbeat-age`, `stalls` and `restarts` (`ergostat.upkeep.*`), the goals `heartbeat-fresh` (`<= stale`,
+    180, 60 to 3600) and `no-stalls`, and the engine's watchdog and the outer watcher as `type: external` blocks;
+    with `leases: true` lease expiry, with `pool: NAME` that pool's quarantined slots held at 0 by the owner. The
+    engine writes `stale` into `heartbeat.json`; the watcher uses it within 60 to 3600 s, else 180. Left: the loops
+    are drawn, not closed by ergostat (their controllers are its code); the heartbeat the run writes as it starts has
+    no `stale`, so the watcher uses 180 until the watchdog's first beat (5 s); `restarts` has no goal.
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per
@@ -381,14 +411,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Interface
 
-- **Searching items and querying their graph** (`gap/item-search`, split in two): full-text search and graph queries
-  over items, from the CLI and API.
-  - *Search*: **done** on `factory/item-text-search` (SPEC §5a, *Search*): `ergostat item --search WORDS` and
-    `/api/items?search=WORDS` list the items whose fields' text contains every word (a casefolded substring, no
-    ranking, no fuzzy match; the first 65,536 characters of each item's text), kept in the item index. Not the Items
-    page's own box, not MCP, not `--at`.
-  - *near, path and about*: **done** on `factory/item-graph-queries` (gap/item-graph-queries; the coordinator fills in
-    the merge commit; SPEC §5a *Graph queries*): `ergostat item ID --near [N]`, `item A --path B`, `item ID --about`
+- **Searching items and querying their graph** (`gap/item-search`): **done**, both halves merged: full-text search
+  and graph queries over items, from the CLI and API.
+  - *Search*: **done** on `factory/item-text-search` (merged in `512f08ef`; SPEC §5a, *Search*): `ergostat item
+    --search WORDS` and `/api/items?search=WORDS` list the items whose fields' text contains every word (a casefolded
+    substring, no ranking, no fuzzy match; the first 65,536 characters of each item's text), kept in the item index.
+    Not the Items page's own box, not MCP, not `--at`.
+  - *near, path and about*: **done** on `factory/item-graph-queries` (gap/item-graph-queries; merged in
+    `c5eb54e6`; SPEC §5a *Graph queries*): `ergostat item ID --near [N]`, `item A --path B`, `item ID --about`
     and `/api/items-query`: the items within N hops (1 to 4), a shortest chain of relations (a backward step named by
     its inverse), and what links to an item (`declared`) or names its id as a whole token in a field (`inferred`);
     each visits at most 2,000 items and says `capped` past that; an unknown id is an error. `--about`'s mentions are

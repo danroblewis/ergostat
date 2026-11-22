@@ -33,6 +33,7 @@ import time
 import uuid
 
 from ..costs import budget
+from ..library import bounds
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
 from . import ENDED, EXPIRED, RENEWED, TAKEN, poolnow
@@ -241,7 +242,9 @@ class Dispatcher:
         with self.e.lock:                  # (the stop is set under this lock: a take that passes waits it out in close)
             if self.e.stop.is_set():
                 return None                                       # ergostat is stopping: nothing more is taken
-            self.e.running.add(key)
+            if not bounds.room(self.e, b):                        # an untrusted library's runs at once: counted and
+                return None                                       # reserved here, before its lease is written (SPEC §2a)
+            bounds.hold(self.e, key, b)
             self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
         data = {"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
                 "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1}

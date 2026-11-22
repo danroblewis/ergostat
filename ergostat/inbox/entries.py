@@ -16,6 +16,19 @@ _CACHE: dict = {}
 
 
 MERGES = "Approving merges this code into your repository; it then runs with your rights, outside the sandbox."
+REVERTS = ("Approving reverts the applied fix {commit} in your repository with one new commit (git revert); the program "
+           "goes back to what it was before the fix.")
+
+
+def warning(p, spec, a: dict) -> str | None:
+    """What approving a repair's action does (SPEC §12r): ``revert-fix`` its own sentence, never MERGES."""
+    if not str(a.get("item")).startswith("ergostat.failure/"):
+        return None
+    if a.get("action") != "revert-fix":
+        return MERGES
+    from ..spec import items as its
+    it = its.one(p.events, spec, a["item"])
+    return REVERTS.format(commit=str((it.fields if it else {}).get("commit") or "?")[:12])
 
 
 def command(e: dict) -> str | None:
@@ -50,9 +63,10 @@ def _actions(p, spec, now: float) -> list[dict]:
         return []
     return [{"id": f"action/{record.short(a['id'])}", "kind": "action", "time": a["time"], "link": f"/item/{a['id']}",
              "verbs": ["approve", "deny"], "class": a.get("class") or a.get("action"), "action": a.get("action"),
-             **({"warn": MERGES} if str(a.get("item")).startswith("ergostat.failure/") else {}),
+             **({"warn": w} if (w := warning(p, spec, a)) else {}),
              "summary": f"{a.get('action')}" + (f" for {a['item']}" if a.get("item") else "") + f": "
-                        f"{_cut(a.get('command') or '', 70)}", "why": _why(p, spec, a.get("item"))}
+                        f"{_cut(a.get('command') or '', 70)}",
+             "why": w if a.get("action") == "revert-fix" else _why(p, spec, a.get("item"))}
             for a in record.stored(p, until=now).values() if a["state"] == "requested"]
 
 
