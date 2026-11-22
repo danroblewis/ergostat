@@ -1,0 +1,7 @@
+# regression-queue-test-counts: The merge queue records each suite's pytest counts, unknown when its log cannot say
+
+depends-on: []
+
+Problem: the queue keeps only rc, seconds and a SKIPPED count per suite (dev/bin/queue.py:111-114), so no measure can say main lost tests (regression-guarantees.md section 4). Change: a pure parser fac.counts(text) next to fac.outcomes (dev/bin/fac.py:582-588) reading pytest's final summary line from the suite's whole log, taking the last such line. In suites()'s one() each pytest suite (unit, browser, host) gains `counts: {passed, failed, skipped, deselected, errors}`; a suite with no summary line, stopped by a sibling, stalled or unreadable records `counts: "unknown"`, never zeros; a suite not run by rule (merge-pipeline-browser-only-on-its-paths) records `counts: "not_run"`, which is neither unknown nor zero. The landed run's queue_runs entry (queue.py:836-837) gains counts summed over the suites that ran, with `suites: [names]` saying which, or "unknown" if any that ran is. ruff and demo record none. Done: fac.counts parses every summary form pytest -q prints, xdist's included, and returns None without one; the existing skipped field and the browser skip rule (queue.py:111, 216-220) are unchanged; dev/README.md names the fields. Files: dev/bin/fac.py, dev/bin/queue.py, dev/README.md, tests/test_queue.py (four tests). Budget: 60 net lines.
+
+Area: regression. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
