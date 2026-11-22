@@ -85,10 +85,10 @@ def check_yaml(args, path: Path) -> int:
     sh = Shown(spec)                              # the model's text an untrusted library made, marked (SPEC §2a)
 
     def said(p) -> str:
-        return f"{p.where}: {sh.text(p.message, p.where)}" if p.where else sh.text(p.message)
+        return f"{p.where}: {sh.problem(p)}" if p.where else sh.problem(p)
     if args.json:
-        coh = sh.data(coherence_of(args, spec, findings) if not errors else None)
-        found = [sh.text(p.message, p.where) for p in problems]
+        coh = sh.values(coherence_of(args, spec, findings) if not errors else None)
+        found = [sh.problem(p) for p in problems]
         return out_json({"ok": not errors, "errors": len(errors), "findings": sum(1 for p in findings if p.level != "note"),
                          "notes": sum(1 for p in findings if p.level == "note"), **({"untrusted": SAYS} if sh.marked else {}),
                          "found": [{"level": p.level, "code": p.code, "message": m, "about": p.about,
@@ -135,7 +135,7 @@ def check_yaml(args, path: Path) -> int:
         for p in notes:
             by.setdefault(p.code, []).append(p)
         for code, ps in by.items():
-            names = ", ".join(sh.text(x.about.split(".", 1)[-1]) for x in ps[:8]) + (f" and {len(ps) - 8} more"
+            names = ", ".join(sh.names(x.about.split(".", 1)[-1]) for x in ps[:8]) + (f" and {len(ps) - 8} more"
                                                                                      if len(ps) > 8 else "")
             print(f"{c(code, 'dim')}  {len(ps)}: {names}" if len(ps) > 1 else f"{c(code, 'dim')}  {said(ps[0])}")
     coh = coherence_of(args, spec, [p for p in findings if p.level != "note"])
@@ -143,7 +143,7 @@ def check_yaml(args, path: Path) -> int:
         from ..coherence import lines
         print(c("\nCoherence: the Process, Dynamics and Blocks views held against each other, over the record", "dim"))
         for style, line in lines(coh):
-            line = sh.text(line)
+            line = sh.names(line)
             print(c(line, "bold") if style == "head" else c(line, style) if style != "warn" else
                   f"{c(line.split('  ', 1)[0], 'warn')}  {line.split('  ', 1)[1]}" if "  " in line else c(line, "warn"))
     print(f"\n{SAYS}" if sh.marked else "", end="")

@@ -224,7 +224,7 @@ class Server:
                 from .spec.about import findings as about
                 about(spec, problems)                       # as the CLI's check: last, so every finding carries ids
             sh = Shown(spec)
-            found = [sh.text(p.message, p.where) for p in problems]
+            found = [sh.problem(p) for p in problems]
             return _text({"ok": not any(p.level == "error" for p in problems), **({"untrusted": SAYS} if sh.marked else {}),
                           "problems": [{"level": p.level, "code": p.code, "message": m, "about": p.about,
                                         **({"id": f"{p.code}@{p.about}" if p.about else p.code} if p.level != "error" else {}),
@@ -275,7 +275,7 @@ class Server:
         if name == "explain":
             from .spec.explain import explain
             sh = Shown(spec)
-            return _text(sh.says(sh.text(explain(spec, a.get("part") or None, p))))
+            return _text(sh.says(sh.names(explain(sh.model(), a.get("part") or None, p))))
         if name == "status":
             from .spec.explain import Explainer
             e = Explainer(spec, p)
@@ -289,7 +289,7 @@ class Server:
                     goals[g].update(status="stale", stale=round(stale, 1))
             from . import runner
             sh = Shown(spec)
-            goals = sh.data(goals)
+            goals = sh.values(goals)
             return _text({"running": bool(runner.running_pid(p, wait=False)), "goals": goals,
                           **({"untrusted": SAYS} if sh.marked else {})})
         if name == "findings":
@@ -360,13 +360,13 @@ class Server:
                 return _text(uses.table(p, spec))
             if recipe not in ("decisions", "corrections"):
                 from .recipes import render as rd
+                sh = Shown(spec)
                 try:
-                    r = rd.render(p, spec, str(recipe or ""), a.get("item") or None,
+                    r = rd.render(p, sh.model(), str(recipe or ""), a.get("item") or None,
                                   budget=cx.budget_of(a["budget"]) if a.get("budget") else None)
                 except (rd.RecipeError, ValueError) as e:
                     return {**_text(str(e)), "isError": True}
-                sh = Shown(spec)
-                return _text(sh.says(sh.text(r.text)))
+                return _text(sh.says(sh.names(r.text)))
             kind = DECISION if recipe == "decisions" else CORRECTION
             return _text(cx.render(p, kind, a.get("scope") if kind == DECISION else (a.get("kind") or a.get("scope")),
                                    cx.budget_of(a.get("budget"))))
