@@ -286,7 +286,9 @@ def test_the_agents_table_holds_still_while_the_pointer_is_on_a_row(site, browse
         pg.wait_for_timeout(1000)
         assert pg.evaluate(order) == was
     assert n[0] >= seen + 4, n                                   # (the answers kept coming, in turns)
-    assert "updates waiting" in pg.inner_text(".waiting")
+    # what waits is said once an answer in the other order is the last built (every other one): not at a fixed moment
+    pg.wait_for_function("() => document.querySelector('.waiting')?.textContent.includes('updates waiting')", timeout=10000)
+    assert pg.evaluate(order) == was
     pg.mouse.move(700, 20)                                       # off the table: the newest drawn
     pg.wait_for_function(f"() => ({order})() !== {json.dumps(was)}", timeout=20000)
     assert not errors, errors

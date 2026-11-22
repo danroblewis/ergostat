@@ -279,3 +279,49 @@ Tests run this round (Playwright 1.63.0, under `scripts/suite_watch.py`, through
 - `uv run ruff check ergostat tests scripts`: clean.
 - Not run, as the house rules say: the unit suite, the four browser files, and `tests/test_agents_page.py` (the Agents
   code did not change). `main` has not moved in the clone, so there was nothing to merge.
+
+## Where it stopped (round 8: main 9bfce815 merged)
+
+The factory's merge of main (9bfce815) conflicted in four files. Each is resolved so that main's change and the
+branch's both stay (merge commit bcced78b):
+- `diagram.js`: main split the side list into three groups (*Waiting for you*, *Goals off*, *Model housekeeping*,
+  folded), each made by one `list()`, and dropped the six-row cut. The branch's hold now sits in that `list()`. Each of
+  the three lists has its own class (`needs`, `goals-off`, `house`) and is held on its own while the reader is in it,
+  with the "no longer waiting" mark as before. Every row in them keeps `key` and `data-row` set to its `what`, the
+  request rows included (round 7).
+  Choice made without asking (easy to undo): each of the three lists is held, not only *Waiting for you*. That list is
+  where the requests are, but the problem named was rows moving under the reader in any part of the side list.
+- `style.css`: main's new rules and the branch's `.waiting` note, both kept.
+- `test_agents_page.py`: main's new test and the branch's hold test, both kept, each with its own close.
+- `test_inbox_page.py`: main's `serve(tmp_path, home, p, a)` generator and its new fixtures and tests are kept. The
+  branch's `site` and `three` now share `pushes()` and use `yield from serve(...)`.
+  The test's added alarms now carry `waiting: true`. Main sorts plain alarms into *Model housekeeping*, so without
+  this they would land below the requests and could not push them. The test would then pass with no hold at all.
+  With `waiting: true` they come ahead of the requests in the same list, as the problem describes.
+- `docs/SPEC.md` §12o: the branch's sentence now names the three lists and no longer says "the others are cut at
+  six", which main removed.
+
+After the merge, the Agents hold test failed once at `"updates waiting" in .waiting` (the text was empty). Its route
+reverses every other `/api/agents` answer, so whenever the last answer built is in the held order, the count is
+rightly 0. Whether the check passed depended on how many answers had come before that moment, which is a fixed timing
+in the test (lesson 10), not a fault in the page. The test now waits up to 10 s for the note, then checks the order
+again.
+`tests/test_agents_page.py::test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` (main's, not touched by
+this branch) failed once. It read `#detail` while that still said "Loading…" right after its heading appeared. It
+passed alone, and in the next full run of the file. It is left alone, as lesson 13 says: it is a race in main's test,
+not in this branch's code.
+
+Break seen to fail (lesson 9), since the alarms in the test changed: with `hold()` always returning the new build,
+the side-list test fails at the row-top check (`tests/test_inbox_page.py:220`). The break was then reverted.
+
+Size: 53 insertions and 15 deletions under `ergostat/` against main, 38 net, within the 60-line budget.
+
+Tests run this round (Playwright 1.63.0, under `scripts/suite_watch.py`, through `scripts/named_tests.py`):
+- `tests/test_inbox_page.py`: rc 0, 7 passed (124.8 s).
+- `tests/test_agents_page.py`: rc 0, 7 passed (38.2 s), after the fix to the test. Before it: rc 1 twice, first the
+  hold test, then main's Loading… race.
+- `uv run ruff check ergostat tests scripts`: clean.
+- Not run, as the house rules say: the unit suite and the four browser files.
+- Refused this round: a `python3 - <<'EOF'` edit script for the conflicts, `uv run ruff check … && node --check
+  ergostat/web/static/diagram.js`, and a `for i in 1 2 3` loop that reran one test. The edits were made with the
+  editor instead, and the test was run once.
