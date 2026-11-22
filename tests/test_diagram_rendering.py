@@ -3808,3 +3808,77 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
+    """A loop chosen on the Loops page, and the window chosen, are in the address (?select=, ?window=): the address
+    opened in a new tab shows the same panel and window. Changing the window leaves the panel open and says
+    'Loading…' in the table until it is answered. A stock chosen on the diagram is in the address, and a reload rings
+    it; the Record's filter is in the address, and a reload keeps it. (first-loop's inbox-short stands in for the
+    review's api-q2-low, a demo's goal no test has.)"""
+    d = tmp_path / "first-loop"
+    shutil.copytree(ROOT / "examples" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    panel = "(n) => !document.querySelector('#detail').hidden && (document.querySelector('#detail h2')?.textContent || '').includes(n)"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        ctx = browser.new_context(viewport={"width": 1500, "height": 1000})
+        pg = ctx.new_page()
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/loops")
+        pg.locator("#main tr.click", has_text="inbox-short").first.click()
+        pg.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        assert "select=inbox-short" in pg.url, pg.url
+        # the window changed: the loops' answer held back, so what the table says meanwhile is seen
+        held: list = []
+        pg.route(lambda u: u.split("?")[0].endswith("/api/loops"), lambda rt: held.append(rt))
+        pg.locator("#when .menu-btn").click()
+        pg.locator(".menu-item", has_text="Last 6 hours").click()
+        pg.wait_for_function("() => document.querySelector('#main .loading')?.textContent === 'Loading…'", timeout=20000)
+        assert pg.evaluate(panel, "inbox-short"), "the panel closed when the window changed"
+        assert "window=6h" in pg.url and "select=inbox-short" in pg.url, pg.url
+        for rt in held:
+            rt.continue_()
+        pg.unroute_all()
+        pg.wait_for_function("() => document.querySelector('#main tr.click') && !document.querySelector('#main .loading')", timeout=20000)
+        # the address, in a new tab: the same panel and window
+        tab = ctx.new_page()
+        tab.on("pageerror", lambda e: errors.append(str(e)))
+        tab.goto(pg.url)
+        tab.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        assert tab.evaluate("[S.since, document.querySelector('#when .menu-btn').textContent]") == ["6h", "Last 6h"]
+        tab.locator("#detail button.close").click()                  # closed by hand: no longer in the address
+        tab.wait_for_function("() => !location.search.includes('select=')", timeout=5000)
+        tab.close()
+        # the diagram: a stock chosen is in the address, and a reload rings it
+        pg.goto(url + "/diagram")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        hit = pg.locator('g.node[data-id="stock:inbox"] .hit').first.bounding_box()
+        pg.mouse.click(hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2)
+        pg.wait_for_function("() => new URLSearchParams(location.search).get('select') === 'stock.inbox'", timeout=5000)
+        pg.reload()
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        pg.wait_for_function("() => document.querySelector('g.node[data-id=\"stock:inbox\"]').classList.contains('selected')",
+                             timeout=5000)
+        # the Record's filter
+        pg.goto(url + "/record")
+        pg.locator(".filters input[type=search]").fill("valve.*")
+        pg.locator(".filters input[type=search]").press("Enter")
+        pg.wait_for_function("() => new URLSearchParams(location.search).get('filter') === 'valve.*'", timeout=5000)
+        pg.reload()
+        pg.wait_for_function("() => document.querySelector('.filters input[type=search]')?.value === 'valve.*'", timeout=20000)
+        ctx.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)

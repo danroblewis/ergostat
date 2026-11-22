@@ -17,9 +17,13 @@ const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("tab
 /* a part of a page known by what it is, wherever a refresh puts it (patch() matches by it) */
 const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el; };
 
-async function pageLoops(main) {
+const loadingNote = () => h("p", { class: "muted loading" }, "Loading…");   // a table not yet answered
+
+async function pageLoops(main, q) {
   const p = page(main, "Loops");
-  const box = h("div"), cap = h("p", { class: "note" });
+  const box = h("div", {}, loadingNote()), cap = h("p", { class: "note" });
+  const pick = (n) => { setQuery({ select: n }); openLoop(n); };     // the loop chosen, in the address
+  if (q.get("select") && $("#detail").hidden) openLoop(q.get("select"));
   const perf = {};
   let pts = {}, ptsAt = 0;
   p.append(box, cap);
@@ -50,7 +54,7 @@ async function pageLoops(main) {
       }).catch(() => {});
     }
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
-      rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
+      rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => pick(n) },
         h("td", { class: "nowrap" }, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
         h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num nowrap" }, op(lp.setpoint) + (lp.band || "")),
@@ -131,9 +135,9 @@ async function pageAgents(main) {
 
 async function pageRecord(main, q) {
   const p = page(main, "Record");
-  const filt = h("input", { type: "search", placeholder: "Type, e.g. valve.* or ticket.*", value: q.get("type") || "", "aria-label": "Event type" });
+  const filt = h("input", { type: "search", placeholder: "Type, e.g. valve.* or ticket.*", value: q.get("filter") ?? q.get("type") ?? "", "aria-label": "Event type" });
   const runs = h("input", { type: "checkbox" });
-  const box = h("div");
+  const box = h("div", {}, loadingNote());
   // one machine's events (its instances too), in the page's window: a sensor's observations link here
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
   const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's
@@ -142,10 +146,11 @@ async function pageRecord(main, q) {
   const remotes = h("span", { class: "remote-links" });
   if (!SNAP) api("items", { n: 1 }).then((d) => patch(remotes, ...(d.remotes || []).map((r) => h("a", { key: r.name, class: r.name === remote ? "on" : "",
     href: `/record?remote=${encodeURIComponent(r.name)}`, title: `${r.url}: its events, read there` }, `remote ${r.name}`)))).catch(() => {});
-  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "Filter"), scope, remotes,
+  const filter = () => { setQuery({ filter: filt.value, type: null }); tick(); };   // the filter, in the address
+  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: filter }, "Filter"), scope, remotes,
                 h("label", { class: "check" }, runs, "Show runs", h("span", { class: "muted" }, "(agent.started, agent.ran)"))), box);
   runs.addEventListener("change", () => tick());
-  filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
+  filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") filter(); });
   const ans = answers();
   async function tick(force = true) {
     if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
@@ -550,7 +555,7 @@ function remoteSection(r, d) {
 
 async function pageItems(main, q) {
   const p = page(main, "Items");
-  const notes = h("div"), box = h("div", { class: "item-systems" });
+  const notes = h("div"), box = h("div", { class: "item-systems" }, loadingNote());
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");

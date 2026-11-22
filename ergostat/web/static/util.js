@@ -447,12 +447,24 @@ function routeUrl(r) {
    diagram asked for in the second pane opens in the page itself */
 function navigate(r, replace = false) {
   if (PANE && !diagramHash(r)) return peerSay({ type: "go", route: r });
+  r = withWindow(r);
   if (r === currentRoute()) return;
   history[replace ? "replaceState" : "pushState"](null, "", routeUrl(r));
   route();
 }
 /* the address changed without drawing (a page's filters, the guide's frame): the history entry only */
-function replaceRoute(r) { history.replaceState(null, "", routeUrl(r)); }
+function replaceRoute(r) { history.replaceState(null, "", routeUrl(withWindow(r))); }
+/* what the page shows, in its address (?select=, ?window=, ?filter=), changed in place: a link pasted opens the same */
+function setQuery(over) {
+  const { path, q } = parseRoute();
+  for (const [k, v] of Object.entries(over)) if (v) q.set(k, v); else q.delete(k);
+  replaceRoute(path + (q.toString() ? "?" + q : ""));
+}
+/* the window chosen, carried to the page gone to (unless it says its own: the Record's window=1) */
+function withWindow(r) {
+  if (SNAP || S.since === "1h" || /[?&]window=/.test(r)) return r;
+  return r + (r.includes("?") ? "&" : "?") + "window=" + S.since;
+}
 /* a link's route, when it is one of the page's own: "/items", "#/items" (an old address), or the same as a full URL */
 function routeOfHref(href) {
   if (!href) return null;
@@ -495,13 +507,13 @@ function oldAddress() {
 }
 if (HASHED) for (const a of document.querySelectorAll("a[href^='/']")) a.setAttribute("href", appHref(a.getAttribute("href")));
 
-async function route() {
+async function route(keep = false) {             // keep: the window changed; the panel open stays, asked again
   oldAddress();
   const { path, q } = parseRoute();
   const top = path.split("/").slice(0, 2).join("/");
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", routeOfHref(a.getAttribute("href")) === top);
   S.timer?.stop?.();
-  closeDetail();
+  if (!keep) closeDetail();
   if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
   main.replaceChildren();

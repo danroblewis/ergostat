@@ -2,14 +2,16 @@
 "use strict";
 /* ------------------------------------------------------------------ details */
 
-function closeDetail() { if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+/* closed by hand (its ×, Escape): the loop chosen on the Loops page leaves the address too */
+function shutDetail() { closeDetail(); if (parseRoute().path === "/loops" && parseRoute().q.has("select")) setQuery({ select: null }); }
+function closeDetail() { S.again = null; if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
 function showDetail(...kids) {
   if (S.selKey) { S.selKey = null; trace(S.hoverKey); }  // another detail: the line chosen before lets go
   const d = $("#detail");
   kids = kids.filter((k) => k != null && k !== false);
   // what it is now first; what a thing of its kind is (a definition) last, one click away
   const defs = kids.filter((k) => k.nodeType && k.matches?.("details.what")), rest = kids.filter((k) => !defs.includes(k));
-  const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: closeDetail }, "\u00d7");
+  const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: shutDetail }, "\u00d7");
   const head = rest[0]?.classList?.contains("kind") ? h("div", { class: "head" }, rest.shift(), close) : h("div", { class: "head" }, h("span"), close);
   d.replaceChildren(head, ...rest, ...defs);
   d.hidden = false;
@@ -81,6 +83,7 @@ function openSystem(n) {                            // a system as one part: wha
 }
 
 async function openNode(n) {
+  S.again = () => openNode(S.graph?.nodes?.find((x) => x.id === n.id) || n);   // the window changed: asked again
   for (const x of document.querySelectorAll(".node.sel")) x.classList.remove("sel");
   document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
   if (S.graph?.kind === "process") return openProcessNode(n);   // process.js
@@ -132,6 +135,7 @@ async function openNode(n) {
 }
 
 async function openLoop(name, asController = false) {
+  S.again = () => openLoop(name, asController);
   let lp;
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { return; }
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
@@ -216,6 +220,7 @@ function goalAhead(name, lp) {
 }
 
 async function openAgent(name) {
+  S.again = () => openAgent(name);
   const a = await api(`agents/${encodeURIComponent(name)}`);
   const kids = [h("div", { class: "kind" }, `Agent, ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
