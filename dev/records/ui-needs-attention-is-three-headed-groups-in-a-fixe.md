@@ -25,3 +25,46 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1, built (commit cd71c13e). About 25 net lines outside tests: `ergostat/web/static/diagram.js` (renderSide),
+`ergostat/web/static/style.css` (3 lines), and `ergostat/state.py` (6 lines).
+
+What it does: the side list's one "Needs attention" list is now three headings, always in this order, each ending in
+its count: "Waiting for you N" (the inbox's asks, and the reports upstream line), "Goals off N" (loops whose status is
+off: the system's goals first, then an `hr` rule, then the goals of a `use: modelling` instance), "Model housekeeping N"
+(everything else, in a `<details>`). Every entry begins with a word and " · ": the loop's status (off, unknown, stale,
+open), "waiting", "fault" (a bad entry that is not a goal: an alarm, a failed daemon or agent, a dead letter), or "note".
+
+Choices made with nobody to ask (the most reversible in each case):
+- `state.py` is outside "Files to touch" (it lists only `ergostat/web/`). The page cannot tell which goals are
+  modelling's or what state a loop entry is in from what it is sent. So `state.attention` now adds `state` (the loop's
+  status) and `modelling: true` to each loop entry, and `waiting: true` to the reports-upstream line. These are only
+  extra keys, and nothing else reads them.
+- Housekeeping starts folded, except when it has a "fault" entry. That way an alarm or a failed daemon is never hidden,
+  which is the problem the review described. Once the reader opens or closes it, it stays as they left it
+  (`S.houseOpen`, the same way Suggestions works).
+- The old cap of six entries with "N more on Loops and Model" is gone. Every ask shows, so each one can be answered
+  where it is listed. Every goal off shows, so the list matches its count.
+- The reports-upstream line is counted under "Waiting for you": it is for the owner to read and submit.
+- Known edge: the header's "N loops off" counts every loop. `state.attention` leaves out a remote's own loops ("its
+  business, said on its own page"). In a model with a remote loop that is off, the two numbers can differ. No example
+  on main has one, and changing the header is outside this gap.
+
+Tests:
+- New: `tests/test_diagram_rendering.py::test_needs_attention_is_three_headed_groups_in_a_fixed_order`. It covers `/`
+  and `/diagram?view=blocks`, with one ask, the system's goal off and modelling's goal off. It passes (rc 0, under
+  suite_watch, with Playwright 1.63.0).
+- Checked that it can fail (lesson-9). Each break below failed it at the expected assertion:
+  - the state-word span removed;
+  - the modelling sort reversed;
+  - the server's modelling flag broken.
+- Also passing: `tests/test_inbox_page.py`,
+  `tests/test_items_page.py::test_a_reports_page_shows_its_text_a_copy_button_the_issue_link_and_the_scrub_log`,
+  `tests/test_inbox.py` and `tests/test_dynamics_view.py`. ruff is clean.
+- Not run: the whole of `tests/test_diagram_rendering.py`. The command
+  `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py`
+  was refused. The unit suite and the other browser files were not run either: they are left to the factory and the
+  merge queue.
+- No merge of main: local `main` is this branch's base.
